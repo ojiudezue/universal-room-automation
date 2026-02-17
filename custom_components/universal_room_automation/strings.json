@@ -1,0 +1,628 @@
+{
+  "config": {
+    "step": {
+      "integration_config": {
+        "title": "Home Setup",
+        "description": "Welcome to Universal Room Automation! Let's set up your whole-home sensors and default notification preferences. These settings will be shared across all rooms.",
+        "data": {
+          "outside_temp_sensor": "Outside Temperature Sensor",
+          "outside_humidity_sensor": "Outside Humidity Sensor",
+          "weather_entity": "Weather Forecast Entity",
+          "solar_production_sensor": "Solar Production Sensor",
+          "electricity_rate": "Electricity Rate ($/kWh)",
+          "notification_service": "Default Notification Service",
+          "notification_target": "Default Notification Target",
+          "notification_level": "Default Notification Level"
+        },
+        "data_description": {
+          "outside_temp_sensor": "Sensor for outdoor temperature (used for HVAC predictions)",
+          "outside_humidity_sensor": "Sensor for outdoor humidity",
+          "weather_entity": "Weather entity for forecasts and predictions",
+          "solar_production_sensor": "Current solar production for energy calculations",
+          "electricity_rate": "Cost per kWh for energy cost calculations",
+          "notification_service": "Service to send alerts (e.g., notify.mobile_app_phone)",
+          "notification_target": "Device or group to receive notifications",
+          "notification_level": "Which alerts to send: Off, Errors, Important, or All"
+        }
+      },
+      "energy_setup": {
+        "title": "Energy Tracking Setup",
+        "description": "Configure energy sensors for whole-house tracking and predictions. These enable energy forecasts, cost predictions, and coverage analysis. All fields are optional - skip if you don't have these sensors.",
+        "data": {
+          "solar_export_sensor": "Solar Export Sensor",
+          "grid_import_sensor": "Grid Import Sensor (Primary)",
+          "grid_import_sensor_2": "Grid Import Sensor (Secondary)",
+          "battery_level_sensor": "Battery Level Sensor",
+          "whole_house_power_sensor": "Whole House Power Sensor",
+          "whole_house_energy_sensor": "Whole House Energy Sensor",
+          "delivery_rate": "Delivery Rate ($/kWh)",
+          "export_reimbursement_rate": "Export Reimbursement Rate ($/kWh)"
+        },
+        "data_description": {
+          "solar_export_sensor": "Energy sensor tracking kWh exported to grid (e.g., from Enphase)",
+          "grid_import_sensor": "Primary grid import energy sensor (e.g., Enphase production meter)",
+          "grid_import_sensor_2": "Secondary grid import sensor if you have multiple meters (optional)",
+          "battery_level_sensor": "Battery state of charge percentage (e.g., Enphase battery)",
+          "whole_house_power_sensor": "Real-time whole house power consumption in watts",
+          "whole_house_energy_sensor": "Cumulative whole house energy usage in kWh",
+          "delivery_rate": "Fixed transmission/delivery cost per kWh (added to electricity rate)",
+          "export_reimbursement_rate": "Credit received per kWh exported to grid (net metering)"
+        }
+      },
+      "post_integration_setup": {
+        "title": "\u2705 Home Setup Complete",
+        "description": "Your home defaults are configured. Would you like to set up zones to group rooms, or skip and add rooms directly?",
+        "menu_options": {
+          "setup_zone": "Set Up a Zone First",
+          "skip_to_room": "\ud83d\udeaa Skip to Add a Room",
+          "finish": "\u2713 Finish Setup"
+        }
+      },
+      "entry_type_select": {
+        "title": "Add New Entry",
+        "description": "What would you like to add to your home automation?",
+        "menu_options": {
+          "add_room": "\ud83d\udeaa Add a Room",
+          "add_zone": "Add a Zone",
+          "add_coordinator": "\u2699\ufe0f Add a Coordinator (Coming Soon)"
+        }
+      },
+      "zone_setup": {
+        "title": "Zone Setup",
+        "description": "Zones group rooms together for coordinated automation (e.g., 'Upstairs', 'Kids Area', 'Outdoor'). Rooms in a zone can share settings and appear in zone-level sensors.",
+        "data": {
+          "zone_name": "Zone Name",
+          "zone_description": "Zone Description",
+          "zone_rooms": "Rooms in this Zone"
+        },
+        "data_description": {
+          "zone_name": "A short, unique name for this zone (e.g., 'Upstairs', 'Guest Suite')",
+          "zone_description": "Optional description of what this zone covers",
+          "zone_rooms": "Select existing rooms to include in this zone"
+        }
+      },
+      "room_setup": {
+        "title": "\ud83d\udeaa Room Setup",
+        "description": "Configure the basic information for this room. The room type affects default timeout settings.",
+        "data": {
+          "room_name": "Room Name",
+          "room_type": "Room Type",
+          "area_id": "Home Assistant Area",
+          "zone": "Zone",
+          "shared_space": "Shared Space",
+          "shared_space_auto_off_hour": "Auto-Off Hour",
+          "shared_space_warning": "Warning Flash",
+          "occupancy_timeout": "Occupancy Timeout"
+        },
+        "data_description": {
+          "room_name": "A friendly name for this room (e.g., 'Master Bedroom')",
+          "room_type": "Type affects default timeout (bedrooms: 15 min, closets: 2 min)",
+          "area_id": "Link to a Home Assistant area for device discovery",
+          "zone": "Assign to a zone for grouped automation. Select existing or type new.",
+          "shared_space": "Enable scheduled auto-off for common areas (living room, hallway)",
+          "shared_space_auto_off_hour": "Hour (0-23) to turn off forgotten devices. 23 = 11 PM",
+          "shared_space_warning": "Flash lights 5 minutes before auto-off as a warning",
+          "occupancy_timeout": "Seconds after last motion before room is marked vacant"
+        }
+      },
+      "sensors": {
+        "title": "\ud83d\udce1 Presence & Environmental Sensors",
+        "description": "Select sensors for occupancy detection and environmental monitoring. At least one occupancy sensor (motion, presence, or combined) is required.",
+        "data": {
+          "motion_sensors": "Motion Sensors (PIR)",
+          "presence_sensors": "Presence Sensors (mmWave)",
+          "occupancy_sensors": "Combined Occupancy Sensors",
+          "scanner_areas": "BLE Scanner Areas (Optional)",
+          "temperature_sensor": "Temperature Sensor",
+          "humidity_sensor": "Humidity Sensor",
+          "illuminance_sensor": "Light Level Sensor",
+          "door_sensor": "Door Sensor",
+          "door_type": "Door Type",
+          "window_sensor": "Window Sensor",
+          "water_leak_sensor": "Water Leak Sensor"
+        },
+        "data_description": {
+          "motion_sensors": "PIR sensors that detect movement (triggers occupancy)",
+          "presence_sensors": "mmWave/radar sensors that detect presence without movement",
+          "occupancy_sensors": "Pre-combined occupancy sensors (motion + presence)",
+          "scanner_areas": "Only needed for sparse scanner homes. Select areas where BLE scanners are located that should map to this room. Leave empty if this room has its own scanner.",
+          "temperature_sensor": "Room temperature for climate automation and alerts",
+          "humidity_sensor": "Room humidity for fan control and comfort alerts",
+          "illuminance_sensor": "Light level (lux) for 'turn on if dark' automation",
+          "door_sensor": "Door open/closed sensor for security alerts",
+          "door_type": "Interior doors vs. egress (exterior) doors have different alert thresholds",
+          "window_sensor": "Window open/closed sensor for security alerts",
+          "water_leak_sensor": "Water/moisture sensor for safety alerts"
+        }
+      },
+      "devices": {
+        "title": "Devices to Automate",
+        "description": "Select the lights, fans, covers, and switches that should be automated based on room occupancy.",
+        "data": {
+          "lights": "Lights",
+          "light_capabilities": "Light Features",
+          "night_lights": "Night Lights (Subset)",
+          "night_light_sleep_brightness": "Night Light Brightness (Sleep)",
+          "night_light_sleep_color": "Night Light Color (Sleep)",
+          "night_light_day_brightness": "Night Light Brightness (Day)",
+          "night_light_day_color": "Night Light Color (Day)",
+          "fans": "Cooling Fans (or Switches)",
+          "humidity_fans": "Exhaust/Humidity Fans (or Switches)",
+          "covers": "Window Covers/Blinds",
+          "cover_type": "Cover Type",
+          "auto_switches": "Auto Devices",
+          "manual_switches": "Manual Devices",
+          "auto_devices": "Auto Devices",
+          "manual_devices": "Manual Devices"
+        },
+        "data_description": {
+          "lights": "Lights to control on entry/exit",
+          "light_capabilities": "What your lights support: basic on/off, brightness, or full color",
+          "night_lights": "Select lights from above list to use as night lights during sleep hours",
+          "night_light_sleep_brightness": "Brightness for night lights during sleep hours (dim for safety)",
+          "night_light_sleep_color": "Color temperature during sleep hours (warm/red tones recommended)",
+          "night_light_day_brightness": "Brightness for night lights outside sleep hours",
+          "night_light_day_color": "Color temperature outside sleep hours (cool/white tones recommended)",
+          "fans": "Ceiling fans, floor fans, or switches for temperature-based cooling (fan.* or switch.*)",
+          "humidity_fans": "Exhaust fans (fan.* or switch.* for RF/outlet-controlled fans)",
+          "covers": "Motorized blinds or shades",
+          "cover_type": "Roller shades (open/close) vs. venetian blinds (tilt)",
+          "auto_switches": "Devices (lights, fans, switches, input_booleans) that turn on with occupancy and off when vacant",
+          "manual_switches": "Devices (lights, fans, switches, input_booleans) that only turn off when vacant (not auto-on)",
+          "auto_devices": "Devices (lights, fans, switches, input_booleans) that turn on with occupancy and off when vacant",
+          "manual_devices": "Devices (lights, fans, switches, input_booleans) that only turn off when vacant (not auto-on)"
+        }
+      },
+      "automation_behavior": {
+        "title": "Automation Behavior",
+        "description": "Configure how lights and covers respond to occupancy changes.",
+        "data": {
+          "entry_light_action": "Lights on Entry",
+          "exit_light_action": "Lights on Exit",
+          "illuminance_dark_threshold": "Dark Threshold",
+          "light_brightness_pct": "Light Brightness",
+          "light_transition_seconds_on": "Turn On Transition",
+          "light_transition_seconds_off": "Turn Off Transition",
+          "entry_cover_action": "Covers on Entry",
+          "exit_cover_action": "Covers on Exit",
+          "open_timing_mode": "Open Timing",
+          "open_time_start": "Earliest Open Time",
+          "open_time_end": "Latest Open Time",
+          "sunrise_offset": "Sunrise Offset",
+          "timed_close_enabled": "Enable Timed Close",
+          "close_timing_mode": "Close Timing",
+          "close_time": "Close Time",
+          "sunset_offset": "Sunset Offset"
+        },
+        "data_description": {
+          "entry_light_action": "What to do with lights when someone enters the room",
+          "exit_light_action": "What to do with lights when the room becomes vacant",
+          "illuminance_dark_threshold": "Lux level below which the room is considered 'dark'",
+          "light_brightness_pct": "Brightness level when turning lights on (1-100%)",
+          "light_transition_seconds_on": "Fade-in time when turning lights on",
+          "light_transition_seconds_off": "Fade-out time when turning lights off",
+          "entry_cover_action": "When to open covers on room entry",
+          "exit_cover_action": "When to close covers on room exit",
+          "open_timing_mode": "Control when covers are allowed to open",
+          "open_time_start": "Earliest hour (0-23) covers can open",
+          "open_time_end": "Latest hour (0-23) covers can open",
+          "sunrise_offset": "Minutes before/after sunrise for sun-based timing",
+          "timed_close_enabled": "Automatically close covers at a specific time",
+          "close_timing_mode": "Control when covers auto-close",
+          "close_time": "Hour (0-23) for timed auto-close",
+          "sunset_offset": "Minutes before/after sunset for sun-based timing"
+        }
+      },
+      "climate": {
+        "title": "Climate & HVAC",
+        "description": "Configure temperature-based fan control and HVAC coordination.",
+        "data": {
+          "climate_entity": "Climate/Thermostat Entity",
+          "hvac_coordination_enabled": "Enable HVAC Coordination",
+          "target_temp_cool": "Cooling Target",
+          "target_temp_heat": "Heating Target",
+          "fan_control_enabled": "Enable Fan Control",
+          "fan_temp_threshold": "Fan Start Temperature",
+          "fan_speed_low_temp": "Low Speed Temperature",
+          "fan_speed_med_temp": "Medium Speed Temperature",
+          "fan_speed_high_temp": "High Speed Temperature",
+          "humidity_fan_threshold": "Humidity Fan Threshold",
+          "humidity_fan_timeout": "Humidity Fan Timeout",
+          "hvac_efficiency_alerts": "HVAC Efficiency Alerts"
+        },
+        "data_description": {
+          "climate_entity": "Your thermostat or HVAC controller",
+          "hvac_coordination_enabled": "Coordinate room automation with HVAC state",
+          "target_temp_cool": "Target temperature for cooling mode",
+          "target_temp_heat": "Target temperature for heating mode",
+          "fan_control_enabled": "Automatically control fans based on temperature",
+          "fan_temp_threshold": "Temperature above which fans turn on",
+          "fan_speed_low_temp": "Temperature for low fan speed",
+          "fan_speed_med_temp": "Temperature for medium fan speed",
+          "fan_speed_high_temp": "Temperature for high fan speed",
+          "humidity_fan_threshold": "Humidity % above which exhaust fans turn on",
+          "humidity_fan_timeout": "Seconds to run exhaust fan after humidity drops",
+          "hvac_efficiency_alerts": "Alert when HVAC seems inefficient"
+        }
+      },
+      "sleep_protection": {
+        "title": "Sleep Protection",
+        "description": "Prevent automation from disturbing sleep during nighttime hours.",
+        "data": {
+          "sleep_protection_enabled": "Enable Sleep Protection",
+          "sleep_start_hour": "Sleep Start Hour",
+          "sleep_end_hour": "Sleep End Hour",
+          "sleep_bypass_motion_count": "Motion Bypass Count",
+          "sleep_block_covers": "Block Cover Automation"
+        },
+        "data_description": {
+          "sleep_protection_enabled": "Block most automation during sleep hours",
+          "sleep_start_hour": "Hour when sleep mode starts (0-23, e.g., 22 = 10 PM)",
+          "sleep_end_hour": "Hour when sleep mode ends (0-23, e.g., 7 = 7 AM)",
+          "sleep_bypass_motion_count": "Motion events needed to override sleep mode",
+          "sleep_block_covers": "Prevent covers from opening during sleep hours"
+        }
+      },
+      "energy": {
+        "title": "Energy Monitoring",
+        "description": "Track energy usage and costs for devices in this room.",
+        "data": {
+          "power_sensors": "Power Sensors",
+          "energy_sensor": "Energy Sensor",
+          "electricity_rate": "Electricity Rate",
+          "notify_daily_energy_summary": "Daily Summary"
+        },
+        "data_description": {
+          "power_sensors": "Sensors showing current power draw (watts)",
+          "energy_sensor": "Sensor showing cumulative energy usage (kWh)",
+          "electricity_rate": "Cost per kWh (overrides integration default)",
+          "notify_daily_energy_summary": "Send daily energy usage summary notification"
+        }
+      },
+      "notifications": {
+        "title": "Notifications & Alerts",
+        "description": "Configure push notifications and visual alert lights for this room.",
+        "data": {
+          "override_notifications": "Override Home Defaults",
+          "notification_service": "Notification Service",
+          "notification_target": "Notification Target",
+          "notification_level": "Notification Level",
+          "alert_lights": "Alert Indicator Lights",
+          "alert_light_color": "Alert Color"
+        },
+        "data_description": {
+          "override_notifications": "Use room-specific notification settings instead of home defaults",
+          "notification_service": "Service to send alerts (e.g., notify.mobile_app_phone)",
+          "notification_target": "Device to receive notifications",
+          "notification_level": "Which alerts to send: Off, Errors, Important, or All",
+          "alert_lights": "Lights to flash/change color for visual alerts",
+          "alert_light_color": "Color to use for alert indication"
+        }
+      }
+    },
+    "error": {
+      "no_occupancy_sensors": "At least one occupancy sensor (motion, presence, or combined) is required",
+      "zone_name_exists": "A zone with this name already exists",
+      "unknown": "An unknown error occurred. Please check logs for details."
+    },
+    "abort": {
+      "not_supported": "This action is not supported",
+      "migration_failed": "Migration failed. Please check logs.",
+      "reconfigure_use_options": "Use 'Configure' from the three-dot menu to modify settings.",
+      "coordinator_not_ready": "Coordinator setup is coming in a future update.",
+      "no_zones_configured": "No zones have been configured yet. Add a zone from the integration setup first.",
+      "zone_not_found": "The selected zone could not be found. It may have been deleted."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Configure Settings",
+        "description": "Select a category to modify.",
+        "menu_options": {
+          "global_sensors": "\ud83c\udf21\ufe0f Global Sensors",
+          "energy_sensors": "\u26a1 Energy Sensors",
+          "person_tracking": "\ud83d\udc65 Person Tracking",
+          "default_notifications": "\ud83d\udd14 Default Notifications",
+          "manage_zones": "\ud83d\uddc2\ufe0f Manage Zones",
+          "basic_setup": "\ud83d\udeaa Basic Setup",
+          "sensors": "\ud83d\udce1 Sensors",
+          "devices": "\ud83d\udca1 Devices",
+          "automation_behavior": "\u2699\ufe0f Automation",
+          "climate": "\ud83c\udf21\ufe0f Climate & HVAC",
+          "sleep_protection": "\ud83d\udecf\ufe0f Sleep Protection",
+          "music_following": "\ud83c\udfb5 Music Following",
+          "energy": "\u26a1 Energy",
+          "notifications": "\ud83d\udd14 Notifications",
+          "zone_rooms": "\ud83c\udfe0 Zone Rooms",
+          "zone_media": "\ud83c\udfb5 Zone Media"
+        }
+      },
+      "manage_zones": {
+        "title": "\ud83d\uddc2\ufe0f Manage Zones",
+        "description": "Select a zone to configure its settings.",
+        "data": {
+          "zone_entry": "Zone"
+        },
+        "data_description": {
+          "zone_entry": "Select a zone to configure"
+        }
+      },
+      "zone_config_menu": {
+        "title": "Zone Configuration",
+        "description": "What would you like to configure for this zone?",
+        "menu_options": {
+          "zone_rooms": "\ud83c\udfe0 Zone Rooms",
+          "zone_media": "\ud83c\udfb5 Zone Media"
+        }
+      },
+      "global_sensors": {
+        "title": "Global Sensors",
+        "description": "Update sensors shared across all rooms.",
+        "data": {
+          "outside_temp_sensor": "Outside Temperature Sensor",
+          "outside_humidity_sensor": "Outside Humidity Sensor",
+          "weather_entity": "Weather Forecast Entity",
+          "solar_production_sensor": "Solar Production Sensor",
+          "electricity_rate": "Default Electricity Rate ($/kWh)"
+        },
+        "data_description": {
+          "outside_temp_sensor": "Sensor for outdoor temperature",
+          "outside_humidity_sensor": "Sensor for outdoor humidity",
+          "weather_entity": "Weather entity for forecasts",
+          "solar_production_sensor": "Current solar production",
+          "electricity_rate": "Cost per kWh for energy calculations"
+        }
+      },
+      "energy_sensors": {
+        "title": "Energy Sensors",
+        "description": "Configure energy sensors for whole-house tracking and predictions.",
+        "data": {
+          "solar_export_sensor": "Solar Export Sensor",
+          "grid_import_sensor": "Grid Import Sensor (Primary)",
+          "grid_import_sensor_2": "Grid Import Sensor (Secondary)",
+          "battery_level_sensor": "Battery Level Sensor",
+          "whole_house_power_sensor": "Whole House Power Sensor",
+          "whole_house_energy_sensor": "Whole House Energy Sensor",
+          "delivery_rate": "Delivery Rate ($/kWh)",
+          "export_reimbursement_rate": "Export Reimbursement Rate ($/kWh)"
+        },
+        "data_description": {
+          "solar_export_sensor": "Energy sensor tracking kWh exported to grid",
+          "grid_import_sensor": "Primary grid import energy sensor",
+          "grid_import_sensor_2": "Secondary grid import sensor (optional)",
+          "battery_level_sensor": "Battery state of charge percentage",
+          "whole_house_power_sensor": "Real-time whole house power in watts",
+          "whole_house_energy_sensor": "Cumulative whole house energy in kWh",
+          "delivery_rate": "Fixed transmission/delivery cost per kWh",
+          "export_reimbursement_rate": "Credit received per kWh exported"
+        }
+      },
+      "default_notifications": {
+        "title": "Default Notifications",
+        "description": "Update default notification settings. Rooms can override these.",
+        "data": {
+          "notification_service": "Default Notification Service",
+          "notification_target": "Default Notification Target",
+          "notification_level": "Default Notification Level"
+        },
+        "data_description": {
+          "notification_service": "Service to send alerts",
+          "notification_target": "Device to receive notifications",
+          "notification_level": "Which alerts to send by default"
+        }
+      },
+      "person_tracking": {
+        "title": "\ud83d\udc65 Person Tracking",
+        "description": "Configure which people to track and how transitions are detected.",
+        "data": {
+          "tracked_persons": "Tracked People",
+          "person_data_retention": "Data Retention (Days)",
+          "transition_detection_window": "Transition Detection Window"
+        },
+        "data_description": {
+          "tracked_persons": "Select person entities to track room-to-room movement",
+          "person_data_retention": "How long to keep transition history (0 = forever)",
+          "transition_detection_window": "Seconds to wait before confirming a room transition"
+        }
+      },
+      "zone_rooms": {
+        "title": "Zone Configuration",
+        "description": "Update zone name and which rooms belong to this zone.",
+        "data": {
+          "zone_name": "Zone Name",
+          "zone_description": "Zone Description",
+          "zone_rooms": "Rooms in this Zone"
+        },
+        "data_description": {
+          "zone_name": "Name of this zone",
+          "zone_description": "Optional description",
+          "zone_rooms": "Rooms included in this zone"
+        }
+      },
+      "zone_media": {
+        "title": "\ud83c\udfb5 Zone Media",
+        "description": "Configure how music follows people within this zone.",
+        "data": {
+          "zone_player_entity": "Zone Media Player",
+          "zone_player_mode": "Zone Player Mode"
+        },
+        "data_description": {
+          "zone_player_entity": "Primary media player for this zone (e.g., Sonos group)",
+          "zone_player_mode": "How to handle music when zone player unavailable"
+        }
+      },
+      "basic_setup": {
+        "title": "\ud83d\udeaa Room Setup",
+        "description": "Update room name, type, and basic settings.",
+        "data": {
+          "room_name": "Room Name",
+          "room_type": "Room Type",
+          "area_id": "Home Assistant Area",
+          "zone": "Zone",
+          "shared_space": "Shared Space",
+          "shared_space_auto_off_hour": "Auto-Off Hour",
+          "shared_space_warning": "Warning Flash",
+          "occupancy_timeout": "Occupancy Timeout"
+        },
+        "data_description": {
+          "room_name": "A friendly name for this room",
+          "room_type": "Room type affects default timeout settings",
+          "area_id": "Link to a Home Assistant area",
+          "zone": "Zone this room belongs to",
+          "shared_space": "Enable scheduled auto-off for common areas",
+          "shared_space_auto_off_hour": "Hour (0-23) to turn off devices",
+          "shared_space_warning": "Flash lights before auto-off",
+          "occupancy_timeout": "Seconds until room is marked vacant"
+        }
+      },
+      "sensors": {
+        "title": "\ud83d\udce1 Sensors",
+        "description": "Update presence and environmental sensors.",
+        "data": {
+          "motion_sensors": "Motion Sensors (PIR)",
+          "presence_sensors": "Presence Sensors (mmWave)",
+          "occupancy_sensors": "Combined Occupancy Sensors",
+          "scanner_areas": "BLE Scanner Areas (Optional)",
+          "temperature_sensor": "Temperature Sensor",
+          "humidity_sensor": "Humidity Sensor",
+          "illuminance_sensor": "Light Level Sensor",
+          "door_sensor": "Door Sensor",
+          "door_type": "Door Type",
+          "window_sensor": "Window Sensor",
+          "water_leak_sensor": "Water Leak Sensor"
+        },
+        "data_description": {
+          "motion_sensors": "PIR sensors that detect movement",
+          "presence_sensors": "mmWave/radar presence sensors",
+          "occupancy_sensors": "Pre-combined occupancy sensors",
+          "scanner_areas": "For sparse scanner homes only. Select areas with BLE scanners that should map to this room.",
+          "temperature_sensor": "Room temperature sensor",
+          "humidity_sensor": "Room humidity sensor",
+          "illuminance_sensor": "Light level (lux) sensor",
+          "door_sensor": "Door open/closed sensor",
+          "door_type": "Interior vs. egress (exterior) door",
+          "window_sensor": "Window open/closed sensor",
+          "water_leak_sensor": "Water/moisture sensor"
+        }
+      },
+      "devices": {
+        "title": "Devices",
+        "description": "Update devices to automate.",
+        "data": {
+          "lights": "Lights",
+          "light_capabilities": "Light Features",
+          "fans": "Cooling Fans (or Switches)",
+          "humidity_fans": "Exhaust/Humidity Fans (or Switches)",
+          "covers": "Window Covers/Blinds",
+          "cover_type": "Cover Type",
+          "auto_switches": "Auto Devices",
+          "manual_switches": "Manual Devices",
+          "auto_devices": "Auto Devices",
+          "manual_devices": "Manual Devices"
+        },
+        "data_description": {
+          "lights": "Lights to control on entry/exit",
+          "light_capabilities": "Brightness and color support",
+          "fans": "Cooling fans for temperature control",
+          "humidity_fans": "Exhaust fans (fan.* or switch.* for RF fans)",
+          "covers": "Motorized blinds or shades",
+          "cover_type": "Roller vs. venetian style",
+          "auto_switches": "Devices (lights, fans, switches, input_booleans) that auto-on and off",
+          "manual_switches": "Devices (lights, fans, switches, input_booleans) that only auto-off",
+          "auto_devices": "Devices (lights, fans, switches, input_booleans) that auto-on and off",
+          "manual_devices": "Devices (lights, fans, switches, input_booleans) that only auto-off"
+        }
+      },
+      "automation_behavior": {
+        "title": "Automation",
+        "description": "Update automation behavior.",
+        "data": {
+          "entry_light_action": "Lights on Entry",
+          "exit_light_action": "Lights on Exit",
+          "illuminance_dark_threshold": "Dark Threshold (lux)",
+          "light_brightness_pct": "Light Brightness %",
+          "light_transition_seconds_on": "Turn On Transition (s)",
+          "light_transition_seconds_off": "Turn Off Transition (s)",
+          "entry_cover_action": "Covers on Entry",
+          "exit_cover_action": "Covers on Exit",
+          "open_timing_mode": "Open Timing",
+          "open_time_start": "Earliest Open Time",
+          "open_time_end": "Latest Open Time",
+          "sunrise_offset": "Sunrise Offset (minutes)",
+          "timed_close_enabled": "Enable Timed Close",
+          "close_timing_mode": "Close Timing",
+          "close_time": "Close Time",
+          "sunset_offset": "Sunset Offset (minutes)"
+        }
+      },
+      "climate": {
+        "title": "Climate & HVAC",
+        "description": "Update temperature and HVAC settings.",
+        "data": {
+          "climate_entity": "Climate Entity",
+          "hvac_coordination_enabled": "Enable HVAC Coordination",
+          "target_temp_cool": "Cooling Target",
+          "target_temp_heat": "Heating Target",
+          "fan_control_enabled": "Enable Fan Control",
+          "fan_temp_threshold": "Fan Start Temperature",
+          "fan_speed_low_temp": "Low Speed Temperature",
+          "fan_speed_med_temp": "Medium Speed Temperature",
+          "fan_speed_high_temp": "High Speed Temperature",
+          "humidity_fan_threshold": "Humidity Fan Threshold (%)",
+          "humidity_fan_timeout": "Humidity Fan Timeout (s)",
+          "hvac_efficiency_alerts": "HVAC Efficiency Alerts"
+        }
+      },
+      "sleep_protection": {
+        "title": "Sleep Protection",
+        "description": "Update sleep protection settings.",
+        "data": {
+          "sleep_protection_enabled": "Enable Sleep Protection",
+          "sleep_start_hour": "Sleep Start Hour",
+          "sleep_end_hour": "Sleep End Hour",
+          "sleep_bypass_motion_count": "Motion Bypass Count",
+          "sleep_block_covers": "Block Cover Automation"
+        }
+      },
+      "music_following": {
+        "title": "\ud83c\udfb5 Music Following",
+        "description": "Configure how music follows you into this room.",
+        "data": {
+          "music_following_enabled": "Enable Music Following",
+          "room_media_player": "Room Media Player"
+        },
+        "data_description": {
+          "music_following_enabled": "Automatically transfer music when you enter this room",
+          "room_media_player": "Primary media player for this room"
+        }
+      },
+      "energy": {
+        "title": "Energy Monitoring",
+        "description": "Update energy monitoring settings.",
+        "data": {
+          "power_sensors": "Power Sensors",
+          "energy_sensor": "Energy Sensor",
+          "electricity_rate": "Electricity Rate ($/kWh)",
+          "notify_daily_energy_summary": "Daily Summary Notification"
+        }
+      },
+      "notifications": {
+        "title": "Notifications & Alerts",
+        "description": "Update notification settings for this room.",
+        "data": {
+          "override_notifications": "Override Home Defaults",
+          "notification_service": "Notification Service",
+          "notification_target": "Notification Target",
+          "notification_level": "Notification Level",
+          "alert_lights": "Alert Indicator Lights",
+          "alert_light_color": "Alert Color"
+        }
+      }
+    },
+    "abort": {
+      "no_zones_configured": "No zones have been configured yet. Add a zone from the integration setup first.",
+      "zone_not_found": "The selected zone could not be found. It may have been deleted."
+    }
+  }
+}

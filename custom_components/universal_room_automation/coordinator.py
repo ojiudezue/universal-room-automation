@@ -1,0 +1,782 @@
+"""Data coordinator for Universal Room Automation."""
+#
+# Universal Room Automation v3.2.8
+# Build: 2026-01-02
+# File: coordinator.py
+# v3.2.8: Support for active state change listeners in aggregation sensors
+# NEW: get_became_occupied_time() for three-tier scanner disambiguation
+# FIX: Environmental sensors now read from options (user changes) with data fallback
+#
+
+import logging
+from datetime import datetime, timedelta
+from typing import Any
+
+from homeassistant.config_entries import ConfigEntry
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.event import async_track_state_change_event
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.util import dt as dt_util
+from homeassistant.helpers import entity_registry as er
+
+from .const import (
+    DOMAIN,
+    SCAN_INTERVAL_OCCUPANCY,
+    CONF_MOTION_SENSORS,
+    CONF_MMWAVE_SENSORS,
+    CONF_OCCUPANCY_SENSORS,
+    CONF_DOOR_SENSORS,
+    CONF_OCCUPANCY_TIMEOUT,
+    CONF_TEMPERATURE_SENSOR,
+    CONF_HUMIDITY_SENSOR,
+    CONF_ILLUMINANCE_SENSOR,
+    CONF_POWER_SENSORS,
+    CONF_ENERGY_SENSOR,
+    CONF_ELECTRICITY_RATE,
+    DEFAULT_OCCUPANCY_TIMEOUT,
+    DEFAULT_ELECTRICITY_RATE,
+    STATE_OCCUPIED,
+    STATE_MOTION_DETECTED,
+    STATE_PRESENCE_DETECTED,
+    STATE_TEMPERATURE,
+    STATE_HUMIDITY,
+    STATE_ILLUMINANCE,
+    STATE_DARK,
+    STATE_TIMEOUT_REMAINING,
+    STATE_POWER_CURRENT,
+    STATE_ENERGY_TODAY,
+    STATE_ENERGY_WEEKLY,
+    STATE_ENERGY_MONTHLY,
+    STATE_ENERGY_COST_WEEKLY,
+    STATE_ENERGY_COST_MONTHLY,
+    STATE_COST_PER_HOUR,
+    STATE_NEXT_OCCUPANCY_TIME,
+    STATE_NEXT_OCCUPANCY_IN,
+    STATE_OCCUPANCY_PCT_7D,
+    STATE_PEAK_OCCUPANCY_TIME,
+    STATE_PRECOOL_START_TIME,
+    STATE_PREHEAT_START_TIME,
+    STATE_PRECOOL_LEAD_MINUTES,
+    STATE_PREHEAT_LEAD_MINUTES,
+    STATE_OCCUPANCY_CONFIDENCE,
+    STATE_LIGHTS_ON_COUNT,
+    STATE_FANS_ON_COUNT,
+    STATE_SWITCHES_ON_COUNT,
+    STATE_COVERS_OPEN_COUNT,
+    STATE_COVERS_POSITION_AVG,
+    STATE_TIME_SINCE_MOTION,
+    STATE_TIME_SINCE_OCCUPIED,
+    DEFAULT_DARK_THRESHOLD,
+    CONF_AREA_ID,
+    # v3.0.0 entry type constants
+    ENTRY_TYPE_INTEGRATION,
+    CONF_ENTRY_TYPE,
+    CONF_INTEGRATION_ENTRY_ID,
+    CONF_OVERRIDE_NOTIFICATIONS,
+    CONF_OUTSIDE_TEMP_SENSOR,
+    CONF_OUTSIDE_HUMIDITY_SENSOR,
+    CONF_WEATHER_ENTITY,
+    CONF_SOLAR_PRODUCTION_SENSOR,
+    CONF_NOTIFY_SERVICE,
+    CONF_NOTIFY_TARGET,
+    CONF_NOTIFY_LEVEL,
+)
+from .automation import RoomAutomation
+
+_LOGGER = logging.getLogger(__name__)
+
+
+class UniversalRoomCoordinator(DataUpdateCoordinator):
+    """Coordinator to manage room automation data."""
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize the coordinator."""
+        # v3.2.8 STARTUP BANNER
+        room_name = entry.data.get('room_name', 'Unknown')
+        _LOGGER.critical("=" * 80)
+        _LOGGER.critical("🚀 v3.2.8 COORDINATOR INITIALIZED FOR ROOM: %s", room_name)
+        _LOGGER.critical("   FIX: Environmental sensors now read from options with data fallback")
+        _LOGGER.critical("=" * 80)
+        
+        self.entry = entry
+        self._last_motion_time: datetime | None = None
+        self._last_occupied_time: datetime | None = None  # Track when room was last occupied
+        self._last_occupied_state = False
+        self._became_occupied_time: datetime | None = None  # v3.2.4: When current occupancy session started
+        self._unsub_state_listeners = []
+        
+        # Use _get_config for timeout (will work after __init__ completes)
+        # Store entry for later _get_config calls
+        self._occupancy_timeout = entry.options.get(
+            CONF_OCCUPANCY_TIMEOUT, 
+            entry.data.get(CONF_OCCUPANCY_TIMEOUT, DEFAULT_OCCUPANCY_TIMEOUT)
+        )
+        
+        # Energy tracking
+        self._energy_accumulator = 0.0
+        self._last_power_reading = None
+        self._last_energy_reset = dt_util.now().replace(hour=0, minute=0, second=0)
+        
+        # Energy sensor baselines for delta calculation (when using direct energy sensors)
+        self._energy_baseline_today = 0.0
+        self._energy_baseline_week = 0.0
+        self._energy_baseline_month = 0.0
+        self._last_week_reset = dt_util.now()
+        self._last_month_reset = dt_util.now().replace(day=1)
+        
+        # Environmental data logging
+        self._last_env_log = None
+        self._last_energy_log = None
+        
+        # Automation tracking
+        self._last_trigger_source = None  # "motion", "presence", "door"
+        self._last_trigger_entity = None  # entity_id that triggered
+        self._last_trigger_time = None    # datetime
+        self._last_action_description = None  # "Turned on 3 lights"
+        self._last_action_entity = None   # entity_id or list
+        self._last_action_type = None     # "turn_on", "turn_off", etc.
+        self._last_action_time = None     # datetime
+        
+        # v3.2.2.0 FIX: Merge entry.options with entry.data
+        # entry.data = initial setup
+        # entry.options = user changes via Configure button
+        # options should override data!
+        config = {**entry.data, **entry.options}
+        
+        # Automation handler
+        self.automation = RoomAutomation(hass, config, self)
+        
+        super().__init__(
+            hass,
+            _LOGGER,
+            name=f"{DOMAIN}_{entry.data.get('room_name', 'unknown')}",
+            update_interval=SCAN_INTERVAL_OCCUPANCY,
+        )
+    
+    # =========================================================================
+    # v3.0.0 CONFIG HELPER METHODS
+    # =========================================================================
+    
+    def _get_config(self, key: str, default: Any = None) -> Any:
+        """Get config value from options with data fallback.
+        
+        This follows the HA pattern:
+        1. First check entry.options (changed via options flow)
+        2. Then check entry.data (initial config)
+        3. Finally use default
+        """
+        return self.entry.options.get(
+            key, self.entry.data.get(key, default)
+        )
+    
+    def _get_integration_entry(self):
+        """Get the parent integration entry.
+        
+        Room entries store a reference to their integration entry
+        via CONF_INTEGRATION_ENTRY_ID.
+        """
+        integration_id = self.entry.data.get(CONF_INTEGRATION_ENTRY_ID)
+        if not integration_id:
+            # Fallback: try to find integration entry directly
+            for entry in self.hass.config_entries.async_entries(DOMAIN):
+                if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_INTEGRATION:
+                    return entry
+            return None
+        return self.hass.config_entries.async_get_entry(integration_id)
+    
+    def _get_global_config(self, key: str, default: Any = None) -> Any:
+        """Get config value from integration entry.
+        
+        For integration-level settings like:
+        - Outside temp sensor
+        - Weather entity
+        - Solar production sensor
+        - Default electricity rate
+        - Default notifications
+        """
+        integration_entry = self._get_integration_entry()
+        if not integration_entry:
+            # No integration entry - fall back to room config
+            return self._get_config(key, default)
+        
+        return integration_entry.options.get(
+            key, integration_entry.data.get(key, default)
+        )
+    
+    def _get_notification_config(self, key: str, default: Any = None) -> Any:
+        """Get notification config with room override support.
+        
+        If room has override_notifications=True, use room settings.
+        Otherwise, use integration defaults.
+        """
+        if self._get_config(CONF_OVERRIDE_NOTIFICATIONS, False):
+            # Room override enabled - use room settings
+            return self._get_config(key, default)
+        
+        # Use integration defaults
+        return self._get_global_config(key, default)
+    
+    def _get_electricity_rate(self) -> float:
+        """Get electricity rate with proper fallback chain.
+        
+        1. Room-level rate (if set)
+        2. Integration-level default rate
+        3. Constant default
+        """
+        room_rate = self._get_config(CONF_ELECTRICITY_RATE)
+        if room_rate is not None:
+            return room_rate
+        
+        return self._get_global_config(CONF_ELECTRICITY_RATE, DEFAULT_ELECTRICITY_RATE)
+    
+    async def async_config_entry_first_refresh(self) -> None:
+        """Perform first refresh and set up event listeners.
+        
+        v3.2.2.0 FIX: Moved from async_added_to_hass which never runs on coordinators!
+        Coordinators are NOT entities, so async_added_to_hass is never called.
+        async_config_entry_first_refresh IS called once during coordinator setup.
+        """
+        room_name = self.entry.data.get("room_name", "Unknown")
+        _LOGGER.debug("async_config_entry_first_refresh called for room: %s", room_name)
+        
+        # Call parent first_refresh to fetch initial data
+        await super().async_config_entry_first_refresh()
+        
+        # NOW set up event listeners (after coordinator is fully initialized)
+        # Listen to all configured sensors for immediate updates
+        sensors_to_track = []
+        
+        # v3.2.3.2: Use _get_config for sensor lists to pick up options changes
+        # Add motion sensors
+        motion_sensors = self._get_config(CONF_MOTION_SENSORS, [])
+        _LOGGER.debug("Room %s motion sensors: %s", room_name, motion_sensors)
+        if motion_sensors:
+            sensors_to_track.extend(motion_sensors)
+        
+        # Add mmWave sensors
+        mmwave_sensors = self._get_config(CONF_MMWAVE_SENSORS, [])
+        _LOGGER.debug("Room %s mmwave sensors: %s", room_name, mmwave_sensors)
+        if mmwave_sensors:
+            sensors_to_track.extend(mmwave_sensors)
+        
+        # Add occupancy sensors (combined motion+presence)
+        occupancy_sensors = self._get_config(CONF_OCCUPANCY_SENSORS, [])
+        _LOGGER.debug("Room %s occupancy sensors: %s", room_name, occupancy_sensors)
+        if occupancy_sensors:
+            sensors_to_track.extend(occupancy_sensors)
+        
+        # v3.2.3.2 FIX: Use _get_config to pick up sensor changes from options flow
+        # Add environmental sensors (only if they exist)
+        if temp := self._get_config(CONF_TEMPERATURE_SENSOR):
+            sensors_to_track.append(temp)
+        if humidity := self._get_config(CONF_HUMIDITY_SENSOR):
+            sensors_to_track.append(humidity)
+        if lux := self._get_config(CONF_ILLUMINANCE_SENSOR):
+            sensors_to_track.append(lux)
+        
+        # Add power sensors
+        power_sensors = self._get_config(CONF_POWER_SENSORS, [])
+        if power_sensors:
+            sensors_to_track.extend(power_sensors)
+        
+        _LOGGER.debug("Room %s total sensors to track: %d - %s", room_name, len(sensors_to_track), sensors_to_track)
+        
+        # Set up listener for immediate coordinator refresh
+        if sensors_to_track:
+            @callback
+            def sensor_state_changed(event):
+                """Handle sensor state changes."""
+                _LOGGER.debug("Event-driven refresh triggered for room %s by %s", room_name, event.data.get('entity_id'))
+                self.hass.async_create_task(self.async_refresh())
+            
+            self._unsub_state_listeners.append(
+                async_track_state_change_event(
+                    self.hass,
+                    sensors_to_track,
+                    sensor_state_changed
+                )
+            )
+            
+            _LOGGER.info(
+                "Room %s: Event-driven mode active - tracking %d sensors",
+                room_name,
+                len(sensors_to_track)
+            )
+        else:
+            _LOGGER.warning(
+                "Room %s: No motion/occupancy sensors configured - using 30-second polling mode. "
+                "Configure sensors for faster response.",
+                room_name
+            )
+    
+    async def async_will_remove_from_hass(self) -> None:
+        """Unsubscribe from state listeners."""
+        for unsub in self._unsub_state_listeners:
+            unsub()
+        self._unsub_state_listeners.clear()
+    
+    def _is_sensor_on(self, entity_id: str) -> bool:
+        """Check if a binary sensor is on."""
+        state = self.hass.states.get(entity_id)
+        if state is None:
+            return False
+        return state.state == "on"
+    
+    def _get_sensor_value(self, entity_id: str | None, default: Any = None) -> Any:
+        """Get numeric sensor value with fallback."""
+        if not entity_id:
+            return default
+        
+        state = self.hass.states.get(entity_id)
+        if state is None or state.state in ("unknown", "unavailable"):
+            return default
+        
+        try:
+            return float(state.state)
+        except (ValueError, TypeError):
+            return default
+    
+    def _get_entities_in_area(self, area_id: str, domain: str) -> list[str]:
+        """Get entities of domain in area."""
+        if not area_id:
+            return []
+        
+        ent_reg = er.async_get(self.hass)
+        return [
+            entity.entity_id
+            for entity in ent_reg.entities.values()
+            if entity.area_id == area_id and entity.domain == domain
+        ]
+    
+    def _calculate_device_counts(self, area_id: str) -> dict[str, Any]:
+        """Calculate device counts in area."""
+        counts = {
+            "lights_on": 0,
+            "fans_on": 0,
+            "switches_on": 0,
+            "covers_open": 0,
+            "covers_position_avg": 0,
+        }
+        
+        if not area_id:
+            return counts
+        
+        # Count lights
+        lights = self._get_entities_in_area(area_id, "light")
+        counts["lights_on"] = sum(
+            1 for light in lights
+            if self.hass.states.get(light).state == "on"
+        )
+        
+        # Count fans
+        fans = self._get_entities_in_area(area_id, "fan")
+        counts["fans_on"] = sum(
+            1 for fan in fans
+            if self.hass.states.get(fan).state == "on"
+        )
+        
+        # Count switches
+        switches = self._get_entities_in_area(area_id, "switch")
+        counts["switches_on"] = sum(
+            1 for switch in switches
+            if self.hass.states.get(switch).state == "on"
+        )
+        
+        # Count and average covers
+        covers = self._get_entities_in_area(area_id, "cover")
+        open_covers = 0
+        total_position = 0
+        cover_count = 0
+        
+        for cover in covers:
+            state = self.hass.states.get(cover)
+            if state.state == "open":
+                open_covers += 1
+            if position := state.attributes.get("current_position"):
+                total_position += position
+                cover_count += 1
+        
+        counts["covers_open"] = open_covers
+        counts["covers_position_avg"] = (
+            total_position / cover_count if cover_count > 0 else 0
+        )
+        
+        return counts
+    
+    def _is_automation_enabled(self) -> bool:
+        """Check if automation switch is enabled."""
+        # Look for the automation switch entity
+        automation_switch = f"switch.{self.entry.data.get('room_name', 'unknown').lower().replace(' ', '_')}_automation"
+        state = self.hass.states.get(automation_switch)
+        if state is None:
+            return True  # Default to enabled if switch not found
+        return state.state == "on"
+    
+    async def _async_update_data(self) -> dict[str, Any]:
+        """Fetch data from sensors."""
+        now = dt_util.now()
+        data = {}
+        
+        # === Phase 1: Occupancy Detection ===
+        # v3.2.3.2: Use _get_config for all sensor lists
+        motion_sensors = self._get_config(CONF_MOTION_SENSORS, [])
+        mmwave_sensors = self._get_config(CONF_MMWAVE_SENSORS, [])
+        occupancy_sensors = self._get_config(CONF_OCCUPANCY_SENSORS, [])
+        
+        # Check motion
+        motion_detected = any(self._is_sensor_on(sensor) for sensor in motion_sensors if sensor)
+        data[STATE_MOTION_DETECTED] = motion_detected
+        
+        # Track which motion sensor triggered (if motion just became active)
+        if motion_detected and (not self.data or not self.data.get(STATE_MOTION_DETECTED)):
+            for sensor in motion_sensors:
+                if sensor and self._is_sensor_on(sensor):
+                    self._last_trigger_source = "motion"
+                    self._last_trigger_entity = sensor
+                    self._last_trigger_time = now
+                    break
+        
+        # Check presence (mmWave)
+        presence_detected = any(self._is_sensor_on(sensor) for sensor in mmwave_sensors if sensor)
+        data[STATE_PRESENCE_DETECTED] = presence_detected
+        
+        # Track which presence sensor triggered (if presence just became active)
+        if presence_detected and (not self.data or not self.data.get(STATE_PRESENCE_DETECTED)):
+            for sensor in mmwave_sensors:
+                if sensor and self._is_sensor_on(sensor):
+                    self._last_trigger_source = "presence"
+                    self._last_trigger_entity = sensor
+                    self._last_trigger_time = now
+                    break
+        
+        # Check occupancy sensors (combined motion+presence)
+        occupancy_detected = any(self._is_sensor_on(sensor) for sensor in occupancy_sensors if sensor)
+        
+        # Track occupancy sensor trigger
+        if occupancy_detected:
+            for sensor in occupancy_sensors:
+                if sensor and self._is_sensor_on(sensor):
+                    # Only update if not already tracking motion or presence
+                    if not motion_detected and not presence_detected:
+                        self._last_trigger_source = "occupancy"
+                        self._last_trigger_entity = sensor
+                        self._last_trigger_time = now
+                    break
+        
+        # Determine occupancy (any detection method)
+        if motion_detected or presence_detected or occupancy_detected:
+            self._last_motion_time = now
+            data[STATE_OCCUPIED] = True
+            data[STATE_TIMEOUT_REMAINING] = self._occupancy_timeout
+            
+            # Update last occupied time when becoming occupied
+            if not self._last_occupied_state:
+                self._last_occupied_time = now
+                self._became_occupied_time = now  # v3.2.4: Track when THIS occupancy session started
+        else:
+            # Calculate timeout
+            if self._last_motion_time:
+                elapsed = (now - self._last_motion_time).total_seconds()
+                remaining = max(0, self._occupancy_timeout - int(elapsed))
+                data[STATE_TIMEOUT_REMAINING] = remaining
+                data[STATE_OCCUPIED] = remaining > 0
+                
+                # Keep last_occupied_time updated while still occupied
+                if data[STATE_OCCUPIED]:
+                    self._last_occupied_time = now
+                else:
+                    # v3.2.4: Clear became_occupied_time when room becomes vacant
+                    self._became_occupied_time = None
+            else:
+                data[STATE_TIMEOUT_REMAINING] = 0
+                data[STATE_OCCUPIED] = False
+                self._became_occupied_time = None  # v3.2.4: Clear when vacant
+        
+        # Calculate time since last motion
+        if self._last_motion_time:
+            data[STATE_TIME_SINCE_MOTION] = int((now - self._last_motion_time).total_seconds())
+        else:
+            data[STATE_TIME_SINCE_MOTION] = None
+        
+        # Calculate time since last occupied
+        if self._last_occupied_time:
+            data[STATE_TIME_SINCE_OCCUPIED] = int((now - self._last_occupied_time).total_seconds())
+        else:
+            data[STATE_TIME_SINCE_OCCUPIED] = None
+        
+        # === Phase 1: Environmental Sensors ===
+        # v3.2.3.2 FIX: Use _get_config to read from options (user changes) with data fallback
+        # Previously used self.entry.data.get() which ignored options flow changes
+        data[STATE_TEMPERATURE] = self._get_sensor_value(
+            self._get_config(CONF_TEMPERATURE_SENSOR)
+        )
+        data[STATE_HUMIDITY] = self._get_sensor_value(
+            self._get_config(CONF_HUMIDITY_SENSOR)
+        )
+        data[STATE_ILLUMINANCE] = self._get_sensor_value(
+            self._get_config(CONF_ILLUMINANCE_SENSOR), 100
+        )
+        data[STATE_DARK] = data[STATE_ILLUMINANCE] < DEFAULT_DARK_THRESHOLD
+        
+        # === Phase 2: Energy Tracking ===
+        # v3.2.3.2: Use _get_config for power/energy sensors
+        power_sensors = self._get_config(CONF_POWER_SENSORS, [])
+        total_power = sum(
+            self._get_sensor_value(sensor, 0) for sensor in power_sensors
+        )
+        data[STATE_POWER_CURRENT] = total_power
+        
+        # Energy accumulation (if no direct energy sensor)
+        energy_sensor = self._get_config(CONF_ENERGY_SENSOR)
+        if energy_sensor:
+            # Direct energy sensor (usually TOTAL_INCREASING from smart plug)
+            current_value = self._get_sensor_value(energy_sensor, 0)
+            
+            # Initialize baseline on first run
+            if self._energy_baseline_today == 0.0:
+                self._energy_baseline_today = current_value
+            
+            # Reset baselines at midnight
+            if now.date() > self._last_energy_reset.date():
+                self._energy_baseline_today = current_value
+                self._last_energy_reset = now
+            
+            # Calculate today's delta (today's energy = current - baseline_at_midnight)
+            data[STATE_ENERGY_TODAY] = max(0, current_value - self._energy_baseline_today)
+        else:
+            # Integrate power over time (for rooms without direct energy sensor)
+            if self._last_power_reading is not None:
+                elapsed_hours = 30 / 3600  # 30 seconds to hours
+                avg_power = (total_power + self._last_power_reading) / 2
+                self._energy_accumulator += (avg_power * elapsed_hours) / 1000  # Wh to kWh
+            self._last_power_reading = total_power
+            
+            # Reset at midnight
+            if now.date() > self._last_energy_reset.date():
+                self._energy_accumulator = 0.0
+                self._last_energy_reset = now
+            
+            data[STATE_ENERGY_TODAY] = self._energy_accumulator
+        
+        # === Phase 2: Device Counts ===
+        area_id = self._get_config(CONF_AREA_ID)
+        if area_id:
+            device_counts = self._calculate_device_counts(area_id)
+            data[STATE_LIGHTS_ON_COUNT] = device_counts["lights_on"]
+            data[STATE_FANS_ON_COUNT] = device_counts["fans_on"]
+            data[STATE_SWITCHES_ON_COUNT] = device_counts["switches_on"]
+            data[STATE_COVERS_OPEN_COUNT] = device_counts["covers_open"]
+            data[STATE_COVERS_POSITION_AVG] = device_counts["covers_position_avg"]
+        
+        # === Automation Logic ===
+        if self._is_automation_enabled():
+            # Handle occupancy changes
+            if data[STATE_OCCUPIED] != self._last_occupied_state:
+                self._last_occupied_state = data[STATE_OCCUPIED]
+                try:
+                    await self.automation.handle_occupancy_change(
+                        data[STATE_OCCUPIED],
+                        data
+                    )
+                except Exception as e:
+                    _LOGGER.error("Error in occupancy automation: %s", e)
+            
+            # Periodic automation tasks
+            try:
+                # Temperature-based fan control
+                await self.automation.handle_temperature_based_fan_control(
+                    data.get(STATE_TEMPERATURE),
+                    data.get(STATE_OCCUPIED, False)
+                )
+                
+                # Humidity-based fan control
+                await self.automation.handle_humidity_based_fan_control(
+                    data.get(STATE_HUMIDITY)
+                )
+                
+                # v3.1.0: Shared space scheduled auto-off check
+                await self.automation.check_scheduled_auto_off()
+                await self.automation.check_auto_off_warning()
+                
+            except Exception as e:
+                _LOGGER.error("Error in periodic automation: %s", e)
+        
+        # === Data Logging (for Phase 3 & 4) ===
+        database = self.hass.data[DOMAIN].get("database")
+        if database:
+            # Log occupancy changes
+            if data[STATE_OCCUPIED] != self._last_occupied_state:
+                if data[STATE_OCCUPIED]:
+                    # Entry event
+                    trigger = "motion" if motion_detected else "presence"
+                    await database.log_occupancy_event(
+                        self.entry.entry_id,
+                        "entry",
+                        trigger
+                    )
+                else:
+                    # Exit event (calculate duration)
+                    if self._last_motion_time:
+                        duration = int((now - self._last_motion_time).total_seconds())
+                        await database.log_occupancy_event(
+                            self.entry.entry_id,
+                            "exit",
+                            None,
+                            duration
+                        )
+            
+            # Log environmental data (every 5 minutes)
+            if self._last_env_log is None or (now - self._last_env_log).total_seconds() >= 300:
+                await database.log_environmental_data(
+                    self.entry.entry_id,
+                    {
+                        'temperature': data.get(STATE_TEMPERATURE),
+                        'humidity': data.get(STATE_HUMIDITY),
+                        'illuminance': data.get(STATE_ILLUMINANCE),
+                        'occupied': data.get(STATE_OCCUPIED),
+                    }
+                )
+                self._last_env_log = now
+            
+            # Log energy snapshots (every 5 minutes)
+            if self._last_energy_log is None or (now - self._last_energy_log).total_seconds() >= 300:
+                await database.log_energy_snapshot(
+                    self.entry.entry_id,
+                    {
+                        'power_watts': total_power,
+                        'occupied': data.get(STATE_OCCUPIED),
+                        'lights_on': data.get(STATE_LIGHTS_ON_COUNT, 0),
+                        'fans_on': data.get(STATE_FANS_ON_COUNT, 0),
+                        'switches_on': data.get(STATE_SWITCHES_ON_COUNT, 0),
+                        'covers_open': data.get(STATE_COVERS_OPEN_COUNT, 0),
+                    }
+                )
+                self._last_energy_log = now
+        
+        # === Phase 2: Extended Energy Calculations ===
+        if database:
+            # Weekly energy
+            week_ago = now - timedelta(days=7)
+            data[STATE_ENERGY_WEEKLY] = await database.get_energy_for_period(
+                self.entry.entry_id,
+                week_ago,
+                now
+            )
+            
+            # Monthly energy
+            month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+            data[STATE_ENERGY_MONTHLY] = await database.get_energy_for_period(
+                self.entry.entry_id,
+                month_start,
+                now
+            )
+            
+            # Calculate costs
+            electricity_rate = self._get_electricity_rate()
+            
+            if data.get(STATE_ENERGY_WEEKLY) is not None:
+                data[STATE_ENERGY_COST_WEEKLY] = round(data[STATE_ENERGY_WEEKLY] * electricity_rate, 2)
+            
+            if data.get(STATE_ENERGY_MONTHLY) is not None:
+                data[STATE_ENERGY_COST_MONTHLY] = round(data[STATE_ENERGY_MONTHLY] * electricity_rate, 2)
+            
+            # Cost per hour (from current power)
+            if data.get(STATE_POWER_CURRENT) is not None:
+                power_kw = data[STATE_POWER_CURRENT] / 1000.0
+                data[STATE_COST_PER_HOUR] = round(power_kw * electricity_rate, 3)
+        
+        # === Phase 3: Prediction Queries ===
+        if database:
+            # Next occupancy prediction
+            prediction = await database.get_next_occupancy_prediction(self.entry.entry_id)
+            if prediction:
+                next_time, confidence = prediction
+                data[STATE_NEXT_OCCUPANCY_TIME] = next_time
+                data[STATE_OCCUPANCY_CONFIDENCE] = confidence
+                
+                # Calculate minutes until next occupancy
+                now_aware = now.replace(tzinfo=next_time.tzinfo) if next_time.tzinfo else now
+                minutes_until = int((next_time - now_aware).total_seconds() / 60)
+                data[STATE_NEXT_OCCUPANCY_IN] = max(0, minutes_until)  # Don't return negative
+                
+                # Calculate precool/preheat start times
+                # Use static lead times for now (Phase 4 will make dynamic)
+                precool_lead = 15  # minutes
+                preheat_lead = 20  # minutes
+                
+                data[STATE_PRECOOL_START_TIME] = next_time - timedelta(minutes=precool_lead)
+                data[STATE_PREHEAT_START_TIME] = next_time - timedelta(minutes=preheat_lead)
+                data[STATE_PRECOOL_LEAD_MINUTES] = precool_lead
+                data[STATE_PREHEAT_LEAD_MINUTES] = preheat_lead
+            
+            # Occupancy percentage (7 days)
+            occupancy_pct = await database.get_occupancy_percentage(self.entry.entry_id, days=7)
+            if occupancy_pct is not None:
+                data[STATE_OCCUPANCY_PCT_7D] = round(occupancy_pct, 1)
+            
+            # Peak occupancy hour
+            peak_hour = await database.get_peak_occupancy_hour(self.entry.entry_id, days=7)
+            if peak_hour is not None:
+                # Format as time string
+                from datetime import time
+                t = time(hour=peak_hour)
+                data[STATE_PEAK_OCCUPANCY_TIME] = t.strftime("%I:00 %p")
+        
+        return data
+    
+    def set_last_action(
+        self,
+        action_type: str,
+        description: str,
+        entity: str | list[str] | None = None
+    ) -> None:
+        """
+        Record the last automation action for tracking.
+        Called by automation.py methods after performing actions.
+        
+        Args:
+            action_type: Type of action ("turn_on", "turn_off", "set_temperature", etc.)
+            description: Human-readable description ("Turned on 3 lights", "Set fan to medium")
+            entity: Single entity_id or list of entity_ids affected
+        """
+        self._last_action_type = action_type
+        self._last_action_description = description
+        self._last_action_entity = entity
+        self._last_action_time = dt_util.now()
+        
+        _LOGGER.debug(
+            "Action recorded for %s: %s (%s)",
+            self.entry.data.get("room_name"),
+            description,
+            action_type
+        )
+    
+    def get_last_trigger_info(self) -> dict[str, Any]:
+        """Get last trigger information for sensors."""
+        return {
+            "source": self._last_trigger_source,
+            "entity": self._last_trigger_entity,
+            "time": self._last_trigger_time,
+        }
+    
+    def get_last_action_info(self) -> dict[str, Any]:
+        """Get last action information for sensors."""
+        return {
+            "type": self._last_action_type,
+            "description": self._last_action_description,
+            "entity": self._last_action_entity,
+            "time": self._last_action_time,
+        }
+
+    def get_became_occupied_time(self) -> datetime | None:
+        """
+        Get timestamp when the room became occupied in the current session.
+        
+        v3.2.4: Used by PersonTrackingCoordinator for Tier 3 disambiguation
+        when multiple rooms share a BLE scanner. The most recently occupied
+        room wins when both rooms are occupied.
+        
+        Returns:
+            datetime when room became occupied, or None if not currently occupied
+        """
+        return self._became_occupied_time
