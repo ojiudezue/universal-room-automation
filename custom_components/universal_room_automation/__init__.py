@@ -275,19 +275,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # v3.3.2: Zone entry handling
     # =========================================================================
     if entry_type == ENTRY_TYPE_ZONE:
-        # Zone entry - minimal setup, just needs update listener for OptionsFlow
+        # Zone entry - set up zone-level aggregation sensors + update listener
         zone_name = entry.data.get(CONF_ZONE_NAME, "Unknown")
         _LOGGER.info("Setting up zone entry: %s", zone_name)
-        
+
         # Store zone entry reference (for music_following lookup)
         if "zones" not in hass.data[DOMAIN]:
             hass.data[DOMAIN]["zones"] = {}
         hass.data[DOMAIN]["zones"][entry.entry_id] = entry
-        
+
+        # v3.3.5.6: Forward sensor/binary_sensor platforms so zone entities
+        # are registered under the zone config entry (not the integration entry)
+        await hass.config_entries.async_forward_entry_setups(entry, INTEGRATION_PLATFORMS)
+
         # v3.3.2: Add update listener so OptionsFlow changes trigger reload
         entry.async_on_unload(entry.add_update_listener(_async_update_listener))
-        
-        _LOGGER.info("Zone entry '%s' setup complete (options flow now accessible)", zone_name)
+
+        _LOGGER.info("Zone entry '%s' setup complete with zone sensors", zone_name)
         return True
     
     # Room entry - normal setup
@@ -411,10 +415,12 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     
     # v3.3.2: Handle zone entry unload
     if entry_type == ENTRY_TYPE_ZONE:
+        # v3.3.5.6: Unload zone sensor/binary_sensor platforms
+        unload_ok = await hass.config_entries.async_unload_platforms(entry, INTEGRATION_PLATFORMS)
         # Clean up zone entry reference
         if "zones" in hass.data[DOMAIN] and entry.entry_id in hass.data[DOMAIN]["zones"]:
             del hass.data[DOMAIN]["zones"][entry.entry_id]
-        return True
+        return unload_ok
     
     # Room entry - unload platforms and remove coordinator
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)

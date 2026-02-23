@@ -56,14 +56,20 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up Universal Room Automation binary sensors."""
-    from .const import CONF_ENTRY_TYPE, ENTRY_TYPE_INTEGRATION
-    
+    from .const import CONF_ENTRY_TYPE, ENTRY_TYPE_INTEGRATION, ENTRY_TYPE_ZONE
+
     # Check if this is an integration entry (aggregation binary sensors)
     if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_INTEGRATION:
         from .aggregation import async_setup_aggregation_binary_sensors
         await async_setup_aggregation_binary_sensors(hass, entry, async_add_entities)
         return
-    
+
+    # v3.3.5.6: Zone entry - set up zone-specific binary sensors
+    if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_ZONE:
+        from .aggregation import async_setup_zone_binary_sensors
+        await async_setup_zone_binary_sensors(hass, entry, async_add_entities)
+        return
+
     # Room entry - normal binary sensor setup
     coordinator: UniversalRoomCoordinator = hass.data[DOMAIN][entry.entry_id]
     

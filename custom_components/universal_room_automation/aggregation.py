@@ -172,31 +172,33 @@ async def async_setup_aggregation_sensors(
     if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_INTEGRATION:
         return  # Only for integration entry
     
+    # v3.3.5.6: Integration entry now only creates whole-house + person sensors.
+    # Zone sensors are created by zone config entries via async_setup_zone_sensors().
     entities: list[SensorEntity] = [
         # === PRESENCE & OCCUPANCY ===
         RoomsOccupiedSensor(hass, entry),
         OccupantCountSensor(hass, entry),
         PersonTrackingDiagnosticSensor(hass, entry),  # v3.2.6: New diagnostic sensor
-        
+
         # === CLIMATE ===
         ClimateDeltaSensor(hass, entry),
         HVACDirectionSensor(hass, entry),
-        
+
         # === CLIMATE DELTAS (Inside vs Outside) ===
         HumidityDeltaSensor(hass, entry),
         TempDeltaOutsideSensor(hass, entry),
         HumidityDeltaOutsideSensor(hass, entry),
-        
+
         # === HVAC PREDICTIONS ===
         PredictedCoolingNeedSensor(hass, entry),
         PredictedHeatingNeedSensor(hass, entry),
-        
+
         # === ENERGY TRACKING ===
         WholeHousePowerSensor(hass, entry),
         WholeHouseEnergySensor(hass, entry),
         RoomsEnergyTotalSensor(hass, entry),
         EnergyCoverageDeltaSensor(hass, entry),
-        
+
         # === ENERGY PREDICTIONS ===
         PredictedEnergyTodaySensor(hass, entry),
         PredictedEnergyWeekSensor(hass, entry),
@@ -205,42 +207,7 @@ async def async_setup_aggregation_sensors(
         PredictedCostWeekSensor(hass, entry),
         PredictedCostMonthSensor(hass, entry),
     ]
-    
-    # Add dynamic zone sensors
-    zones = _get_all_zones(hass, entry)
-    for zone_name in zones:
-        entities.extend([
-            # === OCCUPANCY ===
-            ZoneOccupiedSensor(hass, entry, zone_name),
-            ZoneActiveRoomsSensor(hass, entry, zone_name),
-            
-            # === CLIMATE ===
-            ZoneAvgTemperatureSensor(hass, entry, zone_name),
-            ZoneAvgHumiditySensor(hass, entry, zone_name),
-            ZoneTempDeltaSensor(hass, entry, zone_name),
-            ZoneHumidityDeltaSensor(hass, entry, zone_name),
-            
-            # === SAFETY ===
-            ZoneSafetyAlertSensor(hass, entry, zone_name),
-            
-            # === ENERGY ===
-            ZoneTotalPowerSensor(hass, entry, zone_name),
-            ZoneEnergyTodaySensor(hass, entry, zone_name),
-        ])
-        
-        # === v3.2.0: PERSON TRACKING ===
-        # ALWAYS create these sensors - they handle missing coordinator gracefully
-        # Fixes issue where new zones didn't get person tracking if coordinator
-        # wasn't initialized yet during sensor setup
-        entities.extend([
-            ZoneCurrentOccupantsSensor(hass, entry, zone_name),
-            ZoneOccupantCountSensor(hass, entry, zone_name),
-            ZoneLastOccupantSensor(hass, entry, zone_name),
-            ZoneLastOccupantTimeSensor(hass, entry, zone_name),
-            # v3.2.8.1: Zone-level person tracking diagnostic sensor
-            ZonePersonTrackingStatusSensor(hass, entry, zone_name),
-        ])
-    
+
     # === v3.2.0: INTEGRATION PERSON LOCATION SENSORS ===
     person_coordinator = hass.data[DOMAIN].get("person_coordinator")
     if person_coordinator:
@@ -252,16 +219,16 @@ async def async_setup_aggregation_sensors(
                 PersonPreviousLocationSensor(hass, entry, person_id),
                 PersonPreviousSeenSensor(hass, entry, person_id),
             ])
-            
+
             # v3.3.0: Pattern learning sensors
             from .sensor import PersonLikelyNextRoomSensor, PersonCurrentPathSensor
             entities.extend([
                 PersonLikelyNextRoomSensor(hass, entry, person_id),
                 PersonCurrentPathSensor(hass, entry, person_id),
             ])
-    
+
     async_add_entities(entities)
-    _LOGGER.info("Set up %d aggregation sensors", len(entities))
+    _LOGGER.info("Set up %d whole-house aggregation sensors", len(entities))
 
 
 async def async_setup_aggregation_binary_sensors(
@@ -272,20 +239,91 @@ async def async_setup_aggregation_binary_sensors(
     """Set up aggregation binary sensors for the integration entry."""
     if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_INTEGRATION:
         return  # Only for integration entry
-    
+
+    # v3.3.5.6: Integration entry now only creates whole-house binary sensors.
+    # Zone binary sensors are created by zone config entries via async_setup_zone_binary_sensors().
     entities: list[BinarySensorEntity] = [
         AnyoneHomeBinarySensor(hass, entry),
         SafetyAlertBinarySensor(hass, entry),
         SecurityAlertBinarySensor(hass, entry),
     ]
-    
-    # Add dynamic zone binary sensors
-    zones = _get_all_zones(hass, entry)
-    for zone_name in zones:
-        entities.append(ZoneAnyoneBinarySensor(hass, entry, zone_name))
-    
+
     async_add_entities(entities)
-    _LOGGER.info("Set up %d aggregation binary sensors", len(entities))
+    _LOGGER.info("Set up %d whole-house aggregation binary sensors", len(entities))
+
+
+async def async_setup_zone_sensors(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    """Set up zone-level aggregation sensors for a zone config entry (v3.3.5.6).
+
+    Called when a zone config entry forwards its sensor platform.
+    Entities created here are registered under the zone config entry,
+    so they appear grouped with the zone in the HA UI.
+    """
+    if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ZONE:
+        return
+
+    zone_name = entry.data.get(CONF_ZONE_NAME)
+    if not zone_name:
+        _LOGGER.warning("Zone entry %s has no zone_name, skipping sensor setup", entry.entry_id)
+        return
+
+    # We need the integration entry for config lookups (energy rates, etc.)
+    integration_entry = hass.data.get(DOMAIN, {}).get("integration")
+
+    entities: list[SensorEntity] = [
+        # === OCCUPANCY ===
+        ZoneOccupiedSensor(hass, entry, zone_name),
+        ZoneActiveRoomsSensor(hass, entry, zone_name),
+
+        # === CLIMATE ===
+        ZoneAvgTemperatureSensor(hass, entry, zone_name),
+        ZoneAvgHumiditySensor(hass, entry, zone_name),
+        ZoneTempDeltaSensor(hass, entry, zone_name),
+        ZoneHumidityDeltaSensor(hass, entry, zone_name),
+
+        # === SAFETY ===
+        ZoneSafetyAlertSensor(hass, entry, zone_name),
+
+        # === ENERGY ===
+        ZoneTotalPowerSensor(hass, entry, zone_name),
+        ZoneEnergyTodaySensor(hass, entry, zone_name),
+
+        # === PERSON TRACKING ===
+        ZoneCurrentOccupantsSensor(hass, entry, zone_name),
+        ZoneOccupantCountSensor(hass, entry, zone_name),
+        ZoneLastOccupantSensor(hass, entry, zone_name),
+        ZoneLastOccupantTimeSensor(hass, entry, zone_name),
+        ZonePersonTrackingStatusSensor(hass, entry, zone_name),
+    ]
+
+    async_add_entities(entities)
+    _LOGGER.info("Set up %d zone sensors for '%s'", len(entities), zone_name)
+
+
+async def async_setup_zone_binary_sensors(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    """Set up zone-level binary sensors for a zone config entry (v3.3.5.6)."""
+    if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ZONE:
+        return
+
+    zone_name = entry.data.get(CONF_ZONE_NAME)
+    if not zone_name:
+        _LOGGER.warning("Zone entry %s has no zone_name, skipping binary sensor setup", entry.entry_id)
+        return
+
+    entities: list[BinarySensorEntity] = [
+        ZoneAnyoneBinarySensor(hass, entry, zone_name),
+    ]
+
+    async_add_entities(entities)
+    _LOGGER.info("Set up %d zone binary sensors for '%s'", len(entities), zone_name)
 
 
 def _get_all_zones(hass: HomeAssistant, entry: ConfigEntry | None = None) -> set[str]:
@@ -418,12 +456,14 @@ def _get_coverage_rating(delta_percent: float) -> str:
 
 class AggregationEntity:
     """Base class for aggregation entities."""
-    
+
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         """Initialize aggregation entity."""
         self.hass = hass
         self.entry = entry
         self._attr_has_entity_name = True
+        self._rooms_ready = False
+        self._agg_retry_unsub = None
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, "integration")},
             name="Universal Room Automation",
@@ -431,7 +471,49 @@ class AggregationEntity:
             model="Whole House",
             sw_version=VERSION,
         )
-    
+
+    async def async_added_to_hass(self) -> None:
+        """v3.3.5.6: Poll for room coordinators to become available after startup.
+
+        Whole-house sensors load during integration entry setup, before room
+        entries have initialized their coordinators. We poll every 5s for up
+        to 60s, then write state once rooms appear so the UI reflects data
+        immediately instead of requiring a manual reload.
+        """
+        await super().async_added_to_hass()
+        if _get_room_coordinators(self.hass):
+            self._rooms_ready = True
+            return
+
+        self._agg_retry_count = 0
+        max_retries = 12  # 60s
+
+        @callback
+        def _check_rooms(now=None):
+            self._agg_retry_count += 1
+            if _get_room_coordinators(self.hass):
+                self._rooms_ready = True
+                self.async_write_ha_state()
+                if self._agg_retry_unsub:
+                    self._agg_retry_unsub()
+                    self._agg_retry_unsub = None
+            elif self._agg_retry_count >= max_retries:
+                # Give up retrying but still mark as ready so sensor shows 0 values
+                self._rooms_ready = True
+                if self._agg_retry_unsub:
+                    self._agg_retry_unsub()
+                    self._agg_retry_unsub = None
+
+        self._agg_retry_unsub = async_track_time_interval(
+            self.hass, _check_rooms, timedelta(seconds=5)
+        )
+
+    async def async_will_remove_from_hass(self) -> None:
+        """Clean up retry timer."""
+        if self._agg_retry_unsub:
+            self._agg_retry_unsub()
+            self._agg_retry_unsub = None
+
     @property
     def available(self) -> bool:
         """Return if entity is available."""
@@ -1247,21 +1329,23 @@ class OccupantCountSensor(AggregationEntity, SensorEntity):
         self._attr_name = "Identified People Count"  # v3.2.6: Renamed for clarity
         self._attr_native_unit_of_measurement = "people"
         self._unsub_person_coordinator = None
-    
+
     async def async_added_to_hass(self) -> None:
         """Subscribe to person_coordinator updates.
-        
+
         v3.2.8.3: Enables real-time updates when person tracking changes
         """
+        await super().async_added_to_hass()
         # Subscribe to person_coordinator updates
         person_coordinator = self.hass.data[DOMAIN].get("person_coordinator")
         if person_coordinator:
             self._unsub_person_coordinator = person_coordinator.async_add_listener(
                 self._handle_person_update
             )
-    
+
     async def async_will_remove_from_hass(self) -> None:
         """Clean up person_coordinator subscription."""
+        await super().async_will_remove_from_hass()
         if self._unsub_person_coordinator:
             self._unsub_person_coordinator()
             self._unsub_person_coordinator = None
@@ -1941,7 +2025,10 @@ class ZoneSensorBase(AggregationEntity):
         super().__init__(hass, entry)
         self.zone = zone
         self._coordinators_ready = False
-        # Override device info for zone
+        self._retry_unsub = None
+        # v3.3.5.6: Device is identified by zone name (consistent across entry changes).
+        # Since entities are now added via the zone config entry's platform,
+        # HA automatically links this device to the zone config entry.
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, f"zone_{zone}")},
             name=f"Zone: {zone.title()}",
@@ -1950,51 +2037,62 @@ class ZoneSensorBase(AggregationEntity):
             sw_version=VERSION,
             via_device=(DOMAIN, "integration"),
         )
-    
+
     async def async_added_to_hass(self) -> None:
-        """Handle entity added to hass - check if coordinators are ready.
-        
-        v3.2.9: Deferred initialization to fix race condition.
-        Zone sensors are created during integration entry setup, but room
-        coordinators are added later during individual room entry setups.
-        This causes zone sensors to initially see no coordinators.
-        
-        Solution: Trigger a state update after a short delay to give room
-        coordinators time to initialize.
+        """Handle entity added to hass - set up coordinator readiness polling.
+
+        v3.3.5.6: Replaced fragile fixed-delay approach with periodic retry.
+        Zone sensors may load before room coordinators are ready. Instead of
+        sleeping for a fixed 5+10 seconds (which can miss slow-loading rooms),
+        we poll every 5 seconds up to 60 seconds. This eliminates the reload-
+        required-for-availability issue.
         """
         await super().async_added_to_hass()
-        
-        # Check if coordinators are ready
+
+        # Check if coordinators are ready immediately
         if self._get_zone_coordinators():
             self._coordinators_ready = True
-        else:
-            # Schedule a retry after 5 seconds to allow room coordinators to initialize
-            async def _delayed_check():
-                await asyncio.sleep(5)
-                if self._get_zone_coordinators():
-                    self._coordinators_ready = True
-                    _LOGGER.debug(
-                        "Zone '%s': Room coordinators now ready (%d found)",
-                        self.zone, len(self._get_zone_coordinators())
-                    )
-                    self.async_write_ha_state()
-                else:
-                    # Retry again after 10 more seconds
-                    await asyncio.sleep(10)
-                    if self._get_zone_coordinators():
-                        self._coordinators_ready = True
-                        _LOGGER.debug(
-                            "Zone '%s': Room coordinators now ready (%d found) [retry 2]",
-                            self.zone, len(self._get_zone_coordinators())
-                        )
-                        self.async_write_ha_state()
-                    else:
-                        _LOGGER.warning(
-                            "Zone '%s': No room coordinators found after 15s - zone may be empty or rooms not configured",
-                            self.zone
-                        )
-            
-            self.hass.async_create_task(_delayed_check())
+            return
+
+        # Set up periodic retry until coordinators appear
+        self._retry_count = 0
+        max_retries = 12  # 12 * 5s = 60s total
+
+        @callback
+        def _check_coordinators(now=None):
+            """Periodically check for zone coordinators."""
+            self._retry_count += 1
+            coords = self._get_zone_coordinators()
+            if coords:
+                self._coordinators_ready = True
+                _LOGGER.debug(
+                    "Zone '%s': Room coordinators now ready (%d found, attempt %d)",
+                    self.zone, len(coords), self._retry_count,
+                )
+                self.async_write_ha_state()
+                # Cancel further retries
+                if self._retry_unsub:
+                    self._retry_unsub()
+                    self._retry_unsub = None
+            elif self._retry_count >= max_retries:
+                _LOGGER.warning(
+                    "Zone '%s': No room coordinators found after %ds - "
+                    "zone may be empty or rooms not configured",
+                    self.zone, self._retry_count * 5,
+                )
+                if self._retry_unsub:
+                    self._retry_unsub()
+                    self._retry_unsub = None
+
+        self._retry_unsub = async_track_time_interval(
+            self.hass, _check_coordinators, timedelta(seconds=5)
+        )
+
+    async def async_will_remove_from_hass(self) -> None:
+        """Clean up retry timer on removal."""
+        if self._retry_unsub:
+            self._retry_unsub()
+            self._retry_unsub = None
     
     def _get_zone_coordinators(self) -> list[UniversalRoomCoordinator]:
         """Get coordinators for this zone."""
@@ -2370,32 +2468,34 @@ class ZoneCurrentOccupantsSensor(ZoneSensorBase, SensorEntity):
     
     async def async_added_to_hass(self) -> None:
         """Subscribe to person_coordinator updates.
-        
+
         v3.2.8.3: Enables real-time updates when person tracking changes
         """
+        await super().async_added_to_hass()
         # Subscribe to person_coordinator updates
         person_coordinator = self.hass.data[DOMAIN].get("person_coordinator")
         if person_coordinator:
             self._unsub_person_coordinator = person_coordinator.async_add_listener(
                 self._handle_person_update
             )
-    
+
     async def async_will_remove_from_hass(self) -> None:
         """Clean up person_coordinator subscription."""
+        await super().async_will_remove_from_hass()
         if self._unsub_person_coordinator:
             self._unsub_person_coordinator()
             self._unsub_person_coordinator = None
-    
+
     def _handle_person_update(self) -> None:
         """Handle person_coordinator update - trigger state update."""
         self.async_write_ha_state()
-    
+
     @property
     def available(self) -> bool:
         """Return if entity is available."""
         # Always available - we have fallback handling in native_value
         return True
-    
+
     @property
     def native_value(self) -> str:
         """Return comma-separated list of zone occupants."""
@@ -2504,31 +2604,33 @@ class ZoneOccupantCountSensor(ZoneSensorBase, SensorEntity):
     
     async def async_added_to_hass(self) -> None:
         """Subscribe to person_coordinator updates.
-        
+
         v3.2.8.3: Enables real-time updates when person tracking changes
         """
+        await super().async_added_to_hass()
         # Subscribe to person_coordinator updates
         person_coordinator = self.hass.data[DOMAIN].get("person_coordinator")
         if person_coordinator:
             self._unsub_person_coordinator = person_coordinator.async_add_listener(
                 self._handle_person_update
             )
-    
+
     async def async_will_remove_from_hass(self) -> None:
         """Clean up person_coordinator subscription."""
+        await super().async_will_remove_from_hass()
         if self._unsub_person_coordinator:
             self._unsub_person_coordinator()
             self._unsub_person_coordinator = None
-    
+
     def _handle_person_update(self) -> None:
         """Handle person_coordinator update - trigger state update."""
         self.async_write_ha_state()
-    
+
     @property
     def available(self) -> bool:
         """Return if entity is available."""
         return True
-    
+
     @property
     def native_value(self) -> int:
         """Return count of zone occupants."""
