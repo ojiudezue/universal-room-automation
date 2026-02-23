@@ -1,6 +1,6 @@
 """Data coordinator for Universal Room Automation."""
 #
-# Universal Room Automation v3.3.5.7
+# Universal Room Automation v3.3.5.8
 # Build: 2026-01-02
 # File: coordinator.py
 # v3.2.8: Support for active state change listeners in aggregation sensors
@@ -84,6 +84,8 @@ from .const import (
 from .automation import RoomAutomation
 
 _LOGGER = logging.getLogger(__name__)
+
+MAX_OCCUPANCY_DURATION_SECONDS = 4 * 3600  # 4-hour failsafe
 
 
 class UniversalRoomCoordinator(DataUpdateCoordinator):
@@ -285,8 +287,20 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         if sensors_to_track:
             @callback
             def sensor_state_changed(event):
-                """Handle sensor state changes."""
-                _LOGGER.debug("Event-driven refresh triggered for room %s by %s", room_name, event.data.get('entity_id'))
+                """Handle sensor state changes with motion event logging."""
+                entity_id = event.data.get("entity_id", "")
+                new_state = event.data.get("new_state")
+                old_state = event.data.get("old_state")
+                new_val = new_state.state if new_state else "None"
+                old_val = old_state.state if old_state else "None"
+
+                # RESILIENCE-002: Log motion/occupancy sensor transitions
+                if entity_id in (motion_sensors + mmwave_sensors + occupancy_sensors):
+                    _LOGGER.info(
+                        "Room %s: Sensor %s changed %s -> %s",
+                        room_name, entity_id, old_val, new_val,
+                    )
+
                 self.hass.async_create_task(self.async_refresh())
             
             self._unsub_state_listeners.append(
@@ -319,6 +333,13 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         """Check if a binary sensor is on."""
         state = self.hass.states.get(entity_id)
         if state is None:
+            return False
+        if state.state in ("unavailable", "unknown"):
+            _LOGGER.warning(
+                "Sensor %s is %s - treating as off for room %s",
+                entity_id, state.state,
+                self.entry.data.get("room_name", "unknown"),
+            )
             return False
         return state.state == "on"
     
@@ -422,7 +443,23 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         motion_sensors = self._get_config(CONF_MOTION_SENSORS, [])
         mmwave_sensors = self._get_config(CONF_MMWAVE_SENSORS, [])
         occupancy_sensors = self._get_config(CONF_OCCUPANCY_SENSORS, [])
-        
+        room_name = self.entry.data.get("room_name", "unknown")
+
+        # BUG-001: Log unavailable sensors for diagnostics
+        for sensor_list_name, sensor_list in [
+            ("motion", motion_sensors),
+            ("mmwave", mmwave_sensors),
+            ("occupancy", occupancy_sensors),
+        ]:
+            for sensor in sensor_list:
+                if sensor:
+                    s = self.hass.states.get(sensor)
+                    if s and s.state in ("unavailable", "unknown"):
+                        _LOGGER.warning(
+                            "Room %s: %s sensor %s is %s",
+                            room_name, sensor_list_name, sensor, s.state,
+                        )
+
         # Check motion
         motion_detected = any(self._is_sensor_on(sensor) for sensor in motion_sensors if sensor)
         data[STATE_MOTION_DETECTED] = motion_detected
@@ -503,7 +540,23 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
             data[STATE_TIME_SINCE_OCCUPIED] = int((now - self._last_occupied_time).total_seconds())
         else:
             data[STATE_TIME_SINCE_OCCUPIED] = None
-        
+
+        # RESILIENCE-001: Maximum active duration failsafe
+        if (data.get(STATE_OCCUPIED)
+                and self._last_motion_time
+                and not motion_detected
+                and not presence_detected
+                and not occupancy_detected):
+            duration = (now - self._last_motion_time).total_seconds()
+            if duration > MAX_OCCUPANCY_DURATION_SECONDS:
+                _LOGGER.warning(
+                    "Room %s: Forcing vacancy after %.1f hours — no active sensors (failsafe)",
+                    room_name, duration / 3600,
+                )
+                data[STATE_OCCUPIED] = False
+                data[STATE_TIMEOUT_REMAINING] = 0
+                self._last_motion_time = None
+
         # === Phase 1: Environmental Sensors ===
         # v3.2.3.2 FIX: Use _get_config to read from options (user changes) with data fallback
         # Previously used self.entry.data.get() which ignored options flow changes

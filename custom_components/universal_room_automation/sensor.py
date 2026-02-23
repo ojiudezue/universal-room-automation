@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.3.5.7
+# Universal Room Automation v3.3.5.8
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -2020,106 +2020,67 @@ class PersonTrackingStatusSensor(UniversalRoomEntity, SensorEntity):
 # v3.3.0: Pattern learning and prediction sensors
 
 class PersonLikelyNextRoomSensor(AggregationEntity, SensorEntity):
-    """Predicted next room for person (v3.3.0 - simplified, no time-of-day)."""
-    
+    """Predicted next room for a tracked person."""
+
     _attr_icon = "mdi:map-marker-path"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_entity_registry_enabled_default = False
-    
+
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry, person_id: str) -> None:
         """Initialize."""
         super().__init__(hass, entry)
         self._person_id = person_id
         self._attr_unique_id = f"{DOMAIN}_person_{person_id.lower()}_likely_next_room"
         self._attr_name = f"{person_id} Likely Next Room"
-    
-    @property
-    def native_value(self) -> Optional[str]:
-        """Return predicted next room."""
+        self._cached_prediction: dict | None = None
+
+    async def async_update(self) -> None:
+        """Fetch prediction asynchronously and cache it."""
         try:
-            pattern_learner = self.hass.data[DOMAIN].get("pattern_learner")
-            person_coordinator = self.hass.data[DOMAIN].get("person_coordinator")
-            
+            pattern_learner = self.hass.data.get(DOMAIN, {}).get("pattern_learner")
+            person_coordinator = self.hass.data.get(DOMAIN, {}).get("person_coordinator")
+
             if not pattern_learner or not person_coordinator:
-                return None
-            
+                self._cached_prediction = None
+                return
+
             person_data = person_coordinator.data.get(self._person_id, {})
             current_room = person_data.get("location")
-            
+
             if not current_room or current_room in ("unknown", "away", "home"):
-                return None
-            
-            # Get prediction (async in sync context - not ideal but sensor pattern requires it)
-            # In production, we'd cache this or use a better pattern
-            # For v3.3.0, we'll accept this limitation
-            import asyncio
-            try:
-                prediction = asyncio.create_task(
-                    pattern_learner.predict_next_room(self._person_id, current_room)
-                )
-                # This is a hack - in production we'd handle this better
-                # But for v3.3.0 simplified scope, it works
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    return None  # Can't block event loop
-                else:
-                    prediction = loop.run_until_complete(prediction)
-            except:
-                return None
-            
-            if prediction:
-                return prediction["next_room"]
-            return None
-            
+                self._cached_prediction = None
+                return
+
+            self._cached_prediction = await pattern_learner.predict_next_room(
+                self._person_id, current_room
+            )
         except Exception as e:
-            _LOGGER.error(f"Error in PersonLikelyNextRoomSensor: {e}")
-            return None
-    
+            _LOGGER.error(
+                "Error updating PersonLikelyNextRoomSensor for %s: %s",
+                self._person_id, e,
+            )
+            self._cached_prediction = None
+
+    @property
+    def native_value(self) -> str | None:
+        """Return predicted next room from cache."""
+        if self._cached_prediction:
+            return self._cached_prediction.get("next_room")
+        return None
+
     @property
     def extra_state_attributes(self) -> dict:
-        """Return prediction details."""
-        try:
-            pattern_learner = self.hass.data[DOMAIN].get("pattern_learner")
-            person_coordinator = self.hass.data[DOMAIN].get("person_coordinator")
-            
-            if not pattern_learner or not person_coordinator:
-                return {}
-            
-            person_data = person_coordinator.data.get(self._person_id, {})
-            current_room = person_data.get("location")
-            
-            if not current_room or current_room in ("unknown", "away", "home"):
-                return {}
-            
-            # Same async limitation as above
-            import asyncio
-            try:
-                prediction = asyncio.create_task(
-                    pattern_learner.predict_next_room(self._person_id, current_room)
-                )
-                loop = asyncio.get_event_loop()
-                if loop.is_running():
-                    return {}
-                else:
-                    prediction = loop.run_until_complete(prediction)
-            except:
-                return {}
-            
-            if not prediction:
-                return {}
-            
-            return {
-                "confidence": prediction["confidence"],
-                "sample_size": prediction["sample_size"],
-                "reliability": prediction["reliability"],
-                "alternatives": prediction["alternatives"],
-                "predicted_path": prediction["predicted_path"],
-                "current_room": current_room
-            }
-            
-        except Exception as e:
-            _LOGGER.error(f"Error in PersonLikelyNextRoomSensor attributes: {e}")
+        """Return prediction details from cache."""
+        if not self._cached_prediction:
             return {}
+        return {
+            "confidence": self._cached_prediction.get("confidence"),
+            "sample_size": self._cached_prediction.get("sample_size"),
+            "reliability": self._cached_prediction.get("reliability"),
+            "alternatives": self._cached_prediction.get("alternatives"),
+            "predicted_path": self._cached_prediction.get("predicted_path"),
+            "current_room": self._cached_prediction.get("current_room", ""),
+        }
 
 
 class PersonCurrentPathSensor(AggregationEntity, SensorEntity):
