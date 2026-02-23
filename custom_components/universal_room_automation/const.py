@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation v3.3.5.9
+# Universal Room Automation v3.4.0
 # Build: 2026-01-05
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "3.3.5.9"
+VERSION: Final = "3.4.0"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -695,3 +695,27 @@ ALERT_TYPE_COLORS: Final = {
     "security": ALERT_COLOR_RED,
     "safety": ALERT_COLOR_AMBER,
 }
+
+# ============================================================================
+# v3.5.0 Camera Census
+# ============================================================================
+
+CONF_CAMERA_PERSON_ENTITIES: Final = "camera_person_entities"
+CONF_EGRESS_CAMERAS: Final = "egress_cameras"
+CONF_PERIMETER_CAMERAS: Final = "perimeter_cameras"
+CONF_CAMERA_PLATFORM: Final = "camera_platform"
+
+SCAN_INTERVAL_CENSUS: Final = timedelta(seconds=30)
+
+CAMERA_PLATFORM_FRIGATE: Final = "frigate"
+CAMERA_PLATFORM_UNIFI: Final = "unifiprotect"
+
+CENSUS_CONFIDENCE_HIGH: Final = "high"
+CENSUS_CONFIDENCE_MEDIUM: Final = "medium"
+CENSUS_CONFIDENCE_LOW: Final = "low"
+CENSUS_CONFIDENCE_NONE: Final = "none"
+
+CENSUS_AGREEMENT_BOTH: Final = "both_agree"
+CENSUS_AGREEMENT_CLOSE: Final = "close"
+CENSUS_AGREEMENT_DISAGREE: Final = "disagree"
+CENSUS_AGREEMENT_SINGLE: Final = "single_source"

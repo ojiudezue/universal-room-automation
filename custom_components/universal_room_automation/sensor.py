@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.3.5.9
+# Universal Room Automation v3.4.0
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -117,6 +117,19 @@ async def async_setup_entry(
         # Call the comprehensive aggregation sensor setup function
         from .aggregation import async_setup_aggregation_sensors
         await async_setup_aggregation_sensors(hass, entry, async_add_entities)
+
+        # v3.5.0: Add census sensors for integration entry
+        census_sensors = [
+            URAPersonsInHouseSensor(hass, entry),
+            URAIdentifiedPersonsInHouseSensor(hass, entry),
+            URAUnidentifiedPersonsInHouseSensor(hass, entry),
+            URAPersonsOnPropertySensor(hass, entry),
+            URATotalPersonsOnPropertySensor(hass, entry),
+            # Disabled by default (diagnostics)
+            URACensusConfidenceSensor(hass, entry),
+            URACensusValidationAgeSensor(hass, entry),
+        ]
+        async_add_entities(census_sensors)
         return
 
     # v3.3.5.6: Zone entry - set up zone-specific aggregation sensors
@@ -2150,4 +2163,250 @@ class PersonCurrentPathSensor(AggregationEntity, SensorEntity):
         except Exception as e:
             _LOGGER.error(f"Error in PersonCurrentPathSensor attributes: {e}")
             return {}
+
+
+# ============================================================================
+# v3.5.0: CENSUS SENSORS
+# Integration-level sensors backed by PersonCensus (camera_census.py)
+# ============================================================================
+
+
+class _CensusBaseSensor(AggregationEntity, SensorEntity):
+    """Base class for census sensors.
+
+    Reads data from hass.data[DOMAIN]["census"] (PersonCensus instance).
+    Gracefully returns 0 / unavailable if census has not run yet or
+    camera integration is not configured.
+    """
+
+    _attr_has_entity_name = True
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize census base sensor."""
+        super().__init__(hass, entry)
+
+    def _get_census(self):
+        """Return last FullCensusResult or None."""
+        census = self.hass.data.get(DOMAIN, {}).get("census")
+        if census is None:
+            return None
+        return census.last_result
+
+
+class URAPersonsInHouseSensor(_CensusBaseSensor):
+    """Total persons counted inside the house (camera + BLE)."""
+
+    _attr_icon = "mdi:home-account"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_census_persons_in_house"
+        self._attr_name = "Persons In House"
+
+    @property
+    def native_value(self) -> int:
+        """Return total persons inside the house."""
+        result = self._get_census()
+        if result is None:
+            return 0
+        return result.house.total_persons
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return additional census attributes."""
+        result = self._get_census()
+        if result is None:
+            return {}
+        return {
+            "identified_count": result.house.identified_count,
+            "unidentified_count": result.house.unidentified_count,
+            "confidence": result.house.confidence,
+            "source_agreement": result.house.source_agreement,
+            "frigate_count": result.house.frigate_count,
+            "unifi_count": result.house.unifi_count,
+            "last_updated": result.timestamp.isoformat() if result.timestamp else None,
+        }
+
+
+class URAIdentifiedPersonsInHouseSensor(_CensusBaseSensor):
+    """Number of identified (named) persons inside the house."""
+
+    _attr_icon = "mdi:account-check"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_census_identified_persons_in_house"
+        self._attr_name = "Identified Persons In House"
+
+    @property
+    def native_value(self) -> int:
+        """Return count of identified persons."""
+        result = self._get_census()
+        if result is None:
+            return 0
+        return result.house.identified_count
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return identified person list and source details."""
+        result = self._get_census()
+        if result is None:
+            return {}
+        import json
+        return {
+            "person_list": json.dumps(result.house.identified_persons),
+            "ble_confirmed": result.ble_persons,
+            "face_confirmed": result.face_persons,
+            "confidence": result.house.confidence,
+        }
+
+
+class URAUnidentifiedPersonsInHouseSensor(_CensusBaseSensor):
+    """Number of unidentified (guest) persons inside the house."""
+
+    _attr_icon = "mdi:account-question"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_census_unidentified_persons_in_house"
+        self._attr_name = "Unidentified Persons In House"
+
+    @property
+    def native_value(self) -> int:
+        """Return count of unidentified (guest) persons."""
+        result = self._get_census()
+        if result is None:
+            return 0
+        return result.house.unidentified_count
+
+
+class URAPersonsOnPropertySensor(_CensusBaseSensor):
+    """Number of persons on the exterior property (egress + perimeter cameras)."""
+
+    _attr_icon = "mdi:home-outline"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_census_persons_on_property_exterior"
+        self._attr_name = "Persons On Property (Exterior)"
+
+    @property
+    def native_value(self) -> int:
+        """Return number of persons detected on property exterior."""
+        result = self._get_census()
+        if result is None:
+            return 0
+        return result.persons_outside
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return exterior census attributes."""
+        result = self._get_census()
+        if result is None:
+            return {}
+        return {
+            "confidence": result.property_exterior.confidence,
+            "source_agreement": result.property_exterior.source_agreement,
+            "last_updated": result.timestamp.isoformat() if result.timestamp else None,
+        }
+
+
+class URATotalPersonsOnPropertySensor(_CensusBaseSensor):
+    """Total persons on the whole property (house + exterior)."""
+
+    _attr_icon = "mdi:account-group"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_census_total_persons_on_property"
+        self._attr_name = "Total Persons On Property"
+
+    @property
+    def native_value(self) -> int:
+        """Return total persons on property (house + exterior)."""
+        result = self._get_census()
+        if result is None:
+            return 0
+        return result.total_on_property
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return combined census summary."""
+        result = self._get_census()
+        if result is None:
+            return {}
+        return {
+            "inside_count": result.house.total_persons,
+            "outside_count": result.persons_outside,
+            "identified_total": result.house.identified_count,
+            "unidentified_total": result.house.unidentified_count + result.property_exterior.unidentified_count,
+            "house_confidence": result.house.confidence,
+            "exterior_confidence": result.property_exterior.confidence,
+            "last_updated": result.timestamp.isoformat() if result.timestamp else None,
+        }
+
+
+class URACensusConfidenceSensor(_CensusBaseSensor):
+    """Census confidence level diagnostic sensor (disabled by default)."""
+
+    _attr_icon = "mdi:gauge"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_entity_registry_enabled_default = False
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_census_confidence"
+        self._attr_name = "Census Confidence"
+        self._attr_state_class = None  # Enum state, not numeric
+
+    @property
+    def native_value(self) -> str:
+        """Return overall census confidence level."""
+        result = self._get_census()
+        if result is None:
+            return "none"
+        return result.house.confidence
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return confidence details."""
+        result = self._get_census()
+        if result is None:
+            return {}
+        return {
+            "house_confidence": result.house.confidence,
+            "house_source_agreement": result.house.source_agreement,
+            "exterior_confidence": result.property_exterior.confidence,
+        }
+
+
+class URACensusValidationAgeSensor(_CensusBaseSensor):
+    """Age of last census result in seconds (disabled by default)."""
+
+    _attr_icon = "mdi:clock-outline"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_entity_registry_enabled_default = False
+    _attr_native_unit_of_measurement = "s"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_census_validation_age"
+        self._attr_name = "Census Validation Age"
+
+    @property
+    def native_value(self) -> int | None:
+        """Return seconds since last census run."""
+        result = self._get_census()
+        if result is None or result.timestamp is None:
+            return None
+        delta = datetime.now() - result.timestamp
+        return int(delta.total_seconds())
 

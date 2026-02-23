@@ -1,6 +1,6 @@
 """Binary sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.3.5.9
+# Universal Room Automation v3.4.0
 # Build: 2026-01-02
 # File: binary_sensor.py
 # v3.2.6: Renamed "Presence" to "Sensor Presence" for clarity
@@ -17,8 +17,12 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util import dt as dt_util
 
+from homeassistant.helpers.entity import DeviceInfo, EntityCategory
+
 from .const import (
     DOMAIN,
+    VERSION,
+    NAME,
     ICON_OCCUPIED,
     ICON_VACANT,
     ICON_MOTION,
@@ -43,6 +47,12 @@ from .const import (
     COMFORT_HUMIDITY_MAX,
     DEFAULT_FAN_TEMP_THRESHOLD,
     DEFAULT_HUMIDITY_THRESHOLD,
+    # v3.5.0 Camera Census
+    CONF_CAMERA_PERSON_ENTITIES,
+    CONF_TRACKED_PERSONS,
+    ENTRY_TYPE_INTEGRATION,
+    ENTRY_TYPE_ROOM,
+    CONF_ENTRY_TYPE,
 )
 from .coordinator import UniversalRoomCoordinator
 from .entity import UniversalRoomEntity
@@ -62,6 +72,12 @@ async def async_setup_entry(
     if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_INTEGRATION:
         from .aggregation import async_setup_aggregation_binary_sensors
         await async_setup_aggregation_binary_sensors(hass, entry, async_add_entities)
+
+        # v3.5.0: Census binary sensors for integration entry
+        census_binary = [
+            URAUnexpectedPersonSensor(hass, entry),
+        ]
+        async_add_entities(census_binary)
         return
 
     # v3.3.5.6: Zone entry - set up zone-specific binary sensors
@@ -79,8 +95,10 @@ async def async_setup_entry(
         MotionDetectedBinarySensor(coordinator),
         PresenceDetectedBinarySensor(coordinator),
         DarkBinarySensor(coordinator),
+        # v3.5.0: Per-room camera person detected sensor
+        CameraPersonDetectedSensor(coordinator),
     ]
-    
+
     # Phase 4 diagnostic binary sensors (disabled by default)
     entities.extend([
         HVACCoordinatedBinarySensor(coordinator),
@@ -487,3 +505,106 @@ class RoomAlertBinarySensor(UniversalRoomEntity, BinarySensorEntity):
         last_changed = window_state.last_changed
         duration = (dt_util.now() - last_changed).total_seconds() / 60
         return duration > 30
+
+
+# ============================================================================
+# v3.5.0: CENSUS BINARY SENSORS
+# ============================================================================
+
+
+class CameraPersonDetectedSensor(UniversalRoomEntity, BinarySensorEntity):
+    """Per-room binary sensor: true when any configured camera sees a person.
+
+    Reads CONF_CAMERA_PERSON_ENTITIES from room config and checks if any
+    of them are currently in state 'on'. Gracefully returns False if no
+    cameras are configured for this room.
+    """
+
+    _attr_device_class = BinarySensorDeviceClass.OCCUPANCY
+    _attr_icon = "mdi:camera-account"
+
+    def __init__(self, coordinator: UniversalRoomCoordinator) -> None:
+        """Initialize the sensor."""
+        super().__init__(coordinator, "camera_person_detected", "Camera Person Detected")
+
+    @property
+    def is_on(self) -> bool:
+        """Return True if any room camera detects a person."""
+        config = {**self.coordinator.entry.data, **self.coordinator.entry.options}
+        camera_entities = config.get(CONF_CAMERA_PERSON_ENTITIES, [])
+        if not camera_entities:
+            return False
+
+        for entity_id in camera_entities:
+            state = self.hass.states.get(entity_id)
+            if state and state.state == "on":
+                return True
+        return False
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return which cameras are active."""
+        config = {**self.coordinator.entry.data, **self.coordinator.entry.options}
+        camera_entities = config.get(CONF_CAMERA_PERSON_ENTITIES, [])
+        active = []
+        for entity_id in camera_entities:
+            state = self.hass.states.get(entity_id)
+            if state and state.state == "on":
+                active.append(entity_id)
+        return {
+            "configured_cameras": camera_entities,
+            "active_cameras": active,
+            "camera_count": len(camera_entities),
+        }
+
+
+class URAUnexpectedPersonSensor(BinarySensorEntity):
+    """Integration-level: True when unidentified persons are detected inside.
+
+    This sensor is True when the census reports unidentified_count > 0
+    in the house zone — i.e., camera sees persons that are not matched
+    to any known BLE or face identity.
+
+    Gracefully returns False if census has not run yet.
+    """
+
+    _attr_device_class = BinarySensorDeviceClass.OCCUPANCY
+    _attr_icon = "mdi:account-alert"
+    _attr_has_entity_name = True
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        self.hass = hass
+        self.entry = entry
+        self._attr_unique_id = f"{DOMAIN}_census_unexpected_person_detected"
+        self._attr_name = "Unexpected Person Detected"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "integration")},
+            name="Universal Room Automation",
+            manufacturer="Universal Room Automation",
+            model="Whole House",
+            sw_version=VERSION,
+        )
+
+    @property
+    def is_on(self) -> bool:
+        """Return True when unidentified persons are detected inside the house."""
+        census = self.hass.data.get(DOMAIN, {}).get("census")
+        if census is None or census.last_result is None:
+            return False
+        return census.last_result.house.unidentified_count > 0
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return census details."""
+        census = self.hass.data.get(DOMAIN, {}).get("census")
+        if census is None or census.last_result is None:
+            return {}
+        result = census.last_result
+        return {
+            "unidentified_count": result.house.unidentified_count,
+            "total_in_house": result.house.total_persons,
+            "identified_count": result.house.identified_count,
+            "confidence": result.house.confidence,
+            "last_updated": result.timestamp.isoformat() if result.timestamp else None,
+        }
