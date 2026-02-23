@@ -1,6 +1,6 @@
 """Database for Universal Room Automation."""
 #
-# Universal Room Automation v3.3.5.9
+# Universal Room Automation v3.4.0
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors
@@ -242,6 +242,28 @@ class UniversalRoomDatabase:
                         confidence REAL,
                         UNIQUE(device_id)
                     )
+                """)
+
+                # v3.5.0: Census snapshots table
+                await db.execute("""
+                    CREATE TABLE IF NOT EXISTS census_snapshots (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        timestamp DATETIME NOT NULL,
+                        zone TEXT NOT NULL,
+                        identified_count INTEGER NOT NULL,
+                        identified_persons TEXT,
+                        unidentified_count INTEGER NOT NULL,
+                        total_persons INTEGER NOT NULL,
+                        confidence TEXT,
+                        source_agreement TEXT,
+                        frigate_count INTEGER,
+                        unifi_count INTEGER,
+                        UNIQUE(timestamp, zone)
+                    )
+                """)
+                await db.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_census_timestamp
+                    ON census_snapshots(timestamp)
                 """)
 
                 await db.commit()
@@ -1426,3 +1448,99 @@ class UniversalRoomDatabase:
         except Exception as e:
             _LOGGER.error("Failed to get common paths: %s", e)
             return []
+
+    # =========================================================================
+    # v3.5.0: CENSUS SNAPSHOT METHODS
+    # =========================================================================
+
+    async def log_census(self, zone: str, result: Any) -> None:
+        """Log a census snapshot for a single zone.
+
+        Args:
+            zone: "house" or "property"
+            result: CensusZoneResult dataclass instance
+        """
+        try:
+            import json
+            identified_persons_json = (
+                json.dumps(result.identified_persons)
+                if result.identified_persons
+                else None
+            )
+            timestamp = result.timestamp.isoformat() if result.timestamp else datetime.now().isoformat()
+
+            async with aiosqlite.connect(self.db_file) as db:
+                await db.execute("""
+                    INSERT OR REPLACE INTO census_snapshots (
+                        timestamp, zone, identified_count, identified_persons,
+                        unidentified_count, total_persons, confidence,
+                        source_agreement, frigate_count, unifi_count
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    timestamp,
+                    zone,
+                    result.identified_count,
+                    identified_persons_json,
+                    result.unidentified_count,
+                    result.total_persons,
+                    result.confidence,
+                    result.source_agreement,
+                    result.frigate_count,
+                    result.unifi_count,
+                ))
+                await db.commit()
+                _LOGGER.debug(
+                    "Census snapshot logged: zone=%s, total=%d, identified=%d, confidence=%s",
+                    zone,
+                    result.total_persons,
+                    result.identified_count,
+                    result.confidence,
+                )
+        except Exception as e:
+            _LOGGER.error("Failed to log census snapshot: %s", e)
+
+    async def get_census_history(self, hours: int = 24) -> list[dict[str, Any]]:
+        """Get census history for the last N hours.
+
+        Returns:
+            List of dicts with census snapshot data ordered by timestamp ascending.
+        """
+        try:
+            cutoff = (datetime.now() - timedelta(hours=hours)).isoformat()
+            async with aiosqlite.connect(self.db_file) as db:
+                db.row_factory = aiosqlite.Row
+                cursor = await db.execute("""
+                    SELECT
+                        timestamp, zone, identified_count, identified_persons,
+                        unidentified_count, total_persons, confidence,
+                        source_agreement, frigate_count, unifi_count
+                    FROM census_snapshots
+                    WHERE timestamp > ?
+                    ORDER BY timestamp ASC
+                """, (cutoff,))
+                rows = await cursor.fetchall()
+                return [dict(row) for row in rows]
+        except Exception as e:
+            _LOGGER.error("Failed to get census history: %s", e)
+            return []
+
+    async def cleanup_census(self, retention_days: int = 90) -> int:
+        """Delete census snapshots older than retention_days.
+
+        Returns:
+            Number of rows deleted.
+        """
+        try:
+            cutoff = (datetime.now() - timedelta(days=retention_days)).isoformat()
+            async with aiosqlite.connect(self.db_file) as db:
+                cursor = await db.execute("""
+                    DELETE FROM census_snapshots WHERE timestamp < ?
+                """, (cutoff,))
+                await db.commit()
+                deleted = cursor.rowcount
+                if deleted > 0:
+                    _LOGGER.debug("Census cleanup: deleted %d snapshots older than %d days", deleted, retention_days)
+                return deleted
+        except Exception as e:
+            _LOGGER.error("Failed to cleanup census snapshots: %s", e)
+            return 0

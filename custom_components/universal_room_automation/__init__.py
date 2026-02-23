@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation v3.3.5.9
+# Universal Room Automation v3.4.0
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -46,6 +46,7 @@ from .const import (
 from .coordinator import UniversalRoomCoordinator
 from .database import UniversalRoomDatabase
 from .person_coordinator import PersonTrackingCoordinator  # v3.2.0
+from .camera_census import CameraIntegrationManager, PersonCensus  # v3.5.0
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -260,7 +261,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 _LOGGER.error("Traceback: %s", traceback.format_exc())
         else:
             _LOGGER.info("No tracked persons configured, skipping person coordinator")
-        
+
+        # v3.5.0: Initialize camera integration manager and person census
+        try:
+            camera_manager = CameraIntegrationManager(hass)
+            await camera_manager.async_discover()
+            hass.data[DOMAIN]["camera_manager"] = camera_manager
+
+            census = PersonCensus(hass, camera_manager)
+            hass.data[DOMAIN]["census"] = census
+            _LOGGER.info(
+                "Camera census initialized (cameras discovered: %d)",
+                len(camera_manager.get_all_frigate_cameras())
+                + len(camera_manager.get_all_unifi_cameras()),
+            )
+        except Exception as e:
+            _LOGGER.error("Failed to initialize camera census: %s", e)
+
         # Set up aggregation sensors (sensor and binary_sensor platforms)
         # These will be registered via the platform files
         await hass.config_entries.async_forward_entry_setups(entry, INTEGRATION_PLATFORMS)
@@ -407,7 +424,12 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         for key in ["transition_detector", "pattern_learner", "music_following"]:
             if key in hass.data[DOMAIN]:
                 del hass.data[DOMAIN][key]
-        
+
+        # v3.5.0: Clean up camera census
+        for key in ["camera_manager", "census"]:
+            if key in hass.data[DOMAIN]:
+                del hass.data[DOMAIN][key]
+
         if "integration" in hass.data[DOMAIN]:
             del hass.data[DOMAIN]["integration"]
         
