@@ -1,291 +1,229 @@
 # URA Development Workflow Guide
 
-**Purpose:** Guide for using multiple AI models effectively in URA development with Antigravity/Claude Desktop
+**Primary Workflow:** Claude CLI with Auto-Spawned Subagents  
+**Updated:** February 2026
 
 ---
 
-## 🎯 Model Selection Strategy
+## 🚀 Primary Workflow: Claude CLI + Subagents
 
-Since Claude Desktop requires **manual model switching** via the UI, choose your model based on the task type:
+Run `claude` from the project root. Claude will **automatically spawn** the right agent for each task, or you can invoke one directly with `@agent-name`.
 
-### 🔷 **Use Opus (or Gemini 2.0)** For:
-
-**Planning & Architecture**
-- Creating implementation plans for new features (v3.5.0, v3.6.0, etc.)
-- Architectural design decisions
-- Reviewing VISION/ROADMAP documents
-- Complex refactoring across multiple files
-- Database schema changes
-
-**Complex Coding**
-- New feature implementation (15+ hours effort)
-- Multi-file changes with complex dependencies
-- Coordinator logic (person tracking, zone aggregation)
-- Event-driven architecture modifications
-- Integration of new platforms (cameras, BLE, etc.)
-
-**Why Opus?**
-- Superior reasoning for architecture
-- Better at maintaining context across large codebases
-- More reliable for complex multi-step tasks
-
----
-
-### 🔶 **Use Sonnet 3.5** For:
-
-**Bug Fixing (Within Established Patterns)**
-- Config flow validation fixes
-- Sensor state updates
-- Entity attribute corrections
-- Known bug patterns (see `quality/QUALITY_CONTEXT.md`)
-- Post-mortem implementations
-
-**Code Reviews**
-- Reviewing pull requests
-- Checking adherence to quality standards
-- Validation against development checklist
-
-**Testing**
-- Writing new test cases
-- Fixing test failures
-- Running test suite validation
-
-**Documentation**
-- Updating CURRENT_STATE.md
-- Creating bug reports
-- Writing post-mortems
-
-**Why Sonnet?**
-- Fast and efficient for well-defined tasks
-- Excellent for pattern-based fixes
-- Cost-effective for straightforward work
-
----
-
-### ⚡ **Use Flash (if available)** For:
-
-**Quick Tasks**
-- Running commands
-- File searches
-- Quick edits to single files
-- Formatting fixes
-- Git operations
-
-**Validation**
-- Running tests
-- Checking file structure
-- Verifying deployments
-
----
-
-## 📋 Recommended Workflow Patterns
-
-### Pattern 1: New Feature Development
-
-```
-1. Switch to OPUS
-   → Review docs/PLANNING_v3_X_0.md
-   → Review docs/VISION_v7.md
-   → Review quality/DEVELOPMENT_CHECKLIST.md
-   
-2. Stay in OPUS  
-   → Implement feature
-   → Create tests
-   → Update documentation
-   
-3. Switch to SONNET
-   → Run test suite
-   → Fix any test failures
-   → Validate against checklist
-```
-
-**Example:** Building v3.5.0 Camera Intelligence
-- Opus for coordinator design and implementation
-- Sonnet for test fixes and validation
-
----
-
-### Pattern 2: Bug Fixing
-
-```
-1. Switch to SONNET (or use OPUS if complex)
-   → Read quality/QUALITY_CONTEXT.md bug classes
-   → Identify bug pattern
-   → Check quality/POST_MORTEM_*.md for similar issues
-   
-2. Stay in SONNET
-   → Implement fix
-   → Write tests
-   → Validate with checklist
-   
-3. Use SONNET or FLASH
-   → Run tests
-   → Deploy and verify
-```
-
-**Example:** Fixing music transition timing
-- Sonnet for fix implementation (known pattern)
-- Flash for running tests
-
----
-
-### Pattern 3: Planning New Version
-
-```
-1. Switch to OPUS
-   → Review current docs/CURRENT_STATE.md
-   → Review docs/ROADMAP_v9.md
-   → Brainstorm architecture
-   
-2. Stay in OPUS
-   → Create docs/planning/PLANNING_v3_X_0.md
-   → Design database schema
-   → Plan coordinator changes
-   → Estimate effort
-   
-3. Use OPUS or SONNET
-   → Create task breakdown
-   → Update ROADMAP if needed
-```
-
-**Example:** Planning v3.7.0
-- Opus for all planning work
-- Save Sonnet for implementation phase
-
----
-
-## 🔄 How to Switch Models
-
-**In Claude Desktop:**
-
-1. Look for model selector (usually top of chat interface)
-2. Click dropdown
-3. Select desired model:
-   - Claude 3.5 Opus
-   - Claude 3.5 Sonnet  
-   - Claude 3.5 Haiku/Flash (if available)
-4. Continue conversation with new model
-
-**Note:** Model context is maintained when switching, so you can change models mid-session.
-
----
-
-## 💡 Best Practices
-
-### 1. **Start Big, Finish Small**
-- Begin complex tasks with Opus
-- Switch to Sonnet for refinements and tests
-- Use Flash for final validation
-
-### 2. **Document Your Model Choice**
-When starting a session, note which model you're using:
-```
-"Using Opus for v3.5.0 camera intelligence implementation"
-```
-
-### 3. **Leverage Context Documents**
-Both Opus and Sonnet benefit from reading:
-- `docs/VISION_v7.md` - What we're building
-- `docs/ROADMAP_v9.md` - Where we're going
-- `docs/CURRENT_STATE.md` - Where we are
-- `quality/QUALITY_CONTEXT.md` - How we build
-
-### 4. **Use Quality Checklist**
-Reference `quality/DEVELOPMENT_CHECKLIST.md` regardless of model:
-- Pre-development validation
-- During development checks
-- Post-development review
-
-### 5. **Test Suite First**
-Always run tests after changes:
 ```bash
-pytest tests/ --cov=custom_components/universal_room_automation
+cd /Users/ojiudezue/Code/universal-room-automation
+claude
 ```
-Use Sonnet or Flash for test execution and simple fixes.
+
+### The 4 URA Agents
+
+| Agent | Model | When Claude Spawns It | Direct Invoke |
+|-------|-------|----------------------|---------------|
+| `ura-planner` | `claude-opus-4-6` | When reviewing/critiquing a planning doc | `@ura-planner review docs/PLANNING_v3_5_0_Camera_Intelligence.md` |
+| `ura-builder` | `claude-sonnet-4-6` | When implementing features or fixing bugs | `@ura-builder fix the music transition bug in music_following.py` |
+| `ura-reviewer` | `claude-opus-4-6` | When ingesting changes from an external version | `@ura-reviewer review v3.3.5.4 at [path]` |
+| `ura-validator` | `claude-sonnet-4-6` | After any code change, before commits | `@ura-validator run tests` |
+
+Agents are defined in `.claude/agents/`. The HA coding skill is at `.claude/skills/homeassistant_coding/SKILL.md`.
 
 ---
 
-## 📊 Model Usage Matrix
+## 📋 Core Workflows
 
-| Task Type | Recommended Model | Why |
-|-----------|------------------|-----|
-| New feature planning | **Opus** | Complex reasoning needed |
-| Feature implementation (15+ hrs) | **Opus** | Multi-file complexity |
-| Bug fix (known pattern) | **Sonnet** | Fast, pattern-based |
-| Bug fix (unknown root cause) | **Opus** | Deep debugging needed |
-| Writing tests | **Sonnet** | Well-defined task |
-| Running tests | **Sonnet/Flash** | Simple execution |
-| Architecture changes | **Opus** | System-level thinking |
-| Documentation updates | **Sonnet** | Straightforward writing |
-| Code review | **Sonnet** | Pattern matching |
-| Refactoring (single file) | **Sonnet** | Contained scope |
-| Refactoring (multi-file) | **Opus** | Complex dependencies |
-| Database schema design | **Opus** | Architectural decision |
-| Config flow tweaks | **Sonnet** | Known patterns |
+### Ingest an Old OneDrive Version (e.g. v3.3.5.4)
 
----
+```
+1. @ura-reviewer review v3.3.5.4 at /Users/ojiudezue/Library/CloudStorage/
+   OneDrive-Personal/2025/Download 2025/Madrone Labs/Integrations/
+   Room Appliance Integration/v3.3.5.4/universal_room_automation
 
-## 🎓 Learning From Experience
+2. Review the ✅/⚠️/❌ report
 
-### What Works Well
+3. @ura-builder adopt the approved changes
 
-✅ **Opus for Planning**
-- v3.5.0 planning: Opus created comprehensive 62KB specification
-- Caught architectural dependencies other models might miss
+4. @ura-validator run tests
 
-✅ **Sonnet for Known Bugs**
-- Zone race condition fix: Fast implementation following documented pattern
-- Config storage pattern: Quick fix using existing learnings
+5. git commit -m "[builder] feat: adopt v3.3.5.4 changes — [summary]"
+```
 
-✅ **Model Switching During Work**
-- Start feature with Opus (architecture)
-- Switch to Sonnet for tests
-- Back to Opus if unexpected complexity arises
+### Fix a Bug
 
-### What to Avoid
+```
+1. Describe the bug: "Fix music transition timing in music_following.py"
+   → Claude auto-invokes ura-builder
+   
+2. ura-builder reads quality/QUALITY_CONTEXT.md and POST_MORTEM docs first
 
-❌ **Don't use Flash for complex planning**
-- May miss subtle architectural issues
+3. @ura-validator (auto-invoked after fix)
 
-❌ **Don't overthink model choice**
-- When in doubt, start with Opus
-- Can always switch mid-task
+4. git commit
+```
 
-❌ **Don't skip context documents**
-- Models work better with full context
-- 15 minutes reading saves hours of rework
+### Review an Existing Plan (Not Replanning)
 
----
+```
+1. "Review the v3.5.0 camera intelligence plan"
+   → Claude auto-invokes ura-planner
+   
+2. ura-planner reads VISION_v7.md + ROADMAP_v9.md + the planning doc
 
-## 🚀 Quick Reference
+3. Returns critique with ✅/⚠️/❌ — no new plan written
+```
 
-**Starting a new session? Ask yourself:**
+### Implement a Planned Feature
 
-1. **Is this exploring new architectural territory?** → Opus
-2. **Is this fixing a known bug pattern?** → Sonnet
-3. **Is this implementing a planned feature?** → Opus (start), Sonnet (tests)
-4. **Is this running commands/tests?** → Flash or Sonnet
-5. **Is this code review?** → Sonnet
+```
+1. "Implement [feature] from PLANNING_v3_5_0_Camera_Intelligence.md"
+   → Claude auto-invokes ura-builder
 
-**Rule of thumb:** When in doubt, use Opus. You can always switch to Sonnet for simpler subtasks.
+2. ura-builder reads planning doc + DEVELOPMENT_CHECKLIST.md
+
+3. @ura-validator after implementation
+
+4. git commit → PR to develop
+```
 
 ---
 
-## 📁 Integration with Antigravity
+## 🎯 Model Selection (Current Versions)
 
-Since you're using **Claude Desktop + Antigravity**:
+| Model | API ID | Role |
+|-------|--------|------|
+| Claude Opus 4.6 | `claude-opus-4-6` | Planning critique, code review, architecture |
+| Claude Sonnet 4.6 | `claude-sonnet-4-6` | Building, testing, validation, documentation |
 
-- ✅ All models have access to same tools (file editing, terminal, etc.)
-- ✅ Context is preserved when switching models
-- ✅ Task boundaries work across model switches
-- ✅ Artifacts (task.md, plans) are shared across models
-
-**Workflow:**
-1. Set task boundary with `task.md`
-2. Choose model based on task type
-3. Switch models as needed during execution
-4. Complete with validation (Sonnet/Flash)
+> **Sonnet 4.6** (released Feb 17, 2026) has a 1M token context window — can read the entire URA codebase in a single pass.  
+> **Opus 4.6** (released Feb 5, 2026) is for complex reasoning and cross-file architectural decisions.
 
 ---
 
-**Remember:** The goal is efficiency and quality. Use the right model for the job, and don't hesitate to switch when the task changes!
+## 📚 Key Resources
+
+| Resource | Path | Used By |
+|----------|------|---------|
+| HA Coding Skill | `.claude/skills/homeassistant_coding/SKILL.md` | ura-builder |
+| Vision | `docs/VISION_v7.md` | ura-planner |
+| Roadmap | `docs/ROADMAP_v9.md` | ura-planner |
+| Current State | `docs/CURRENT_STATE.md` | All agents |
+| Quality Context | `quality/QUALITY_CONTEXT.md` | ura-builder, ura-reviewer |
+| Dev Checklist | `quality/DEVELOPMENT_CHECKLIST.md` | ura-builder, ura-validator |
+| Config Flow Checklist | `quality/CONFIG_FLOW_VALIDATION_CHECKLIST.md` | ura-validator |
+
+---
+
+## 🌿 Branch Strategy
+
+```
+main         ← production releases (tagged: v3.3.5.x)
+develop      ← integration branch
+feature/*    ← new version work (e.g. feature/v3.5.0-camera)
+hotfix/*     ← urgent bug fixes
+```
+
+```bash
+# Start a bug fix
+git checkout -b hotfix/v3.3.5.4-music-fix
+# ... fix + validate ...
+git commit -m "[builder] fix: music transition timing"
+git push -u origin hotfix/v3.3.5.4-music-fix
+
+# Start a feature
+git checkout -b feature/v3.5.0-camera-intelligence
+```
+
+---
+
+## 🚢 Deploy to HACS
+
+### Version Stamping
+
+`scripts/stamp_version.py` keeps version numbers in sync across the codebase. It updates:
+- The `VERSION` constant in `const.py`
+- Header comments (`# Universal Room Automation vX.X.X.X`) in all `.py` files
+- The `version` field in `manifest.json`
+
+```bash
+# Set a new version and stamp everywhere
+python3 scripts/stamp_version.py 3.3.5.7
+
+# Just re-stamp from whatever VERSION is already in const.py
+python3 scripts/stamp_version.py
+```
+
+### One-Command Deploy
+
+`scripts/deploy.sh` chains the full release pipeline into a single command:
+
+```bash
+./scripts/deploy.sh <version> <commit-summary> <release-notes>
+```
+
+What it does (7 steps):
+1. Stamps version via `stamp_version.py`
+2. Stages changed component files
+3. Commits with `v<version>: <summary>`
+4. Pushes to `develop`
+5. Creates PR `develop → master`
+6. Merges the PR
+7. Creates a GitHub release `v<version>` with release notes
+
+**Example:**
+```bash
+./scripts/deploy.sh "3.3.5.7" "Fix zone entity grouping" "- Fixed zone entities not grouping correctly
+- Improved entity discovery for grouped zones"
+```
+
+**Dry run** (prints steps without executing):
+```bash
+./scripts/deploy.sh "3.3.5.7" "Fix zone entity grouping" "- Fixed..." --dry-run
+```
+
+### Single-Approval Workflow
+
+The intended workflow with Claude:
+1. Describe the bug or change needed — Claude investigates and implements the fix
+2. Review and approve the code changes
+3. Tell Claude: `deploy 3.3.5.7 with summary "Fix zone grouping" and notes "- Fixed zone entities..."`
+4. Claude runs `deploy.sh` — everything from commit to release happens automatically
+
+---
+
+## 💰 Token Efficiency — Model Selection by Task
+
+When working in the main Claude CLI session, delegate work to the right model tier:
+
+| Task Type | Model | How |
+|-----------|-------|-----|
+| Bug investigation, architecture review | Opus | Main session (default) |
+| Code edits, feature implementation | Sonnet | `Task` tool with `model: "sonnet"` or `@ura-builder` |
+| Deploy mechanics (commit, PR, release) | Haiku | `Task` tool with `model: "haiku"` |
+| Validation, testing | Sonnet | `@ura-validator` |
+
+**Why this matters:** Running code edits on Opus costs ~5x more than Sonnet for equivalent quality on implementation tasks. Reserve Opus for reasoning-heavy work (debugging from screenshots, cross-file architecture decisions, review).
+
+---
+
+## ⚡ Quick Reference
+
+| Question | Answer |
+|----------|--------|
+| Reviewing an existing plan? | `@ura-planner` with Opus 4.6 |
+| Implementing from a plan? | `@ura-builder` with Sonnet 4.6 |
+| Ingesting from OneDrive? | `@ura-reviewer` first, then `@ura-builder` |
+| Before any git commit? | `@ura-validator` |
+| Unknown root cause bug? | Ask Claude — it'll escalate to Opus via `ura-reviewer` |
+
+---
+
+## 📌 Legacy Reference (Claude Desktop / Manual Model Switching)
+
+If you're in **Claude Desktop without CLI**, use these manually:
+
+| Task | Model |
+|------|-------|
+| Plan critique / architecture | Opus 4.6 |
+| Bug fix (known pattern) | Sonnet 4.6 |
+| Feature implementation | Sonnet 4.6 (Opus for complex) |
+| Tests / validation | Sonnet 4.6 |
+| Documentation | Sonnet 4.6 |
+
+Rules still apply: always read `quality/QUALITY_CONTEXT.md` before changing code, and `docs/VISION_v7.md` + `docs/ROADMAP_v9.md` before planning sessions.

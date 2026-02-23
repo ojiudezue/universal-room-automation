@@ -4,6 +4,11 @@
 Reads VERSION from const.py and updates:
 1. Header comments in all .py files (first 5 lines)
 2. manifest.json version field
+
+Optional CLI usage:
+  python3 stamp_version.py 3.3.5.7
+  When a version argument is provided, const.py is updated first,
+  then the normal stamping proceeds.
 """
 
 import json
@@ -28,6 +33,21 @@ def get_version() -> str:
             return match.group(1)
     print("ERROR: Could not find VERSION in const.py", file=sys.stderr)
     sys.exit(1)
+
+
+def set_version(new_version: str) -> None:
+    """Update the VERSION line in const.py to new_version."""
+    content = CONST_FILE.read_text()
+    updated = re.sub(
+        r'(VERSION\s*:\s*Final\s*=\s*")[^"]+(")',
+        rf"\g<1>{new_version}\g<2>",
+        content,
+    )
+    if updated == content:
+        print(f"  WARNING: VERSION line not found or already set to {new_version} in const.py", file=sys.stderr)
+    else:
+        CONST_FILE.write_text(updated)
+        print(f"  Updated: const.py VERSION -> {new_version}")
 
 
 def stamp_py_files(version: str) -> int:
@@ -61,6 +81,12 @@ def stamp_manifest(version: str) -> None:
 
 
 def main() -> None:
+    if len(sys.argv) > 1:
+        new_version = sys.argv[1]
+        print(f"Setting version to {new_version}")
+        set_version(new_version)
+        print()
+
     version = get_version()
     print(f"Stamping version {version}")
     print()
