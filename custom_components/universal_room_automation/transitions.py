@@ -1,4 +1,4 @@
-"""Room transition detection for Universal Room Automation v3.3.0.
+"""Room transition detection for Universal Room Automation v3.3.5.5.
 
 Detects and classifies room-to-room transitions for pattern learning
 and cross-room coordination.

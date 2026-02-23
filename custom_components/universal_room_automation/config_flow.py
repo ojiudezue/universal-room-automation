@@ -1,6 +1,6 @@
 """Config flow for Universal Room Automation v3.3.3."""
 #
-# Universal Room Automation v3.3.3
+# Universal Room Automation v3.3.5.5
 # Build: 2026-01-05
 # File: config_flow.py
 # v3.3.3: Added manage_zones to integration options menu
@@ -599,24 +599,32 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
             {"label": "Generic Room", "value": ROOM_TYPE_GENERIC},
         ]
         
-        # Get existing zones for combo selector (allows selecting existing or typing new)
+        # v3.3.5.3: Get existing zones from Zone config entries
         existing_zones = self._get_existing_zones()
         zone_options = [{"label": z, "value": z} for z in sorted(existing_zones)]
 
-        data_schema = vol.Schema({
+        # Build base schema
+        schema_fields = {
             vol.Required(CONF_ROOM_NAME): selector.TextSelector(),
             vol.Required(CONF_ROOM_TYPE, default=ROOM_TYPE_GENERIC): selector.SelectSelector(
                 selector.SelectSelectorConfig(options=room_types, mode=selector.SelectSelectorMode.DROPDOWN)
             ),
             vol.Optional(CONF_AREA_ID): selector.AreaSelector(),
-            # v3.1.0: Zone selection - combo selector (select existing or type new)
-            vol.Optional(CONF_ZONE): selector.SelectSelector(
+        }
+        
+        # v3.3.5.3: Only add zone selector if zones exist
+        # To create a new zone, use "Add new Zone" from integration options menu
+        if zone_options:
+            schema_fields[vol.Optional(CONF_ZONE)] = selector.SelectSelector(
                 selector.SelectSelectorConfig(
                     options=zone_options,
-                    custom_value=True,  # Allows entering new values
+                    custom_value=False,  # Select existing only
                     mode=selector.SelectSelectorMode.DROPDOWN
                 )
-            ) if zone_options else selector.TextSelector(),
+            )
+        
+        # Add remaining fields
+        schema_fields.update({
             # v3.1.0: Shared space settings
             vol.Optional(CONF_SHARED_SPACE, default=False): selector.BooleanSelector(),
             vol.Optional(CONF_SHARED_SPACE_AUTO_OFF_HOUR, default=DEFAULT_SHARED_SPACE_AUTO_OFF_HOUR): selector.NumberSelector(
@@ -639,6 +647,8 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
                 )
             ),
         })
+        
+        data_schema = vol.Schema(schema_fields)
 
         return self.async_show_form(
             step_id="room_setup",
@@ -648,13 +658,18 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
         )
     
     def _get_existing_zones(self) -> set[str]:
-        """Get existing zones from all room entries."""
+        """Get existing zones from Zone config entries (v3.3.5.3).
+        
+        Changed from reading zone names from room entries to reading
+        from actual Zone config entries. This ensures zones must be
+        explicitly created via 'Add new Zone' before assignment.
+        """
         zones = set()
         for entry in self.hass.config_entries.async_entries(DOMAIN):
-            if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_ROOM:
-                zone = entry.options.get(CONF_ZONE) or entry.data.get(CONF_ZONE)
-                if zone:
-                    zones.add(zone)
+            if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_ZONE:
+                zone_name = entry.data.get(CONF_ZONE_NAME)
+                if zone_name:
+                    zones.add(zone_name)
         return zones
 
     async def async_step_sensors(self, user_input=None):
@@ -1143,6 +1158,16 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
             )
         return self.async_abort(reason="migration_failed")
 
+    async def async_step_zone_migration(self, user_input=None):
+        """Handle zone migration - auto-create zone entries from zone names (v3.3.5.3)."""
+        if user_input is not None:
+            zone_name = user_input.get(CONF_ZONE_NAME, "Unknown Zone")
+            return self.async_create_entry(
+                title=f"📍 {zone_name}",
+                data=user_input,
+            )
+        return self.async_abort(reason="migration_failed")
+
     @staticmethod
     @callback
     def async_get_options_flow(config_entry):
@@ -1372,13 +1397,17 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         ]
     
     def _get_existing_zones(self) -> set[str]:
-        """Get existing zones from all room entries."""
+        """Get existing zones from Zone config entries (v3.3.5.3).
+        
+        Changed from reading zone names from room entries to reading
+        from actual Zone config entries.
+        """
         zones = set()
         for entry in self.hass.config_entries.async_entries(DOMAIN):
-            if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_ROOM:
-                zone = entry.options.get(CONF_ZONE) or entry.data.get(CONF_ZONE)
-                if zone:
-                    zones.add(zone)
+            if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_ZONE:
+                zone_name = entry.data.get(CONF_ZONE_NAME)
+                if zone_name:
+                    zones.add(zone_name)
         return zones
 
     async def async_step_person_tracking(self, user_input=None):

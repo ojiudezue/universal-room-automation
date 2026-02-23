@@ -1,4 +1,4 @@
-"""Music following for Universal Room Automation v3.3.5.3.
+"""Music following for Universal Room Automation v3.3.5.5.
 
 Seamlessly transfer music playback when person moves between rooms.
 
@@ -33,7 +33,7 @@ v3.3.1: Fixed _get_room_entries to properly merge entry.options over entry.data.
 import logging
 from typing import Optional
 
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import HomeAssistant
 from homeassistant.components.media_player import (
     ATTR_MEDIA_POSITION,
     ATTR_MEDIA_VOLUME_LEVEL,
@@ -116,7 +116,7 @@ class MusicFollowing:
         # Track which person we're following music for
         self._enabled_persons: set[str] = set()
         
-        _LOGGER.info("MusicFollowing v3.3.5.2 initialized")
+        _LOGGER.info("MusicFollowing v3.3.5.5 initialized")
     
     async def async_init(self) -> None:
         """Initialize music following and subscribe to transitions."""
@@ -138,14 +138,17 @@ class MusicFollowing:
         self._enabled_persons.discard(person_id)
         _LOGGER.info("Music following disabled for: %s", person_id)
     
-    @callback
     async def _on_person_transition(self, transition: RoomTransition) -> None:
         """Handle person transition - transfer music if appropriate."""
         person_id = transition.person_id
         from_room = transition.from_room
         to_room = transition.to_room
         confidence = transition.confidence
-        
+
+        if from_room == to_room:
+            _LOGGER.debug("🎵 Ignoring same-room transition: %s in %s", person_id, from_room)
+            return
+
         _LOGGER.info(
             "🎵 Transition detected: %s moving %s → %s (confidence=%.2f)",
             person_id, from_room, to_room, confidence
@@ -680,25 +683,6 @@ class MusicFollowing:
         except Exception as e:
             _LOGGER.error("🎵 Generic transfer failed: %s", e)
             return False
-    
-    # Legacy methods kept for backward compatibility
-    async def _transfer_sonos_to_sonos(self, from_player: str, to_player: str, volume: float) -> bool:
-        """DEPRECATED: Use _transfer_same_platform_join instead."""
-        return await self._transfer_same_platform_join(from_player, to_player, volume, PLATFORM_SONOS)
-    
-    async def _transfer_linkplay_to_linkplay(self, from_player: str, to_player: str, volume: float,
-                                              media_content_id: Optional[str], media_content_type: Optional[str]) -> bool:
-        """DEPRECATED: Use _transfer_same_platform_join instead."""
-        return await self._transfer_same_platform_join(from_player, to_player, volume, PLATFORM_LINKPLAY)
-    
-    async def _transfer_wiim_to_wiim(self, from_player: str, to_player: str, volume: float,
-                                      media_content_id: Optional[str], media_content_type: Optional[str]) -> bool:
-        """DEPRECATED: Use _transfer_same_platform_join instead. v3.3.5.2: Now uses media_player.join."""
-        return await self._transfer_same_platform_join(from_player, to_player, volume, PLATFORM_WIIM)
-    
-    def _is_sonos_player(self, entity_id: str) -> bool:
-        """DEPRECATED: Use _get_player_platform() instead."""
-        return self._get_player_platform(entity_id) == PLATFORM_SONOS
     
     async def manual_transfer(self, person_id: str, from_room: str, to_room: str) -> bool:
         """Manually trigger music transfer (for testing/automation)."""

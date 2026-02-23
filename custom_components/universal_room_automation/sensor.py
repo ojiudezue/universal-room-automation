@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.3.1.3
+# Universal Room Automation v3.3.5.5
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -1396,7 +1396,14 @@ class DevicesSensor(UniversalRoomEntity, SensorEntity):
         manual_devices = set(config.get("manual_devices", []))
         manual_devices.update(config.get("manual_switches", []))
         count += len(manual_devices)
-        
+
+        # v3.3.5.5: Count media player, power sensors, energy sensor
+        if config.get("room_media_player"):
+            count += 1
+        count += len(config.get("power_sensors", []))
+        if config.get("energy_sensor"):
+            count += 1
+
         return count
 
     @property
@@ -1422,6 +1429,10 @@ class DevicesSensor(UniversalRoomEntity, SensorEntity):
             # Also include legacy fields for backward compatibility
             "auto_switches": config.get("auto_switches", []),
             "manual_switches": config.get("manual_switches", []),
+            # v3.3.5.5: Media and energy devices
+            "room_media_player": config.get("room_media_player"),
+            "power_sensors": config.get("power_sensors", []),
+            "energy_sensor": config.get("energy_sensor"),
         }
 
 
@@ -1464,9 +1475,16 @@ class DeviceStatusSensor(UniversalRoomEntity, SensorEntity):
         config = {**self.coordinator.entry.data, **self.coordinator.entry.options}
         all_entities = []
 
-        # Collect all entities
-        for key in ["lights", "fans", "humidity_fans", "covers", "auto_switches", "manual_switches"]:
+        # Collect all entities from list-type keys
+        for key in ["lights", "fans", "humidity_fans", "covers", "auto_switches", "manual_switches",
+                     "power_sensors"]:
             all_entities.extend(config.get(key, []))
+
+        # Collect single-entity keys
+        for key in ["room_media_player", "energy_sensor"]:
+            entity_id = config.get(key)
+            if entity_id:
+                all_entities.append(entity_id)
 
         device_names = set()
         for entity_id in all_entities:
