@@ -1,6 +1,6 @@
 """Data coordinator for Universal Room Automation."""
 #
-# Universal Room Automation v3.3.5.8
+# Universal Room Automation v3.3.5.9
 # Build: 2026-01-02
 # File: coordinator.py
 # v3.2.8: Support for active state change listeners in aggregation sensors
@@ -8,6 +8,7 @@
 # FIX: Environmental sensors now read from options (user changes) with data fallback
 #
 
+import asyncio
 import logging
 from datetime import datetime, timedelta
 from typing import Any
@@ -625,6 +626,7 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         if self._is_automation_enabled():
             # Handle occupancy changes
             if data[STATE_OCCUPIED] != self._last_occupied_state:
+                was_occupied = self._last_occupied_state
                 self._last_occupied_state = data[STATE_OCCUPIED]
                 try:
                     await self.automation.handle_occupancy_change(
@@ -633,6 +635,29 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                     )
                 except Exception as e:
                     _LOGGER.error("Error in occupancy automation: %s", e)
+
+                # RESILIENCE-003: Verify vacancy exit and retry if devices still on
+                if was_occupied and not data[STATE_OCCUPIED]:
+                    await asyncio.sleep(3)
+                    area_id = self._get_config(CONF_AREA_ID)
+                    if area_id:
+                        device_counts = self._calculate_device_counts(area_id)
+                        lights_on = device_counts.get("lights_on", 0)
+                        switches_on = device_counts.get("switches_on", 0)
+                        fans_on = device_counts.get("fans_on", 0)
+                        if lights_on > 0 or switches_on > 0 or fans_on > 0:
+                            _LOGGER.warning(
+                                "Room %s: Exit automation may have failed — "
+                                "%d light(s), %d switch(es), %d fan(s) still on. Retrying.",
+                                room_name, lights_on, switches_on, fans_on,
+                            )
+                            try:
+                                await self.automation.handle_occupancy_change(False, data)
+                            except Exception as e:
+                                _LOGGER.error(
+                                    "Room %s: Retry exit automation also failed: %s",
+                                    room_name, e,
+                                )
             
             # Periodic automation tasks
             try:

@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation v3.3.5.8
+# Universal Room Automation v3.3.5.9
 # Build: 2026-01-05
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "3.3.5.8"
+VERSION: Final = "3.3.5.9"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -679,6 +679,13 @@ IDLE_POWER_THRESHOLD: Final = 5  # Watts (below this is considered idle waste)
 # HVAC direction thresholds
 HVAC_COOLING_THRESHOLD: Final = 5  # degrees above comfort max
 HVAC_HEATING_THRESHOLD: Final = 5  # degrees below comfort min
+
+# HVAC Zone Preset Triggers (v3.3.5.9)
+CONF_ZONE_VACANT_PRESET: Final = "zone_vacant_preset"
+CONF_ZONE_OCCUPIED_PRESET: Final = "zone_occupied_preset"
+DEFAULT_ZONE_VACANT_PRESET: Final = "away"
+DEFAULT_ZONE_OCCUPIED_PRESET: Final = "home"
+HVAC_PRESET_SKIP: Final = ("manual", "sleep")
 
 # Alert type to color mapping
 ALERT_TYPE_COLORS: Final = {

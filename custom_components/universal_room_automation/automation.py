@@ -1,6 +1,6 @@
 """Automation logic for Universal Room Automation."""
 #
-# Universal Room Automation v3.3.5.8
+# Universal Room Automation v3.3.5.9
 # Build: 2026-01-04
 # File: automation.py
 # v3.3.1.1: Added int() cast to get_auto_off_hour to handle NumberSelector float values
@@ -9,6 +9,7 @@
 # v3.2.8.2: Multi-domain humidity fans (fans, switches)
 #
 
+import asyncio
 import logging
 from datetime import datetime, time
 from typing import Any
@@ -137,6 +138,39 @@ class RoomAutomation:
         # v3.1.0: Alert light state tracking
         self._alert_lights_active: bool = False
         self._alert_light_original_states: dict[str, dict] = {}
+
+    async def _safe_service_call(
+        self,
+        domain: str,
+        service: str,
+        service_data: dict,
+        blocking: bool = False,
+        timeout: float = 5.0,
+    ) -> bool:
+        """Call a service with timeout and error handling."""
+        entity_ids = service_data.get("entity_id", "unknown")
+        try:
+            await asyncio.wait_for(
+                self.hass.services.async_call(
+                    domain, service, service_data, blocking=blocking
+                ),
+                timeout=timeout,
+            )
+            return True
+        except asyncio.TimeoutError:
+            _LOGGER.error(
+                "Service call timeout after %.1fs: %s.%s for %s in room %s",
+                timeout, domain, service, entity_ids,
+                self.config.get("room_name", "unknown"),
+            )
+            return False
+        except Exception as e:
+            _LOGGER.error(
+                "Service call failed: %s.%s for %s in room %s: %s",
+                domain, service, entity_ids,
+                self.config.get("room_name", "unknown"), e,
+            )
+            return False
 
     def is_sleep_mode_active(self) -> bool:
         """Check if sleep protection is currently active."""
@@ -322,32 +356,26 @@ class RoomAutomation:
 
         # Turn off actual light.* entities with 3s transition
         if actual_lights:
-            try:
-                await self.hass.services.async_call(
-                    "light",
-                    SERVICE_TURN_OFF,
-                    {
-                        "entity_id": actual_lights,
-                        "transition": self.config.get(CONF_LIGHT_TRANSITION_OFF, 3),
-                    },
-                    blocking=False,
-                )
-                _LOGGER.debug("Turned off %d light(s): %s", len(actual_lights), actual_lights)
-            except Exception as e:
-                _LOGGER.error("Error turning off lights: %s", e)
+            await self._safe_service_call(
+                "light",
+                SERVICE_TURN_OFF,
+                {
+                    "entity_id": actual_lights,
+                    "transition": self.config.get(CONF_LIGHT_TRANSITION_OFF, 3),
+                },
+                blocking=False,
+            )
+            _LOGGER.debug("Turned off %d light(s): %s", len(actual_lights), actual_lights)
 
         # Turn off switch.* entities instantly (no transition)
         if switches_as_lights:
-            try:
-                await self.hass.services.async_call(
-                    "switch",
-                    SERVICE_TURN_OFF,
-                    {"entity_id": switches_as_lights},
-                    blocking=False,
-                )
-                _LOGGER.debug("Turned off %d switch(es) as lights: %s", len(switches_as_lights), switches_as_lights)
-            except Exception as e:
-                _LOGGER.error("Error turning off switches: %s", e)
+            await self._safe_service_call(
+                "switch",
+                SERVICE_TURN_OFF,
+                {"entity_id": switches_as_lights},
+                blocking=False,
+            )
+            _LOGGER.debug("Turned off %d switch(es) as lights: %s", len(switches_as_lights), switches_as_lights)
 
         # Track action with INFO log
         _LOGGER.info(
@@ -390,24 +418,18 @@ class RoomAutomation:
                 brightness_pct = self.config.get(CONF_LIGHT_BRIGHTNESS_PCT, 100)
                 service_data["brightness_pct"] = brightness_pct
             
-            try:
-                await self.hass.services.async_call(
-                    "light", SERVICE_TURN_ON, service_data, blocking=False
-                )
-                _LOGGER.debug("Turned on %d regular light(s)", len(actual_lights))
-            except Exception as e:
-                _LOGGER.error("Error turning on regular lights: %s", e)
-        
+            await self._safe_service_call(
+                "light", SERVICE_TURN_ON, service_data, blocking=False
+            )
+            _LOGGER.debug("Turned on %d regular light(s)", len(actual_lights))
+
         # Turn on switch.* entities
         if switches_as_lights:
-            try:
-                await self.hass.services.async_call(
-                    "switch", SERVICE_TURN_ON, 
-                    {"entity_id": switches_as_lights}, blocking=False
-                )
-                _LOGGER.debug("Turned on %d regular switch(es)", len(switches_as_lights))
-            except Exception as e:
-                _LOGGER.error("Error turning on regular switches: %s", e)
+            await self._safe_service_call(
+                "switch", SERVICE_TURN_ON,
+                {"entity_id": switches_as_lights}, blocking=False
+            )
+            _LOGGER.debug("Turned on %d regular switch(es)", len(switches_as_lights))
     
     async def _turn_on_night_lights(self, mode: str = "sleep") -> None:
         """Turn on night lights with mode-specific settings.
@@ -461,27 +483,21 @@ class RoomAutomation:
             if capability == LIGHT_CAPABILITY_FULL:
                 service_data["kelvin"] = color_temp
             
-            try:
-                await self.hass.services.async_call(
-                    "light", SERVICE_TURN_ON, service_data, blocking=False
-                )
-                _LOGGER.info(
-                    "Turned on %d night light(s) in %s mode (brightness=%s%%, color=%sK)",
-                    len(actual_lights), mode, brightness, color_temp
-                )
-            except Exception as e:
-                _LOGGER.error("Error turning on night lights: %s", e)
-        
+            await self._safe_service_call(
+                "light", SERVICE_TURN_ON, service_data, blocking=False
+            )
+            _LOGGER.info(
+                "Turned on %d night light(s) in %s mode (brightness=%s%%, color=%sK)",
+                len(actual_lights), mode, brightness, color_temp
+            )
+
         # Turn on switch.* entities (no brightness/color support)
         if switches_as_lights:
-            try:
-                await self.hass.services.async_call(
-                    "switch", SERVICE_TURN_ON,
-                    {"entity_id": switches_as_lights}, blocking=False
-                )
-                _LOGGER.debug("Turned on %d night switch(es)", len(switches_as_lights))
-            except Exception as e:
-                _LOGGER.error("Error turning on night switches: %s", e)
+            await self._safe_service_call(
+                "switch", SERVICE_TURN_ON,
+                {"entity_id": switches_as_lights}, blocking=False
+            )
+            _LOGGER.debug("Turned on %d night switch(es)", len(switches_as_lights))
     
     async def _turn_off_non_night_lights(self) -> None:
         """Turn off all lights that are NOT night lights."""
@@ -500,29 +516,23 @@ class RoomAutomation:
         
         # Turn off light.* entities with transition
         if actual_lights:
-            try:
-                await self.hass.services.async_call(
-                    "light", SERVICE_TURN_OFF,
-                    {
-                        "entity_id": actual_lights,
-                        "transition": self.config.get(CONF_LIGHT_TRANSITION_OFF, 3),
-                    },
-                    blocking=False
-                )
-                _LOGGER.debug("Turned off %d non-night light(s)", len(actual_lights))
-            except Exception as e:
-                _LOGGER.error("Error turning off non-night lights: %s", e)
-        
+            await self._safe_service_call(
+                "light", SERVICE_TURN_OFF,
+                {
+                    "entity_id": actual_lights,
+                    "transition": self.config.get(CONF_LIGHT_TRANSITION_OFF, 3),
+                },
+                blocking=False
+            )
+            _LOGGER.debug("Turned off %d non-night light(s)", len(actual_lights))
+
         # Turn off switch.* entities
         if switches_as_lights:
-            try:
-                await self.hass.services.async_call(
-                    "switch", SERVICE_TURN_OFF,
-                    {"entity_id": switches_as_lights}, blocking=False
-                )
-                _LOGGER.debug("Turned off %d non-night switch(es)", len(switches_as_lights))
-            except Exception as e:
-                _LOGGER.error("Error turning off non-night switches: %s", e)
+            await self._safe_service_call(
+                "switch", SERVICE_TURN_OFF,
+                {"entity_id": switches_as_lights}, blocking=False
+            )
+            _LOGGER.debug("Turned off %d non-night switch(es)", len(switches_as_lights))
 
     async def _control_auto_switches(self, turn_on: bool) -> None:
         """Control auto devices (switches, lights, fans, input_booleans).
@@ -545,17 +555,14 @@ class RoomAutomation:
 
         service = SERVICE_TURN_ON if turn_on else SERVICE_TURN_OFF
 
-        try:
-            # Use homeassistant domain for multi-domain support
-            await self.hass.services.async_call(
-                "homeassistant",
-                service,
-                {"entity_id": devices},
-                blocking=False,
-            )
-            _LOGGER.debug("%s auto devices: %s", service, devices)
-        except Exception as e:
-            _LOGGER.error("Error controlling auto devices: %s", e)
+        # Use homeassistant domain for multi-domain support
+        await self._safe_service_call(
+            "homeassistant",
+            service,
+            {"entity_id": devices},
+            blocking=False,
+        )
+        _LOGGER.debug("%s auto devices: %s", service, devices)
 
     async def _control_manual_switches_off(self) -> None:
         """Turn off manual devices on exit (switches, lights, fans, input_booleans).
@@ -576,17 +583,14 @@ class RoomAutomation:
         if not devices:
             return
 
-        try:
-            # Use homeassistant domain for multi-domain support
-            await self.hass.services.async_call(
-                "homeassistant",
-                SERVICE_TURN_OFF,
-                {"entity_id": devices},
-                blocking=False,
-            )
-            _LOGGER.debug("Turned off manual devices: %s", devices)
-        except Exception as e:
-            _LOGGER.error("Error turning off manual devices: %s", e)
+        # Use homeassistant domain for multi-domain support
+        await self._safe_service_call(
+            "homeassistant",
+            SERVICE_TURN_OFF,
+            {"entity_id": devices},
+            blocking=False,
+        )
+        _LOGGER.debug("Turned off manual devices: %s", devices)
 
     def _is_within_cover_time_window(self) -> bool:
         """Check if current time is within configured cover operation window."""
@@ -638,16 +642,13 @@ class RoomAutomation:
             if not self._is_within_cover_time_window():
                 return
 
-        try:
-            await self.hass.services.async_call(
-                "cover",
-                "open_cover",
-                {"entity_id": covers},
-                blocking=False,
-            )
-            _LOGGER.debug("Opened covers: %s", covers)
-        except Exception as e:
-            _LOGGER.error("Error opening covers: %s", e)
+        await self._safe_service_call(
+            "cover",
+            "open_cover",
+            {"entity_id": covers},
+            blocking=False,
+        )
+        _LOGGER.debug("Opened covers: %s", covers)
 
     async def _control_covers_exit(self, state_data: dict[str, Any]) -> None:
         """Control covers on exit."""
@@ -667,16 +668,13 @@ class RoomAutomation:
             if sunset and dt_util.now() < sunset:
                 return
 
-        try:
-            await self.hass.services.async_call(
-                "cover",
-                "close_cover",
-                {"entity_id": covers},
-                blocking=False,
-            )
-            _LOGGER.debug("Closed covers: %s", covers)
-        except Exception as e:
-            _LOGGER.error("Error closing covers: %s", e)
+        await self._safe_service_call(
+            "cover",
+            "close_cover",
+            {"entity_id": covers},
+            blocking=False,
+        )
+        _LOGGER.debug("Closed covers: %s", covers)
 
     async def handle_temperature_based_fan_control(
         self, temperature: float | None, occupied: bool
@@ -696,7 +694,7 @@ class RoomAutomation:
         if temperature < threshold or not occupied:
             # Turn off fans/switches if below threshold or room vacant
             # v3.2.9: Use homeassistant domain for multi-domain support
-            await self.hass.services.async_call(
+            await self._safe_service_call(
                 "homeassistant",
                 SERVICE_TURN_OFF,
                 {"entity_id": fans},
@@ -725,7 +723,7 @@ class RoomAutomation:
                 for fan_entity in fans:
                     if fan_entity.startswith("fan."):
                         # Real fan - set speed
-                        await self.hass.services.async_call(
+                        await self._safe_service_call(
                             "fan",
                             SERVICE_TURN_ON,
                             {"entity_id": fan_entity, "percentage": speed_pct},
@@ -733,7 +731,7 @@ class RoomAutomation:
                         )
                     else:
                         # Switch - just turn on (no speed control)
-                        await self.hass.services.async_call(
+                        await self._safe_service_call(
                             "homeassistant",
                             SERVICE_TURN_ON,
                             {"entity_id": fan_entity},
@@ -762,34 +760,28 @@ class RoomAutomation:
             if self._humidity_fan_triggered_time is None:
                 self._humidity_fan_triggered_time = dt_util.now()
 
-            try:
-                # Use homeassistant domain to support both fans and switches
-                await self.hass.services.async_call(
-                    "homeassistant",
-                    SERVICE_TURN_ON,
-                    {"entity_id": humidity_fans},
-                    blocking=False,
-                )
-                _LOGGER.debug("Turned on humidity fans - humidity at %.1f%%", humidity)
-            except Exception as e:
-                _LOGGER.error("Error turning on humidity fans: %s", e)
+            # Use homeassistant domain to support both fans and switches
+            await self._safe_service_call(
+                "homeassistant",
+                SERVICE_TURN_ON,
+                {"entity_id": humidity_fans},
+                blocking=False,
+            )
+            _LOGGER.debug("Turned on humidity fans - humidity at %.1f%%", humidity)
 
         elif humidity < threshold and self._humidity_fan_triggered_time:
             # Check if timeout has passed
             elapsed = (dt_util.now() - self._humidity_fan_triggered_time).total_seconds()
             if elapsed >= timeout:
-                try:
-                    # Use homeassistant domain to support both fans and switches
-                    await self.hass.services.async_call(
-                        "homeassistant",
-                        SERVICE_TURN_OFF,
-                        {"entity_id": humidity_fans},
-                        blocking=False,
-                    )
-                    _LOGGER.debug("Turned off humidity fans after timeout")
-                    self._humidity_fan_triggered_time = None
-                except Exception as e:
-                    _LOGGER.error("Error turning off humidity fans: %s", e)
+                # Use homeassistant domain to support both fans and switches
+                await self._safe_service_call(
+                    "homeassistant",
+                    SERVICE_TURN_OFF,
+                    {"entity_id": humidity_fans},
+                    blocking=False,
+                )
+                _LOGGER.debug("Turned off humidity fans after timeout")
+                self._humidity_fan_triggered_time = None
 
     def should_coordinate_with_hvac(self) -> bool:
         """Check if HVAC coordination is enabled and HVAC is running."""
@@ -889,8 +881,6 @@ class RoomAutomation:
 
     async def _warning_flash(self) -> None:
         """Flash lights briefly to warn of upcoming auto-off."""
-        import asyncio
-        
         lights = self.config.get(CONF_LIGHTS, [])
         if not lights:
             return
@@ -898,14 +888,14 @@ class RoomAutomation:
         try:
             # Quick dim-restore cycle (2 flashes)
             for _ in range(2):
-                await self.hass.services.async_call(
+                await self._safe_service_call(
                     "light",
                     SERVICE_TURN_ON,
                     {"entity_id": lights, "brightness": 50},
                     blocking=True,
                 )
                 await asyncio.sleep(0.3)
-                await self.hass.services.async_call(
+                await self._safe_service_call(
                     "light",
                     SERVICE_TURN_ON,
                     {"entity_id": lights, "brightness": 255},
@@ -920,57 +910,45 @@ class RoomAutomation:
         # Turn off lights
         lights = self.config.get(CONF_LIGHTS, [])
         if lights:
-            try:
-                await self.hass.services.async_call(
-                    "light",
-                    SERVICE_TURN_OFF,
-                    {"entity_id": lights},
-                    blocking=False,
-                )
-                _LOGGER.debug("Shared space: turned off lights")
-            except Exception as e:
-                _LOGGER.error("Error turning off shared space lights: %s", e)
+            await self._safe_service_call(
+                "light",
+                SERVICE_TURN_OFF,
+                {"entity_id": lights},
+                blocking=False,
+            )
+            _LOGGER.debug("Shared space: turned off lights")
 
         # Turn off fans
         fans = self.config.get(CONF_FANS, [])
         if fans:
-            try:
-                await self.hass.services.async_call(
-                    "fan",
-                    SERVICE_TURN_OFF,
-                    {"entity_id": fans},
-                    blocking=False,
-                )
-                _LOGGER.debug("Shared space: turned off fans")
-            except Exception as e:
-                _LOGGER.error("Error turning off shared space fans: %s", e)
+            await self._safe_service_call(
+                "fan",
+                SERVICE_TURN_OFF,
+                {"entity_id": fans},
+                blocking=False,
+            )
+            _LOGGER.debug("Shared space: turned off fans")
 
         # Turn off auto switches
         auto_switches = self.config.get(CONF_AUTO_SWITCHES, [])
         if auto_switches:
-            try:
-                await self.hass.services.async_call(
-                    "switch",
-                    SERVICE_TURN_OFF,
-                    {"entity_id": auto_switches},
-                    blocking=False,
-                )
-                _LOGGER.debug("Shared space: turned off switches")
-            except Exception as e:
-                _LOGGER.error("Error turning off shared space switches: %s", e)
+            await self._safe_service_call(
+                "switch",
+                SERVICE_TURN_OFF,
+                {"entity_id": auto_switches},
+                blocking=False,
+            )
+            _LOGGER.debug("Shared space: turned off switches")
 
         # Turn off manual switches too
         manual_switches = self.config.get(CONF_MANUAL_SWITCHES, [])
         if manual_switches:
-            try:
-                await self.hass.services.async_call(
-                    "switch",
-                    SERVICE_TURN_OFF,
-                    {"entity_id": manual_switches},
-                    blocking=False,
-                )
-            except Exception as e:
-                _LOGGER.error("Error turning off shared space manual switches: %s", e)
+            await self._safe_service_call(
+                "switch",
+                SERVICE_TURN_OFF,
+                {"entity_id": manual_switches},
+                blocking=False,
+            )
 
     # =========================================================================
     # v3.1.0: ALERT LIGHT TRIGGERING
@@ -998,22 +976,19 @@ class RoomAutomation:
         color_name = self.config.get(CONF_ALERT_LIGHT_COLOR, ALERT_COLOR_AMBER)
         rgb_color = ALERT_COLOR_RGB.get(color_name, ALERT_COLOR_RGB[ALERT_COLOR_AMBER])
 
-        try:
-            # Turn on lights with alert color
-            await self.hass.services.async_call(
-                "light",
-                SERVICE_TURN_ON,
-                {
-                    "entity_id": alert_lights,
-                    "rgb_color": rgb_color,
-                    "brightness": 255,  # Full brightness for alerts
-                },
-                blocking=False,
-            )
-            self._alert_lights_active = True
-            _LOGGER.debug("Alert lights triggered with color %s", color_name)
-        except Exception as e:
-            _LOGGER.error("Error triggering alert lights: %s", e)
+        # Turn on lights with alert color
+        await self._safe_service_call(
+            "light",
+            SERVICE_TURN_ON,
+            {
+                "entity_id": alert_lights,
+                "rgb_color": rgb_color,
+                "brightness": 255,  # Full brightness for alerts
+            },
+            blocking=False,
+        )
+        self._alert_lights_active = True
+        _LOGGER.debug("Alert lights triggered with color %s", color_name)
 
     async def flash_alert_lights(self, flash_count: int = 3, flash_interval: float = 0.5) -> None:
         """Flash alert lights to draw attention.
@@ -1022,8 +997,6 @@ class RoomAutomation:
             flash_count: Number of times to flash
             flash_interval: Seconds between flashes
         """
-        import asyncio
-        
         alert_lights = self.config.get(CONF_ALERT_LIGHTS, [])
         if not alert_lights:
             return
@@ -1038,7 +1011,7 @@ class RoomAutomation:
         try:
             for _ in range(flash_count):
                 # Turn on with color
-                await self.hass.services.async_call(
+                await self._safe_service_call(
                     "light",
                     SERVICE_TURN_ON,
                     {
@@ -1049,9 +1022,9 @@ class RoomAutomation:
                     blocking=True,
                 )
                 await asyncio.sleep(flash_interval)
-                
+
                 # Turn off briefly
-                await self.hass.services.async_call(
+                await self._safe_service_call(
                     "light",
                     SERVICE_TURN_OFF,
                     {"entity_id": alert_lights},
@@ -1088,32 +1061,29 @@ class RoomAutomation:
             return
 
         for light_id, original in self._alert_light_original_states.items():
-            try:
-                if original["state"] == STATE_OFF:
-                    await self.hass.services.async_call(
-                        "light",
-                        SERVICE_TURN_OFF,
-                        {"entity_id": light_id},
-                        blocking=False,
-                    )
-                else:
-                    # Restore original color/brightness
-                    service_data = {"entity_id": light_id}
-                    if original.get("brightness"):
-                        service_data["brightness"] = original["brightness"]
-                    if original.get("rgb_color"):
-                        service_data["rgb_color"] = original["rgb_color"]
-                    elif original.get("color_temp"):
-                        service_data["color_temp"] = original["color_temp"]
-                    
-                    await self.hass.services.async_call(
-                        "light",
-                        SERVICE_TURN_ON,
-                        service_data,
-                        blocking=False,
-                    )
-            except Exception as e:
-                _LOGGER.error("Error restoring alert light %s: %s", light_id, e)
+            if original["state"] == STATE_OFF:
+                await self._safe_service_call(
+                    "light",
+                    SERVICE_TURN_OFF,
+                    {"entity_id": light_id},
+                    blocking=False,
+                )
+            else:
+                # Restore original color/brightness
+                service_data = {"entity_id": light_id}
+                if original.get("brightness"):
+                    service_data["brightness"] = original["brightness"]
+                if original.get("rgb_color"):
+                    service_data["rgb_color"] = original["rgb_color"]
+                elif original.get("color_temp"):
+                    service_data["color_temp"] = original["color_temp"]
+
+                await self._safe_service_call(
+                    "light",
+                    SERVICE_TURN_ON,
+                    service_data,
+                    blocking=False,
+                )
 
         self._alert_light_original_states = {}
         self._alert_lights_active = False
