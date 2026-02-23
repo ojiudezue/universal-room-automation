@@ -1,4 +1,4 @@
-"""Aggregation sensors for Universal Room Automation v3.2.10.
+"""Aggregation sensors for Universal Room Automation v3.3.5.5.
 
 Provides whole-house and zone-level sensors from the integration entry.
 """
@@ -103,10 +103,10 @@ from .const import (
     DEFAULT_ELECTRICITY_RATE,
     DEFAULT_DELIVERY_RATE,
     DEFAULT_EXPORT_REIMBURSEMENT_RATE,
-    # Confidence levels
-    CONFIDENCE_HIGH,
-    CONFIDENCE_MEDIUM,
-    CONFIDENCE_LOW,
+    # Energy confidence levels
+    ENERGY_CONFIDENCE_HIGH,
+    ENERGY_CONFIDENCE_MEDIUM,
+    ENERGY_CONFIDENCE_LOW,
     CONFIDENCE_LEVEL_HIGH,
     CONFIDENCE_LEVEL_MEDIUM,
     CONFIDENCE_LEVEL_LOW,
@@ -347,11 +347,11 @@ def _is_sleep_hours(hass: HomeAssistant) -> bool:
 
 def _get_confidence_level(confidence: int) -> str:
     """Convert confidence percentage to level label."""
-    if confidence >= CONFIDENCE_HIGH:
+    if confidence >= ENERGY_CONFIDENCE_HIGH:
         return CONFIDENCE_LEVEL_HIGH
-    elif confidence >= CONFIDENCE_MEDIUM:
+    elif confidence >= ENERGY_CONFIDENCE_MEDIUM:
         return CONFIDENCE_LEVEL_MEDIUM
-    elif confidence >= CONFIDENCE_LOW:
+    elif confidence >= ENERGY_CONFIDENCE_LOW:
         return CONFIDENCE_LEVEL_LOW
     elif confidence > 0:
         return CONFIDENCE_LEVEL_VERY_LOW

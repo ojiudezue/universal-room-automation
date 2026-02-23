@@ -1,4 +1,4 @@
-"""Pattern learning for Universal Room Automation v3.3.1.4.
+"""Pattern learning for Universal Room Automation v3.3.5.5.
 
 Simplified frequency-based pattern learning with multi-step prediction.
 Defers complex time-of-day and routine detection to v4.0.

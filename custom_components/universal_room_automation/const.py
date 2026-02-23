@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation v3.3.5.3
+# Universal Room Automation v3.3.5.5
 # Build: 2026-01-05
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "3.3.5.3"
+VERSION: Final = "3.3.5.5"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -241,10 +241,10 @@ CONF_EXPORT_REIMBURSEMENT_RATE: Final = "export_reimbursement_rate"
 DEFAULT_DELIVERY_RATE: Final = 0.05  # $/kWh transmission
 DEFAULT_EXPORT_REIMBURSEMENT_RATE: Final = 0.08  # $/kWh net metering credit
 
-# Confidence level thresholds
-CONFIDENCE_HIGH: Final = 75
-CONFIDENCE_MEDIUM: Final = 50
-CONFIDENCE_LOW: Final = 25
+# Energy confidence level thresholds
+ENERGY_CONFIDENCE_HIGH: Final = 75
+ENERGY_CONFIDENCE_MEDIUM: Final = 50
+ENERGY_CONFIDENCE_LOW: Final = 25
 
 # Confidence level labels
 CONFIDENCE_LEVEL_HIGH: Final = "high"

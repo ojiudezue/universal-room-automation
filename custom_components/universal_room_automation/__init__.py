@@ -1,7 +1,7 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation v3.3.2
-# Build: 2026-01-04
+# Universal Room Automation v3.3.5.5
+# Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
 # FIX v3.2.8: PersonLocationSensor architectural fix - active state listeners
@@ -37,6 +37,9 @@ from .const import (
     CONF_NOTIFY_LEVEL,
     CONF_TRACKED_PERSONS,  # v3.2.0: Person tracking
     CONF_ZONE_NAME,  # v3.3.2: For zone entry logging
+    CONF_ZONE,  # v3.3.5.4: For zone migration
+    CONF_ZONE_ROOMS,  # v3.3.5.4: For zone migration
+    CONF_ZONE_DESCRIPTION,  # v3.3.5.4: For zone migration
     DEFAULT_ELECTRICITY_RATE,
     NOTIFY_LEVEL_ERRORS,
 )
@@ -62,6 +65,73 @@ INTEGRATION_PLATFORMS: list[Platform] = [
 ]
 
 
+async def _migrate_zone_names_to_entries(hass: HomeAssistant, integration_entry: ConfigEntry) -> int:
+    """Migrate zone names from room entries to proper zone config entries (v3.3.5.4).
+    
+    Previously, zones could be created by typing a new zone name during room setup.
+    This created a zone NAME (string) stored in the room entry, but not a zone ENTRY.
+    
+    Going forward, zones must be proper config entries created via "Add new Zone".
+    This migration auto-creates zone entries for any orphaned zone names.
+    
+    Returns the number of zone entries created.
+    """
+    # Collect all unique zone names from room entries
+    zone_names_from_rooms: dict[str, list[str]] = {}  # zone_name -> [room_entry_ids]
+    
+    for config_entry in hass.config_entries.async_entries(DOMAIN):
+        if config_entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_ROOM:
+            zone_name = config_entry.options.get(CONF_ZONE) or config_entry.data.get(CONF_ZONE)
+            if zone_name:
+                zone_name = zone_name.strip()
+                if zone_name:
+                    if zone_name not in zone_names_from_rooms:
+                        zone_names_from_rooms[zone_name] = []
+                    zone_names_from_rooms[zone_name].append(config_entry.entry_id)
+    
+    if not zone_names_from_rooms:
+        _LOGGER.debug("No zone names found in room entries, skipping migration")
+        return 0
+    
+    # Collect existing zone entries
+    existing_zone_names: set[str] = set()
+    for config_entry in hass.config_entries.async_entries(DOMAIN):
+        if config_entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_ZONE:
+            zone_name = config_entry.data.get(CONF_ZONE_NAME, "").strip()
+            if zone_name:
+                existing_zone_names.add(zone_name.lower())
+    
+    # Create zone entries for any zone names without entries
+    zones_created = 0
+    for zone_name, room_entry_ids in zone_names_from_rooms.items():
+        if zone_name.lower() not in existing_zone_names:
+            _LOGGER.info("Migrating zone '%s' to config entry (linked to %d rooms)", zone_name, len(room_entry_ids))
+            
+            # Create the zone entry via config flow
+            result = await hass.config_entries.flow.async_init(
+                DOMAIN,
+                context={"source": "zone_migration"},
+                data={
+                    CONF_ENTRY_TYPE: ENTRY_TYPE_ZONE,
+                    CONF_ZONE_NAME: zone_name,
+                    CONF_ZONE_DESCRIPTION: f"Auto-migrated from room zone assignment",
+                    CONF_ZONE_ROOMS: room_entry_ids,
+                    CONF_INTEGRATION_ENTRY_ID: integration_entry.entry_id,
+                }
+            )
+            
+            if result.get("type") == "create_entry":
+                zones_created += 1
+                _LOGGER.info("✓ Created zone entry for '%s'", zone_name)
+            else:
+                _LOGGER.warning("Failed to create zone entry for '%s': %s", zone_name, result)
+    
+    if zones_created > 0:
+        _LOGGER.info("Zone migration complete: created %d zone entries", zones_created)
+    
+    return zones_created
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Universal Room Automation from a config entry."""
     
@@ -80,6 +150,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # Integration entry - store reference and set up aggregation sensors
         _LOGGER.info("Setting up Universal Room Automation integration entry")
         hass.data[DOMAIN]["integration"] = entry
+        
+        # v3.3.5.4: Migrate zone names to proper zone entries (run once)
+        if not entry.options.get("zone_migration_done"):
+            try:
+                zones_created = await _migrate_zone_names_to_entries(hass, entry)
+                if zones_created >= 0:  # 0 = nothing to migrate, also counts as done
+                    hass.config_entries.async_update_entry(
+                        entry, options={**entry.options, "zone_migration_done": True}
+                    )
+                    if zones_created > 0:
+                        _LOGGER.info("Zone migration created %d new zone entries", zones_created)
+            except Exception as e:
+                _LOGGER.error("Zone migration failed: %s", e)
+                import traceback
+                _LOGGER.error("Traceback: %s", traceback.format_exc())
         
         # Initialize database (shared across all rooms)
         if "database" not in hass.data[DOMAIN]:
@@ -268,7 +353,7 @@ async def _migrate_to_v3(hass: HomeAssistant, entry: ConfigEntry) -> None:
     
     # Create new integration entry with defaults
     _LOGGER.info("Creating new integration entry")
-    integration_entry = hass.config_entries.flow.async_init(
+    integration_entry = await hass.config_entries.flow.async_init(
         DOMAIN,
         context={"source": "migration"},
         data={
