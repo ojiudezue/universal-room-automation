@@ -1,6 +1,6 @@
 """Camera integration and person census for Universal Room Automation v3.5.0."""
 #
-# Universal Room Automation v3.4.5
+# Universal Room Automation v3.4.6
 # Build: 2026-02-23
 # File: camera_census.py
 # Cycle 3: Camera Integration & Census Core
@@ -27,7 +27,6 @@ from .const import (
     CONF_PERIMETER_CAMERAS,
     CONF_ENTRY_TYPE,
     ENTRY_TYPE_INTEGRATION,
-    ENTRY_TYPE_ROOM,
     CAMERA_PLATFORM_FRIGATE,
     CAMERA_PLATFORM_UNIFI,
     CENSUS_CONFIDENCE_HIGH,
@@ -886,27 +885,18 @@ class PersonCensus:
     def _get_interior_camera_entities(self) -> list[str]:
         """Return resolved person detection binary_sensor entity IDs for interior cameras.
 
-        Reads CONF_CAMERA_PERSON_ENTITIES (now stores camera.* entity IDs) from each
-        room config entry, then resolves each camera.* ID to its person detection
-        binary_sensor entities via CameraIntegrationManager.resolve_configured_cameras().
+        Reads CONF_CAMERA_PERSON_ENTITIES from the integration config entry
+        (integration-level since v3.4.5 — previously stored per room).
+
+        Each camera.* entity ID is resolved to its person detection binary_sensor
+        entities via CameraIntegrationManager.resolve_configured_cameras().
+        Room mapping is automatic: CameraInfo.area_id is populated from the HA
+        entity registry during resolution, so cameras are associated with rooms
+        without any per-room configuration.
 
         Returns a flat list of binary_sensor entity IDs.
         """
-        camera_entity_ids: list[str] = []
-        for entry in self.hass.config_entries.async_entries(DOMAIN):
-            if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ROOM:
-                continue
-            merged = {**entry.data, **entry.options}
-            room_cameras = merged.get(CONF_CAMERA_PERSON_ENTITIES, [])
-            if room_cameras:
-                camera_entity_ids.extend(room_cameras)
-
-        if not camera_entity_ids:
-            return []
-
-        # Resolve camera.* IDs -> person detection binary_sensor entity IDs
-        resolved = self._camera_manager.resolve_configured_cameras(camera_entity_ids)
-        return [info.person_binary_sensor for info in resolved if info.person_binary_sensor]
+        return self._get_integration_camera_list(CONF_CAMERA_PERSON_ENTITIES)
 
     def _get_integration_camera_list(self, conf_key: str) -> list[str]:
         """Return resolved person detection binary_sensor IDs from integration-level config.

@@ -1,6 +1,6 @@
 """Config flow for Universal Room Automation v3.3.3."""
 #
-# Universal Room Automation v3.4.5
+# Universal Room Automation v3.4.6
 # Build: 2026-01-05
 # File: config_flow.py
 # v3.3.3: Added manage_zones to integration options menu
@@ -734,13 +734,6 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
             # v3.1.0: Water leak sensor
             vol.Optional(CONF_WATER_LEAK_SENSOR): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="binary_sensor", device_class=["moisture", "water_leak"])
-            ),
-            # v3.5.0: Camera entities for this room (person detection resolved from device)
-            vol.Optional(CONF_CAMERA_PERSON_ENTITIES, default=[]): selector.EntitySelector(
-                selector.EntitySelectorConfig(
-                    domain="camera",
-                    multiple=True,
-                )
             ),
         })
 
@@ -1481,9 +1474,16 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
     async def async_step_camera_census(self, user_input=None):
         """Configure camera census (integration level) - v3.5.0.
 
-        Allows selection of egress and perimeter camera entities that will be
-        monitored as part of the property-exterior census zone.
-        Interior (room) cameras are configured per room in the sensors step.
+        Allows selection of indoor, egress, and perimeter camera entities for
+        the person census engine.
+
+        Indoor cameras are mapped to rooms automatically using the camera
+        entity's area assignment in the HA entity registry. Egress cameras
+        cover exterior doors; perimeter cameras cover the yard/property.
+
+        Migration: when loading defaults, any CONF_CAMERA_PERSON_ENTITIES
+        previously stored on room config entries (v3.4.0–3.4.4) are merged
+        into the integration-level default so existing configs are preserved.
         """
         if user_input is not None:
             return self.async_create_entry(
@@ -1491,12 +1491,35 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 data={**self._config_entry.options, **user_input}
             )
 
+        # Build default for indoor cameras: start from integration-level value,
+        # then merge in any cameras still stored on room entries (migration path).
+        interior_default = list(self._get_current(CONF_CAMERA_PERSON_ENTITIES, []))
+        existing_ids = set(interior_default)
+        for config_entry in self.hass.config_entries.async_entries(DOMAIN):
+            if config_entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_ROOM:
+                merged = {**config_entry.data, **config_entry.options}
+                room_cameras = merged.get(CONF_CAMERA_PERSON_ENTITIES, [])
+                for cam in room_cameras:
+                    if cam not in existing_ids:
+                        interior_default.append(cam)
+                        existing_ids.add(cam)
+
         data_schema = vol.Schema({
             # Cross-validation toggle
             vol.Optional(
                 CONF_CENSUS_CROSS_VALIDATION,
                 default=self._get_current(CONF_CENSUS_CROSS_VALIDATION, True)
             ): selector.BooleanSelector(),
+            # Indoor cameras: inside the house (mapped to rooms via area_id)
+            vol.Optional(
+                CONF_CAMERA_PERSON_ENTITIES,
+                default=interior_default
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(
+                    domain="camera",
+                    multiple=True,
+                )
+            ),
             # Egress cameras: doors to outside (front door, back door, garage)
             vol.Optional(
                 CONF_EGRESS_CAMERAS,
@@ -2017,16 +2040,6 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 default=self._get_current(CONF_WATER_LEAK_SENSOR) or vol.UNDEFINED
             ): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="binary_sensor", device_class=["moisture", "water_leak"])
-            ),
-            # v3.5.0: Camera entities for this room (person detection resolved from device)
-            vol.Optional(
-                CONF_CAMERA_PERSON_ENTITIES,
-                default=self._get_current(CONF_CAMERA_PERSON_ENTITIES, [])
-            ): selector.EntitySelector(
-                selector.EntitySelectorConfig(
-                    domain="camera",
-                    multiple=True,
-                )
             ),
         })
 
