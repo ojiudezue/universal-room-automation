@@ -1,6 +1,6 @@
 """Select platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.5.0
+# Universal Room Automation v3.5.1
 # Build: 2026-01-02
 # File: select.py
 #

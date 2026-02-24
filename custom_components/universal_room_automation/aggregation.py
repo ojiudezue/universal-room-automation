@@ -2620,8 +2620,11 @@ class ZoneCurrentOccupantsSensor(ZoneSensorBase, SensorEntity):
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry, zone: str) -> None:
         """Initialize."""
         super().__init__(hass, entry, zone)
-        self._attr_unique_id = f"{DOMAIN}_zone_{zone}_current_occupants"
-        self._attr_name = f"Current Occupants"
+        # v3.5.x: unique_id updated to "identified_people" to match room sensor naming
+        # v3.5.x: Renamed from "Current Occupants" to "Identified People" (zone parity with room sensor)
+        # Migration in __init__.py renames existing "current_occupants" zone entities
+        self._attr_unique_id = f"{DOMAIN}_zone_{zone}_identified_people"
+        self._attr_name = f"Identified People"
         self._unsub_person_coordinator = None
     
     async def async_added_to_hass(self) -> None:
@@ -2756,8 +2759,11 @@ class ZoneOccupantCountSensor(ZoneSensorBase, SensorEntity):
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry, zone: str) -> None:
         """Initialize."""
         super().__init__(hass, entry, zone)
-        self._attr_unique_id = f"{DOMAIN}_zone_{zone}_occupant_count"
-        self._attr_name = f"Occupant Count"
+        # v3.5.x: unique_id updated to "identified_people_count" to match room sensor naming
+        # v3.5.x: Renamed from "Occupant Count" to "Identified People Count" (zone parity with room sensor)
+        # Migration in __init__.py renames existing "occupant_count" zone entities
+        self._attr_unique_id = f"{DOMAIN}_zone_{zone}_identified_people_count"
+        self._attr_name = f"Identified People Count"
         self._unsub_person_coordinator = None
     
     async def async_added_to_hass(self) -> None:
@@ -2821,8 +2827,9 @@ class ZoneLastOccupantSensor(ZoneSensorBase, SensorEntity):
         """Initialize."""
         super().__init__(hass, entry, zone)
         # v3.2.8.3: Aligned with room/house naming convention (v3.2.6)
-        # unique_id kept as "last_occupant" for backward compatibility
-        self._attr_unique_id = f"{DOMAIN}_zone_{zone}_last_occupant"
+        # v3.5.x: unique_id updated to "last_identified_person" to match entity name
+        # Migration in __init__.py renames existing "last_occupant" zone entities
+        self._attr_unique_id = f"{DOMAIN}_zone_{zone}_last_identified_person"
         self._attr_name = f"Last Identified Person"
     
     @property
@@ -2896,8 +2903,9 @@ class ZoneLastOccupantTimeSensor(ZoneSensorBase, SensorEntity):
         """Initialize."""
         super().__init__(hass, entry, zone)
         # v3.2.8.3: Aligned with room/house naming convention (v3.2.6)
-        # unique_id kept as "last_occupant_time" for backward compatibility
-        self._attr_unique_id = f"{DOMAIN}_zone_{zone}_last_occupant_time"
+        # v3.5.x: unique_id updated to "last_identified_time" to match entity name
+        # Migration in __init__.py renames existing "last_occupant_time" zone entities
+        self._attr_unique_id = f"{DOMAIN}_zone_{zone}_last_identified_time"
         self._attr_name = f"Last Identified Time"
     
     @property

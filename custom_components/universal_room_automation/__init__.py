@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation v3.5.0
+# Universal Room Automation v3.5.1
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -214,6 +214,132 @@ async def _migrate_room_cameras_to_integration(hass: HomeAssistant, integration_
     return len(collected_cameras)
 
 
+async def _migrate_sensor_entity_ids(hass: HomeAssistant) -> int:
+    """Migrate person-sensor unique_ids from old "occupant" names to "identified" names (v3.5.x).
+
+    In v3.2.6 the friendly names of room and zone person sensors were updated
+    (e.g. "Current Occupants" → "Identified People"), but the unique_ids were
+    kept for backward compatibility.  This caused entity_ids that still said
+    "current_occupants" / "occupant_count" to mismatch the visible friendly names.
+
+    This one-time migration updates the unique_ids in the entity registry so that
+    HA assigns new entity_ids consistent with the sensor names:
+
+      Room sensors:
+        {entry_id}_current_occupants   → {entry_id}_identified_people
+        {entry_id}_occupant_count      → {entry_id}_identified_people_count
+        {entry_id}_last_occupant       → {entry_id}_last_identified_person
+        {entry_id}_last_occupant_time  → {entry_id}_last_identified_time
+
+      Zone sensors:
+        {DOMAIN}_zone_{zone}_current_occupants   → {DOMAIN}_zone_{zone}_identified_people
+        {DOMAIN}_zone_{zone}_occupant_count      → {DOMAIN}_zone_{zone}_identified_people_count
+        {DOMAIN}_zone_{zone}_last_occupant       → {DOMAIN}_zone_{zone}_last_identified_person
+        {DOMAIN}_zone_{zone}_last_occupant_time  → {DOMAIN}_zone_{zone}_last_identified_time
+
+    Returns the total number of entity unique_ids updated.
+    """
+    from homeassistant.helpers import entity_registry as er
+
+    entity_registry = er.async_get(hass)
+    renamed_count = 0
+
+    # --- Room-level sensor migration ---
+    # Room sensor unique_ids use the pattern: {entry_id}_{suffix}
+    room_suffix_map = {
+        "current_occupants": "identified_people",
+        "occupant_count": "identified_people_count",
+        "last_occupant": "last_identified_person",
+        "last_occupant_time": "last_identified_time",
+    }
+
+    for config_entry in hass.config_entries.async_entries(DOMAIN):
+        if config_entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ROOM:
+            continue
+        entry_id = config_entry.entry_id
+        room_name = config_entry.data.get("room_name", entry_id)
+
+        for old_suffix, new_suffix in room_suffix_map.items():
+            old_unique_id = f"{entry_id}_{old_suffix}"
+            new_unique_id = f"{entry_id}_{new_suffix}"
+
+            entity_id = entity_registry.async_get_entity_id("sensor", DOMAIN, old_unique_id)
+            if entity_id is None:
+                continue  # Already migrated or never existed
+
+            # Check that the target unique_id doesn't already exist
+            if entity_registry.async_get_entity_id("sensor", DOMAIN, new_unique_id) is not None:
+                _LOGGER.debug(
+                    "Sensor migration: target unique_id '%s' already exists, skipping '%s'",
+                    new_unique_id,
+                    old_unique_id,
+                )
+                continue
+
+            entity_registry.async_update_entity(entity_id, new_unique_id=new_unique_id)
+            renamed_count += 1
+            _LOGGER.warning(
+                "Sensor migration: renamed entity '%s' (room '%s') unique_id "
+                "'%s' → '%s'. Update any external automations referencing the old entity_id.",
+                entity_id,
+                room_name,
+                old_suffix,
+                new_suffix,
+            )
+
+    # --- Zone-level sensor migration ---
+    # Zone sensor unique_ids use the pattern: {DOMAIN}_zone_{zone_name}_{suffix}
+    zone_suffix_map = {
+        "current_occupants": "identified_people",
+        "occupant_count": "identified_people_count",
+        "last_occupant": "last_identified_person",
+        "last_occupant_time": "last_identified_time",
+    }
+
+    for config_entry in hass.config_entries.async_entries(DOMAIN):
+        if config_entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ZONE:
+            continue
+        zone_name = config_entry.data.get(CONF_ZONE_NAME, "")
+        if not zone_name:
+            continue
+
+        for old_suffix, new_suffix in zone_suffix_map.items():
+            old_unique_id = f"{DOMAIN}_zone_{zone_name}_{old_suffix}"
+            new_unique_id = f"{DOMAIN}_zone_{zone_name}_{new_suffix}"
+
+            entity_id = entity_registry.async_get_entity_id("sensor", DOMAIN, old_unique_id)
+            if entity_id is None:
+                continue  # Already migrated or never existed
+
+            # Check that the target unique_id doesn't already exist
+            if entity_registry.async_get_entity_id("sensor", DOMAIN, new_unique_id) is not None:
+                _LOGGER.debug(
+                    "Sensor migration: target unique_id '%s' already exists, skipping '%s'",
+                    new_unique_id,
+                    old_unique_id,
+                )
+                continue
+
+            entity_registry.async_update_entity(entity_id, new_unique_id=new_unique_id)
+            renamed_count += 1
+            _LOGGER.warning(
+                "Sensor migration: renamed entity '%s' (zone '%s') unique_id "
+                "'%s' → '%s'. Update any external automations referencing the old entity_id.",
+                entity_id,
+                zone_name,
+                old_suffix,
+                new_suffix,
+            )
+
+    if renamed_count > 0:
+        _LOGGER.info(
+            "Sensor migration complete: updated %d entity unique_ids from 'occupant' to 'identified' naming",
+            renamed_count,
+        )
+
+    return renamed_count
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Universal Room Automation from a config entry."""
     
@@ -264,6 +390,25 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     )
             except Exception as e:
                 _LOGGER.error("Camera migration failed: %s", e)
+                import traceback
+                _LOGGER.error("Traceback: %s", traceback.format_exc())
+
+        # v3.5.x: Migrate person-sensor unique_ids from "occupant" to "identified" naming (run once)
+        if not entry.options.get("sensor_naming_migration_done"):
+            try:
+                sensors_renamed = await _migrate_sensor_entity_ids(hass)
+                # Re-read entry after options may have been updated by prior migrations
+                entry = hass.config_entries.async_get_entry(entry.entry_id) or entry
+                hass.config_entries.async_update_entry(
+                    entry, options={**entry.options, "sensor_naming_migration_done": True}
+                )
+                if sensors_renamed > 0:
+                    _LOGGER.info(
+                        "Sensor naming migration: updated %d entity unique_ids to use 'identified' naming",
+                        sensors_renamed,
+                    )
+            except Exception as e:
+                _LOGGER.error("Sensor naming migration failed: %s", e)
                 import traceback
                 _LOGGER.error("Traceback: %s", traceback.format_exc())
 
