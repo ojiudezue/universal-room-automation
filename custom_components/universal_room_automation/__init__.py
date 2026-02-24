@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation v3.4.5
+# Universal Room Automation v3.4.6
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -40,6 +40,7 @@ from .const import (
     CONF_ZONE,  # v3.3.5.4: For zone migration
     CONF_ZONE_ROOMS,  # v3.3.5.4: For zone migration
     CONF_ZONE_DESCRIPTION,  # v3.3.5.4: For zone migration
+    CONF_CAMERA_PERSON_ENTITIES,  # v3.4.5: Interior camera migration
     DEFAULT_ELECTRICITY_RATE,
     NOTIFY_LEVEL_ERRORS,
 )
@@ -129,8 +130,87 @@ async def _migrate_zone_names_to_entries(hass: HomeAssistant, integration_entry:
     
     if zones_created > 0:
         _LOGGER.info("Zone migration complete: created %d zone entries", zones_created)
-    
+
     return zones_created
+
+
+async def _migrate_room_cameras_to_integration(hass: HomeAssistant, integration_entry: ConfigEntry) -> int:
+    """Migrate CONF_CAMERA_PERSON_ENTITIES from room entries to integration entry (v3.4.5).
+
+    In v3.4.0–3.4.4, interior cameras were configured per room in the sensors
+    step. Starting in v3.4.5, they are configured at the integration level in
+    the camera_census step, with room mapping handled automatically via each
+    camera's area assignment.
+
+    This one-time migration:
+      1. Scans all room config entries for CONF_CAMERA_PERSON_ENTITIES values.
+      2. Collects and deduplicates all camera entity IDs found.
+      3. Merges them into the integration config entry's CONF_CAMERA_PERSON_ENTITIES.
+      4. Removes CONF_CAMERA_PERSON_ENTITIES from each room entry's options.
+
+    Returns the number of camera entity IDs migrated.
+    """
+    # Collect all camera entity IDs from room entries
+    collected_cameras: list[str] = []
+    seen_ids: set[str] = set()
+    room_entries_with_cameras: list[ConfigEntry] = []
+
+    for config_entry in hass.config_entries.async_entries(DOMAIN):
+        if config_entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ROOM:
+            continue
+        merged = {**config_entry.data, **config_entry.options}
+        room_cameras = merged.get(CONF_CAMERA_PERSON_ENTITIES, [])
+        if room_cameras:
+            room_entries_with_cameras.append(config_entry)
+            for cam in room_cameras:
+                if cam not in seen_ids:
+                    collected_cameras.append(cam)
+                    seen_ids.add(cam)
+
+    if not collected_cameras:
+        _LOGGER.debug("Camera migration: no room-level camera_person_entities found, skipping")
+        return 0
+
+    _LOGGER.info(
+        "Camera migration: found %d camera entity IDs across %d room entries — merging into integration entry",
+        len(collected_cameras),
+        len(room_entries_with_cameras),
+    )
+
+    # Merge with any already present at integration level
+    integration_merged = {**integration_entry.data, **integration_entry.options}
+    existing_integration_cameras = integration_merged.get(CONF_CAMERA_PERSON_ENTITIES, [])
+    existing_set = set(existing_integration_cameras)
+    merged_cameras = list(existing_integration_cameras)
+    for cam in collected_cameras:
+        if cam not in existing_set:
+            merged_cameras.append(cam)
+            existing_set.add(cam)
+
+    # Update integration entry options with merged cameras
+    hass.config_entries.async_update_entry(
+        integration_entry,
+        options={**integration_entry.options, CONF_CAMERA_PERSON_ENTITIES: merged_cameras},
+    )
+    _LOGGER.info(
+        "Camera migration: integration entry updated with %d indoor cameras: %s",
+        len(merged_cameras),
+        merged_cameras,
+    )
+
+    # Remove camera_person_entities from each room entry's options
+    for room_entry in room_entries_with_cameras:
+        updated_options = {
+            k: v for k, v in room_entry.options.items()
+            if k != CONF_CAMERA_PERSON_ENTITIES
+        }
+        hass.config_entries.async_update_entry(room_entry, options=updated_options)
+        _LOGGER.info(
+            "Camera migration: removed camera_person_entities from room entry '%s'",
+            room_entry.data.get("room_name", room_entry.entry_id),
+        )
+
+    return len(collected_cameras)
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -166,7 +246,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 _LOGGER.error("Zone migration failed: %s", e)
                 import traceback
                 _LOGGER.error("Traceback: %s", traceback.format_exc())
-        
+
+        # v3.4.5: Migrate room-level camera_person_entities to integration level (run once)
+        if not entry.options.get("camera_migration_done"):
+            try:
+                cameras_migrated = await _migrate_room_cameras_to_integration(hass, entry)
+                # Re-read entry after potential update by migration
+                entry = hass.config_entries.async_get_entry(entry.entry_id) or entry
+                hass.config_entries.async_update_entry(
+                    entry, options={**entry.options, "camera_migration_done": True}
+                )
+                if cameras_migrated > 0:
+                    _LOGGER.info(
+                        "Camera migration: moved %d camera entity IDs from room entries to integration entry",
+                        cameras_migrated,
+                    )
+            except Exception as e:
+                _LOGGER.error("Camera migration failed: %s", e)
+                import traceback
+                _LOGGER.error("Traceback: %s", traceback.format_exc())
+
         # Initialize database (shared across all rooms)
         if "database" not in hass.data[DOMAIN]:
             database = UniversalRoomDatabase(hass)
