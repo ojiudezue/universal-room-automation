@@ -118,8 +118,27 @@
 - [ ] **Restart Home Assistant**
 - [ ] **Don't walk away yet** - Monitor for 5 minutes
 
-**Time budget:** 5 minutes  
+**Time budget:** 5 minutes
 **Why:** Catch issues immediately
+
+#### v3.4.x Deployment Lessons
+
+- [ ] **Check deploy.sh staging list when adding new file types.** deploy.sh stages specific file patterns (e.g., `*.py`, `manifest.json`). If you add new file types — JSON configs, translations, test files — they will not be staged unless you update the script. A local commit does NOT equal a shipped file.
+  ```bash
+  # Verify deploy.sh stages all relevant types before running it:
+  grep "git add" scripts/deploy.sh
+  # Should include: *.py, *.json, translations/, quality/tests/
+  ```
+- [ ] **strings.json and translations/en.json must be in sync.** After every edit to `strings.json`, copy it:
+  ```bash
+  cp custom_components/universal_room_automation/strings.json \
+     custom_components/universal_room_automation/translations/en.json
+  ```
+- [ ] **Run quality tests before every commit.**
+  ```bash
+  cd quality && python3 -m pytest tests/ -v
+  ```
+  Do not skip this because "it's a small change" — the v3.4.1 strings omission was a small change too.
 
 ---
 
