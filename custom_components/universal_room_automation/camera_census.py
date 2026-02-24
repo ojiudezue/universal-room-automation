@@ -1,6 +1,6 @@
 """Camera integration and person census for Universal Room Automation v3.5.0."""
 #
-# Universal Room Automation v3.4.3
+# Universal Room Automation v3.4.4
 # Build: 2026-02-23
 # File: camera_census.py
 # Cycle 3: Camera Integration & Census Core
@@ -38,9 +38,14 @@ from .const import (
     CENSUS_AGREEMENT_CLOSE,
     CENSUS_AGREEMENT_DISAGREE,
     CENSUS_AGREEMENT_SINGLE,
+    CONF_CENSUS_CROSS_VALIDATION,
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+# Platform identifiers for Reolink and Dahua (not stored as named constants yet)
+_CAMERA_PLATFORM_REOLINK = "reolink"
+_CAMERA_PLATFORM_DAHUA = "dahua"
 
 
 # ============================================================================
@@ -107,12 +112,17 @@ class CameraIntegrationManager:
       binary_sensor.{name}_person_detected    (person detected binary)
       camera.{name}_high_resolution_channel   (video feed)
 
+    Reolink:
+      binary_sensor with "person" in name, platform == "reolink"
+
+    Dahua:
+      binary_sensor with "person" in name, platform == "dahua"
+
     Discovery strategy:
-      1. Scan entity registry for binary_sensor.* entities
-      2. Entities ending in _person_occupancy  -> Frigate
-      3. Entities ending in _person_detected   -> UniFi Protect
-      4. Map each to its HA area_id for room association
-      5. For Frigate, find the matching sensor.*_person_count
+      1. Given a camera.* entity ID, resolve its device_id
+      2. Find all binary_sensor entities on the same device
+      3. Filter for person detection patterns by platform or name suffix
+      4. For Frigate, find the matching sensor.*_person_count
     """
 
     def __init__(self, hass: HomeAssistant) -> None:
@@ -120,17 +130,265 @@ class CameraIntegrationManager:
         self.hass = hass
         # area_id -> list[CameraInfo]
         self._cameras_by_area: dict[str, list[CameraInfo]] = {}
-        # entity_id -> CameraInfo
+        # entity_id -> CameraInfo  (keyed by person_binary_sensor entity_id)
         self._camera_by_entity: dict[str, CameraInfo] = {}
         # entity_id -> platform str
         self._platform_by_entity: dict[str, str] = {}
+        # device_id -> list[CameraInfo]  (cache to avoid re-resolving same device)
+        self._resolved_devices: dict[str, list[CameraInfo]] = {}
 
-    async def async_discover(self) -> None:
-        """Discover camera entities via entity registry.
+    def resolve_camera_entity(self, camera_entity_id: str) -> list[CameraInfo]:
+        """Resolve a camera.* entity ID to its person detection binary_sensors.
 
-        Scans all binary_sensor entities, identifies Frigate and UniFi Protect
-        person detection entities by name suffix, then associates them with
-        HA areas (rooms) for later lookup.
+        Given a camera.* entity ID:
+          1. Look up the entity in the registry to get its device_id
+          2. Find ALL binary_sensor entities on that same device
+          3. Filter for person detection patterns (Frigate, UniFi, Reolink, Dahua)
+          4. For Frigate, also find the matching sensor.*_person_count on the device
+          5. Return list of CameraInfo objects found
+
+        Uses entity.platform from the registry as the authoritative way to identify
+        the integration platform, falling back to name suffix matching if needed.
+
+        Returns an empty list with a warning logged if the camera cannot be resolved.
+        """
+        ent_reg = er.async_get(self.hass)
+
+        camera_entry = ent_reg.async_get(camera_entity_id)
+        if camera_entry is None:
+            _LOGGER.warning(
+                "Camera entity %s not found in entity registry — skipping",
+                camera_entity_id,
+            )
+            return []
+
+        device_id = camera_entry.device_id
+        if not device_id:
+            _LOGGER.warning(
+                "Camera entity %s has no device_id — cannot resolve person sensors",
+                camera_entity_id,
+            )
+            return []
+
+        # Return cached result if this device was already resolved
+        if device_id in self._resolved_devices:
+            return self._resolved_devices[device_id]
+
+        # Find all binary_sensor entities on this device
+        device_binary_sensors = [
+            entity
+            for entity in ent_reg.entities.values()
+            if entity.device_id == device_id and entity.domain == "binary_sensor"
+        ]
+
+        # Find all sensor entities on this device (for Frigate person_count)
+        device_sensors = [
+            entity
+            for entity in ent_reg.entities.values()
+            if entity.device_id == device_id and entity.domain == "sensor"
+        ]
+
+        results: list[CameraInfo] = []
+
+        for bs_entity in device_binary_sensors:
+            bs_id = bs_entity.entity_id
+            platform = bs_entity.platform or ""
+
+            detected_platform: str | None = None
+
+            # --- Authoritative platform-based detection ---
+            if platform == CAMERA_PLATFORM_FRIGATE or bs_id.endswith("_person_occupancy"):
+                # Frigate: platform field is "frigate" OR name suffix
+                detected_platform = CAMERA_PLATFORM_FRIGATE
+
+            elif platform == CAMERA_PLATFORM_UNIFI or bs_id.endswith("_person_detected"):
+                # UniFi Protect: platform field is "unifiprotect" OR name suffix
+                detected_platform = CAMERA_PLATFORM_UNIFI
+
+            elif platform == _CAMERA_PLATFORM_REOLINK and "person" in bs_entity.name.lower():
+                # Reolink: must be reolink platform AND entity name contains "person"
+                detected_platform = _CAMERA_PLATFORM_REOLINK
+
+            elif platform == _CAMERA_PLATFORM_DAHUA and "person" in bs_entity.name.lower():
+                # Dahua: must be dahua platform AND entity name contains "person"
+                detected_platform = _CAMERA_PLATFORM_DAHUA
+
+            else:
+                # Not a person detection entity — skip
+                continue
+
+            # Build CameraInfo
+            camera_info = CameraInfo(
+                entity_id=bs_id,
+                platform=detected_platform,
+                area_id=bs_entity.area_id or camera_entry.area_id,
+                person_binary_sensor=bs_id,
+            )
+
+            # For Frigate: also look for matching sensor.*_person_count on this device
+            if detected_platform == CAMERA_PLATFORM_FRIGATE:
+                # Try name-based match first
+                base_name = bs_id[len("binary_sensor."):-len("_person_occupancy")]
+                count_sensor_id = f"sensor.{base_name}_person_count"
+                if ent_reg.async_get(count_sensor_id):
+                    camera_info.person_count_sensor = count_sensor_id
+                else:
+                    # Fallback: search device sensors for *_person_count suffix
+                    for s_entity in device_sensors:
+                        if s_entity.entity_id.endswith("_person_count"):
+                            camera_info.person_count_sensor = s_entity.entity_id
+                            break
+
+            results.append(camera_info)
+
+        if not results:
+            _LOGGER.warning(
+                "Camera entity %s (device_id=%s) has no person detection binary_sensors — "
+                "no Frigate, UniFi Protect, Reolink, or Dahua person entities found on device",
+                camera_entity_id,
+                device_id,
+            )
+
+        # Cache by device_id to support deduplication
+        self._resolved_devices[device_id] = results
+
+        _LOGGER.debug(
+            "Resolved camera %s (device_id=%s) -> %d person detection entities: %s",
+            camera_entity_id,
+            device_id,
+            len(results),
+            [r.entity_id for r in results],
+        )
+
+        return results
+
+    def resolve_configured_cameras(
+        self,
+        camera_entity_ids: list[str],
+    ) -> list[CameraInfo]:
+        """Resolve a list of camera.* entity IDs to CameraInfo objects.
+
+        Deduplicates by device_id: if two camera.* entities share the same device
+        (e.g. high-res and medium-res channels), the device is only resolved once.
+
+        Returns a flat list of all CameraInfo objects found.
+        """
+        seen_device_ids: set[str] = set()
+        all_camera_infos: list[CameraInfo] = []
+
+        ent_reg = er.async_get(self.hass)
+
+        for camera_entity_id in camera_entity_ids:
+            camera_entry = ent_reg.async_get(camera_entity_id)
+            if camera_entry is None:
+                _LOGGER.warning(
+                    "Camera entity %s not found in registry — skipping",
+                    camera_entity_id,
+                )
+                continue
+
+            device_id = camera_entry.device_id
+            if not device_id:
+                _LOGGER.warning(
+                    "Camera entity %s has no device_id — skipping",
+                    camera_entity_id,
+                )
+                continue
+
+            # Deduplicate by device
+            if device_id in seen_device_ids:
+                _LOGGER.debug(
+                    "Camera entity %s shares device_id=%s with a previously resolved camera — skipping duplicate",
+                    camera_entity_id,
+                    device_id,
+                )
+                continue
+
+            seen_device_ids.add(device_id)
+            infos = self.resolve_camera_entity(camera_entity_id)
+            all_camera_infos.extend(infos)
+
+        return all_camera_infos
+
+    async def async_discover(
+        self,
+        room_cameras: list[str] | None = None,
+        egress_cameras: list[str] | None = None,
+        perimeter_cameras: list[str] | None = None,
+    ) -> None:
+        """Discover camera entities from configured camera.* entity lists.
+
+        When camera lists are provided, resolves camera.* entity IDs to their
+        person detection binary_sensors via the entity registry (device-based lookup).
+
+        When no lists are provided, falls back to the legacy full-scan approach:
+        scans ALL binary_sensor entities looking for Frigate and UniFi person
+        detection suffixes.
+
+        Builds internal lookup maps used by get_cameras_for_area(),
+        get_platform_for_camera(), etc.
+        """
+        # Clear internal state
+        self._cameras_by_area = {}
+        self._camera_by_entity = {}
+        self._platform_by_entity = {}
+        self._resolved_devices = {}
+
+        have_configured = any([room_cameras, egress_cameras, perimeter_cameras])
+
+        if have_configured:
+            await self._discover_from_configured_cameras(
+                room_cameras=room_cameras or [],
+                egress_cameras=egress_cameras or [],
+                perimeter_cameras=perimeter_cameras or [],
+            )
+        else:
+            await self._discover_full_scan()
+
+    async def _discover_from_configured_cameras(
+        self,
+        room_cameras: list[str],
+        egress_cameras: list[str],
+        perimeter_cameras: list[str],
+    ) -> None:
+        """Build lookup maps from explicitly configured camera.* entity lists."""
+        all_configured = list(set(room_cameras + egress_cameras + perimeter_cameras))
+        all_infos = self.resolve_configured_cameras(all_configured)
+
+        frigate_count = 0
+        unifi_count = 0
+
+        for camera_info in all_infos:
+            entity_id = camera_info.entity_id
+
+            # entity lookup (keyed by binary_sensor entity_id)
+            self._camera_by_entity[entity_id] = camera_info
+            self._platform_by_entity[entity_id] = camera_info.platform
+
+            # area lookup
+            area_id = camera_info.area_id or ""
+            if area_id not in self._cameras_by_area:
+                self._cameras_by_area[area_id] = []
+            self._cameras_by_area[area_id].append(camera_info)
+
+            if camera_info.platform == CAMERA_PLATFORM_FRIGATE:
+                frigate_count += 1
+            elif camera_info.platform == CAMERA_PLATFORM_UNIFI:
+                unifi_count += 1
+
+        _LOGGER.info(
+            "Camera discovery complete (configured mode): %d Frigate, %d UniFi Protect entities found "
+            "from %d configured camera entities",
+            frigate_count,
+            unifi_count,
+            len(all_configured),
+        )
+
+    async def _discover_full_scan(self) -> None:
+        """Legacy full-scan discovery: scan ALL binary_sensor entities in the registry.
+
+        Identifies Frigate and UniFi Protect person detection entities by name suffix,
+        then associates them with HA areas (rooms) for later lookup.
         """
         ent_reg = er.async_get(self.hass)
 
@@ -142,9 +400,10 @@ class CameraIntegrationManager:
                 continue
 
             entity_id = entity.entity_id
+            platform = entity.platform or ""
 
-            # Frigate: binary_sensor.*_person_occupancy
-            if entity_id.endswith("_person_occupancy"):
+            # Frigate: platform == "frigate" OR binary_sensor.*_person_occupancy
+            if platform == CAMERA_PLATFORM_FRIGATE or entity_id.endswith("_person_occupancy"):
                 camera_info = CameraInfo(
                     entity_id=entity_id,
                     platform=CAMERA_PLATFORM_FRIGATE,
@@ -158,8 +417,8 @@ class CameraIntegrationManager:
                     camera_info.person_count_sensor = count_sensor_id
                 frigate_sensors.append(camera_info)
 
-            # UniFi Protect: binary_sensor.*_person_detected
-            elif entity_id.endswith("_person_detected"):
+            # UniFi Protect: platform == "unifiprotect" OR binary_sensor.*_person_detected
+            elif platform == CAMERA_PLATFORM_UNIFI or entity_id.endswith("_person_detected"):
                 camera_info = CameraInfo(
                     entity_id=entity_id,
                     platform=CAMERA_PLATFORM_UNIFI,
@@ -167,11 +426,6 @@ class CameraIntegrationManager:
                     person_binary_sensor=entity_id,
                 )
                 unifi_sensors.append(camera_info)
-
-        # Build lookup maps
-        self._cameras_by_area = {}
-        self._camera_by_entity = {}
-        self._platform_by_entity = {}
 
         for camera_info in frigate_sensors + unifi_sensors:
             # entity lookup
@@ -185,7 +439,7 @@ class CameraIntegrationManager:
             self._cameras_by_area[area_id].append(camera_info)
 
         _LOGGER.info(
-            "Camera discovery complete: %d Frigate, %d UniFi Protect entities found",
+            "Camera discovery complete (full-scan mode): %d Frigate, %d UniFi Protect entities found",
             len(frigate_sensors),
             len(unifi_sensors),
         )
@@ -246,6 +500,12 @@ class PersonCensus:
       Method: any person detection on egress or perimeter cameras
 
     The two zones are independent. total_on_property = house + property_exterior.
+
+    Cross-validation:
+      When CONF_CENSUS_CROSS_VALIDATION is True (default), multi-platform
+      cross-validation is used and confidence is derived from platform agreement.
+      When False, only the FIRST person detection entity per device is used,
+      cross-validation is skipped, and confidence is always "medium".
     """
 
     def __init__(
@@ -325,51 +585,88 @@ class PersonCensus:
         """Calculate the house (interior) census.
 
         Steps:
-        1. Collect camera person entities from all room configs
+        1. Collect camera person entities from all room configs (resolving camera.* IDs)
         2. Separate into Frigate and UniFi groups
         3. Sum Frigate counts; check UniFi presence
-        4. Cross-validate the two platform counts
+        4. Cross-validate the two platform counts (unless cross_validation is disabled)
         5. Cross-correlate with BLE persons
         6. Return CensusZoneResult
         """
-        # Collect camera entities explicitly configured per room
+        cross_validation_enabled = self._is_cross_validation_enabled()
+
+        # Collect resolved binary_sensor entities from room-configured camera.* IDs
         configured_interior = self._get_interior_camera_entities()
 
         frigate_total = 0
         unifi_detected = False
 
-        for entity_id in configured_interior:
-            platform = self._camera_manager.get_platform_for_camera(entity_id)
+        if cross_validation_enabled:
+            # Full cross-validation: use all detected entities per device
+            for entity_id in configured_interior:
+                platform = self._camera_manager.get_platform_for_camera(entity_id)
 
-            if platform == CAMERA_PLATFORM_FRIGATE:
-                # Use person_count sensor if available, otherwise binary_sensor
-                camera_info = self._camera_manager._camera_by_entity.get(entity_id)
-                if camera_info and camera_info.person_count_sensor:
-                    count = self._get_sensor_int(camera_info.person_count_sensor)
-                    frigate_total += count
+                if platform == CAMERA_PLATFORM_FRIGATE:
+                    camera_info = self._camera_manager._camera_by_entity.get(entity_id)
+                    if camera_info and camera_info.person_count_sensor:
+                        count = self._get_sensor_int(camera_info.person_count_sensor)
+                        frigate_total += count
+                    else:
+                        if self._is_entity_on(entity_id):
+                            frigate_total += 1
+
+                elif platform == CAMERA_PLATFORM_UNIFI:
+                    if self._is_entity_on(entity_id):
+                        unifi_detected = True
+
                 else:
-                    # Fall back: binary as 0 or 1
+                    # Unknown/not discovered or Reolink/Dahua: treat as binary presence
                     if self._is_entity_on(entity_id):
                         frigate_total += 1
 
-            elif platform == CAMERA_PLATFORM_UNIFI:
-                if self._is_entity_on(entity_id):
-                    unifi_detected = True
+            unifi_count = 1 if unifi_detected else 0
 
+            if configured_interior:
+                camera_total, agreement = self._cross_validate_platforms(frigate_total, unifi_count)
             else:
-                # Unknown/not discovered: treat as binary presence
-                if self._is_entity_on(entity_id):
-                    frigate_total += 1
+                camera_total = 0
+                agreement = CENSUS_AGREEMENT_SINGLE
 
-        # Derive unifi_count from presence signal (binary only, no numeric count)
-        unifi_count = 1 if unifi_detected else 0
-
-        # Cross-validate platform counts
-        if configured_interior:
-            camera_total, agreement = self._cross_validate_platforms(frigate_total, unifi_count)
         else:
-            # No interior cameras configured — BLE-only fallback
-            camera_total = 0
+            # Cross-validation disabled: use only the FIRST entity per device
+            # The configured_interior list already contains resolved binary_sensor IDs.
+            # We track which devices we've already counted to pick only the first.
+            seen_device_ids: set[str] = set()
+            ent_reg = er.async_get(self.hass)
+
+            single_source_total = 0
+            for entity_id in configured_interior:
+                entry = ent_reg.async_get(entity_id)
+                device_id = entry.device_id if entry else None
+
+                if device_id:
+                    if device_id in seen_device_ids:
+                        # Skip additional entities from the same device
+                        continue
+                    seen_device_ids.add(device_id)
+
+                # Count this entity (treat as binary or use count sensor for Frigate)
+                platform = self._camera_manager.get_platform_for_camera(entity_id)
+                if platform == CAMERA_PLATFORM_FRIGATE:
+                    camera_info = self._camera_manager._camera_by_entity.get(entity_id)
+                    if camera_info and camera_info.person_count_sensor:
+                        count = self._get_sensor_int(camera_info.person_count_sensor)
+                        single_source_total += count
+                    else:
+                        if self._is_entity_on(entity_id):
+                            single_source_total += 1
+                else:
+                    if self._is_entity_on(entity_id):
+                        single_source_total += 1
+
+            camera_total = single_source_total
+            unifi_count = 0  # Not used in single-source mode
+            frigate_total = single_source_total
+            # Cross-validation skipped — confidence will always be "medium" (single_source)
             agreement = CENSUS_AGREEMENT_SINGLE
 
         # Cross-correlate with BLE
@@ -400,15 +697,37 @@ class PersonCensus:
         Any detection = at least 1 person outside. We do not have numeric
         counts for the exterior (no Frigate person_count on perimeter cams
         in the current hardware config), so we report 0 or 1 per camera.
+
+        When cross-validation is disabled, only the first entity per device is
+        checked.
         """
+        cross_validation_enabled = self._is_cross_validation_enabled()
+
         egress_entities = self._get_integration_camera_list(CONF_EGRESS_CAMERAS)
         perimeter_entities = self._get_integration_camera_list(CONF_PERIMETER_CAMERAS)
         all_exterior = egress_entities + perimeter_entities
 
-        exterior_count = 0
-        for entity_id in all_exterior:
-            if self._is_entity_on(entity_id):
-                exterior_count += 1  # count distinct active cameras as proxy for persons
+        if cross_validation_enabled:
+            exterior_count = 0
+            for entity_id in all_exterior:
+                if self._is_entity_on(entity_id):
+                    exterior_count += 1
+        else:
+            # Single source: count only the first entity per device
+            seen_device_ids: set[str] = set()
+            ent_reg = er.async_get(self.hass)
+            exterior_count = 0
+            for entity_id in all_exterior:
+                entry = ent_reg.async_get(entity_id)
+                device_id = entry.device_id if entry else None
+
+                if device_id:
+                    if device_id in seen_device_ids:
+                        continue
+                    seen_device_ids.add(device_id)
+
+                if self._is_entity_on(entity_id):
+                    exterior_count += 1
 
         # Confidence for exterior zone
         if not all_exterior:
@@ -532,7 +851,7 @@ class PersonCensus:
         elif agreement == CENSUS_AGREEMENT_DISAGREE:
             confidence = CENSUS_CONFIDENCE_LOW
         else:
-            # single_source
+            # single_source (including cross-validation disabled case)
             confidence = CENSUS_CONFIDENCE_MEDIUM
 
         return CensusZoneResult(
@@ -552,32 +871,61 @@ class PersonCensus:
     # Helper: read configuration
     # ------------------------------------------------------------------
 
-    def _get_interior_camera_entities(self) -> list[str]:
-        """Return all camera_person_entities configured across all room entries.
+    def _is_cross_validation_enabled(self) -> bool:
+        """Return True if census cross-validation is enabled (default True).
 
-        Reads CONF_CAMERA_PERSON_ENTITIES from each room config entry
-        (options override data following HA pattern).
+        Reads CONF_CENSUS_CROSS_VALIDATION from the integration config entry.
+        Defaults to True if the key is absent.
         """
-        entities: list[str] = []
+        for entry in self.hass.config_entries.async_entries(DOMAIN):
+            if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_INTEGRATION:
+                merged = {**entry.data, **entry.options}
+                return bool(merged.get(CONF_CENSUS_CROSS_VALIDATION, True))
+        return True
+
+    def _get_interior_camera_entities(self) -> list[str]:
+        """Return resolved person detection binary_sensor entity IDs for interior cameras.
+
+        Reads CONF_CAMERA_PERSON_ENTITIES (now stores camera.* entity IDs) from each
+        room config entry, then resolves each camera.* ID to its person detection
+        binary_sensor entities via CameraIntegrationManager.resolve_configured_cameras().
+
+        Returns a flat list of binary_sensor entity IDs.
+        """
+        camera_entity_ids: list[str] = []
         for entry in self.hass.config_entries.async_entries(DOMAIN):
             if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ROOM:
                 continue
             merged = {**entry.data, **entry.options}
             room_cameras = merged.get(CONF_CAMERA_PERSON_ENTITIES, [])
             if room_cameras:
-                entities.extend(room_cameras)
-        return entities
+                camera_entity_ids.extend(room_cameras)
+
+        if not camera_entity_ids:
+            return []
+
+        # Resolve camera.* IDs -> person detection binary_sensor entity IDs
+        resolved = self._camera_manager.resolve_configured_cameras(camera_entity_ids)
+        return [info.person_binary_sensor for info in resolved if info.person_binary_sensor]
 
     def _get_integration_camera_list(self, conf_key: str) -> list[str]:
-        """Return camera entity list from integration-level config.
+        """Return resolved person detection binary_sensor IDs from integration-level config.
 
-        Reads conf_key (CONF_EGRESS_CAMERAS or CONF_PERIMETER_CAMERAS) from
-        the integration config entry.
+        Reads conf_key (CONF_EGRESS_CAMERAS or CONF_PERIMETER_CAMERAS) from the
+        integration config entry (now stores camera.* entity IDs), then resolves
+        each camera.* ID to its person detection binary_sensor entities.
+
+        Returns a flat list of binary_sensor entity IDs.
         """
         for entry in self.hass.config_entries.async_entries(DOMAIN):
             if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_INTEGRATION:
                 merged = {**entry.data, **entry.options}
-                return merged.get(conf_key, [])
+                camera_entity_ids = merged.get(conf_key, [])
+                if not camera_entity_ids:
+                    return []
+                # Resolve camera.* IDs -> person detection binary_sensor entity IDs
+                resolved = self._camera_manager.resolve_configured_cameras(camera_entity_ids)
+                return [info.person_binary_sensor for info in resolved if info.person_binary_sensor]
         return []
 
     # ------------------------------------------------------------------

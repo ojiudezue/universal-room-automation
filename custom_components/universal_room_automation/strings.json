@@ -120,7 +120,7 @@
           "door_type": "Door Type",
           "window_sensor": "Window Sensor",
           "water_leak_sensor": "Water Leak Sensor",
-          "camera_person_entities": "Camera Person Detection"
+          "camera_person_entities": "Room Cameras"
         },
         "data_description": {
           "motion_sensors": "PIR sensors that detect movement (triggers occupancy)",
@@ -134,7 +134,7 @@
           "door_type": "Interior doors vs. egress (exterior) doors have different alert thresholds",
           "window_sensor": "Window open/closed sensor for security alerts",
           "water_leak_sensor": "Water/moisture sensor for safety alerts",
-          "camera_person_entities": "Camera person detection entities for this room (Frigate person_occupancy or UniFi person_detected). Select 0, 1, or 2 for dual-platform."
+          "camera_person_entities": "Select cameras in this room. Person detection is found automatically. Works with UniFi Protect, Frigate, Reolink, and Dahua. Any resolution channel works — just pick the camera."
         }
       },
       "devices": {
@@ -431,14 +431,16 @@
       },
       "camera_census": {
         "title": "\ud83d\udcf7 Camera Census",
-        "description": "Configure cameras for property-level person census. Interior (room) cameras are configured per room in the Sensors step.",
+        "description": "Set up cameras for person counting. Pick any camera entity — person detection sensors are found automatically. Works with UniFi Protect, Frigate, Reolink, and Dahua. Room cameras are configured per room in the Sensors step.",
         "data": {
-          "egress_cameras": "Egress Cameras (Doors)",
-          "perimeter_cameras": "Perimeter Cameras (Yard/Fence)"
+          "census_cross_validation": "Cross-Check Between Camera Platforms",
+          "egress_cameras": "Door Cameras",
+          "perimeter_cameras": "Outdoor Cameras"
         },
         "data_description": {
-          "egress_cameras": "Camera person detection entities at exterior doors (front door, garage, back door). Tracks entry/exit boundary — does not trigger room occupancy.",
-          "perimeter_cameras": "Camera person detection entities covering yard, driveway, and fence line. Used for property census and intruder detection."
+          "census_cross_validation": "When you run multiple camera platforms (e.g., Frigate and UniFi Protect), person counts are compared between them for higher accuracy. Turn this off if you only use one camera platform or prefer simpler, single-source counting.",
+          "egress_cameras": "Cameras at your exterior doors (front door, back door, garage). Used to track who enters and leaves — not used for room occupancy. Deliveries and visitors at the door won't trigger room automation.",
+          "perimeter_cameras": "Cameras covering your yard, driveway, or fence line. Used to count people on your property who are outside the house."
         }
       },
       "zone_rooms": {
@@ -506,7 +508,7 @@
           "door_type": "Door Type",
           "window_sensor": "Window Sensor",
           "water_leak_sensor": "Water Leak Sensor",
-          "camera_person_entities": "Camera Person Detection"
+          "camera_person_entities": "Room Cameras"
         },
         "data_description": {
           "motion_sensors": "PIR sensors that detect movement",
@@ -520,7 +522,7 @@
           "door_type": "Interior vs. egress (exterior) door",
           "window_sensor": "Window open/closed sensor",
           "water_leak_sensor": "Water/moisture sensor",
-          "camera_person_entities": "Camera person detection entities for this room (Frigate or UniFi Protect)"
+          "camera_person_entities": "Select cameras in this room. Person detection is found automatically. Any resolution channel works."
         }
       },
       "devices": {

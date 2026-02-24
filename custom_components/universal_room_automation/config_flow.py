@@ -1,6 +1,6 @@
 """Config flow for Universal Room Automation v3.3.3."""
 #
-# Universal Room Automation v3.4.3
+# Universal Room Automation v3.4.4
 # Build: 2026-01-05
 # File: config_flow.py
 # v3.3.3: Added manage_zones to integration options menu
@@ -216,6 +216,7 @@ from .const import (
     CONF_CAMERA_PERSON_ENTITIES,
     CONF_EGRESS_CAMERAS,
     CONF_PERIMETER_CAMERAS,
+    CONF_CENSUS_CROSS_VALIDATION,
 )
 
 
@@ -734,11 +735,10 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
             vol.Optional(CONF_WATER_LEAK_SENSOR): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="binary_sensor", device_class=["moisture", "water_leak"])
             ),
-            # v3.5.0: Camera person detection entities for this room
+            # v3.5.0: Camera entities for this room (person detection resolved from device)
             vol.Optional(CONF_CAMERA_PERSON_ENTITIES, default=[]): selector.EntitySelector(
                 selector.EntitySelectorConfig(
-                    domain="binary_sensor",
-                    device_class="occupancy",
+                    domain="camera",
                     multiple=True,
                 )
             ),
@@ -1492,13 +1492,18 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             )
 
         data_schema = vol.Schema({
+            # Cross-validation toggle
+            vol.Optional(
+                CONF_CENSUS_CROSS_VALIDATION,
+                default=self._get_current(CONF_CENSUS_CROSS_VALIDATION, True)
+            ): selector.BooleanSelector(),
             # Egress cameras: doors to outside (front door, back door, garage)
             vol.Optional(
                 CONF_EGRESS_CAMERAS,
                 default=self._get_current(CONF_EGRESS_CAMERAS, [])
             ): selector.EntitySelector(
                 selector.EntitySelectorConfig(
-                    domain="binary_sensor",
+                    domain="camera",
                     multiple=True,
                 )
             ),
@@ -1508,7 +1513,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 default=self._get_current(CONF_PERIMETER_CAMERAS, [])
             ): selector.EntitySelector(
                 selector.EntitySelectorConfig(
-                    domain="binary_sensor",
+                    domain="camera",
                     multiple=True,
                 )
             ),
@@ -1517,10 +1522,6 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         return self.async_show_form(
             step_id="camera_census",
             data_schema=data_schema,
-            description_placeholders={
-                "egress_info": "Cameras at exterior doors (front, back, garage). Used for property census.",
-                "perimeter_info": "Cameras covering yard, driveway, fence. Used for property census."
-            }
         )
 
     async def async_step_default_notifications(self, user_input=None):
@@ -2017,14 +2018,13 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             ): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="binary_sensor", device_class=["moisture", "water_leak"])
             ),
-            # v3.5.0: Camera person detection entities for this room
+            # v3.5.0: Camera entities for this room (person detection resolved from device)
             vol.Optional(
                 CONF_CAMERA_PERSON_ENTITIES,
                 default=self._get_current(CONF_CAMERA_PERSON_ENTITIES, [])
             ): selector.EntitySelector(
                 selector.EntitySelectorConfig(
-                    domain="binary_sensor",
-                    device_class="occupancy",
+                    domain="camera",
                     multiple=True,
                 )
             ),
