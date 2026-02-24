@@ -402,7 +402,73 @@ python3 validate_config_storage.py
 
 ---
 
-**Version:** 1.0  
-**Created:** December 13, 2025  
-**Based on:** v3.2.0.10 config storage bug fix  
+**Version:** 1.0
+**Created:** December 13, 2025
+**Based on:** v3.2.0.10 config storage bug fix
 **Status:** Active validation checklist
+
+---
+
+## v3.4.x: Camera Census Lessons
+
+### Strings and Translations (v3.4.1–v3.4.3)
+
+**Rule:** Every new config flow field MUST have a matching entry in `strings.json` for BOTH `config.step` AND `options.step`. Missing entries cause the raw config key to render in the UI instead of a human-readable label.
+
+Checklist — after adding any new field to config_flow.py:
+- [ ] `strings.json` has a `data` entry for the new key under every `config.step` that uses it
+- [ ] `strings.json` has a `data_description` entry for the new key (optional but recommended)
+- [ ] `strings.json` has matching entries under `options.step` if the field appears in OptionsFlow
+- [ ] `translations/en.json` exists and is an exact copy of `strings.json`
+  ```bash
+  cp strings.json translations/en.json
+  ```
+- [ ] `translations/` directory is present — HA requires it at runtime even if strings.json exists
+
+**What broke in v3.4.1:** Camera census added `camera_person_entities` to the sensor config step and `camera_census` as an options menu item with `egress_cameras`/`perimeter_cameras`. No `strings.json` entries were added. Users saw raw keys. `translations/en.json` did not exist at all — the directory was never created.
+
+---
+
+### Entity Selector Domain for Camera Config (v3.4.4)
+
+**Rule:** Camera config fields that let users select camera-related entities should use `domain="camera"`, not `domain="binary_sensor"`. Code resolves person detection entities from the device registry automatically.
+
+**Why it matters:** Using `domain="binary_sensor"` on a camera device exposes every binary_sensor on the device — motion, animal, bark, doorbell, etc. — not just person detection. Users cannot tell which sensor is correct and frequently pick the wrong one.
+
+**Correct pattern:**
+```python
+# CORRECT — selector shows camera entities; code resolves person detection from device
+vol.Optional(CONF_CAMERA_PERSON_ENTITIES): selector.EntitySelector(
+    selector.EntitySelectorConfig(
+        domain="camera",
+        multiple=True,
+    )
+)
+
+# WRONG — exposes every binary_sensor on camera devices
+vol.Optional(CONF_CAMERA_PERSON_ENTITIES): selector.EntitySelector(
+    selector.EntitySelectorConfig(
+        domain="binary_sensor",
+        device_class="occupancy",
+        multiple=True,
+    )
+)
+```
+
+**Resolution pattern (camera → person detection entity):**
+```python
+# In the coordinator or camera manager:
+# Get the device for the camera entity, then find its person detection binary_sensor
+device_id = entity_registry.entities[camera_entity_id].device_id
+person_sensor = next(
+    (e.entity_id for e in entity_registry.entities.values()
+     if e.device_id == device_id
+     and e.domain == "binary_sensor"
+     and ("person_detected" in e.entity_id or "person_occupancy" in e.entity_id)),
+    None
+)
+```
+
+- [ ] Any camera config selector uses `domain="camera"`, not `domain="binary_sensor"`
+- [ ] Person detection entity resolution happens in code (coordinator or camera manager), not in the selector config
+- [ ] Cross-validation toggle is present when both platforms (Frigate + UniFi) may be configured for the same room
