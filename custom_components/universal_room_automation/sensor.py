@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.4.6
+# Universal Room Automation v3.5.0
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -128,6 +128,8 @@ async def async_setup_entry(
             # Disabled by default (diagnostics)
             URACensusConfidenceSensor(hass, entry),
             URACensusValidationAgeSensor(hass, entry),
+            # v3.5.1: Perimeter alert status (disabled by default)
+            PerimeterAlertStatusSensor(hass, entry),
         ]
         async_add_entities(census_sensors)
         return
@@ -2409,4 +2411,57 @@ class URACensusValidationAgeSensor(_CensusBaseSensor):
             return None
         delta = datetime.now() - result.timestamp
         return int(delta.total_seconds())
+
+
+# ============================================================================
+# v3.5.1: Perimeter Alert Status Sensor
+# ============================================================================
+
+
+class PerimeterAlertStatusSensor(AggregationEntity, SensorEntity):
+    """Diagnostic sensor showing the last perimeter alert timestamp.
+
+    Reads from the PerimeterAlertManager stored in hass.data[DOMAIN].
+    Disabled by default.
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:shield-alert"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_entity_registry_enabled_default = False
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_perimeter_alert_last_time"
+        self._attr_name = "Last Perimeter Alert"
+
+    @property
+    def available(self) -> bool:
+        """Available when the perimeter alert manager is active."""
+        manager = self.hass.data.get(DOMAIN, {}).get("perimeter_alert_manager")
+        return manager is not None and manager.is_active
+
+    @property
+    def native_value(self) -> str | None:
+        """Return ISO timestamp of the last perimeter alert, or None."""
+        manager = self.hass.data.get(DOMAIN, {}).get("perimeter_alert_manager")
+        if not manager:
+            return None
+        last_time = manager.last_alert_time
+        if last_time is None:
+            return None
+        return last_time.isoformat()
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return diagnostic details about the alert manager."""
+        manager = self.hass.data.get(DOMAIN, {}).get("perimeter_alert_manager")
+        if not manager:
+            return {"status": "not_initialized"}
+        last_time = manager.last_alert_time
+        return {
+            "status": "active" if manager.is_active else "inactive",
+            "last_alert_time": last_time.isoformat() if last_time else None,
+        }
 

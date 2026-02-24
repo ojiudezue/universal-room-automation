@@ -1,6 +1,6 @@
 """Binary sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.4.6
+# Universal Room Automation v3.5.0
 # Build: 2026-01-02
 # File: binary_sensor.py
 # v3.2.6: Renamed "Presence" to "Sensor Presence" for clarity
@@ -559,16 +559,15 @@ class CameraPersonDetectedSensor(UniversalRoomEntity, BinarySensorEntity):
 
 
 class URAUnexpectedPersonSensor(BinarySensorEntity):
-    """Integration-level: True when unidentified persons are detected inside.
+    """Integration-level: True when cameras see more persons than BLE can account for.
 
-    This sensor is True when the census reports unidentified_count > 0
-    in the house zone — i.e., camera sees persons that are not matched
-    to any known BLE or face identity.
+    v3.5.1 upgrade: uses house-level PersonCensus camera total vs person_coordinator
+    active BLE count.  camera_total > ble_active_total → is_on = True.
 
-    Gracefully returns False if census has not run yet.
+    Gracefully returns False if either data source is unavailable.
     """
 
-    _attr_device_class = BinarySensorDeviceClass.OCCUPANCY
+    _attr_device_class = BinarySensorDeviceClass.PROBLEM
     _attr_icon = "mdi:account-alert"
     _attr_has_entity_name = True
 
@@ -585,26 +584,53 @@ class URAUnexpectedPersonSensor(BinarySensorEntity):
             model="Whole House",
             sw_version=VERSION,
         )
+        self._camera_total: int = 0
+        self._ble_total: int = 0
 
     @property
     def is_on(self) -> bool:
-        """Return True when unidentified persons are detected inside the house."""
+        """Return True when cameras see more persons than BLE can identify."""
         census = self.hass.data.get(DOMAIN, {}).get("census")
-        if census is None or census.last_result is None:
+        person_coordinator = self.hass.data.get(DOMAIN, {}).get("person_coordinator")
+
+        if not census or not person_coordinator:
             return False
-        return census.last_result.house.unidentified_count > 0
+
+        result = census.last_result
+        self._camera_total = result.house.total_persons if result else 0
+
+        # Count active BLE persons (known, currently tracked as home)
+        ble_active: list[str] = []
+        if person_coordinator.data:
+            ble_active = [
+                pid for pid, info in person_coordinator.data.items()
+                if info.get("tracking_status") == "active"
+            ]
+        self._ble_total = len(ble_active)
+
+        return self._camera_total > self._ble_total
 
     @property
     def extra_state_attributes(self) -> dict:
-        """Return census details."""
+        """Return camera total, ble total, and derived guest count."""
+        # Trigger a fresh read so attributes are always in sync with is_on
         census = self.hass.data.get(DOMAIN, {}).get("census")
-        if census is None or census.last_result is None:
-            return {}
-        result = census.last_result
+        person_coordinator = self.hass.data.get(DOMAIN, {}).get("person_coordinator")
+
+        camera_total = 0
+        ble_total = 0
+
+        if census and census.last_result:
+            camera_total = census.last_result.house.total_persons
+
+        if person_coordinator and person_coordinator.data:
+            ble_total = len([
+                pid for pid, info in person_coordinator.data.items()
+                if info.get("tracking_status") == "active"
+            ])
+
         return {
-            "unidentified_count": result.house.unidentified_count,
-            "total_in_house": result.house.total_persons,
-            "identified_count": result.house.identified_count,
-            "confidence": result.house.confidence,
-            "last_updated": result.timestamp.isoformat() if result.timestamp else None,
+            "camera_total": camera_total,
+            "ble_total": ble_total,
+            "guest_count": max(0, camera_total - ble_total),
         }
