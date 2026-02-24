@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.5.0
+# Universal Room Automation v3.5.1
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -1648,8 +1648,9 @@ class CurrentOccupantsSensor(UniversalRoomEntity, SensorEntity):
     def __init__(self, coordinator) -> None:
         """Initialize."""
         # v3.2.6: Renamed from "Current Occupants" to "Identified People"
-        # unique_id kept as "current_occupants" for backward compatibility
-        super().__init__(coordinator, "current_occupants", "Identified People")
+        # v3.5.x: unique_id updated to "identified_people" to match entity name
+        # Migration in __init__.py renames existing "current_occupants" entities
+        super().__init__(coordinator, "identified_people", "Identified People")
         self._unsub_person_coordinator = None
     
     async def async_added_to_hass(self) -> None:
@@ -1744,8 +1745,9 @@ class OccupantCountSensor(UniversalRoomEntity, SensorEntity):
     def __init__(self, coordinator) -> None:
         """Initialize."""
         # v3.2.6: Renamed from "Occupant Count" to "Identified People Count"
-        # unique_id kept as "occupant_count" for backward compatibility
-        super().__init__(coordinator, "occupant_count", "Identified People Count")
+        # v3.5.x: unique_id updated to "identified_people_count" to match entity name
+        # Migration in __init__.py renames existing "occupant_count" entities
+        super().__init__(coordinator, "identified_people_count", "Identified People Count")
         self._unsub_person_coordinator = None
     
     async def async_added_to_hass(self) -> None:
@@ -1797,8 +1799,9 @@ class LastOccupantSensor(UniversalRoomEntity, SensorEntity):
     def __init__(self, coordinator) -> None:
         """Initialize."""
         # v3.2.6: Renamed from "Last Occupant" to "Last Identified Person"
-        # unique_id kept as "last_occupant" for backward compatibility
-        super().__init__(coordinator, "last_occupant", "Last Identified Person")
+        # v3.5.x: unique_id updated to "last_identified_person" to match entity name
+        # Migration in __init__.py renames existing "last_occupant" entities
+        super().__init__(coordinator, "last_identified_person", "Last Identified Person")
     
     @property
     def native_value(self) -> str:
@@ -1879,8 +1882,9 @@ class LastOccupantTimeSensor(UniversalRoomEntity, SensorEntity):
     def __init__(self, coordinator) -> None:
         """Initialize."""
         # v3.2.6: Renamed from "Last Occupant Time" to "Last Identified Time"
-        # unique_id kept as "last_occupant_time" for backward compatibility
-        super().__init__(coordinator, "last_occupant_time", "Last Identified Time")
+        # v3.5.x: unique_id updated to "last_identified_time" to match entity name
+        # Migration in __init__.py renames existing "last_occupant_time" entities
+        super().__init__(coordinator, "last_identified_time", "Last Identified Time")
     
     @property
     def native_value(self) -> datetime | None:
