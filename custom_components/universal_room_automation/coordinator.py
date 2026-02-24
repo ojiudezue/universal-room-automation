@@ -1,6 +1,6 @@
 """Data coordinator for Universal Room Automation."""
 #
-# Universal Room Automation v3.4.6
+# Universal Room Automation v3.5.0
 # Build: 2026-01-02
 # File: coordinator.py
 # v3.2.8: Support for active state change listeners in aggregation sensors
@@ -358,6 +358,14 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         except (ValueError, TypeError):
             return default
     
+    def _get_room_area(self) -> str | None:
+        """Return the HA area_id for this room.
+
+        Reads CONF_AREA_ID from the room config entry (options override data).
+        Returns None if no area is configured.
+        """
+        return self._get_config(CONF_AREA_ID)
+
     def _get_entities_in_area(self, area_id: str, domain: str) -> list[str]:
         """Get entities of domain in area."""
         if not area_id:
@@ -557,6 +565,30 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                 data[STATE_OCCUPIED] = False
                 data[STATE_TIMEOUT_REMAINING] = 0
                 self._last_motion_time = None
+
+        # === v3.5.1: Camera extends room occupancy ===
+        # If motion/mmWave have timed out but a camera in this room's area still
+        # sees a person, override vacancy and keep the room occupied.
+        if not data.get(STATE_OCCUPIED):
+            camera_manager = self.hass.data.get(DOMAIN, {}).get("camera_manager")
+            if camera_manager:
+                room_area = self._get_room_area()
+                if room_area:
+                    person_sensors = camera_manager.get_person_sensor_for_area(room_area)
+                    for person_sensor in person_sensors:
+                        state = self.hass.states.get(person_sensor)
+                        if state and state.state == "on":
+                            data[STATE_OCCUPIED] = True
+                            data[STATE_TIMEOUT_REMAINING] = self._occupancy_timeout
+                            if not self._last_motion_time:
+                                self._last_motion_time = now
+                            _LOGGER.debug(
+                                "Room %s: Camera person sensor %s overrides vacancy — "
+                                "person detected",
+                                room_name,
+                                person_sensor,
+                            )
+                            break
 
         # === Phase 1: Environmental Sensors ===
         # v3.2.3.2 FIX: Use _get_config to read from options (user changes) with data fallback

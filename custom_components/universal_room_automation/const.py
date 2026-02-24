@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation v3.4.6
+# Universal Room Automation v3.5.0
 # Build: 2026-01-05
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "3.4.6"
+VERSION: Final = "3.5.0"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -721,3 +721,22 @@ CENSUS_AGREEMENT_DISAGREE: Final = "disagree"
 CENSUS_AGREEMENT_SINGLE: Final = "single_source"
 
 CONF_CENSUS_CROSS_VALIDATION: Final = "census_cross_validation"
+
+# ============================================================================
+# v3.5.1 Perimeter Alerting & Zone Aggregation
+# ============================================================================
+
+# Perimeter alert config keys
+CONF_PERIMETER_ALERT_HOURS_START: Final = "perimeter_alert_hours_start"
+CONF_PERIMETER_ALERT_HOURS_END: Final = "perimeter_alert_hours_end"
+CONF_PERIMETER_ALERT_NOTIFY_SERVICE: Final = "perimeter_alert_notify_service"
+CONF_PERIMETER_ALERT_NOTIFY_TARGET: Final = "perimeter_alert_notify_target"
+
+# Perimeter alert defaults
+DEFAULT_PERIMETER_ALERT_START: Final = 23   # 11 PM
+DEFAULT_PERIMETER_ALERT_END: Final = 5      # 5 AM
+PERIMETER_ALERT_COOLDOWN_SECONDS: Final = 300  # 5 minutes
+
+# Zone aggregation sensor keys
+SENSOR_ZONE_IDENTIFIED_PERSONS: Final = "zone_identified_persons"
+SENSOR_ZONE_GUEST_COUNT: Final = "zone_guest_count"

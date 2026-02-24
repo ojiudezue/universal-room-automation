@@ -1,6 +1,6 @@
 """Config flow for Universal Room Automation v3.3.3."""
 #
-# Universal Room Automation v3.4.6
+# Universal Room Automation v3.5.0
 # Build: 2026-01-05
 # File: config_flow.py
 # v3.3.3: Added manage_zones to integration options menu
@@ -217,6 +217,13 @@ from .const import (
     CONF_EGRESS_CAMERAS,
     CONF_PERIMETER_CAMERAS,
     CONF_CENSUS_CROSS_VALIDATION,
+    # v3.5.1: Perimeter Alerting
+    CONF_PERIMETER_ALERT_HOURS_START,
+    CONF_PERIMETER_ALERT_HOURS_END,
+    CONF_PERIMETER_ALERT_NOTIFY_SERVICE,
+    CONF_PERIMETER_ALERT_NOTIFY_TARGET,
+    DEFAULT_PERIMETER_ALERT_START,
+    DEFAULT_PERIMETER_ALERT_END,
 )
 
 
@@ -1221,6 +1228,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     "default_notifications",
                     "manage_zones",  # v3.3.3
                     "camera_census",  # v3.5.0
+                    "perimeter_alerting",  # v3.5.1
                 ],
             )
         elif entry_type == ENTRY_TYPE_ZONE:
@@ -1544,6 +1552,69 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
 
         return self.async_show_form(
             step_id="camera_census",
+            data_schema=data_schema,
+        )
+
+    async def async_step_perimeter_alerting(self, user_input=None):
+        """Configure perimeter intruder alerting (integration level) — v3.5.1.
+
+        Sets alert hours, notification service, and notification target for
+        the PerimeterAlertManager. Changes take effect after integration reload.
+        """
+        if user_input is not None:
+            self.hass.config_entries.async_update_entry(
+                self._config_entry,
+                options={**self._config_entry.options, **user_input},
+            )
+            return self.async_create_entry(title="", data={})
+
+        data_schema = vol.Schema({
+            # Alert start hour (0–23)
+            vol.Optional(
+                CONF_PERIMETER_ALERT_HOURS_START,
+                default=self._get_current(
+                    CONF_PERIMETER_ALERT_HOURS_START,
+                    DEFAULT_PERIMETER_ALERT_START,
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0,
+                    max=23,
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
+            # Alert end hour (0–23)
+            vol.Optional(
+                CONF_PERIMETER_ALERT_HOURS_END,
+                default=self._get_current(
+                    CONF_PERIMETER_ALERT_HOURS_END,
+                    DEFAULT_PERIMETER_ALERT_END,
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0,
+                    max=23,
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
+            # Notify service
+            vol.Optional(
+                CONF_PERIMETER_ALERT_NOTIFY_SERVICE,
+                default=self._get_current(CONF_PERIMETER_ALERT_NOTIFY_SERVICE, ""),
+            ): selector.TextSelector(
+                selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT)
+            ),
+            # Notify target (optional)
+            vol.Optional(
+                CONF_PERIMETER_ALERT_NOTIFY_TARGET,
+                default=self._get_current(CONF_PERIMETER_ALERT_NOTIFY_TARGET, ""),
+            ): selector.TextSelector(
+                selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT)
+            ),
+        })
+
+        return self.async_show_form(
+            step_id="perimeter_alerting",
             data_schema=data_schema,
         )
 

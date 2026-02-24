@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation v3.4.6
+# Universal Room Automation v3.5.0
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -48,6 +48,7 @@ from .coordinator import UniversalRoomCoordinator
 from .database import UniversalRoomDatabase
 from .person_coordinator import PersonTrackingCoordinator  # v3.2.0
 from .camera_census import CameraIntegrationManager, PersonCensus  # v3.5.0
+from .perimeter_alert import PerimeterAlertManager  # v3.5.1
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -377,6 +378,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         except Exception as e:
             _LOGGER.error("Failed to initialize camera census: %s", e)
 
+        # v3.5.1: Initialize perimeter alert manager
+        try:
+            perimeter_alert_manager = PerimeterAlertManager(hass)
+            await perimeter_alert_manager.async_setup()
+            hass.data[DOMAIN]["perimeter_alert_manager"] = perimeter_alert_manager
+            _LOGGER.info(
+                "Perimeter alert manager initialized (active: %s)",
+                perimeter_alert_manager.is_active,
+            )
+        except Exception as e:
+            _LOGGER.error("Failed to initialize perimeter alert manager: %s", e)
+
         # Set up aggregation sensors (sensor and binary_sensor platforms)
         # These will be registered via the platform files
         await hass.config_entries.async_forward_entry_setups(entry, INTEGRATION_PLATFORMS)
@@ -528,6 +541,12 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         for key in ["camera_manager", "census"]:
             if key in hass.data[DOMAIN]:
                 del hass.data[DOMAIN][key]
+
+        # v3.5.1: Tear down perimeter alert manager
+        perimeter_alert_manager = hass.data[DOMAIN].get("perimeter_alert_manager")
+        if perimeter_alert_manager:
+            await perimeter_alert_manager.async_teardown()
+            del hass.data[DOMAIN]["perimeter_alert_manager"]
 
         if "integration" in hass.data[DOMAIN]:
             del hass.data[DOMAIN]["integration"]

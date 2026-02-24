@@ -326,6 +326,7 @@
           "default_notifications": "\ud83d\udd14 Default Notifications",
           "manage_zones": "\ud83d\uddc2\ufe0f Manage Zones",
           "camera_census": "\ud83d\udcf7 Camera Census",
+          "perimeter_alerting": "\ud83d\udea8 Perimeter Alerting",
           "basic_setup": "\ud83d\udeaa Basic Setup",
           "sensors": "\ud83d\udce1 Sensors",
           "devices": "\ud83d\udca1 Devices",
@@ -441,6 +442,22 @@
           "camera_person_entities": "Select cameras inside your home. Each camera is automatically mapped to a room using its area assignment in Home Assistant. Works with UniFi Protect, Frigate, Reolink, and Dahua.",
           "egress_cameras": "Cameras at your exterior doors (front door, back door, garage). Used to track who enters and leaves — not used for room occupancy. Deliveries and visitors at the door won't trigger room automation.",
           "perimeter_cameras": "Cameras covering your yard, driveway, or fence line. Used to count people on your property who are outside the house."
+        }
+      },
+      "perimeter_alerting": {
+        "title": "\ud83d\udea8 Perimeter Alerting",
+        "description": "Send notifications when a person is detected on your perimeter cameras during quiet hours. Requires at least one perimeter camera to be configured in Camera Census.",
+        "data": {
+          "perimeter_alert_hours_start": "Alert Start Hour (0\u201323)",
+          "perimeter_alert_hours_end": "Alert End Hour (0\u201323)",
+          "perimeter_alert_notify_service": "Notification Service",
+          "perimeter_alert_notify_target": "Notification Target (optional)"
+        },
+        "data_description": {
+          "perimeter_alert_hours_start": "Alert monitoring starts at this hour (0\u201323). Default: 11 PM (23). Overnight ranges are supported \u2014 e.g. start 23, end 5 alerts from 11 PM to 5 AM.",
+          "perimeter_alert_hours_end": "Alert monitoring ends at this hour (0\u201323). Wraps overnight when end is before start. Default: 5 AM.",
+          "perimeter_alert_notify_service": "Notification service to call when a person is detected on your perimeter (e.g., notify.mobile_app_john). Leave blank to disable notifications.",
+          "perimeter_alert_notify_target": "Notification target (optional \u2014 leave blank to use the service default)."
         }
       },
       "zone_rooms": {

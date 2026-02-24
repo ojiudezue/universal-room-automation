@@ -161,6 +161,9 @@ from .const import (
     DEFAULT_ZONE_VACANT_PRESET,
     DEFAULT_ZONE_OCCUPIED_PRESET,
     HVAC_PRESET_SKIP,
+    # v3.5.1: Zone aggregation sensor keys
+    SENSOR_ZONE_IDENTIFIED_PERSONS,
+    SENSOR_ZONE_GUEST_COUNT,
 )
 from .coordinator import UniversalRoomCoordinator
 
@@ -305,6 +308,10 @@ async def async_setup_zone_sensors(
         ZoneLastOccupantSensor(hass, entry, zone_name),
         ZoneLastOccupantTimeSensor(hass, entry, zone_name),
         ZonePersonTrackingStatusSensor(hass, entry, zone_name),
+
+        # === v3.5.1: CENSUS-BASED ZONE PERSON SENSORS (disabled by default) ===
+        ZoneIdentifiedPersonsSensor(hass, entry, zone_name),
+        ZoneGuestCountSensor(hass, entry, zone_name),
     ]
 
     async_add_entities(entities)
@@ -3511,3 +3518,182 @@ class PersonPreviousSeenSensor(AggregationEntity, SensorEntity):
         
         # v3.2.8.1: Use previous_location_time instead of last_changed
         return person_coordinator.get_person_previous_location_time(self.person_id)
+
+
+# ============================================================================
+# v3.5.1 Zone Person Aggregation Sensors
+# ============================================================================
+
+
+class ZoneIdentifiedPersonsSensor(ZoneSensorBase, SensorEntity):
+    """Sensor: BLE-identified persons currently in a zone's rooms.
+
+    Reads from person_coordinator to list persons whose current location
+    is one of the rooms in this zone. Disabled by default.
+    """
+
+    _attr_entity_registry_enabled_default = False
+    _attr_icon = "mdi:account-multiple-check"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry, zone: str) -> None:
+        """Initialize."""
+        super().__init__(hass, entry, zone)
+        self._attr_unique_id = f"{DOMAIN}_zone_{zone}_{SENSOR_ZONE_IDENTIFIED_PERSONS}"
+        self._attr_name = "Identified Persons"
+        self._persons: list[str] = []
+        self._unsub_person_coordinator = None
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to person_coordinator updates for real-time changes."""
+        await super().async_added_to_hass()
+        person_coordinator = self.hass.data[DOMAIN].get("person_coordinator")
+        if person_coordinator:
+            self._unsub_person_coordinator = person_coordinator.async_add_listener(
+                self._handle_person_update
+            )
+
+    async def async_will_remove_from_hass(self) -> None:
+        """Clean up person_coordinator subscription."""
+        await super().async_will_remove_from_hass()
+        if self._unsub_person_coordinator:
+            self._unsub_person_coordinator()
+            self._unsub_person_coordinator = None
+
+    def _handle_person_update(self) -> None:
+        """Handle person_coordinator update — trigger state refresh."""
+        self.async_write_ha_state()
+
+    @property
+    def available(self) -> bool:
+        """Always available (returns empty list when no data)."""
+        return True
+
+    @property
+    def native_value(self) -> str:
+        """Return comma-separated person names in this zone, or 'none'."""
+        persons = self._get_zone_persons()
+        return ", ".join(persons) if persons else "none"
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return person list, count, and zone name."""
+        persons = self._get_zone_persons()
+        return {
+            "persons": persons,
+            "count": len(persons),
+            "zone": self.zone,
+        }
+
+    def _get_zone_persons(self) -> list[str]:
+        """Return sorted list of person IDs in this zone."""
+        try:
+            person_coordinator = self.hass.data[DOMAIN].get("person_coordinator")
+            if not person_coordinator or not person_coordinator.data:
+                return []
+
+            zone_rooms = {
+                coord.entry.data.get("room_name", "")
+                for coord in self._get_zone_coordinators()
+            }
+            if not zone_rooms:
+                return []
+
+            seen: set[str] = set()
+            for person_id, person_info in person_coordinator.data.items():
+                location = person_info.get("location", "")
+                if location and location in zone_rooms:
+                    seen.add(person_id)
+
+            return sorted(seen)
+        except Exception as exc:
+            _LOGGER.error(
+                "ZoneIdentifiedPersonsSensor '%s': error reading person data: %s",
+                self.zone,
+                exc,
+            )
+            return []
+
+
+class ZoneGuestCountSensor(ZoneSensorBase, SensorEntity):
+    """Sensor: Estimated guest (unidentified) count for this zone.
+
+    Uses house-level PersonCensus total minus BLE-identified total.
+    Guests = camera_total - ble_identified_total (clamped to 0).
+    Disabled by default.
+    """
+
+    _attr_entity_registry_enabled_default = False
+    _attr_icon = "mdi:account-question"
+    _attr_native_unit_of_measurement = "people"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry, zone: str) -> None:
+        """Initialize."""
+        super().__init__(hass, entry, zone)
+        self._attr_unique_id = f"{DOMAIN}_zone_{zone}_{SENSOR_ZONE_GUEST_COUNT}"
+        self._attr_name = "Guest Count"
+        self._guest_count: int = 0
+
+    @property
+    def available(self) -> bool:
+        """Always available."""
+        return True
+
+    @property
+    def native_value(self) -> int:
+        """Return estimated guest count."""
+        return self._get_guest_count()
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return census totals used to derive the guest count."""
+        census = self.hass.data.get(DOMAIN, {}).get("census")
+        person_coordinator = self.hass.data.get(DOMAIN, {}).get("person_coordinator")
+
+        camera_total = 0
+        ble_total = 0
+        confidence = "none"
+
+        if census and census.last_result:
+            camera_total = census.last_result.house.total_persons
+            confidence = census.last_result.house.confidence
+
+        if person_coordinator and person_coordinator.data:
+            ble_total = len([
+                pid for pid, info in person_coordinator.data.items()
+                if info.get("tracking_status") == "active"
+            ])
+
+        return {
+            "camera_total": camera_total,
+            "ble_total": ble_total,
+            "zone": self.zone,
+            "confidence": confidence,
+        }
+
+    def _get_guest_count(self) -> int:
+        """Calculate guest count from census minus BLE."""
+        try:
+            census = self.hass.data.get(DOMAIN, {}).get("census")
+            person_coordinator = self.hass.data.get(DOMAIN, {}).get("person_coordinator")
+
+            if not census or census.last_result is None:
+                return 0
+
+            camera_total = census.last_result.house.total_persons
+
+            ble_total = 0
+            if person_coordinator and person_coordinator.data:
+                ble_total = len([
+                    pid for pid, info in person_coordinator.data.items()
+                    if info.get("tracking_status") == "active"
+                ])
+
+            return max(0, camera_total - ble_total)
+        except Exception as exc:
+            _LOGGER.error(
+                "ZoneGuestCountSensor '%s': error calculating guest count: %s",
+                self.zone,
+                exc,
+            )
+            return 0

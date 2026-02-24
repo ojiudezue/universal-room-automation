@@ -1,6 +1,6 @@
 """Camera integration and person census for Universal Room Automation v3.5.0."""
 #
-# Universal Room Automation v3.4.6
+# Universal Room Automation v3.5.0
 # Build: 2026-02-23
 # File: camera_census.py
 # Cycle 3: Camera Integration & Census Core
@@ -475,6 +475,39 @@ class CameraIntegrationManager:
     def has_cameras(self) -> bool:
         """Return True if any cameras have been discovered."""
         return bool(self._camera_by_entity)
+
+    def get_person_sensor_for_area(self, area_id: str) -> list[str]:
+        """Return person detection binary_sensor entity_ids for all cameras in an area.
+
+        Convenience helper for coordinator.py occupancy extension:
+        iterates CameraInfo objects for the area and returns their
+        person_binary_sensor entity IDs (non-None only).
+        """
+        camera_infos = self.get_cameras_for_area(area_id)
+        return [
+            info.person_binary_sensor
+            for info in camera_infos
+            if info.person_binary_sensor
+        ]
+
+    def get_person_sensor(self, camera_entity_id: str) -> str | None:
+        """Return the resolved person detection binary_sensor for a camera entity ID.
+
+        Accepts either a camera.* entity ID or a binary_sensor entity ID.
+        For binary_sensor IDs that are already tracked, returns person_binary_sensor.
+        For camera.* IDs, resolves via the entity registry if not already cached.
+        Returns None if no person detection sensor can be found.
+        """
+        # Fast path: already in the keyed-by-entity map (binary_sensor entity_id)
+        if camera_entity_id in self._camera_by_entity:
+            return self._camera_by_entity[camera_entity_id].person_binary_sensor
+
+        # Try resolving as a camera.* entity_id
+        infos = self.resolve_camera_entity(camera_entity_id)
+        if infos:
+            return infos[0].person_binary_sensor
+
+        return None
 
 
 # ============================================================================
