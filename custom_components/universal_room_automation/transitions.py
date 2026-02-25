@@ -47,13 +47,16 @@ class TransitionDetector:
         self.hass = hass
         self.person_coordinator = person_coordinator
         self.database = database
-        
+
         # Track recent locations for each person
         self._location_history: dict[str, list[dict[str, Any]]] = {}
-        
+
         # Transition event listeners
         self._listeners: list[Callable] = []
-        
+
+        # v3.5.2: Transit validator (optional, wired in after init)
+        self._transit_validator = None
+
         _LOGGER.info("TransitionDetector initialized")
     
     async def async_init(self) -> None:
@@ -77,6 +80,11 @@ class TransitionDetector:
             "cleanup interval=5min"
         )
     
+    def set_transit_validator(self, validator) -> None:
+        """Wire in the TransitValidator after it is initialized."""
+        self._transit_validator = validator
+        _LOGGER.debug("TransitValidator wired into TransitionDetector")
+
     @callback
     def async_add_listener(self, listener: Callable) -> None:
         """Add listener for transition events."""
@@ -132,10 +140,21 @@ class TransitionDetector:
                 person_id, previous_location, current_location,
                 transition.path_type, transition.duration_seconds, transition.confidence
             )
-            
+
             # Log to database
             await self._log_transition(transition)
-            
+
+            # v3.5.2: Validate transition via camera checkpoint data
+            if self._transit_validator:
+                try:
+                    validation = await self._transit_validator.validate_transition(transition)
+                    if validation.path_confidence_delta != 0.0:
+                        await self._update_transition_confidence(transition, validation)
+                    # Attach validation result to transition for listeners
+                    transition._validation = validation
+                except Exception as e:
+                    _LOGGER.error("Transit validation error: %s", e)
+
             # Notify listeners
             await self._notify_listeners(transition)
             _LOGGER.debug("Notified %d transition listeners", len(self._listeners))
@@ -294,6 +313,24 @@ class TransitionDetector:
         except Exception as e:
             _LOGGER.error(f"Failed to log transition: {e}")
     
+    async def _update_transition_confidence(self, transition: RoomTransition, validation) -> None:
+        """Update the confidence of the most recently logged transition.
+
+        Called when TransitValidator returns a non-zero path_confidence_delta.
+        Updates the database row that was just written by _log_transition().
+        """
+        try:
+            new_confidence = min(1.0, transition.confidence + validation.path_confidence_delta)
+            await self.database.update_transition_validation(
+                person_id=transition.person_id,
+                timestamp=transition.timestamp,
+                new_confidence=new_confidence,
+                validation_method=validation.path_method,
+                checkpoint_rooms=validation.checkpoint_rooms,
+            )
+        except Exception as e:
+            _LOGGER.error("Failed to update transition validation: %s", e)
+
     async def _notify_listeners(self, transition: RoomTransition) -> None:
         """Notify all registered listeners of transition."""
         for listener in self._listeners:

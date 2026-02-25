@@ -435,13 +435,15 @@
           "census_cross_validation": "Cross-Check Between Camera Platforms",
           "camera_person_entities": "Indoor Cameras",
           "egress_cameras": "Door Cameras",
-          "perimeter_cameras": "Outdoor Cameras"
+          "perimeter_cameras": "Outdoor Cameras",
+          "face_recognition_enabled": "Enable Face Recognition"
         },
         "data_description": {
           "census_cross_validation": "When you run multiple camera platforms (e.g., Frigate and UniFi Protect), person counts are compared between them for higher accuracy. Turn this off if you only use one camera platform or prefer simpler, single-source counting.",
           "camera_person_entities": "Select cameras inside your home. Each camera is automatically mapped to a room using its area assignment in Home Assistant. Works with UniFi Protect, Frigate, Reolink, and Dahua.",
           "egress_cameras": "Cameras at your exterior doors (front door, back door, garage). Used to track who enters and leaves — not used for room occupancy. Deliveries and visitors at the door won't trigger room automation.",
-          "perimeter_cameras": "Cameras covering your yard, driveway, or fence line. Used to count people on your property who are outside the house."
+          "perimeter_cameras": "Cameras covering your yard, driveway, or fence line. Used to count people on your property who are outside the house.",
+          "face_recognition_enabled": "When enabled, face recognition data from camera events is used to confirm the identity of persons during transit validation. Requires a camera integration that provides face recognition. Defaults to off — path validation works without it."
         }
       },
       "perimeter_alerting": {

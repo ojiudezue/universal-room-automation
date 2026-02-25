@@ -1,6 +1,6 @@
 """Database for Universal Room Automation."""
 #
-# Universal Room Automation v3.5.1
+# Universal Room Automation v3.5.2
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors
@@ -266,7 +266,43 @@ class UniversalRoomDatabase:
                     ON census_snapshots(timestamp)
                 """)
 
+                # v3.5.2: person_entry_exit_events table
+                await db.execute("""
+                    CREATE TABLE IF NOT EXISTS person_entry_exit_events (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        timestamp DATETIME NOT NULL,
+                        person_id TEXT,
+                        event_type TEXT NOT NULL,
+                        direction TEXT NOT NULL,
+                        egress_camera TEXT NOT NULL,
+                        confidence REAL NOT NULL
+                    )
+                """)
+                await db.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_entry_exit_timestamp
+                    ON person_entry_exit_events(timestamp)
+                """)
+                await db.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_entry_exit_person
+                    ON person_entry_exit_events(person_id, timestamp)
+                """)
+
                 await db.commit()
+
+                # v3.5.2: PRAGMA-based migration — add columns to room_transitions if absent
+                cursor = await db.execute("PRAGMA table_info(room_transitions)")
+                columns = {row[1] for row in await cursor.fetchall()}
+
+                if "validation_method" not in columns:
+                    await db.execute(
+                        "ALTER TABLE room_transitions ADD COLUMN validation_method TEXT"
+                    )
+                if "checkpoint_rooms" not in columns:
+                    await db.execute(
+                        "ALTER TABLE room_transitions ADD COLUMN checkpoint_rooms TEXT"
+                    )
+                await db.commit()
+
                 _LOGGER.info("Database initialized successfully")
                 return True
         except Exception as e:
@@ -1544,3 +1580,92 @@ class UniversalRoomDatabase:
         except Exception as e:
             _LOGGER.error("Failed to cleanup census snapshots: %s", e)
             return 0
+
+    # =========================================================================
+    # v3.5.2: TRANSIT VALIDATION METHODS
+    # =========================================================================
+
+    async def update_transition_validation(
+        self,
+        person_id: str,
+        timestamp,
+        new_confidence: float,
+        validation_method: str,
+        checkpoint_rooms: list,
+    ) -> None:
+        """Update confidence and validation metadata for a recorded transition."""
+        import json
+        try:
+            ts_str = timestamp.isoformat() if hasattr(timestamp, "isoformat") else str(timestamp)
+            async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
+                await db.execute("""
+                    UPDATE room_transitions
+                    SET confidence = ?,
+                        validation_method = ?,
+                        checkpoint_rooms = ?
+                    WHERE person_id = ?
+                      AND timestamp = ?
+                """, (
+                    new_confidence,
+                    validation_method,
+                    json.dumps(checkpoint_rooms),
+                    person_id,
+                    ts_str,
+                ))
+                await db.commit()
+        except Exception as e:
+            _LOGGER.error("Error updating transition validation: %s", e)
+
+    async def log_entry_exit_event(
+        self,
+        person_id: Optional[str],
+        event_type: str,
+        direction: str,
+        egress_camera: str,
+        confidence: float,
+    ) -> None:
+        """Log a confirmed entry or exit event."""
+        try:
+            async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
+                await db.execute("""
+                    INSERT INTO person_entry_exit_events
+                        (timestamp, person_id, event_type, direction, egress_camera, confidence)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """, (
+                    datetime.utcnow().isoformat(),
+                    person_id,
+                    event_type,
+                    direction,
+                    egress_camera,
+                    confidence,
+                ))
+                await db.commit()
+        except Exception as e:
+            _LOGGER.error("Error logging entry/exit event: %s", e)
+
+    async def get_entry_exit_events_since(
+        self,
+        since,
+        direction: str,
+    ) -> list[dict]:
+        """Return entry or exit events since the given datetime.
+
+        Used by count sensors on startup to restore today's count from DB.
+        Returns a list of dicts with keys: person_id, timestamp, egress_camera.
+        """
+        try:
+            since_str = since.isoformat() if hasattr(since, "isoformat") else str(since)
+            async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
+                db.row_factory = aiosqlite.Row
+                cursor = await db.execute("""
+                    SELECT person_id, timestamp, egress_camera
+                    FROM person_entry_exit_events
+                    WHERE timestamp >= ?
+                      AND direction = ?
+                    ORDER BY timestamp ASC
+                """, (since_str, direction))
+                rows = await cursor.fetchall()
+                return [dict(row) for row in rows]
+        except Exception as e:
+            _LOGGER.error("Error fetching entry/exit events: %s", e)
+            return []

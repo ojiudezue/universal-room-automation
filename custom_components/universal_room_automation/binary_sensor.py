@@ -1,6 +1,6 @@
 """Binary sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.5.1
+# Universal Room Automation v3.5.2
 # Build: 2026-01-02
 # File: binary_sensor.py
 # v3.2.6: Renamed "Presence" to "Sensor Presence" for clarity
@@ -74,9 +74,23 @@ async def async_setup_entry(
         await async_setup_aggregation_binary_sensors(hass, entry, async_add_entities)
 
         # v3.5.0: Census binary sensors for integration entry
-        census_binary = [
+        census_binary: list = [
             URAUnexpectedPersonSensor(hass, entry),
+            # v3.5.2: Census mismatch sensor
+            CensusMismatchSensor(hass, entry),
         ]
+
+        # v3.5.2: Per-person phone-left-behind sensor (one per tracked person)
+        from .const import CONF_TRACKED_PERSONS
+        merged_config = {**entry.data, **entry.options}
+        tracked_person_entities = merged_config.get(CONF_TRACKED_PERSONS, [])
+        for entity_id in tracked_person_entities:
+            if entity_id.startswith("person."):
+                person_name = entity_id.replace("person.", "").replace("_", " ").title()
+            else:
+                person_name = entity_id.replace("_", " ").title()
+            census_binary.append(PersonPhoneLeftBehindSensor(hass, entry, person_name))
+
         async_add_entities(census_binary)
         return
 
@@ -633,4 +647,197 @@ class URAUnexpectedPersonSensor(BinarySensorEntity):
             "camera_total": camera_total,
             "ble_total": ble_total,
             "guest_count": max(0, camera_total - ble_total),
+        }
+
+
+# ============================================================================
+# v3.5.2: CENSUS MISMATCH SENSOR
+# ============================================================================
+
+
+class CensusMismatchSensor(BinarySensorEntity):
+    """On when camera count and BLE count diverge for an extended period.
+
+    Enabled by default. Useful for automations that respond to unknown persons.
+    """
+
+    _attr_device_class = BinarySensorDeviceClass.PROBLEM
+    _attr_has_entity_name = True
+    _attr_entity_registry_enabled_default = True
+
+    MISMATCH_THRESHOLD = 2
+    MISMATCH_DURATION_MINUTES = 10
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        self.hass = hass
+        self.entry = entry
+        self._attr_unique_id = f"{DOMAIN}_census_mismatch"
+        self._attr_name = "Census Mismatch"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "integration")},
+            name="Universal Room Automation",
+            manufacturer="Universal Room Automation",
+            model="Whole House",
+            sw_version=VERSION,
+        )
+        self._mismatch_since = None
+        self._camera_count: int = 0
+        self._ble_count: int = 0
+
+    @property
+    def is_on(self) -> bool | None:
+        """Return True when camera count and BLE count diverge for 10+ minutes."""
+        census_state = self.hass.states.get(
+            "sensor.universal_room_automation_persons_in_house"
+        )
+        confidence_state = self.hass.states.get(
+            "sensor.universal_room_automation_census_confidence"
+        )
+
+        if not census_state or not confidence_state:
+            return None
+        if confidence_state.state == "none":
+            return False
+
+        try:
+            self._camera_count = int(float(census_state.state))
+        except (ValueError, TypeError):
+            return None
+
+        person_coordinator = self.hass.data.get(DOMAIN, {}).get("person_coordinator")
+        if not person_coordinator:
+            return None
+
+        self._ble_count = sum(
+            1 for p in person_coordinator.data.values()
+            if p.get("location") not in (None, "unknown", "away")
+        )
+
+        difference = abs(self._camera_count - self._ble_count)
+        now = dt_util.now()
+
+        if difference >= self.MISMATCH_THRESHOLD:
+            if self._mismatch_since is None:
+                self._mismatch_since = now
+            elapsed = (now - self._mismatch_since).total_seconds() / 60
+            return elapsed >= self.MISMATCH_DURATION_MINUTES
+        else:
+            self._mismatch_since = None
+            return False
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return mismatch details."""
+        return {
+            "camera_count": self._camera_count,
+            "ble_count": self._ble_count,
+            "mismatch_since": self._mismatch_since.isoformat() if self._mismatch_since else None,
+            "threshold": self.MISMATCH_THRESHOLD,
+            "duration_minutes": self.MISMATCH_DURATION_MINUTES,
+        }
+
+
+# ============================================================================
+# v3.5.2: PHONE LEFT BEHIND SENSOR (per person, diagnostic)
+# ============================================================================
+
+
+class PersonPhoneLeftBehindSensor(BinarySensorEntity):
+    """Diagnostic: BLE says person is home but camera hasn't seen them in hours.
+
+    This is a best-effort signal. It is most reliable in homes where all
+    interior shared spaces have cameras. It will produce false positives
+    if a person spends extended time in a private room (bedroom/office).
+    Disabled by default — enable manually if the signal is reliable in your home.
+    """
+
+    _attr_device_class = BinarySensorDeviceClass.PROBLEM
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_entity_registry_enabled_default = False
+    _attr_has_entity_name = True
+
+    PHONE_LEFT_BEHIND_HOURS: float = 4.0
+    SLEEP_START_HOUR: int = 22
+    SLEEP_END_HOUR: int = 7
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry, person_id: str) -> None:
+        """Initialize."""
+        self.hass = hass
+        self.entry = entry
+        self._person_id = person_id
+        self._attr_unique_id = f"{DOMAIN}_person_{person_id.lower().replace(' ', '_')}_phone_left_behind"
+        self._attr_name = f"{person_id} Phone Left Behind"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "integration")},
+            name="Universal Room Automation",
+            manufacturer="Universal Room Automation",
+            model="Whole House",
+            sw_version=VERSION,
+        )
+
+    @property
+    def is_on(self) -> bool | None:
+        """Return True if phone-left-behind conditions are met."""
+        # 1. Check sleep hours — suppress during sleep
+        now = dt_util.now()
+        hour = now.hour
+        if hour >= self.SLEEP_START_HOUR or hour < self.SLEEP_END_HOUR:
+            return False
+
+        # 2. Check BLE location
+        person_coordinator = self.hass.data.get(DOMAIN, {}).get("person_coordinator")
+        if not person_coordinator:
+            return None
+        person_data = person_coordinator.data.get(self._person_id, {})
+        ble_location = person_data.get("location")
+        if not ble_location or ble_location in ("unknown", "away"):
+            return False
+
+        # 3. Check camera sighting age
+        transit_validator = self.hass.data.get(DOMAIN, {}).get("transit_validator")
+        if not transit_validator:
+            return None
+        sighting = transit_validator.get_last_camera_sighting(
+            self._person_id,
+            max_age_hours=self.PHONE_LEFT_BEHIND_HOURS,
+        )
+        return sighting is None
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return diagnostic details."""
+        person_coordinator = self.hass.data.get(DOMAIN, {}).get("person_coordinator")
+        transit_validator = self.hass.data.get(DOMAIN, {}).get("transit_validator")
+
+        ble_location = None
+        hours_since_sighting = None
+
+        if person_coordinator:
+            person_data = person_coordinator.data.get(self._person_id, {})
+            ble_location = person_data.get("location")
+
+        if transit_validator:
+            sighting = transit_validator.get_last_camera_sighting(
+                self._person_id, max_age_hours=24.0
+            )
+            if sighting:
+                ts = sighting.get("timestamp")
+                if ts:
+                    if isinstance(ts, str):
+                        from homeassistant.util import dt as dt_util2
+                        ts = dt_util2.parse_datetime(ts)
+                    if ts:
+                        delta = dt_util.now() - ts
+                        hours_since_sighting = round(delta.total_seconds() / 3600, 2)
+
+        return {
+            "person_id": self._person_id,
+            "ble_location": ble_location,
+            "hours_since_camera_sighting": hours_since_sighting,
+            "phone_left_behind_hours": self.PHONE_LEFT_BEHIND_HOURS,
+            "note": (
+                "Diagnostic sensor — best-effort. May produce false positives "
+                "when person is in a room without cameras."
+            ),
         }
