@@ -212,11 +212,97 @@ The Notification Manager is a **shared service, not a coordinator**. It does not
 
 Each cycle delivers one coordinator (or one shared infrastructure piece). Cycles are ordered by dependency: later coordinators depend on earlier ones. Simpler coordinators ship first.
 
+A prerequisite bug fix cycle (C-1) ships first to resolve zone device duplication before C0 introduces the Zone Manager parent device.
+
+---
+
+### Cycle -1: Zone Device Duplication Fix
+**Version:** v3.5.3
+**Scope:** Fix orphaned/duplicate zone devices in the device registry
+**Effort:** 1-2 hours
+**Dependencies:** None (v3.5.2 baseline)
+**Type:** Bug fix (not a coordinator cycle)
+
+**Problem:** Duplicate standalone zone devices appear in the integration device list. Three root causes identified:
+
+1. **Zone rename orphans old device:** When a zone is renamed in the options flow (`async_step_zone_rooms()`), the entry's `CONF_ZONE_NAME` is updated and the entry reloads, creating a new device with identifier `(DOMAIN, f"zone_{new_name}")`. The old device `(DOMAIN, f"zone_{old_name}")` is never removed from the device registry, leaving an empty orphaned device.
+
+2. **Room options allow custom zone names:** The room basic_setup options flow uses `custom_value=True` on the zone selector, letting users type arbitrary zone names that don't correspond to a zone config entry. This can cause zone name strings to exist without zone entries, and subsequent migration may create duplicate entries.
+
+3. **Fragile migration guard:** The `zone_migration_done` flag is stored in `entry.options` (not `entry.data`), so it can be lost during certain option update paths. If migration re-runs, it may create duplicate zone entries for names that already exist.
+
+**Fixes:**
+
+**Fix 1 — Device cleanup on zone rename** (`config_flow.py`):
+In `async_step_zone_rooms()`, before updating the zone name, remove the old zone device from the device registry:
+```python
+old_zone_name = zone_entry.data.get(CONF_ZONE_NAME) or zone_entry.options.get(CONF_ZONE_NAME)
+if old_zone_name and old_zone_name != new_zone_name:
+    dev_reg = dr.async_get(self.hass)
+    old_device = dev_reg.async_get_device(identifiers={(DOMAIN, f"zone_{old_zone_name}")})
+    if old_device:
+        dev_reg.async_remove_device(old_device.id)
+```
+
+**Fix 2 — Disable custom zone names in room options** (`config_flow.py`):
+Change `custom_value=True` to `custom_value=False` in `async_step_basic_setup()` room options zone selector. The initial config flow already uses `custom_value=False`. Users who need a new zone should create one via the "Add Zone" flow, not by typing a name in the room options.
+
+**Fix 3 — Harden migration guard** (`__init__.py`):
+Move `zone_migration_done` from `entry.options` to `entry.data` so it survives option resets. Additionally, the existing name-based duplicate check in `_migrate_zone_names_to_entries()` is retained as a secondary guard.
+
+**Fix 4 — Device cleanup on zone unload** (`__init__.py`):
+In `async_unload_entry()` for zone entries, remove the zone device from the device registry when the zone entry is fully unloaded:
+```python
+if entry_type == ENTRY_TYPE_ZONE:
+    zone_name = entry.data.get(CONF_ZONE_NAME)
+    if zone_name:
+        dev_reg = dr.async_get(hass)
+        device = dev_reg.async_get_device(identifiers={(DOMAIN, f"zone_{zone_name}")})
+        if device:
+            dev_reg.async_remove_device(device.id)
+```
+
+**Fix 5 — Startup orphan cleanup** (`__init__.py`):
+On integration entry setup, scan the device registry for zone devices that don't match any current zone config entry and remove them. This cleans up orphans from previous renames or failed migrations:
+```python
+dev_reg = dr.async_get(hass)
+active_zone_names = {
+    e.data.get(CONF_ZONE_NAME, "").lower()
+    for e in hass.config_entries.async_entries(DOMAIN)
+    if e.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_ZONE
+}
+for device in dr.async_entries_for_config_entry(dev_reg, entry.entry_id):
+    for identifier in device.identifiers:
+        if identifier[0] == DOMAIN and identifier[1].startswith("zone_"):
+            zone_name = identifier[1][5:]  # strip "zone_" prefix
+            if zone_name.lower() not in active_zone_names:
+                dev_reg.async_remove_device(device.id)
+```
+
+**Modified files:**
+| File | Change |
+|---|---|
+| `config_flow.py` | Fix 1 (zone rename cleanup) + Fix 2 (disable custom_value in room zone selector) |
+| `__init__.py` | Fix 3 (migration guard in entry.data) + Fix 4 (unload cleanup) + Fix 5 (startup orphan scan) |
+
+**Estimated total lines:** ~60 new/modified
+
+**Verification:**
+- [ ] Rename a zone — old device is removed, new device appears, no orphan
+- [ ] Delete a zone entry — zone device is removed from device registry
+- [ ] Room options zone selector no longer allows typing custom zone names
+- [ ] Restart HA after manually creating orphaned zone device — orphan is cleaned up
+- [ ] Migration does not re-run if `zone_migration_done` is already set
+- [ ] All 324 existing tests still pass
+- [ ] Integration device list shows exactly one device per active zone, no duplicates
+
+---
+
 ### Cycle 0: Base Infrastructure
 **Version:** v3.6.0-c0
 **Scope:** Shared framework that all coordinators build on
 **Effort:** 3-4 hours
-**Dependencies:** None (v3.5.2 baseline)
+**Dependencies:** v3.5.3 (zone duplication fix)
 
 **What ships:**
 - `BaseCoordinator` abstract class with `async_setup()`, `evaluate()`, trigger registration helpers
