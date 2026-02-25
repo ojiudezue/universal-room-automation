@@ -4,7 +4,9 @@
 **Date:** 2026-02-23
 **Parent:** PLANNING_v3_5_0_Camera_Intelligence.md (original vision)
 **Status:** Planning
-**Depends on:** v3.5.1 (room-level camera+BLE fusion, guest detection, perimeter alerting)
+**Depends on:** v3.5.1 Slim (camera-extends-occupancy, zone aggregation via house-level census, unexpected person sensor, perimeter alerting)
+
+> **Note:** v3.5.1 shipped the Slim Cycle 4 plan — no per-room camera-BLE fusion exists. All references to per-room fusion data have been removed from this plan.
 
 ---
 
@@ -20,11 +22,11 @@ Cycle 6 is the final camera intelligence cycle before v3.6.0 domain coordinators
 - Security Coordinator logic (v3.6.0)
 - Unidentified face storage or labeling UI (future)
 - Automated responses to phone-left-behind (too noisy — diagnostic only)
-- Any new config flow steps (all needed config keys exist from Cycle 3)
+- Any new config flow steps (all needed config keys exist from Cycle 3, plus `CONF_FACE_RECOGNITION_ENABLED` added this cycle)
 
 **Boundary with prior cycles:**
 - Cycle 3 (v3.5.0): Camera census foundation — `CameraIntegrationManager`, `PersonCensus`, census sensors
-- Cycle 4 (v3.5.1): Room-level camera+BLE fusion, guest detection, zone aggregation, perimeter alerting
+- Cycle 4 (v3.5.1): Camera-extends-occupancy, zone aggregation via house-level census, unexpected person sensor, perimeter alerting
 - Cycle 6 (v3.5.2): Transit validation on top of existing `TransitionDetector`, plus warehoused sensors
 
 ---
@@ -36,12 +38,12 @@ Cycle 6 is the final camera intelligence cycle before v3.6.0 domain coordinators
 The `TransitionDetector` in `transitions.py` currently detects room-to-room transitions from anonymous `ura_person_location_change` events. It classifies each transition as `direct`, `via_hallway`, or `separate` based on timing, and records a confidence score.
 
 Camera data adds two things:
-- **WHO** transited: face recognition at shared-space cameras (foyer fisheye, staircase, upstairs hall, master hallway) can confirm or contradict which person BLE says made the transit
-- **PATH PLAUSIBILITY**: Did a person actually appear on the cameras that physically sit between the two rooms? If BLE says John went office → kitchen but no hallway or staircase camera saw anyone, the transition is less trustworthy.
+- **PATH PLAUSIBILITY**: Did a person actually appear on the shared-space cameras (hallways, foyers, stairs)? If BLE says John went office → kitchen but no hallway or staircase camera saw anyone, the transition is less trustworthy.
+- **WHO** transited: face recognition at shared-space cameras (foyer fisheye, staircase, upstairs hall, master hallway) can confirm or contradict which person BLE says made the transit. This is tracked as a separate identity validation attribute, not a confidence delta.
 
 #### 1.1 New File: `transit_validator.py`
 
-New module, ~250 lines. Does not replace `TransitionDetector` — it is called by it after a transition is detected to augment confidence.
+New module, ~280 lines. Does not replace `TransitionDetector` — it is called by it after a transition is detected to augment confidence.
 
 ```python
 class TransitValidator:
@@ -83,15 +85,16 @@ class TransitValidator:
     async def validate_transition(
         self,
         transition: RoomTransition,
+        concurrent_transitions: list[RoomTransition] | None = None,
     ) -> TransitValidationResult:
         """Assess how well camera data supports a recorded transition.
 
-        Returns a TransitValidationResult with:
-        - validated: bool — did cameras confirm this person on the path?
-        - confidence_delta: float — positive or negative adjustment to
-          TransitionDetector's original confidence (range: -0.3 to +0.2)
-        - checkpoint_rooms: list[str] — which camera rooms fired
-        - method: str — "face_confirmed", "path_plausible", "no_camera_data"
+        Returns a TransitValidationResult with path validation and
+        identity validation as separate concerns.
+
+        When concurrent_transitions is provided, uses
+        _correlate_sighting_to_transition() to assign shared-space
+        camera sightings to the correct person.
 
         This method is called from TransitionDetector._notify_listeners
         after the transition is logged.
@@ -108,18 +111,30 @@ class TransitValidator:
         within max_age_hours or if person has never been seen by cameras.
         """
 
-    def _get_shared_space_cameras_between(
-        self, room_a: str, room_b: str
-    ) -> list[str]:
-        """Return camera entity IDs that physically sit between two rooms.
+    def _get_shared_space_cameras(self) -> list[str]:
+        """Return all shared-space camera entity IDs (hallways, foyers, stairs).
 
-        Uses the camera_census integration data (from Cycle 3) to find
-        cameras in rooms that are topologically between room_a and room_b.
-        This is a best-effort heuristic: rooms classified as hallways,
-        stairs, or foyer between the two rooms.
+        Instead of computing topology between specific rooms, we check
+        ALL shared-space cameras. A sighting on any shared-space camera
+        within the checkpoint window is treated as path support.
 
-        Returns empty list if topology cannot be determined, which causes
-        validate_transition() to return method="no_camera_data".
+        This is less precise than room-to-room topology but works without
+        adjacency configuration and handles multi-person scenarios cleanly.
+        """
+
+    def _correlate_sighting_to_transition(
+        self,
+        transition: RoomTransition,
+        concurrent_transitions: list[RoomTransition],
+        sightings: list[dict],
+    ) -> str:
+        """Assign camera sightings to transitions when multiple people transit simultaneously.
+
+        Rules:
+        1. Face-matched sighting → assign to matching person's transition
+        2. Unidentified sighting → assign to closest-timed transition
+        3. If sightings < transitions, unmatched transitions get "no_camera_data" (not negative)
+        4. If sightings >= transitions, all get "path_plausible"
         """
 
     async def _async_cleanup_sightings(self, now: datetime) -> None:
@@ -131,24 +146,41 @@ class TransitValidator:
 ```python
 @dataclass
 class TransitValidationResult:
-    validated: bool
-    confidence_delta: float   # Added to TransitionDetector's base confidence
+    # Path validation
+    path_validated: bool
+    path_confidence_delta: float  # -0.15 to +0.10, applied to transition confidence
     checkpoint_rooms: list[str]
-    method: str  # "face_confirmed" | "path_plausible" | "no_camera_data" | "path_implausible"
+    path_method: str  # "path_confirmed" | "path_plausible" | "no_camera_data" | "path_implausible"
+
+    # Identity validation (separate concern)
+    identity_status: str  # "confirmed" | "unidentified" | "mismatch" | "unavailable"
     camera_person_id: str | None  # Face-recognized ID (may differ from BLE ID)
 ```
 
-**Confidence delta rules:**
+**Path validation confidence deltas** (applied to transition confidence):
 
 | Camera Result | Delta |
 |---|---|
-| Face confirmed + path matches | +0.20 |
-| Face confirmed, path unknown | +0.10 |
-| Path cameras fired, face not confirmed | +0.10 |
-| Path cameras didn't fire (short window, plausible) | 0.00 |
-| BLE says transit happened, path cameras active but didn't fire | -0.15 |
-| Camera sees different person than BLE claims | -0.30 |
-| No camera data at all | 0.00 (unchanged) |
+| Shared-space cameras fired, timing matches | +0.10 |
+| Shared-space cameras didn't fire (short window, plausible) | 0.00 |
+| Shared-space cameras active but didn't fire during transit | -0.15 |
+| No shared-space camera data at all | 0.00 (unchanged) |
+
+**Identity validation** (separate attribute, NOT a confidence delta on transition):
+
+| Camera Result | Attribute Value |
+|---|---|
+| Face confirmed matches BLE identity | "confirmed" |
+| Face detected but not recognized | "unidentified" |
+| Camera sees different person than BLE claims | "mismatch" |
+| No face recognition data | "unavailable" |
+
+**Multi-person transit handling:**
+
+When two people transit simultaneously, the `_correlate_sighting_to_transition()` method handles attribution:
+
+- **Two people transiting from the same room to different rooms across shared space:** Correlate by `person_id` (face) when available, and by timing window when not. If two BLE transitions happen within 30 seconds and the shared-space camera fired once, attribute the camera sighting to the transition whose timing best matches (closest to camera event timestamp).
+- **Two people transiting to the same room:** If BLE says person A and person B both moved to kitchen within 60 seconds, and hallway camera saw 2 people, both transitions get `path_plausible`. If camera saw 1 person, the closer-timed transition gets `path_plausible`, the other gets `no_camera_data` (not negative).
 
 #### 1.2 Modifications to `transitions.py`
 
@@ -166,7 +198,7 @@ def set_transit_validator(self, validator: TransitValidator) -> None:
 # In _on_location_change, after _log_transition():
 if self._transit_validator:
     validation = await self._transit_validator.validate_transition(transition)
-    if validation.confidence_delta != 0.0:
+    if validation.path_confidence_delta != 0.0:
         # Re-log to database with updated confidence
         # (update the row just written, don't insert duplicate)
         await self._update_transition_confidence(
@@ -186,8 +218,8 @@ async def _update_transition_confidence(
         await self.database.update_transition_validation(
             person_id=transition.person_id,
             timestamp=transition.timestamp,
-            new_confidence=min(1.0, transition.confidence + validation.confidence_delta),
-            validation_method=validation.method,
+            new_confidence=min(1.0, transition.confidence + validation.path_confidence_delta),
+            validation_method=validation.path_method,
             checkpoint_rooms=validation.checkpoint_rooms,
         )
     except Exception as e:
@@ -288,6 +320,16 @@ class PersonPhoneLeftBehindSensor(AggregationEntity, BinarySensorEntity):
         """Return diagnostic details."""
         ...
 ```
+
+#### 1.5 Face recognition config toggle
+
+A new config flow boolean controls whether face recognition data is used for identity validation.
+
+- `CONF_FACE_RECOGNITION_ENABLED` (boolean, default `False`)
+- When `False`, identity validation always returns `"unavailable"` — no face matching is attempted
+- When `True`, `TransitValidator` uses face recognition data from camera events
+- This allows homes without face recognition hardware/software to skip that logic entirely
+- Graceful degradation: if enabled but no face data arrives, `identity_status = "unavailable"` (same as disabled)
 
 ---
 
@@ -411,6 +453,8 @@ All six sensors that were explicitly warehoused in the Cycle 3 plan. They depend
 
 Both reset at midnight. Both count all persons, identified and unidentified. "Confirmed" means direction was determined (`entry` or `exit`), not `ambiguous`.
 
+On startup, each sensor restores today's count from the database to survive HA restarts. A `_restoring` flag prevents double-counting events that arrive during the restore window.
+
 ```python
 class PersonsEnteredTodaySensor(AggregationEntity, SensorEntity):
     _attr_icon = "mdi:account-arrow-right"
@@ -424,18 +468,32 @@ class PersonsEnteredTodaySensor(AggregationEntity, SensorEntity):
         self._count = 0
         self._entries: list[dict] = []  # [{person_id, time, egress_camera}]
         self._last_reset = dt_util.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        self._restoring = False
 
     async def async_added_to_hass(self) -> None:
-        """Subscribe to egress events."""
-        self.hass.bus.async_listen(
-            "ura_person_egress_event",
-            self._handle_egress_event,
-        )
+        """Subscribe to egress events and restore today's count from DB."""
+        self._restoring = True
+
+        # Restore from database
+        database = self.hass.data.get(DOMAIN, {}).get("database")
+        if database:
+            today_start = dt_util.now().replace(hour=0, minute=0, second=0, microsecond=0)
+            events = await database.get_entry_exit_events_since(today_start, direction="entry")
+            self._count = len(events)
+            self._entries = events[-20:]  # Last 20 for attributes
+
+        # Subscribe to live events
+        self.hass.bus.async_listen("ura_person_egress_event", self._handle_egress_event)
         # Also subscribe to midnight reset
         async_track_time_change(self.hass, self._midnight_reset, hour=0, minute=0, second=0)
 
+        self._restoring = False
+        self.async_write_ha_state()
+
     @callback
     def _handle_egress_event(self, event) -> None:
+        if self._restoring:
+            return  # Already counted in DB restore
         if event.data.get("direction") != "entry":
             return
         self._count += 1
@@ -466,7 +524,7 @@ class PersonsEnteredTodaySensor(AggregationEntity, SensorEntity):
         }
 ```
 
-`PersonsExitedTodaySensor` is identical except it listens for `direction == "exit"`.
+`PersonsExitedTodaySensor` is identical except it listens for `direction == "exit"` and queries `direction="exit"` on DB restore.
 
 #### 3.2 Timestamp Sensors
 
@@ -595,46 +653,74 @@ class CensusMismatchSensor(AggregationEntity, BinarySensorEntity):
 
 #### 3.4 Per-Zone Unidentified Count Sensors
 
-**`sensor.{zone_name}_unidentified_count`** — Per-zone count of persons seen by cameras that cannot be matched to any known BLE or face-recognized person.
+**`sensor.{zone_name}_unidentified_count`** — Count of persons seen by cameras that cannot be matched to any known BLE or face-recognized person.
 
-These use the per-zone census data from Cycle 4's zone aggregation. The zone coordinator already holds `identified_count` and `total_persons`. `unidentified_count = total_persons - identified_count`.
+**Data availability constraint:** Cameras in v3.5.1 Slim are house-level — `PersonCensus` provides a total house count and the zone aggregation is driven by BLE, not per-zone camera data. There is no `census.get_zone_result(zone_id)` method and no per-zone camera count.
+
+**Recommended approach (option a): use house-level data only.** The sensor reports the house-level unidentified count (camera total minus BLE identified total), clearly named to avoid implying zone-level precision. This is non-redundant with `ZoneGuestCountSensor` because it uses the camera count as the total rather than BLE presence.
+
+If per-zone camera data becomes available in a future cycle, this sensor can be updated to use it. Until then, the name is `sensor.ura_unidentified_persons` (house-level, not per-zone).
+
+> **Note:** The original per-zone framing has been removed. A single house-level sensor ships. The per-zone variant is deferred until per-zone camera data exists.
 
 ```python
-class ZoneUnidentifiedCountSensor(AggregationEntity, SensorEntity):
-    """Unidentified persons in zone — camera sees them but can't identify."""
+class UnidentifiedPersonsSensor(AggregationEntity, SensorEntity):
+    """House-level unidentified persons — camera sees them but BLE can't identify.
+
+    Uses house-level camera count (PersonCensus) minus BLE identified count.
+    Not per-zone: per-zone camera data does not exist in v3.5.1 Slim.
+    """
 
     _attr_icon = "mdi:account-question"
     _attr_native_unit_of_measurement = "persons"
     _attr_entity_registry_enabled_default = True
 
-    def __init__(self, hass, entry, zone_id: str, zone_name: str) -> None:
+    def __init__(self, hass, entry) -> None:
         super().__init__(hass, entry)
-        self._zone_id = zone_id
-        self._attr_unique_id = f"{DOMAIN}_{zone_id}_unidentified_count"
-        self._attr_name = f"{zone_name} Unidentified Count"
+        self._attr_unique_id = f"{DOMAIN}_unidentified_persons"
+        self._attr_name = "Unidentified Persons"
 
     @property
     def native_value(self) -> int | None:
-        census = self.hass.data.get(DOMAIN, {}).get("census")
-        if not census:
+        census_state = self.hass.states.get("sensor.ura_persons_in_house")
+        if not census_state:
             return None
-        zone_data = census.get_zone_result(self._zone_id)
-        if not zone_data:
-            return 0
-        return zone_data.unidentified_count
+        try:
+            camera_total = int(float(census_state.state))
+        except (ValueError, TypeError):
+            return None
+
+        person_coordinator = self.hass.data.get(DOMAIN, {}).get("person_coordinator")
+        if not person_coordinator:
+            return None
+        ble_identified = sum(
+            1 for p in person_coordinator.data.values()
+            if p.get("location") not in (None, "unknown", "away")
+        )
+
+        return max(0, camera_total - ble_identified)
 
     @property
     def extra_state_attributes(self) -> dict:
-        census = self.hass.data.get(DOMAIN, {}).get("census")
-        if not census:
-            return {}
-        zone_data = census.get_zone_result(self._zone_id)
-        if not zone_data:
-            return {}
+        census_state = self.hass.states.get("sensor.ura_persons_in_house")
+        person_coordinator = self.hass.data.get(DOMAIN, {}).get("person_coordinator")
+        camera_total = None
+        ble_identified = None
+        if census_state:
+            try:
+                camera_total = int(float(census_state.state))
+            except (ValueError, TypeError):
+                pass
+        if person_coordinator:
+            ble_identified = sum(
+                1 for p in person_coordinator.data.values()
+                if p.get("location") not in (None, "unknown", "away")
+            )
         return {
-            "total_persons": zone_data.total_persons,
-            "identified_count": zone_data.identified_count,
-            "confidence": zone_data.confidence,
+            "camera_total": camera_total,
+            "ble_identified": ble_identified,
+            "data_scope": "house_level",
+            "note": "Per-zone unidentified count deferred until per-zone camera data available",
         }
 ```
 
@@ -651,7 +737,7 @@ class ZoneUnidentifiedCountSensor(AggregationEntity, SensorEntity):
 | `sensor.ura_last_person_entry` | sensor (timestamp) | Timestamp of most recent confirmed entry |
 | `sensor.ura_last_person_exit` | sensor (timestamp) | Timestamp of most recent confirmed exit |
 | `binary_sensor.ura_census_mismatch` | binary_sensor (problem) | On when camera count and BLE count diverge for 10+ min |
-| `sensor.{zone_name}_unidentified_count` | sensor (per zone) | Unidentified persons in zone from camera data |
+| `sensor.ura_unidentified_persons` | sensor (house-level) | Unidentified persons house-wide from camera minus BLE count |
 
 ### New Entities (Disabled by Default — Diagnostic)
 
@@ -667,10 +753,11 @@ class ZoneUnidentifiedCountSensor(AggregationEntity, SensorEntity):
 
 ### Entity Notes
 
-- `{zone_name}_unidentified_count` is created per configured zone, same as other per-zone sensors from Cycle 3/4. If a zone has no cameras configured, it returns 0 with confidence="none".
+- `sensor.ura_unidentified_persons` is house-level. Per-zone unidentified count is deferred until per-zone camera data is available (post-v3.5.2).
 - `ura_census_mismatch` is enabled by default because it is actionable for automations, unlike the phone-left-behind sensor which is noisy.
-- Entry/exit count sensors use `SensorStateClass.TOTAL_INCREASING` so HA energy dashboard handles them correctly. They reset at midnight via `async_track_time_change`, which is safe — HA handles total-increasing resets.
+- Entry/exit count sensors use `SensorStateClass.TOTAL_INCREASING` so HA energy dashboard handles them correctly. They reset at midnight via `async_track_time_change`, which is safe — HA handles total-increasing resets. They restore from the database on startup using a `_restoring` flag to prevent double-counting.
 - The phone-left-behind sensor suppresses during sleep hours (configurable via existing `CONF_SLEEP_START_HOUR` / `CONF_SLEEP_END_HOUR` constants in const.py). This prevents false positives when someone goes to bed.
+- Identity validation (`identity_status`) is a separate attribute on `TransitValidationResult` and does not affect transition confidence. It requires `CONF_FACE_RECOGNITION_ENABLED = True` to produce values other than `"unavailable"`.
 
 ---
 
@@ -678,13 +765,13 @@ class ZoneUnidentifiedCountSensor(AggregationEntity, SensorEntity):
 
 | File | Action | What Changes | Est. Lines |
 |---|---|---|---|
-| `transit_validator.py` | **Create** | `TransitValidator` + `EgressDirectionTracker` + dataclasses | ~280 |
-| `transitions.py` | **Modify** | Wire in `TransitValidator`, add `_update_transition_confidence()`, add `set_transit_validator()` | ~40 |
-| `database.py` | **Modify** | Add `update_transition_validation()` method + `person_entry_exit_events` table | ~80 |
-| `sensor.py` | **Modify** | Add 4 new integration-level sensors + per-zone unidentified count + enrich `PersonLikelyNextRoomSensor` | ~200 |
+| `transit_validator.py` | **Create** | `TransitValidator` (with `_get_shared_space_cameras()`, `_correlate_sighting_to_transition()`) + `EgressDirectionTracker` + updated dataclasses | ~320 |
+| `transitions.py` | **Modify** | Wire in `TransitValidator`, add `_update_transition_confidence()`, add `set_transit_validator()`, update to use `path_confidence_delta` | ~40 |
+| `database.py` | **Modify** | Add `update_transition_validation()` + `log_entry_exit_event()` + `get_entry_exit_events_since()` methods + `person_entry_exit_events` table + PRAGMA-based migration for `room_transitions` columns | ~100 |
+| `sensor.py` | **Modify** | Add 4 integration-level sensors + house-level `UnidentifiedPersonsSensor` (replaces per-zone) + enrich `PersonLikelyNextRoomSensor` + DB restore in count sensors | ~220 |
 | `binary_sensor.py` | **Modify** | Add `CensusMismatchSensor` + `PersonPhoneLeftBehindSensor` | ~120 |
 | `__init__.py` | **Modify** | Init `TransitValidator`, `EgressDirectionTracker`, wire into `TransitionDetector` | ~30 |
-| `const.py` | **Modify** | Add timing constants for transit validation and egress direction | ~20 |
+| `const.py` | **Modify** | Add timing constants for transit validation, egress direction, and `CONF_FACE_RECOGNITION_ENABLED` | ~25 |
 
 ### New constants for `const.py`
 
@@ -702,9 +789,12 @@ EGRESS_AMBIGUOUS_COOLDOWN_SECONDS: Final = 60
 # v3.5.2 Census Mismatch
 CENSUS_MISMATCH_THRESHOLD: Final = 2       # person count difference
 CENSUS_MISMATCH_DURATION_MINUTES: Final = 10  # minutes of sustained mismatch
+
+# v3.5.2 Face Recognition
+CONF_FACE_RECOGNITION_ENABLED: Final = "face_recognition_enabled"
 ```
 
-### New database table and method for `database.py`
+### New database table and methods for `database.py`
 
 **New table** (add to `initialize()` alongside existing tables):
 
@@ -730,7 +820,7 @@ await db.execute("""
 """)
 ```
 
-**New method** on `UniversalRoomDatabase`:
+**New methods** on `UniversalRoomDatabase`:
 
 ```python
 async def update_transition_validation(
@@ -788,22 +878,51 @@ async def log_entry_exit_event(
             await db.commit()
     except Exception as e:
         _LOGGER.error("Error logging entry/exit event: %s", e)
+
+async def get_entry_exit_events_since(
+    self,
+    since: datetime,
+    direction: str,
+) -> list[dict]:
+    """Return entry or exit events since the given datetime.
+
+    Used by count sensors on startup to restore today's count from DB.
+    Returns a list of dicts with keys: person_id, timestamp, egress_camera.
+    """
+    try:
+        async with aiosqlite.connect(self.db_file) as db:
+            db.row_factory = aiosqlite.Row
+            cursor = await db.execute("""
+                SELECT person_id, timestamp, egress_camera
+                FROM person_entry_exit_events
+                WHERE timestamp >= ?
+                  AND direction = ?
+                ORDER BY timestamp ASC
+            """, (since.isoformat(), direction))
+            rows = await cursor.fetchall()
+            return [dict(row) for row in rows]
+    except Exception as e:
+        _LOGGER.error("Error fetching entry/exit events: %s", e)
+        return []
 ```
 
-Note: The `room_transitions` table needs two new columns to support transit validation. These are added as nullable columns via `ALTER TABLE` (not a schema rebuild) in `initialize()` so existing databases upgrade cleanly:
+Note: The `room_transitions` table needs two new columns to support transit validation. These are added as nullable columns via `ALTER TABLE` (not a schema rebuild) in `initialize()` so existing databases upgrade cleanly. A PRAGMA check is used instead of a bare try/except to avoid silently swallowing real errors:
 
 ```python
-# In initialize(), after existing room_transitions CREATE:
-# Add validation columns if they don't exist (migration-safe)
-try:
-    await db.execute(
-        "ALTER TABLE room_transitions ADD COLUMN validation_method TEXT"
-    )
-    await db.execute(
-        "ALTER TABLE room_transitions ADD COLUMN checkpoint_rooms TEXT"
-    )
-except Exception:
-    pass  # Columns already exist — expected on second startup
+# In initialize(), migration-safe column additions:
+async with aiosqlite.connect(self.db_file) as db:
+    cursor = await db.execute("PRAGMA table_info(room_transitions)")
+    columns = {row[1] for row in await cursor.fetchall()}
+
+    if "validation_method" not in columns:
+        await db.execute(
+            "ALTER TABLE room_transitions ADD COLUMN validation_method TEXT"
+        )
+    if "checkpoint_rooms" not in columns:
+        await db.execute(
+            "ALTER TABLE room_transitions ADD COLUMN checkpoint_rooms TEXT"
+        )
+    await db.commit()
 ```
 
 ### `__init__.py` initialization additions
@@ -850,35 +969,48 @@ except Exception as e:
 
 5. **Midnight rollover** — `sensor.ura_persons_entered_today` and `sensor.ura_persons_exited_today` reset to 0. `sensor.ura_last_person_entry` and `sensor.ura_last_person_exit` retain their last values (they don't reset).
 
-6. **BLE says 2 persons home, camera sees 4 for 11 minutes** — `binary_sensor.ura_census_mismatch` turns `on`. Attributes show `camera_count: 4`, `ble_count: 2`, `mismatch_since: <timestamp>`.
+6. **HA restart mid-day** — Count sensors query `get_entry_exit_events_since(today_start)` during `async_added_to_hass()`. `_restoring = True` during the query. Events that arrive during restore are dropped. After restore completes, `_restoring = False` and live events are counted normally. Count reflects correct today total.
 
-7. **Census mismatch clears** — Camera count drops to 2 (guests left). `binary_sensor.ura_census_mismatch` turns `off`. `mismatch_since` clears.
+7. **BLE says 2 persons home, camera sees 4 for 11 minutes** — `binary_sensor.ura_census_mismatch` turns `on`. Attributes show `camera_count: 4`, `ble_count: 2`, `mismatch_since: <timestamp>`.
 
-8. **Transit validation: BLE records transition, hallway camera fired in window** — `room_transitions` table row gets `confidence` boosted by +0.10 and `validation_method: "path_plausible"`. `sensor.{person}_likely_next_room` shows `transit_camera_validated: true`.
+8. **Census mismatch clears** — Camera count drops to 2 (guests left). `binary_sensor.ura_census_mismatch` turns `off`. `mismatch_since` clears.
 
-9. **Transit validation: BLE records transit but camera explicitly shows someone else on path** — Confidence decremented by -0.30. `validation_method: "path_implausible"`.
+9. **Transit validation: BLE records transition, hallway camera fired in window** — `room_transitions` table row gets `confidence` boosted by +0.10 and `validation_method: "path_plausible"`. `sensor.{person}_likely_next_room` shows `transit_camera_validated: true`.
 
-10. **Phone-left-behind: John's BLE is in bedroom, no camera sighting in 4.5 hours, not sleep hours** — `binary_sensor.john_phone_left_behind` turns `on`. Attributes show `ble_location: bedroom`, `hours_since_camera_sighting: 4.5`.
+10. **Transit validation: BLE records transit, path cameras active but did not fire** — Confidence decremented by -0.15. `validation_method: "path_implausible"`. `identity_status: "unavailable"` (face recognition disabled by default).
 
-11. **Phone-left-behind: sleep hours active (22:00–07:00)** — Sensor returns `off` regardless of camera sighting age.
+11. **Multi-person transit: two BLE transitions within 30 seconds, one shared-space camera sighting** — `_correlate_sighting_to_transition()` assigns `path_plausible` to the closer-timed transition; the other gets `no_camera_data` (confidence unchanged, not penalized).
 
-12. **Zone unidentified count: zone has cameras, census sees 3 total, 2 identified** — `sensor.{zone}_unidentified_count` = 1.
+12. **Multi-person transit: two BLE transitions to same room within 60 seconds, camera saw 2 people** — Both transitions get `path_plausible`.
 
-13. **Database migration: existing installation upgrading from Cycle 4** — `room_transitions` gets two nullable columns without error. `person_entry_exit_events` table created fresh.
+13. **Face recognition enabled, camera confirms identity** — `identity_status: "confirmed"`, `camera_person_id` matches BLE person ID. No confidence delta from identity alone.
+
+14. **Face recognition disabled (default)** — `identity_status: "unavailable"` regardless of camera data. Path validation still operates normally.
+
+15. **Phone-left-behind: John's BLE is in bedroom, no camera sighting in 4.5 hours, not sleep hours** — `binary_sensor.john_phone_left_behind` turns `on`. Attributes show `ble_location: bedroom`, `hours_since_camera_sighting: 4.5`.
+
+16. **Phone-left-behind: sleep hours active (22:00–07:00)** — Sensor returns `off` regardless of camera sighting age.
+
+17. **Unidentified persons: camera sees 3 total, 2 BLE identified persons home** — `sensor.ura_unidentified_persons` = 1. Attributes show `data_scope: "house_level"`.
+
+18. **Database migration: existing installation upgrading from Cycle 4** — PRAGMA check reads `room_transitions` columns; `ALTER TABLE` runs only if `validation_method` or `checkpoint_rooms` are absent. No error on repeat startup (columns already exist, PRAGMA check skips ALTER). `person_entry_exit_events` table created fresh.
 
 ---
 
 ## DEPLOY
 
 ```bash
-./scripts/deploy.sh "3.5.2" "Transit validation and warehoused sensors" "- TransitValidator: camera enriches TransitionDetector confidence scores
+./scripts/deploy.sh "3.5.2" "Transit validation and warehoused sensors" "- TransitValidator: path validation via shared-space cameras (no per-room topology required)
+- _correlate_sighting_to_transition(): multi-person transit attribution by face ID then timing
+- TransitValidationResult: path validation and identity validation as separate concerns
 - EgressDirectionTracker: egress camera + interior camera correlation for entry/exit direction
-- sensor.ura_persons_entered_today / exited_today with midnight reset
+- CONF_FACE_RECOGNITION_ENABLED: toggle for identity validation (default False)
+- sensor.ura_persons_entered_today / exited_today with midnight reset + DB restore on startup
 - sensor.ura_last_person_entry / last_person_exit (timestamp sensors)
 - binary_sensor.ura_census_mismatch (camera vs BLE count divergence, 10-min sustain)
-- sensor.{zone}_unidentified_count per configured zone
+- sensor.ura_unidentified_persons (house-level; per-zone deferred)
 - binary_sensor.{person}_phone_left_behind (diagnostic, disabled by default)
 - PersonLikelyNextRoomSensor enriched with camera validation attributes
-- person_entry_exit_events database table
-- room_transitions: validation_method + checkpoint_rooms columns (migration-safe ALTER)"
+- person_entry_exit_events database table + get_entry_exit_events_since() for DB restore
+- room_transitions: validation_method + checkpoint_rooms columns via PRAGMA-checked ALTER TABLE"
 ```

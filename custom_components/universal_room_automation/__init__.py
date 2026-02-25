@@ -492,7 +492,30 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     # Enable music following for all tracked persons by default
                     for person_name in tracked_persons:
                         music_following.enable_for_person(person_name)
-                    
+
+                    # v3.5.2: Transit validation and egress direction tracking
+                    try:
+                        from .transit_validator import TransitValidator, EgressDirectionTracker
+
+                        transit_validator = TransitValidator(hass)
+                        await transit_validator.async_init()
+                        hass.data[DOMAIN]["transit_validator"] = transit_validator
+
+                        # Wire validator into transition detector
+                        transition_detector.set_transit_validator(transit_validator)
+
+                        egress_tracker = EgressDirectionTracker(hass)
+                        await egress_tracker.async_init()
+                        hass.data[DOMAIN]["egress_tracker"] = egress_tracker
+
+                        _LOGGER.info("Transit validation and egress direction tracking initialized")
+                    except Exception as e:
+                        _LOGGER.warning(
+                            "Transit validation init failed — sensor predictions will work "
+                            "without camera enrichment: %s",
+                            e,
+                        )
+
                 except ImportError as e:
                     _LOGGER.warning("Cross-room coordination modules not available: %s", e)
                 except Exception as e:
@@ -693,9 +716,20 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             await perimeter_alert_manager.async_teardown()
             del hass.data[DOMAIN]["perimeter_alert_manager"]
 
+        # v3.5.2: Tear down transit validator and egress tracker
+        transit_validator = hass.data[DOMAIN].get("transit_validator")
+        if transit_validator:
+            await transit_validator.async_teardown()
+            del hass.data[DOMAIN]["transit_validator"]
+
+        egress_tracker = hass.data[DOMAIN].get("egress_tracker")
+        if egress_tracker:
+            await egress_tracker.async_teardown()
+            del hass.data[DOMAIN]["egress_tracker"]
+
         if "integration" in hass.data[DOMAIN]:
             del hass.data[DOMAIN]["integration"]
-        
+
         return unload_ok
     
     # v3.3.2: Handle zone entry unload

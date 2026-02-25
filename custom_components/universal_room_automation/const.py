@@ -740,3 +740,23 @@ PERIMETER_ALERT_COOLDOWN_SECONDS: Final = 300  # 5 minutes
 # Zone aggregation sensor keys
 SENSOR_ZONE_IDENTIFIED_PERSONS: Final = "zone_identified_persons"
 SENSOR_ZONE_GUEST_COUNT: Final = "zone_guest_count"
+
+# ============================================================================
+# v3.5.2 Transit Validation
+# ============================================================================
+
+TRANSIT_CHECKPOINT_STALE_SECONDS: Final = 90
+TRANSIT_CHECKPOINT_WINDOW_SECONDS: Final = 120
+TRANSIT_PHONE_LEFT_BEHIND_HOURS: Final = 4.0
+
+# v3.5.2 Egress Direction Tracking
+EGRESS_ENTRY_WINDOW_SECONDS: Final = 45
+EGRESS_EXIT_WINDOW_SECONDS: Final = 30
+EGRESS_AMBIGUOUS_COOLDOWN_SECONDS: Final = 60
+
+# v3.5.2 Census Mismatch
+CENSUS_MISMATCH_THRESHOLD: Final = 2
+CENSUS_MISMATCH_DURATION_MINUTES: Final = 10
+
+# v3.5.2 Face Recognition
+CONF_FACE_RECOGNITION_ENABLED: Final = "face_recognition_enabled"

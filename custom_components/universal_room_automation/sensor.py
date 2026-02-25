@@ -130,6 +130,12 @@ async def async_setup_entry(
             URACensusValidationAgeSensor(hass, entry),
             # v3.5.1: Perimeter alert status (disabled by default)
             PerimeterAlertStatusSensor(hass, entry),
+            # v3.5.2: Warehoused sensors — entry/exit counts and unidentified persons
+            PersonsEnteredTodaySensor(hass, entry),
+            PersonsExitedTodaySensor(hass, entry),
+            LastPersonEntrySensor(hass, entry),
+            LastPersonExitSensor(hass, entry),
+            UnidentifiedPersonsSensor(hass, entry),
         ]
         async_add_entities(census_sensors)
         return
@@ -2052,6 +2058,7 @@ class PersonLikelyNextRoomSensor(AggregationEntity, SensorEntity):
         self._attr_unique_id = f"{DOMAIN}_person_{person_id.lower()}_likely_next_room"
         self._attr_name = f"{person_id} Likely Next Room"
         self._cached_prediction: dict | None = None
+        self._last_camera_sighting: dict | None = None
 
     async def async_update(self) -> None:
         """Fetch prediction asynchronously and cache it."""
@@ -2080,6 +2087,18 @@ class PersonLikelyNextRoomSensor(AggregationEntity, SensorEntity):
             )
             self._cached_prediction = None
 
+        # v3.5.2: Fetch camera sighting for transit validation attribute
+        try:
+            transit_validator = self.hass.data.get(DOMAIN, {}).get("transit_validator")
+            if transit_validator and self._cached_prediction:
+                self._last_camera_sighting = transit_validator.get_last_camera_sighting(
+                    self._person_id
+                )
+            else:
+                self._last_camera_sighting = None
+        except Exception:
+            self._last_camera_sighting = None
+
     @property
     def native_value(self) -> str | None:
         """Return predicted next room from cache."""
@@ -2092,6 +2111,10 @@ class PersonLikelyNextRoomSensor(AggregationEntity, SensorEntity):
         """Return prediction details from cache."""
         if not self._cached_prediction:
             return {}
+        sighting = self._last_camera_sighting
+        ts = sighting.get("timestamp") if sighting else None
+        if ts and hasattr(ts, "isoformat"):
+            ts = ts.isoformat()
         return {
             "confidence": self._cached_prediction.get("confidence"),
             "sample_size": self._cached_prediction.get("sample_size"),
@@ -2099,6 +2122,10 @@ class PersonLikelyNextRoomSensor(AggregationEntity, SensorEntity):
             "alternatives": self._cached_prediction.get("alternatives"),
             "predicted_path": self._cached_prediction.get("predicted_path"),
             "current_room": self._cached_prediction.get("current_room", ""),
+            # v3.5.2: Camera validation attributes
+            "camera_last_seen": ts,
+            "camera_last_room": sighting.get("room") if sighting else None,
+            "transit_camera_validated": sighting is not None,
         }
 
 
@@ -2469,3 +2496,322 @@ class PerimeterAlertStatusSensor(AggregationEntity, SensorEntity):
             "last_alert_time": last_time.isoformat() if last_time else None,
         }
 
+
+# ============================================================================
+# v3.5.2: WAREHOUSED SENSORS — Entry/Exit Counts, Timestamps, Unidentified
+# ============================================================================
+
+
+class PersonsEnteredTodaySensor(AggregationEntity, SensorEntity):
+    """Count of confirmed entry events via egress cameras since midnight.
+
+    Resets at midnight. Restores today's count from the database on startup.
+    """
+
+    _attr_icon = "mdi:account-arrow-right"
+    _attr_native_unit_of_measurement = "persons"
+    _attr_state_class = SensorStateClass.TOTAL_INCREASING
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_persons_entered_today"
+        self._attr_name = "Persons Entered Today"
+        self._count: int = 0
+        self._entries: list[dict] = []
+        self._last_reset = dt_util.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        self._restoring: bool = False
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to egress events and restore today's count from DB."""
+        await super().async_added_to_hass()
+        self._restoring = True
+
+        # Restore from database
+        database = self.hass.data.get(DOMAIN, {}).get("database")
+        if database:
+            today_start = dt_util.now().replace(hour=0, minute=0, second=0, microsecond=0)
+            events = await database.get_entry_exit_events_since(today_start, direction="entry")
+            self._count = len(events)
+            self._entries = events[-20:]
+
+        # Subscribe to live egress events
+        from homeassistant.core import callback as ha_callback
+        from homeassistant.helpers.event import async_track_time_change
+
+        self.hass.bus.async_listen("ura_person_egress_event", self._handle_egress_event)
+        async_track_time_change(self.hass, self._midnight_reset, hour=0, minute=0, second=0)
+
+        self._restoring = False
+        self.async_write_ha_state()
+
+    def _handle_egress_event(self, event) -> None:
+        """Handle an egress event from the bus."""
+        if self._restoring:
+            return
+        if event.data.get("direction") != "entry":
+            return
+        self._count += 1
+        self._entries.append({
+            "person_id": event.data.get("person_id") or "unidentified",
+            "time": event.data.get("timestamp"),
+            "egress_camera": event.data.get("egress_camera"),
+        })
+        self.async_write_ha_state()
+
+    def _midnight_reset(self, now) -> None:
+        """Reset count at midnight."""
+        self._count = 0
+        self._entries = []
+        self._last_reset = now
+        self.async_write_ha_state()
+
+    @property
+    def native_value(self) -> int:
+        """Return today's entry count."""
+        return self._count
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return entry details."""
+        return {
+            "entries": self._entries[-20:],
+            "last_reset": self._last_reset.isoformat() if self._last_reset else None,
+        }
+
+
+class PersonsExitedTodaySensor(AggregationEntity, SensorEntity):
+    """Count of confirmed exit events via egress cameras since midnight.
+
+    Resets at midnight. Restores today's count from the database on startup.
+    """
+
+    _attr_icon = "mdi:account-arrow-left"
+    _attr_native_unit_of_measurement = "persons"
+    _attr_state_class = SensorStateClass.TOTAL_INCREASING
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_persons_exited_today"
+        self._attr_name = "Persons Exited Today"
+        self._count: int = 0
+        self._entries: list[dict] = []
+        self._last_reset = dt_util.now().replace(hour=0, minute=0, second=0, microsecond=0)
+        self._restoring: bool = False
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to egress events and restore today's count from DB."""
+        await super().async_added_to_hass()
+        self._restoring = True
+
+        # Restore from database
+        database = self.hass.data.get(DOMAIN, {}).get("database")
+        if database:
+            today_start = dt_util.now().replace(hour=0, minute=0, second=0, microsecond=0)
+            events = await database.get_entry_exit_events_since(today_start, direction="exit")
+            self._count = len(events)
+            self._entries = events[-20:]
+
+        from homeassistant.helpers.event import async_track_time_change
+
+        self.hass.bus.async_listen("ura_person_egress_event", self._handle_egress_event)
+        async_track_time_change(self.hass, self._midnight_reset, hour=0, minute=0, second=0)
+
+        self._restoring = False
+        self.async_write_ha_state()
+
+    def _handle_egress_event(self, event) -> None:
+        """Handle an egress event from the bus."""
+        if self._restoring:
+            return
+        if event.data.get("direction") != "exit":
+            return
+        self._count += 1
+        self._entries.append({
+            "person_id": event.data.get("person_id") or "unidentified",
+            "time": event.data.get("timestamp"),
+            "egress_camera": event.data.get("egress_camera"),
+        })
+        self.async_write_ha_state()
+
+    def _midnight_reset(self, now) -> None:
+        """Reset count at midnight."""
+        self._count = 0
+        self._entries = []
+        self._last_reset = now
+        self.async_write_ha_state()
+
+    @property
+    def native_value(self) -> int:
+        """Return today's exit count."""
+        return self._count
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return exit details."""
+        return {
+            "entries": self._entries[-20:],
+            "last_reset": self._last_reset.isoformat() if self._last_reset else None,
+        }
+
+
+class LastPersonEntrySensor(AggregationEntity, SensorEntity):
+    """Timestamp of the most recent confirmed entry event."""
+
+    _attr_icon = "mdi:account-arrow-right"
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_last_person_entry"
+        self._attr_name = "Last Person Entry"
+        self._last_entry: datetime | None = None
+        self._last_person_id: str | None = None
+        self._last_egress_camera: str | None = None
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to egress events."""
+        await super().async_added_to_hass()
+        self.hass.bus.async_listen("ura_person_egress_event", self._handle_egress_event)
+
+    def _handle_egress_event(self, event) -> None:
+        """Handle an egress event from the bus."""
+        if event.data.get("direction") != "entry":
+            return
+        ts_str = event.data.get("timestamp")
+        if ts_str:
+            self._last_entry = dt_util.parse_datetime(ts_str) or dt_util.now()
+        else:
+            self._last_entry = dt_util.now()
+        self._last_person_id = event.data.get("person_id") or "unidentified"
+        self._last_egress_camera = event.data.get("egress_camera")
+        self.async_write_ha_state()
+
+    @property
+    def native_value(self) -> datetime | None:
+        """Return timestamp of last entry."""
+        return self._last_entry
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return entry details."""
+        return {
+            "person_id": self._last_person_id,
+            "egress_camera": self._last_egress_camera,
+        }
+
+
+class LastPersonExitSensor(AggregationEntity, SensorEntity):
+    """Timestamp of the most recent confirmed exit event."""
+
+    _attr_icon = "mdi:account-arrow-left"
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_last_person_exit"
+        self._attr_name = "Last Person Exit"
+        self._last_exit: datetime | None = None
+        self._last_person_id: str | None = None
+        self._last_egress_camera: str | None = None
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to egress events."""
+        await super().async_added_to_hass()
+        self.hass.bus.async_listen("ura_person_egress_event", self._handle_egress_event)
+
+    def _handle_egress_event(self, event) -> None:
+        """Handle an egress event from the bus."""
+        if event.data.get("direction") != "exit":
+            return
+        ts_str = event.data.get("timestamp")
+        if ts_str:
+            self._last_exit = dt_util.parse_datetime(ts_str) or dt_util.now()
+        else:
+            self._last_exit = dt_util.now()
+        self._last_person_id = event.data.get("person_id") or "unidentified"
+        self._last_egress_camera = event.data.get("egress_camera")
+        self.async_write_ha_state()
+
+    @property
+    def native_value(self) -> datetime | None:
+        """Return timestamp of last exit."""
+        return self._last_exit
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return exit details."""
+        return {
+            "person_id": self._last_person_id,
+            "egress_camera": self._last_egress_camera,
+        }
+
+
+class UnidentifiedPersonsSensor(AggregationEntity, SensorEntity):
+    """House-level unidentified persons — camera sees them but BLE can't identify.
+
+    Uses house-level camera count (PersonCensus) minus BLE identified count.
+    Not per-zone: per-zone camera data does not exist in v3.5.1 Slim.
+    """
+
+    _attr_icon = "mdi:account-question"
+    _attr_native_unit_of_measurement = "persons"
+    _attr_entity_registry_enabled_default = True
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_unidentified_persons"
+        self._attr_name = "Unidentified Persons"
+
+    @property
+    def native_value(self) -> int | None:
+        """Return count of unidentified persons (camera total minus BLE identified)."""
+        census_state = self.hass.states.get(
+            "sensor.universal_room_automation_persons_in_house"
+        )
+        if not census_state:
+            return None
+        try:
+            camera_total = int(float(census_state.state))
+        except (ValueError, TypeError):
+            return None
+
+        person_coordinator = self.hass.data.get(DOMAIN, {}).get("person_coordinator")
+        if not person_coordinator:
+            return None
+        ble_identified = sum(
+            1 for p in person_coordinator.data.values()
+            if p.get("location") not in (None, "unknown", "away")
+        )
+
+        return max(0, camera_total - ble_identified)
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return source details."""
+        census_state = self.hass.states.get(
+            "sensor.universal_room_automation_persons_in_house"
+        )
+        person_coordinator = self.hass.data.get(DOMAIN, {}).get("person_coordinator")
+        camera_total = None
+        ble_identified = None
+        if census_state:
+            try:
+                camera_total = int(float(census_state.state))
+            except (ValueError, TypeError):
+                pass
+        if person_coordinator:
+            ble_identified = sum(
+                1 for p in person_coordinator.data.values()
+                if p.get("location") not in (None, "unknown", "away")
+            )
+        return {
+            "camera_total": camera_total,
+            "ble_identified": ble_identified,
+            "data_scope": "house_level",
+            "note": "Per-zone unidentified count deferred until per-zone camera data available",
+        }

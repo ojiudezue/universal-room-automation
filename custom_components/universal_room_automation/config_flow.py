@@ -224,6 +224,8 @@ from .const import (
     CONF_PERIMETER_ALERT_NOTIFY_TARGET,
     DEFAULT_PERIMETER_ALERT_START,
     DEFAULT_PERIMETER_ALERT_END,
+    # v3.5.2: Face Recognition
+    CONF_FACE_RECOGNITION_ENABLED,
 )
 
 
@@ -1548,6 +1550,11 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     multiple=True,
                 )
             ),
+            # v3.5.2: Face recognition toggle (default False)
+            vol.Optional(
+                CONF_FACE_RECOGNITION_ENABLED,
+                default=self._get_current(CONF_FACE_RECOGNITION_ENABLED, False),
+            ): selector.BooleanSelector(),
         })
 
         return self.async_show_form(
