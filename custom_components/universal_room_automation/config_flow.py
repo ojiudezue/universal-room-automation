@@ -1,6 +1,6 @@
 """Config flow for Universal Room Automation v3.3.3."""
 #
-# Universal Room Automation v3.5.2
+# Universal Room Automation v3.5.3
 # Build: 2026-01-05
 # File: config_flow.py
 # v3.3.3: Added manage_zones to integration options menu
@@ -1754,7 +1754,9 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         if user_input is not None:
             zone_name = user_input.get(CONF_ZONE_NAME, "").strip()
             selected_rooms = user_input.get(CONF_ZONE_ROOMS, [])
-            
+            # v3.5.3: Capture old zone name before update for rename cleanup
+            old_zone_name = (zone_entry.data.get(CONF_ZONE_NAME) or zone_entry.options.get(CONF_ZONE_NAME, "")).strip()
+
             # Update each selected room's zone assignment
             for room_entry_id in selected_rooms:
                 room_entry = self.hass.config_entries.async_get_entry(room_entry_id)
@@ -1789,16 +1791,30 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 CONF_ZONE_DESCRIPTION: user_input.get(CONF_ZONE_DESCRIPTION, ""),
                 CONF_ZONE_ROOMS: selected_rooms,
             }
-            
+
             # If configuring from integration menu, update the zone entry
             if self._selected_zone_entry_id:
                 self.hass.config_entries.async_update_entry(
                     zone_entry,
                     options=new_zone_options
                 )
+                # v3.5.3: Remove old zone device on rename to prevent orphans
+                if old_zone_name and old_zone_name != zone_name:
+                    from homeassistant.helpers import device_registry as dr
+                    dev_reg = dr.async_get(self.hass)
+                    old_device = dev_reg.async_get_device(identifiers={(DOMAIN, f"zone_{old_zone_name}")})
+                    if old_device:
+                        dev_reg.async_remove_device(old_device.id)
                 # Return to zone config menu
                 return await self.async_step_zone_config_menu()
             else:
+                # v3.5.3: Remove old zone device on rename to prevent orphans
+                if old_zone_name and old_zone_name != zone_name:
+                    from homeassistant.helpers import device_registry as dr
+                    dev_reg = dr.async_get(self.hass)
+                    old_device = dev_reg.async_get_device(identifiers={(DOMAIN, f"zone_{old_zone_name}")})
+                    if old_device:
+                        dev_reg.async_remove_device(old_device.id)
                 # Direct zone entry configuration
                 return self.async_create_entry(
                     title="",
@@ -1980,7 +1996,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             )] = selector.SelectSelector(
                 selector.SelectSelectorConfig(
                     options=zone_options,
-                    custom_value=True,
+                    custom_value=False,
                     mode=selector.SelectSelectorMode.DROPDOWN
                 )
             )

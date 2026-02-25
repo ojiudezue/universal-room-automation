@@ -1,20 +1,22 @@
-# URA Current State - January 14, 2026
+# URA Current State - February 25, 2026
 
-**Document Purpose:** Quick reference for current development status  
-**Created:** January 14, 2026  
-**Production Version:** v3.2.9  
-**Development Focus:** v3.3.x.x bug fixes  
+**Document Purpose:** Quick reference for current development status
+**Created:** January 14, 2026
+**Last Updated:** February 25, 2026
+**Production Version:** v3.5.2
+**Development Focus:** v3.6.0 Domain Coordinators
 
 ---
 
-## 📍 WHERE WE ARE
+## WHERE WE ARE
 
 ### Production (Stable)
-**Version:** v3.2.9  
-**Status:** ✅ Deployed and working  
-**Test Coverage:** 178+ tests passing  
-**Response Time:** 2-5 seconds (event-driven)  
-**Entities:** 74+ per room  
+**Version:** v3.5.2 (Transit Validation & Warehoused Sensors - Cycle 6)
+**Status:** Deployed and working
+**Deployed:** February 25, 2026
+**Test Coverage:** 324 tests passing
+**Response Time:** 2-5 seconds (event-driven)
+**Entities:** 81+ per room (74 base + 7 new transit/census entities)
 
 **Key Capabilities:**
 - Multi-person tracking (BLE-based)
@@ -23,223 +25,185 @@
 - Energy tracking
 - Event-driven automation
 - SQLite data collection
+- Camera census system (UniFi Protect + Frigate)
+- Transit validation with entry/exit tracking
+- Perimeter alerting
+- Pattern learning
+- Music following
 
 ---
 
-### Active Development (In Progress)
-**Version:** v3.3.x.x (patch series)  
-**Status:** 🚧 Bug fixes and refinements  
-**Timeline:** January 2026  
+### What Shipped in v3.5.2 (Cycle 6)
 
-**Focus Areas:**
+**New Module:** `transit_validator.py`
+- `TransitValidator` - validates person transit events against camera and BLE data
+- `EgressDirectionTracker` - tracks entry/exit direction for doorway sensors
 
-#### 1. Music Transition Logic
-**Issue:** Music following between WiiM media players needs refinement  
-**Current State:** Platform-agnostic following mostly working  
-**Remaining Work:**
-- Zone player entity fallback strategy
-- Handoff timing optimization
-- Error handling improvements
+**7 New Entities:**
+1. Entry count sensor
+2. Exit count sensor
+3. Entry timestamp sensor
+4. Exit timestamp sensor
+5. Census mismatch sensor
+6. Unidentified persons sensor
+7. Phone-left-behind diagnostic sensor
 
-#### 2. Zone Management
-**Issue:** Zone sensor staleness requiring integration reloads  
-**Current State:** Workaround in place (manual reload)  
-**Remaining Work:**
-- Coordinator lifecycle improvements
-- Automatic recovery mechanisms
-- Better staleness detection
-
-#### 3. Person Tracking Refinements
-**Issue:** Person sensor reliability and BLE room-level precision  
-**Current State:** Framework functional, minor edge cases  
-**Remaining Work:**
-- Confidence scoring adjustments
-- Edge case handling
-- Bermuda integration optimizations
-
-**Goal:** Stable v3.3.x foundation before moving to v3.5.0 camera intelligence
+**Enhancements:**
+- `PersonLikelyNextRoomSensor` enhanced with camera validation attributes
+- New DB table: `person_entry_exit_events`
+- PRAGMA migration for `room_transitions` table
+- New config toggle: `CONF_FACE_RECOGNITION_ENABLED` (default: False)
 
 ---
 
-## 🎯 WHAT'S NEXT
+### Previous Releases (Summary)
 
-### Immediate (Next 2-4 Weeks)
-- [ ] Finalize music transition logic
-- [ ] Resolve zone sensor staleness
-- [ ] Complete v3.3.x.x patch series
-- [ ] Deploy stable v3.3.x to production
-- [ ] Validate for 1-2 weeks
+| Version | Cycle | Description | Date |
+|---------|-------|-------------|------|
+| v3.5.2 | 6 | Transit Validation & Warehoused Sensors | Feb 25, 2026 |
+| v3.5.1 | 5 | Camera Census & Perimeter Alerts | ~Feb 2026 |
+| v3.5.0 | 4 | Camera Intelligence Foundation | ~Feb 2026 |
+| v3.3.5.3 | 3 | Bug fixes & stabilization | ~Jan 2026 |
+| v3.2.9 | - | Stable baseline | ~Jan 2026 |
+
+---
+
+## WHAT'S NEXT
+
+### Immediate (Next Cycle)
+- [ ] Start v3.6.0 Domain Coordinators development
+- [ ] Security domain coordinator
+- [ ] Energy domain coordinator
+- [ ] Comfort domain coordinator
+- [ ] Cross-domain decision-making leveraging census data
 
 ### Short-Term (Q2 2026)
-- [ ] Start v3.5.0 development (Camera Intelligence)
-- [ ] Integrate UniFi Protect + Frigate
-- [ ] Implement House Census System
-- [ ] Deploy v3.5.0 to production
-- [ ] Begin data collection for person patterns
+- [ ] Deploy v3.6.0 to production
+- [ ] Begin v3.4.0 AI Custom Automation
+- [ ] Natural language room customization
+- [ ] Person-specific rules leveraging camera identity
 
-### Medium-Term (Q3 2026)
-- [ ] Build v3.4.0 (AI Custom Automation)
-- [ ] Leverage v3.5.0 census for person-specific rules
-- [ ] Deploy and validate
+### Medium-Term (Q3-Q4 2026)
+- [ ] v4.0.0 Bayesian Predictive Intelligence
+- [ ] Person-specific predictions
+- [ ] Pattern learning from collected transit data
 
 ---
 
-## 📚 PLANNING STATUS
+## PLANNING STATUS
+
+### Complete & Deployed
+- v3.5.0 - Camera Intelligence (Deployed)
+- v3.5.1 - Camera Census & Perimeter Alerts (Deployed)
+- v3.5.2 - Transit Validation & Warehoused Sensors (Deployed)
 
 ### Complete & Ready to Build
-- ✅ **v3.5.0** - Camera Intelligence (PLANNING_v3_5_0.md)
-- ✅ **v3.4.0** - AI Custom Automation (PLANNING_v3_4_0.md)
-- ✅ **v3.6.0** - Domain Coordinators (PLANNING_v3_6_0.md)
-
-### In Progress
-- 🚧 **v3.3.x.x** - Bug fixes (no formal planning doc, tactical fixes)
+- **v3.6.0** - Domain Coordinators (PLANNING_v3.6.0.md)
+- **v3.4.0** - AI Custom Automation (PLANNING_v3.4.0.md)
 
 ### Future Planning Needed
-- ⏳ **v4.0.0** - Bayesian Predictions (high-level vision only)
-- ⏳ **v4.5.0** - Visual Mapping (conceptual only)
+- **v4.0.0** - Bayesian Predictions (high-level vision only)
+- **v4.5.0** - Visual Mapping (conceptual only)
 
 ---
 
-## 🔄 ROADMAP CHANGES
+## ROADMAP CHANGES
 
-### Recent Updates (v8 → v9)
-**Changed:** Resequenced v3.4.0 and v3.5.0  
-**Reason:** v3.5.0 camera intelligence is foundational infrastructure  
+### Recent Updates (Cycle 6 Deployment)
+**Changed:** v3.5.2 deployed, completing transit validation milestone
+**Next Up:** v3.6.0 Domain Coordinators
 
-**Old Sequence:** v3.3.0 → v3.4.0 → v3.6.0  
-**New Sequence:** v3.3.x → v3.5.0 → v3.4.0 → v3.6.0  
+**Completed Sequence:** v3.3.x -> v3.5.0 -> v3.5.1 -> v3.5.2
+**Upcoming Sequence:** v3.6.0 -> v3.4.0 -> v4.0.0
 
-**Rationale:**
-- v3.5.0 provides census data that v3.4.0 and v3.6.0 depend on
-- Person-specific custom rules (v3.4.0) require person identity (v3.5.0)
-- Domain coordinators (v3.6.0) need census for decision-making
-- Music following (v3.3.x) gets identity awareness upgrade from v3.5.0
-
----
-
-## 💡 KEY INSIGHTS
-
-### What We Learned from v3.3.x.x
-1. **Platform-agnostic design is critical** - Different media players have different quirks
-2. **Zone coordinator lifecycle matters** - Staleness issues stem from initialization order
-3. **BLE precision has limits** - Cameras will help validate room-level location
-4. **Quality over speed works** - Taking time to fix properly saves rework
-
-### Why v3.5.0 Moved Up
-1. **Foundational dependency** - Multiple features need census
-2. **High immediate value** - Guest detection, security, person tracking
-3. **Architectural unlock** - Enables person-aware everything
-4. **Well-specified** - Complete planning doc ready
-5. **No blockers** - Can start immediately after v3.3.x stabilizes
+**Rationale for v3.6.0 Next:**
+- Census and transit data from v3.5.x provides the foundation for domain coordinators
+- Security coordinator can leverage entry/exit tracking and census mismatch data
+- Energy coordinator can use occupancy patterns from transit history
+- Comfort coordinator benefits from person-specific identification
 
 ---
 
-## 🎯 SUCCESS CRITERIA FOR MOVING FORWARD
+## KEY INSIGHTS
 
-### Before Starting v3.5.0
-- [x] v3.5.0 planning complete (DONE)
-- [x] Roadmap updated (v9 - DONE)
-- [ ] v3.3.x.x music transitions stable
-- [ ] v3.3.x.x zone staleness resolved
-- [ ] 178+ tests still passing
-- [ ] 1-2 weeks production validation
+### What We Learned Through v3.5.x (Cycles 4-6)
+1. **Incremental cycles work** - Breaking v3.5.x into 3 cycles (v3.5.0, v3.5.1, v3.5.2) kept each deployment manageable
+2. **Transit validation is foundational** - Entry/exit tracking enables accurate census and security features
+3. **Warehoused sensors pay off** - Phone-left-behind and census mismatch sensors surface edge cases early
+4. **Camera validation enhances BLE** - PersonLikelyNextRoomSensor is significantly more accurate with camera attributes
+5. **Config toggles for optional features** - CONF_FACE_RECOGNITION_ENABLED keeps privacy-sensitive features opt-in
 
-### v3.5.0 Development Readiness
-- [ ] UniFi Protect cameras accessible in HA
-- [ ] Frigate integration configured (optional but recommended)
-- [ ] Camera placement documented
-- [ ] Privacy requirements understood
-- [ ] Development environment stable
+### Architecture Notes
+- 21 Python modules in the integration
+- `transit_validator.py` follows the same coordinator pattern as `camera_census.py`
+- Database layer expanded with `person_entry_exit_events` table and PRAGMA migration support
+- Entity count grew from 74 to 81+ per room with Cycle 6
 
 ---
 
-## 📂 CONTEXT DOCUMENTS STATUS
+## SUCCESS CRITERIA FOR MOVING FORWARD
 
-### Updated (January 14, 2026)
-- ✅ **ROADMAP_v9.md** - Integrated v3.5.0, resequenced
-- ✅ **PLANNING_v3_5_0.md** - Complete specification
-- ✅ **CURRENT_STATE.md** - This document
+### Before Starting v3.6.0
+- [x] v3.5.2 deployed and stable (DONE - Feb 25, 2026)
+- [x] Transit validation working (DONE)
+- [x] 324 tests passing (DONE)
+- [x] Entry/exit tracking operational (DONE)
+- [x] Census mismatch detection functional (DONE)
+- [ ] 1-2 weeks production validation of v3.5.2
+- [ ] Review PLANNING_v3.6.0.md for any updates needed given v3.5.x capabilities
+
+### v3.6.0 Development Readiness
+- [ ] Domain coordinator architecture designed
+- [ ] Security coordinator scope finalized
+- [ ] Energy coordinator scope finalized
+- [ ] Comfort coordinator scope finalized
+- [ ] Cross-domain communication patterns defined
+
+---
+
+## CONTEXT DOCUMENTS STATUS
+
+### Updated (February 25, 2026)
+- **CURRENT_STATE.md** - This document (updated for v3.5.2)
 
 ### Stable (No Changes Needed)
-- ✅ **VISION_v7.md** - Still accurate
-- ✅ **PLANNING_v3_4_0.md** - Still valid (enhanced by v3.5.0)
-- ✅ **PLANNING_v3_6_0.md** - Still valid (enhanced by v3.5.0)
-- ✅ **QUALITY_CONTEXT.md** - Still applicable
+- **VISION_v7.md** - Still accurate
+- **ROADMAP_v9.md** - May need update for v3.5.x completion
+- **PLANNING_v3.4.0.md** - Still valid (enhanced by v3.5.x data)
+- **PLANNING_v3.6.0.md** - Still valid, next up for implementation
+- **QUALITY_CONTEXT.md** - Still applicable
 
-### Archive (Old Versions)
-- **ROADMAP_v8.md** → Move to Archive/2026-01-14/
-- Previous planning documents → Already archived
-
----
-
-## 🗂️ RECOMMENDED FOLDER STRUCTURE
-
-```
-Context Snapshots/
-├── Latest/                           (Active working docs)
-│   ├── ROADMAP_v9.md                ✅ Updated
-│   ├── VISION_v7.md                 ✅ Current
-│   ├── PLANNING_v3_5_0.md           ✅ New
-│   ├── PLANNING_v3_4_0.md           ✅ Current
-│   ├── PLANNING_v3_6_0.md           ✅ Current
-│   ├── QUALITY_CONTEXT.md           ✅ Current
-│   ├── CURRENT_STATE.md             ✅ New
-│   └── README.md                    ⚠️  Needs minor update
-│
-└── Archive/
-    └── 2026-01-14/                  (Pre-v3.5.0 planning)
-        ├── ROADMAP_v8.md
-        ├── PLANNING_v3_3_0.md
-        ├── PLANNING_v3_3_0_REVISED.md
-        └── MULTI_SESSION_STRATEGY.md
-```
-
-**Archive Naming Convention:** YYYY-MM-DD (ISO format)
+### Note on README.md
+- README.md references v3.3.5.3 and 178 tests; needs version bump to v3.5.2 and 324 tests in a future update
 
 ---
 
-## 🚀 NEXT STEPS
-
-### For This Session
-1. ✅ Update PLANNING_v3_5_0.md (corrections applied)
-2. ✅ Create ROADMAP_v9.md (v3.5.0 integrated)
-3. ✅ Create CURRENT_STATE.md (this document)
-4. ⏳ Archive old documents (manual - see folder structure)
-5. ⏳ Update README.md if needed (minor version bump)
-
-### For Next Development Session
-1. Continue v3.3.x.x bug fixes
-2. Deploy and validate stable v3.3.x
-3. When ready: Start v3.5.0 implementation
-4. Follow PLANNING_v3_5_0.md specification
-5. Run comprehensive tests (aim for 100+ new tests)
-
----
-
-## 📊 QUICK STATS
+## QUICK STATS
 
 **Production:**
-- Version: v3.2.9
-- Tests: 178+ passing
-- Entities per room: 74+
+- Version: v3.5.2
+- Tests: 324 passing
+- Entities per room: 81+
+- Modules: 21 Python files
 - Response time: 2-5 seconds
-- Stability: ✅ Excellent
+- Stability: Deployed Feb 25, 2026
 
 **Development:**
-- Active version: v3.3.x.x patches
-- Focus: Music transitions, zone staleness
-- Timeline: 2-4 weeks to stable
-- Next major: v3.5.0 (Q2 2026)
+- Active version: v3.5.2 (just deployed)
+- Next planned: v3.6.0 Domain Coordinators
+- Previous: v3.5.1, v3.5.0, v3.3.5.3
+- Cycle model: Incremental deployments within minor versions
 
 **Planning:**
-- Versions ready: v3.5.0, v3.4.0, v3.6.0
-- Total planned effort: ~45-55 hours
+- Next to build: v3.6.0 Domain Coordinators
+- Then: v3.4.0 AI Custom Automation
 - Documentation: Complete and current
-- Roadmap: Updated to v9
+- Roadmap: v9 (may need refresh for v3.5.x completion)
 
 ---
 
-**Current State Document**  
-**Created:** January 14, 2026  
-**Update Frequency:** After each version deployment  
+**Current State Document**
+**Created:** January 14, 2026
+**Last Updated:** February 25, 2026
+**Update Frequency:** After each version deployment
 **Purpose:** Quick reference for development status
