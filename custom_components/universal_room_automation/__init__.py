@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation v3.5.2
+# Universal Room Automation v3.5.3
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -360,12 +360,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass.data[DOMAIN]["integration"] = entry
         
         # v3.3.5.4: Migrate zone names to proper zone entries (run once)
-        if not entry.options.get("zone_migration_done"):
+        # v3.5.3: Check entry.data (durable) with fallback to entry.options (legacy)
+        if not entry.data.get("zone_migration_done") and not entry.options.get("zone_migration_done"):
             try:
                 zones_created = await _migrate_zone_names_to_entries(hass, entry)
                 if zones_created >= 0:  # 0 = nothing to migrate, also counts as done
                     hass.config_entries.async_update_entry(
-                        entry, options={**entry.options, "zone_migration_done": True}
+                        entry, data={**entry.data, "zone_migration_done": True}
                     )
                     if zones_created > 0:
                         _LOGGER.info("Zone migration created %d new zone entries", zones_created)
@@ -373,6 +374,27 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 _LOGGER.error("Zone migration failed: %s", e)
                 import traceback
                 _LOGGER.error("Traceback: %s", traceback.format_exc())
+
+        # v3.5.3: Clean up orphaned zone devices from pre-v3.3.5.6 or renamed zones
+        try:
+            from homeassistant.helpers import device_registry as dr
+            dev_reg = dr.async_get(hass)
+            active_zone_names = set()
+            for ce in hass.config_entries.async_entries(DOMAIN):
+                if ce.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_ZONE:
+                    zn = (ce.data.get(CONF_ZONE_NAME) or ce.options.get(CONF_ZONE_NAME, "")).strip()
+                    if zn:
+                        active_zone_names.add(zn.lower())
+
+            for device in dr.async_entries_for_config_entry(dev_reg, entry.entry_id):
+                for ident_domain, identifier in device.identifiers:
+                    if ident_domain == DOMAIN and identifier.startswith("zone_"):
+                        zone_name_from_id = identifier[5:]
+                        if zone_name_from_id.lower() not in active_zone_names:
+                            dev_reg.async_remove_device(device.id)
+                            _LOGGER.info("Removed orphaned zone device: %s", identifier)
+        except Exception as e:
+            _LOGGER.warning("Zone orphan cleanup failed (non-fatal): %s", e)
 
         # v3.4.5: Migrate room-level camera_person_entities to integration level (run once)
         if not entry.options.get("camera_migration_done"):
@@ -736,6 +758,15 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if entry_type == ENTRY_TYPE_ZONE:
         # v3.3.5.6: Unload zone sensor/binary_sensor platforms
         unload_ok = await hass.config_entries.async_unload_platforms(entry, INTEGRATION_PLATFORMS)
+        # v3.5.3: Remove zone device from registry on unload/delete
+        zone_name = entry.data.get(CONF_ZONE_NAME) or entry.options.get(CONF_ZONE_NAME)
+        if zone_name:
+            from homeassistant.helpers import device_registry as dr
+            dev_reg = dr.async_get(hass)
+            device = dev_reg.async_get_device(identifiers={(DOMAIN, f"zone_{zone_name}")})
+            if device:
+                dev_reg.async_remove_device(device.id)
+                _LOGGER.info("Removed zone device on unload: zone_%s", zone_name)
         # Clean up zone entry reference
         if "zones" in hass.data[DOMAIN] and entry.entry_id in hass.data[DOMAIN]["zones"]:
             del hass.data[DOMAIN]["zones"][entry.entry_id]
