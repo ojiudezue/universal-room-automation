@@ -1,6 +1,6 @@
 """Config flow for Universal Room Automation v3.3.3."""
 #
-# Universal Room Automation v3.5.3
+# Universal Room Automation v3.6.0-c0
 # Build: 2026-01-05
 # File: config_flow.py
 # v3.3.3: Added manage_zones to integration options menu
@@ -277,8 +277,12 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
         return await self.async_step_zone_setup()
     
     async def async_step_add_coordinator(self, user_input=None):
-        """Stub for future coordinator setup."""
-        return self.async_abort(reason="coordinator_not_ready")
+        """Route to coordinator enable flow (v3.6.0).
+
+        Domain coordinators are enabled via the integration options flow,
+        not by creating a separate config entry.
+        """
+        return self.async_abort(reason="coordinator_use_options")
     
     async def async_step_reconfigure(self, user_input=None):
         """Handle reconfigure flow - redirect to options flow."""
@@ -1231,6 +1235,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     "manage_zones",  # v3.3.3
                     "camera_census",  # v3.5.0
                     "perimeter_alerting",  # v3.5.1
+                    "domain_coordinators",  # v3.6.0
                 ],
             )
         elif entry_type == ENTRY_TYPE_ZONE:
@@ -1622,6 +1627,34 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
 
         return self.async_show_form(
             step_id="perimeter_alerting",
+            data_schema=data_schema,
+        )
+
+    async def async_step_domain_coordinators(self, user_input=None):
+        """Configure domain coordinators toggle (integration level) — v3.6.0.
+
+        Enables/disables the domain coordinator system. When enabled, the
+        Coordinator Manager starts on next reload and a coordinator selector
+        menu becomes available in future cycles.
+        """
+        from .const import CONF_DOMAIN_COORDINATORS_ENABLED
+
+        if user_input is not None:
+            self.hass.config_entries.async_update_entry(
+                self._config_entry,
+                options={**self._config_entry.options, **user_input},
+            )
+            return self.async_create_entry(title="", data={})
+
+        data_schema = vol.Schema({
+            vol.Optional(
+                CONF_DOMAIN_COORDINATORS_ENABLED,
+                default=self._get_current(CONF_DOMAIN_COORDINATORS_ENABLED, False),
+            ): selector.BooleanSelector(),
+        })
+
+        return self.async_show_form(
+            step_id="domain_coordinators",
             data_schema=data_schema,
         )
 

@@ -310,6 +310,7 @@
       "migration_failed": "Migration failed. Please check logs.",
       "reconfigure_use_options": "Use 'Configure' from the three-dot menu to modify settings.",
       "coordinator_not_ready": "Coordinator setup is coming in a future update.",
+      "coordinator_use_options": "Domain coordinators are configured via the integration options flow. Go to Configure > Domain Coordinators.",
       "no_zones_configured": "No zones have been configured yet. Add a zone from the integration setup first.",
       "zone_not_found": "The selected zone could not be found. It may have been deleted."
     }
@@ -327,6 +328,7 @@
           "manage_zones": "\ud83d\uddc2\ufe0f Manage Zones",
           "camera_census": "\ud83d\udcf7 Camera Census",
           "perimeter_alerting": "\ud83d\udea8 Perimeter Alerting",
+          "domain_coordinators": "\ud83e\udd16 Domain Coordinators",
           "basic_setup": "\ud83d\udeaa Basic Setup",
           "sensors": "\ud83d\udce1 Sensors",
           "devices": "\ud83d\udca1 Devices",
@@ -460,6 +462,16 @@
           "perimeter_alert_hours_end": "Alert monitoring ends at this hour (0\u201323). Wraps overnight when end is before start. Default: 5 AM.",
           "perimeter_alert_notify_service": "Notification service to call when a person is detected on your perimeter (e.g., notify.mobile_app_john). Leave blank to disable notifications.",
           "perimeter_alert_notify_target": "Notification target (optional \u2014 leave blank to use the service default)."
+        }
+      },
+      "domain_coordinators": {
+        "title": "\ud83e\udd16 Domain Coordinators",
+        "description": "Enable the domain coordinator system for whole-house intelligence. When enabled, a Coordinator Manager device is created and house-level coordination becomes available. Individual coordinators (Presence, Safety, Security, Energy, HVAC, Comfort) are configured in later updates.",
+        "data": {
+          "domain_coordinators_enabled": "Enable Domain Coordinators"
+        },
+        "data_description": {
+          "domain_coordinators_enabled": "Turn on to activate the domain coordinator framework. Creates the Coordinator Manager device, house state tracking, and decision logging. Requires integration reload."
         }
       },
       "zone_rooms": {
