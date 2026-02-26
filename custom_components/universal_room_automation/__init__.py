@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation v3.6.0-c0
+# Universal Room Automation v3.6.0-c0.1-c0
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -19,6 +19,8 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+
+from homeassistant.helpers.event import async_track_time_interval
 
 from .const import (
     DOMAIN,
@@ -41,7 +43,10 @@ from .const import (
     CONF_ZONE_ROOMS,  # v3.3.5.4: For zone migration
     CONF_ZONE_DESCRIPTION,  # v3.3.5.4: For zone migration
     CONF_CAMERA_PERSON_ENTITIES,  # v3.4.5: Interior camera migration
+    CONF_EGRESS_CAMERAS,  # v3.5.0: Egress cameras
+    CONF_PERIMETER_CAMERAS,  # v3.5.0: Perimeter cameras
     CONF_DOMAIN_COORDINATORS_ENABLED,  # v3.6.0: Domain coordinators
+    SCAN_INTERVAL_CENSUS,  # v3.5.0: Census update interval
     DEFAULT_ELECTRICITY_RATE,
     NOTIFY_LEVEL_ERRORS,
 )
@@ -557,15 +562,37 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # v3.5.0: Initialize camera integration manager and person census
         try:
             camera_manager = CameraIntegrationManager(hass)
-            await camera_manager.async_discover()
+            room_cameras = merged_config.get(CONF_CAMERA_PERSON_ENTITIES, [])
+            egress_cameras = merged_config.get(CONF_EGRESS_CAMERAS, [])
+            perimeter_cameras = merged_config.get(CONF_PERIMETER_CAMERAS, [])
+            await camera_manager.async_discover(
+                room_cameras=room_cameras,
+                egress_cameras=egress_cameras,
+                perimeter_cameras=perimeter_cameras,
+            )
             hass.data[DOMAIN]["camera_manager"] = camera_manager
 
             census = PersonCensus(hass, camera_manager)
             hass.data[DOMAIN]["census"] = census
+
+            # Periodic census updates
+            async def _census_update_cb(_now):
+                """Periodic callback for census updates."""
+                try:
+                    await census.async_update_census()
+                except Exception as exc:
+                    _LOGGER.error("Census periodic update failed: %s", exc)
+
+            unsub_census = async_track_time_interval(
+                hass, _census_update_cb, SCAN_INTERVAL_CENSUS
+            )
+            hass.data[DOMAIN]["unsub_census"] = unsub_census
+
             _LOGGER.info(
-                "Camera census initialized (cameras discovered: %d)",
+                "Camera census initialized with periodic updates (cameras discovered: %d, interval: %s)",
                 len(camera_manager.get_all_frigate_cameras())
                 + len(camera_manager.get_all_unifi_cameras()),
+                SCAN_INTERVAL_CENSUS,
             )
         except Exception as e:
             _LOGGER.error("Failed to initialize camera census: %s", e)
@@ -774,6 +801,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 del hass.data[DOMAIN][key]
 
         # v3.5.0: Clean up camera census
+        unsub_census = hass.data[DOMAIN].pop("unsub_census", None)
+        if unsub_census:
+            unsub_census()
         for key in ["camera_manager", "census"]:
             if key in hass.data[DOMAIN]:
                 del hass.data[DOMAIN][key]
