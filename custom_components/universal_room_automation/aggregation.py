@@ -2043,13 +2043,14 @@ class ZoneSensorBase(AggregationEntity):
         # v3.3.5.6: Device is identified by zone name (consistent across entry changes).
         # Since entities are now added via the zone config entry's platform,
         # HA automatically links this device to the zone config entry.
+        # v3.6.0: Zone devices are children of the Zone Manager device
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, f"zone_{zone}")},
             name=f"Zone: {zone.title()}",
             manufacturer="Universal Room Automation",
             model="Zone",
             sw_version=VERSION,
-            via_device=(DOMAIN, "integration"),
+            via_device=(DOMAIN, "zone_manager"),
         )
 
     async def async_added_to_hass(self) -> None:

@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation v3.5.3
+# Universal Room Automation v3.6.0-c0
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -41,9 +41,11 @@ from .const import (
     CONF_ZONE_ROOMS,  # v3.3.5.4: For zone migration
     CONF_ZONE_DESCRIPTION,  # v3.3.5.4: For zone migration
     CONF_CAMERA_PERSON_ENTITIES,  # v3.4.5: Interior camera migration
+    CONF_DOMAIN_COORDINATORS_ENABLED,  # v3.6.0: Domain coordinators
     DEFAULT_ELECTRICITY_RATE,
     NOTIFY_LEVEL_ERRORS,
 )
+from .const import VERSION
 from .coordinator import UniversalRoomCoordinator
 from .database import UniversalRoomDatabase
 from .person_coordinator import PersonTrackingCoordinator  # v3.2.0
@@ -580,6 +582,50 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         except Exception as e:
             _LOGGER.error("Failed to initialize perimeter alert manager: %s", e)
 
+        # v3.6.0: Register Zone Manager parent device (always present)
+        try:
+            from homeassistant.helpers import device_registry as dr
+            dev_reg = dr.async_get(hass)
+            dev_reg.async_get_or_create(
+                config_entry_id=entry.entry_id,
+                identifiers={(DOMAIN, "zone_manager")},
+                name="URA: Zone Manager",
+                manufacturer="Universal Room Automation",
+                model="Zone Manager",
+                sw_version=VERSION,
+                via_device=(DOMAIN, "integration"),
+            )
+            _LOGGER.info("Zone Manager device registered")
+        except Exception as e:
+            _LOGGER.warning("Failed to register Zone Manager device: %s", e)
+
+        # v3.6.0: Initialize domain coordinator manager if enabled
+        if merged_config.get(CONF_DOMAIN_COORDINATORS_ENABLED, False):
+            try:
+                from .domain_coordinators.manager import CoordinatorManager
+
+                coordinator_manager = CoordinatorManager(hass)
+
+                # Register Coordinator Manager device
+                dev_reg = dr.async_get(hass)
+                dev_reg.async_get_or_create(
+                    config_entry_id=entry.entry_id,
+                    identifiers={(DOMAIN, "coordinator_manager")},
+                    name="URA: Coordinator Manager",
+                    manufacturer="Universal Room Automation",
+                    model="Coordinator Manager",
+                    sw_version=VERSION,
+                    via_device=(DOMAIN, "integration"),
+                )
+
+                await coordinator_manager.async_start()
+                hass.data[DOMAIN]["coordinator_manager"] = coordinator_manager
+                _LOGGER.info("Domain Coordinator Manager initialized and started")
+            except Exception as e:
+                _LOGGER.error("Failed to initialize Coordinator Manager: %s", e)
+                import traceback
+                _LOGGER.error("Traceback: %s", traceback.format_exc())
+
         # Set up aggregation sensors (sensor and binary_sensor platforms)
         # These will be registered via the platform files
         await hass.config_entries.async_forward_entry_setups(entry, INTEGRATION_PLATFORMS)
@@ -748,6 +794,12 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if egress_tracker:
             await egress_tracker.async_teardown()
             del hass.data[DOMAIN]["egress_tracker"]
+
+        # v3.6.0: Tear down domain coordinator manager
+        coordinator_manager = hass.data[DOMAIN].get("coordinator_manager")
+        if coordinator_manager:
+            await coordinator_manager.async_stop()
+            del hass.data[DOMAIN]["coordinator_manager"]
 
         if "integration" in hass.data[DOMAIN]:
             del hass.data[DOMAIN]["integration"]

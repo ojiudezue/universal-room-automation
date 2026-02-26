@@ -1,6 +1,6 @@
 """Database for Universal Room Automation."""
 #
-# Universal Room Automation v3.5.3
+# Universal Room Automation v3.6.0-c0
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors
@@ -287,6 +287,77 @@ class UniversalRoomDatabase:
                     ON person_entry_exit_events(person_id, timestamp)
                 """)
 
+                # v3.6.0: Decision logging for domain coordinators
+                await db.execute("""
+                    CREATE TABLE IF NOT EXISTS decision_log (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        timestamp TEXT NOT NULL,
+                        coordinator_id TEXT NOT NULL,
+                        decision_type TEXT NOT NULL,
+                        situation_classified TEXT,
+                        urgency INTEGER,
+                        confidence REAL,
+                        context_json TEXT NOT NULL,
+                        action_json TEXT NOT NULL,
+                        expected_savings_kwh REAL,
+                        expected_cost_savings REAL,
+                        expected_comfort_impact INTEGER,
+                        constraints_published TEXT,
+                        devices_commanded TEXT
+                    )
+                """)
+                await db.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_decision_timestamp
+                    ON decision_log(timestamp)
+                """)
+                await db.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_decision_coordinator
+                    ON decision_log(coordinator_id)
+                """)
+
+                # v3.6.0: Compliance tracking for domain coordinators
+                await db.execute("""
+                    CREATE TABLE IF NOT EXISTS compliance_log (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        timestamp TEXT NOT NULL,
+                        decision_id INTEGER,
+                        device_type TEXT NOT NULL,
+                        device_id TEXT NOT NULL,
+                        commanded_state TEXT NOT NULL,
+                        actual_state TEXT NOT NULL,
+                        compliant BOOLEAN NOT NULL,
+                        deviation_details TEXT,
+                        override_detected BOOLEAN,
+                        override_source TEXT,
+                        override_duration_minutes INTEGER,
+                        FOREIGN KEY (decision_id) REFERENCES decision_log(id)
+                    )
+                """)
+                await db.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_compliance_decision
+                    ON compliance_log(decision_id)
+                """)
+                await db.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_compliance_timestamp
+                    ON compliance_log(timestamp)
+                """)
+
+                # v3.6.0: House state history
+                await db.execute("""
+                    CREATE TABLE IF NOT EXISTS house_state_log (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        timestamp TEXT NOT NULL,
+                        state TEXT NOT NULL,
+                        confidence REAL NOT NULL,
+                        trigger TEXT,
+                        previous_state TEXT
+                    )
+                """)
+                await db.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_house_state_timestamp
+                    ON house_state_log(timestamp)
+                """)
+
                 await db.commit()
 
                 # v3.5.2: PRAGMA-based migration — add columns to room_transitions if absent
@@ -423,6 +494,108 @@ class UniversalRoomDatabase:
                 _LOGGER.debug("Logged zone event: %s -> %s (%d rooms)", zone, event_type, room_count)
         except Exception as e:
             _LOGGER.error("Error logging zone event: %s", e)
+
+    # =========================================================================
+    # v3.6.0: DOMAIN COORDINATOR DECISION LOGGING
+    # =========================================================================
+
+    async def log_coordinator_decision(
+        self,
+        coordinator_id: str,
+        decision_type: str,
+        context_json: str,
+        action_json: str,
+        situation_classified: str | None = None,
+        urgency: int | None = None,
+        confidence: float | None = None,
+        expected_savings_kwh: float | None = None,
+        expected_cost_savings: float | None = None,
+        expected_comfort_impact: int | None = None,
+        constraints_published: str | None = None,
+        devices_commanded: str | None = None,
+    ) -> int | None:
+        """Log a coordinator decision. Returns the decision_log row id."""
+        try:
+            async with aiosqlite.connect(self.db_file) as db:
+                cursor = await db.execute("""
+                    INSERT INTO decision_log (
+                        timestamp, coordinator_id, decision_type,
+                        situation_classified, urgency, confidence,
+                        context_json, action_json,
+                        expected_savings_kwh, expected_cost_savings,
+                        expected_comfort_impact, constraints_published,
+                        devices_commanded
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    datetime.utcnow().isoformat(),
+                    coordinator_id, decision_type,
+                    situation_classified, urgency, confidence,
+                    context_json, action_json,
+                    expected_savings_kwh, expected_cost_savings,
+                    expected_comfort_impact, constraints_published,
+                    devices_commanded,
+                ))
+                await db.commit()
+                return cursor.lastrowid
+        except Exception as e:
+            _LOGGER.error("Error logging coordinator decision: %s", e)
+            return None
+
+    async def log_compliance_check(
+        self,
+        decision_id: int | None,
+        device_type: str,
+        device_id: str,
+        commanded_state: str,
+        actual_state: str,
+        compliant: bool,
+        deviation_details: str | None = None,
+        override_detected: bool = False,
+        override_source: str | None = None,
+        override_duration_minutes: int | None = None,
+    ) -> None:
+        """Log a compliance check result."""
+        try:
+            async with aiosqlite.connect(self.db_file) as db:
+                await db.execute("""
+                    INSERT INTO compliance_log (
+                        timestamp, decision_id, device_type, device_id,
+                        commanded_state, actual_state, compliant,
+                        deviation_details, override_detected,
+                        override_source, override_duration_minutes
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    datetime.utcnow().isoformat(),
+                    decision_id, device_type, device_id,
+                    commanded_state, actual_state, compliant,
+                    deviation_details, override_detected,
+                    override_source, override_duration_minutes,
+                ))
+                await db.commit()
+        except Exception as e:
+            _LOGGER.error("Error logging compliance check: %s", e)
+
+    async def log_house_state_change(
+        self,
+        state: str,
+        confidence: float,
+        trigger: str | None = None,
+        previous_state: str | None = None,
+    ) -> None:
+        """Log a house state transition."""
+        try:
+            async with aiosqlite.connect(self.db_file) as db:
+                await db.execute("""
+                    INSERT INTO house_state_log (
+                        timestamp, state, confidence, trigger, previous_state
+                    ) VALUES (?, ?, ?, ?, ?)
+                """, (
+                    datetime.utcnow().isoformat(),
+                    state, confidence, trigger, previous_state,
+                ))
+                await db.commit()
+        except Exception as e:
+            _LOGGER.error("Error logging house state change: %s", e)
 
     # =========================================================================
     # v3.1.6: ENERGY HISTORY LOGGING AND QUERIES

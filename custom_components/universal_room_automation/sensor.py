@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.5.3
+# Universal Room Automation v3.6.0-c0
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -138,6 +138,18 @@ async def async_setup_entry(
             UnidentifiedPersonsSensor(hass, entry),
         ]
         async_add_entities(census_sensors)
+
+        # v3.6.0: Domain coordinator sensors (only if enabled)
+        from .const import CONF_DOMAIN_COORDINATORS_ENABLED
+        merged = {**entry.data, **entry.options}
+        if merged.get(CONF_DOMAIN_COORDINATORS_ENABLED, False):
+            coordinator_sensors = [
+                CoordinatorManagerSensor(hass, entry),
+                HouseStateSensor(hass, entry),
+                CoordinatorSummarySensor(hass, entry),
+            ]
+            async_add_entities(coordinator_sensors)
+
         return
 
     # v3.3.5.6: Zone entry - set up zone-specific aggregation sensors
@@ -2815,3 +2827,151 @@ class UnidentifiedPersonsSensor(AggregationEntity, SensorEntity):
             "data_scope": "house_level",
             "note": "Per-zone unidentified count deferred until per-zone camera data available",
         }
+
+
+# ============================================================================
+# v3.6.0 Domain Coordinator Sensors
+# ============================================================================
+
+
+class CoordinatorManagerSensor(AggregationEntity, SensorEntity):
+    """Sensor showing Coordinator Manager status (running/stopped).
+
+    Entity: sensor.ura_coordinator_manager
+    Device: URA: Coordinator Manager
+    Category: diagnostic
+    """
+
+    _attr_has_entity_name = True
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:robot"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize the coordinator manager sensor."""
+        super().__init__(hass, entry)
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .const import VERSION
+        self._attr_unique_id = f"{DOMAIN}_coordinator_manager"
+        self._attr_name = "Coordinator Manager"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "coordinator_manager")},
+            name="URA: Coordinator Manager",
+            manufacturer="Universal Room Automation",
+            model="Coordinator Manager",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "integration"),
+        )
+
+    @property
+    def native_value(self) -> str:
+        """Return the manager status."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return "not_initialized"
+        return manager.get_overall_status()
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return coordinator details."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return {}
+        return {
+            "coordinators_registered": len(manager.coordinators),
+            "coordinators_active": sum(
+                1 for c in manager.coordinators.values() if c.enabled
+            ),
+            "decisions_today": manager.decisions_today,
+            "conflicts_resolved_today": manager.conflicts_resolved_today,
+        }
+
+
+class HouseStateSensor(AggregationEntity, SensorEntity):
+    """Sensor showing the current house state.
+
+    Entity: sensor.ura_house_state
+    Device: URA: Coordinator Manager
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:home-account"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize the house state sensor."""
+        super().__init__(hass, entry)
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .const import VERSION
+        self._attr_unique_id = f"{DOMAIN}_house_state"
+        self._attr_name = "House State"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "coordinator_manager")},
+            name="URA: Coordinator Manager",
+            manufacturer="Universal Room Automation",
+            model="Coordinator Manager",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "integration"),
+        )
+
+    @property
+    def native_value(self) -> str:
+        """Return the current house state."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return "unknown"
+        return str(manager.house_state)
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return state machine details."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return {}
+        return manager.house_state_machine.to_dict()
+
+
+class CoordinatorSummarySensor(AggregationEntity, SensorEntity):
+    """Summary sensor showing overall coordinator status.
+
+    Entity: sensor.ura_coordinator_summary
+    Device: URA: Coordinator Manager
+    State: all_clear / advisory / alert / critical
+    Attributes: per-coordinator status
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:robot"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize the coordinator summary sensor."""
+        super().__init__(hass, entry)
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .const import VERSION
+        self._attr_unique_id = f"{DOMAIN}_coordinator_summary"
+        self._attr_name = "Coordinator Summary"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "coordinator_manager")},
+            name="URA: Coordinator Manager",
+            manufacturer="Universal Room Automation",
+            model="Coordinator Manager",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "integration"),
+        )
+
+    @property
+    def native_value(self) -> str:
+        """Return overall status."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return "not_initialized"
+        if not manager.is_running:
+            return "stopped"
+        # In C0, no coordinators are registered yet — always all_clear
+        return "all_clear"
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return per-coordinator summary."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return {}
+        return manager.get_summary()
