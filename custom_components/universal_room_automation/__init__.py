@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation v3.6.0-c0.1-c0
+# Universal Room Automation v3.6.0-c0.2
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -27,6 +27,8 @@ from .const import (
     ENTRY_TYPE_INTEGRATION,
     ENTRY_TYPE_ROOM,
     ENTRY_TYPE_ZONE,  # v3.3.2: Import zone entry type
+    ENTRY_TYPE_ZONE_MANAGER,  # v3.6.0: Zone manager entry type
+    ENTRY_TYPE_COORDINATOR_MANAGER,  # v3.6.0: Coordinator manager entry type
     CONF_ENTRY_TYPE,
     CONF_INTEGRATION_ENTRY_ID,
     CONF_OUTSIDE_TEMP_SENSOR,
@@ -347,6 +349,115 @@ async def _migrate_sensor_entity_ids(hass: HomeAssistant) -> int:
     return renamed_count
 
 
+async def _migrate_zones_to_zone_manager(hass: HomeAssistant, integration_entry: ConfigEntry) -> None:
+    """Migrate individual zone config entries to a single Zone Manager entry (v3.6.0).
+
+    Creates a Zone Manager config entry containing all zone data, then removes
+    the individual zone config entries to eliminate duplicate UI groups.
+    """
+    # Check if Zone Manager entry already exists
+    for ce in hass.config_entries.async_entries(DOMAIN):
+        if ce.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_ZONE_MANAGER:
+            _LOGGER.debug("Zone Manager entry already exists, skipping migration")
+            return
+
+    # Collect zone data from individual zone entries
+    zones_data: dict[str, dict] = {}
+    zone_entries_to_remove: list[ConfigEntry] = []
+
+    for ce in hass.config_entries.async_entries(DOMAIN):
+        if ce.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_ZONE:
+            zone_name = (ce.data.get(CONF_ZONE_NAME) or ce.options.get(CONF_ZONE_NAME, "")).strip()
+            if not zone_name:
+                continue
+            merged = {**ce.data, **ce.options}
+            zones_data[zone_name] = {
+                CONF_ZONE_DESCRIPTION: merged.get(CONF_ZONE_DESCRIPTION, ""),
+                CONF_ZONE_ROOMS: merged.get(CONF_ZONE_ROOMS, []),
+            }
+            # Copy any zone-specific options (media player, etc.)
+            from .const import CONF_ZONE_PLAYER_ENTITY, CONF_ZONE_PLAYER_MODE
+            if merged.get(CONF_ZONE_PLAYER_ENTITY):
+                zones_data[zone_name][CONF_ZONE_PLAYER_ENTITY] = merged[CONF_ZONE_PLAYER_ENTITY]
+            if merged.get(CONF_ZONE_PLAYER_MODE):
+                zones_data[zone_name][CONF_ZONE_PLAYER_MODE] = merged[CONF_ZONE_PLAYER_MODE]
+
+            zone_entries_to_remove.append(ce)
+
+    # Create Zone Manager entry via config flow
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": "zone_manager_migration"},
+        data={
+            CONF_ENTRY_TYPE: ENTRY_TYPE_ZONE_MANAGER,
+            CONF_INTEGRATION_ENTRY_ID: integration_entry.entry_id,
+            "zones": zones_data,
+        },
+    )
+
+    if result.get("type") == "create_entry":
+        _LOGGER.info(
+            "Zone Manager entry created with %d zones: %s",
+            len(zones_data),
+            list(zones_data.keys()),
+        )
+
+        # Remove old zone devices from the integration entry's device registry
+        from homeassistant.helpers import device_registry as dr
+        dev_reg = dr.async_get(hass)
+
+        # Remove Zone Manager device from integration entry (will be recreated under ZM entry)
+        zm_device = dev_reg.async_get_device(identifiers={(DOMAIN, "zone_manager")})
+        if zm_device:
+            dev_reg.async_remove_device(zm_device.id)
+
+        # Remove zone devices (will be recreated under ZM entry)
+        for zone_name in zones_data:
+            zone_device = dev_reg.async_get_device(identifiers={(DOMAIN, f"zone_{zone_name}")})
+            if zone_device:
+                dev_reg.async_remove_device(zone_device.id)
+
+        # Remove individual zone config entries
+        for ce in zone_entries_to_remove:
+            await hass.config_entries.async_remove(ce.entry_id)
+            _LOGGER.info("Removed legacy zone entry: %s", ce.title)
+    else:
+        _LOGGER.error("Failed to create Zone Manager entry: %s", result)
+
+
+async def _ensure_coordinator_manager_entry(hass: HomeAssistant, integration_entry: ConfigEntry) -> None:
+    """Ensure a Coordinator Manager config entry exists (v3.6.0).
+
+    Creates the entry if it doesn't exist. Coordinator sensors will be
+    set up via this entry instead of the integration entry.
+    """
+    for ce in hass.config_entries.async_entries(DOMAIN):
+        if ce.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_COORDINATOR_MANAGER:
+            _LOGGER.debug("Coordinator Manager entry already exists")
+            return
+
+    # Remove Coordinator Manager device from integration entry (will be recreated)
+    from homeassistant.helpers import device_registry as dr
+    dev_reg = dr.async_get(hass)
+    cm_device = dev_reg.async_get_device(identifiers={(DOMAIN, "coordinator_manager")})
+    if cm_device:
+        dev_reg.async_remove_device(cm_device.id)
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN,
+        context={"source": "coordinator_manager_migration"},
+        data={
+            CONF_ENTRY_TYPE: ENTRY_TYPE_COORDINATOR_MANAGER,
+            CONF_INTEGRATION_ENTRY_ID: integration_entry.entry_id,
+        },
+    )
+
+    if result.get("type") == "create_entry":
+        _LOGGER.info("Coordinator Manager entry created")
+    else:
+        _LOGGER.error("Failed to create Coordinator Manager entry: %s", result)
+
+
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Universal Room Automation from a config entry."""
     
@@ -421,6 +532,30 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 _LOGGER.error("Camera migration failed: %s", e)
                 import traceback
                 _LOGGER.error("Traceback: %s", traceback.format_exc())
+
+        # v3.6.0: Migrate zone entries to Zone Manager entry and create manager entries
+        if not entry.options.get("zone_manager_migration_done"):
+            try:
+                await _migrate_zones_to_zone_manager(hass, entry)
+                entry = hass.config_entries.async_get_entry(entry.entry_id) or entry
+                hass.config_entries.async_update_entry(
+                    entry, options={**entry.options, "zone_manager_migration_done": True}
+                )
+            except Exception as e:
+                _LOGGER.error("Zone manager migration failed: %s", e)
+                import traceback
+                _LOGGER.error("Traceback: %s", traceback.format_exc())
+
+        # v3.6.0: Ensure Coordinator Manager entry exists
+        if not entry.options.get("coordinator_manager_entry_done"):
+            try:
+                await _ensure_coordinator_manager_entry(hass, entry)
+                entry = hass.config_entries.async_get_entry(entry.entry_id) or entry
+                hass.config_entries.async_update_entry(
+                    entry, options={**entry.options, "coordinator_manager_entry_done": True}
+                )
+            except Exception as e:
+                _LOGGER.error("Coordinator manager entry creation failed: %s", e)
 
         # v3.5.x: Migrate person-sensor unique_ids from "occupant" to "identified" naming (run once)
         if not entry.options.get("sensor_naming_migration_done"):
@@ -609,42 +744,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         except Exception as e:
             _LOGGER.error("Failed to initialize perimeter alert manager: %s", e)
 
-        # v3.6.0: Register Zone Manager parent device (always present)
-        try:
-            from homeassistant.helpers import device_registry as dr
-            dev_reg = dr.async_get(hass)
-            dev_reg.async_get_or_create(
-                config_entry_id=entry.entry_id,
-                identifiers={(DOMAIN, "zone_manager")},
-                name="URA: Zone Manager",
-                manufacturer="Universal Room Automation",
-                model="Zone Manager",
-                sw_version=VERSION,
-                via_device=(DOMAIN, "integration"),
-            )
-            _LOGGER.info("Zone Manager device registered")
-        except Exception as e:
-            _LOGGER.warning("Failed to register Zone Manager device: %s", e)
-
         # v3.6.0: Initialize domain coordinator manager if enabled
+        # NOTE: Zone Manager and Coordinator Manager devices are now registered
+        # under their own config entries (not under the integration entry).
+        # This prevents duplicate display on the integration page.
         if merged_config.get(CONF_DOMAIN_COORDINATORS_ENABLED, False):
             try:
                 from .domain_coordinators.manager import CoordinatorManager
 
                 coordinator_manager = CoordinatorManager(hass)
-
-                # Register Coordinator Manager device
-                dev_reg = dr.async_get(hass)
-                dev_reg.async_get_or_create(
-                    config_entry_id=entry.entry_id,
-                    identifiers={(DOMAIN, "coordinator_manager")},
-                    name="URA: Coordinator Manager",
-                    manufacturer="Universal Room Automation",
-                    model="Coordinator Manager",
-                    sw_version=VERSION,
-                    via_device=(DOMAIN, "integration"),
-                )
-
                 await coordinator_manager.async_start()
                 hass.data[DOMAIN]["coordinator_manager"] = coordinator_manager
                 _LOGGER.info("Domain Coordinator Manager initialized and started")
@@ -664,26 +772,70 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         return True
     
     # =========================================================================
-    # v3.3.2: Zone entry handling
+    # v3.6.0: Zone Manager entry handling
     # =========================================================================
-    if entry_type == ENTRY_TYPE_ZONE:
-        # Zone entry - set up zone-level aggregation sensors + update listener
-        zone_name = entry.data.get(CONF_ZONE_NAME, "Unknown")
-        _LOGGER.info("Setting up zone entry: %s", zone_name)
+    if entry_type == ENTRY_TYPE_ZONE_MANAGER:
+        _LOGGER.info("Setting up Zone Manager entry")
 
-        # Store zone entry reference (for music_following lookup)
+        # Register Zone Manager device under THIS config entry (not integration)
+        from homeassistant.helpers import device_registry as dr
+        dev_reg = dr.async_get(hass)
+        dev_reg.async_get_or_create(
+            config_entry_id=entry.entry_id,
+            identifiers={(DOMAIN, "zone_manager")},
+            name="URA: Zone Manager",
+            manufacturer="Universal Room Automation",
+            model="Zone Manager",
+            sw_version=VERSION,
+        )
+
+        # Store zone data reference for music_following and other lookups
         if "zones" not in hass.data[DOMAIN]:
             hass.data[DOMAIN]["zones"] = {}
-        hass.data[DOMAIN]["zones"][entry.entry_id] = entry
+        hass.data[DOMAIN]["zone_manager_entry"] = entry
 
-        # v3.3.5.6: Forward sensor/binary_sensor platforms so zone entities
-        # are registered under the zone config entry (not the integration entry)
+        # Forward sensor/binary_sensor platforms — zone sensors created here
         await hass.config_entries.async_forward_entry_setups(entry, INTEGRATION_PLATFORMS)
 
-        # v3.3.2: Add update listener so OptionsFlow changes trigger reload
         entry.async_on_unload(entry.add_update_listener(_async_update_listener))
+        _LOGGER.info("Zone Manager entry setup complete")
+        return True
 
-        _LOGGER.info("Zone entry '%s' setup complete with zone sensors", zone_name)
+    # =========================================================================
+    # v3.6.0: Coordinator Manager entry handling
+    # =========================================================================
+    if entry_type == ENTRY_TYPE_COORDINATOR_MANAGER:
+        _LOGGER.info("Setting up Coordinator Manager entry")
+
+        # Register Coordinator Manager device under THIS config entry
+        from homeassistant.helpers import device_registry as dr
+        dev_reg = dr.async_get(hass)
+        dev_reg.async_get_or_create(
+            config_entry_id=entry.entry_id,
+            identifiers={(DOMAIN, "coordinator_manager")},
+            name="URA: Coordinator Manager",
+            manufacturer="Universal Room Automation",
+            model="Coordinator Manager",
+            sw_version=VERSION,
+        )
+
+        # Forward sensor/binary_sensor platforms — coordinator sensors created here
+        await hass.config_entries.async_forward_entry_setups(entry, INTEGRATION_PLATFORMS)
+
+        entry.async_on_unload(entry.add_update_listener(_async_update_listener))
+        _LOGGER.info("Coordinator Manager entry setup complete")
+        return True
+
+    # =========================================================================
+    # v3.3.2: Legacy zone entry handling (deprecated — migrated to Zone Manager)
+    # =========================================================================
+    if entry_type == ENTRY_TYPE_ZONE:
+        zone_name = entry.data.get(CONF_ZONE_NAME, "Unknown")
+        _LOGGER.warning(
+            "Legacy zone entry '%s' found — should have been migrated to Zone Manager. "
+            "Skipping setup; zone sensors are now managed by the Zone Manager entry.",
+            zone_name,
+        )
         return True
     
     # Room entry - normal setup
@@ -836,23 +988,21 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         return unload_ok
     
-    # v3.3.2: Handle zone entry unload
-    if entry_type == ENTRY_TYPE_ZONE:
-        # v3.3.5.6: Unload zone sensor/binary_sensor platforms
+    # v3.6.0: Handle Zone Manager entry unload
+    if entry_type == ENTRY_TYPE_ZONE_MANAGER:
         unload_ok = await hass.config_entries.async_unload_platforms(entry, INTEGRATION_PLATFORMS)
-        # v3.5.3: Remove zone device from registry on unload/delete
-        zone_name = entry.data.get(CONF_ZONE_NAME) or entry.options.get(CONF_ZONE_NAME)
-        if zone_name:
-            from homeassistant.helpers import device_registry as dr
-            dev_reg = dr.async_get(hass)
-            device = dev_reg.async_get_device(identifiers={(DOMAIN, f"zone_{zone_name}")})
-            if device:
-                dev_reg.async_remove_device(device.id)
-                _LOGGER.info("Removed zone device on unload: zone_%s", zone_name)
-        # Clean up zone entry reference
-        if "zones" in hass.data[DOMAIN] and entry.entry_id in hass.data[DOMAIN]["zones"]:
-            del hass.data[DOMAIN]["zones"][entry.entry_id]
+        if "zone_manager_entry" in hass.data.get(DOMAIN, {}):
+            del hass.data[DOMAIN]["zone_manager_entry"]
         return unload_ok
+
+    # v3.6.0: Handle Coordinator Manager entry unload
+    if entry_type == ENTRY_TYPE_COORDINATOR_MANAGER:
+        unload_ok = await hass.config_entries.async_unload_platforms(entry, INTEGRATION_PLATFORMS)
+        return unload_ok
+
+    # v3.3.2: Handle legacy zone entry unload (deprecated)
+    if entry_type == ENTRY_TYPE_ZONE:
+        return True
     
     # Room entry - unload platforms and remove coordinator
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)

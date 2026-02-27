@@ -25,6 +25,8 @@ from .const import (
     ENTRY_TYPE_INTEGRATION,
     ENTRY_TYPE_ROOM,
     ENTRY_TYPE_ZONE,
+    ENTRY_TYPE_ZONE_MANAGER,
+    ENTRY_TYPE_COORDINATOR_MANAGER,
     CONF_ENTRY_TYPE,
     CONF_INTEGRATION_ENTRY_ID,
     CONF_OVERRIDE_NOTIFICATIONS,
@@ -245,6 +247,13 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
         """Find existing integration entry if one exists."""
         for entry in self._async_current_entries():
             if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_INTEGRATION:
+                return entry
+        return None
+
+    def _find_zone_manager_entry(self):
+        """Find the Zone Manager entry if one exists (v3.6.0)."""
+        for entry in self.hass.config_entries.async_entries(DOMAIN):
+            if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_ZONE_MANAGER:
                 return entry
         return None
 
@@ -530,7 +539,7 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
             if not errors:
                 # Get selected room entries and update their zone
                 selected_rooms = user_input.get(CONF_ZONE_ROOMS, [])
-                
+
                 # Update each room's zone assignment
                 for room_entry_id in selected_rooms:
                     room_entry = self.hass.config_entries.async_get_entry(room_entry_id)
@@ -541,18 +550,37 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
                             room_entry,
                             options=new_options
                         )
-                
-                # Create zone entry
-                return self.async_create_entry(
-                    title=f"📍 {zone_name}",
-                    data={
-                        CONF_ENTRY_TYPE: ENTRY_TYPE_ZONE,
-                        CONF_ZONE_NAME: zone_name,
+
+                # v3.6.0: Add zone to Zone Manager entry instead of creating new entry
+                zone_manager_entry = self._find_zone_manager_entry()
+                if zone_manager_entry:
+                    merged = {**zone_manager_entry.data, **zone_manager_entry.options}
+                    zones = dict(merged.get("zones", {}))
+                    zones[zone_name] = {
                         CONF_ZONE_DESCRIPTION: user_input.get(CONF_ZONE_DESCRIPTION, ""),
                         CONF_ZONE_ROOMS: selected_rooms,
-                        CONF_INTEGRATION_ENTRY_ID: self._integration_entry_id or self._find_integration_entry().entry_id,
                     }
-                )
+                    self.hass.config_entries.async_update_entry(
+                        zone_manager_entry,
+                        options={**zone_manager_entry.options, "zones": zones},
+                    )
+                    # Reload the zone manager entry to pick up the new zone
+                    self.hass.async_create_task(
+                        self.hass.config_entries.async_reload(zone_manager_entry.entry_id)
+                    )
+                    return self.async_abort(reason="zone_added")
+                else:
+                    # Fallback: create legacy zone entry if no Zone Manager exists
+                    return self.async_create_entry(
+                        title=f"📍 {zone_name}",
+                        data={
+                            CONF_ENTRY_TYPE: ENTRY_TYPE_ZONE,
+                            CONF_ZONE_NAME: zone_name,
+                            CONF_ZONE_DESCRIPTION: user_input.get(CONF_ZONE_DESCRIPTION, ""),
+                            CONF_ZONE_ROOMS: selected_rooms,
+                            CONF_INTEGRATION_ENTRY_ID: self._integration_entry_id or self._find_integration_entry().entry_id,
+                        }
+                    )
         
         # Get room entries for selection
         room_entries = self._get_all_room_entries()
@@ -676,15 +704,18 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
         )
     
     def _get_existing_zones(self) -> set[str]:
-        """Get existing zones from Zone config entries (v3.3.5.3).
-        
-        Changed from reading zone names from room entries to reading
-        from actual Zone config entries. This ensures zones must be
-        explicitly created via 'Add new Zone' before assignment.
+        """Get existing zones from Zone Manager and legacy Zone config entries.
+
+        v3.6.0: Reads zones from the Zone Manager entry first, then falls
+        back to legacy individual zone config entries for backward compat.
         """
         zones = set()
         for entry in self.hass.config_entries.async_entries(DOMAIN):
-            if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_ZONE:
+            if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_ZONE_MANAGER:
+                merged = {**entry.data, **entry.options}
+                for zone_name in merged.get("zones", {}):
+                    zones.add(zone_name)
+            elif entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_ZONE:
                 zone_name = entry.data.get(CONF_ZONE_NAME)
                 if zone_name:
                     zones.add(zone_name)
@@ -1186,6 +1217,24 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
             )
         return self.async_abort(reason="migration_failed")
 
+    async def async_step_zone_manager_migration(self, user_input=None):
+        """Handle Zone Manager entry creation during migration (v3.6.0)."""
+        if user_input is not None:
+            return self.async_create_entry(
+                title="URA: Zone Manager",
+                data=user_input,
+            )
+        return self.async_abort(reason="migration_failed")
+
+    async def async_step_coordinator_manager_migration(self, user_input=None):
+        """Handle Coordinator Manager entry creation during migration (v3.6.0)."""
+        if user_input is not None:
+            return self.async_create_entry(
+                title="URA: Coordinator Manager",
+                data=user_input,
+            )
+        return self.async_abort(reason="migration_failed")
+
     @staticmethod
     @callback
     def async_get_options_flow(config_entry):
@@ -1222,7 +1271,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
     async def async_step_init(self, user_input=None):
         """Show appropriate menu based on entry type."""
         entry_type = self._config_entry.data.get(CONF_ENTRY_TYPE, ENTRY_TYPE_ROOM)
-        
+
         if entry_type == ENTRY_TYPE_INTEGRATION:
             # Integration options menu
             return self.async_show_menu(
@@ -1232,14 +1281,21 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     "energy_sensors",
                     "person_tracking",  # v3.2.0
                     "default_notifications",
-                    "manage_zones",  # v3.3.3
                     "camera_census",  # v3.5.0
                     "perimeter_alerting",  # v3.5.1
                     "domain_coordinators",  # v3.6.0
                 ],
             )
+        elif entry_type == ENTRY_TYPE_ZONE_MANAGER:
+            # v3.6.0: Zone Manager options menu
+            return self.async_show_menu(
+                step_id="init",
+                menu_options=[
+                    "manage_zones",
+                ],
+            )
         elif entry_type == ENTRY_TYPE_ZONE:
-            # Zone options menu
+            # Legacy zone options menu (should be migrated)
             return self.async_show_menu(
                 step_id="init",
                 menu_options=[
@@ -1716,43 +1772,55 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         )
 
     async def async_step_manage_zones(self, user_input=None):
-        """Select a zone to configure (v3.3.3).
-        
-        Accessible from integration-level options menu.
+        """Select a zone to configure (v3.6.0 — reads from Zone Manager entry).
+
+        Accessible from Zone Manager options menu.
         """
         errors = {}
-        
+
         if user_input is not None:
-            zone_entry_id = user_input.get("zone_entry")
-            if zone_entry_id:
-                self._selected_zone_entry_id = zone_entry_id
+            selected_zone = user_input.get("zone_name")
+            if selected_zone:
+                self._selected_zone_name = selected_zone
                 return await self.async_step_zone_config_menu()
             else:
                 errors["base"] = "no_zone_selected"
-        
-        # Get all zone entries
-        zone_entries = []
-        for entry in self.hass.config_entries.async_entries(DOMAIN):
-            if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_ZONE:
-                zone_name = entry.data.get(CONF_ZONE_NAME, entry.title)
-                zone_entries.append({
-                    "label": f"📍 {zone_name}",
-                    "value": entry.entry_id
+
+        # Read zones from Zone Manager entry (or from this entry if it IS the ZM)
+        zone_options = []
+        entry = self._config_entry
+        if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_ZONE_MANAGER:
+            merged = {**entry.data, **entry.options}
+            zones_data = merged.get("zones", {})
+            for zone_name in zones_data:
+                zone_options.append({
+                    "label": zone_name.title(),
+                    "value": zone_name,
                 })
-        
-        if not zone_entries:
-            # No zones exist - show message
+        else:
+            # Fallback: find Zone Manager entry
+            for ce in self.hass.config_entries.async_entries(DOMAIN):
+                if ce.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_ZONE_MANAGER:
+                    merged = {**ce.data, **ce.options}
+                    for zone_name in merged.get("zones", {}):
+                        zone_options.append({
+                            "label": zone_name.title(),
+                            "value": zone_name,
+                        })
+                    break
+
+        if not zone_options:
             return self.async_abort(reason="no_zones_configured")
-        
+
         data_schema = vol.Schema({
-            vol.Required("zone_entry"): selector.SelectSelector(
+            vol.Required("zone_name"): selector.SelectSelector(
                 selector.SelectSelectorConfig(
-                    options=zone_entries,
+                    options=zone_options,
                     mode=selector.SelectSelectorMode.DROPDOWN
                 )
             ),
         })
-        
+
         return self.async_show_form(
             step_id="manage_zones",
             data_schema=data_schema,

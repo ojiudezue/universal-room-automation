@@ -312,7 +312,8 @@
       "coordinator_not_ready": "Coordinator setup is coming in a future update.",
       "coordinator_use_options": "Domain coordinators are configured via the integration options flow. Go to Configure > Domain Coordinators.",
       "no_zones_configured": "No zones have been configured yet. Add a zone from the integration setup first.",
-      "zone_not_found": "The selected zone could not be found. It may have been deleted."
+      "zone_not_found": "The selected zone could not be found. It may have been deleted.",
+      "zone_added": "Zone added successfully. The Zone Manager will reload to apply changes."
     }
   },
   "options": {

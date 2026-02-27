@@ -1,6 +1,6 @@
 """Camera integration and person census for Universal Room Automation v3.5.0."""
 #
-# Universal Room Automation v3.6.0-c0.1-c0
+# Universal Room Automation v3.6.0-c0.2
 # Build: 2026-02-23
 # File: camera_census.py
 # Cycle 3: Camera Integration & Census Core
@@ -76,6 +76,8 @@ class CensusZoneResult:
     source_agreement: str               # "both_agree", "close", "disagree", "single_source"
     frigate_count: int                  # Raw Frigate count (if applicable)
     unifi_count: int                    # Raw UniFi count (if applicable)
+    degraded_mode: bool = False         # True when primary platform (Frigate) is unavailable
+    active_platforms: list[str] = field(default_factory=list)  # Platforms contributing data
     timestamp: datetime = field(default_factory=datetime.now)
 
 
@@ -614,61 +616,103 @@ class PersonCensus:
         ble_persons: list[str],
         now: datetime,
     ) -> CensusZoneResult:
-        """Calculate the house (interior) census.
+        """Calculate the house (interior) census with graceful degradation.
 
-        Steps:
-        1. Collect camera person entities from all room configs (resolving camera.* IDs)
-        2. Separate into Frigate and UniFi groups
-        3. Sum Frigate counts; check UniFi presence
-        4. Cross-validate the two platform counts (unless cross_validation is disabled)
-        5. Cross-correlate with BLE persons
-        6. Return CensusZoneResult
+        Supports 4 camera platforms: Frigate, UniFi Protect, Reolink, Dahua.
+        When any platform is unavailable, the system degrades gracefully using
+        whichever platforms remain operational.
+
+        Platform capabilities:
+          Frigate:   numeric person_count + binary occupancy + face recognition
+          UniFi:     binary person_detected per camera (no count, no face in HA)
+          Reolink:   binary person detection per camera
+          Dahua:     binary person detection per camera
+
+        Degradation modes:
+          All platforms up:       cross-validate, use Frigate count, HIGH confidence
+          Frigate down:           sum per-camera binary detections, MEDIUM confidence
+          All cameras down:       BLE only, LOW confidence
+          No cameras configured:  BLE only, confidence NONE
         """
         cross_validation_enabled = self._is_cross_validation_enabled()
-
-        # Collect resolved binary_sensor entities from room-configured camera.* IDs
         configured_interior = self._get_interior_camera_entities()
 
+        # Categorize entities by platform and check availability
         frigate_total = 0
-        unifi_detected = False
+        frigate_available = False
+        binary_platform_count = 0  # Per-camera count from non-Frigate platforms
+        binary_platforms_available = False
+        active_platforms: list[str] = []
 
         if cross_validation_enabled:
-            # Full cross-validation: use all detected entities per device
             for entity_id in configured_interior:
                 platform = self._camera_manager.get_platform_for_camera(entity_id)
 
                 if platform == CAMERA_PLATFORM_FRIGATE:
                     camera_info = self._camera_manager._camera_by_entity.get(entity_id)
                     if camera_info and camera_info.person_count_sensor:
-                        count = self._get_sensor_int(camera_info.person_count_sensor)
-                        frigate_total += count
+                        # Check if Frigate sensor is actually available
+                        state = self.hass.states.get(camera_info.person_count_sensor)
+                        if state and state.state not in ("unavailable", "unknown"):
+                            frigate_available = True
+                            count = self._get_sensor_int(camera_info.person_count_sensor)
+                            frigate_total += count
+                        # If unavailable, skip — will fall through to degraded mode
                     else:
-                        if self._is_entity_on(entity_id):
-                            frigate_total += 1
-
-                elif platform == CAMERA_PLATFORM_UNIFI:
-                    if self._is_entity_on(entity_id):
-                        unifi_detected = True
+                        # Binary-only Frigate sensor
+                        if self._is_entity_available(entity_id):
+                            frigate_available = True
+                            if self._is_entity_on(entity_id):
+                                frigate_total += 1
 
                 else:
-                    # Unknown/not discovered or Reolink/Dahua: treat as binary presence
-                    if self._is_entity_on(entity_id):
-                        frigate_total += 1
+                    # All non-Frigate platforms (UniFi, Reolink, Dahua):
+                    # count per-camera binary detections
+                    if self._is_entity_available(entity_id):
+                        binary_platforms_available = True
+                        if platform and platform not in active_platforms:
+                            active_platforms.append(platform)
+                        if self._is_entity_on(entity_id):
+                            binary_platform_count += 1
 
-            unifi_count = 1 if unifi_detected else 0
+            if frigate_available and CAMERA_PLATFORM_FRIGATE not in active_platforms:
+                active_platforms.insert(0, CAMERA_PLATFORM_FRIGATE)
 
-            if configured_interior:
-                camera_total, agreement = self._cross_validate_platforms(frigate_total, unifi_count)
-            else:
+            # Determine count and agreement based on what's available
+            degraded = False
+            if frigate_available and binary_platforms_available:
+                # Both available — cross-validate
+                camera_total, agreement = self._cross_validate_platforms(
+                    frigate_total, binary_platform_count,
+                )
+            elif frigate_available and not binary_platforms_available:
+                # Only Frigate — single source
+                camera_total = frigate_total
+                agreement = CENSUS_AGREEMENT_SINGLE
+            elif not frigate_available and binary_platforms_available:
+                # Frigate down — use per-camera binary count as primary
+                camera_total = binary_platform_count
+                agreement = CENSUS_AGREEMENT_SINGLE
+                degraded = True
+                _LOGGER.debug(
+                    "Census degraded mode: Frigate unavailable, using %d binary platform detections",
+                    binary_platform_count,
+                )
+            elif not configured_interior:
                 camera_total = 0
                 agreement = CENSUS_AGREEMENT_SINGLE
+            else:
+                # All cameras unavailable
+                camera_total = 0
+                agreement = CENSUS_AGREEMENT_SINGLE
+                degraded = True
+                _LOGGER.warning("Census: all camera platforms unavailable")
 
         else:
             # Cross-validation disabled: use only the FIRST entity per device
-            # The configured_interior list already contains resolved binary_sensor IDs.
-            # We track which devices we've already counted to pick only the first.
             seen_device_ids: set[str] = set()
             ent_reg = er.async_get(self.hass)
+            degraded = False
 
             single_source_total = 0
             for entity_id in configured_interior:
@@ -677,11 +721,12 @@ class PersonCensus:
 
                 if device_id:
                     if device_id in seen_device_ids:
-                        # Skip additional entities from the same device
                         continue
                     seen_device_ids.add(device_id)
 
-                # Count this entity (treat as binary or use count sensor for Frigate)
+                if not self._is_entity_available(entity_id):
+                    continue
+
                 platform = self._camera_manager.get_platform_for_camera(entity_id)
                 if platform == CAMERA_PLATFORM_FRIGATE:
                     camera_info = self._camera_manager._camera_by_entity.get(entity_id)
@@ -695,15 +740,19 @@ class PersonCensus:
                     if self._is_entity_on(entity_id):
                         single_source_total += 1
 
+                if platform and platform not in active_platforms:
+                    active_platforms.append(platform)
+
             camera_total = single_source_total
-            unifi_count = 0  # Not used in single-source mode
             frigate_total = single_source_total
-            # Cross-validation skipped — confidence will always be "medium" (single_source)
+            binary_platform_count = 0
             agreement = CENSUS_AGREEMENT_SINGLE
 
         # Cross-correlate with BLE
         ble_id_set = set(ble_persons)
-        face_id_set: set[str] = set()  # Face recognition reserved for future cycles
+
+        # Collect face recognition IDs from Frigate (if available)
+        face_id_set = self._get_face_recognized_persons() if frigate_available else set()
 
         zone_result = self._cross_correlate_persons(
             face_ids=face_id_set,
@@ -711,9 +760,11 @@ class PersonCensus:
             camera_total=camera_total,
             zone="house",
             frigate_count=frigate_total,
-            unifi_count=unifi_count,
+            unifi_count=binary_platform_count,
             agreement=agreement,
             now=now,
+            degraded_mode=degraded,
+            active_platforms=active_platforms,
         )
 
         return zone_result
@@ -761,8 +812,15 @@ class PersonCensus:
                 if self._is_entity_on(entity_id):
                     exterior_count += 1
 
+        # Check which exterior entities are actually available
+        available_count = sum(1 for e in all_exterior if self._is_entity_available(e))
+        exterior_degraded = len(all_exterior) > 0 and available_count < len(all_exterior)
+
         # Confidence for exterior zone
         if not all_exterior:
+            confidence = CENSUS_CONFIDENCE_NONE
+            agreement = CENSUS_AGREEMENT_SINGLE
+        elif available_count == 0:
             confidence = CENSUS_CONFIDENCE_NONE
             agreement = CENSUS_AGREEMENT_SINGLE
         elif exterior_count > 0:
@@ -771,6 +829,14 @@ class PersonCensus:
         else:
             confidence = CENSUS_CONFIDENCE_MEDIUM
             agreement = CENSUS_AGREEMENT_SINGLE
+
+        # Collect active platforms for exterior
+        ext_platforms: list[str] = []
+        for entity_id in all_exterior:
+            if self._is_entity_available(entity_id):
+                platform = self._camera_manager.get_platform_for_camera(entity_id)
+                if platform and platform not in ext_platforms:
+                    ext_platforms.append(platform)
 
         return CensusZoneResult(
             zone="property",
@@ -782,6 +848,8 @@ class PersonCensus:
             source_agreement=agreement,
             frigate_count=0,
             unifi_count=0,
+            degraded_mode=exterior_degraded,
+            active_platforms=ext_platforms,
             timestamp=now,
         )
 
@@ -792,37 +860,36 @@ class PersonCensus:
     def _cross_validate_platforms(
         self,
         frigate_count: int,
-        unifi_count: int,
+        binary_platform_count: int,
     ) -> tuple[int, str]:
-        """Cross-validate person counts between platforms.
+        """Cross-validate person counts between Frigate and binary-detection platforms.
 
-        UniFi provides a binary (0/1) signal; Frigate provides a numeric count.
-        We use Frigate as the primary count source and UniFi as confirmation.
+        Frigate provides numeric counts; other platforms (UniFi, Reolink, Dahua)
+        provide per-camera binary detection summed as binary_platform_count.
+
+        When both are available, Frigate's numeric count is preferred (more precise).
+        binary_platform_count serves as a floor/confirmation signal.
 
         Returns:
             (best_count, agreement_level)
-            agreement_level: one of CENSUS_AGREEMENT_* constants
         """
-        has_frigate = frigate_count > 0 or True  # always present if configured
-        has_unifi = unifi_count is not None
-
-        if frigate_count == 0 and unifi_count == 0:
+        if frigate_count == 0 and binary_platform_count == 0:
             return (0, CENSUS_AGREEMENT_BOTH)
 
-        if frigate_count > 0 and unifi_count > 0:
-            # Both detect persons — use Frigate count (numeric)
+        if frigate_count > 0 and binary_platform_count > 0:
+            # Both detect persons — use Frigate (numeric), confirmed by binary platforms
             return (frigate_count, CENSUS_AGREEMENT_BOTH)
 
-        if frigate_count > 0 and unifi_count == 0:
-            # Frigate detects but UniFi does not — medium confidence
+        if frigate_count > 0 and binary_platform_count == 0:
+            # Only Frigate detects
             return (frigate_count, CENSUS_AGREEMENT_CLOSE)
 
-        if frigate_count == 0 and unifi_count > 0:
-            # UniFi detects but Frigate does not — low confidence, use 1 as minimum
-            return (1, CENSUS_AGREEMENT_CLOSE)
+        if frigate_count == 0 and binary_platform_count > 0:
+            # Only binary platforms detect — use their per-camera count
+            return (binary_platform_count, CENSUS_AGREEMENT_CLOSE)
 
-        # Single source fallback
-        total = max(frigate_count, unifi_count)
+        # Should not reach here, but fallback
+        total = max(frigate_count, binary_platform_count)
         return (total, CENSUS_AGREEMENT_SINGLE)
 
     # ------------------------------------------------------------------
@@ -839,6 +906,8 @@ class PersonCensus:
         unifi_count: int,
         agreement: str,
         now: datetime,
+        degraded_mode: bool = False,
+        active_platforms: list[str] | None = None,
     ) -> CensusZoneResult:
         """Cross-correlate face recognition IDs with BLE IRK tracking IDs.
 
@@ -896,6 +965,8 @@ class PersonCensus:
             source_agreement=agreement,
             frigate_count=frigate_count,
             unifi_count=unifi_count,
+            degraded_mode=degraded_mode,
+            active_platforms=active_platforms or [],
             timestamp=now,
         )
 
@@ -955,6 +1026,13 @@ class PersonCensus:
     # Helper: read HA state
     # ------------------------------------------------------------------
 
+    def _is_entity_available(self, entity_id: str) -> bool:
+        """Return True if an entity exists and is not unavailable/unknown."""
+        state = self.hass.states.get(entity_id)
+        if state is None:
+            return False
+        return state.state not in ("unavailable", "unknown")
+
     def _is_entity_on(self, entity_id: str) -> bool:
         """Return True if a binary_sensor is in state 'on'."""
         state = self.hass.states.get(entity_id)
@@ -997,3 +1075,31 @@ class PersonCensus:
                 home_persons.append(person_id)
 
         return home_persons
+
+    def _get_face_recognized_persons(self) -> set[str]:
+        """Return set of person IDs from Frigate face recognition sensors.
+
+        Scans all Frigate cameras for sensor.*_last_recognized_face entities.
+        If the sensor value is a recognized name (not empty, "unknown", or
+        "unavailable"), adds it to the set.
+
+        Only useful when Frigate is available. Returns empty set otherwise.
+        """
+        face_ids: set[str] = set()
+
+        for camera_info in self._camera_manager.get_all_frigate_cameras():
+            # Derive face recognition sensor from binary_sensor entity ID
+            # binary_sensor.{name}_person_occupancy -> sensor.{name}_last_recognized_face
+            bs_id = camera_info.entity_id
+            if bs_id.endswith("_person_occupancy"):
+                base_name = bs_id[len("binary_sensor."):-len("_person_occupancy")]
+                face_sensor_id = f"sensor.{base_name}_last_recognized_face"
+
+                state = self.hass.states.get(face_sensor_id)
+                if state and state.state not in ("unavailable", "unknown", "", "none", "None"):
+                    face_ids.add(state.state.strip())
+
+        if face_ids:
+            _LOGGER.debug("Face recognition identified: %s", face_ids)
+
+        return face_ids

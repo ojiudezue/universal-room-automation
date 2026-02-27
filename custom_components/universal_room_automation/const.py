@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "3.6.0-c0.1"
+VERSION: Final = "3.6.0-c0.2"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -50,6 +50,8 @@ SCAN_INTERVAL_ENERGY_HISTORY: Final = timedelta(minutes=15)  # v3.1.6: Energy hi
 ENTRY_TYPE_INTEGRATION: Final = "integration"
 ENTRY_TYPE_ROOM: Final = "room"
 ENTRY_TYPE_ZONE: Final = "zone"
+ENTRY_TYPE_ZONE_MANAGER: Final = "zone_manager"
+ENTRY_TYPE_COORDINATOR_MANAGER: Final = "coordinator_manager"
 CONF_ENTRY_TYPE: Final = "entry_type"
 CONF_INTEGRATION_ENTRY_ID: Final = "integration_entry_id"
 CONF_OVERRIDE_NOTIFICATIONS: Final = "override_notifications"

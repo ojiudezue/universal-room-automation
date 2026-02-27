@@ -57,6 +57,7 @@ from .const import (
     ENTRY_TYPE_INTEGRATION,
     ENTRY_TYPE_ROOM,
     ENTRY_TYPE_ZONE,
+    ENTRY_TYPE_ZONE_MANAGER,
     CONF_ENTRY_TYPE,
     CONF_ZONE,
     CONF_ZONE_NAME,
@@ -340,18 +341,106 @@ async def async_setup_zone_binary_sensors(
     _LOGGER.info("Set up %d zone binary sensors for '%s'", len(entities), zone_name)
 
 
+async def async_setup_zone_manager_sensors(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    """Set up zone sensors for ALL zones via the Zone Manager entry (v3.6.0).
+
+    Replaces the per-zone-entry approach. Reads zone names from the Zone Manager
+    entry data and creates sensors for each zone, all registered under the
+    Zone Manager config entry so they appear grouped together in the UI.
+    """
+    if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ZONE_MANAGER:
+        return
+
+    merged = {**entry.data, **entry.options}
+    zones_data = merged.get("zones", {})
+
+    if not zones_data:
+        _LOGGER.info("Zone Manager: no zones configured, skipping sensor setup")
+        return
+
+    entities: list[SensorEntity] = []
+    for zone_name in zones_data:
+        entities.extend([
+            # === OCCUPANCY ===
+            ZoneOccupiedSensor(hass, entry, zone_name),
+            ZoneActiveRoomsSensor(hass, entry, zone_name),
+            # === CLIMATE ===
+            ZoneAvgTemperatureSensor(hass, entry, zone_name),
+            ZoneAvgHumiditySensor(hass, entry, zone_name),
+            ZoneTempDeltaSensor(hass, entry, zone_name),
+            ZoneHumidityDeltaSensor(hass, entry, zone_name),
+            # === SAFETY ===
+            ZoneSafetyAlertSensor(hass, entry, zone_name),
+            # === ENERGY ===
+            ZoneTotalPowerSensor(hass, entry, zone_name),
+            ZoneEnergyTodaySensor(hass, entry, zone_name),
+            # === PERSON TRACKING ===
+            ZoneCurrentOccupantsSensor(hass, entry, zone_name),
+            ZoneOccupantCountSensor(hass, entry, zone_name),
+            ZoneLastOccupantSensor(hass, entry, zone_name),
+            ZoneLastOccupantTimeSensor(hass, entry, zone_name),
+            ZonePersonTrackingStatusSensor(hass, entry, zone_name),
+            # === CENSUS-BASED (disabled by default) ===
+            ZoneIdentifiedPersonsSensor(hass, entry, zone_name),
+            ZoneGuestCountSensor(hass, entry, zone_name),
+        ])
+
+    async_add_entities(entities)
+    _LOGGER.info(
+        "Zone Manager: set up %d sensors for %d zones: %s",
+        len(entities), len(zones_data), list(zones_data.keys()),
+    )
+
+
+async def async_setup_zone_manager_binary_sensors(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
+    """Set up zone binary sensors for ALL zones via the Zone Manager entry (v3.6.0)."""
+    if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ZONE_MANAGER:
+        return
+
+    merged = {**entry.data, **entry.options}
+    zones_data = merged.get("zones", {})
+
+    if not zones_data:
+        return
+
+    entities: list[BinarySensorEntity] = []
+    for zone_name in zones_data:
+        entities.append(ZoneAnyoneBinarySensor(hass, entry, zone_name))
+
+    async_add_entities(entities)
+    _LOGGER.info(
+        "Zone Manager: set up %d binary sensors for %d zones",
+        len(entities), len(zones_data),
+    )
+
+
 def _get_all_zones(hass: HomeAssistant, entry: ConfigEntry | None = None) -> set[str]:
-    """Get all unique zones from room entries and zone entries."""
+    """Get all unique zones from room entries, zone entries, and zone manager."""
     zones = set()
-    
+
     # Get zones from room entries
     for entry_id, data in hass.data.get(DOMAIN, {}).items():
         if isinstance(data, UniversalRoomCoordinator):
             zone = data.entry.data.get(CONF_ZONE) or data.entry.options.get(CONF_ZONE)
             if zone:
                 zones.add(zone)
-    
-    # Get zones from zone entries
+
+    # Get zones from Zone Manager entry (v3.6.0)
+    for config_entry in hass.config_entries.async_entries(DOMAIN):
+        if config_entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_ZONE_MANAGER:
+            merged = {**config_entry.data, **config_entry.options}
+            for zone_name in merged.get("zones", {}):
+                zones.add(zone_name)
+
+    # Get zones from legacy zone entries (backward compat)
     for config_entry in hass.config_entries.async_entries(DOMAIN):
         if config_entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_ZONE:
             zone_name = config_entry.data.get(CONF_ZONE_NAME)
@@ -2041,16 +2130,15 @@ class ZoneSensorBase(AggregationEntity):
         self._coordinators_ready = False
         self._retry_unsub = None
         # v3.3.5.6: Device is identified by zone name (consistent across entry changes).
-        # Since entities are now added via the zone config entry's platform,
-        # HA automatically links this device to the zone config entry.
-        # v3.6.0: Zone devices are children of the Zone Manager device
+        # v3.6.0: Zone devices are registered under the Zone Manager config entry.
+        # No via_device needed — devices appear under the Zone Manager entry on
+        # the integration page because their entities are set up via that entry.
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, f"zone_{zone}")},
             name=f"Zone: {zone.title()}",
             manufacturer="Universal Room Automation",
             model="Zone",
             sw_version=VERSION,
-            via_device=(DOMAIN, "zone_manager"),
         )
 
     async def async_added_to_hass(self) -> None:
