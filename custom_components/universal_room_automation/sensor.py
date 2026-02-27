@@ -110,7 +110,10 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up Universal Room Automation sensors."""
-    from .const import CONF_ENTRY_TYPE, ENTRY_TYPE_INTEGRATION, ENTRY_TYPE_ZONE
+    from .const import (
+        CONF_ENTRY_TYPE, ENTRY_TYPE_INTEGRATION, ENTRY_TYPE_ZONE,
+        ENTRY_TYPE_ZONE_MANAGER, ENTRY_TYPE_COORDINATOR_MANAGER,
+    )
 
     # Check if this is an integration entry (aggregation sensors)
     if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_INTEGRATION:
@@ -139,23 +142,26 @@ async def async_setup_entry(
         ]
         async_add_entities(census_sensors)
 
-        # v3.6.0: Domain coordinator sensors (only if enabled)
-        from .const import CONF_DOMAIN_COORDINATORS_ENABLED
-        merged = {**entry.data, **entry.options}
-        if merged.get(CONF_DOMAIN_COORDINATORS_ENABLED, False):
-            coordinator_sensors = [
-                CoordinatorManagerSensor(hass, entry),
-                HouseStateSensor(hass, entry),
-                CoordinatorSummarySensor(hass, entry),
-            ]
-            async_add_entities(coordinator_sensors)
-
         return
 
-    # v3.3.5.6: Zone entry - set up zone-specific aggregation sensors
+    # v3.6.0: Zone Manager entry - set up ALL zone sensors under this entry
+    if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_ZONE_MANAGER:
+        from .aggregation import async_setup_zone_manager_sensors
+        await async_setup_zone_manager_sensors(hass, entry, async_add_entities)
+        return
+
+    # v3.6.0: Coordinator Manager entry - set up coordinator sensors under this entry
+    if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_COORDINATOR_MANAGER:
+        coordinator_sensors = [
+            CoordinatorManagerSensor(hass, entry),
+            HouseStateSensor(hass, entry),
+            CoordinatorSummarySensor(hass, entry),
+        ]
+        async_add_entities(coordinator_sensors)
+        return
+
+    # v3.3.5.6: Legacy zone entry - no longer creates sensors (migrated to Zone Manager)
     if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_ZONE:
-        from .aggregation import async_setup_zone_sensors
-        await async_setup_zone_sensors(hass, entry, async_add_entities)
         return
 
     # Room entry - normal sensor setup
@@ -2271,6 +2277,8 @@ class URAPersonsInHouseSensor(_CensusBaseSensor):
             "source_agreement": result.house.source_agreement,
             "frigate_count": result.house.frigate_count,
             "unifi_count": result.house.unifi_count,
+            "degraded_mode": result.house.degraded_mode,
+            "active_platforms": result.house.active_platforms,
             "last_updated": result.timestamp.isoformat() if result.timestamp else None,
         }
 
@@ -2859,7 +2867,6 @@ class CoordinatorManagerSensor(AggregationEntity, SensorEntity):
             manufacturer="Universal Room Automation",
             model="Coordinator Manager",
             sw_version=VERSION,
-            via_device=(DOMAIN, "integration"),
         )
 
     @property
@@ -2909,7 +2916,6 @@ class HouseStateSensor(AggregationEntity, SensorEntity):
             manufacturer="Universal Room Automation",
             model="Coordinator Manager",
             sw_version=VERSION,
-            via_device=(DOMAIN, "integration"),
         )
 
     @property
@@ -2954,7 +2960,6 @@ class CoordinatorSummarySensor(AggregationEntity, SensorEntity):
             manufacturer="Universal Room Automation",
             model="Coordinator Manager",
             sw_version=VERSION,
-            via_device=(DOMAIN, "integration"),
         )
 
     @property

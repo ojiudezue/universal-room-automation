@@ -432,36 +432,51 @@ class MusicFollowing:
             return {}
     
     def _get_zone_player_config(self, zone_name: str) -> tuple[Optional[str], str]:
-        """Get zone media player config from zone entries."""
+        """Get zone media player config from Zone Manager or legacy zone entries."""
         try:
             from .const import (
-                DOMAIN, 
-                CONF_ENTRY_TYPE, 
+                DOMAIN,
+                CONF_ENTRY_TYPE,
                 ENTRY_TYPE_ZONE,
+                ENTRY_TYPE_ZONE_MANAGER,
                 CONF_ZONE_NAME,
                 CONF_ZONE_PLAYER_ENTITY,
                 CONF_ZONE_PLAYER_MODE,
                 ZONE_PLAYER_MODE_FALLBACK,
             )
-            
+
             zone_name_lower = zone_name.lower()
-            
+
+            # v3.6.0: Check Zone Manager entry first
+            for entry in self.hass.config_entries.async_entries(DOMAIN):
+                if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_ZONE_MANAGER:
+                    merged = {**entry.data, **entry.options}
+                    zones_data = merged.get("zones", {})
+                    for zn, zone_config in zones_data.items():
+                        if zn.lower() == zone_name_lower:
+                            player = zone_config.get(CONF_ZONE_PLAYER_ENTITY)
+                            mode = zone_config.get(CONF_ZONE_PLAYER_MODE, ZONE_PLAYER_MODE_FALLBACK)
+                            _LOGGER.debug(
+                                "Zone '%s': Found config in Zone Manager - player=%s, mode=%s",
+                                zone_name, player, mode,
+                            )
+                            return player, mode
+
+            # Fallback: legacy zone entries
             for entry in self.hass.config_entries.async_entries(DOMAIN):
                 if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_ZONE:
                     entry_zone = entry.data.get(CONF_ZONE_NAME, "").lower()
                     if entry_zone == zone_name_lower:
                         merged_config = {**entry.data, **entry.options}
-                        
                         player = merged_config.get(CONF_ZONE_PLAYER_ENTITY)
                         mode = merged_config.get(CONF_ZONE_PLAYER_MODE, ZONE_PLAYER_MODE_FALLBACK)
-                        
                         _LOGGER.debug(
-                            "Zone '%s': Found config - player=%s, mode=%s",
-                            zone_name, player, mode
+                            "Zone '%s': Found config in legacy entry - player=%s, mode=%s",
+                            zone_name, player, mode,
                         )
                         return player, mode
-            
-            _LOGGER.debug("Zone '%s': No config entry found", zone_name)
+
+            _LOGGER.debug("Zone '%s': No config found", zone_name)
             return None, "fallback"
             
         except Exception as e:

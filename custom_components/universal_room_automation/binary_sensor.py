@@ -66,7 +66,10 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up Universal Room Automation binary sensors."""
-    from .const import CONF_ENTRY_TYPE, ENTRY_TYPE_INTEGRATION, ENTRY_TYPE_ZONE
+    from .const import (
+        CONF_ENTRY_TYPE, ENTRY_TYPE_INTEGRATION, ENTRY_TYPE_ZONE,
+        ENTRY_TYPE_ZONE_MANAGER, ENTRY_TYPE_COORDINATOR_MANAGER,
+    )
 
     # Check if this is an integration entry (aggregation binary sensors)
     if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_INTEGRATION:
@@ -94,10 +97,18 @@ async def async_setup_entry(
         async_add_entities(census_binary)
         return
 
-    # v3.3.5.6: Zone entry - set up zone-specific binary sensors
+    # v3.6.0: Zone Manager entry - set up zone binary sensors under this entry
+    if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_ZONE_MANAGER:
+        from .aggregation import async_setup_zone_manager_binary_sensors
+        await async_setup_zone_manager_binary_sensors(hass, entry, async_add_entities)
+        return
+
+    # v3.6.0: Coordinator Manager entry - no binary sensors needed
+    if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_COORDINATOR_MANAGER:
+        return
+
+    # Legacy zone entry - no longer creates sensors
     if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_ZONE:
-        from .aggregation import async_setup_zone_binary_sensors
-        await async_setup_zone_binary_sensors(hass, entry, async_add_entities)
         return
 
     # Room entry - normal binary sensor setup
