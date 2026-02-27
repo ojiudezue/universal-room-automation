@@ -430,6 +430,8 @@ async def _ensure_coordinator_manager_entry(hass: HomeAssistant, integration_ent
 
     Creates the entry if it doesn't exist. Coordinator sensors will be
     set up via this entry instead of the integration entry.
+    Also migrates existing coordinator entities from the integration entry
+    to the new Coordinator Manager entry to avoid unique_id conflicts.
     """
     for ce in hass.config_entries.async_entries(DOMAIN):
         if ce.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_COORDINATOR_MANAGER:
@@ -438,10 +440,26 @@ async def _ensure_coordinator_manager_entry(hass: HomeAssistant, integration_ent
 
     # Remove Coordinator Manager device from integration entry (will be recreated)
     from homeassistant.helpers import device_registry as dr
+    from homeassistant.helpers import entity_registry as er_mod
     dev_reg = dr.async_get(hass)
+    ent_reg = er_mod.async_get(hass)
+
     cm_device = dev_reg.async_get_device(identifiers={(DOMAIN, "coordinator_manager")})
     if cm_device:
         dev_reg.async_remove_device(cm_device.id)
+
+    # Remove old coordinator entity registrations so they can be recreated
+    # under the new Coordinator Manager config entry
+    coordinator_unique_ids = [
+        f"{DOMAIN}_coordinator_manager",
+        f"{DOMAIN}_house_state",
+        f"{DOMAIN}_coordinator_summary",
+    ]
+    for uid in coordinator_unique_ids:
+        entity = ent_reg.async_get_entity_id("sensor", DOMAIN, uid)
+        if entity:
+            ent_reg.async_remove(entity)
+            _LOGGER.info("Removed old coordinator entity %s for re-creation under CM entry", entity)
 
     result = await hass.config_entries.flow.async_init(
         DOMAIN,
