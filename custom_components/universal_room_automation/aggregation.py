@@ -3839,11 +3839,19 @@ class ZonePresenceStatusSensor(ZoneSensorBase, SensorEntity):
         """Return zone presence details."""
         manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
         if manager is None:
-            return {}
+            return {"debug_reason": "no_coordinator_manager"}
         presence = manager.coordinators.get("presence")
         if presence is None:
-            return {}
+            return {
+                "debug_reason": "no_presence_coordinator",
+                "available_coordinators": list(manager.coordinators.keys()),
+            }
         tracker = presence.zone_trackers.get(self.zone)
         if tracker is None:
-            return {}
+            return {
+                "debug_reason": "no_tracker_for_zone",
+                "zone_requested": self.zone,
+                "available_zones": list(presence.zone_trackers.keys()),
+                "zone_tracker_count": len(presence.zone_trackers),
+            }
         return tracker.to_dict()
