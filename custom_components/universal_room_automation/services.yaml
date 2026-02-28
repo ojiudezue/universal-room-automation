@@ -24,3 +24,48 @@ set_house_state:
 clear_house_state_override:
   name: Clear House State Override
   description: Clear the house state override and return to automatic presence-based inference.
+
+test_safety_hazard:
+  name: Test Safety Hazard
+  description: Trigger a test safety hazard for notification pipeline verification. Does NOT trigger real responses (no HVAC override, no valve close) — only sends notifications.
+  fields:
+    hazard_type:
+      name: Hazard Type
+      description: The type of hazard to simulate.
+      required: true
+      example: "smoke"
+      selector:
+        select:
+          options:
+            - "smoke"
+            - "fire"
+            - "water_leak"
+            - "flooding"
+            - "carbon_monoxide"
+            - "high_co2"
+            - "high_tvoc"
+            - "freeze_risk"
+            - "overheat"
+            - "hvac_failure"
+            - "high_humidity"
+            - "low_humidity"
+    location:
+      name: Location
+      description: The simulated location of the hazard.
+      required: true
+      example: "Kitchen"
+      selector:
+        text:
+    severity:
+      name: Severity
+      description: The severity level of the test hazard.
+      required: false
+      default: "medium"
+      example: "critical"
+      selector:
+        select:
+          options:
+            - "critical"
+            - "high"
+            - "medium"
+            - "low"

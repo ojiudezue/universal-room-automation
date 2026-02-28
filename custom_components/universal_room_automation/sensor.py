@@ -163,6 +163,11 @@ async def async_setup_entry(
             HouseStateConfidenceSensor(hass, entry),
             PresenceAnomalySensor(hass, entry),
             PresenceComplianceSensor(hass, entry),
+            # v3.6.0-c2: Safety Coordinator sensors
+            SafetyStatusSensor(hass, entry),
+            SafetyDiagnosticsSensor(hass, entry),
+            SafetyAnomalySensor(hass, entry),
+            SafetyComplianceSensor(hass, entry),
         ]
         async_add_entities(coordinator_sensors)
         return
@@ -3202,3 +3207,192 @@ class IntegrationHouseStateSensor(AggregationEntity, SensorEntity):
         if manager is None:
             return {}
         return manager.house_state_machine.to_dict()
+
+
+# ============================================================================
+# v3.6.0-c2: Safety Coordinator Sensors
+# ============================================================================
+
+# Helper for Safety device info
+def _safety_device_info():
+    """Return DeviceInfo for the Safety Coordinator device."""
+    from homeassistant.helpers.device_registry import DeviceInfo
+    from .const import VERSION
+    return DeviceInfo(
+        identifiers={(DOMAIN, "safety_coordinator")},
+        name="URA: Safety Coordinator",
+        manufacturer="Universal Room Automation",
+        model="Safety Coordinator",
+        sw_version=VERSION,
+        via_device=(DOMAIN, "coordinator_manager"),
+    )
+
+
+class SafetyStatusSensor(AggregationEntity, SensorEntity):
+    """Overall safety status sensor.
+
+    Entity: sensor.ura_safety_status
+    Device: URA: Safety Coordinator
+    State: "normal" / "warning" / "alert" / "critical"
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:shield-check"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_safety_status"
+        self._attr_name = "Safety Status"
+        self._attr_device_info = _safety_device_info()
+
+    @property
+    def native_value(self) -> str:
+        """Return the current safety status."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return "normal"
+        safety = manager.coordinators.get("safety")
+        if safety is None:
+            return "normal"
+        return safety.get_safety_status()
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return safety status attributes."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return {}
+        safety = manager.coordinators.get("safety")
+        if safety is None:
+            return {}
+        return {
+            "active_hazards": len(safety.active_hazards),
+            "sensors_monitored": safety.sensors_monitored,
+            "last_check": dt_util.utcnow().isoformat(),
+        }
+
+    @property
+    def icon(self) -> str:
+        """Return icon based on safety status."""
+        value = self.native_value
+        if value == "critical":
+            return "mdi:shield-alert"
+        elif value == "alert":
+            return "mdi:shield-alert-outline"
+        elif value == "warning":
+            return "mdi:shield-half-full"
+        return "mdi:shield-check"
+
+
+class SafetyDiagnosticsSensor(AggregationEntity, SensorEntity):
+    """Safety diagnostics sensor.
+
+    Entity: sensor.ura_safety_diagnostics
+    Device: URA: Safety Coordinator
+    State: "healthy" / "degraded"
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:stethoscope"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_safety_diagnostics"
+        self._attr_name = "Safety Diagnostics"
+        self._attr_device_info = _safety_device_info()
+
+    @property
+    def native_value(self) -> str:
+        """Return the diagnostics health status."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return "degraded"
+        safety = manager.coordinators.get("safety")
+        if safety is None:
+            return "degraded"
+        return safety.get_diagnostics_status()
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return diagnostics attributes."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return {}
+        safety = manager.coordinators.get("safety")
+        if safety is None:
+            return {}
+        return {
+            "sensors_total": safety.sensors_monitored,
+            "sensors_available": safety.sensors_monitored,
+            "hazards_detected_24h": safety._hazards_detected_24h,
+            "alerts_sent_24h": safety._alerts_sent_24h,
+        }
+
+
+class SafetyAnomalySensor(AggregationEntity, SensorEntity):
+    """Safety anomaly status.
+
+    Entity: sensor.ura_safety_anomaly
+    Device: URA: Safety Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:alert-circle-outline"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_safety_anomaly"
+        self._attr_name = "Safety Anomaly"
+        self._attr_device_info = _safety_device_info()
+
+    @property
+    def native_value(self) -> str:
+        """Return the anomaly status."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return "not_initialized"
+        safety = manager.coordinators.get("safety")
+        if safety is None or safety.anomaly_detector is None:
+            return "not_configured"
+        learning = safety.anomaly_detector.get_learning_status()
+        if hasattr(learning, 'value') and learning.value in ("insufficient_data", "learning"):
+            return learning.value
+        return safety.anomaly_detector.get_worst_severity().value
+
+
+class SafetyComplianceSensor(AggregationEntity, SensorEntity):
+    """Safety compliance rate.
+
+    Entity: sensor.ura_safety_compliance
+    Device: URA: Safety Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:check-circle-outline"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_safety_compliance"
+        self._attr_name = "Safety Compliance"
+        self._attr_native_unit_of_measurement = "%"
+        self._attr_device_info = _safety_device_info()
+
+    @property
+    def native_value(self) -> float:
+        """Return the compliance rate."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return 100.0
+        safety = manager.coordinators.get("safety")
+        if safety is None or safety.compliance_tracker is None:
+            return 100.0
+        try:
+            rate = safety.compliance_tracker.get_compliance_rate("safety")
+            return round(rate * 100, 1) if rate is not None else 100.0
+        except (AttributeError, TypeError):
+            return 100.0

@@ -2,7 +2,7 @@
 
 **Version:** 3.6.0
 **Codename:** "Whole-House Intelligence"
-**Status:** In Progress (C0 complete through v3.6.0-c0.3, C0-diag next)
+**Status:** In Progress (C0 thru C1 complete, C2 next)
 **Supersedes:** PLANNING_v3.6.0.md
 **Last Updated:** February 28, 2026
 **Estimated Effort:** 22-30 hours across 9 cycles (revised: +C0-diag, +diagnostics per cycle)
@@ -621,25 +621,106 @@ Per-zone entities (on each zone device):
 ### Cycle 2: Safety Coordinator
 **Version:** v3.6.0-c2
 **Scope:** Environmental hazard detection and response
-**Effort:** 2-3 hours
+**Effort:** 3-4 hours
 **Dependencies:** C0, C0-diag, C1 (house state for context)
 
 **What ships:**
-- `SafetyCoordinator` (priority 100) -- monitors smoke, CO, water leak, freeze risk, air quality sensors
-- Binary sensor discovery: auto-discovers `binary_sensor.*smoke*`, `binary_sensor.*leak*`, etc.
-- Numeric sensor monitoring: CO ppm, CO2 ppm, temperature (freeze), humidity
-- Rate-of-change detection for rapid temperature drops (HVAC failure)
-- Severity classification: CRITICAL (smoke, CO >100ppm), HIGH (water leak, freeze <35F), MEDIUM (CO2 >1500ppm), LOW (humidity drift)
-- Response actions: emergency lighting (CRITICAL), HVAC override for freeze (HIGH), ventilation request (MEDIUM), **water shutoff on leak (HIGH)**
-- **Water shutoff valve:** Configurable entity (e.g., `valve.main_water`). When configured: auto-close on any water leak detection. When not configured: alert-only. No hardware exists yet but the code path ships now — plug and play when valve is installed.
-- Alert deduplication with per-severity suppression windows
+- `SafetyCoordinator` (priority 100) -- monitors smoke, CO, water leak, freeze risk, air quality, temperature extremes, humidity
+- **Full hazard type enumeration** (from long-form design — all 12 types):
+  ```python
+  class HazardType(StrEnum):
+      SMOKE = "smoke"
+      FIRE = "fire"
+      WATER_LEAK = "water_leak"
+      FLOODING = "flooding"           # Multi-sensor or sustained leak — escalated from WATER_LEAK
+      CARBON_MONOXIDE = "carbon_monoxide"
+      HIGH_CO2 = "high_co2"
+      HIGH_TVOC = "high_tvoc"
+      FREEZE_RISK = "freeze_risk"
+      OVERHEAT = "overheat"           # Excessive heat or rapid temp rise (any season)
+      HVAC_FAILURE = "hvac_failure"   # Rapid temp change in wrong direction for season
+      HIGH_HUMIDITY = "high_humidity" # Mold risk — tiered thresholds
+      LOW_HUMIDITY = "low_humidity"   # Structure damage, health risk
+  ```
+- **Binary sensor discovery:** auto-discovers `binary_sensor.*smoke*`, `binary_sensor.*leak*`, etc.
+- **Numeric sensor monitoring:** CO ppm, CO2 ppm, TVOC, temperature (freeze + overheat), humidity (high + low)
+- **Severity classification with full thresholds:**
+  - CO: CRITICAL >100ppm, HIGH >50ppm, MEDIUM >35ppm, LOW >10ppm
+  - CO2: HIGH >2500ppm, MEDIUM >1500ppm, LOW >1000ppm
+  - Freeze: HIGH <35°F, MEDIUM <40°F, LOW <45°F
+  - Humidity (normal rooms): HIGH >80%, MEDIUM >70%, LOW >60%
+  - Humidity (bathrooms): HIGH >90%, MEDIUM >85%, LOW >80% (see room-type thresholds below)
+  - Low humidity: MEDIUM <25%, LOW <30%
+- **Rate-of-change detection (bidirectional, date-based season):**
+  ```python
+  RATE_THRESHOLDS = {
+      "temperature_drop": {
+          "rate": -5.0,          # °F per 30min
+          "hazard": HazardType.HVAC_FAILURE,
+          "active_season": "heating",   # Nov-Mar
+      },
+      "temperature_rise": {
+          "rate": 5.0,           # °F per 30min
+          "hazard": HazardType.HVAC_FAILURE,
+          "active_season": "cooling",   # May-Sep
+      },
+      "temperature_rise_extreme": {
+          "rate": 10.0,          # °F per 30min — possible fire
+          "hazard": HazardType.OVERHEAT,
+          "active_season": "any",       # Always dangerous
+      },
+      "humidity_rise": {
+          "rate": 20.0,          # % per 30min
+          "hazard": HazardType.WATER_LEAK,  # Pipe burst signature
+          "active_season": "any",
+          "exclude_room_types": ["bathroom"],  # Showers match this pattern
+      },
+  }
+  ```
+  Season detection: date-based (heating=Nov-Mar, cooling=May-Sep, shoulder=Apr+Oct → both directions active). No HVAC entity dependency.
+- **Room-type-aware humidity thresholds:**
+  | Room Type | LOW % | MEDIUM % | HIGH % | Sustained Window |
+  |-----------|-------|----------|--------|-----------------|
+  | Normal room | 60 | 70 | 80 | 2 hours |
+  | Bathroom | 80 | 85 | 90 | 4 hours (post-shower decay) |
+  | Basement | 55 | 65 | 75 | 2 hours |
+  Room type derived from room config entries. Humidity rate-of-change (spike) detection excludes bathrooms — showers produce the exact same pattern as a pipe burst. Bathrooms only alarm on sustained high (>85% for 4+ hours = ventilation failure, not shower).
+- **FLOODING escalation:** If multiple water leak sensors trigger simultaneously, or a single sensor stays "on" for >15 minutes, escalate from WATER_LEAK (HIGH) to FLOODING (CRITICAL). FLOODING triggers water shutoff (if configured) + all emergency responses.
+- **Response actions by severity:**
+  | Hazard | Severity | Actions |
+  |--------|----------|---------|
+  | Smoke/Fire | CRITICAL | All lights 100%, notify all channels |
+  | CO | CRITICAL | Lights on, ventilation max (fans), notify all |
+  | Flooding | CRITICAL | Water shutoff (if configured), lights on, notify all |
+  | Water leak | HIGH | Notify, water shutoff (if configured) |
+  | Freeze risk | HIGH | Override HVAC to heat (min 55°F), notify |
+  | Overheat | HIGH | Override HVAC to cool, notify |
+  | High CO2 | MEDIUM | Request ventilation, notify |
+  | High TVOC | MEDIUM | Request ventilation, notify |
+  | High humidity | MEDIUM | Signal dehumidifier need, notify |
+  | HVAC failure | MEDIUM | Notify (diagnostic — can't auto-fix HVAC) |
+  | Low humidity | LOW | Log only |
+  | Mild humidity/temp drift | LOW | Log only |
+- **Light patterns by hazard type** (from long-form design):
+  ```python
+  LIGHT_PATTERNS = {
+      "fire":       {"color": (255, 100, 0), "effect": "flash", "interval_ms": 250},  # Orange flash
+      "water_leak": {"color": (0, 0, 255),   "effect": "pulse"},                       # Blue pulse
+      "co":         {"color": (255, 100, 0), "effect": "flash", "interval_ms": 500},  # Orange flash (slower)
+      "freeze":     {"color": (100, 150, 255), "effect": "pulse"},                     # Light blue pulse
+      "warning":    {"color": (255, 255, 0), "effect": "pulse"},                       # Yellow pulse
+  }
+  ```
+- **Water shutoff valve:** Configurable entity (e.g., `valve.main_water`). When configured: auto-close on any water leak or flooding detection. When not configured: alert-only. No hardware exists yet but the code path ships now — plug and play when valve is installed.
+- **Alert deduplication** with per-severity suppression windows: CRITICAL=1min, HIGH=5min, MEDIUM=15min, LOW=1hr
+- **Test service:** `ura.test_safety_hazard` — triggers a test hazard for notification pipeline verification. Parameters: `hazard_type`, `location`, `severity`. Does NOT trigger real responses (no HVAC override, no valve close), only notifications.
 - Sensors: `sensor.ura_safety_status`, `binary_sensor.ura_safety_alert`, `sensor.ura_safety_diagnostics`
-- Config flow: water shutoff valve entity (optional — works without it), emergency light entity selection
+- Config flow: water shutoff valve entity (optional), emergency light entity selection, sleep hours config (harmonized with Presence — see C1.1 note)
 
 **New files:**
 | File | Purpose | Est. Lines |
 |---|---|---|
-| `domain_coordinators/safety.py` | SafetyCoordinator, HazardType, Hazard, AlertDeduplicator, RateOfChangeDetector | 400 |
+| `domain_coordinators/safety.py` | SafetyCoordinator, HazardType, Hazard, AlertDeduplicator, RateOfChangeDetector, room-type humidity thresholds | 650 |
 
 **Modified files:**
 | File | Change |
@@ -647,28 +728,43 @@ Per-zone entities (on each zone device):
 | `domain_coordinators/manager.py` | Register Safety in coordinator dict |
 | `sensor.py` | Add Safety sensors |
 | `binary_sensor.py` | Add safety_alert |
-| `config_flow.py` | Add safety config step |
+| `config_flow.py` | Add safety config step + sleep hours config (shared with Presence) |
 | `const.py` | Add safety constants and thresholds |
+| `services.yaml` | Add `ura.test_safety_hazard` service |
 
-**Estimated total lines:** ~400 new, ~100 modified
+**Estimated total lines:** ~650 new, ~120 modified
 
 **Verification:**
 - [ ] Smoke sensor "on" triggers CRITICAL response within 5 seconds
 - [ ] Water leak triggers HIGH response + valve close (if configured)
 - [ ] Water leak with no valve configured triggers HIGH alert only (no error)
-- [ ] Temperature below 35F triggers freeze protection (HVAC override)
-- [ ] CO above threshold triggers graded response
+- [ ] Sustained water leak (>15min) or multi-sensor leak escalates to FLOODING (CRITICAL)
+- [ ] Temperature below 35°F triggers freeze protection (HVAC override to heat)
+- [ ] Temperature above safe threshold triggers OVERHEAT (HVAC override to cool)
+- [ ] Rapid temp RISE in cooling season (May-Sep) triggers HVAC_FAILURE
+- [ ] Rapid temp DROP in heating season (Nov-Mar) triggers HVAC_FAILURE
+- [ ] Extreme temp rise (>10°F/30min, any season) triggers OVERHEAT
+- [ ] Humidity spike (>20%/30min) in non-bathroom triggers WATER_LEAK early warning
+- [ ] Humidity spike in bathroom is IGNORED (shower pattern)
+- [ ] Sustained high humidity (>70%, 2hr) in normal room triggers HIGH_HUMIDITY MEDIUM
+- [ ] Sustained high humidity in bathroom uses 85% threshold, 4hr window
+- [ ] LOW_HUMIDITY (<30%) triggers advisory
+- [ ] CO above threshold triggers graded response (10/35/50/100 ppm tiers)
+- [ ] CO2 above 1500ppm triggers MEDIUM
+- [ ] TVOC above threshold triggers MEDIUM
+- [ ] Light patterns differ by hazard type (fire=orange flash, water=blue pulse, etc.)
 - [ ] Safety actions always win conflict resolution against any other coordinator
-- [ ] Alert deduplication prevents repeat spam
+- [ ] Alert deduplication prevents repeat spam with per-severity windows
+- [ ] Test service `ura.test_safety_hazard` fires test notification without triggering real responses
 - [ ] Sensors show active hazard count and status
 - [ ] Safety can be disabled via CM options (though not recommended)
-- [ ] 12+ new tests passing
+- [ ] 25+ new tests passing
 
 **Diagnostics (uses C0-diag infrastructure):**
 | Component | Metric | Source | Learning Frequency |
 |---|---|---|---|
 | Decision logging | Every hazard response with scope per room/zone | DecisionLogger | N/A |
-| Compliance | Emergency lighting activated, HVAC override applied | ComplianceTracker | N/A |
+| Compliance | Emergency lighting activated, HVAC override applied, valve closed | ComplianceTracker | N/A |
 | Anomaly | Sensor trigger frequency deviates from historical norm (e.g., smoke detector triggers more than historical baseline) | AnomalyDetector | Monthly |
 | Outcome | `SafetyOutcome`: false_alarm_rate, response_time_seconds, hazard_resolution_time | OutcomeMeasurement | Monthly |
 
@@ -693,10 +789,11 @@ Additional safety-specific sensors:
 - Census integration: known persons = sanctioned, unknown = investigate/alert
 - Geofence integration: approaching person added to expected arrivals
 - Anomaly detection: unusual time, unusual entry point, motion without entry
-- Response generation: graded from LOG_ONLY to ALERT_HIGH
+- Response generation: graded from LOG_ONLY to ALERT_HIGH (6 verdict levels: SANCTIONED, NOTIFY, LOG_ONLY, INVESTIGATE, ALERT, ALERT_HIGH)
 - Camera recording triggers on HIGH/CRITICAL events
-- Security light patterns (flash red on intrusion)
-- Services: `ura.security_arm`, `ura.security_disarm`, `ura.authorize_guest`
+- Security light patterns: intruder (red flash), armed (dim red solid), investigate (yellow pulse)
+- **Scheduled entry support:** Recurring visitor schedules (cleaning service, etc.) with `_scheduled_entries: list[ScheduledEntry]` — time-window-based matching for expected recurring visitors
+- Services: `ura.security_arm`, `ura.security_disarm`, `ura.authorize_guest`, `ura.add_expected_arrival`
 - Sensors: `sensor.ura_security_armed_state`, `binary_sensor.ura_security_alert`, `sensor.ura_security_last_entry`
 - Config flow: entry point entity selection, motion sensor selection, camera entity mapping, geofence radius
 
@@ -759,10 +856,12 @@ Additional security-specific sensors:
   - WhatsApp channel: CRITICAL + HIGH + MEDIUM (via WhatsApp integration — newly available)
   - Each channel independently configurable with severity routing. Users can enable any combination.
 - Speaker channel (TTS via WiiM media players): CRITICAL + HIGH
-- Light pattern channel (visual alerts): all severities via configured alert lights
+- Light pattern channel (visual alerts): all severities via configured alert lights. **8 named patterns** with specific colors/effects: intruder (red flash), armed (dim red solid), fire (orange flash 250ms), water_leak (blue pulse), CO (orange flash 500ms), freeze_risk (light blue pulse), warning (yellow pulse), arriving (warm white fade). **Light state restoration:** captures light states before visual alert, restores them when alert clears.
+- **Repeat-until-acknowledged for CRITICAL:** CRITICAL alerts repeat every 30 seconds until acknowledged via `ura.acknowledge_notification` service or dashboard action. This is a life-safety feature — a missed 3 AM smoke alert MUST repeat.
 - Quiet hours enforcement (configurable, overridden by CRITICAL)
 - Deduplication: identical messages suppressed within configurable windows
 - Rate limiting: max notifications per hour per channel
+- **Services:** `ura.acknowledge_notification` (stops repeat-until-ack), `ura.test_notification` (test notification delivery on all configured channels)
 - **Anomaly-driven notifications** (interface with C0-diag diagnostics):
   - NotificationManager exposes `async def notify_anomaly(anomaly: AnomalyRecord)` method
   - Severity mapping: `advisory` → LOG_ONLY (no notification), `alert` → MEDIUM (messaging channels), `critical` → HIGH (messaging + TTS)
@@ -776,7 +875,7 @@ Additional security-specific sensors:
 **New files:**
 | File | Purpose | Est. Lines |
 |---|---|---|
-| `domain_coordinators/notification_manager.py` | NotificationManager, NotificationRouter, channels, quiet hours, deduplication | 350 |
+| `domain_coordinators/notification_manager.py` | NotificationManager, NotificationRouter, channels, quiet hours, deduplication, repeat-until-ack, light patterns | 450 |
 
 **Modified files:**
 | File | Change |
@@ -786,10 +885,15 @@ Additional security-specific sensors:
 | `config_flow.py` | Add notification config step |
 | `const.py` | Add notification constants |
 
-**Estimated total lines:** ~350 new, ~80 modified
+**Estimated total lines:** ~450 new, ~100 modified
 
 **Verification:**
 - [ ] CRITICAL notification reaches all configured channels, overrides quiet hours
+- [ ] CRITICAL notification repeats every 30s until acknowledged
+- [ ] `ura.acknowledge_notification` stops repeat cycle
+- [ ] `ura.test_notification` sends test message on all configured channels
+- [ ] Light patterns use correct colors per hazard type (8 named patterns)
+- [ ] Light states restored to pre-alert values after visual alert clears
 - [ ] MEDIUM notification goes to configured messaging channels only, respects quiet hours
 - [ ] Each messaging channel (Pushover/iMessage/WhatsApp) can be independently enabled/disabled
 - [ ] Deduplication suppresses repeat messages within window
@@ -814,7 +918,7 @@ Additional security-specific sensors:
 **What ships:**
 - `EnergyCoordinator` (priority 40) -- the largest coordinator
 - **TOU awareness:** Three-season PEC rate schedule (summer/winter/shoulder), configurable via options flow. Not hardcoded.
-- **Battery strategy:** Self-consumption, savings (TOU arbitrage), or backup mode selection based on TOU period, SOC, solar forecast. Controls `select.enpower_*_storage_mode`, reserve level, grid interaction switches.
+- **Battery strategy:** Self-consumption, savings (TOU arbitrage), or backup mode selection based on TOU period, SOC, solar forecast. Controls `select.enpower_*_storage_mode`, reserve level, grid interaction switches. **Export optimization:** When solar production exceeds home consumption during peak TOU, discharge battery to grid for export credits ($0.16/kWh). Decision tree considers SOC floor, forecast remaining solar hours, and evening demand prediction.
 - **Solar forecast integration:** Reads Solcast sensors for day classification (excellent/good/moderate/poor/very_poor). Adjusts battery aggressiveness.
 - **Weather integration:** Reads configured weather sensor entities (outdoor temp, humidity, wind, forecast conditions). Used for: (a) battery strategy — pre-charge before storms when solar will drop, (b) HVAC governance — publish weather context in `SIGNAL_ENERGY_CONSTRAINT` so HVAC can pre-cool before extreme heat, (c) energy anomaly detection — consumption normalized against outdoor temperature for accurate baselines. Weather sensors already exist (multiple capable sensors in the home); this is a read-only integration, not a new hardware dependency.
 - **Pool optimization:** Tiered approach per ENERGY_COORDINATOR_DESIGN_v2.3:
@@ -825,6 +929,7 @@ Additional security-specific sensors:
 - **Vehicle presence detection:** Uses garage cameras + LLMVision integration to determine which vehicles are home. Implementation: (a) configure garage camera entities in options flow, (b) on motion event (person detection or garage door state change), wait 3-5 minutes for scene to settle, (c) call LLMVision to describe what is in frame or count cars. No dedicated vehicle detection model needed — LLM vision describes the scene. Result stored as `sensor.ura_vehicles_home` (count) with attributes listing which bays are occupied. Used by Energy Coordinator for: EV charging decisions (only charge when vehicle is home), departure prediction (vehicle leaves = reduce pre-conditioning), load shedding (no EV to charge = skip that tier).
 - **Generator monitoring:** Read Generac status. During outage, adjust load shedding to stay within 22kW capacity.
 - **SPAN panel monitoring (read-only):** Reads per-circuit power consumption from SPAN panel entities for anomaly detection. Builds per-circuit consumption baselines by time-of-day and day-of-week. Detects circuit-level anomalies (appliance malfunction, phantom load, unusual usage). **Note:** Circuit-level load shedding via SPAN (turning circuits on/off) is deferred to a future cycle — this cycle is monitoring and anomaly detection only.
+- **Livability scoring:** Each energy action has a comfort impact score (0-10) with recovery time estimate and override availability. Energy decisions consider livability — e.g., pool speed reduction (livability 9, barely noticeable) is strongly preferred over HVAC setback (livability 5, occupants feel it). Load shedding order reflects livability ranking.
 - **Load shedding priority:** Configurable ordered list. Default: pool speed reduction > EV pause > infinity edge off > pool heater off > HVAC setback > non-essential circuits.
 - **HVAC governance:** Publishes `HVACConstraints` via `SIGNAL_ENERGY_CONSTRAINT`:
   - `mode`: normal | pre_cool | coast | shed
@@ -900,13 +1005,19 @@ Additional energy-specific sensors:
   - Zone 1 (climate.thermostat_bryant_wifi_studyb_zone_1): Master Suite rooms
   - Zone 2 (climate.up_hallway_zone_2): Upstairs rooms
   - Zone 3 (climate.back_hallway_zone_3): Main living areas
-- **Room condition aggregation:** Reads temperature/humidity/occupancy from all rooms in a zone, uses worst-case for decisions.
+- **Room condition aggregation:** Reads temperature/humidity/occupancy from all rooms in a zone. Uses **weighted averaging** with configurable per-room weights (primary rooms 1.0, secondary 0.7-0.9) for temperature/humidity. Worst-case used for occupancy (any room occupied = zone occupied).
+- **Control strategy model:** Three modes from long-form design:
+  - `PRESET_BASED`: Use Carrier presets only (away/home/sleep/wake) — coarse control
+  - `TEMPERATURE_BASED`: Direct setpoint control via `hass.services.async_call` — fine control
+  - `HYBRID`: Presets for house state transitions, fine-tune setpoints within preset — default mode
 - **Energy constraint response:**
   - `normal`: User preferences
   - `pre_cool`: Lower cooling setpoint by offset (e.g., -3F before peak)
+  - `pre_heat`: Raise heating setpoint by offset before off-peak ends (winter counterpart of pre_cool)
   - `coast`: Raise cooling setpoint by offset (e.g., +3F during peak)
   - `shed`: Switch to fan_only or off
-- **Preset management:** Uses Carrier presets (away/home/sleep/wake) mapped from house state. Fine-tunes setpoints within presets.
+- **Fan assist relay:** When Energy publishes `fan_assist: true` in HVAC constraints, HVAC forwards a `SIGNAL_COMFORT_REQUEST` to Comfort Coordinator with `fan_assist=True` for all occupied rooms in the constrained zone. This resolves the fan ownership question: HVAC does NOT directly control ceiling fans (Comfort owns those), but HVAC relays the Energy constraint as a comfort request.
+- **Preset management:** Uses Carrier presets (away/home/sleep/wake) mapped from house state. Fine-tunes setpoints within presets (HYBRID mode).
 - **User override respect:** If `preset_mode == "manual"`, coordinator backs off until next house state transition or explicit resume.
 - **Sleep protection:** During SLEEP house state, maximum setpoint offset is configurable (default +/-1.5F).
 - **Staggered heat calls:** Priority-based zone activation with configurable max simultaneous zones (default 3) and stagger delay (default 60s).
@@ -978,9 +1089,10 @@ Additional HVAC-specific sensors:
   - Weights configurable via options flow
 - **Ceiling fan control:** Auto-on when room temp exceeds person's cool preference by threshold. Speed proportional to delta. Auto-off when cooling complete or room vacant.
 - **Portable heater control:** Auto-on when room temp below person's heat preference by threshold. Off when target reached or vacant.
+- **Dehumidifier control:** Auto-on when room humidity exceeds person's max humidity preference. Off when humidity drops below (max - 10%) hysteresis band or room vacant. Configurable entity mapping for `humidifier.*` and `switch.*_dehumidifier` devices.
 - **Circadian lighting:** Adjust color temperature based on time of day for configured lights. Warm (2700K) at night, cool (4500K) midday.
-- **HVAC signaling:** When room-level devices cannot achieve comfort target, publish `SIGNAL_COMFORT_REQUEST` to HVAC Coordinator.
-- **Energy awareness:** During energy-constrained periods, reduce comfort device usage. Honor `fan_assist` flag from Energy to run ceiling fans to reduce HVAC load.
+- **HVAC signaling:** When room-level devices cannot achieve comfort target, publish `SIGNAL_COMFORT_REQUEST` to HVAC Coordinator. **HVAC denial handling:** When HVAC responds with DENIED_ENERGY or DENIED_ZONE, Comfort maximizes available room-level devices (fans to max speed, portable heater/cooler on). When HVAC responds with PARTIAL, Comfort logs the gap and adjusts expectations.
+- **Energy awareness:** During energy-constrained periods, reduce comfort device usage. Honor `fan_assist` flag from HVAC (relayed from Energy) to run ceiling fans to reduce HVAC load.
 - **Bottleneck identification:** `sensor.ura_comfort_bottleneck` shows worst-performing room and limiting factor.
 - **Whole-house score:** `sensor.ura_comfort_score` shows weighted average across occupied rooms.
 - Sensors: `sensor.ura_comfort_score`, `sensor.ura_comfort_bottleneck`, per-room comfort scores (as attributes)
@@ -1037,17 +1149,17 @@ Additional comfort-specific sensors:
 |---|---|---|---|---|---|---|---|
 | C0 | v3.6.0-c0 thru c0.3 | Base Infrastructure | ~940 | ~600 | 51+ | ~6 | DONE |
 | C0-diag | v3.6.0-c0.4 | Diagnostics Infrastructure | ~630 | ~360 | 51 | 3-4 | DONE |
-| C1 | v3.6.0-c1 | Presence + Zone Modes + Select Entities | ~550 | ~200 | 18+ | 3-4 | NEXT |
-| C2 | v3.6.0-c2 | Safety | ~400 | ~100 | 12+ | 2-3 | Planning |
-| C3 | v3.6.0-c3 | Security | ~500 | ~120 | 15+ | 2-3 | Planning |
-| C4 | v3.6.0-c4 | Notification Manager + Anomaly Alerts | ~400 | ~100 | 10+ | 2-3 | Planning |
-| C5 | v3.6.0-c5 | Energy | ~700 | ~150 | 20+ | 3-4 | Planning |
-| C6 | v3.6.0-c6 | HVAC | ~500 | ~120 | 15+ | 2-3 | Planning |
-| C7 | v3.6.0-c7 | Comfort | ~500 | ~120 | 15+ | 2-3 | Planning |
-| **Total** | | | **~4,690** | **~1,560** | **163+** | **22-30** | |
+| C1 | v3.6.0-c1 thru c1.1 | Presence + Zone Modes + Geofence | ~780 | ~200 | 65 | 3-4 | DONE |
+| C2 | v3.6.0-c2 | Safety (full hazard types, bidirectional rate-of-change, room-type humidity) | ~650 | ~120 | 25+ | 3-4 | NEXT |
+| C3 | v3.6.0-c3 | Security + scheduled entries | ~550 | ~130 | 15+ | 2-3 | Planning |
+| C4 | v3.6.0-c4 | Notification Manager + repeat-until-ack + light patterns | ~450 | ~100 | 15+ | 2-3 | Planning |
+| C5 | v3.6.0-c5 | Energy + export optimization + livability scoring | ~750 | ~150 | 20+ | 3-4 | Planning |
+| C6 | v3.6.0-c6 | HVAC + room weights + control strategy + fan-assist relay | ~550 | ~130 | 15+ | 2-3 | Planning |
+| C7 | v3.6.0-c7 | Comfort + dehumidifier + HVAC denial handling | ~550 | ~130 | 15+ | 2-3 | Planning |
+| **Total** | | | **~5,420** | **~1,680** | **198+** | **24-32** | |
 
-Current test count: 426 (C0 + C0-diag complete)
-Post-v3.6.0 target test count: 426 + 115 = **541+ tests**
+Current test count: 491 (C0 + C0-diag + C1 complete)
+Post-v3.6.0 target test count: 491 + 130 = **621+ tests**
 
 ---
 
