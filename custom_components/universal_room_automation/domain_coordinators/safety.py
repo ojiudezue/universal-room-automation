@@ -437,14 +437,29 @@ class SafetyCoordinator(BaseCoordinator):
     COORDINATOR_ID = "safety"
     PRIORITY = 100
 
-    def __init__(self, hass: HomeAssistant) -> None:
-        """Initialize the Safety Coordinator."""
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        water_shutoff_valve: str | None = None,
+        emergency_lights: list[str] | None = None,
+    ) -> None:
+        """Initialize the Safety Coordinator.
+
+        Args:
+            hass: Home Assistant instance.
+            water_shutoff_valve: Optional valve entity to close on water leak.
+            emergency_lights: Optional light entities for evacuation lighting.
+        """
         super().__init__(
             hass,
             coordinator_id=self.COORDINATOR_ID,
             name="Safety Coordinator",
             priority=self.PRIORITY,
         )
+        # v3.6.0-c2.1: Configurable entities from CM options
+        self._water_shutoff_valve = water_shutoff_valve
+        self._emergency_lights = emergency_lights or []
+
         # Active hazards: key="{type}:{location}" -> Hazard
         self._active_hazards: dict[str, Hazard] = {}
         self._deduplicator = AlertDeduplicator()

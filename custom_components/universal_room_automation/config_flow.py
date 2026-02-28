@@ -1294,6 +1294,16 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     "manage_zones",
                 ],
             )
+        elif entry_type == ENTRY_TYPE_COORDINATOR_MANAGER:
+            # v3.6.0-c2.1: Coordinator Manager options menu
+            return self.async_show_menu(
+                step_id="init",
+                menu_options=[
+                    "coordinator_presence",
+                    "coordinator_safety",
+                    "coordinator_toggles",
+                ],
+            )
         elif entry_type == ENTRY_TYPE_ZONE:
             # Legacy zone options menu (should be migrated)
             return self.async_show_menu(
@@ -1717,6 +1727,140 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             step_id="domain_coordinators",
             data_schema=data_schema,
         )
+
+    # =========================================================================
+    # COORDINATOR MANAGER OPTIONS (for coordinator manager entry)
+    # =========================================================================
+
+    async def async_step_coordinator_presence(self, user_input=None):
+        """Configure Presence Coordinator settings.
+
+        v3.6.0-c2.1: Sleep hours and geofence entity selection.
+        Settings stored in CM entry options, read by __init__.py during
+        coordinator setup.
+        """
+        from .const import (
+            CONF_SLEEP_START_HOUR,
+            CONF_SLEEP_END_HOUR,
+            CONF_GEOFENCE_ENTITIES,
+            DEFAULT_SLEEP_START_HOUR,
+            DEFAULT_SLEEP_END_HOUR,
+        )
+
+        if user_input is not None:
+            return self.async_create_entry(
+                title="",
+                data={**self._config_entry.options, **user_input},
+            )
+
+        data_schema = vol.Schema({
+            vol.Optional(
+                CONF_SLEEP_START_HOUR,
+                default=self._get_current(
+                    CONF_SLEEP_START_HOUR, DEFAULT_SLEEP_START_HOUR
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0, max=23, step=1, mode="slider"
+                )
+            ),
+            vol.Optional(
+                CONF_SLEEP_END_HOUR,
+                default=self._get_current(
+                    CONF_SLEEP_END_HOUR, DEFAULT_SLEEP_END_HOUR
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0, max=23, step=1, mode="slider"
+                )
+            ),
+            vol.Optional(
+                CONF_GEOFENCE_ENTITIES,
+                default=self._get_current(CONF_GEOFENCE_ENTITIES, []),
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(
+                    domain="device_tracker", multiple=True
+                )
+            ),
+        })
+
+        return self.async_show_form(
+            step_id="coordinator_presence",
+            data_schema=data_schema,
+        )
+
+    async def async_step_coordinator_safety(self, user_input=None):
+        """Configure Safety Coordinator settings.
+
+        v3.6.0-c2.1: Water shutoff valve and emergency light entities.
+        """
+        from .const import (
+            CONF_WATER_SHUTOFF_VALVE,
+            CONF_EMERGENCY_LIGHT_ENTITIES,
+        )
+
+        if user_input is not None:
+            return self.async_create_entry(
+                title="",
+                data={**self._config_entry.options, **user_input},
+            )
+
+        data_schema = vol.Schema({
+            vol.Optional(
+                CONF_WATER_SHUTOFF_VALVE,
+                description={"suggested_value": self._get_current(
+                    CONF_WATER_SHUTOFF_VALVE
+                )},
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="valve")
+            ),
+            vol.Optional(
+                CONF_EMERGENCY_LIGHT_ENTITIES,
+                default=self._get_current(CONF_EMERGENCY_LIGHT_ENTITIES, []),
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(
+                    domain="light", multiple=True
+                )
+            ),
+        })
+
+        return self.async_show_form(
+            step_id="coordinator_safety",
+            data_schema=data_schema,
+        )
+
+    async def async_step_coordinator_toggles(self, user_input=None):
+        """Enable/disable individual coordinators.
+
+        v3.6.0-c2.1: Per-coordinator on/off toggles stored in CM entry options.
+        """
+        from .const import CONF_PRESENCE_ENABLED, CONF_SAFETY_ENABLED
+
+        if user_input is not None:
+            return self.async_create_entry(
+                title="",
+                data={**self._config_entry.options, **user_input},
+            )
+
+        data_schema = vol.Schema({
+            vol.Optional(
+                CONF_PRESENCE_ENABLED,
+                default=self._get_current(CONF_PRESENCE_ENABLED, True),
+            ): selector.BooleanSelector(),
+            vol.Optional(
+                CONF_SAFETY_ENABLED,
+                default=self._get_current(CONF_SAFETY_ENABLED, True),
+            ): selector.BooleanSelector(),
+        })
+
+        return self.async_show_form(
+            step_id="coordinator_toggles",
+            data_schema=data_schema,
+        )
+
+    # =========================================================================
+    # INTEGRATION OPTIONS (continued)
+    # =========================================================================
 
     async def async_step_default_notifications(self, user_input=None):
         """Reconfigure default notifications (integration level)."""

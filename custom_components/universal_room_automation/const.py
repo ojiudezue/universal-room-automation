@@ -806,6 +806,10 @@ CONF_GEOFENCE_ENTITIES: Final = "geofence_entities"
 DEFAULT_SLEEP_START_HOUR: Final = 23
 DEFAULT_SLEEP_END_HOUR: Final = 6
 
+# v3.6.0-c2.1: Safety Coordinator config constants
+CONF_WATER_SHUTOFF_VALVE: Final = "water_shutoff_valve"
+CONF_EMERGENCY_LIGHT_ENTITIES: Final = "emergency_light_entities"
+
 # Zone presence mode values
 ZONE_MODE_AWAY: Final = "away"
 ZONE_MODE_OCCUPIED: Final = "occupied"
