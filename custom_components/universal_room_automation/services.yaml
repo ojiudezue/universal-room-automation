@@ -1,0 +1,26 @@
+set_house_state:
+  name: Set House State
+  description: Set or override the house state. Use "auto" to clear the override and return to automatic inference.
+  fields:
+    state:
+      name: State
+      description: The house state to set.
+      required: true
+      example: "home_day"
+      selector:
+        select:
+          options:
+            - "auto"
+            - "away"
+            - "arriving"
+            - "home_day"
+            - "home_evening"
+            - "home_night"
+            - "sleep"
+            - "waking"
+            - "guest"
+            - "vacation"
+
+clear_house_state_override:
+  name: Clear House State Override
+  description: Clear the house state override and return to automatic presence-based inference.

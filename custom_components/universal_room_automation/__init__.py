@@ -70,10 +70,11 @@ PLATFORMS: list[Platform] = [
     Platform.SELECT,
 ]
 
-# Platforms for integration entry (aggregation sensors only)
+# Platforms for integration entry (aggregation sensors + select for house state)
 INTEGRATION_PLATFORMS: list[Platform] = [
     Platform.SENSOR,
     Platform.BINARY_SENSOR,
+    Platform.SELECT,
 ]
 
 
@@ -771,6 +772,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 from .domain_coordinators.manager import CoordinatorManager
 
                 coordinator_manager = CoordinatorManager(hass)
+
+                # v3.6.0-c1: Register Presence Coordinator
+                from .domain_coordinators.presence import PresenceCoordinator
+                from .const import (
+                    CONF_SLEEP_START_HOUR,
+                    CONF_SLEEP_END_HOUR,
+                    DEFAULT_SLEEP_START_HOUR,
+                    DEFAULT_SLEEP_END_HOUR,
+                )
+                presence = PresenceCoordinator(
+                    hass,
+                    sleep_start_hour=merged_config.get(
+                        CONF_SLEEP_START_HOUR, DEFAULT_SLEEP_START_HOUR
+                    ),
+                    sleep_end_hour=merged_config.get(
+                        CONF_SLEEP_END_HOUR, DEFAULT_SLEEP_END_HOUR
+                    ),
+                )
+                coordinator_manager.register_coordinator(presence)
+
                 await coordinator_manager.async_start()
                 hass.data[DOMAIN]["coordinator_manager"] = coordinator_manager
                 _LOGGER.info("Domain Coordinator Manager initialized and started")
@@ -778,6 +799,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 _LOGGER.error("Failed to initialize Coordinator Manager: %s", e)
                 import traceback
                 _LOGGER.error("Traceback: %s", traceback.format_exc())
+
+        # v3.6.0-c1: Register house state services
+        await _async_register_presence_services(hass)
 
         # Set up aggregation sensors (sensor and binary_sensor platforms)
         # These will be registered via the platform files
@@ -1030,6 +1054,68 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             del hass.data[DOMAIN][entry.entry_id]
     
     return unload_ok
+
+
+async def _async_register_presence_services(hass: HomeAssistant) -> None:
+    """Register house state services for HA automations.
+
+    Services:
+    - universal_room_automation.set_house_state: Set house state override
+    - universal_room_automation.clear_house_state_override: Clear override
+    """
+    import voluptuous as vol
+
+    async def handle_set_house_state(call):
+        """Handle set_house_state service call."""
+        state = call.data.get("state", "auto")
+        manager = hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return
+        presence = manager.coordinators.get("presence")
+        if presence is not None:
+            presence.set_house_state_override(state)
+        else:
+            # Direct state machine control if Presence not registered
+            from .domain_coordinators.house_state import HouseState
+            if state == "auto":
+                manager.house_state_machine.clear_override()
+            else:
+                try:
+                    manager.house_state_machine.set_override(HouseState(state))
+                except ValueError:
+                    _LOGGER.warning("Invalid house state: %s", state)
+
+    async def handle_clear_override(call):
+        """Handle clear_house_state_override service call."""
+        manager = hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return
+        presence = manager.coordinators.get("presence")
+        if presence is not None:
+            presence.set_house_state_override("auto")
+        else:
+            manager.house_state_machine.clear_override()
+
+    # Only register once
+    if not hass.services.has_service(DOMAIN, "set_house_state"):
+        hass.services.async_register(
+            DOMAIN,
+            "set_house_state",
+            handle_set_house_state,
+            schema=vol.Schema({
+                vol.Required("state"): vol.In([
+                    "auto", "away", "arriving", "home_day", "home_evening",
+                    "home_night", "sleep", "waking", "guest", "vacation",
+                ]),
+            }),
+        )
+        hass.services.async_register(
+            DOMAIN,
+            "clear_house_state_override",
+            handle_clear_override,
+            schema=vol.Schema({}),
+        )
+        _LOGGER.info("Registered house state services")
 
 
 async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:

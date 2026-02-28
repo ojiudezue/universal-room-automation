@@ -103,8 +103,14 @@ async def async_setup_entry(
         await async_setup_zone_manager_binary_sensors(hass, entry, async_add_entities)
         return
 
-    # v3.6.0: Coordinator Manager entry - no binary sensors needed
+    # v3.6.0: Coordinator Manager entry — Presence binary sensors
     if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_COORDINATOR_MANAGER:
+        presence_binary = [
+            HouseOccupiedBinarySensor(hass, entry),
+            HouseSleepingBinarySensor(hass, entry),
+            GuestModeBinarySensor(hass, entry),
+        ]
+        async_add_entities(presence_binary)
         return
 
     # Legacy zone entry - no longer creates sensors
@@ -852,3 +858,125 @@ class PersonPhoneLeftBehindSensor(BinarySensorEntity):
                 "when person is in a room without cameras."
             ),
         }
+
+
+# ============================================================================
+# v3.6.0-c1: Presence Coordinator Binary Sensors
+# ============================================================================
+
+
+class HouseOccupiedBinarySensor(BinarySensorEntity):
+    """True when any person is detected in the house.
+
+    Entity: binary_sensor.ura_house_occupied
+    Device: URA: Presence Coordinator
+    """
+
+    _attr_device_class = BinarySensorDeviceClass.OCCUPANCY
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:home-account"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        self.hass = hass
+        self.entry = entry
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .const import DOMAIN, VERSION
+        self._attr_unique_id = f"{DOMAIN}_house_occupied"
+        self._attr_name = "House Occupied"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "presence_coordinator")},
+            name="URA: Presence Coordinator",
+            manufacturer="Universal Room Automation",
+            model="Presence Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+
+    @property
+    def is_on(self) -> bool:
+        """Return True if house is occupied."""
+        from .const import DOMAIN
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return False
+        from .domain_coordinators.house_state import HouseState
+        return manager.house_state not in (
+            HouseState.AWAY, HouseState.VACATION
+        )
+
+
+class HouseSleepingBinarySensor(BinarySensorEntity):
+    """True when house is in SLEEP state.
+
+    Entity: binary_sensor.ura_house_sleeping
+    Device: URA: Presence Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:sleep"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        self.hass = hass
+        self.entry = entry
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .const import DOMAIN, VERSION
+        self._attr_unique_id = f"{DOMAIN}_house_sleeping"
+        self._attr_name = "House Sleeping"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "presence_coordinator")},
+            name="URA: Presence Coordinator",
+            manufacturer="Universal Room Automation",
+            model="Presence Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+
+    @property
+    def is_on(self) -> bool:
+        """Return True if house is sleeping."""
+        from .const import DOMAIN
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return False
+        from .domain_coordinators.house_state import HouseState
+        return manager.house_state == HouseState.SLEEP
+
+
+class GuestModeBinarySensor(BinarySensorEntity):
+    """True when house is in GUEST mode.
+
+    Entity: binary_sensor.ura_guest_mode
+    Device: URA: Presence Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:account-group"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        self.hass = hass
+        self.entry = entry
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .const import DOMAIN, VERSION
+        self._attr_unique_id = f"{DOMAIN}_guest_mode"
+        self._attr_name = "Guest Mode"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "presence_coordinator")},
+            name="URA: Presence Coordinator",
+            manufacturer="Universal Room Automation",
+            model="Presence Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+
+    @property
+    def is_on(self) -> bool:
+        """Return True if in guest mode."""
+        from .const import DOMAIN
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return False
+        from .domain_coordinators.house_state import HouseState
+        return manager.house_state == HouseState.GUEST

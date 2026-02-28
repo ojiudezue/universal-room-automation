@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "3.6.0-c0.4"
+VERSION: Final = "3.6.0-c1"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -798,3 +798,24 @@ COORDINATOR_ENABLED_KEYS: Final = {
 
 # v3.6.0-c0.4: Diagnostics constants
 DIAGNOSTICS_SCOPE_HOUSE: Final = "house"
+
+# v3.6.0-c1: Presence Coordinator constants
+CONF_SLEEP_START_HOUR: Final = "sleep_start_hour"
+CONF_SLEEP_END_HOUR: Final = "sleep_end_hour"
+CONF_GEOFENCE_ENTITIES: Final = "geofence_entities"
+DEFAULT_SLEEP_START_HOUR: Final = 23
+DEFAULT_SLEEP_END_HOUR: Final = 6
+
+# Zone presence mode values
+ZONE_MODE_AWAY: Final = "away"
+ZONE_MODE_OCCUPIED: Final = "occupied"
+ZONE_MODE_SLEEP: Final = "sleep"
+ZONE_MODE_UNKNOWN: Final = "unknown"
+ZONE_MODE_AUTO: Final = "auto"
+
+# House state override options (all 9 states + auto)
+HOUSE_STATE_OVERRIDE_OPTIONS: Final = [
+    "auto", "away", "arriving", "home_day", "home_evening",
+    "home_night", "sleep", "waking", "guest", "vacation",
+]
+ZONE_PRESENCE_OVERRIDE_OPTIONS: Final = ["auto", "away", "occupied", "sleep"]

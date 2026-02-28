@@ -387,6 +387,8 @@ async def async_setup_zone_manager_sensors(
             # === CENSUS-BASED (disabled by default) ===
             ZoneIdentifiedPersonsSensor(hass, entry, zone_name),
             ZoneGuestCountSensor(hass, entry, zone_name),
+            # === v3.6.0-c1: PRESENCE ===
+            ZonePresenceStatusSensor(hass, entry, zone_name),
         ])
 
     async_add_entities(entities)
@@ -3794,3 +3796,54 @@ class ZoneGuestCountSensor(ZoneSensorBase, SensorEntity):
                 exc,
             )
             return 0
+
+
+# ============================================================================
+# v3.6.0-c1: Zone Presence Status Sensor
+# ============================================================================
+
+
+class ZonePresenceStatusSensor(ZoneSensorBase, SensorEntity):
+    """Zone presence status from the Presence Coordinator.
+
+    Entity: sensor.ura_{zone_slug}_presence_status
+    Device: URA: Zone {zone_name}
+    State: away / occupied / sleep / unknown
+    """
+
+    _attr_icon = "mdi:map-marker-radius"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry, zone: str) -> None:
+        """Initialize."""
+        super().__init__(hass, entry, zone)
+        zone_slug = zone.lower().replace(" ", "_")
+        self._attr_unique_id = f"{DOMAIN}_zone_{zone_slug}_presence_status"
+        self._attr_name = "Presence Status"
+
+    @property
+    def native_value(self) -> str:
+        """Return the current zone presence mode."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return "unknown"
+        presence = manager.coordinators.get("presence")
+        if presence is None:
+            return "unknown"
+        tracker = presence.zone_trackers.get(self.zone)
+        if tracker is None:
+            return "unknown"
+        return tracker.mode
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return zone presence details."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return {}
+        presence = manager.coordinators.get("presence")
+        if presence is None:
+            return {}
+        tracker = presence.zone_trackers.get(self.zone)
+        if tracker is None:
+            return {}
+        return tracker.to_dict()

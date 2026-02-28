@@ -139,6 +139,8 @@ async def async_setup_entry(
             LastPersonEntrySensor(hass, entry),
             LastPersonExitSensor(hass, entry),
             UnidentifiedPersonsSensor(hass, entry),
+            # v3.6.0-c1: House state on integration device
+            IntegrationHouseStateSensor(hass, entry),
         ]
         async_add_entities(census_sensors)
 
@@ -156,6 +158,11 @@ async def async_setup_entry(
             CoordinatorManagerSensor(hass, entry),
             HouseStateSensor(hass, entry),
             CoordinatorSummarySensor(hass, entry),
+            # v3.6.0-c1: Presence Coordinator sensors
+            PresenceHouseStateSensor(hass, entry),
+            HouseStateConfidenceSensor(hass, entry),
+            PresenceAnomalySensor(hass, entry),
+            PresenceComplianceSensor(hass, entry),
         ]
         async_add_entities(coordinator_sensors)
         return
@@ -2923,8 +2930,8 @@ class HouseStateSensor(AggregationEntity, SensorEntity):
         """Return the current house state."""
         manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
         if manager is None:
-            return "unknown"
-        return str(manager.house_state)
+            return "away"
+        return manager.house_state.value
 
     @property
     def extra_state_attributes(self) -> dict:
@@ -2980,3 +2987,218 @@ class CoordinatorSummarySensor(AggregationEntity, SensorEntity):
         if manager is None:
             return {}
         return manager.get_summary()
+
+
+# ============================================================================
+# v3.6.0-c1: Presence Coordinator Sensors
+# ============================================================================
+
+
+class PresenceHouseStateSensor(AggregationEntity, SensorEntity):
+    """Authoritative house state sensor on the Presence Coordinator device.
+
+    Entity: sensor.ura_presence_house_state
+    Device: URA: Presence Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:home-account"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .const import VERSION
+        self._attr_unique_id = f"{DOMAIN}_presence_house_state"
+        self._attr_name = "Presence House State"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "presence_coordinator")},
+            name="URA: Presence Coordinator",
+            manufacturer="Universal Room Automation",
+            model="Presence Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+
+    @property
+    def native_value(self) -> str:
+        """Return the current house state."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return "away"
+        return manager.house_state.value
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return state machine details and presence diagnostics."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return {}
+        attrs = manager.house_state_machine.to_dict()
+        presence = manager.coordinators.get("presence")
+        if presence is not None:
+            attrs["confidence"] = round(presence.confidence, 2)
+            attrs["census_count"] = presence.census_count
+            attrs["zones"] = {
+                name: tracker.mode
+                for name, tracker in presence.zone_trackers.items()
+            }
+        return attrs
+
+
+class HouseStateConfidenceSensor(AggregationEntity, SensorEntity):
+    """Confidence of the inferred house state (0.0-1.0).
+
+    Entity: sensor.ura_house_state_confidence
+    Device: URA: Presence Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:gauge"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .const import VERSION
+        self._attr_unique_id = f"{DOMAIN}_house_state_confidence"
+        self._attr_name = "House State Confidence"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "presence_coordinator")},
+            name="URA: Presence Coordinator",
+            manufacturer="Universal Room Automation",
+            model="Presence Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+
+    @property
+    def native_value(self) -> float | None:
+        """Return the confidence percentage."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        presence = manager.coordinators.get("presence")
+        if presence is None:
+            return None
+        return round(presence.confidence, 2)
+
+
+class PresenceAnomalySensor(AggregationEntity, SensorEntity):
+    """Presence anomaly status.
+
+    Entity: sensor.ura_presence_anomaly
+    Device: URA: Presence Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:alert-circle-outline"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .const import VERSION
+        self._attr_unique_id = f"{DOMAIN}_presence_anomaly"
+        self._attr_name = "Presence Anomaly"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "presence_coordinator")},
+            name="URA: Presence Coordinator",
+            manufacturer="Universal Room Automation",
+            model="Presence Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+
+    @property
+    def native_value(self) -> str:
+        """Return the anomaly status."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return "not_initialized"
+        presence = manager.coordinators.get("presence")
+        if presence is None or presence.anomaly_detector is None:
+            return "not_configured"
+        # Show learning status if not yet active
+        learning = presence.anomaly_detector.get_learning_status()
+        if hasattr(learning, 'value') and learning.value in ("insufficient_data", "learning"):
+            return learning.value
+        return presence.anomaly_detector.get_worst_severity().value
+
+
+class PresenceComplianceSensor(AggregationEntity, SensorEntity):
+    """Presence compliance rate.
+
+    Entity: sensor.ura_presence_compliance
+    Device: URA: Presence Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:check-circle-outline"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .const import VERSION
+        self._attr_unique_id = f"{DOMAIN}_presence_compliance"
+        self._attr_name = "Presence Compliance"
+        self._attr_native_unit_of_measurement = "%"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "presence_coordinator")},
+            name="URA: Presence Coordinator",
+            manufacturer="Universal Room Automation",
+            model="Presence Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+
+    @property
+    def native_value(self) -> float:
+        """Return the compliance rate."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return 100.0
+        presence = manager.coordinators.get("presence")
+        if presence is None or presence.compliance_tracker is None:
+            return 100.0
+        # Get compliance rate from tracker if available
+        try:
+            rate = presence.compliance_tracker.get_compliance_rate("presence")
+            return round(rate * 100, 1) if rate is not None else 100.0
+        except (AttributeError, TypeError):
+            return 100.0
+
+
+class IntegrationHouseStateSensor(AggregationEntity, SensorEntity):
+    """House state sensor duplicated on the URA integration device.
+
+    Entity: sensor.ura_integration_house_state
+    Device: Universal Room Automation (integration device)
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:home-account"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_integration_house_state"
+        self._attr_name = "House State"
+        # device_info inherited from AggregationEntity — integration device
+
+    @property
+    def native_value(self) -> str:
+        """Return the current house state."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return "away"
+        return manager.house_state.value
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return state machine details."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return {}
+        return manager.house_state_machine.to_dict()
