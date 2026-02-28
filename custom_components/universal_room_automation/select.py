@@ -61,8 +61,11 @@ async def async_setup_entry(
         zones_data = merged.get("zones", {})
         entities = []
         for zone_name in zones_data:
-            zone_slug = zone_name.lower().replace(" ", "_")
-            zone_identifier = f"zone_{zone_slug}"
+            # v3.6.0-c2.1: Use raw zone name to match aggregation.py's
+            # ZoneSensorBase identifiers — f"zone_{zone}" with zone as-is.
+            # Previously used zone_slug (lowercased+underscored) which
+            # created mismatched device identifiers and "Unnamed device" spam.
+            zone_identifier = f"zone_{zone_name}"
             entities.append(
                 ZonePresenceModeSelect(hass, zone_name, zone_identifier)
             )
