@@ -1,6 +1,6 @@
 """Config flow for Universal Room Automation v3.3.3."""
 #
-# Universal Room Automation v3.6.0-c2.9.1-c2.10-c2.9-c2.8-c2.7-c2.6-c2.5-c2.4-c2.3-c2.2-c0.1-c0
+# Universal Room Automation v3.6.0-c2.9.2-c2.9.1-c2.10-c2.9-c2.8-c2.7-c2.6-c2.5-c2.4-c2.3-c2.2-c0.1-c0
 # Build: 2026-01-05
 # File: config_flow.py
 # v3.3.3: Added manage_zones to integration options menu
