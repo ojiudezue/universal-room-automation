@@ -792,6 +792,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 )
                 coordinator_manager.register_coordinator(presence)
 
+                # v3.6.0-c2: Register Safety Coordinator
+                from .domain_coordinators.safety import SafetyCoordinator
+                safety = SafetyCoordinator(hass)
+                coordinator_manager.register_coordinator(safety)
+
                 await coordinator_manager.async_start()
                 hass.data[DOMAIN]["coordinator_manager"] = coordinator_manager
                 _LOGGER.info("Domain Coordinator Manager initialized and started")
@@ -802,6 +807,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         # v3.6.0-c1: Register house state services
         await _async_register_presence_services(hass)
+
+        # v3.6.0-c2: Register safety services
+        await _async_register_safety_services(hass)
 
         # Set up aggregation sensors (sensor and binary_sensor platforms)
         # These will be registered via the platform files
@@ -1116,6 +1124,50 @@ async def _async_register_presence_services(hass: HomeAssistant) -> None:
             schema=vol.Schema({}),
         )
         _LOGGER.info("Registered house state services")
+
+
+async def _async_register_safety_services(hass: HomeAssistant) -> None:
+    """Register safety test service for HA automations.
+
+    Services:
+    - universal_room_automation.test_safety_hazard: Trigger test hazard
+    """
+    import voluptuous as vol
+
+    async def handle_test_safety_hazard(call):
+        """Handle test_safety_hazard service call."""
+        hazard_type = call.data.get("hazard_type", "smoke")
+        location = call.data.get("location", "test")
+        severity = call.data.get("severity", "medium")
+        manager = hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return
+        safety = manager.coordinators.get("safety")
+        if safety is not None:
+            await safety.handle_test_hazard(hazard_type, location, severity)
+        else:
+            _LOGGER.warning("Safety coordinator not available for test hazard")
+
+    # Only register once
+    if not hass.services.has_service(DOMAIN, "test_safety_hazard"):
+        hass.services.async_register(
+            DOMAIN,
+            "test_safety_hazard",
+            handle_test_safety_hazard,
+            schema=vol.Schema({
+                vol.Required("hazard_type"): vol.In([
+                    "smoke", "fire", "water_leak", "flooding",
+                    "carbon_monoxide", "high_co2", "high_tvoc",
+                    "freeze_risk", "overheat", "hvac_failure",
+                    "high_humidity", "low_humidity",
+                ]),
+                vol.Required("location"): str,
+                vol.Optional("severity", default="medium"): vol.In([
+                    "critical", "high", "medium", "low",
+                ]),
+            }),
+        )
+        _LOGGER.info("Registered safety test service")
 
 
 async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:

@@ -103,14 +103,16 @@ async def async_setup_entry(
         await async_setup_zone_manager_binary_sensors(hass, entry, async_add_entities)
         return
 
-    # v3.6.0: Coordinator Manager entry — Presence binary sensors
+    # v3.6.0: Coordinator Manager entry — Presence + Safety binary sensors
     if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_COORDINATOR_MANAGER:
-        presence_binary = [
+        coordinator_binary = [
             HouseOccupiedBinarySensor(hass, entry),
             HouseSleepingBinarySensor(hass, entry),
             GuestModeBinarySensor(hass, entry),
+            # v3.6.0-c2: Safety Coordinator
+            SafetyAlertBinarySensor(hass, entry),
         ]
-        async_add_entities(presence_binary)
+        async_add_entities(coordinator_binary)
         return
 
     # Legacy zone entry - no longer creates sensors
@@ -980,3 +982,72 @@ class GuestModeBinarySensor(BinarySensorEntity):
             return False
         from .domain_coordinators.house_state import HouseState
         return manager.house_state == HouseState.GUEST
+
+
+# ============================================================================
+# v3.6.0-c2: Safety Coordinator Binary Sensors
+# ============================================================================
+
+
+class SafetyAlertBinarySensor(BinarySensorEntity):
+    """True when any safety hazard is active.
+
+    Entity: binary_sensor.ura_safety_alert
+    Device: URA: Safety Coordinator
+    """
+
+    _attr_device_class = BinarySensorDeviceClass.SAFETY
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:shield-alert"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        self.hass = hass
+        self.entry = entry
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .const import DOMAIN, VERSION
+        self._attr_unique_id = f"{DOMAIN}_safety_alert"
+        self._attr_name = "Safety Alert"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "safety_coordinator")},
+            name="URA: Safety Coordinator",
+            manufacturer="Universal Room Automation",
+            model="Safety Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+
+    @property
+    def is_on(self) -> bool:
+        """Return True if any safety hazard is active."""
+        from .const import DOMAIN
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return False
+        safety = manager.coordinators.get("safety")
+        if safety is None:
+            return False
+        return len(safety.active_hazards) > 0
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return hazard details."""
+        from .const import DOMAIN
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return {"hazard_type": None, "location": None, "severity": None}
+        safety = manager.coordinators.get("safety")
+        if safety is None or not safety.active_hazards:
+            return {"hazard_type": None, "location": None, "severity": None}
+
+        # Return the worst active hazard
+        worst = max(
+            safety.active_hazards.values(),
+            key=lambda h: h.severity,
+        )
+        return {
+            "hazard_type": worst.type.value,
+            "location": worst.location,
+            "severity": worst.severity.name.lower(),
+            "active_count": len(safety.active_hazards),
+        }
