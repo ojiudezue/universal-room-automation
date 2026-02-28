@@ -1,6 +1,6 @@
 """Camera integration and person census for Universal Room Automation v3.5.0."""
 #
-# Universal Room Automation v3.6.0-c2.4-c2.3-c2.2-c0.2
+# Universal Room Automation v3.6.0-c2.5-c2.4-c2.3-c2.2-c0.2
 # Build: 2026-02-23
 # File: camera_census.py
 # Cycle 3: Camera Integration & Census Core

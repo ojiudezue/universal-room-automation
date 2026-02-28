@@ -1,6 +1,6 @@
 """Select platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.6.0-c2.4-c2.3-c2.2-c1
+# Universal Room Automation v3.6.0-c2.5-c2.4-c2.3-c2.2-c1
 # File: select.py
 # v3.6.0-c1: Added house state override and zone presence mode selects
 #
@@ -137,6 +137,9 @@ class _HouseStateOverrideSelectBase(SelectEntity):
 
     Both the integration device and CM device get one of these.
     They share the same backing state (the HouseStateMachine override).
+
+    v3.6.0-c2.4: available=False when coordinator_manager is not running,
+    which grays out the dropdown in the HA UI.
     """
 
     _attr_has_entity_name = True
@@ -147,6 +150,11 @@ class _HouseStateOverrideSelectBase(SelectEntity):
         """Initialize."""
         self.hass = hass
         self.entry = entry
+
+    @property
+    def available(self) -> bool:
+        """Return False when coordinator_manager is not running."""
+        return self.hass.data.get(DOMAIN, {}).get("coordinator_manager") is not None
 
     @property
     def current_option(self) -> str:

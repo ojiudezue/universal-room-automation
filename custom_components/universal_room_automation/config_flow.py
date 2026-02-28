@@ -1,6 +1,6 @@
 """Config flow for Universal Room Automation v3.3.3."""
 #
-# Universal Room Automation v3.6.0-c2.4-c2.3-c2.2-c0.1-c0
+# Universal Room Automation v3.6.0-c2.5-c2.4-c2.3-c2.2-c0.1-c0
 # Build: 2026-01-05
 # File: config_flow.py
 # v3.3.3: Added manage_zones to integration options menu
@@ -1310,7 +1310,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     "default_notifications",
                     "camera_census",  # v3.5.0
                     "perimeter_alerting",  # v3.5.1
-                    "domain_coordinators",  # v3.6.0
+                    # v3.6.0-c2.4: domain_coordinators toggle moved to switch entity
                 ],
             )
         elif entry_type == ENTRY_TYPE_ZONE_MANAGER:
@@ -1323,12 +1323,12 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             )
         elif entry_type == ENTRY_TYPE_COORDINATOR_MANAGER:
             # v3.6.0-c2.1: Coordinator Manager options menu
+            # v3.6.0-c2.4: coordinator_toggles moved to switch entities
             return self.async_show_menu(
                 step_id="init",
                 menu_options=[
                     "coordinator_presence",
                     "coordinator_safety",
-                    "coordinator_toggles",
                 ],
             )
         elif entry_type == ENTRY_TYPE_ZONE:
