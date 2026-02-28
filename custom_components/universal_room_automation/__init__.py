@@ -804,6 +804,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 _LOGGER.error("Failed to initialize Coordinator Manager: %s", e)
                 import traceback
                 _LOGGER.error("Traceback: %s", traceback.format_exc())
+        else:
+            _LOGGER.warning(
+                "Domain coordinators NOT enabled. "
+                "Set domain_coordinators_enabled=True in integration options. "
+                "merged_config keys: %s",
+                list(merged_config.keys()),
+            )
 
         # v3.6.0-c1: Register house state services
         await _async_register_presence_services(hass)
@@ -838,6 +845,29 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             model="Zone Manager",
             sw_version=VERSION,
         )
+
+        # v3.6.0-c2.1: Clean up orphaned zone devices with slugified identifiers.
+        # Prior to this fix, select.py used zone_slug (lowercased+underscored) for
+        # device identifiers while aggregation.py used raw zone names, creating
+        # duplicate "Unnamed device" entries. Remove any zone_<slug> devices that
+        # don't match a zone_<RawName> pattern.
+        try:
+            merged_zm = {**entry.data, **entry.options}
+            raw_zone_ids = {f"zone_{zn}" for zn in merged_zm.get("zones", {})}
+            for device in dr.async_entries_for_config_entry(dev_reg, entry.entry_id):
+                for ident_domain, identifier in device.identifiers:
+                    if (
+                        ident_domain == DOMAIN
+                        and identifier.startswith("zone_")
+                        and identifier != "zone_manager"
+                        and identifier not in raw_zone_ids
+                    ):
+                        dev_reg.async_remove_device(device.id)
+                        _LOGGER.info(
+                            "Removed orphaned slugified zone device: %s", identifier
+                        )
+        except Exception as e:
+            _LOGGER.warning("Zone slug cleanup failed (non-fatal): %s", e)
 
         # Store zone data reference for music_following and other lookups
         if "zones" not in hass.data[DOMAIN]:

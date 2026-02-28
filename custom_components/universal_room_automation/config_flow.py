@@ -1630,11 +1630,13 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         the PerimeterAlertManager. Changes take effect after integration reload.
         """
         if user_input is not None:
-            self.hass.config_entries.async_update_entry(
-                self._config_entry,
-                options={**self._config_entry.options, **user_input},
+            # v3.6.0-c2.1: Pass merged options through async_create_entry data.
+            # Previously called async_update_entry then async_create_entry(data={})
+            # which wiped options to {} on flow completion.
+            return self.async_create_entry(
+                title="",
+                data={**self._config_entry.options, **user_input},
             )
-            return self.async_create_entry(title="", data={})
 
         data_schema = vol.Schema({
             # Alert start hour (0–23)
@@ -1696,11 +1698,13 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         from .const import CONF_DOMAIN_COORDINATORS_ENABLED
 
         if user_input is not None:
-            self.hass.config_entries.async_update_entry(
-                self._config_entry,
-                options={**self._config_entry.options, **user_input},
+            # v3.6.0-c2.1: Pass merged options through async_create_entry data.
+            # Previously called async_update_entry then async_create_entry(data={})
+            # which wiped options to {} — domain_coordinators_enabled was never persisted.
+            return self.async_create_entry(
+                title="",
+                data={**self._config_entry.options, **user_input},
             )
-            return self.async_create_entry(title="", data={})
 
         data_schema = vol.Schema({
             vol.Optional(
