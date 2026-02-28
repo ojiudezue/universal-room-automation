@@ -565,23 +565,23 @@ class TestSafetyCoordinator:
         assert hazard.severity == Severity.MEDIUM
 
     def test_numeric_hazard_co_low(self):
-        """CO 10-35ppm should be LOW."""
+        """CO 25-35ppm should be LOW (v3.6.0-c2.6: raised from 10)."""
         coord, _ = self._make_coordinator()
         coord._sensor_locations["sensor.co"] = "Kitchen"
 
         hazard = coord._handle_numeric_hazard(
-            "sensor.co", 15.0, HazardType.CARBON_MONOXIDE
+            "sensor.co", 28.0, HazardType.CARBON_MONOXIDE
         )
         assert hazard is not None
         assert hazard.severity == Severity.LOW
 
     def test_numeric_hazard_co_below_threshold(self):
-        """CO below 10ppm should return None."""
+        """CO below 25ppm should return None (v3.6.0-c2.6: raised from 10)."""
         coord, _ = self._make_coordinator()
         coord._sensor_locations["sensor.co"] = "Kitchen"
 
         hazard = coord._handle_numeric_hazard(
-            "sensor.co", 5.0, HazardType.CARBON_MONOXIDE
+            "sensor.co", 15.0, HazardType.CARBON_MONOXIDE
         )
         assert hazard is None
 
@@ -671,20 +671,28 @@ class TestSafetyCoordinator:
         # Pre-set sustained tracking to 3 hours ago (past the 2hr window)
         coord._humidity_above_since["sensor.hum"] = now - timedelta(hours=3)
 
-        # Above 80% = HIGH severity
-        hazards = coord._handle_humidity("sensor.hum", 82.0, now)
+        # v3.6.0-c2.6: thresholds raised — normal LOW=70, MEDIUM=80, HIGH=90
+        # Above 90% = HIGH severity
+        hazards = coord._handle_humidity("sensor.hum", 92.0, now)
         high_hum = [h for h in hazards if h.type == HazardType.HIGH_HUMIDITY]
         assert len(high_hum) >= 1
         assert high_hum[0].severity == Severity.HIGH
 
-        # 70-80% = MEDIUM
-        hazards = coord._handle_humidity("sensor.hum", 72.0, now)
+        # Reset one-shot firing for next test value
+        coord._humidity_hazard_fired.discard("sensor.hum")
+
+        # 80-90% = MEDIUM
+        hazards = coord._handle_humidity("sensor.hum", 82.0, now)
         med_hum = [h for h in hazards if h.type == HazardType.HIGH_HUMIDITY]
         assert len(med_hum) >= 1
         assert med_hum[0].severity == Severity.MEDIUM
 
     def test_humidity_bathroom_thresholds(self):
-        """Bathroom humidity thresholds should use higher ranges after 4hr sustained window."""
+        """Bathroom humidity thresholds should use higher ranges after 4hr sustained window.
+
+        v3.6.0-c2.8: One-shot firing means we must clear _humidity_hazard_fired
+        between severity checks, since the hazard only fires once per sustained period.
+        """
         coord, _ = self._make_coordinator()
         coord._sensor_locations["sensor.hum"] = "Bathroom"
         coord._sensor_room_types["sensor.hum"] = "bathroom"
@@ -704,11 +712,17 @@ class TestSafetyCoordinator:
         assert len(high_hum) >= 1
         assert high_hum[0].severity == Severity.LOW
 
+        # Clear one-shot flag so next check can fire
+        coord._humidity_hazard_fired.discard("sensor.hum")
+
         # 87% in bathroom = MEDIUM severity (85-90 range)
         hazards = coord._handle_humidity("sensor.hum", 87.0, now)
         high_hum = [h for h in hazards if h.type == HazardType.HIGH_HUMIDITY]
         assert len(high_hum) >= 1
         assert high_hum[0].severity == Severity.MEDIUM
+
+        # Clear one-shot flag so next check can fire
+        coord._humidity_hazard_fired.discard("sensor.hum")
 
         # 92% in bathroom = HIGH severity (>90)
         hazards = coord._handle_humidity("sensor.hum", 92.0, now)
@@ -903,6 +917,7 @@ class TestSafetyCoordinator:
     async def test_critical_response_has_lights(self):
         """CRITICAL response should include emergency lights action."""
         coord, _ = self._make_coordinator()
+        coord._emergency_lights = ["light.emergency_1", "light.emergency_2"]
         hazard = Hazard(
             type=HazardType.SMOKE, severity=Severity.CRITICAL,
             confidence=0.95, location="Kitchen",
@@ -915,8 +930,9 @@ class TestSafetyCoordinator:
 
     @pytest.mark.asyncio
     async def test_critical_co_response_has_ventilation(self):
-        """CRITICAL CO response should include fan ventilation."""
+        """CRITICAL CO response should NOT include fan ventilation (removed in c2.8)."""
         coord, _ = self._make_coordinator()
+        coord._emergency_lights = ["light.emergency_1"]
         hazard = Hazard(
             type=HazardType.CARBON_MONOXIDE, severity=Severity.CRITICAL,
             confidence=0.95, location="Kitchen",
@@ -925,7 +941,7 @@ class TestSafetyCoordinator:
         )
         actions = coord._critical_response(hazard)
         fan_actions = [a for a in actions if hasattr(a, 'service') and a.service == "fan.turn_on"]
-        assert len(fan_actions) >= 1
+        assert len(fan_actions) == 0
 
     @pytest.mark.asyncio
     async def test_high_freeze_response_has_hvac_constraint(self):
@@ -1004,11 +1020,11 @@ class TestRoomTypeHumidityThresholds:
     """Tests for room-type-aware humidity thresholds."""
 
     def test_normal_room_thresholds(self):
-        """Normal room thresholds should be 60/70/80."""
+        """Normal room thresholds should be 70/80/90 (v3.6.0-c2.6: raised)."""
         thresholds = HUMIDITY_THRESHOLDS["normal"]
-        assert thresholds["low"] == 60.0
-        assert thresholds["medium"] == 70.0
-        assert thresholds["high"] == 80.0
+        assert thresholds["low"] == 70.0
+        assert thresholds["medium"] == 80.0
+        assert thresholds["high"] == 90.0
         assert thresholds["window_hours"] == 2.0
 
     def test_bathroom_thresholds(self):
@@ -1020,11 +1036,11 @@ class TestRoomTypeHumidityThresholds:
         assert thresholds["window_hours"] == 4.0
 
     def test_basement_thresholds(self):
-        """Basement thresholds should be 55/65/75."""
+        """Basement thresholds should be 65/75/85 (v3.6.0-c2.6: raised)."""
         thresholds = HUMIDITY_THRESHOLDS["basement"]
-        assert thresholds["low"] == 55.0
-        assert thresholds["medium"] == 65.0
-        assert thresholds["high"] == 75.0
+        assert thresholds["low"] == 65.0
+        assert thresholds["medium"] == 75.0
+        assert thresholds["high"] == 85.0
         assert thresholds["window_hours"] == 2.0
 
     def test_low_humidity_thresholds(self):
@@ -1095,7 +1111,7 @@ class TestNumericThresholds:
         assert co[Severity.CRITICAL] == 100.0
         assert co[Severity.HIGH] == 50.0
         assert co[Severity.MEDIUM] == 35.0
-        assert co[Severity.LOW] == 10.0
+        assert co[Severity.LOW] == 25.0
 
     def test_co2_thresholds_exist(self):
         """CO2 thresholds should cover HIGH/MEDIUM/LOW."""
@@ -1117,8 +1133,8 @@ class TestNumericThresholds:
         assert classify(HazardType.CARBON_MONOXIDE, 120.0) == Severity.CRITICAL
         assert classify(HazardType.CARBON_MONOXIDE, 60.0) == Severity.HIGH
         assert classify(HazardType.CARBON_MONOXIDE, 40.0) == Severity.MEDIUM
-        assert classify(HazardType.CARBON_MONOXIDE, 15.0) == Severity.LOW
-        assert classify(HazardType.CARBON_MONOXIDE, 5.0) is None
+        assert classify(HazardType.CARBON_MONOXIDE, 30.0) == Severity.LOW
+        assert classify(HazardType.CARBON_MONOXIDE, 20.0) is None
 
     def test_classify_severity_freeze(self):
         """Freeze severity classification should use <= (lower is worse)."""
@@ -1201,21 +1217,10 @@ class TestBasementHumidity:
     """Tests for basement-specific humidity handling."""
 
     def test_basement_55_triggers_low(self):
-        """Humidity at 55% in basement should trigger LOW after sustained window."""
-        hass = make_hass()
-        coord = SafetyCoordinator(hass)
-        coord._sensor_locations["sensor.hum"] = "Basement"
-        coord._sensor_room_types["sensor.hum"] = "basement"
-        now = datetime.utcnow()
-        coord._humidity_above_since["sensor.hum"] = now - timedelta(hours=3)
+        """Humidity at 66% in basement should trigger LOW after sustained window.
 
-        hazards = coord._handle_humidity("sensor.hum", 56.0, now)
-        high_hum = [h for h in hazards if h.type == HazardType.HIGH_HUMIDITY]
-        assert len(high_hum) >= 1
-        assert high_hum[0].severity == Severity.LOW
-
-    def test_basement_66_triggers_medium(self):
-        """Humidity at 66% in basement should trigger MEDIUM after sustained window."""
+        v3.6.0-c2.6: Basement LOW raised from 55 to 65.
+        """
         hass = make_hass()
         coord = SafetyCoordinator(hass)
         coord._sensor_locations["sensor.hum"] = "Basement"
@@ -1226,10 +1231,13 @@ class TestBasementHumidity:
         hazards = coord._handle_humidity("sensor.hum", 66.0, now)
         high_hum = [h for h in hazards if h.type == HazardType.HIGH_HUMIDITY]
         assert len(high_hum) >= 1
-        assert high_hum[0].severity == Severity.MEDIUM
+        assert high_hum[0].severity == Severity.LOW
 
-    def test_basement_76_triggers_high(self):
-        """Humidity at 76% in basement should trigger HIGH after sustained window."""
+    def test_basement_66_triggers_medium(self):
+        """Humidity at 76% in basement should trigger MEDIUM after sustained window.
+
+        v3.6.0-c2.6: Basement MEDIUM raised from 65 to 75.
+        """
         hass = make_hass()
         coord = SafetyCoordinator(hass)
         coord._sensor_locations["sensor.hum"] = "Basement"
@@ -1238,6 +1246,23 @@ class TestBasementHumidity:
         coord._humidity_above_since["sensor.hum"] = now - timedelta(hours=3)
 
         hazards = coord._handle_humidity("sensor.hum", 76.0, now)
+        high_hum = [h for h in hazards if h.type == HazardType.HIGH_HUMIDITY]
+        assert len(high_hum) >= 1
+        assert high_hum[0].severity == Severity.MEDIUM
+
+    def test_basement_76_triggers_high(self):
+        """Humidity at 86% in basement should trigger HIGH after sustained window.
+
+        v3.6.0-c2.6: Basement HIGH raised from 75 to 85.
+        """
+        hass = make_hass()
+        coord = SafetyCoordinator(hass)
+        coord._sensor_locations["sensor.hum"] = "Basement"
+        coord._sensor_room_types["sensor.hum"] = "basement"
+        now = datetime.utcnow()
+        coord._humidity_above_since["sensor.hum"] = now - timedelta(hours=3)
+
+        hazards = coord._handle_humidity("sensor.hum", 86.0, now)
         high_hum = [h for h in hazards if h.type == HazardType.HIGH_HUMIDITY]
         assert len(high_hum) >= 1
         assert high_hum[0].severity == Severity.HIGH
@@ -1302,7 +1327,10 @@ class TestReviewerFixes:
         assert "sensor.hum" in coord._humidity_above_since
 
     def test_humidity_fires_after_sustained_window(self):
-        """Humidity above threshold should fire AFTER sustained window elapses."""
+        """Humidity above threshold should fire AFTER sustained window elapses.
+
+        v3.6.0-c2.6: Normal thresholds raised — 82% is now MEDIUM (80-90 range).
+        """
         hass = make_hass()
         coord = SafetyCoordinator(hass)
         coord._sensor_locations["sensor.hum"] = "Bedroom"
@@ -1316,7 +1344,7 @@ class TestReviewerFixes:
         hazards = coord._handle_humidity("sensor.hum", 82.0, later)
         high_hum = [h for h in hazards if h.type == HazardType.HIGH_HUMIDITY]
         assert len(high_hum) >= 1
-        assert high_hum[0].severity == Severity.HIGH
+        assert high_hum[0].severity == Severity.MEDIUM
 
     def test_humidity_clears_tracking_when_below_threshold(self):
         """Humidity dropping below threshold should clear sustained tracking."""
