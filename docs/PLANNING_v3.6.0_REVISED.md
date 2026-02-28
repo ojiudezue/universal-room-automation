@@ -443,58 +443,178 @@ deviation from normal system behavior?"* This means:
 
 ### Cycle 1: Presence Coordinator
 **Version:** v3.6.0-c1
-**Scope:** House state inference from Census + time + activity
-**Effort:** 2-3 hours
+**Scope:** House state inference from Census + time + activity, zone presence modes
+**Effort:** 3-4 hours
 **Dependencies:** C0, C0-diag (diagnostics infrastructure)
 
 **What ships:**
 - `PresenceCoordinator` -- subscribes to Census updates, entry sensors, geofence. Infers house state via `StateInferenceEngine`. Publishes `SIGNAL_HOUSE_STATE_CHANGED`.
 - State inference engine: occupancy-based + time-of-day + activity level
-- Manual override services: `ura.set_house_state`, `ura.clear_house_state_override`
-- Sensors: `sensor.ura_house_state_confidence`, `binary_sensor.ura_house_occupied`, `binary_sensor.ura_house_sleeping`, `binary_sensor.ura_guest_mode`
+- House state override: `select.ura_house_state_override` (dropdown on CM device, all 9 house states + "auto")
 - Config flow: sleep start/end time, geofence entity selection
+- **Zone presence modes** with `select` entities for dashboard override (see below)
+
+#### Entity Placement
+
+House state appears on THREE devices — intentional duplication because presence is fundamental:
+
+**Universal Room Automation device (integration entry)** — where all existing house-level room data lives:
+
+| Entity | Type | Purpose |
+|---|---|---|
+| `sensor.ura_house_state` | sensor | Current house state (duplicated here — most natural place users look) |
+| `select.ura_house_state_override` | select | Dashboard dropdown: all 9 states + "auto". Setting to "auto" clears override. |
+
+**Coordinator Manager device (CM entry)** — coordinator infrastructure view:
+
+| Entity | Type | Purpose |
+|---|---|---|
+| `sensor.ura_cm_house_state` | sensor | Current house state (duplicated — visible alongside coordinator status) |
+| `select.ura_cm_house_state_override` | select | Same dropdown, same backing state — either select controls the same override |
+
+**Presence Coordinator device** — full picture of everything Presence knows:
+
+| Entity | Type | Purpose |
+|---|---|---|
+| `sensor.ura_presence_house_state` | sensor | Current house state (authoritative source — Presence coordinator drives this) |
+| `sensor.ura_house_state_confidence` | sensor (diagnostic) | Confidence of inferred state (0.0-1.0) |
+| `binary_sensor.ura_house_occupied` | binary_sensor | True when any person detected in house |
+| `binary_sensor.ura_house_sleeping` | binary_sensor | True when house state is SLEEP |
+| `binary_sensor.ura_guest_mode` | binary_sensor | True when house state is GUEST |
+| `sensor.ura_presence_anomaly` | sensor (diagnostic) | Anomaly status: nominal/advisory/alert/critical |
+| `sensor.ura_presence_compliance` | sensor (diagnostic) | Compliance rate |
+
+All three `house_state` sensors read the same value from the Presence coordinator. Both `select` entities control the same override — changing one is reflected in the other.
+
+**Each zone device** — zone-scoped presence:
+
+| Entity | Type | Purpose |
+|---|---|---|
+| `select.ura_{zone}_presence_mode` | select | Dashboard dropdown: `away`/`occupied`/`sleep`/`auto`. "auto" clears override and resumes coordinator-derived mode. |
+| `sensor.ura_{zone}_presence_status` | sensor | Current zone mode (away/occupied/sleep/unknown) — shows actual state including when overridden |
+
+#### Zone Presence Modes
+
+Zone-level presence uses a simplified four-state model — not the full 9-state house machine:
+
+| Zone Mode | Meaning | Derived From |
+|---|---|---|
+| `away` | No occupants detected in this zone | All zone signals quiet past timeout |
+| `occupied` | One or more occupants in this zone | Any zone signal active |
+| `sleep` | Zone rooms are in sleep state | House state is SLEEP + zone has bedrooms |
+| `unknown` | Zone has no sensors to determine presence | No occupancy signals configured for any room in zone |
+
+**House state is NEVER `unknown`** — it always resolves. House state aggregates across all signals (census, all zones, BLE, time of day). If truly nothing is detected, house state is `away`, not unknown. The full 9-state machine always has a valid state.
+
+#### Zone Presence Signal Strategy
+
+Zone mode is derived from three signal tiers, evaluated in priority order. Any single tier firing is sufficient to mark the zone `occupied`:
+
+| Priority | Signal | What It Tells Us | Coverage |
+|---|---|---|---|
+| 1 | **Room occupancy sensors** (mmWave/PIR) | Definitive presence in specific rooms | Rooms with sensors |
+| 2 | **Zone camera person/motion detection** | Presence in shared spaces | Cameras with HA area in zone rooms |
+| 3 | **Bermuda BLE person location** | Named person in a zone room | Rooms with BLE scanners |
+
+**How zone cameras work:**
+- Census is house-level only (global person count). It is NOT used for zone presence.
+- Instead, cameras in zone rooms are used as **room-level occupancy signals** — person/motion detection with a configurable timeout (default 5-10 min), same pattern as PIR/mmWave.
+- Camera-to-zone mapping: cameras already have HA area assignments. Rooms map to zones via `CONF_ZONE_ROOMS`. A camera in area "Game Room" that belongs to zone "Upstairs" provides an occupancy signal for that zone.
+- Cross-correlation: if higher confidence is needed, correlate across supported camera platforms (Frigate person_count, UniFi/Reolink/Dahua binary detection) — same multi-platform pattern census already uses, just scoped to one camera.
+- Typical deployment: one camera in a shared space (game room, living room, family room) anchors zone presence for that zone.
+
+**Zone `away` determination:**
+- ALL room occupancy sensors in the zone are clear (past timeout)
+- AND all zone cameras show no person/motion (past timeout)
+- AND Bermuda BLE has no persons located in zone rooms
+- → Zone is `away`
+
+**Zone `unknown` determination:**
+- No room occupancy sensors, no cameras, and no BLE scanners in any room of the zone
+- → Zone is `unknown` (not falsely reported as `away`)
+- Zones with even one sensor in one room will report `away`/`occupied` (not `unknown`)
+
+**Graceful degradation:** Zone presence reliability equals the sensor coverage of its rooms. A zone with mmWave in every room is very accurate. A zone with one PIR in a hallway has gaps but still works. A zone with only a camera in a shared space provides good anchor coverage. A zone with nothing reports `unknown`.
+
+**Rollup logic:** Zone modes aggregate up to house state:
+- ANY zone `occupied` → house is HOME (variant based on time of day)
+- ALL zones `away` (or `unknown`) → house derives state from census + time (never `unknown`)
+- Zone `sleep` follows house SLEEP state (house-scoped, not zone-derived)
+
+**Where modes are exposed:**
+- **House mode** on CM device: `sensor.ura_house_state` + `select.ura_house_state_override` (dropdown). Also on Presence device: `sensor.ura_presence_house_state` (same value, authoritative source).
+- **Zone mode** on each zone device: `sensor.ura_{zone}_presence_status` (current state) + `select.ura_{zone}_presence_mode` (dropdown override).
+
+**Override hierarchy:**
+1. **Coordinator** derives modes automatically from room sensors + zone cameras + BLE + time
+2. **House-level override** (`select.ura_house_state_override` set to any state) — overrides house state, propagates to zones (e.g., force AWAY sets all zones to `away`). Set to "auto" to clear.
+3. **Zone-level override** (`select.ura_{zone}_presence_mode` set to `away`/`occupied`/`sleep`) — local to that zone, does NOT propagate up (unless it's the last occupied zone going `away`, which triggers house AWAY). Set to "auto" to clear.
+4. **Auto-resume** — overrides clear automatically when the coordinator next detects contradicting presence (e.g., force zone `away` reverts to `occupied` when motion fires in that zone)
+
+**What zone modes are NOT:**
+- Not a per-zone state machine (no transitions, no hysteresis at zone level)
+- Not DAY/EVENING/NIGHT per zone (time variants stay house-scoped)
+- Not GUEST/VACATION per zone (those are house-level concepts)
 
 **New files:**
 | File | Purpose | Est. Lines |
 |---|---|---|
-| `domain_coordinators/presence.py` | PresenceCoordinator, StateInferenceEngine, PresenceContext | 400 |
+| `domain_coordinators/presence.py` | PresenceCoordinator, StateInferenceEngine, PresenceContext, ZonePresenceTracker | 550 |
 
 **Modified files:**
 | File | Change |
 |---|---|
 | `domain_coordinators/manager.py` | Register Presence in coordinator dict |
-| `sensor.py` | Add Presence sensors |
-| `binary_sensor.py` | Add house_occupied, house_sleeping, guest_mode |
+| `sensor.py` | Add `ura_presence_house_state`, `ura_house_state_confidence`, per-zone `ura_{zone}_presence_status` |
+| `binary_sensor.py` | Add `house_occupied`, `house_sleeping`, `guest_mode` |
+| `select.py` | **New platform** — `ura_house_state_override` (on CM), `ura_{zone}_presence_mode` (per zone) |
 | `config_flow.py` | Add sleep hours, geofence entity config step |
-| `const.py` | Add presence-related constants |
+| `const.py` | Add presence-related constants, zone mode constants |
+| `__init__.py` | Register `select` platform |
 
-**Estimated total lines:** ~400 new, ~120 modified
+**Estimated total lines:** ~550 new, ~200 modified
 
 **Diagnostics (uses C0-diag infrastructure):**
 | Component | Metric | Source | Learning Frequency |
 |---|---|---|---|
-| Decision logging | Every house state transition with scope="house" | DecisionLogger | N/A |
+| Decision logging | Every house state transition with scope="house", zone mode changes with scope="zone:{name}" | DecisionLogger | N/A |
 | Compliance | Census + time agreement with inferred state | ComplianceTracker | N/A |
 | Anomaly | Occupancy count deviates from historical norm for this time/day (e.g., normally 2 people at 7 PM Tuesday but census shows 5) | AnomalyDetector | Daily |
 | Anomaly | House empty at a time it has never been empty historically | AnomalyDetector | Daily |
+| Anomaly | Zone occupied at unusual time (scope="zone:{name}") | AnomalyDetector | Daily |
 | Outcome | `PresenceOutcome`: detection_accuracy, false_positive_rate, platform_agreement_rate | OutcomeMeasurement | Daily |
 
 Minimum data before anomaly activation: 14 days of occupancy history.
 
-Additional presence-specific sensors:
-- `sensor.ura_presence_anomaly` — on Presence device, reports anomaly or "nominal"
-- `sensor.ura_presence_compliance` — on Presence device, compliance rate
+Additional presence-specific sensors (on Presence device):
+- `sensor.ura_presence_anomaly` — anomaly status: nominal/advisory/alert/critical
+- `sensor.ura_presence_compliance` — compliance rate
+
+Per-zone entities (on each zone device):
+- `select.ura_{zone}_presence_mode` — dropdown: away/occupied/sleep/auto (override control)
+- `sensor.ura_{zone}_presence_status` — actual zone state: away/occupied/sleep/unknown
 
 **Verification:**
 - [ ] House state transitions correctly: AWAY -> ARRIVING -> HOME_DAY -> HOME_EVENING -> HOME_NIGHT -> SLEEP -> WAKING
+- [ ] House state is NEVER `unknown` — always resolves to a valid state
 - [ ] Census update with 0 occupants triggers AWAY
 - [ ] Census update with occupants + evening time triggers HOME_EVENING
 - [ ] Manual override sets state and expires correctly
 - [ ] Hysteresis prevents rapid oscillation
+- [ ] Zone mode shows `occupied` when room motion/mmWave fires in that zone
+- [ ] Zone mode shows `occupied` when zone camera detects person/motion
+- [ ] Zone mode shows `occupied` when Bermuda BLE locates person in zone room
+- [ ] Zone mode shows `away` when all zone signals are quiet past timeout
+- [ ] Zone mode shows `unknown` when zone has no sensors at all
+- [ ] Zone mode shows `sleep` when house is in SLEEP state and zone contains bedrooms
+- [ ] House-level override to AWAY propagates all zones to `away`
+- [ ] Zone-level override auto-resumes when coordinator detects contradicting presence
+- [ ] Last occupied zone overridden to `away` triggers house AWAY
+- [ ] Zone with only a camera still correctly reports `occupied`/`away`
 - [ ] All sensors update in real-time
 - [ ] Anomaly sensor shows "insufficient_data" initially (no history yet)
 - [ ] Presence can be disabled via CM options without errors
-- [ ] 12+ new tests passing
+- [ ] 18+ new tests passing
 
 ---
 
@@ -643,8 +763,15 @@ Additional security-specific sensors:
 - Quiet hours enforcement (configurable, overridden by CRITICAL)
 - Deduplication: identical messages suppressed within configurable windows
 - Rate limiting: max notifications per hour per channel
+- **Anomaly-driven notifications** (interface with C0-diag diagnostics):
+  - NotificationManager exposes `async def notify_anomaly(anomaly: AnomalyRecord)` method
+  - Severity mapping: `advisory` → LOG_ONLY (no notification), `alert` → MEDIUM (messaging channels), `critical` → HIGH (messaging + TTS)
+  - Anomaly notifications include: coordinator name, metric, observed vs expected, scope, suggested action
+  - Deduplication key includes `(coordinator_id, metric_name, scope)` — same anomaly in the same scope won't re-notify within the suppression window
+  - Coordinators call `self.manager.notification_manager.notify_anomaly(anomaly)` after storing the anomaly in DB
+  - This is the primary way diagnostics findings reach the user. Without C4, anomalies are logged to DB and visible on dashboard sensors but generate no push notifications.
 - Notification history sensor: `sensor.ura_notification_history`
-- Config flow: quiet hours, messaging channel selection (Pushover/iMessage/WhatsApp — multi-select), recipient entities per channel, TTS speaker entities, alert light entities
+- Config flow: quiet hours, messaging channel selection (Pushover/iMessage/WhatsApp — multi-select), recipient entities per channel, TTS speaker entities, alert light entities, anomaly notification severity threshold (default: `alert`)
 
 **New files:**
 | File | Purpose | Est. Lines |
@@ -668,8 +795,13 @@ Additional security-specific sensors:
 - [ ] Deduplication suppresses repeat messages within window
 - [ ] Rate limiting caps notifications per hour
 - [ ] Quiet hours suppress non-critical notifications
-- [ ] History sensor shows recent notifications
-- [ ] 8+ new tests passing
+- [ ] Anomaly `alert` triggers MEDIUM notification with coordinator + metric details
+- [ ] Anomaly `critical` triggers HIGH notification (messaging + TTS)
+- [ ] Anomaly `advisory` is logged only, no push notification
+- [ ] Anomaly deduplication: same (coordinator, metric, scope) suppressed within window
+- [ ] Anomaly notification threshold configurable in options flow
+- [ ] History sensor shows recent notifications (including anomaly-driven ones)
+- [ ] 10+ new tests passing
 
 ---
 
@@ -904,18 +1036,18 @@ Additional comfort-specific sensors:
 | Cycle | Version | Coordinator | New Lines | Modified Lines | New Tests | Hours | Status |
 |---|---|---|---|---|---|---|---|
 | C0 | v3.6.0-c0 thru c0.3 | Base Infrastructure | ~940 | ~600 | 51+ | ~6 | DONE |
-| C0-diag | v3.6.0-c0.4 | Diagnostics Infrastructure | ~400 | ~150 | 15+ | 3-4 | NEXT |
-| C1 | v3.6.0-c1 | Presence | ~400 | ~120 | 12+ | 2-3 | Planning |
+| C0-diag | v3.6.0-c0.4 | Diagnostics Infrastructure | ~630 | ~360 | 51 | 3-4 | DONE |
+| C1 | v3.6.0-c1 | Presence + Zone Modes + Select Entities | ~550 | ~200 | 18+ | 3-4 | NEXT |
 | C2 | v3.6.0-c2 | Safety | ~400 | ~100 | 12+ | 2-3 | Planning |
 | C3 | v3.6.0-c3 | Security | ~500 | ~120 | 15+ | 2-3 | Planning |
-| C4 | v3.6.0-c4 | Notification Manager | ~350 | ~80 | 8+ | 1.5-2 | Planning |
+| C4 | v3.6.0-c4 | Notification Manager + Anomaly Alerts | ~400 | ~100 | 10+ | 2-3 | Planning |
 | C5 | v3.6.0-c5 | Energy | ~700 | ~150 | 20+ | 3-4 | Planning |
 | C6 | v3.6.0-c6 | HVAC | ~500 | ~120 | 15+ | 2-3 | Planning |
 | C7 | v3.6.0-c7 | Comfort | ~500 | ~120 | 15+ | 2-3 | Planning |
 | **Total** | | | **~4,690** | **~1,560** | **163+** | **22-30** | |
 
-Current test count: 375 (C0 complete)
-Post-v3.6.0 target test count: 375 + 112 = **487+ tests**
+Current test count: 426 (C0 + C0-diag complete)
+Post-v3.6.0 target test count: 426 + 115 = **541+ tests**
 
 ---
 
@@ -1465,11 +1597,17 @@ Retention: `decision_log` and `compliance_log` pruned at 90 days. `anomaly_log` 
 | C0 | `sensor.ura_coordinator_manager` | sensor | diagnostic |
 | C0 | `sensor.ura_house_state` | sensor | primary |
 | C0 | `sensor.ura_coordinator_summary` | sensor | primary |
-| C1 | `select.ura_house_state_override` | select | primary |
-| C1 | `sensor.ura_house_state_confidence` | sensor | diagnostic |
-| C1 | `binary_sensor.ura_house_occupied` | binary_sensor | primary |
-| C1 | `binary_sensor.ura_house_sleeping` | binary_sensor | primary |
-| C1 | `binary_sensor.ura_guest_mode` | binary_sensor | primary |
+| C1 | `sensor.ura_house_state` | sensor (on URA device) | primary — house state, duplicated for natural access |
+| C1 | `select.ura_house_state_override` | select (on URA device) | primary — dropdown: 9 states + auto |
+| C1 | `sensor.ura_cm_house_state` | sensor (on CM) | primary — house state, duplicated for coordinator view |
+| C1 | `select.ura_cm_house_state_override` | select (on CM) | primary — same override, different device |
+| C1 | `sensor.ura_presence_house_state` | sensor (on Presence) | primary — authoritative source |
+| C1 | `sensor.ura_house_state_confidence` | sensor (on Presence) | diagnostic |
+| C1 | `binary_sensor.ura_house_occupied` | binary_sensor (on Presence) | primary |
+| C1 | `binary_sensor.ura_house_sleeping` | binary_sensor (on Presence) | primary |
+| C1 | `binary_sensor.ura_guest_mode` | binary_sensor (on Presence) | primary |
+| C1 | `select.ura_{zone}_presence_mode` | select (per zone) | primary — dropdown: away/occupied/sleep/auto |
+| C1 | `sensor.ura_{zone}_presence_status` | sensor (per zone) | primary — actual zone state |
 | C2 | `sensor.ura_safety_status` | sensor | primary |
 | C2 | `binary_sensor.ura_safety_alert` | binary_sensor | primary |
 | C2 | `sensor.ura_safety_diagnostics` | sensor | diagnostic |
@@ -1507,9 +1645,9 @@ Retention: `decision_log` and `compliance_log` pruned at 90 days. `anomaly_log` 
 | C7 | `sensor.ura_comfort_anomaly` | sensor | diagnostic |
 | C7 | `sensor.ura_comfort_compliance` | sensor | diagnostic |
 
-**Total new entities:** 41 (26 primary + 15 diagnostic, all house-level, not per-room)
+**Total new entities:** 48+ (33 primary + 15 diagnostic, house-level; plus 2 per-zone: presence select + status sensor)
 **Post-v3.6.0 entities per room:** 81+ (unchanged)
-**Post-v3.6.0 house-level entities:** 41 new + existing aggregation sensors
+**Post-v3.6.0 house-level entities:** 48+ new + existing aggregation sensors
 
 ---
 
