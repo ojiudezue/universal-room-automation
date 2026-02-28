@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation v3.6.0-c2.9.2-c2.9.1-c2.10-c2.9-c2.8-c2.7-c2.6-c2.5-c2.4-c2.3-c2.2-c0.2
+# Universal Room Automation v3.6.0-c2.9.3-c2.9.2-c2.9.1-c2.10-c2.9-c2.8-c2.7-c2.6-c2.5-c2.4-c2.3-c2.2-c0.2
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -595,6 +595,38 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 _LOGGER.error("Sensor naming migration failed: %s", e)
                 import traceback
                 _LOGGER.error("Traceback: %s", traceback.format_exc())
+
+        # v3.6.0-c2.9.2: Remove stale coordinator-level safety_alert entity
+        # that collides with the room-level one in aggregation.py.
+        # The coordinator sensor was renamed to _safety_coordinator_safety_alert.
+        if not entry.options.get("safety_alert_dedup_done"):
+            try:
+                from homeassistant.helpers import entity_registry as er_mod
+                ent_reg = er_mod.async_get(hass)
+                stale_uid = f"{DOMAIN}_safety_alert"
+                # Check if the stale unique_id is registered under a coordinator device
+                stale_eid = ent_reg.async_get_entity_id(
+                    "binary_sensor", DOMAIN, stale_uid
+                )
+                if stale_eid:
+                    stale_entry = ent_reg.async_get(stale_eid)
+                    # Only remove if it belongs to the safety_coordinator device
+                    if stale_entry and stale_entry.device_id:
+                        from homeassistant.helpers import device_registry as dr
+                        dev_reg = dr.async_get(hass)
+                        device = dev_reg.async_get(stale_entry.device_id)
+                        if device and (DOMAIN, "safety_coordinator") in device.identifiers:
+                            ent_reg.async_remove(stale_eid)
+                            _LOGGER.info(
+                                "Removed stale coordinator safety_alert entity %s (unique_id collision fix)",
+                                stale_eid,
+                            )
+                entry = hass.config_entries.async_get_entry(entry.entry_id) or entry
+                hass.config_entries.async_update_entry(
+                    entry, options={**entry.options, "safety_alert_dedup_done": True}
+                )
+            except Exception as e:
+                _LOGGER.debug("Safety alert dedup migration: %s", e)
 
         # Initialize database (shared across all rooms)
         if "database" not in hass.data[DOMAIN]:
