@@ -1,6 +1,6 @@
 """Config flow for Universal Room Automation v3.3.3."""
 #
-# Universal Room Automation v3.6.0-c2.9.3-c2.9.2-c2.9.1-c2.10-c2.9-c2.8-c2.7-c2.6-c2.5-c2.4-c2.3-c2.2-c0.1-c0
+# Universal Room Automation v3.6.0.1
 # Build: 2026-01-05
 # File: config_flow.py
 # v3.3.3: Added manage_zones to integration options menu
@@ -773,7 +773,7 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
                 selector.SelectSelectorConfig(options=door_types, mode=selector.SelectSelectorMode.DROPDOWN)
             ),
             vol.Optional(CONF_WINDOW_SENSORS): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain="binary_sensor", device_class=["window", "opening"])
+                selector.EntitySelectorConfig(domain="binary_sensor", device_class=["window", "door", "opening", "garage_door"])
             ),
             # v3.1.0: Water leak sensor
             vol.Optional(CONF_WATER_LEAK_SENSOR): selector.EntitySelector(
@@ -844,7 +844,10 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
                 selector.EntitySelectorConfig(domain="switch", multiple=True)
             ),
             vol.Optional(CONF_MANUAL_SWITCHES, default=[]): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain="switch", multiple=True)
+                selector.EntitySelectorConfig(
+                    domain=["switch", "light", "fan"],
+                    multiple=True,
+                )
             ),
         })
 
@@ -2443,10 +2446,10 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 selector.SelectSelectorConfig(options=door_types, mode=selector.SelectSelectorMode.DROPDOWN)
             ),
             vol.Optional(
-                CONF_WINDOW_SENSORS, 
+                CONF_WINDOW_SENSORS,
                 default=self._get_current(CONF_WINDOW_SENSORS) or vol.UNDEFINED
             ): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain="binary_sensor", device_class=["window", "opening"])
+                selector.EntitySelectorConfig(domain="binary_sensor", device_class=["window", "door", "opening", "garage_door"])
             ),
             # v3.1.0: Water leak sensor
             vol.Optional(
@@ -2562,7 +2565,10 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 CONF_MANUAL_SWITCHES,
                 default=self._get_current(CONF_MANUAL_SWITCHES, [])
             ): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain="switch", multiple=True)
+                selector.EntitySelectorConfig(
+                    domain=["switch", "light", "fan"],
+                    multiple=True,
+                )
             ),
         })
 
