@@ -288,12 +288,14 @@ class UniversalRoomDatabase:
                 """)
 
                 # v3.6.0: Decision logging for domain coordinators
+                # v3.6.0-c0.4: Added scope column
                 await db.execute("""
                     CREATE TABLE IF NOT EXISTS decision_log (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         timestamp TEXT NOT NULL,
                         coordinator_id TEXT NOT NULL,
                         decision_type TEXT NOT NULL,
+                        scope TEXT NOT NULL DEFAULT 'house',
                         situation_classified TEXT,
                         urgency INTEGER,
                         confidence REAL,
@@ -314,13 +316,19 @@ class UniversalRoomDatabase:
                     CREATE INDEX IF NOT EXISTS idx_decision_coordinator
                     ON decision_log(coordinator_id)
                 """)
+                await db.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_decision_scope
+                    ON decision_log(scope)
+                """)
 
                 # v3.6.0: Compliance tracking for domain coordinators
+                # v3.6.0-c0.4: Added scope column
                 await db.execute("""
                     CREATE TABLE IF NOT EXISTS compliance_log (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         timestamp TEXT NOT NULL,
                         decision_id INTEGER,
+                        scope TEXT NOT NULL DEFAULT 'house',
                         device_type TEXT NOT NULL,
                         device_id TEXT NOT NULL,
                         commanded_state TEXT NOT NULL,
@@ -341,6 +349,114 @@ class UniversalRoomDatabase:
                     CREATE INDEX IF NOT EXISTS idx_compliance_timestamp
                     ON compliance_log(timestamp)
                 """)
+                await db.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_compliance_scope
+                    ON compliance_log(scope)
+                """)
+
+                # v3.6.0-c0.4: Anomaly log for coordinator diagnostics
+                await db.execute("""
+                    CREATE TABLE IF NOT EXISTS anomaly_log (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        timestamp TEXT NOT NULL,
+                        coordinator_id TEXT NOT NULL,
+                        scope TEXT NOT NULL,
+                        metric_name TEXT NOT NULL,
+                        observed_value REAL NOT NULL,
+                        expected_mean REAL NOT NULL,
+                        expected_std REAL NOT NULL,
+                        z_score REAL NOT NULL,
+                        severity TEXT NOT NULL,
+                        sample_size INTEGER NOT NULL,
+                        house_state TEXT,
+                        context_json TEXT,
+                        resolved BOOLEAN NOT NULL DEFAULT 0,
+                        resolution_notes TEXT
+                    )
+                """)
+                await db.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_anomaly_timestamp
+                    ON anomaly_log(timestamp)
+                """)
+                await db.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_anomaly_coordinator
+                    ON anomaly_log(coordinator_id)
+                """)
+                await db.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_anomaly_scope
+                    ON anomaly_log(scope)
+                """)
+                await db.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_anomaly_severity
+                    ON anomaly_log(severity)
+                """)
+
+                # v3.6.0-c0.4: Metric baselines for anomaly detection
+                await db.execute("""
+                    CREATE TABLE IF NOT EXISTS metric_baselines (
+                        coordinator_id TEXT NOT NULL,
+                        metric_name TEXT NOT NULL,
+                        scope TEXT NOT NULL,
+                        mean REAL NOT NULL,
+                        variance REAL NOT NULL,
+                        sample_count INTEGER NOT NULL,
+                        last_updated TEXT,
+                        PRIMARY KEY (coordinator_id, metric_name, scope)
+                    )
+                """)
+
+                # v3.6.0-c0.4: Outcome log for coordinator effectiveness
+                await db.execute("""
+                    CREATE TABLE IF NOT EXISTS outcome_log (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        timestamp TEXT NOT NULL,
+                        coordinator_id TEXT NOT NULL,
+                        scope TEXT NOT NULL DEFAULT 'house',
+                        period_start TEXT NOT NULL,
+                        period_end TEXT NOT NULL,
+                        decisions_in_period INTEGER,
+                        compliance_rate REAL,
+                        override_count INTEGER,
+                        metrics_json TEXT NOT NULL
+                    )
+                """)
+                await db.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_outcome_coordinator
+                    ON outcome_log(coordinator_id)
+                """)
+                await db.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_outcome_scope
+                    ON outcome_log(scope)
+                """)
+
+                # v3.6.0-c0.4: Bayesian parameter beliefs
+                await db.execute("""
+                    CREATE TABLE IF NOT EXISTS parameter_beliefs (
+                        coordinator_id TEXT NOT NULL,
+                        parameter_name TEXT NOT NULL,
+                        mean REAL NOT NULL,
+                        std REAL NOT NULL,
+                        updated_at TEXT NOT NULL,
+                        PRIMARY KEY (coordinator_id, parameter_name)
+                    )
+                """)
+
+                # v3.6.0-c0.4: Parameter change history
+                await db.execute("""
+                    CREATE TABLE IF NOT EXISTS parameter_history (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        timestamp TEXT NOT NULL,
+                        coordinator_id TEXT NOT NULL,
+                        parameter_name TEXT NOT NULL,
+                        old_value REAL,
+                        new_value REAL NOT NULL,
+                        reason TEXT
+                    )
+                """)
+                await db.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_param_history
+                    ON parameter_history(coordinator_id, parameter_name)
+                """)
 
                 # v3.6.0: House state history
                 await db.execute("""
@@ -359,6 +475,22 @@ class UniversalRoomDatabase:
                 """)
 
                 await db.commit()
+
+                # v3.6.0-c0.4: PRAGMA-based migration — add scope to decision_log if absent
+                cursor = await db.execute("PRAGMA table_info(decision_log)")
+                columns = {row[1] for row in await cursor.fetchall()}
+                if "scope" not in columns:
+                    await db.execute(
+                        "ALTER TABLE decision_log ADD COLUMN scope TEXT NOT NULL DEFAULT 'house'"
+                    )
+
+                # v3.6.0-c0.4: PRAGMA-based migration — add scope to compliance_log if absent
+                cursor = await db.execute("PRAGMA table_info(compliance_log)")
+                columns = {row[1] for row in await cursor.fetchall()}
+                if "scope" not in columns:
+                    await db.execute(
+                        "ALTER TABLE compliance_log ADD COLUMN scope TEXT NOT NULL DEFAULT 'house'"
+                    )
 
                 # v3.5.2: PRAGMA-based migration — add columns to room_transitions if absent
                 cursor = await db.execute("PRAGMA table_info(room_transitions)")
@@ -553,20 +685,21 @@ class UniversalRoomDatabase:
         override_detected: bool = False,
         override_source: str | None = None,
         override_duration_minutes: int | None = None,
+        scope: str = "house",
     ) -> None:
         """Log a compliance check result."""
         try:
             async with aiosqlite.connect(self.db_file) as db:
                 await db.execute("""
                     INSERT INTO compliance_log (
-                        timestamp, decision_id, device_type, device_id,
+                        timestamp, decision_id, scope, device_type, device_id,
                         commanded_state, actual_state, compliant,
                         deviation_details, override_detected,
                         override_source, override_duration_minutes
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     datetime.utcnow().isoformat(),
-                    decision_id, device_type, device_id,
+                    decision_id, scope, device_type, device_id,
                     commanded_state, actual_state, compliant,
                     deviation_details, override_detected,
                     override_source, override_duration_minutes,

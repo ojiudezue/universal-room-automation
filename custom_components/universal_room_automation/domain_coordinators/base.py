@@ -14,13 +14,20 @@ except ImportError:
 
     class StrEnum(str, Enum):
         pass
-from typing import Any, Final
+from typing import TYPE_CHECKING, Any, Final
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.util import dt as dt_util
 
 from ..const import DOMAIN, VERSION
+
+if TYPE_CHECKING:
+    from .coordinator_diagnostics import (
+        AnomalyDetector,
+        ComplianceTracker,
+        DecisionLogger,
+    )
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -171,6 +178,11 @@ class BaseCoordinator(ABC):
         self._enabled = True
         self._unsub_listeners: list = []
 
+        # v3.6.0-c0.4: Diagnostics — injected by CoordinatorManager
+        self.decision_logger: DecisionLogger | None = None
+        self.compliance_tracker: ComplianceTracker | None = None
+        self.anomaly_detector: AnomalyDetector | None = None
+
     @property
     def enabled(self) -> bool:
         """Return whether the coordinator is enabled."""
@@ -216,6 +228,32 @@ class BaseCoordinator(ABC):
     @abstractmethod
     async def async_teardown(self) -> None:
         """Tear down the coordinator — unsubscribe listeners, clean up."""
+
+    def get_diagnostics_summary(self) -> dict[str, Any]:
+        """Return diagnostics summary for this coordinator.
+
+        Includes anomaly status, learning status, and compliance info
+        when diagnostics components are injected.
+        """
+        summary: dict[str, Any] = {
+            "coordinator_id": self.coordinator_id,
+            "enabled": self._enabled,
+            "priority": self.priority,
+        }
+
+        if self.anomaly_detector is not None:
+            anomaly_summary = self.anomaly_detector.get_status_summary()
+            summary["anomaly"] = {
+                "learning_status": anomaly_summary.get("learning_status", "unknown"),
+                "active_anomalies": anomaly_summary.get("active_anomalies", 0),
+                "anomalies_today": anomaly_summary.get("anomalies_today", 0),
+                "worst_severity": self.anomaly_detector.get_worst_severity().value,
+                "metrics": anomaly_summary.get("metrics", {}),
+            }
+        else:
+            summary["anomaly"] = {"learning_status": "not_configured"}
+
+        return summary
 
     def _cancel_listeners(self) -> None:
         """Cancel all registered state listeners."""
