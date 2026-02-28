@@ -504,6 +504,9 @@ class PresenceCoordinator(BaseCoordinator):
         # Discover and subscribe to zone cameras (Tier 2)
         self._discover_zone_cameras()
 
+        # Subscribe to geofence (person entity state changes)
+        self._subscribe_geofence()
+
         # Subscribe to census updates
         from homeassistant.helpers.dispatcher import async_dispatcher_connect
         self._unsub_listeners.append(
@@ -739,6 +742,61 @@ class PresenceCoordinator(BaseCoordinator):
                 "Subscribed to %d zone camera entities across %d zones",
                 len(camera_entity_ids), len(self._zone_trackers),
             )
+
+    # ------------------------------------------------------------------
+    # Geofence: person entity state changes (home/not_home)
+    # ------------------------------------------------------------------
+
+    def _subscribe_geofence(self) -> None:
+        """Subscribe to person.* entity state changes for geofence signals.
+
+        HA person entities track home/not_home/zone state. When a person
+        transitions to 'home' from 'not_home' (or vice versa), this provides
+        an early AWAY→ARRIVING signal before camera census updates.
+        """
+        person_entity_ids = [
+            state.entity_id
+            for state in self.hass.states.async_all()
+            if state.entity_id.startswith("person.")
+        ]
+
+        if not person_entity_ids:
+            _LOGGER.debug("No person entities found — geofence signal unavailable")
+            return
+
+        self._unsub_listeners.append(
+            async_track_state_change_event(
+                self.hass,
+                person_entity_ids,
+                self._handle_geofence_change,
+            )
+        )
+        _LOGGER.info(
+            "Subscribed to %d person entities for geofence signals",
+            len(person_entity_ids),
+        )
+
+    @callback
+    def _handle_geofence_change(self, event: Any) -> None:
+        """Handle person entity state change (geofence transition)."""
+        entity_id = event.data.get("entity_id", "")
+        new_state = event.data.get("new_state")
+        old_state = event.data.get("old_state")
+        if new_state is None:
+            return
+
+        new_zone = new_state.state
+        old_zone = old_state.state if old_state else None
+
+        # Guard: skip unavailable/unknown
+        if new_zone in _UNAVAILABLE_STATES:
+            return
+
+        # Detect home arrival or departure
+        if new_zone == "home" and old_zone != "home":
+            self.handle_geofence_event(entity_id, "home")
+        elif new_zone == "not_home" and old_zone == "home":
+            self.handle_geofence_event(entity_id, "not_home")
 
     # ------------------------------------------------------------------
     # Signal handlers
@@ -1154,7 +1212,7 @@ class PresenceCoordinator(BaseCoordinator):
         return manager.house_state_machine.state.value
 
     # ------------------------------------------------------------------
-    # Geofence signal (v3.6.0-c1: placeholder, wired in C1 patch)
+    # Geofence signal (v3.6.0-c1.1: wired to person.* state changes)
     # ------------------------------------------------------------------
 
     def handle_geofence_event(self, person_id: str, zone: str) -> None:
@@ -1162,7 +1220,8 @@ class PresenceCoordinator(BaseCoordinator):
 
         When a person's device tracker transitions to/from 'home',
         this provides an early signal for AWAY→ARRIVING before census
-        updates. Wired as a state listener in a future patch.
+        updates. Called by _handle_geofence_change when person.* entities
+        change state.
         """
         if zone == "home":
             # Person arriving — if currently AWAY, trigger inference
