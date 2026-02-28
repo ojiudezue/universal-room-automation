@@ -1,6 +1,6 @@
 """Database for Universal Room Automation."""
 #
-# Universal Room Automation v3.6.0-c2.9.1-c2.10-c2.9-c2.8-c2.7-c2.6-c2.5-c2.4-c2.3-c2.2-c0.1-c0
+# Universal Room Automation v3.6.0-c2.9.2-c2.9.1-c2.10-c2.9-c2.8-c2.7-c2.6-c2.5-c2.4-c2.3-c2.2-c0.1-c0
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors
@@ -308,6 +308,15 @@ class UniversalRoomDatabase:
                         devices_commanded TEXT
                     )
                 """)
+                # v3.6.0-c2.9.1: Migrate scope column BEFORE creating indexes
+                # For existing DBs created before c0.4, the scope column doesn't exist yet
+                cursor = await db.execute("PRAGMA table_info(decision_log)")
+                dl_columns = {row[1] for row in await cursor.fetchall()}
+                if "scope" not in dl_columns:
+                    await db.execute(
+                        "ALTER TABLE decision_log ADD COLUMN scope TEXT NOT NULL DEFAULT 'house'"
+                    )
+
                 await db.execute("""
                     CREATE INDEX IF NOT EXISTS idx_decision_timestamp
                     ON decision_log(timestamp)
@@ -341,6 +350,14 @@ class UniversalRoomDatabase:
                         FOREIGN KEY (decision_id) REFERENCES decision_log(id)
                     )
                 """)
+                # v3.6.0-c2.9.1: Migrate scope column BEFORE creating indexes
+                cursor = await db.execute("PRAGMA table_info(compliance_log)")
+                cl_columns = {row[1] for row in await cursor.fetchall()}
+                if "scope" not in cl_columns:
+                    await db.execute(
+                        "ALTER TABLE compliance_log ADD COLUMN scope TEXT NOT NULL DEFAULT 'house'"
+                    )
+
                 await db.execute("""
                     CREATE INDEX IF NOT EXISTS idx_compliance_decision
                     ON compliance_log(decision_id)
@@ -475,22 +492,6 @@ class UniversalRoomDatabase:
                 """)
 
                 await db.commit()
-
-                # v3.6.0-c0.4: PRAGMA-based migration — add scope to decision_log if absent
-                cursor = await db.execute("PRAGMA table_info(decision_log)")
-                columns = {row[1] for row in await cursor.fetchall()}
-                if "scope" not in columns:
-                    await db.execute(
-                        "ALTER TABLE decision_log ADD COLUMN scope TEXT NOT NULL DEFAULT 'house'"
-                    )
-
-                # v3.6.0-c0.4: PRAGMA-based migration — add scope to compliance_log if absent
-                cursor = await db.execute("PRAGMA table_info(compliance_log)")
-                columns = {row[1] for row in await cursor.fetchall()}
-                if "scope" not in columns:
-                    await db.execute(
-                        "ALTER TABLE compliance_log ADD COLUMN scope TEXT NOT NULL DEFAULT 'house'"
-                    )
 
                 # v3.5.2: PRAGMA-based migration — add columns to room_transitions if absent
                 cursor = await db.execute("PRAGMA table_info(room_transitions)")
