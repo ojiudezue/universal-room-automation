@@ -1,6 +1,6 @@
 """Data coordinator for Universal Room Automation."""
 #
-# Universal Room Automation v3.6.0-c2.4-c2.3-c2.2-c0.1-c0
+# Universal Room Automation v3.6.0-c2.5-c2.4-c2.3-c2.2-c0.1-c0
 # Build: 2026-01-02
 # File: coordinator.py
 # v3.2.8: Support for active state change listeners in aggregation sensors

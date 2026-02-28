@@ -1,6 +1,6 @@
 """Switch platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.6.0-c2.4-c2.3-c2.2-c0.1-c0
+# Universal Room Automation v3.6.0-c2.5-c2.4-c2.3-c2.2-c0.1-c0
 # Build: 2026-01-02
 # File: switch.py
 #
@@ -10,10 +10,20 @@ import logging
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
 
-from .const import DOMAIN
+from .const import (
+    CONF_DOMAIN_COORDINATORS_ENABLED,
+    CONF_ENTRY_TYPE,
+    CONF_PRESENCE_ENABLED,
+    CONF_SAFETY_ENABLED,
+    DOMAIN,
+    ENTRY_TYPE_COORDINATOR_MANAGER,
+    ENTRY_TYPE_INTEGRATION,
+    VERSION,
+)
 from .coordinator import UniversalRoomCoordinator
 from .entity import UniversalRoomEntity
 
@@ -26,9 +36,44 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up Universal Room Automation switches."""
+    entry_type = entry.data.get(CONF_ENTRY_TYPE)
+
+    # v3.6.0-c2.4: Integration entry — master coordinators toggle
+    if entry_type == ENTRY_TYPE_INTEGRATION:
+        async_add_entities([DomainCoordinatorsSwitch(hass, entry)])
+        return
+
+    # v3.6.0-c2.4: CM entry — per-coordinator toggles
+    if entry_type == ENTRY_TYPE_COORDINATOR_MANAGER:
+        async_add_entities([
+            CoordinatorEnabledSwitch(
+                hass, entry,
+                coordinator_id="presence",
+                conf_key=CONF_PRESENCE_ENABLED,
+                name="Presence Coordinator",
+                icon="mdi:account-group",
+                device_id="presence_coordinator",
+                device_name="URA: Presence Coordinator",
+                device_model="Presence Coordinator",
+            ),
+            CoordinatorEnabledSwitch(
+                hass, entry,
+                coordinator_id="safety",
+                conf_key=CONF_SAFETY_ENABLED,
+                name="Safety Coordinator",
+                icon="mdi:shield-check",
+                device_id="safety_coordinator",
+                device_name="URA: Safety Coordinator",
+                device_model="Safety Coordinator",
+            ),
+        ])
+        return
+
+    # Room entry — standard room switches
+    if entry.entry_id not in hass.data.get(DOMAIN, {}):
+        return
     coordinator: UniversalRoomCoordinator = hass.data[DOMAIN][entry.entry_id]
-    
-    # Core switches (enabled by default)
+
     entities = [
         AutomationSwitch(coordinator),
         OverrideOccupiedSwitch(coordinator),
@@ -37,13 +82,144 @@ async def async_setup_entry(
         CoverAutomationSwitch(coordinator),
         ManualModeSwitch(coordinator),
     ]
-    
+
     async_add_entities(entities)
     _LOGGER.info(
         "Set up %d switches for room: %s",
         len(entities),
         entry.data.get("room_name")
     )
+
+
+# ============================================================================
+# v3.6.0-c2.4: Domain Coordinators Master Toggle
+# ============================================================================
+
+
+class DomainCoordinatorsSwitch(SwitchEntity):
+    """Master switch to enable/disable the domain coordinator system.
+
+    Entity: switch.ura_domain_coordinators
+    Device: Universal Room Automation (integration device)
+
+    When turned off, the CoordinatorManager is not created on next reload
+    and all coordinator sensors show default/unavailable values.
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:robot"
+    _attr_name = "Domain Coordinators"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        self.hass = hass
+        self._entry = entry
+        self._attr_unique_id = f"{DOMAIN}_domain_coordinators_enabled"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "integration")},
+            name="Universal Room Automation",
+            manufacturer="Universal Room Automation",
+            model="Whole House",
+            sw_version=VERSION,
+        )
+
+    @property
+    def is_on(self) -> bool:
+        """Return True if domain coordinators are enabled."""
+        merged = {**self._entry.data, **self._entry.options}
+        return merged.get(CONF_DOMAIN_COORDINATORS_ENABLED, False)
+
+    async def async_turn_on(self, **kwargs) -> None:
+        """Enable domain coordinators."""
+        self.hass.config_entries.async_update_entry(
+            self._entry,
+            options={**self._entry.options, CONF_DOMAIN_COORDINATORS_ENABLED: True},
+        )
+        await self.hass.config_entries.async_reload(self._entry.entry_id)
+
+    async def async_turn_off(self, **kwargs) -> None:
+        """Disable domain coordinators."""
+        self.hass.config_entries.async_update_entry(
+            self._entry,
+            options={**self._entry.options, CONF_DOMAIN_COORDINATORS_ENABLED: False},
+        )
+        await self.hass.config_entries.async_reload(self._entry.entry_id)
+
+
+# ============================================================================
+# v3.6.0-c2.4: Per-Coordinator Enable/Disable Toggle
+# ============================================================================
+
+
+class CoordinatorEnabledSwitch(SwitchEntity):
+    """Enable/disable an individual domain coordinator.
+
+    Entity: switch.ura_{coordinator_id}_coordinator_enabled
+    Device: The coordinator's own device
+
+    Stores the enabled state in the CM entry's options. Takes effect
+    on next integration reload.
+    """
+
+    _attr_has_entity_name = True
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        entry: ConfigEntry,
+        coordinator_id: str,
+        conf_key: str,
+        name: str,
+        icon: str,
+        device_id: str,
+        device_name: str,
+        device_model: str,
+    ) -> None:
+        """Initialize."""
+        self.hass = hass
+        self._entry = entry
+        self._coordinator_id = coordinator_id
+        self._conf_key = conf_key
+        self._attr_unique_id = f"{DOMAIN}_{coordinator_id}_coordinator_enabled"
+        self._attr_name = f"Enabled"
+        self._attr_icon = icon
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, device_id)},
+            name=device_name,
+            manufacturer="Universal Room Automation",
+            model=device_model,
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+
+    @property
+    def is_on(self) -> bool:
+        """Return True if this coordinator is enabled."""
+        merged = {**self._entry.data, **self._entry.options}
+        return merged.get(self._conf_key, True)
+
+    async def async_turn_on(self, **kwargs) -> None:
+        """Enable this coordinator."""
+        self.hass.config_entries.async_update_entry(
+            self._entry,
+            options={**self._entry.options, self._conf_key: True},
+        )
+        # Reload the integration entry to re-register the coordinator
+        for ce in self.hass.config_entries.async_entries(DOMAIN):
+            if ce.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_INTEGRATION:
+                await self.hass.config_entries.async_reload(ce.entry_id)
+                break
+
+    async def async_turn_off(self, **kwargs) -> None:
+        """Disable this coordinator."""
+        self.hass.config_entries.async_update_entry(
+            self._entry,
+            options={**self._entry.options, self._conf_key: False},
+        )
+        for ce in self.hass.config_entries.async_entries(DOMAIN):
+            if ce.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_INTEGRATION:
+                await self.hass.config_entries.async_reload(ce.entry_id)
+                break
 
 
 class AutomationSwitch(UniversalRoomEntity, SwitchEntity, RestoreEntity):
