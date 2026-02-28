@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation v3.6.0-c2.8-c2.7-c2.6-c2.5-c2.4-c2.3-c2.2-c0.2
+# Universal Room Automation v3.6.0-c2.9-c2.8-c2.7-c2.6-c2.5-c2.4-c2.3-c2.2-c0.2
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
