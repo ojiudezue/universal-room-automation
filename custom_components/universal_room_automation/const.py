@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "3.6.0-c0.3"
+VERSION: Final = "3.6.0-c0.4"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -774,3 +774,27 @@ CONF_DOMAIN_COORDINATORS_ENABLED: Final = "domain_coordinators_enabled"
 RETENTION_DECISION_LOG: Final = 90
 RETENTION_COMPLIANCE_LOG: Final = 90
 RETENTION_HOUSE_STATE_LOG: Final = 365
+RETENTION_ANOMALY_LOG: Final = 90
+RETENTION_OUTCOME_LOG: Final = 365
+RETENTION_PARAMETER_HISTORY: Final = 365
+
+# v3.6.0-c0.4: Per-coordinator enable/disable config keys
+CONF_PRESENCE_ENABLED: Final = "presence_coordinator_enabled"
+CONF_SAFETY_ENABLED: Final = "safety_coordinator_enabled"
+CONF_SECURITY_ENABLED: Final = "security_coordinator_enabled"
+CONF_ENERGY_ENABLED: Final = "energy_coordinator_enabled"
+CONF_HVAC_ENABLED: Final = "hvac_coordinator_enabled"
+CONF_COMFORT_ENABLED: Final = "comfort_coordinator_enabled"
+
+# Mapping coordinator_id -> config key for enable/disable
+COORDINATOR_ENABLED_KEYS: Final = {
+    "presence": "presence_coordinator_enabled",
+    "safety": "safety_coordinator_enabled",
+    "security": "security_coordinator_enabled",
+    "energy": "energy_coordinator_enabled",
+    "hvac": "hvac_coordinator_enabled",
+    "comfort": "comfort_coordinator_enabled",
+}
+
+# v3.6.0-c0.4: Diagnostics constants
+DIAGNOSTICS_SCOPE_HOUSE: Final = "house"

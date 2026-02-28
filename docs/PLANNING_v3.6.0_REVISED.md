@@ -2,13 +2,14 @@
 
 **Version:** 3.6.0
 **Codename:** "Whole-House Intelligence"
-**Status:** Implementation-Ready
+**Status:** In Progress (C0 complete through v3.6.0-c0.3, C0-diag next)
 **Supersedes:** PLANNING_v3.6.0.md
-**Last Updated:** February 25, 2026
-**Estimated Effort:** 18-24 hours across 8 cycles
-**Prerequisites:** v3.5.2 deployed (DONE - February 25, 2026)
+**Last Updated:** February 28, 2026
+**Estimated Effort:** 22-30 hours across 9 cycles (revised: +C0-diag, +diagnostics per cycle)
+**Prerequisites:** v3.5.3 deployed (DONE - February 25, 2026)
 **Target:** Q2-Q3 2026
-**Codebase Baseline:** v3.5.2, 21 Python modules, 20,644 LOC, 324 tests, 81+ entities/room
+**Codebase Baseline:** v3.6.0-c0.3, 21+ Python modules, ~21,500 LOC, 375 tests, 81+ entities/room
+**Diagnostics Reference:** COORDINATOR_DIAGNOSTICS_FRAMEWORK_v2.md
 
 ---
 
@@ -79,7 +80,7 @@ COORDINATOR MANAGER (Orchestrator)
 │
 └── SHARED SERVICES (not coordinators)
     ├── Notification Manager
-    │   Multi-channel delivery: iMessage, TTS, light patterns
+    │   Multi-channel delivery: Pushover, iMessage, WhatsApp, TTS, light patterns
     ├── Conflict Resolver
     │   Priority arbitration for shared device conflicts
     └── Decision Logger / Compliance Tracker
@@ -140,7 +141,7 @@ SIGNAL_SAFETY_HAZARD = "ura_safety_hazard"
 |---|---|---|---|---|---|---|
 | 0 | **Base Infrastructure** | Shared | BaseCoordinator, CoordinatorManager, ConflictResolver, Intent/Action models | None | N/A | C0 |
 | 1 | **Presence** | Foundation | House state inference (AWAY/HOME/SLEEP/etc.) | None (informational only) | 60 | C1 |
-| 2 | **Safety** | Tier 1 | Environmental hazards: smoke, CO, water, freeze, air quality | Water shutoff (future), ventilation override fans | 100 | C2 |
+| 2 | **Safety** | Tier 1 | Environmental hazards: smoke, CO, water, freeze, air quality | Water shutoff valve (configurable, auto-close on leak), ventilation override fans | 100 | C2 |
 | 3 | **Security** | Tier 2 | Intrusion detection, armed states, entry monitoring | Locks, security camera recording, security alert lights | 80 | C3 |
 | 4 | **Notification Manager** | Shared Service | Multi-channel notification delivery | None (uses HA notify services) | N/A | C4 |
 | 5 | **Energy** | Tier 3 | TOU optimization, battery, solar, load management, generator | Battery storage mode, pool system (all Pentair circuits + VSF pumps), EVSEs, Generac generator | 40 | C5 |
@@ -202,6 +203,8 @@ The Notification Manager is a **shared service, not a coordinator**. It does not
 | **Humidity sensors** | `sensor.*_humidity` | Read by multiple | Not controlled |
 | **CO2/VOC sensors** | `sensor.*_co2`, `sensor.*_tvoc` | Read by multiple | Not controlled |
 | **Occupancy sensors** | `binary_sensor.*_occupancy`, `binary_sensor.*_motion` | Read by multiple | Not controlled |
+| **Weather sensors** | `sensor.outdoor_temperature`, `weather.*` | Read by multiple | Not controlled; used by Energy (baselines, battery strategy) and HVAC (pre-conditioning) |
+| **Garage cameras** | `camera.garage_*` | Energy | Vehicle detection via LLMVision (read frame on motion) |
 | **Person tracking** | Census system (v3.5.x) | Read by multiple | Not controlled |
 
 **Key principle:** Sensors are read by any coordinator that needs them. Only actuators (switches, lights, climate, valves, locks, numbers, selects) have exclusive ownership.
@@ -298,61 +301,143 @@ for device in dr.async_entries_for_config_entry(dev_reg, entry.entry_id):
 
 ---
 
-### Cycle 0: Base Infrastructure
-**Version:** v3.6.0-c0
+### Cycle 0: Base Infrastructure — COMPLETE
+**Version:** v3.6.0-c0 through v3.6.0-c0.3
 **Scope:** Shared framework that all coordinators build on
-**Effort:** 3-4 hours
+**Effort:** ~6 hours (actual, across 4 sub-releases)
 **Dependencies:** v3.5.3 (zone duplication fix)
+**Status:** DEPLOYED (Feb 26-28, 2026)
 
-**What ships:**
-- `BaseCoordinator` abstract class with `async_setup()`, `evaluate()`, trigger registration helpers
-- `CoordinatorManager` with intent queue, priority-ordered processing loop, context building
-- `ConflictResolver` with priority * severity * confidence scoring
-- `Intent` and `CoordinatorAction` data classes (including `ServiceCallAction`, `NotificationAction`, `ConstraintAction`)
-- `HouseState` enum and `HouseStateMachine` with valid transitions and hysteresis
-- `Severity` enum
-- Dispatcher signal constants
-- Config flow addition: `CONF_DOMAIN_COORDINATORS_ENABLED` toggle on the integration entry, plus coordinator selector menu in options flow
-- Database schema additions: `decision_log`, `compliance_log` tables
-- **Device hierarchy:** Coordinator Manager parent device + Zone Manager parent device (see Section 6)
-- **Zone re-parenting:** Existing zone devices updated to `via_device=(DOMAIN, "zone_manager")` instead of `(DOMAIN, "integration")`
-- Coordinator Manager sensor: `sensor.ura_coordinator_manager`
-- House state sensor: `sensor.ura_house_state`
+**What shipped:**
+- [x] `BaseCoordinator` abstract class with `async_setup()`, `evaluate()`, `async_teardown()`, `_enabled` property
+- [x] `CoordinatorManager` with intent queue, priority-ordered processing loop, context building
+- [x] `ConflictResolver` with priority * severity * confidence scoring
+- [x] `Intent` and `CoordinatorAction` data classes (including `ServiceCallAction`, `NotificationAction`, `ConstraintAction`)
+- [x] `HouseState` enum (9 states) and `HouseStateMachine` with valid transitions and hysteresis
+- [x] `Severity` enum with `SEVERITY_FACTORS` multipliers
+- [x] Dispatcher signal constants (`signals.py`)
+- [x] Config flow addition: `CONF_DOMAIN_COORDINATORS_ENABLED` toggle
+- [x] Database schema additions: `decision_log`, `compliance_log`, `house_state_log` tables
+- [x] Coordinator Manager sensor: `sensor.ura_coordinator_manager`
+- [x] House state sensor: `sensor.ura_house_state`
+- [x] Coordinator summary sensor: `sensor.ura_coordinator_summary`
+
+**What shipped in sub-releases (c0.1-c0.3):**
+- [x] c0.1: Camera census discovery and periodic updates
+- [x] c0.2: **Integration page organization** — Zone Manager and Coordinator Manager as separate config entries (not `via_device` hierarchy — see Implementation Note below). Zones migrated to Zone Manager entry. Camera census graceful degradation across 4 platforms (Frigate, UniFi, Reolink, Dahua). Per-camera binary counting. Face recognition from Frigate.
+- [x] c0.3: Fix coordinator entities unavailable — entity registry cleanup for unique_id conflicts during CM migration
+
+**Implementation Note — `via_device` removed:**
+The original plan (and Section 6) specified `via_device` chains for device hierarchy (zones via Zone Manager, Zone Manager via integration, coordinators via Coordinator Manager). In practice, `via_device` caused **duplicate entries** on the HA integration page: zone devices appeared both under their own config entry AND under the parent's entry. The fix (c0.2) was to create Zone Manager and Coordinator Manager as **separate config entries** instead of devices under the integration entry, and to remove all `via_device` references. Each config entry appears as its own collapsible group on the integration page. This achieves the same organizational goal without duplicates.
 
 **New files:**
-| File | Purpose | Est. Lines |
+| File | Purpose | Actual Lines |
 |---|---|---|
 | `domain_coordinators/__init__.py` | Package init | 5 |
-| `domain_coordinators/base.py` | BaseCoordinator, Intent, CoordinatorAction, Severity | 200 |
-| `domain_coordinators/manager.py` | CoordinatorManager, ConflictResolver | 350 |
+| `domain_coordinators/base.py` | BaseCoordinator, Intent, CoordinatorAction, Severity | 225 |
+| `domain_coordinators/manager.py` | CoordinatorManager, ConflictResolver | 452 |
 | `domain_coordinators/house_state.py` | HouseState, HouseStateMachine, transition rules | 200 |
 | `domain_coordinators/signals.py` | Signal constants, shared data classes | 60 |
 
 **Modified files:**
 | File | Change |
 |---|---|
-| `__init__.py` | Initialize CoordinatorManager on integration setup; gate behind config toggle; register Coordinator Manager and Zone Manager devices |
-| `config_flow.py` | Add `CONF_DOMAIN_COORDINATORS_ENABLED` step to integration config flow; add coordinator selector menu to options flow |
-| `const.py` | Add new constants |
-| `database.py` | Add `decision_log` and `compliance_log` table creation |
-| `sensor.py` | Add `CoordinatorManagerSensor`, `HouseStateSensor` |
-| `aggregation.py` | Update zone `DeviceInfo` to use `via_device=(DOMAIN, "zone_manager")` instead of `(DOMAIN, "integration")` |
+| `__init__.py` | CoordinatorManager init, Zone Manager migration, Coordinator Manager migration, entity registry cleanup, separate config entry handlers |
+| `config_flow.py` | `CONF_DOMAIN_COORDINATORS_ENABLED`, zone manager/coordinator manager migration steps, zone setup targets ZM entry |
+| `const.py` | New constants: `ENTRY_TYPE_ZONE_MANAGER`, `ENTRY_TYPE_COORDINATOR_MANAGER`, version |
+| `database.py` | `decision_log`, `compliance_log`, `house_state_log` table creation |
+| `sensor.py` | `CoordinatorManagerSensor`, `HouseStateSensor`, `CoordinatorSummarySensor` (unconditional via CM entry) |
+| `binary_sensor.py` | Zone Manager and Coordinator Manager entry type handlers |
+| `aggregation.py` | Zone Manager sensor setup, removed `via_device` from zone DeviceInfo |
+| `camera_census.py` | Per-platform availability, 4-platform support, face recognition, degraded mode |
+| `music_following.py` | Zone player config lookup checks Zone Manager entry first |
+| `strings.json` | `zone_added` abort reason |
+| `translations/en.json` | `zone_added` abort reason |
 
-**Estimated total lines:** ~830 new, ~100 modified
+**Verification (all passing):**
+- [x] `CoordinatorManager` starts and stops cleanly with HA lifecycle
+- [x] Intent queue processes and drains correctly
+- [x] ConflictResolver selects highest-priority action per device
+- [x] HouseStateMachine enforces valid transitions and hysteresis
+- [x] `sensor.ura_coordinator_manager` shows status
+- [x] `sensor.ura_house_state` shows current state
+- [x] `sensor.ura_coordinator_summary` shows aggregate status
+- [x] Config toggle enables/disables coordinator system
+- [x] Integration page: Zone Manager, Coordinator Manager, rooms as separate groups — no duplicates
+- [x] Camera census degrades gracefully when platforms unavailable
+- [x] 375 tests passing (51+ new)
+
+---
+
+### Cycle 0-diag: Diagnostics Infrastructure — NEXT
+**Version:** v3.6.0-c0.4
+**Scope:** Reusable diagnostics module for all coordinators + coordinator enable/disable
+**Effort:** 3-4 hours
+**Dependencies:** C0 complete
+**Reference:** COORDINATOR_DIAGNOSTICS_FRAMEWORK_v2.md
+
+**Rationale:** Every subsequent coordinator cycle needs diagnostics infrastructure
+(decision logging, compliance tracking, anomaly detection). Building this once
+in a dedicated cycle prevents each coordinator from reinventing it. Also implements
+the coordinator enable/disable requirement.
+
+**Anomaly definition (revised from COORDINATOR_DIAGNOSTICS_FRAMEWORK v1):**
+An anomaly is defined as: *"given historical data, is there a statistically significant
+deviation from normal system behavior?"* This means:
+- Anomalies require a historical baseline (minimum sample size before activation)
+- Detection uses statistical methods (z-scores, Gaussian posteriors), not hardcoded thresholds
+- Sensor disagreements and cross-validation mismatches are NOT anomalies — they are data quality issues
+- This definition directly feeds the Bayesian prediction capstone (v4.0) — same inference engine, different timing
+
+**What ships:**
+- `domain_coordinators/coordinator_diagnostics.py` — reusable diagnostics module
+  - `DecisionLogger` class: logs every coordinator decision to `decision_log` table with scope field
+  - `ComplianceTracker` class: checks commanded vs actual state after 2-min delay, detects overrides
+  - `AnomalyDetector` base class: statistical deviation from historical baselines
+  - `AnomalyRecord` dataclass: timestamp, coordinator_id, anomaly_type, severity ("nominal"/"advisory"/"alert"/"critical"), scope ("house"/"zone:{name}"/"room:{name}"), details, resolution
+  - All DB operations through existing `database.py` pattern (`hass.async_add_executor_job`)
+- `BaseCoordinator` enhancements:
+  - Injected `self.decision_logger`, `self.compliance_tracker`, `self.anomaly_detector`
+  - `get_diagnostics_summary()` method returning situation, compliance rate, anomaly count
+- Database schema additions:
+  - `anomaly_log` table with scope, severity, anomaly_type, details, resolution columns
+  - Add `scope` column to `decision_log` and `compliance_log` tables
+- Coordinator enable/disable infrastructure (see dedicated section below)
+- Cross-cutting diagnostic sensors on Coordinator Manager device:
+  - `sensor.ura_system_anomaly` — worst active anomaly across all coordinators
+  - `sensor.ura_system_compliance` — aggregate compliance rate
+- Consistent sensor state vocabulary:
+  - Severity: "nominal", "advisory", "alert", "critical"
+  - Learning: "insufficient_data", "learning", "active", "paused"
+
+**New files:**
+| File | Purpose | Est. Lines |
+|---|---|---|
+| `domain_coordinators/coordinator_diagnostics.py` | DecisionLogger, ComplianceTracker, AnomalyDetector, AnomalyRecord | 400 |
+
+**Modified files:**
+| File | Change |
+|---|---|
+| `domain_coordinators/base.py` | Add diagnostics attributes, `get_diagnostics_summary()` |
+| `domain_coordinators/manager.py` | Instantiate diagnostics, inject into coordinators, enable/disable methods |
+| `database.py` | `anomaly_log` table, `scope` column on existing tables |
+| `sensor.py` | Add `sensor.ura_system_anomaly`, `sensor.ura_system_compliance` |
+| `config_flow.py` | Per-coordinator enable/disable toggles in CM options flow |
+| `const.py` | Diagnostics constants, enable/disable constants |
+
+**Estimated total lines:** ~400 new, ~150 modified
 
 **Verification:**
-- [ ] `CoordinatorManager` starts and stops cleanly with HA lifecycle
-- [ ] Intent queue processes and drains correctly
-- [ ] ConflictResolver selects highest-priority action per device
-- [ ] HouseStateMachine enforces valid transitions and hysteresis
-- [ ] `sensor.ura_coordinator_manager` shows "running" state
-- [ ] `sensor.ura_house_state` shows initial state (AWAY)
-- [ ] Config toggle enables/disables coordinator system
-- [ ] Zone Manager device appears in integration device list with zone devices as children
-- [ ] Coordinator Manager device appears with no children yet (coordinators ship in later cycles)
-- [ ] Options flow shows coordinator selector menu
-- [ ] 15+ new unit tests passing
-- [ ] All 324 existing tests still pass
+- [ ] DecisionLogger records decisions with scope field
+- [ ] ComplianceTracker detects overrides after 2-min delay
+- [ ] AnomalyDetector reports "insufficient_data" with no history
+- [ ] Enable/disable toggle works from CM options flow
+- [ ] Disabled coordinator: sensors show "disabled", evaluate() skipped, listeners unsubscribed
+- [ ] Re-enabled coordinator: async_setup() called, sensors resume
+- [ ] `sensor.ura_system_anomaly` shows "nominal" when no anomalies
+- [ ] `sensor.ura_system_compliance` shows compliance rate
+- [ ] All 375+ tests still pass
+- [ ] 15+ new tests
 
 ---
 
@@ -360,7 +445,7 @@ for device in dr.async_entries_for_config_entry(dev_reg, entry.entry_id):
 **Version:** v3.6.0-c1
 **Scope:** House state inference from Census + time + activity
 **Effort:** 2-3 hours
-**Dependencies:** C0 (BaseCoordinator, HouseStateMachine)
+**Dependencies:** C0, C0-diag (diagnostics infrastructure)
 
 **What ships:**
 - `PresenceCoordinator` -- subscribes to Census updates, entry sensors, geofence. Infers house state via `StateInferenceEngine`. Publishes `SIGNAL_HOUSE_STATE_CHANGED`.
@@ -385,6 +470,21 @@ for device in dr.async_entries_for_config_entry(dev_reg, entry.entry_id):
 
 **Estimated total lines:** ~400 new, ~120 modified
 
+**Diagnostics (uses C0-diag infrastructure):**
+| Component | Metric | Source | Learning Frequency |
+|---|---|---|---|
+| Decision logging | Every house state transition with scope="house" | DecisionLogger | N/A |
+| Compliance | Census + time agreement with inferred state | ComplianceTracker | N/A |
+| Anomaly | Occupancy count deviates from historical norm for this time/day (e.g., normally 2 people at 7 PM Tuesday but census shows 5) | AnomalyDetector | Daily |
+| Anomaly | House empty at a time it has never been empty historically | AnomalyDetector | Daily |
+| Outcome | `PresenceOutcome`: detection_accuracy, false_positive_rate, platform_agreement_rate | OutcomeMeasurement | Daily |
+
+Minimum data before anomaly activation: 14 days of occupancy history.
+
+Additional presence-specific sensors:
+- `sensor.ura_presence_anomaly` — on Presence device, reports anomaly or "nominal"
+- `sensor.ura_presence_compliance` — on Presence device, compliance rate
+
 **Verification:**
 - [ ] House state transitions correctly: AWAY -> ARRIVING -> HOME_DAY -> HOME_EVENING -> HOME_NIGHT -> SLEEP -> WAKING
 - [ ] Census update with 0 occupants triggers AWAY
@@ -392,6 +492,8 @@ for device in dr.async_entries_for_config_entry(dev_reg, entry.entry_id):
 - [ ] Manual override sets state and expires correctly
 - [ ] Hysteresis prevents rapid oscillation
 - [ ] All sensors update in real-time
+- [ ] Anomaly sensor shows "insufficient_data" initially (no history yet)
+- [ ] Presence can be disabled via CM options without errors
 - [ ] 12+ new tests passing
 
 ---
@@ -400,7 +502,7 @@ for device in dr.async_entries_for_config_entry(dev_reg, entry.entry_id):
 **Version:** v3.6.0-c2
 **Scope:** Environmental hazard detection and response
 **Effort:** 2-3 hours
-**Dependencies:** C0, C1 (house state for context)
+**Dependencies:** C0, C0-diag, C1 (house state for context)
 
 **What ships:**
 - `SafetyCoordinator` (priority 100) -- monitors smoke, CO, water leak, freeze risk, air quality sensors
@@ -408,10 +510,11 @@ for device in dr.async_entries_for_config_entry(dev_reg, entry.entry_id):
 - Numeric sensor monitoring: CO ppm, CO2 ppm, temperature (freeze), humidity
 - Rate-of-change detection for rapid temperature drops (HVAC failure)
 - Severity classification: CRITICAL (smoke, CO >100ppm), HIGH (water leak, freeze <35F), MEDIUM (CO2 >1500ppm), LOW (humidity drift)
-- Response actions: emergency lighting (CRITICAL), HVAC override for freeze (HIGH), ventilation request (MEDIUM)
+- Response actions: emergency lighting (CRITICAL), HVAC override for freeze (HIGH), ventilation request (MEDIUM), **water shutoff on leak (HIGH)**
+- **Water shutoff valve:** Configurable entity (e.g., `valve.main_water`). When configured: auto-close on any water leak detection. When not configured: alert-only. No hardware exists yet but the code path ships now — plug and play when valve is installed.
 - Alert deduplication with per-severity suppression windows
 - Sensors: `sensor.ura_safety_status`, `binary_sensor.ura_safety_alert`, `sensor.ura_safety_diagnostics`
-- Config flow: water shutoff valve entity (optional), emergency light entity selection
+- Config flow: water shutoff valve entity (optional — works without it), emergency light entity selection
 
 **New files:**
 | File | Purpose | Est. Lines |
@@ -431,13 +534,29 @@ for device in dr.async_entries_for_config_entry(dev_reg, entry.entry_id):
 
 **Verification:**
 - [ ] Smoke sensor "on" triggers CRITICAL response within 5 seconds
-- [ ] Water leak triggers HIGH response
+- [ ] Water leak triggers HIGH response + valve close (if configured)
+- [ ] Water leak with no valve configured triggers HIGH alert only (no error)
 - [ ] Temperature below 35F triggers freeze protection (HVAC override)
 - [ ] CO above threshold triggers graded response
 - [ ] Safety actions always win conflict resolution against any other coordinator
 - [ ] Alert deduplication prevents repeat spam
 - [ ] Sensors show active hazard count and status
+- [ ] Safety can be disabled via CM options (though not recommended)
 - [ ] 12+ new tests passing
+
+**Diagnostics (uses C0-diag infrastructure):**
+| Component | Metric | Source | Learning Frequency |
+|---|---|---|---|
+| Decision logging | Every hazard response with scope per room/zone | DecisionLogger | N/A |
+| Compliance | Emergency lighting activated, HVAC override applied | ComplianceTracker | N/A |
+| Anomaly | Sensor trigger frequency deviates from historical norm (e.g., smoke detector triggers more than historical baseline) | AnomalyDetector | Monthly |
+| Outcome | `SafetyOutcome`: false_alarm_rate, response_time_seconds, hazard_resolution_time | OutcomeMeasurement | Monthly |
+
+Minimum data before anomaly activation: 30 days (safety events are rare).
+
+Additional safety-specific sensors:
+- `sensor.ura_safety_anomaly` — on Safety device
+- `sensor.ura_safety_compliance` — on Safety device
 
 ---
 
@@ -445,7 +564,7 @@ for device in dr.async_entries_for_config_entry(dev_reg, entry.entry_id):
 **Version:** v3.6.0-c3
 **Scope:** Intrusion detection, armed states, entry monitoring
 **Effort:** 2-3 hours
-**Dependencies:** C0, C1 (house state drives armed state), C2 (Safety can trigger EMERGENCY)
+**Dependencies:** C0, C0-diag, C1 (house state drives armed state), C2 (Safety can trigger EMERGENCY)
 
 **What ships:**
 - `SecurityCoordinator` (priority 80) -- manages armed states (DISARMED/HOME/AWAY/VACATION)
@@ -486,7 +605,23 @@ for device in dr.async_entries_for_config_entry(dev_reg, entry.entry_id):
 - [ ] Security lights flash on intrusion
 - [ ] Manual arm/disarm services work
 - [ ] Guest authorization with expiry works
+- [ ] Security can be disabled via CM options without affecting other coordinators
 - [ ] 15+ new tests passing
+
+**Diagnostics (uses C0-diag infrastructure):**
+| Component | Metric | Source | Learning Frequency |
+|---|---|---|---|
+| Decision logging | Every armed state transition, alert dispatch, camera trigger | DecisionLogger | N/A |
+| Compliance | Locks engaged after arm, cameras recording on alert | ComplianceTracker | N/A |
+| Anomaly | Door/window activity deviates from historical pattern (e.g., front door opens at 3 AM when it has never opened 1-5 AM historically) | AnomalyDetector | Monthly |
+| Anomaly | Motion in rooms historically inactive at this hour | AnomalyDetector | Monthly |
+| Outcome | `SecurityOutcome`: false_alarm_rate, response_time, alert_acknowledgment_rate | OutcomeMeasurement | Monthly |
+
+Minimum data before anomaly activation: 30 days (security baselines are slow to establish).
+
+Additional security-specific sensors:
+- `sensor.ura_security_anomaly` — on Security device
+- `sensor.ura_security_compliance` — on Security device
 
 ---
 
@@ -498,14 +633,18 @@ for device in dr.async_entries_for_config_entry(dev_reg, entry.entry_id):
 
 **What ships:**
 - `NotificationManager` shared service -- severity-based routing, channel dispatch
-- iMessage channel (via existing Pushover/notify service): CRITICAL + HIGH + MEDIUM
+- **Messaging channels (configurable, all optional):**
+  - Pushover channel: CRITICAL + HIGH + MEDIUM (existing integration, reliable for urgent alerts)
+  - iMessage channel: CRITICAL + HIGH + MEDIUM (via existing notify service)
+  - WhatsApp channel: CRITICAL + HIGH + MEDIUM (via WhatsApp integration — newly available)
+  - Each channel independently configurable with severity routing. Users can enable any combination.
 - Speaker channel (TTS via WiiM media players): CRITICAL + HIGH
 - Light pattern channel (visual alerts): all severities via configured alert lights
 - Quiet hours enforcement (configurable, overridden by CRITICAL)
 - Deduplication: identical messages suppressed within configurable windows
 - Rate limiting: max notifications per hour per channel
 - Notification history sensor: `sensor.ura_notification_history`
-- Config flow: quiet hours, recipient selection, TTS speaker entities, alert light entities
+- Config flow: quiet hours, messaging channel selection (Pushover/iMessage/WhatsApp — multi-select), recipient entities per channel, TTS speaker entities, alert light entities
 
 **New files:**
 | File | Purpose | Est. Lines |
@@ -523,8 +662,9 @@ for device in dr.async_entries_for_config_entry(dev_reg, entry.entry_id):
 **Estimated total lines:** ~350 new, ~80 modified
 
 **Verification:**
-- [ ] CRITICAL notification reaches all channels, overrides quiet hours
-- [ ] MEDIUM notification goes to iMessage only, respects quiet hours
+- [ ] CRITICAL notification reaches all configured channels, overrides quiet hours
+- [ ] MEDIUM notification goes to configured messaging channels only, respects quiet hours
+- [ ] Each messaging channel (Pushover/iMessage/WhatsApp) can be independently enabled/disabled
 - [ ] Deduplication suppresses repeat messages within window
 - [ ] Rate limiting caps notifications per hour
 - [ ] Quiet hours suppress non-critical notifications
@@ -544,12 +684,15 @@ for device in dr.async_entries_for_config_entry(dev_reg, entry.entry_id):
 - **TOU awareness:** Three-season PEC rate schedule (summer/winter/shoulder), configurable via options flow. Not hardcoded.
 - **Battery strategy:** Self-consumption, savings (TOU arbitrage), or backup mode selection based on TOU period, SOC, solar forecast. Controls `select.enpower_*_storage_mode`, reserve level, grid interaction switches.
 - **Solar forecast integration:** Reads Solcast sensors for day classification (excellent/good/moderate/poor/very_poor). Adjusts battery aggressiveness.
+- **Weather integration:** Reads configured weather sensor entities (outdoor temp, humidity, wind, forecast conditions). Used for: (a) battery strategy — pre-charge before storms when solar will drop, (b) HVAC governance — publish weather context in `SIGNAL_ENERGY_CONSTRAINT` so HVAC can pre-cool before extreme heat, (c) energy anomaly detection — consumption normalized against outdoor temperature for accurate baselines. Weather sensors already exist (multiple capable sensors in the home); this is a read-only integration, not a new hardware dependency.
 - **Pool optimization:** Tiered approach per ENERGY_COORDINATOR_DESIGN_v2.3:
   - Tier 1: VSF speed reduction (75 GPM -> 30 GPM = 94% power savings during peak)
   - Tier 2: Circuit shedding (infinity edge, booster pump off during peak)
   - Tier 3: Full shutdown (emergency only, <4hr for chemistry)
 - **EV charging:** Defer to off-peak. Simple on/off via `switch.garage_a/b`.
+- **Vehicle presence detection:** Uses garage cameras + LLMVision integration to determine which vehicles are home. Implementation: (a) configure garage camera entities in options flow, (b) on motion event (person detection or garage door state change), wait 3-5 minutes for scene to settle, (c) call LLMVision to describe what is in frame or count cars. No dedicated vehicle detection model needed — LLM vision describes the scene. Result stored as `sensor.ura_vehicles_home` (count) with attributes listing which bays are occupied. Used by Energy Coordinator for: EV charging decisions (only charge when vehicle is home), departure prediction (vehicle leaves = reduce pre-conditioning), load shedding (no EV to charge = skip that tier).
 - **Generator monitoring:** Read Generac status. During outage, adjust load shedding to stay within 22kW capacity.
+- **SPAN panel monitoring (read-only):** Reads per-circuit power consumption from SPAN panel entities for anomaly detection. Builds per-circuit consumption baselines by time-of-day and day-of-week. Detects circuit-level anomalies (appliance malfunction, phantom load, unusual usage). **Note:** Circuit-level load shedding via SPAN (turning circuits on/off) is deferred to a future cycle — this cycle is monitoring and anomaly detection only.
 - **Load shedding priority:** Configurable ordered list. Default: pool speed reduction > EV pause > infinity edge off > pool heater off > HVAC setback > non-essential circuits.
 - **HVAC governance:** Publishes `HVACConstraints` via `SIGNAL_ENERGY_CONSTRAINT`:
   - `mode`: normal | pre_cool | coast | shed
@@ -558,8 +701,8 @@ for device in dr.async_entries_for_config_entry(dev_reg, entry.entry_id):
   - `max_runtime_minutes`: int | null
   - `fan_assist`: bool (request Comfort turn on ceiling fans)
 - **Decision cycle:** Runs every 5 minutes + on TOU transitions + on significant solar/grid changes.
-- Sensors: `sensor.ura_energy_situation`, `sensor.ura_tou_period`, `sensor.ura_battery_strategy`, `binary_sensor.ura_load_shedding_active`, `sensor.ura_energy_savings_today`
-- Config flow: TOU rate schedule, battery priority, controllable load list, reserve SOC target, generator entity mapping
+- Sensors: `sensor.ura_energy_situation`, `sensor.ura_tou_period`, `sensor.ura_battery_strategy`, `binary_sensor.ura_load_shedding_active`, `sensor.ura_energy_savings_today`, `sensor.ura_vehicles_home`
+- Config flow: TOU rate schedule, battery priority, controllable load list, reserve SOC target, generator entity mapping, garage camera entities (for vehicle detection), weather sensor entity
 
 **New files:**
 | File | Purpose | Est. Lines |
@@ -586,8 +729,30 @@ for device in dr.async_entries_for_config_entry(dev_reg, entry.entry_id):
 - [ ] Load shedding activates when grid import exceeds threshold
 - [ ] Solar forecast influences battery charge target
 - [ ] Generator monitoring logs outage events
+- [ ] Vehicle detection via LLMVision returns car count after garage motion
+- [ ] EV charging skips when no vehicle present
+- [ ] Weather data feeds into battery strategy (pre-charge before storm)
 - [ ] Energy savings sensor tracks daily savings
+- [ ] Energy can be disabled; battery reverts to Enphase default behavior
 - [ ] 20+ new tests passing
+
+**Diagnostics (uses C0-diag infrastructure):**
+| Component | Metric | Source | Learning Frequency |
+|---|---|---|---|
+| Decision logging | Every battery mode change, load shed, pool speed change with full TOU/SOC/solar context | DecisionLogger | N/A |
+| Compliance | Battery actually followed mode command, HVAC respected setback, pool pump at commanded speed | ComplianceTracker | N/A |
+| Anomaly | Consumption deviates from historical norm per TOU period + day type + occupancy level (e.g., 40% more than usual for Tuesday peak with 2 people home) | AnomalyDetector | Weekly |
+| Anomaly | Solar production deviates from Solcast forecast beyond historical error margin | AnomalyDetector | Weekly |
+| Anomaly | Battery SOC trajectory differs from learned charge/discharge pattern | AnomalyDetector | Weekly |
+| Anomaly | Per-circuit consumption (SPAN) deviates from historical norm — detects appliance malfunction, phantom loads, or unusual usage patterns at the circuit level | AnomalyDetector | Weekly |
+| Outcome | `EnergyOutcome`: import_kwh, export_kwh, savings_vs_baseline, solar_forecast_error_pct, comfort_violations | OutcomeMeasurement | Per TOU period |
+
+Minimum data before anomaly activation: 14 days of energy history.
+
+Additional energy-specific sensors:
+- `sensor.ura_energy_anomaly` — on Energy device
+- `sensor.ura_energy_compliance` — on Energy device
+- `sensor.ura_energy_effectiveness` — daily savings trend
 
 ---
 
@@ -614,6 +779,7 @@ for device in dr.async_entries_for_config_entry(dev_reg, entry.entry_id):
 - **Sleep protection:** During SLEEP house state, maximum setpoint offset is configurable (default +/-1.5F).
 - **Staggered heat calls:** Priority-based zone activation with configurable max simultaneous zones (default 3) and stagger delay (default 60s).
 - **Comfort request handling:** Listens for `SIGNAL_COMFORT_REQUEST` from Comfort Coordinator, adjusts zone if within energy bounds.
+- **Weather-aware pre-conditioning:** Reads outdoor temperature from Energy Coordinator's weather context (published via `SIGNAL_ENERGY_CONSTRAINT`). When forecast high exceeds threshold, initiates pre-cool before peak TOU period. When forecast low drops near freeze, initiates pre-heat before off-peak ends.
 - Sensors: `sensor.ura_hvac_mode`, `sensor.ura_hvac_zone_{n}_status` (x3)
 - Config flow: zone-to-room mapping, max setback, sleep offset limit, stagger settings
 
@@ -641,7 +807,24 @@ for device in dr.async_entries_for_config_entry(dev_reg, entry.entry_id):
 - [ ] Zone with higher occupancy gets priority in staggered calls
 - [ ] Comfort request honored when within energy bounds
 - [ ] Comfort request denied when energy constraint active
+- [ ] Pre-cool triggers before peak when forecast high exceeds threshold
+- [ ] HVAC can be disabled via CM options
 - [ ] 15+ new tests passing
+
+**Diagnostics (uses C0-diag infrastructure):**
+| Component | Metric | Source | Learning Frequency |
+|---|---|---|---|
+| Decision logging | Every stagger decision, preset change, energy constraint response | DecisionLogger | N/A |
+| Compliance | Zones respected stagger delays, presets applied correctly | ComplianceTracker | N/A |
+| Anomaly | Zone call frequency deviates from historical norm (e.g., zone calling 3x more than normal — possible insulation issue) | AnomalyDetector | Weekly |
+| Anomaly | Short cycling rate above historical baseline | AnomalyDetector | Weekly |
+| Outcome | `HVACOutcome`: simultaneous_call_reduction_pct, zone_satisfaction_rate, cycle_efficiency | OutcomeMeasurement | Daily |
+
+Minimum data before anomaly activation: 14 days.
+
+Additional HVAC-specific sensors:
+- `sensor.ura_hvac_anomaly` — on HVAC device
+- `sensor.ura_hvac_compliance` — on HVAC device
 
 ---
 
@@ -696,150 +879,162 @@ for device in dr.async_entries_for_config_entry(dev_reg, entry.entry_id):
 - [ ] HVAC request published when local devices insufficient
 - [ ] Energy constraint reduces comfort device usage
 - [ ] Bottleneck sensor shows correct worst room
+- [ ] Comfort can be disabled via CM options
 - [ ] 15+ new tests passing
+
+**Diagnostics (uses C0-diag infrastructure):**
+| Component | Metric | Source | Learning Frequency |
+|---|---|---|---|
+| Decision logging | Every comfort evaluation, fan activation, circadian adjustment | DecisionLogger | N/A |
+| Compliance | HVAC setpoints match comfort targets, fans at commanded speeds | ComplianceTracker | N/A |
+| Anomaly | Comfort scores deviate from seasonal historical norms (e.g., 5 points below normal for February evenings) | AnomalyDetector | Weekly |
+| Anomaly | Specific room comfort persistently below historical average (drift detection) | AnomalyDetector | Weekly |
+| Outcome | `ComfortOutcome`: average_score, violation_count, bottleneck_duration_minutes | OutcomeMeasurement | Daily |
+
+Minimum data before anomaly activation: 14 days.
+
+Additional comfort-specific sensors:
+- `sensor.ura_comfort_anomaly` — on Comfort device
+- `sensor.ura_comfort_compliance` — on Comfort device
 
 ---
 
 ### Cycle Summary
 
-| Cycle | Version | Coordinator | New Lines | Modified Lines | New Tests | Hours |
-|---|---|---|---|---|---|---|
-| C0 | v3.6.0-c0 | Base Infrastructure | ~815 | ~80 | 15+ | 3-4 |
-| C1 | v3.6.0-c1 | Presence | ~400 | ~120 | 12+ | 2-3 |
-| C2 | v3.6.0-c2 | Safety | ~400 | ~100 | 12+ | 2-3 |
-| C3 | v3.6.0-c3 | Security | ~500 | ~120 | 15+ | 2-3 |
-| C4 | v3.6.0-c4 | Notification Manager | ~350 | ~80 | 8+ | 1.5-2 |
-| C5 | v3.6.0-c5 | Energy | ~700 | ~150 | 20+ | 3-4 |
-| C6 | v3.6.0-c6 | HVAC | ~500 | ~120 | 15+ | 2-3 |
-| C7 | v3.6.0-c7 | Comfort | ~500 | ~120 | 15+ | 2-3 |
-| **Total** | | | **~4,165** | **~890** | **112+** | **18-24** |
+| Cycle | Version | Coordinator | New Lines | Modified Lines | New Tests | Hours | Status |
+|---|---|---|---|---|---|---|---|
+| C0 | v3.6.0-c0 thru c0.3 | Base Infrastructure | ~940 | ~600 | 51+ | ~6 | DONE |
+| C0-diag | v3.6.0-c0.4 | Diagnostics Infrastructure | ~400 | ~150 | 15+ | 3-4 | NEXT |
+| C1 | v3.6.0-c1 | Presence | ~400 | ~120 | 12+ | 2-3 | Planning |
+| C2 | v3.6.0-c2 | Safety | ~400 | ~100 | 12+ | 2-3 | Planning |
+| C3 | v3.6.0-c3 | Security | ~500 | ~120 | 15+ | 2-3 | Planning |
+| C4 | v3.6.0-c4 | Notification Manager | ~350 | ~80 | 8+ | 1.5-2 | Planning |
+| C5 | v3.6.0-c5 | Energy | ~700 | ~150 | 20+ | 3-4 | Planning |
+| C6 | v3.6.0-c6 | HVAC | ~500 | ~120 | 15+ | 2-3 | Planning |
+| C7 | v3.6.0-c7 | Comfort | ~500 | ~120 | 15+ | 2-3 | Planning |
+| **Total** | | | **~4,690** | **~1,560** | **163+** | **22-30** | |
 
-Post-v3.6.0 test count: 324 + 112 = **436+ tests**
+Current test count: 375 (C0 complete)
+Post-v3.6.0 target test count: 375 + 112 = **487+ tests**
 
 ---
 
 ## 6. UI PLAN
 
-### Device Hierarchy
+### Device Hierarchy — Separate Config Entries (Revised in C0.2)
 
-The integration's device list is getting large (Whole House + 5 zones + 20+ rooms). Adding 7+ coordinator devices flat would make it unwieldy. We use HA's `via_device` hierarchy to group related devices under parent devices.
+**IMPORTANT: `via_device` approach abandoned.** The original plan used `via_device` chains
+to create parent-child device hierarchy. In practice, this caused **duplicate entries** on
+the HA integration page: zone devices appeared both under their own config entry AND under
+the parent's entry. The C0.2 fix was to create Zone Manager and Coordinator Manager as
+**separate config entries** (not devices under the integration entry) and remove all
+`via_device` references.
 
-**Full device hierarchy after v3.6.0:**
+**Integration page layout after v3.6.0:**
 
 ```
-Universal Room Automation (integration page)
+Universal Room Automation (integration page — collapsible groups)
 │
-├── Universal Room Automation              ← Whole House device (census, transit, perimeter entities)
-│   model: "Whole House"
-│   identifiers: (DOMAIN, "integration")
+├── [Universal Room Automation]            ← Integration config entry group
+│   └── Universal Room Automation          ← Whole House device (census, transit, perimeter entities)
+│       model: "Whole House"
+│       identifiers: (DOMAIN, "integration")
 │
-├── URA: Zone Manager                      ← NEW parent for zone devices
-│   model: "Zone Manager"
-│   identifiers: (DOMAIN, "zone_manager")
-│   via_device: (DOMAIN, "integration")
-│   entities: none (grouping device only)
-│   │
-│   ├── Zone: Back Hallway                 ← existing zone device, re-parented
-│   │   identifiers: (DOMAIN, "zone_back_hallway")
-│   │   via_device: (DOMAIN, "zone_manager")       ← CHANGED from "integration"
-│   │
-│   ├── Zone: Entertainment
-│   ├── Zone: Master Suite
-│   ├── Zone: Outside
-│   └── Zone: Upstairs
+├── [Zone Manager]                         ← Separate config entry group (ENTRY_TYPE_ZONE_MANAGER)
+│   └── URA: Zone Manager                 ← Zone Manager device (zone sensors/entities live here)
+│       model: "Zone Manager"
+│       identifiers: (DOMAIN, "zone_manager")
+│       (Zone sensors created per zone from ZM entry options data)
 │
-├── URA: Coordinator Manager               ← NEW parent for coordinator devices
-│   model: "Coordinator Manager"
-│   identifiers: (DOMAIN, "coordinator_manager")
-│   via_device: (DOMAIN, "integration")
-│   entities: sensor.ura_coordinator_summary, sensor.ura_house_state
+├── [Coordinator Manager]                  ← Separate config entry group (ENTRY_TYPE_COORDINATOR_MANAGER)
+│   ├── URA: Coordinator Manager           ← CM device
+│   │   entities: sensor.ura_coordinator_manager, sensor.ura_house_state,
+│   │             sensor.ura_coordinator_summary, sensor.ura_system_anomaly (C0-diag),
+│   │             sensor.ura_system_compliance (C0-diag)
 │   │
-│   ├── URA: Presence                      ← child coordinator device
-│   │   identifiers: (DOMAIN, "coordinator_presence")
-│   │   via_device: (DOMAIN, "coordinator_manager")
+│   ├── URA: Presence                      ← child coordinator device (C1)
 │   │   entities: select.ura_house_state_override, sensor.ura_house_state_confidence,
 │   │             binary_sensor.ura_house_occupied, binary_sensor.ura_house_sleeping,
-│   │             binary_sensor.ura_guest_mode
+│   │             binary_sensor.ura_guest_mode,
+│   │             sensor.ura_presence_anomaly, sensor.ura_presence_compliance (diagnostic)
 │   │
-│   ├── URA: Safety
+│   ├── URA: Safety                        ← (C2)
 │   │   entities: sensor.ura_safety_status, binary_sensor.ura_safety_alert,
-│   │             sensor.ura_safety_diagnostics (diagnostic)
+│   │             sensor.ura_safety_anomaly, sensor.ura_safety_compliance (diagnostic)
 │   │
-│   ├── URA: Security
-│   │   entities: select.ura_armed_state, sensor.ura_security_status,
-│   │             binary_sensor.ura_security_alert, sensor.ura_security_diagnostics (diagnostic)
+│   ├── URA: Security                      ← (C3)
+│   │   entities: select.ura_armed_state, sensor.ura_security_armed_state,
+│   │             binary_sensor.ura_security_alert, sensor.ura_security_last_entry,
+│   │             sensor.ura_security_anomaly, sensor.ura_security_compliance (diagnostic)
 │   │
-│   ├── URA: Notifications
+│   ├── URA: Notifications                 ← (C4)
 │   │   entities: sensor.ura_notification_history (diagnostic)
 │   │
-│   ├── URA: Energy
+│   ├── URA: Energy                        ← (C5)
 │   │   entities: sensor.ura_energy_situation, sensor.ura_tou_period,
 │   │             sensor.ura_battery_strategy, binary_sensor.ura_load_shedding_active,
-│   │             sensor.ura_energy_savings_today, sensor.ura_energy_diagnostics (diagnostic)
+│   │             sensor.ura_energy_savings_today,
+│   │             sensor.ura_energy_anomaly, sensor.ura_energy_compliance,
+│   │             sensor.ura_energy_effectiveness (diagnostic)
 │   │
-│   ├── URA: HVAC
-│   │   entities: sensor.ura_hvac_mode, sensor.ura_hvac_zone_1_status (diagnostic),
-│   │             sensor.ura_hvac_zone_2_status (diagnostic), sensor.ura_hvac_zone_3_status (diagnostic)
+│   ├── URA: HVAC                          ← (C6)
+│   │   entities: sensor.ura_hvac_mode, sensor.ura_hvac_zone_1_status,
+│   │             sensor.ura_hvac_zone_2_status, sensor.ura_hvac_zone_3_status,
+│   │             sensor.ura_hvac_anomaly, sensor.ura_hvac_compliance (diagnostic)
 │   │
-│   └── URA: Comfort
+│   └── URA: Comfort                       ← (C7)
 │       entities: sensor.ura_comfort_score, sensor.ura_comfort_bottleneck,
-│                 sensor.ura_comfort_diagnostics (diagnostic)
+│                 sensor.ura_comfort_anomaly, sensor.ura_comfort_compliance (diagnostic)
 │
-└── (Room devices — one per room config entry, unchanged)
-    ├── Kitchen (81+ entities)
-    ├── Living Room
-    ├── Master Bedroom
+└── (Room config entries — one per room, each its own collapsible group)
+    ├── [Kitchen] → Kitchen device (81+ entities)
+    ├── [Living Room]
+    ├── [Master Bedroom]
     └── ...
 ```
 
-**DeviceInfo patterns:**
+**DeviceInfo patterns (no `via_device`):**
 
 ```python
-# Zone Manager (new parent device — ships in C0)
+# Zone Manager device — created under Zone Manager config entry
 DeviceInfo(
     identifiers={(DOMAIN, "zone_manager")},
     name="URA: Zone Manager",
     manufacturer="Universal Room Automation",
     model="Zone Manager",
     sw_version=VERSION,
-    via_device=(DOMAIN, "integration"),
+    # NO via_device — lives under its own config entry
 )
 
-# Zone devices (existing — update via_device from "integration" to "zone_manager")
-DeviceInfo(
-    identifiers={(DOMAIN, f"zone_{zone}")},
-    name=f"Zone: {zone.title()}",
-    manufacturer="Universal Room Automation",
-    model="Zone",
-    sw_version=VERSION,
-    via_device=(DOMAIN, "zone_manager"),  # CHANGED from (DOMAIN, "integration")
-)
+# Zone sensors — created as entities on Zone Manager device (not separate zone devices)
 
-# Coordinator Manager (new parent device — ships in C0)
+# Coordinator Manager device — created under Coordinator Manager config entry
 DeviceInfo(
     identifiers={(DOMAIN, "coordinator_manager")},
     name="URA: Coordinator Manager",
     manufacturer="Universal Room Automation",
     model="Coordinator Manager",
     sw_version=VERSION,
-    via_device=(DOMAIN, "integration"),
+    # NO via_device — lives under its own config entry
 )
 
-# Individual coordinator devices (each ships in its own cycle)
+# Individual coordinator devices — via_device to CM is safe here because they share
+# the same config entry (Coordinator Manager), so no duplicate display issue
 DeviceInfo(
     identifiers={(DOMAIN, f"coordinator_{name}")},
     name=f"URA: {name.title()}",
     manufacturer="Universal Room Automation",
     model="Domain Coordinator",
     sw_version=VERSION,
-    via_device=(DOMAIN, "coordinator_manager"),
+    via_device=(DOMAIN, "coordinator_manager"),  # OK: same config entry
 )
 ```
 
-**Lifecycle rules:**
+**Lifecycle rules (revised):**
+- Zone Manager and Coordinator Manager are separate config entries created during integration setup migration
 - A coordinator device is only created when that coordinator is configured and enabled. Unconfigured coordinators have no device and no entities.
-- If a coordinator is later disabled, its device and entities are removed on next reload.
-- The Zone Manager device is always created (zones always exist). The Coordinator Manager device is created when `CONF_DOMAIN_COORDINATORS_ENABLED` is true.
+- If a coordinator is **disabled** (not deleted), its device and sensors **remain** in HA but sensors show state "disabled". This allows re-enabling without reconfiguration.
+- If a coordinator is **never configured**, no device or entities are created at all.
 
 ### Config Flow for Coordinators
 
@@ -870,7 +1065,7 @@ Selecting a coordinator opens its specific config sub-flow. This is implemented 
 | Presence | "Presence Settings" | Sleep start/end time, geofence device tracker entity |
 | Safety | "Safety Monitoring" | Water shutoff entity (optional), emergency light entities |
 | Security | "Security Settings" | Entry point entities, motion sensors, camera entities, geofence radius |
-| Notification | "Notification Settings" | Quiet hours start/end, notify service name, TTS speaker entities, alert light entities |
+| Notification | "Notification Settings" | Quiet hours start/end, messaging channels (Pushover/iMessage/WhatsApp — multi-select), per-channel recipients, TTS speaker entities, alert light entities |
 | Energy | "Energy Management" | TOU rate schedule (season, periods, rates), battery priority, controllable loads list, reserve SOC, generator entity |
 | HVAC | "HVAC Zones" | Zone-to-room mapping (3 zones), max setback, sleep offset, stagger settings |
 | Comfort | "Comfort Preferences" | Person preferences (per person: cool/heat setpoints, sensitivity), ceiling fan entity mapping, circadian light entities, comfort weights |
@@ -977,6 +1172,59 @@ The options flow provides an "Add Person" / "Edit Person" sub-flow under Comfort
 
 ---
 
+## 6B. COORDINATOR ENABLE/DISABLE
+
+**Requirement:** Any coordinator can be turned off completely without deleting it.
+
+**Architecture:**
+```
+Authority:  CoordinatorManager (single source of truth)
+Storage:    CM config entry options — CONF_{ID}_ENABLED (default: True for configured coordinators)
+Runtime:    BaseCoordinator._enabled property (set by Manager on startup and on config change)
+```
+
+**Why Manager is authority (not each coordinator independently):**
+- Single config location (CM entry options) instead of scattered per-coordinator config
+- Manager can enforce ordering (e.g., don't disable Presence if Security depends on it — warn user)
+- Centralized logging of enable/disable events via DecisionLogger
+- No synchronization problem — one source of truth
+
+**Lifecycle when disabling:**
+1. User toggles coordinator off in Coordinator Manager options flow
+2. Manager calls `coordinator.async_teardown()` — unsubscribes all listeners
+3. Manager sets `coordinator.enabled = False`
+4. On next intent batch, `_async_process_batch` skips disabled coordinators (already implemented in manager.py)
+5. Coordinator's sensors report state = "disabled"
+6. Decision/compliance/anomaly logging stops for that coordinator
+7. Coordinator **remains registered** — device and sensors stay in HA
+8. Other coordinators continue operating normally
+
+**Lifecycle when re-enabling:**
+1. User toggles coordinator on in options flow
+2. Manager calls `coordinator.async_setup()` — re-subscribes listeners
+3. Manager sets `coordinator.enabled = True`
+4. Sensors resume reporting actual values
+5. Logging resumes
+
+**UI:** Per-coordinator toggle in the Coordinator Manager options flow menu:
+```
+┌─────────────────────────────────────┐
+│  Configure Domain Coordinators      │
+│                                     │
+│  Presence:  [enabled] / disabled    │
+│  Safety:    [enabled] / disabled    │
+│  Security:  [enabled] / disabled    │
+│  Energy:    [enabled] / disabled    │
+│  HVAC:      [enabled] / disabled    │
+│  Comfort:   [enabled] / disabled    │
+│                                     │
+│  [Select to configure]              │
+│  [Next]                             │
+└─────────────────────────────────────┘
+```
+
+---
+
 ## 7. ANSWERS TO CRITICAL DESIGN QUESTIONS
 
 From DESIGN_QUESTIONS_SUMMARY.md (24 questions). Architecture-affecting questions are answered below. User-preference questions that require Oji's input are marked DEFERRED.
@@ -1007,11 +1255,27 @@ From DESIGN_QUESTIONS_SUMMARY.md (24 questions). Architecture-affecting question
 **Q24: Conflict Resolution Philosophy**
 **Answer:** Safety (1) > Security (2) > Energy (3) > HVAC (4) > Comfort (5). This is the priority order encoded in the ConflictResolver. The ranking reflects: life > property > cost > comfort.
 
-### Deferred (Require User Input)
+### Answered (Feb 28, 2026)
+
+**Q4: Water Shutoff Valve**
+**Answer:** No hardware yet, but ship the code path now as configurable. Safety Coordinator config flow includes an optional `valve.main_water` entity selector. When configured: auto-close on any water leak detection (HIGH severity). When not configured: alert-only, no error. This is plug-and-play — install the valve later, configure the entity, and auto-close activates immediately.
+
+**Q19: Messaging Channels**
+**Answer:** Three messaging channels available — Pushover, iMessage, and WhatsApp (newly available integration). All optional, independently configurable with severity routing. Users can enable any combination. Config flow provides multi-select for channel enablement and per-channel recipient configuration.
+
+**Q-new: Vehicle Tracking**
+**Answer:** Include in Energy Coordinator (C5). Uses garage cameras + LLMVision integration — no dedicated vehicle detection needed. On garage motion event (person detection or door state change), wait 3-5 min for scene to settle, then call LLMVision to describe the frame / count cars. Result drives EV charging decisions (only charge when vehicle present), departure prediction, and load shedding skip logic. Config flow: garage camera entity selector.
+
+**Q-new: Weather Integration**
+**Answer:** Include in Energy Coordinator (C5) — read-only from existing weather sensor entities. Not a prediction difficulty concern; it was deferred because the original plan was cautious about scope. Multiple capable weather sensors already exist in the home. Weather data feeds into: (a) battery strategy — pre-charge before storms, (b) HVAC governance — outdoor temp context in energy constraints, (c) energy anomaly detection — consumption normalized against outdoor temp. HVAC Coordinator (C6) also consumes weather context from Energy's published constraints for pre-cool/pre-heat decisions.
+
+**Q-new: SPAN Panel**
+**Answer:** Split approach. **Monitoring for anomaly detection ships in C5 (Energy).** SPAN per-circuit consumption data is read-only, builds per-circuit baselines by time/day, detects circuit-level anomalies (appliance malfunction, phantom loads, unusual usage patterns). **Circuit-level load shedding (turning circuits on/off via SPAN)** is deferred to post-v3.6.0 — requires more hardware testing and careful safety review.
+
+### Remaining Deferred (Require User Input or Future Hardware)
 
 | # | Question | Why Deferred | When Needed |
 |---|---|---|---|
-| Q4 | Water shutoff valve | Hardware-dependent; design accommodates it | C2 (Safety) - optional entity |
 | Q5 | Smoke detector integration | Hardware-dependent | C2 (Safety) - auto-discovers available sensors |
 | Q6 | Emergency lighting pattern | User preference | C2 (Safety) - configurable, default: all lights 100% |
 | Q8 | Smart lock integration | Hardware-dependent | C3 (Security) - auto-discovers lock entities |
@@ -1024,7 +1288,6 @@ From DESIGN_QUESTIONS_SUMMARY.md (24 questions). Architecture-affecting question
 | Q16 | Zone-to-room mapping | Home-specific | C6 (HVAC) - configurable via options flow |
 | Q17 | HVAC pre-conditioning timing | User preference | C6 (HVAC) - configurable, default: on geofence trigger |
 | Q18 | Temperature setback limits | User preference | C6 (HVAC) - configurable, default: +/-4F |
-| Q19 | iMessage recipients | Private | C4 (Notification) - configurable |
 | Q20 | TTS speaker entities | Environment-dependent | C4 (Notification) - configurable entity list |
 | Q21 | Light alert entities | Environment-dependent | C4 (Notification) - configurable entity list |
 
@@ -1038,19 +1301,23 @@ Explicit exclusions to prevent scope creep:
 
 | Exclusion | Rationale | When/Where |
 |---|---|---|
-| **Bayesian parameter learning** | Documented in COORDINATOR_DIAGNOSTICS_FRAMEWORK.md but requires 30+ days of data. Ship the logging infrastructure in C0; learning ships in v4.0.0. | v4.0.0 |
-| **Pattern analysis (weekly/monthly)** | Same as above -- needs data first. Decision logging and compliance tracking ship now; analysis ships later. | v4.0.0 |
-| **Outcome measurement** | Requires baseline period. Ship logging now; measurement after 30 days of data. | v4.0.0 |
-| **Vehicle tracking / departure prediction** | Documented in ENERGY_COORDINATOR_DESIGN_v2.3 as optional. Out of scope for v3.6.0. | Future |
+| **Bayesian parameter learning (auto-tuning)** | Requires 30+ days of data per coordinator. Anomaly detection infrastructure and outcome measurement ship in C0-diag + each coordinator cycle; the auto-tuning/learning layer that adjusts coordinator parameters ships in v4.0.0. | v4.0.0 |
+| **Pattern analysis (weekly/monthly reports)** | Aggregated pattern reports (override heatmaps, anomaly trends) require data accumulation. Decision logging, compliance tracking, and anomaly detection ship now; pattern reporting ships later. | v4.0.0 |
 | **Direct generator start/stop** | Monitor and load-manage only. Direct control requires hardware verification. | Future |
-| **Water shutoff auto-close** | Affordance built in Safety (entity config), but auto-close policy requires user confirmation of hardware. | User decision |
 | **AI-powered custom automation** | v3.4.0 scope (Claude API parsing). Ships after v3.6.0. | v3.4.0 |
 | **2D visual mapping** | v4.5.0 scope. | v4.5.0 |
 | **New per-room entities from coordinators** | Coordinators create house-level and zone-level sensors only. No additional per-room entities beyond the existing 81+. | By design |
 | **Custom Lovelace cards** | Use standard HA entities and auto-entities cards. No custom frontend code. | By design |
 | **Vacation mode auto-detection** | The HouseStateMachine allows manual VACATION or auto-detection after 2 days AWAY. Full auto-detection (calendar integration, etc.) is deferred. | v4.0.0 |
-| **Weather integration for HVAC** | Pre-cool based on forecast temperature is a future enhancement for HVAC Coordinator. | Post-v3.6.0 |
-| **SPAN panel circuit-level control** | Energy Coordinator monitors SPAN data but does not shed individual circuits (beyond EVSEs which have dedicated entities). Full SPAN integration is future. | Post-v3.6.0 |
+| **SPAN panel circuit-level shedding** | Energy Coordinator reads SPAN per-circuit data for anomaly detection (ships in C5). **Turning circuits on/off via SPAN** requires hardware testing and safety review. | Post-v3.6.0 |
+
+**Items moved from exclusions to included (Feb 28 update):**
+| Item | Now Ships In | Rationale |
+|---|---|---|
+| Vehicle tracking | C5 (Energy) | LLMVision + garage cameras makes this simple — describe frame, count cars. No dedicated model needed. |
+| Weather integration | C5 (Energy) + C6 (HVAC) | Read-only from existing sensors. Critical for accurate energy baselines and HVAC pre-conditioning. |
+| Water shutoff | C2 (Safety) | Ships as configurable — code path ready, entity optional. Plug-and-play when hardware installed. |
+| SPAN monitoring | C5 (Energy) | Read-only per-circuit baselines for anomaly detection. Control deferred. |
 
 ---
 
@@ -1083,19 +1350,20 @@ custom_components/universal_room_automation/
 ├── transit_validator.py           (unchanged)
 ├── transitions.py                 (unchanged)
 │
-└── domain_coordinators/           (NEW directory)
+└── domain_coordinators/           (NEW directory — base files shipped in C0)
     ├── __init__.py                (package init)
-    ├── base.py                    (BaseCoordinator, Intent, CoordinatorAction, Severity)
-    ├── manager.py                 (CoordinatorManager, ConflictResolver)
-    ├── house_state.py             (HouseState, HouseStateMachine)
-    ├── signals.py                 (Signal constants, shared data classes)
-    ├── presence.py                (PresenceCoordinator)
-    ├── safety.py                  (SafetyCoordinator)
-    ├── security.py                (SecurityCoordinator)
-    ├── notification_manager.py    (NotificationManager)
-    ├── energy.py                  (EnergyCoordinator)
-    ├── hvac.py                    (HVACCoordinator)
-    └── comfort.py                 (ComfortCoordinator)
+    ├── base.py                    (BaseCoordinator, Intent, CoordinatorAction, Severity) — C0
+    ├── manager.py                 (CoordinatorManager, ConflictResolver) — C0
+    ├── house_state.py             (HouseState, HouseStateMachine) — C0
+    ├── signals.py                 (Signal constants, shared data classes) — C0
+    ├── coordinator_diagnostics.py (DecisionLogger, ComplianceTracker, AnomalyDetector) — C0-diag
+    ├── presence.py                (PresenceCoordinator) — C1
+    ├── safety.py                  (SafetyCoordinator) — C2
+    ├── security.py                (SecurityCoordinator) — C3
+    ├── notification_manager.py    (NotificationManager) — C4
+    ├── energy.py                  (EnergyCoordinator) — C5
+    ├── hvac.py                    (HVACCoordinator) — C6
+    └── comfort.py                 (ComfortCoordinator) — C7
 ```
 
 **New Python modules:** 12
@@ -1164,7 +1432,29 @@ CREATE TABLE IF NOT EXISTS house_state_log (
 CREATE INDEX IF NOT EXISTS idx_house_state_timestamp ON house_state_log(timestamp);
 ```
 
-Retention: `decision_log` and `compliance_log` pruned at 90 days. `house_state_log` retained for 1 year (feeds v4.0.0 pattern learning).
+-- Added in C0-diag: Anomaly detection log
+CREATE TABLE IF NOT EXISTS anomaly_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp TEXT NOT NULL,
+    coordinator_id TEXT NOT NULL,
+    anomaly_type TEXT NOT NULL,
+    severity TEXT NOT NULL,            -- nominal, advisory, alert, critical
+    scope TEXT NOT NULL,               -- house, zone:{name}, room:{name}
+    details_json TEXT NOT NULL,
+    resolution TEXT,                   -- auto_resolved, manual_ack, NULL (open)
+    resolved_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_anomaly_timestamp ON anomaly_log(timestamp);
+CREATE INDEX IF NOT EXISTS idx_anomaly_coordinator ON anomaly_log(coordinator_id);
+CREATE INDEX IF NOT EXISTS idx_anomaly_severity ON anomaly_log(severity);
+
+-- Added in C0-diag: scope column on existing tables
+ALTER TABLE decision_log ADD COLUMN scope TEXT DEFAULT 'house';
+ALTER TABLE compliance_log ADD COLUMN scope TEXT DEFAULT 'house';
+```
+
+Retention: `decision_log` and `compliance_log` pruned at 90 days. `anomaly_log` pruned at 90 days. `house_state_log` retained for 1 year (feeds v4.0.0 pattern learning).
 
 ---
 
@@ -1193,6 +1483,7 @@ Retention: `decision_log` and `compliance_log` pruned at 90 days. `house_state_l
 | C5 | `sensor.ura_battery_strategy` | sensor | primary |
 | C5 | `binary_sensor.ura_load_shedding_active` | binary_sensor | primary |
 | C5 | `sensor.ura_energy_savings_today` | sensor | primary |
+| C5 | `sensor.ura_vehicles_home` | sensor | primary |
 | C6 | `sensor.ura_hvac_mode` | sensor | primary |
 | C6 | `sensor.ura_hvac_zone_1_status` | sensor | diagnostic |
 | C6 | `sensor.ura_hvac_zone_2_status` | sensor | diagnostic |
@@ -1200,14 +1491,43 @@ Retention: `decision_log` and `compliance_log` pruned at 90 days. `house_state_l
 | C7 | `sensor.ura_comfort_score` | sensor | primary |
 | C7 | `sensor.ura_comfort_bottleneck` | sensor | primary |
 
-**Total new entities:** 25 (house-level, not per-room)
+| C0-diag | `sensor.ura_system_anomaly` | sensor | diagnostic |
+| C0-diag | `sensor.ura_system_compliance` | sensor | diagnostic |
+| C1 | `sensor.ura_presence_anomaly` | sensor | diagnostic |
+| C1 | `sensor.ura_presence_compliance` | sensor | diagnostic |
+| C2 | `sensor.ura_safety_anomaly` | sensor | diagnostic |
+| C2 | `sensor.ura_safety_compliance` | sensor | diagnostic |
+| C3 | `sensor.ura_security_anomaly` | sensor | diagnostic |
+| C3 | `sensor.ura_security_compliance` | sensor | diagnostic |
+| C5 | `sensor.ura_energy_anomaly` | sensor | diagnostic |
+| C5 | `sensor.ura_energy_compliance` | sensor | diagnostic |
+| C5 | `sensor.ura_energy_effectiveness` | sensor | diagnostic |
+| C6 | `sensor.ura_hvac_anomaly` | sensor | diagnostic |
+| C6 | `sensor.ura_hvac_compliance` | sensor | diagnostic |
+| C7 | `sensor.ura_comfort_anomaly` | sensor | diagnostic |
+| C7 | `sensor.ura_comfort_compliance` | sensor | diagnostic |
+
+**Total new entities:** 41 (26 primary + 15 diagnostic, all house-level, not per-room)
 **Post-v3.6.0 entities per room:** 81+ (unchanged)
-**Post-v3.6.0 house-level entities:** 25 new + existing aggregation sensors
+**Post-v3.6.0 house-level entities:** 41 new + existing aggregation sensors
 
 ---
 
 **PLANNING v3.6.0 REVISED**
-**Status:** Implementation-ready
+**Status:** In Progress (C0 complete, C0-diag next)
 **Supersedes:** PLANNING_v3.6.0.md
-**Next step:** Begin Cycle 0 (Base Infrastructure) after 1-2 weeks v3.5.2 production validation
-**Estimated completion:** Q3 2026
+**Last Updated:** February 28, 2026
+**Next step:** Implement Cycle 0-diag (Diagnostics Infrastructure)
+**Estimated completion:** Q2-Q3 2026
+**Changes from previous revision (Feb 25):**
+- C0 marked COMPLETE (v3.6.0-c0 through c0.3 deployed)
+- `via_device` approach abandoned; replaced with separate config entries (Section 6 rewritten)
+- C0-diag cycle inserted between C0 and C1 for diagnostics infrastructure
+- Diagnostics section added to every coordinator cycle (C1-C7)
+- Coordinator enable/disable architecture defined (Section 6B)
+- Anomaly definition constrained: statistical deviation from historical baselines only
+- Entity summary updated with 15 new diagnostic sensors across all coordinators
+- DB schema updated with `anomaly_log` table and `scope` column
+- Effort estimate revised: 22-30 hours (up from 18-24)
+- Bayesian auto-tuning remains deferred to v4.0; anomaly detection infrastructure ships in v3.6.0
+- Reference: COORDINATOR_DIAGNOSTICS_FRAMEWORK_v2.md for detailed diagnostics spec

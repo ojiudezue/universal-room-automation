@@ -13,7 +13,7 @@ from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.event import async_call_later
 from homeassistant.util import dt as dt_util
 
-from ..const import DOMAIN, VERSION
+from ..const import COORDINATOR_ENABLED_KEYS, DOMAIN, VERSION
 from .base import (
     ActionType,
     BaseCoordinator,
@@ -22,6 +22,12 @@ from .base import (
     Severity,
     ServiceCallAction,
     SEVERITY_FACTORS,
+)
+from .coordinator_diagnostics import (
+    AnomalyDetector,
+    AnomalySeverity,
+    ComplianceTracker,
+    DecisionLogger,
 )
 from .house_state import HouseState, HouseStateMachine
 
@@ -130,6 +136,10 @@ class CoordinatorManager:
         self._decisions_today: int = 0
         self._last_reset_date: str = ""
 
+        # v3.6.0-c0.4: Shared diagnostics components
+        self._decision_logger = DecisionLogger(hass)
+        self._compliance_tracker = ComplianceTracker(hass)
+
     @property
     def device_info(self) -> DeviceInfo:
         """Return device info for the Coordinator Manager device."""
@@ -183,8 +193,13 @@ class CoordinatorManager:
             self._last_reset_date = today
 
     def register_coordinator(self, coordinator: BaseCoordinator) -> None:
-        """Register a domain coordinator."""
+        """Register a domain coordinator and inject diagnostics."""
         self._coordinators[coordinator.coordinator_id] = coordinator
+
+        # v3.6.0-c0.4: Inject shared diagnostics components
+        coordinator.decision_logger = self._decision_logger
+        coordinator.compliance_tracker = self._compliance_tracker
+
         _LOGGER.info(
             "Registered coordinator: %s (priority=%d)",
             coordinator.coordinator_id,
@@ -449,3 +464,144 @@ class CoordinatorManager:
         if not self._coordinators:
             return "running (no coordinators)"
         return "running"
+
+    # =========================================================================
+    # v3.6.0-c0.4: Enable/Disable Coordinators
+    # =========================================================================
+
+    async def async_set_coordinator_enabled(
+        self,
+        coordinator_id: str,
+        enabled: bool,
+    ) -> bool:
+        """Enable or disable a coordinator.
+
+        When disabling: sets _enabled=False, cancels listeners, sensors show 'disabled'.
+        When enabling: sets _enabled=True, calls async_setup() to re-register.
+        """
+        coordinator = self._coordinators.get(coordinator_id)
+        if coordinator is None:
+            _LOGGER.warning(
+                "Cannot enable/disable unknown coordinator: %s",
+                coordinator_id,
+            )
+            return False
+
+        if enabled == coordinator.enabled:
+            return True  # No change needed
+
+        if enabled:
+            coordinator.enabled = True
+            try:
+                await coordinator.async_setup()
+                _LOGGER.info("Coordinator %s re-enabled", coordinator_id)
+            except Exception:
+                _LOGGER.exception(
+                    "Error re-enabling coordinator %s", coordinator_id
+                )
+                coordinator.enabled = False
+                return False
+        else:
+            coordinator.enabled = False
+            coordinator._cancel_listeners()
+            _LOGGER.info("Coordinator %s disabled", coordinator_id)
+
+        return True
+
+    def get_coordinator_status(self, coordinator_id: str) -> dict:
+        """Get status for a specific coordinator."""
+        coordinator = self._coordinators.get(coordinator_id)
+        if coordinator is None:
+            return {"status": "not_registered"}
+
+        return {
+            "status": "enabled" if coordinator.enabled else "disabled",
+            "coordinator_id": coordinator_id,
+            "name": coordinator.name,
+            "priority": coordinator.priority,
+        }
+
+    # =========================================================================
+    # v3.6.0-c0.4: Diagnostics Aggregation
+    # =========================================================================
+
+    @property
+    def decision_logger(self) -> DecisionLogger:
+        """Return the shared decision logger."""
+        return self._decision_logger
+
+    @property
+    def compliance_tracker(self) -> ComplianceTracker:
+        """Return the shared compliance tracker."""
+        return self._compliance_tracker
+
+    def get_system_anomaly_status(self) -> dict[str, Any]:
+        """Get aggregated anomaly status across all coordinators."""
+        self._maybe_reset_daily_counters()
+
+        worst_severity = AnomalySeverity.NOMINAL
+        total_active = 0
+        total_today = 0
+        worst_coordinator = ""
+        worst_metric = ""
+        learning_status: dict[str, str] = {}
+        coordinators_with_anomalies: list[str] = []
+
+        severity_order = {
+            AnomalySeverity.NOMINAL: 0,
+            AnomalySeverity.ADVISORY: 1,
+            AnomalySeverity.ALERT: 2,
+            AnomalySeverity.CRITICAL: 3,
+        }
+
+        for coord_id, coordinator in self._coordinators.items():
+            if coordinator.anomaly_detector is None:
+                learning_status[coord_id] = "not_configured"
+                continue
+
+            detector = coordinator.anomaly_detector
+            status = detector.get_learning_status()
+            learning_status[coord_id] = status
+
+            summary = detector.get_status_summary()
+            active = summary.get("active_anomalies", 0)
+            today = summary.get("anomalies_today", 0)
+            total_active += active
+            total_today += today
+
+            if active > 0:
+                coordinators_with_anomalies.append(coord_id)
+
+            coord_severity = detector.get_worst_severity()
+            if severity_order.get(coord_severity, 0) > severity_order.get(
+                worst_severity, 0
+            ):
+                worst_severity = coord_severity
+                worst_coordinator = coord_id
+                metric_name, _z = detector.get_worst_metric()
+                worst_metric = metric_name
+
+        return {
+            "state": worst_severity.value,
+            "active_anomalies": total_active,
+            "anomalies_today": total_today,
+            "worst_severity": worst_severity.value,
+            "worst_coordinator": worst_coordinator,
+            "worst_metric": worst_metric,
+            "coordinators_with_anomalies": coordinators_with_anomalies,
+            "learning_status": learning_status,
+        }
+
+    def get_diagnostics_summary(self) -> dict[str, Any]:
+        """Get full diagnostics summary across all coordinators."""
+        summary: dict[str, Any] = {
+            "system_anomaly": self.get_system_anomaly_status(),
+            "coordinators": {},
+        }
+
+        for coord_id, coordinator in self._coordinators.items():
+            summary["coordinators"][coord_id] = (
+                coordinator.get_diagnostics_summary()
+            )
+
+        return summary
