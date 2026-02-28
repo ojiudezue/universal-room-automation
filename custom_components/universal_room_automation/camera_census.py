@@ -1,6 +1,6 @@
 """Camera integration and person census for Universal Room Automation v3.5.0."""
 #
-# Universal Room Automation v3.6.0-c2.3-c2.2-c0.2
+# Universal Room Automation v3.6.0-c2.4-c2.3-c2.2-c0.2
 # Build: 2026-02-23
 # File: camera_census.py
 # Cycle 3: Camera Integration & Census Core
@@ -598,6 +598,22 @@ class PersonCensus:
             house_result.confidence,
             property_result.total_persons,
             total_on_property,
+        )
+
+        # v3.6.0-c2.3: Dispatch census signal for PresenceCoordinator.
+        # Without this, _census_count stays 0 and house state is always "away".
+        from homeassistant.helpers.dispatcher import async_dispatcher_send
+        from .domain_coordinators.signals import SIGNAL_CENSUS_UPDATED
+        async_dispatcher_send(
+            self.hass,
+            SIGNAL_CENSUS_UPDATED,
+            {
+                "interior_count": house_result.total_persons,
+                "identified_count": house_result.identified_count,
+                "unidentified_count": house_result.unidentified_count,
+                "property_count": property_result.total_persons,
+                "total_on_property": total_on_property,
+            },
         )
 
         return result
