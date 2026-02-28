@@ -1,6 +1,6 @@
 """Select platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.6.0-c2.9.2-c2.9.1-c2.10-c2.9-c2.8-c2.7-c2.6-c2.5-c2.4-c2.3-c2.2-c1
+# Universal Room Automation v3.6.0-c2.9.3-c2.9.2-c2.9.1-c2.10-c2.9-c2.8-c2.7-c2.6-c2.5-c2.4-c2.3-c2.2-c1
 # File: select.py
 # v3.6.0-c1: Added house state override and zone presence mode selects
 #
