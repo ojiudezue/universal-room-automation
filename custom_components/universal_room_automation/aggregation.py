@@ -3818,7 +3818,7 @@ class ZonePresenceStatusSensor(ZoneSensorBase, SensorEntity):
         super().__init__(hass, entry, zone)
         zone_slug = zone.lower().replace(" ", "_")
         self._attr_unique_id = f"{DOMAIN}_zone_{zone_slug}_presence_status"
-        self._attr_name = "Presence Status"
+        self._attr_name = "Zone Presence Status"
 
     @property
     def native_value(self) -> str:
