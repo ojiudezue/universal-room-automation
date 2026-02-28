@@ -1,7 +1,7 @@
 # Universal Room Automation (URA)
 
 [![Home Assistant](https://img.shields.io/badge/Home%20Assistant-Integration-blue.svg)](https://www.home-assistant.io/)
-[![Version](https://img.shields.io/badge/version-3.3.5.3-green.svg)](https://github.com/ojiudezue/universal-room-automation)
+[![Version](https://img.shields.io/badge/version-3.6.0--c2.6-green.svg)](https://github.com/ojiudezue/universal-room-automation)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 **Advanced Home Assistant integration for event-driven, person-aware whole-house automation**
@@ -15,11 +15,12 @@ Universal Room Automation (URA) is a sophisticated Home Assistant custom integra
 - 🏃 **Event-Driven Architecture** - 2-5 second response time (not polling)
 - 👥 **Multi-Person Tracking** - BLE-based presence detection (Bermuda integration)
 - 🏠 **Zone Coordination** - Whole-house aggregation and intelligence
-- 📊 **74+ Entities Per Room** - Comprehensive automation control
+- 📊 **112 Entity Classes** - Comprehensive automation control across 6 platforms
 - 🎵 **Music Following** - Cross-room media player coordination
 - 🔋 **Energy Tracking** - SQLite-based data collection
-- 🧪 **178+ Tests** - Comprehensive test coverage
-- 🎯 **Production Ready** - Stable v3.3.5.3 deployed
+- 🛡️ **Domain Coordinators** - House-level Presence and Safety coordination
+- 🧪 **590+ Tests** - Comprehensive test coverage
+- 🎯 **Production Ready** - v3.6.0-c2.6 deployed
 
 ## 📦 What's Included
 
@@ -36,14 +37,21 @@ Universal Room Automation (URA) is a sophisticated Home Assistant custom integra
 
 ```
 Integration (Parent Entry)
-    ├── Zone Entries (e.g., Upstairs, Downstairs)
-    │   ├── Room Entries (e.g., Living Room, Bedroom)
-    │   │   ├── 74+ Entities
-    │   │   ├── Person Tracking
-    │   │   ├── Environmental Monitoring
-    │   │   └── Automation Engine
-    │   └── Zone Aggregation
-    └── Whole-House Coordination
+    ├── Coordinator Manager
+    │   ├── Presence Coordinator (house state, zone presence)
+    │   └── Safety Coordinator (12 hazard types, emergency response)
+    ├── Zone Manager
+    │   └── Zone Devices (e.g., Upstairs, Downstairs)
+    │       ├── Zone Aggregation Sensors
+    │       └── Zone Presence Status
+    ├── Room Entries (e.g., Living Room, Bedroom)
+    │   ├── 74+ Entities per room
+    │   ├── Person Tracking
+    │   ├── Environmental Monitoring
+    │   └── Automation Engine
+    └── Whole-House Device
+        ├── Domain Coordinators Toggle
+        └── House State Override
 ```
 
 ## 🚀 Installation
@@ -75,9 +83,16 @@ Comprehensive documentation is available in the [`docs/`](docs/) folder:
 - **[CURRENT_STATE.md](docs/CURRENT_STATE.md)** - Current development status
 - **[QUALITY_CONTEXT.md](docs/QUALITY_CONTEXT.md)** - Quality standards and best practices
 
+### Release Notes
+
+Detailed per-milestone READMEs are in [`docs/readmes/`](docs/readmes/):
+- **[v3.6.0-c2.6](docs/readmes/README_v3.6.0-c2.6.md)** - Safety Coordinator + bug fixes (latest)
+- **[v3.6.0-c1](docs/readmes/README_v3.6.0-c1.md)** - Presence Coordinator
+- **[v3.6.0-c0](docs/readmes/README_v3.6.0-c0.md)** - Domain coordinator base infrastructure
+
 ### Planning Documents
 
-- **[v3.5.0 Camera Intelligence](docs/PLANNING_v3_5_0_Camera_Intelligence.md)** - Next major release (Q2 2026)
+- **[v3.5.0 Camera Intelligence](docs/PLANNING_v3_5_0_Camera_Intelligence.md)** - Camera person counting
 - **[v3.4.0 AI Custom Automation](docs/PLANNING_v3.4.0.md)** - Natural language customization
 - **[v3.6.0 Domain Coordinators](docs/PLANNING_v3.6.0.md)** - Security, energy, comfort coordination
 
@@ -110,17 +125,20 @@ After installation, add the integration through the UI:
 
 ## 🎯 Current Status
 
-**Production Version:** v3.3.5.3 (Stable)  
-**Development Focus:** v3.3.x.x bug fixes → v3.5.0 Camera Intelligence  
-**Test Coverage:** 178+ passing tests  
+**Production Version:** v3.6.0-c2.6
+**Development Focus:** v3.6.0 Domain Coordinators (Presence + Safety)
+**Test Coverage:** 590+ passing tests
 **Response Time:** 2-5 seconds (event-driven)
+**Codebase:** ~28,500 lines across 29 Python modules
 
-### Recent Updates (v3.3.5.x)
+### Recent Updates (v3.6.0)
 
-- ✅ Music transition logic refinements
-- ✅ Zone management improvements
-- ✅ Person tracking enhancements
-- ✅ BLE room-level precision tuning
+- ✅ Domain Coordinator framework (base, manager, diagnostics)
+- ✅ Presence Coordinator — house state inference, zone presence tracking
+- ✅ Safety Coordinator — 12 hazard types, environmental monitoring
+- ✅ Per-coordinator toggle switches
+- ✅ Camera census integration for person counting
+- ✅ Zone Manager migration (consolidated zone config)
 
 ## 🛠️ Development
 
@@ -136,12 +154,12 @@ See [`quality/DEVELOPMENT_CHECKLIST.md`](quality/DEVELOPMENT_CHECKLIST.md) for:
 
 ```bash
 # Run all tests
-pytest tests/
+pytest quality/tests/
 
 # Run with coverage
-pytest tests/ --cov=custom_components/universal_room_automation
+pytest quality/tests/ --cov=custom_components/universal_room_automation
 
-# Expected: 178+ passing tests
+# Expected: 590+ passing tests
 ```
 
 ### Contributing
@@ -155,12 +173,14 @@ This is currently a personal project, but contributions are welcome! Please:
 
 ## 📊 Project Stats
 
-- **Version:** v3.3.5.3
-- **Lines of Code:** ~500KB across 22 modules
-- **Test Coverage:** 178+ tests
-- **Documentation:** ~36,000 words
+- **Version:** v3.6.0-c2.6
+- **Lines of Code:** ~28,500 across 29 modules
+- **Entity Classes:** 112 (71 sensor, 20 binary_sensor, 8 switch, 6 button, 4 number, 3 select)
+- **Test Coverage:** 590+ tests across 14 test files
+- **Domain Coordinators:** 2 (Presence, Safety) + base framework
+- **Config Entry Types:** 5 (Integration, Room, Zone, Zone Manager, Coordinator Manager)
 - **Development Time:** 18+ months
-- **Architecture Evolution:** v2.0 → v3.3.5.3
+- **Architecture Evolution:** v2.0 → v3.6.0-c2.6
 
 ## 🗺️ Roadmap
 
