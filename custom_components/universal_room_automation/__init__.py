@@ -770,32 +770,64 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if merged_config.get(CONF_DOMAIN_COORDINATORS_ENABLED, False):
             try:
                 from .domain_coordinators.manager import CoordinatorManager
+                from .const import (
+                    CONF_SLEEP_START_HOUR,
+                    CONF_SLEEP_END_HOUR,
+                    CONF_GEOFENCE_ENTITIES,
+                    CONF_WATER_SHUTOFF_VALVE,
+                    CONF_EMERGENCY_LIGHT_ENTITIES,
+                    CONF_PRESENCE_ENABLED,
+                    CONF_SAFETY_ENABLED,
+                    DEFAULT_SLEEP_START_HOUR,
+                    DEFAULT_SLEEP_END_HOUR,
+                )
+
+                # v3.6.0-c2.1: Read coordinator settings from CM entry options.
+                # Settings are stored in the CM entry by the coordinator config steps.
+                # Fall back to integration merged_config for backward compatibility.
+                cm_config: dict = {}
+                for ce in hass.config_entries.async_entries(DOMAIN):
+                    if ce.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_COORDINATOR_MANAGER:
+                        cm_config = {**ce.data, **ce.options}
+                        break
 
                 coordinator_manager = CoordinatorManager(hass)
 
                 # v3.6.0-c1: Register Presence Coordinator
-                from .domain_coordinators.presence import PresenceCoordinator
-                from .const import (
-                    CONF_SLEEP_START_HOUR,
-                    CONF_SLEEP_END_HOUR,
-                    DEFAULT_SLEEP_START_HOUR,
-                    DEFAULT_SLEEP_END_HOUR,
-                )
-                presence = PresenceCoordinator(
-                    hass,
-                    sleep_start_hour=merged_config.get(
-                        CONF_SLEEP_START_HOUR, DEFAULT_SLEEP_START_HOUR
-                    ),
-                    sleep_end_hour=merged_config.get(
-                        CONF_SLEEP_END_HOUR, DEFAULT_SLEEP_END_HOUR
-                    ),
-                )
-                coordinator_manager.register_coordinator(presence)
+                if cm_config.get(CONF_PRESENCE_ENABLED, True):
+                    from .domain_coordinators.presence import PresenceCoordinator
+                    presence = PresenceCoordinator(
+                        hass,
+                        sleep_start_hour=int(cm_config.get(
+                            CONF_SLEEP_START_HOUR,
+                            merged_config.get(
+                                CONF_SLEEP_START_HOUR, DEFAULT_SLEEP_START_HOUR
+                            ),
+                        )),
+                        sleep_end_hour=int(cm_config.get(
+                            CONF_SLEEP_END_HOUR,
+                            merged_config.get(
+                                CONF_SLEEP_END_HOUR, DEFAULT_SLEEP_END_HOUR
+                            ),
+                        )),
+                    )
+                    coordinator_manager.register_coordinator(presence)
+                else:
+                    _LOGGER.info("Presence Coordinator disabled via config")
 
                 # v3.6.0-c2: Register Safety Coordinator
-                from .domain_coordinators.safety import SafetyCoordinator
-                safety = SafetyCoordinator(hass)
-                coordinator_manager.register_coordinator(safety)
+                if cm_config.get(CONF_SAFETY_ENABLED, True):
+                    from .domain_coordinators.safety import SafetyCoordinator
+                    safety = SafetyCoordinator(
+                        hass,
+                        water_shutoff_valve=cm_config.get(CONF_WATER_SHUTOFF_VALVE),
+                        emergency_lights=cm_config.get(
+                            CONF_EMERGENCY_LIGHT_ENTITIES, []
+                        ),
+                    )
+                    coordinator_manager.register_coordinator(safety)
+                else:
+                    _LOGGER.info("Safety Coordinator disabled via config")
 
                 await coordinator_manager.async_start()
                 hass.data[DOMAIN]["coordinator_manager"] = coordinator_manager
