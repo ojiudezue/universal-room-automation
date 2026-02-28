@@ -1,6 +1,6 @@
 """Config flow for Universal Room Automation v3.3.3."""
 #
-# Universal Room Automation v3.6.0-c2.3-c2.2-c0.1-c0
+# Universal Room Automation v3.6.0-c2.4-c2.3-c2.2-c0.1-c0
 # Build: 2026-01-05
 # File: config_flow.py
 # v3.3.3: Added manage_zones to integration options menu
@@ -1258,7 +1258,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
     
     def _get_zone_entry(self):
         """Get the zone entry being configured (v3.3.3).
-        
+
         Returns the selected zone entry if called from integration menu,
         or the current config entry if it's a zone entry itself.
         """
@@ -1267,6 +1267,33 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         if self._config_entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_ZONE:
             return self._config_entry
         return None
+
+    def _get_zm_zone_data(self) -> tuple | None:
+        """Get zone data from Zone Manager entry by _selected_zone_name.
+
+        v3.6.0-c2.3: Zones migrated from separate entries to ZM entry's zones dict.
+        Returns (zm_entry, zone_name, zone_data) or None.
+        """
+        zone_name = getattr(self, "_selected_zone_name", None)
+        if not zone_name:
+            return None
+
+        # Find ZM entry
+        zm_entry = None
+        if self._config_entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_ZONE_MANAGER:
+            zm_entry = self._config_entry
+        else:
+            for ce in self.hass.config_entries.async_entries(DOMAIN):
+                if ce.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_ZONE_MANAGER:
+                    zm_entry = ce
+                    break
+        if not zm_entry:
+            return None
+
+        merged = {**zm_entry.data, **zm_entry.options}
+        zones = merged.get("zones", {})
+        zone_data = zones.get(zone_name, {})
+        return (zm_entry, zone_name, zone_data)
 
     async def async_step_init(self, user_input=None):
         """Show appropriate menu based on entry type."""
@@ -1976,11 +2003,17 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         )
 
     async def async_step_zone_config_menu(self, user_input=None):
-        """Show zone configuration submenu after selecting a zone (v3.3.3)."""
-        zone_entry = self._get_zone_entry()
-        if not zone_entry:
-            return self.async_abort(reason="zone_not_found")
-        
+        """Show zone configuration submenu after selecting a zone (v3.3.3).
+
+        v3.6.0-c2.3: Support zones stored in Zone Manager entry (not legacy
+        zone entries). Uses _selected_zone_name when available.
+        """
+        # v3.6.0-c2.3: Allow routing via _selected_zone_name (ZM flow)
+        if not getattr(self, "_selected_zone_name", None):
+            zone_entry = self._get_zone_entry()
+            if not zone_entry:
+                return self.async_abort(reason="zone_not_found")
+
         return self.async_show_menu(
             step_id="zone_config_menu",
             menu_options=[
@@ -1994,17 +2027,40 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
     # =========================================================================
 
     async def async_step_zone_rooms(self, user_input=None):
-        """Reconfigure zone - update name and rooms."""
-        # v3.3.3: Get zone entry (selected from integration menu or direct zone entry)
-        zone_entry = self._get_zone_entry()
-        if not zone_entry:
+        """Reconfigure zone - update name and rooms.
+
+        v3.6.0-c2.3: Supports both legacy zone entries and ZM-stored zones.
+        """
+        # v3.6.0-c2.3: Try ZM flow first (zones stored in Zone Manager entry)
+        zm_result = self._get_zm_zone_data()
+        zone_entry = None if zm_result else self._get_zone_entry()
+        if not zm_result and not zone_entry:
             return self.async_abort(reason="zone_not_found")
-        
+
+        if zm_result:
+            zm_entry, orig_zone_name, zone_data = zm_result
+            current_zone_name = orig_zone_name
+            current_zone_desc = zone_data.get(CONF_ZONE_DESCRIPTION, "")
+            current_zone_rooms = zone_data.get(CONF_ZONE_ROOMS, [])
+        else:
+            orig_zone_name = (
+                zone_entry.data.get(CONF_ZONE_NAME)
+                or zone_entry.options.get(CONF_ZONE_NAME, "")
+            ).strip()
+            current_zone_name = zone_entry.options.get(
+                CONF_ZONE_NAME, zone_entry.data.get(CONF_ZONE_NAME, "")
+            )
+            current_zone_desc = zone_entry.options.get(
+                CONF_ZONE_DESCRIPTION, zone_entry.data.get(CONF_ZONE_DESCRIPTION, "")
+            )
+            current_zone_rooms = zone_entry.options.get(
+                CONF_ZONE_ROOMS, zone_entry.data.get(CONF_ZONE_ROOMS, [])
+            )
+
         if user_input is not None:
             zone_name = user_input.get(CONF_ZONE_NAME, "").strip()
             selected_rooms = user_input.get(CONF_ZONE_ROOMS, [])
-            # v3.5.3: Capture old zone name before update for rename cleanup
-            old_zone_name = (zone_entry.data.get(CONF_ZONE_NAME) or zone_entry.options.get(CONF_ZONE_NAME, "")).strip()
+            old_zone_name = orig_zone_name if zm_result else current_zone_name
 
             # Update each selected room's zone assignment
             for room_entry_id in selected_rooms:
@@ -2013,73 +2069,72 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     new_options = dict(room_entry.options)
                     new_options[CONF_ZONE] = zone_name
                     self.hass.config_entries.async_update_entry(
-                        room_entry,
-                        options=new_options
+                        room_entry, options=new_options
                     )
-            
-            # Clear zone from rooms that were removed from this zone
-            current_rooms = zone_entry.data.get(CONF_ZONE_ROOMS, [])
-            removed_rooms = set(current_rooms) - set(selected_rooms)
+
+            # Clear zone from rooms that were removed
+            removed_rooms = set(current_zone_rooms) - set(selected_rooms)
             for room_entry_id in removed_rooms:
                 room_entry = self.hass.config_entries.async_get_entry(room_entry_id)
                 if room_entry and room_entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_ROOM:
                     room_zone = room_entry.options.get(CONF_ZONE) or room_entry.data.get(CONF_ZONE)
-                    # Only clear if it was assigned to this zone
-                    if room_zone == zone_entry.data.get(CONF_ZONE_NAME):
+                    if room_zone == old_zone_name:
                         new_options = dict(room_entry.options)
                         new_options[CONF_ZONE] = ""
                         self.hass.config_entries.async_update_entry(
-                            room_entry,
-                            options=new_options
+                            room_entry, options=new_options
                         )
-            
-            # Update zone entry with new data
-            new_zone_options = {
-                **zone_entry.options,
-                CONF_ZONE_NAME: zone_name,
-                CONF_ZONE_DESCRIPTION: user_input.get(CONF_ZONE_DESCRIPTION, ""),
-                CONF_ZONE_ROOMS: selected_rooms,
-            }
 
-            # If configuring from integration menu, update the zone entry
-            if self._selected_zone_entry_id:
-                self.hass.config_entries.async_update_entry(
-                    zone_entry,
-                    options=new_zone_options
+            # Remove old zone device on rename
+            if old_zone_name and old_zone_name != zone_name:
+                from homeassistant.helpers import device_registry as dr
+                dev_reg = dr.async_get(self.hass)
+                old_device = dev_reg.async_get_device(
+                    identifiers={(DOMAIN, f"zone_{old_zone_name}")}
                 )
-                # v3.5.3: Remove old zone device on rename to prevent orphans
-                if old_zone_name and old_zone_name != zone_name:
-                    from homeassistant.helpers import device_registry as dr
-                    dev_reg = dr.async_get(self.hass)
-                    old_device = dev_reg.async_get_device(identifiers={(DOMAIN, f"zone_{old_zone_name}")})
-                    if old_device:
-                        dev_reg.async_remove_device(old_device.id)
-                # Return to zone config menu
+                if old_device:
+                    dev_reg.async_remove_device(old_device.id)
+
+            if zm_result:
+                # v3.6.0-c2.3: Update zone in ZM entry's zones dict
+                merged = {**zm_entry.data, **zm_entry.options}
+                zones = dict(merged.get("zones", {}))
+                # Remove old name key if renamed
+                if old_zone_name != zone_name and old_zone_name in zones:
+                    zones[zone_name] = zones.pop(old_zone_name)
+                else:
+                    zones.setdefault(zone_name, {})
+                zones[zone_name][CONF_ZONE_DESCRIPTION] = user_input.get(
+                    CONF_ZONE_DESCRIPTION, ""
+                )
+                zones[zone_name][CONF_ZONE_ROOMS] = selected_rooms
+                self.hass.config_entries.async_update_entry(
+                    zm_entry,
+                    options={**zm_entry.options, "zones": zones},
+                )
+                self._selected_zone_name = zone_name
+                return await self.async_step_zone_config_menu()
+            elif self._selected_zone_entry_id:
+                new_zone_options = {
+                    **zone_entry.options,
+                    CONF_ZONE_NAME: zone_name,
+                    CONF_ZONE_DESCRIPTION: user_input.get(CONF_ZONE_DESCRIPTION, ""),
+                    CONF_ZONE_ROOMS: selected_rooms,
+                }
+                self.hass.config_entries.async_update_entry(
+                    zone_entry, options=new_zone_options
+                )
                 return await self.async_step_zone_config_menu()
             else:
-                # v3.5.3: Remove old zone device on rename to prevent orphans
-                if old_zone_name and old_zone_name != zone_name:
-                    from homeassistant.helpers import device_registry as dr
-                    dev_reg = dr.async_get(self.hass)
-                    old_device = dev_reg.async_get_device(identifiers={(DOMAIN, f"zone_{old_zone_name}")})
-                    if old_device:
-                        dev_reg.async_remove_device(old_device.id)
-                # Direct zone entry configuration
                 return self.async_create_entry(
                     title="",
-                    data=new_zone_options
+                    data={
+                        **zone_entry.options,
+                        CONF_ZONE_NAME: zone_name,
+                        CONF_ZONE_DESCRIPTION: user_input.get(CONF_ZONE_DESCRIPTION, ""),
+                        CONF_ZONE_ROOMS: selected_rooms,
+                    },
                 )
-
-        # Get current values from zone entry
-        current_zone_name = zone_entry.options.get(
-            CONF_ZONE_NAME, zone_entry.data.get(CONF_ZONE_NAME, "")
-        )
-        current_zone_desc = zone_entry.options.get(
-            CONF_ZONE_DESCRIPTION, zone_entry.data.get(CONF_ZONE_DESCRIPTION, "")
-        )
-        current_zone_rooms = zone_entry.options.get(
-            CONF_ZONE_ROOMS, zone_entry.data.get(CONF_ZONE_ROOMS, [])
-        )
 
         # Get room entries for selection
         room_entries = self._get_all_room_entries()
@@ -2127,38 +2182,54 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         )
 
     async def async_step_zone_media(self, user_input=None):
-        """Configure zone media player settings (v3.3.1, updated v3.3.3)."""
-        # v3.3.3: Get zone entry (selected from integration menu or direct zone entry)
-        zone_entry = self._get_zone_entry()
-        if not zone_entry:
+        """Configure zone media player settings (v3.3.1, updated v3.3.3).
+
+        v3.6.0-c2.3: Supports ZM-stored zones.
+        """
+        zm_result = self._get_zm_zone_data()
+        zone_entry = None if zm_result else self._get_zone_entry()
+        if not zm_result and not zone_entry:
             return self.async_abort(reason="zone_not_found")
-        
+
+        if zm_result:
+            zm_entry, zone_name, zone_data = zm_result
+            current_player = zone_data.get(CONF_ZONE_PLAYER_ENTITY)
+            current_mode = zone_data.get(
+                CONF_ZONE_PLAYER_MODE, ZONE_PLAYER_MODE_FALLBACK
+            )
+        else:
+            current_player = zone_entry.options.get(
+                CONF_ZONE_PLAYER_ENTITY,
+                zone_entry.data.get(CONF_ZONE_PLAYER_ENTITY),
+            )
+            current_mode = zone_entry.options.get(
+                CONF_ZONE_PLAYER_MODE,
+                zone_entry.data.get(CONF_ZONE_PLAYER_MODE, ZONE_PLAYER_MODE_FALLBACK),
+            )
+
         if user_input is not None:
-            # Update zone entry with new media settings
-            new_zone_options = {**zone_entry.options, **user_input}
-            
-            # If configuring from integration menu, update the zone entry
-            if self._selected_zone_entry_id:
+            if zm_result:
+                # v3.6.0-c2.3: Update zone media in ZM entry's zones dict
+                merged = {**zm_entry.data, **zm_entry.options}
+                zones = dict(merged.get("zones", {}))
+                zones.setdefault(zone_name, {})
+                zones[zone_name].update(user_input)
                 self.hass.config_entries.async_update_entry(
-                    zone_entry,
-                    options=new_zone_options
+                    zm_entry,
+                    options={**zm_entry.options, "zones": zones},
                 )
-                # Return to zone config menu
+                return await self.async_step_zone_config_menu()
+            elif self._selected_zone_entry_id:
+                new_zone_options = {**zone_entry.options, **user_input}
+                self.hass.config_entries.async_update_entry(
+                    zone_entry, options=new_zone_options
+                )
                 return await self.async_step_zone_config_menu()
             else:
-                # Direct zone entry configuration
                 return self.async_create_entry(
                     title="",
-                    data=new_zone_options
+                    data={**zone_entry.options, **user_input},
                 )
-
-        # Get current values from zone entry
-        current_player = zone_entry.options.get(
-            CONF_ZONE_PLAYER_ENTITY, zone_entry.data.get(CONF_ZONE_PLAYER_ENTITY)
-        )
-        current_mode = zone_entry.options.get(
-            CONF_ZONE_PLAYER_MODE, zone_entry.data.get(CONF_ZONE_PLAYER_MODE, ZONE_PLAYER_MODE_FALLBACK)
-        )
 
         # Define zone player mode options
         zone_player_modes = [
