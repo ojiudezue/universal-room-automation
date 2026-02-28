@@ -1,7 +1,7 @@
 ---
 name: ura-builder
 description: Implements features and fixes bugs in the URA integration. Use for any code changes to custom_components/universal_room_automation/, writing tests, or fixing known bug patterns. Reads the HA coding skill and quality checklist before touching code.
-model: claude-sonnet-4-6
+model: claude-opus-4-6
 ---
 
 # URA Builder Agent
