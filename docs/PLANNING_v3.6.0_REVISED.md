@@ -80,7 +80,7 @@ COORDINATOR MANAGER (Orchestrator)
 │
 └── SHARED SERVICES (not coordinators)
     ├── Notification Manager
-    │   Multi-channel delivery: iMessage, TTS, light patterns
+    │   Multi-channel delivery: Pushover, iMessage, WhatsApp, TTS, light patterns
     ├── Conflict Resolver
     │   Priority arbitration for shared device conflicts
     └── Decision Logger / Compliance Tracker
@@ -141,7 +141,7 @@ SIGNAL_SAFETY_HAZARD = "ura_safety_hazard"
 |---|---|---|---|---|---|---|
 | 0 | **Base Infrastructure** | Shared | BaseCoordinator, CoordinatorManager, ConflictResolver, Intent/Action models | None | N/A | C0 |
 | 1 | **Presence** | Foundation | House state inference (AWAY/HOME/SLEEP/etc.) | None (informational only) | 60 | C1 |
-| 2 | **Safety** | Tier 1 | Environmental hazards: smoke, CO, water, freeze, air quality | Water shutoff (future), ventilation override fans | 100 | C2 |
+| 2 | **Safety** | Tier 1 | Environmental hazards: smoke, CO, water, freeze, air quality | Water shutoff valve (configurable, auto-close on leak), ventilation override fans | 100 | C2 |
 | 3 | **Security** | Tier 2 | Intrusion detection, armed states, entry monitoring | Locks, security camera recording, security alert lights | 80 | C3 |
 | 4 | **Notification Manager** | Shared Service | Multi-channel notification delivery | None (uses HA notify services) | N/A | C4 |
 | 5 | **Energy** | Tier 3 | TOU optimization, battery, solar, load management, generator | Battery storage mode, pool system (all Pentair circuits + VSF pumps), EVSEs, Generac generator | 40 | C5 |
@@ -203,6 +203,8 @@ The Notification Manager is a **shared service, not a coordinator**. It does not
 | **Humidity sensors** | `sensor.*_humidity` | Read by multiple | Not controlled |
 | **CO2/VOC sensors** | `sensor.*_co2`, `sensor.*_tvoc` | Read by multiple | Not controlled |
 | **Occupancy sensors** | `binary_sensor.*_occupancy`, `binary_sensor.*_motion` | Read by multiple | Not controlled |
+| **Weather sensors** | `sensor.outdoor_temperature`, `weather.*` | Read by multiple | Not controlled; used by Energy (baselines, battery strategy) and HVAC (pre-conditioning) |
+| **Garage cameras** | `camera.garage_*` | Energy | Vehicle detection via LLMVision (read frame on motion) |
 | **Person tracking** | Census system (v3.5.x) | Read by multiple | Not controlled |
 
 **Key principle:** Sensors are read by any coordinator that needs them. Only actuators (switches, lights, climate, valves, locks, numbers, selects) have exclusive ownership.
@@ -508,10 +510,11 @@ Additional presence-specific sensors:
 - Numeric sensor monitoring: CO ppm, CO2 ppm, temperature (freeze), humidity
 - Rate-of-change detection for rapid temperature drops (HVAC failure)
 - Severity classification: CRITICAL (smoke, CO >100ppm), HIGH (water leak, freeze <35F), MEDIUM (CO2 >1500ppm), LOW (humidity drift)
-- Response actions: emergency lighting (CRITICAL), HVAC override for freeze (HIGH), ventilation request (MEDIUM)
+- Response actions: emergency lighting (CRITICAL), HVAC override for freeze (HIGH), ventilation request (MEDIUM), **water shutoff on leak (HIGH)**
+- **Water shutoff valve:** Configurable entity (e.g., `valve.main_water`). When configured: auto-close on any water leak detection. When not configured: alert-only. No hardware exists yet but the code path ships now — plug and play when valve is installed.
 - Alert deduplication with per-severity suppression windows
 - Sensors: `sensor.ura_safety_status`, `binary_sensor.ura_safety_alert`, `sensor.ura_safety_diagnostics`
-- Config flow: water shutoff valve entity (optional), emergency light entity selection
+- Config flow: water shutoff valve entity (optional — works without it), emergency light entity selection
 
 **New files:**
 | File | Purpose | Est. Lines |
@@ -531,7 +534,8 @@ Additional presence-specific sensors:
 
 **Verification:**
 - [ ] Smoke sensor "on" triggers CRITICAL response within 5 seconds
-- [ ] Water leak triggers HIGH response
+- [ ] Water leak triggers HIGH response + valve close (if configured)
+- [ ] Water leak with no valve configured triggers HIGH alert only (no error)
 - [ ] Temperature below 35F triggers freeze protection (HVAC override)
 - [ ] CO above threshold triggers graded response
 - [ ] Safety actions always win conflict resolution against any other coordinator
@@ -629,14 +633,18 @@ Additional security-specific sensors:
 
 **What ships:**
 - `NotificationManager` shared service -- severity-based routing, channel dispatch
-- iMessage channel (via existing Pushover/notify service): CRITICAL + HIGH + MEDIUM
+- **Messaging channels (configurable, all optional):**
+  - Pushover channel: CRITICAL + HIGH + MEDIUM (existing integration, reliable for urgent alerts)
+  - iMessage channel: CRITICAL + HIGH + MEDIUM (via existing notify service)
+  - WhatsApp channel: CRITICAL + HIGH + MEDIUM (via WhatsApp integration — newly available)
+  - Each channel independently configurable with severity routing. Users can enable any combination.
 - Speaker channel (TTS via WiiM media players): CRITICAL + HIGH
 - Light pattern channel (visual alerts): all severities via configured alert lights
 - Quiet hours enforcement (configurable, overridden by CRITICAL)
 - Deduplication: identical messages suppressed within configurable windows
 - Rate limiting: max notifications per hour per channel
 - Notification history sensor: `sensor.ura_notification_history`
-- Config flow: quiet hours, recipient selection, TTS speaker entities, alert light entities
+- Config flow: quiet hours, messaging channel selection (Pushover/iMessage/WhatsApp — multi-select), recipient entities per channel, TTS speaker entities, alert light entities
 
 **New files:**
 | File | Purpose | Est. Lines |
@@ -654,8 +662,9 @@ Additional security-specific sensors:
 **Estimated total lines:** ~350 new, ~80 modified
 
 **Verification:**
-- [ ] CRITICAL notification reaches all channels, overrides quiet hours
-- [ ] MEDIUM notification goes to iMessage only, respects quiet hours
+- [ ] CRITICAL notification reaches all configured channels, overrides quiet hours
+- [ ] MEDIUM notification goes to configured messaging channels only, respects quiet hours
+- [ ] Each messaging channel (Pushover/iMessage/WhatsApp) can be independently enabled/disabled
 - [ ] Deduplication suppresses repeat messages within window
 - [ ] Rate limiting caps notifications per hour
 - [ ] Quiet hours suppress non-critical notifications
@@ -675,12 +684,15 @@ Additional security-specific sensors:
 - **TOU awareness:** Three-season PEC rate schedule (summer/winter/shoulder), configurable via options flow. Not hardcoded.
 - **Battery strategy:** Self-consumption, savings (TOU arbitrage), or backup mode selection based on TOU period, SOC, solar forecast. Controls `select.enpower_*_storage_mode`, reserve level, grid interaction switches.
 - **Solar forecast integration:** Reads Solcast sensors for day classification (excellent/good/moderate/poor/very_poor). Adjusts battery aggressiveness.
+- **Weather integration:** Reads configured weather sensor entities (outdoor temp, humidity, wind, forecast conditions). Used for: (a) battery strategy — pre-charge before storms when solar will drop, (b) HVAC governance — publish weather context in `SIGNAL_ENERGY_CONSTRAINT` so HVAC can pre-cool before extreme heat, (c) energy anomaly detection — consumption normalized against outdoor temperature for accurate baselines. Weather sensors already exist (multiple capable sensors in the home); this is a read-only integration, not a new hardware dependency.
 - **Pool optimization:** Tiered approach per ENERGY_COORDINATOR_DESIGN_v2.3:
   - Tier 1: VSF speed reduction (75 GPM -> 30 GPM = 94% power savings during peak)
   - Tier 2: Circuit shedding (infinity edge, booster pump off during peak)
   - Tier 3: Full shutdown (emergency only, <4hr for chemistry)
 - **EV charging:** Defer to off-peak. Simple on/off via `switch.garage_a/b`.
+- **Vehicle presence detection:** Uses garage cameras + LLMVision integration to determine which vehicles are home. Implementation: (a) configure garage camera entities in options flow, (b) on motion event (person detection or garage door state change), wait 3-5 minutes for scene to settle, (c) call LLMVision to describe what is in frame or count cars. No dedicated vehicle detection model needed — LLM vision describes the scene. Result stored as `sensor.ura_vehicles_home` (count) with attributes listing which bays are occupied. Used by Energy Coordinator for: EV charging decisions (only charge when vehicle is home), departure prediction (vehicle leaves = reduce pre-conditioning), load shedding (no EV to charge = skip that tier).
 - **Generator monitoring:** Read Generac status. During outage, adjust load shedding to stay within 22kW capacity.
+- **SPAN panel monitoring (read-only):** Reads per-circuit power consumption from SPAN panel entities for anomaly detection. Builds per-circuit consumption baselines by time-of-day and day-of-week. Detects circuit-level anomalies (appliance malfunction, phantom load, unusual usage). **Note:** Circuit-level load shedding via SPAN (turning circuits on/off) is deferred to a future cycle — this cycle is monitoring and anomaly detection only.
 - **Load shedding priority:** Configurable ordered list. Default: pool speed reduction > EV pause > infinity edge off > pool heater off > HVAC setback > non-essential circuits.
 - **HVAC governance:** Publishes `HVACConstraints` via `SIGNAL_ENERGY_CONSTRAINT`:
   - `mode`: normal | pre_cool | coast | shed
@@ -689,8 +701,8 @@ Additional security-specific sensors:
   - `max_runtime_minutes`: int | null
   - `fan_assist`: bool (request Comfort turn on ceiling fans)
 - **Decision cycle:** Runs every 5 minutes + on TOU transitions + on significant solar/grid changes.
-- Sensors: `sensor.ura_energy_situation`, `sensor.ura_tou_period`, `sensor.ura_battery_strategy`, `binary_sensor.ura_load_shedding_active`, `sensor.ura_energy_savings_today`
-- Config flow: TOU rate schedule, battery priority, controllable load list, reserve SOC target, generator entity mapping
+- Sensors: `sensor.ura_energy_situation`, `sensor.ura_tou_period`, `sensor.ura_battery_strategy`, `binary_sensor.ura_load_shedding_active`, `sensor.ura_energy_savings_today`, `sensor.ura_vehicles_home`
+- Config flow: TOU rate schedule, battery priority, controllable load list, reserve SOC target, generator entity mapping, garage camera entities (for vehicle detection), weather sensor entity
 
 **New files:**
 | File | Purpose | Est. Lines |
@@ -717,6 +729,9 @@ Additional security-specific sensors:
 - [ ] Load shedding activates when grid import exceeds threshold
 - [ ] Solar forecast influences battery charge target
 - [ ] Generator monitoring logs outage events
+- [ ] Vehicle detection via LLMVision returns car count after garage motion
+- [ ] EV charging skips when no vehicle present
+- [ ] Weather data feeds into battery strategy (pre-charge before storm)
 - [ ] Energy savings sensor tracks daily savings
 - [ ] Energy can be disabled; battery reverts to Enphase default behavior
 - [ ] 20+ new tests passing
@@ -729,6 +744,7 @@ Additional security-specific sensors:
 | Anomaly | Consumption deviates from historical norm per TOU period + day type + occupancy level (e.g., 40% more than usual for Tuesday peak with 2 people home) | AnomalyDetector | Weekly |
 | Anomaly | Solar production deviates from Solcast forecast beyond historical error margin | AnomalyDetector | Weekly |
 | Anomaly | Battery SOC trajectory differs from learned charge/discharge pattern | AnomalyDetector | Weekly |
+| Anomaly | Per-circuit consumption (SPAN) deviates from historical norm — detects appliance malfunction, phantom loads, or unusual usage patterns at the circuit level | AnomalyDetector | Weekly |
 | Outcome | `EnergyOutcome`: import_kwh, export_kwh, savings_vs_baseline, solar_forecast_error_pct, comfort_violations | OutcomeMeasurement | Per TOU period |
 
 Minimum data before anomaly activation: 14 days of energy history.
@@ -763,6 +779,7 @@ Additional energy-specific sensors:
 - **Sleep protection:** During SLEEP house state, maximum setpoint offset is configurable (default +/-1.5F).
 - **Staggered heat calls:** Priority-based zone activation with configurable max simultaneous zones (default 3) and stagger delay (default 60s).
 - **Comfort request handling:** Listens for `SIGNAL_COMFORT_REQUEST` from Comfort Coordinator, adjusts zone if within energy bounds.
+- **Weather-aware pre-conditioning:** Reads outdoor temperature from Energy Coordinator's weather context (published via `SIGNAL_ENERGY_CONSTRAINT`). When forecast high exceeds threshold, initiates pre-cool before peak TOU period. When forecast low drops near freeze, initiates pre-heat before off-peak ends.
 - Sensors: `sensor.ura_hvac_mode`, `sensor.ura_hvac_zone_{n}_status` (x3)
 - Config flow: zone-to-room mapping, max setback, sleep offset limit, stagger settings
 
@@ -790,6 +807,7 @@ Additional energy-specific sensors:
 - [ ] Zone with higher occupancy gets priority in staggered calls
 - [ ] Comfort request honored when within energy bounds
 - [ ] Comfort request denied when energy constraint active
+- [ ] Pre-cool triggers before peak when forecast high exceeds threshold
 - [ ] HVAC can be disabled via CM options
 - [ ] 15+ new tests passing
 
@@ -1047,7 +1065,7 @@ Selecting a coordinator opens its specific config sub-flow. This is implemented 
 | Presence | "Presence Settings" | Sleep start/end time, geofence device tracker entity |
 | Safety | "Safety Monitoring" | Water shutoff entity (optional), emergency light entities |
 | Security | "Security Settings" | Entry point entities, motion sensors, camera entities, geofence radius |
-| Notification | "Notification Settings" | Quiet hours start/end, notify service name, TTS speaker entities, alert light entities |
+| Notification | "Notification Settings" | Quiet hours start/end, messaging channels (Pushover/iMessage/WhatsApp — multi-select), per-channel recipients, TTS speaker entities, alert light entities |
 | Energy | "Energy Management" | TOU rate schedule (season, periods, rates), battery priority, controllable loads list, reserve SOC, generator entity |
 | HVAC | "HVAC Zones" | Zone-to-room mapping (3 zones), max setback, sleep offset, stagger settings |
 | Comfort | "Comfort Preferences" | Person preferences (per person: cool/heat setpoints, sensitivity), ceiling fan entity mapping, circadian light entities, comfort weights |
@@ -1237,11 +1255,27 @@ From DESIGN_QUESTIONS_SUMMARY.md (24 questions). Architecture-affecting question
 **Q24: Conflict Resolution Philosophy**
 **Answer:** Safety (1) > Security (2) > Energy (3) > HVAC (4) > Comfort (5). This is the priority order encoded in the ConflictResolver. The ranking reflects: life > property > cost > comfort.
 
-### Deferred (Require User Input)
+### Answered (Feb 28, 2026)
+
+**Q4: Water Shutoff Valve**
+**Answer:** No hardware yet, but ship the code path now as configurable. Safety Coordinator config flow includes an optional `valve.main_water` entity selector. When configured: auto-close on any water leak detection (HIGH severity). When not configured: alert-only, no error. This is plug-and-play — install the valve later, configure the entity, and auto-close activates immediately.
+
+**Q19: Messaging Channels**
+**Answer:** Three messaging channels available — Pushover, iMessage, and WhatsApp (newly available integration). All optional, independently configurable with severity routing. Users can enable any combination. Config flow provides multi-select for channel enablement and per-channel recipient configuration.
+
+**Q-new: Vehicle Tracking**
+**Answer:** Include in Energy Coordinator (C5). Uses garage cameras + LLMVision integration — no dedicated vehicle detection needed. On garage motion event (person detection or door state change), wait 3-5 min for scene to settle, then call LLMVision to describe the frame / count cars. Result drives EV charging decisions (only charge when vehicle present), departure prediction, and load shedding skip logic. Config flow: garage camera entity selector.
+
+**Q-new: Weather Integration**
+**Answer:** Include in Energy Coordinator (C5) — read-only from existing weather sensor entities. Not a prediction difficulty concern; it was deferred because the original plan was cautious about scope. Multiple capable weather sensors already exist in the home. Weather data feeds into: (a) battery strategy — pre-charge before storms, (b) HVAC governance — outdoor temp context in energy constraints, (c) energy anomaly detection — consumption normalized against outdoor temp. HVAC Coordinator (C6) also consumes weather context from Energy's published constraints for pre-cool/pre-heat decisions.
+
+**Q-new: SPAN Panel**
+**Answer:** Split approach. **Monitoring for anomaly detection ships in C5 (Energy).** SPAN per-circuit consumption data is read-only, builds per-circuit baselines by time/day, detects circuit-level anomalies (appliance malfunction, phantom loads, unusual usage patterns). **Circuit-level load shedding (turning circuits on/off via SPAN)** is deferred to post-v3.6.0 — requires more hardware testing and careful safety review.
+
+### Remaining Deferred (Require User Input or Future Hardware)
 
 | # | Question | Why Deferred | When Needed |
 |---|---|---|---|
-| Q4 | Water shutoff valve | Hardware-dependent; design accommodates it | C2 (Safety) - optional entity |
 | Q5 | Smoke detector integration | Hardware-dependent | C2 (Safety) - auto-discovers available sensors |
 | Q6 | Emergency lighting pattern | User preference | C2 (Safety) - configurable, default: all lights 100% |
 | Q8 | Smart lock integration | Hardware-dependent | C3 (Security) - auto-discovers lock entities |
@@ -1254,7 +1288,6 @@ From DESIGN_QUESTIONS_SUMMARY.md (24 questions). Architecture-affecting question
 | Q16 | Zone-to-room mapping | Home-specific | C6 (HVAC) - configurable via options flow |
 | Q17 | HVAC pre-conditioning timing | User preference | C6 (HVAC) - configurable, default: on geofence trigger |
 | Q18 | Temperature setback limits | User preference | C6 (HVAC) - configurable, default: +/-4F |
-| Q19 | iMessage recipients | Private | C4 (Notification) - configurable |
 | Q20 | TTS speaker entities | Environment-dependent | C4 (Notification) - configurable entity list |
 | Q21 | Light alert entities | Environment-dependent | C4 (Notification) - configurable entity list |
 
@@ -1270,16 +1303,21 @@ Explicit exclusions to prevent scope creep:
 |---|---|---|
 | **Bayesian parameter learning (auto-tuning)** | Requires 30+ days of data per coordinator. Anomaly detection infrastructure and outcome measurement ship in C0-diag + each coordinator cycle; the auto-tuning/learning layer that adjusts coordinator parameters ships in v4.0.0. | v4.0.0 |
 | **Pattern analysis (weekly/monthly reports)** | Aggregated pattern reports (override heatmaps, anomaly trends) require data accumulation. Decision logging, compliance tracking, and anomaly detection ship now; pattern reporting ships later. | v4.0.0 |
-| **Vehicle tracking / departure prediction** | Documented in ENERGY_COORDINATOR_DESIGN_v2.3 as optional. Out of scope for v3.6.0. | Future |
 | **Direct generator start/stop** | Monitor and load-manage only. Direct control requires hardware verification. | Future |
-| **Water shutoff auto-close** | Affordance built in Safety (entity config), but auto-close policy requires user confirmation of hardware. | User decision |
 | **AI-powered custom automation** | v3.4.0 scope (Claude API parsing). Ships after v3.6.0. | v3.4.0 |
 | **2D visual mapping** | v4.5.0 scope. | v4.5.0 |
 | **New per-room entities from coordinators** | Coordinators create house-level and zone-level sensors only. No additional per-room entities beyond the existing 81+. | By design |
 | **Custom Lovelace cards** | Use standard HA entities and auto-entities cards. No custom frontend code. | By design |
 | **Vacation mode auto-detection** | The HouseStateMachine allows manual VACATION or auto-detection after 2 days AWAY. Full auto-detection (calendar integration, etc.) is deferred. | v4.0.0 |
-| **Weather integration for HVAC** | Pre-cool based on forecast temperature is a future enhancement for HVAC Coordinator. | Post-v3.6.0 |
-| **SPAN panel circuit-level control** | Energy Coordinator monitors SPAN data but does not shed individual circuits (beyond EVSEs which have dedicated entities). Full SPAN integration is future. | Post-v3.6.0 |
+| **SPAN panel circuit-level shedding** | Energy Coordinator reads SPAN per-circuit data for anomaly detection (ships in C5). **Turning circuits on/off via SPAN** requires hardware testing and safety review. | Post-v3.6.0 |
+
+**Items moved from exclusions to included (Feb 28 update):**
+| Item | Now Ships In | Rationale |
+|---|---|---|
+| Vehicle tracking | C5 (Energy) | LLMVision + garage cameras makes this simple — describe frame, count cars. No dedicated model needed. |
+| Weather integration | C5 (Energy) + C6 (HVAC) | Read-only from existing sensors. Critical for accurate energy baselines and HVAC pre-conditioning. |
+| Water shutoff | C2 (Safety) | Ships as configurable — code path ready, entity optional. Plug-and-play when hardware installed. |
+| SPAN monitoring | C5 (Energy) | Read-only per-circuit baselines for anomaly detection. Control deferred. |
 
 ---
 
@@ -1445,6 +1483,7 @@ Retention: `decision_log` and `compliance_log` pruned at 90 days. `anomaly_log` 
 | C5 | `sensor.ura_battery_strategy` | sensor | primary |
 | C5 | `binary_sensor.ura_load_shedding_active` | binary_sensor | primary |
 | C5 | `sensor.ura_energy_savings_today` | sensor | primary |
+| C5 | `sensor.ura_vehicles_home` | sensor | primary |
 | C6 | `sensor.ura_hvac_mode` | sensor | primary |
 | C6 | `sensor.ura_hvac_zone_1_status` | sensor | diagnostic |
 | C6 | `sensor.ura_hvac_zone_2_status` | sensor | diagnostic |
@@ -1468,9 +1507,9 @@ Retention: `decision_log` and `compliance_log` pruned at 90 days. `anomaly_log` 
 | C7 | `sensor.ura_comfort_anomaly` | sensor | diagnostic |
 | C7 | `sensor.ura_comfort_compliance` | sensor | diagnostic |
 
-**Total new entities:** 40 (25 primary + 15 diagnostic, all house-level, not per-room)
+**Total new entities:** 41 (26 primary + 15 diagnostic, all house-level, not per-room)
 **Post-v3.6.0 entities per room:** 81+ (unchanged)
-**Post-v3.6.0 house-level entities:** 40 new + existing aggregation sensors
+**Post-v3.6.0 house-level entities:** 41 new + existing aggregation sensors
 
 ---
 
