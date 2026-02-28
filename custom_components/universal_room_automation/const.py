@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation v3.6.0-c2.6-c2.5-c2.4-c2.3-c2.2-c0.1-c0
+# Universal Room Automation v3.6.0-c2.7-c2.6-c2.5-c2.4-c2.3-c2.2-c0.1-c0
 # Build: 2026-01-05
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "3.6.0-c2.6"
+VERSION: Final = "3.6.0-c2.7"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]

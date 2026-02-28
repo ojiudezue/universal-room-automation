@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation v3.6.0-c2.6-c2.5-c2.4-c2.3-c2.2-c0.2
+# Universal Room Automation v3.6.0-c2.7-c2.6-c2.5-c2.4-c2.3-c2.2-c0.2
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -70,11 +70,12 @@ PLATFORMS: list[Platform] = [
     Platform.SELECT,
 ]
 
-# Platforms for integration entry (aggregation sensors + select for house state)
+# Platforms for integration entry (aggregation sensors + select for house state + switches)
 INTEGRATION_PLATFORMS: list[Platform] = [
     Platform.SENSOR,
     Platform.BINARY_SENSOR,
     Platform.SELECT,
+    Platform.SWITCH,  # v3.6.0-c2.5: DomainCoordinatorsSwitch, CoordinatorEnabledSwitch
 ]
 
 
