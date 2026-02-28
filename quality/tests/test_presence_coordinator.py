@@ -823,7 +823,7 @@ class TestZoneDecisionLogging:
 # ============================================================================
 
 class TestGeofenceHandler:
-    """Tests for the geofence signal handler."""
+    """Tests for the geofence signal handler and wiring."""
 
     def test_geofence_arrive_triggers_inference(self):
         hass = make_hass()
@@ -843,6 +843,79 @@ class TestGeofenceHandler:
 
         coord.handle_geofence_event("person.alice", "not_home")
         hass.async_create_task.assert_called()
+
+    def test_handle_geofence_change_home_arrival(self):
+        """State change callback correctly routes home arrival."""
+        hass = make_hass()
+        manager = CoordinatorManager(hass)
+        hass.data = {"universal_room_automation": {"coordinator_manager": manager}}
+        coord = PresenceCoordinator(hass)
+        manager.register_coordinator(coord)
+
+        old_state = MagicMock()
+        old_state.state = "not_home"
+        new_state = MagicMock()
+        new_state.state = "home"
+        event = MagicMock()
+        event.data = {
+            "entity_id": "person.alice",
+            "old_state": old_state,
+            "new_state": new_state,
+        }
+        coord._handle_geofence_change(event)
+        hass.async_create_task.assert_called()
+
+    def test_handle_geofence_change_departure(self):
+        """State change callback correctly routes departure."""
+        hass = make_hass()
+        coord = PresenceCoordinator(hass)
+
+        old_state = MagicMock()
+        old_state.state = "home"
+        new_state = MagicMock()
+        new_state.state = "not_home"
+        event = MagicMock()
+        event.data = {
+            "entity_id": "person.bob",
+            "old_state": old_state,
+            "new_state": new_state,
+        }
+        coord._handle_geofence_change(event)
+        hass.async_create_task.assert_called()
+
+    def test_handle_geofence_ignores_unavailable(self):
+        """Unavailable person entity should be ignored."""
+        hass = make_hass()
+        coord = PresenceCoordinator(hass)
+
+        new_state = MagicMock()
+        new_state.state = "unavailable"
+        event = MagicMock()
+        event.data = {
+            "entity_id": "person.alice",
+            "old_state": MagicMock(state="home"),
+            "new_state": new_state,
+        }
+        coord._handle_geofence_change(event)
+        hass.async_create_task.assert_not_called()
+
+    def test_handle_geofence_ignores_zone_to_zone(self):
+        """Zone-to-zone transition (not home/not_home) should be ignored."""
+        hass = make_hass()
+        coord = PresenceCoordinator(hass)
+
+        old_state = MagicMock()
+        old_state.state = "work"
+        new_state = MagicMock()
+        new_state.state = "gym"
+        event = MagicMock()
+        event.data = {
+            "entity_id": "person.alice",
+            "old_state": old_state,
+            "new_state": new_state,
+        }
+        coord._handle_geofence_change(event)
+        hass.async_create_task.assert_not_called()
 
 
 # ============================================================================
