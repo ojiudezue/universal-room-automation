@@ -1,7 +1,7 @@
 # Universal Room Automation (URA)
 
 [![Home Assistant](https://img.shields.io/badge/Home%20Assistant-Integration-blue.svg)](https://www.home-assistant.io/)
-[![Version](https://img.shields.io/badge/version-3.6.0--c2.8-green.svg)](https://github.com/ojiudezue/universal-room-automation)
+[![Version](https://img.shields.io/badge/version-3.6.0--c2.9-green.svg)](https://github.com/ojiudezue/universal-room-automation)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
 **Advanced Home Assistant integration for event-driven, person-aware whole-house automation**
@@ -20,7 +20,7 @@ Universal Room Automation (URA) is a sophisticated Home Assistant custom integra
 - 🔋 **Energy Tracking** - SQLite-based data collection
 - 🛡️ **Domain Coordinators** - House-level Presence and Safety coordination
 - 🧪 **590+ Tests** - Comprehensive test coverage
-- 🎯 **Production Ready** - v3.6.0-c2.8 deployed
+- 🎯 **Production Ready** - v3.6.0-c2.9 deployed
 
 ## 📦 What's Included
 
@@ -86,7 +86,8 @@ Comprehensive documentation is available in the [`docs/`](docs/) folder:
 ### Release Notes
 
 Detailed per-milestone READMEs are in [`docs/readmes/`](docs/readmes/):
-- **[v3.6.0-c2.8](docs/readmes/README_v3.6.0-c2.8.md)** - Fix unsafe safety light response (latest)
+- **[v3.6.0-c2.9](docs/readmes/README_v3.6.0-c2.9.md)** - Wire up anomaly detectors (latest)
+- **[v3.6.0-c2.8](docs/readmes/README_v3.6.0-c2.8.md)** - Fix unsafe safety light response
 - **[v3.6.0-c2.7](docs/readmes/README_v3.6.0-c2.7.md)** - Fix toggle switches not appearing
 - **[v3.6.0-c2.6](docs/readmes/README_v3.6.0-c2.6.md)** - Safety Coordinator + bug fixes
 - **[v3.6.0-c1](docs/readmes/README_v3.6.0-c1.md)** - Presence Coordinator
@@ -127,7 +128,7 @@ After installation, add the integration through the UI:
 
 ## 🎯 Current Status
 
-**Production Version:** v3.6.0-c2.8
+**Production Version:** v3.6.0-c2.9
 **Development Focus:** v3.6.0 Domain Coordinators (Presence + Safety)
 **Test Coverage:** 590+ passing tests
 **Response Time:** 2-5 seconds (event-driven)
@@ -175,14 +176,14 @@ This is currently a personal project, but contributions are welcome! Please:
 
 ## 📊 Project Stats
 
-- **Version:** v3.6.0-c2.8
+- **Version:** v3.6.0-c2.9
 - **Lines of Code:** ~28,500 across 29 modules
 - **Entity Classes:** 112 (71 sensor, 20 binary_sensor, 8 switch, 6 button, 4 number, 3 select)
 - **Test Coverage:** 590+ tests across 14 test files
 - **Domain Coordinators:** 2 (Presence, Safety) + base framework
 - **Config Entry Types:** 5 (Integration, Room, Zone, Zone Manager, Coordinator Manager)
 - **Development Time:** 18+ months
-- **Architecture Evolution:** v2.0 → v3.6.0-c2.8
+- **Architecture Evolution:** v2.0 → v3.6.0-c2.9
 
 ## 🗺️ Roadmap
 
