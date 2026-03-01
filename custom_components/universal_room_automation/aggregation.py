@@ -847,7 +847,12 @@ class SafetyAlertBinarySensor(AggregationEntity, BinarySensorEntity):
         """Process alerts - send notifications and flash lights."""
         if not alerts:
             return
-        
+
+        # v3.6.0.3: When domain coordinators are active, Safety Coordinator
+        # owns alert response. Skip legacy light flashing.
+        if self.hass.data.get(DOMAIN, {}).get("coordinator_manager") is not None:
+            return
+
         # Debounce: don't alert more than once per minute
         now = datetime.now()
         if self._last_alert_time and (now - self._last_alert_time).total_seconds() < 60:

@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation v3.6.0.2
+# Universal Room Automation v3.6.0.3
 # Build: 2026-01-05
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "3.6.0.2"
+VERSION: Final = "3.6.0.3"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -809,6 +809,13 @@ DEFAULT_SLEEP_END_HOUR: Final = 6
 # v3.6.0-c2.1: Safety Coordinator config constants
 CONF_WATER_SHUTOFF_VALVE: Final = "water_shutoff_valve"
 CONF_EMERGENCY_LIGHT_ENTITIES: Final = "emergency_light_entities"
+
+# v3.6.0.3: Global safety device selectors for scoped discovery
+CONF_GLOBAL_SMOKE_SENSORS: Final = "global_smoke_sensors"
+CONF_GLOBAL_LEAK_SENSORS: Final = "global_leak_sensors"
+CONF_GLOBAL_AQ_SENSORS: Final = "global_aq_sensors"
+CONF_GLOBAL_TEMP_SENSORS: Final = "global_temp_sensors"
+CONF_GLOBAL_HUMIDITY_SENSORS: Final = "global_humidity_sensors"
 
 # Zone presence mode values
 ZONE_MODE_AWAY: Final = "away"

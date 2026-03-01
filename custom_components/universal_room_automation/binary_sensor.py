@@ -1,6 +1,6 @@
 """Binary sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.6.0.2
+# Universal Room Automation v3.6.0.3
 # Build: 2026-01-02
 # File: binary_sensor.py
 # v3.2.6: Renamed "Presence" to "Sensor Presence" for clarity
@@ -13,7 +13,7 @@ from homeassistant.components.binary_sensor import (
     BinarySensorDeviceClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util import dt as dt_util
 
@@ -54,6 +54,7 @@ from .const import (
     ENTRY_TYPE_ROOM,
     CONF_ENTRY_TYPE,
 )
+from .aggregation import AggregationEntity
 from .coordinator import UniversalRoomCoordinator
 from .entity import UniversalRoomEntity
 
@@ -111,6 +112,9 @@ async def async_setup_entry(
             GuestModeBinarySensor(hass, entry),
             # v3.6.0-c2: Safety Coordinator
             SafetyAlertBinarySensor(hass, entry),
+            # v3.6.0.3: Glanceable safety binary sensors
+            SafetyWaterLeakBinarySensor(hass, entry),
+            SafetyAirQualityBinarySensor(hass, entry),
         ]
         async_add_entities(coordinator_binary)
         return
@@ -1045,9 +1049,171 @@ class SafetyAlertBinarySensor(BinarySensorEntity):
             safety.active_hazards.values(),
             key=lambda h: h.severity,
         )
-        return {
+        attrs = {
             "hazard_type": worst.type.value,
             "location": worst.location,
             "severity": worst.severity.name.lower(),
             "active_count": len(safety.active_hazards),
         }
+        # v3.6.0.3: All active hazards, not just worst
+        attrs["all_hazards"] = [
+            {"hazard_type": h.type.value, "location": h.location,
+             "severity": h.severity.name.lower()}
+            for h in safety._active_hazards.values()
+        ]
+        return attrs
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to safety entity updates."""
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_SAFETY_ENTITIES_UPDATE
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_SAFETY_ENTITIES_UPDATE, self._handle_update
+            )
+        )
+
+    @callback
+    def _handle_update(self) -> None:
+        """Handle safety entity update signal."""
+        self.async_write_ha_state()
+
+
+class SafetyWaterLeakBinarySensor(AggregationEntity, BinarySensorEntity):
+    """Water leak/flooding indicator.
+
+    v3.6.0.3: Glanceable binary sensor — any water problem?
+    Entity: binary_sensor.ura_safety_water_leak
+    """
+
+    _attr_device_class = BinarySensorDeviceClass.MOISTURE
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:water-alert"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_safety_water_leak"
+        self._attr_name = "Safety Water Leak"
+        from homeassistant.helpers.device_registry import DeviceInfo
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "safety_coordinator")},
+        )
+
+    @property
+    def is_on(self) -> bool:
+        """Return True if any water leak or flooding hazard active."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return False
+        safety = manager.coordinators.get("safety")
+        if safety is None:
+            return False
+        status = safety.get_water_leak_status()
+        return status.get("active", False)
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return water leak details."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return {}
+        safety = manager.coordinators.get("safety")
+        if safety is None:
+            return {}
+        status = safety.get_water_leak_status()
+        if not status.get("active"):
+            return {}
+        return {
+            "locations": status.get("locations", []),
+            "sensor_ids": status.get("sensor_ids", []),
+            "sensor_count": status.get("sensor_count", 0),
+            "flooding_escalated": status.get("flooding_escalated", False),
+            "first_detected": status.get("first_detected"),
+        }
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to safety entity updates."""
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_SAFETY_ENTITIES_UPDATE
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_SAFETY_ENTITIES_UPDATE, self._handle_update
+            )
+        )
+
+    @callback
+    def _handle_update(self) -> None:
+        """Handle safety entity update signal."""
+        self.async_write_ha_state()
+
+
+class SafetyAirQualityBinarySensor(AggregationEntity, BinarySensorEntity):
+    """Air quality problem indicator.
+
+    v3.6.0.3: Glanceable binary sensor — any air quality problem?
+    Entity: binary_sensor.ura_safety_air_quality
+    """
+
+    _attr_device_class = BinarySensorDeviceClass.PROBLEM
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:air-filter"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_safety_air_quality"
+        self._attr_name = "Safety Air Quality"
+        from homeassistant.helpers.device_registry import DeviceInfo
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "safety_coordinator")},
+        )
+
+    @property
+    def is_on(self) -> bool:
+        """Return True if any air quality hazard active."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return False
+        safety = manager.coordinators.get("safety")
+        if safety is None:
+            return False
+        status = safety.get_air_quality_status()
+        return status.get("active", False)
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return air quality hazard details."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return {}
+        safety = manager.coordinators.get("safety")
+        if safety is None:
+            return {}
+        status = safety.get_air_quality_status()
+        if not status.get("active"):
+            return {}
+        return {
+            "hazard_types": status.get("hazard_types", []),
+            "locations": status.get("locations", []),
+            "sensor_ids": status.get("sensor_ids", []),
+            "worst_severity": status.get("worst_severity"),
+        }
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to safety entity updates."""
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_SAFETY_ENTITIES_UPDATE
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_SAFETY_ENTITIES_UPDATE, self._handle_update
+            )
+        )
+
+    @callback
+    def _handle_update(self) -> None:
+        """Handle safety entity update signal."""
+        self.async_write_ha_state()

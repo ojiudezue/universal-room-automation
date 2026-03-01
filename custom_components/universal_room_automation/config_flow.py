@@ -1,6 +1,6 @@
 """Config flow for Universal Room Automation v3.3.3."""
 #
-# Universal Room Automation v3.6.0.2
+# Universal Room Automation v3.6.0.3
 # Build: 2026-01-05
 # File: config_flow.py
 # v3.3.3: Added manage_zones to integration options menu
@@ -1823,10 +1823,16 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         """Configure Safety Coordinator settings.
 
         v3.6.0-c2.1: Water shutoff valve and emergency light entities.
+        v3.6.0.3: Global safety device selectors for scoped discovery.
         """
         from .const import (
             CONF_WATER_SHUTOFF_VALVE,
             CONF_EMERGENCY_LIGHT_ENTITIES,
+            CONF_GLOBAL_SMOKE_SENSORS,
+            CONF_GLOBAL_LEAK_SENSORS,
+            CONF_GLOBAL_AQ_SENSORS,
+            CONF_GLOBAL_TEMP_SENSORS,
+            CONF_GLOBAL_HUMIDITY_SENSORS,
         )
 
         if user_input is not None:
@@ -1850,6 +1856,57 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             ): selector.EntitySelector(
                 selector.EntitySelectorConfig(
                     domain="light", multiple=True
+                )
+            ),
+            # v3.6.0.3: Global safety device selectors
+            vol.Optional(
+                CONF_GLOBAL_SMOKE_SENSORS,
+                default=self._get_current(CONF_GLOBAL_SMOKE_SENSORS, []),
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(
+                    domain="binary_sensor",
+                    device_class=["smoke", "gas"],
+                    multiple=True,
+                )
+            ),
+            vol.Optional(
+                CONF_GLOBAL_LEAK_SENSORS,
+                default=self._get_current(CONF_GLOBAL_LEAK_SENSORS, []),
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(
+                    domain="binary_sensor",
+                    device_class=["moisture"],
+                    multiple=True,
+                )
+            ),
+            vol.Optional(
+                CONF_GLOBAL_AQ_SENSORS,
+                default=self._get_current(CONF_GLOBAL_AQ_SENSORS, []),
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(
+                    domain="sensor",
+                    device_class=["carbon_monoxide", "carbon_dioxide", "volatile_organic_compounds"],
+                    multiple=True,
+                )
+            ),
+            vol.Optional(
+                CONF_GLOBAL_TEMP_SENSORS,
+                default=self._get_current(CONF_GLOBAL_TEMP_SENSORS, []),
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(
+                    domain="sensor",
+                    device_class=["temperature"],
+                    multiple=True,
+                )
+            ),
+            vol.Optional(
+                CONF_GLOBAL_HUMIDITY_SENSORS,
+                default=self._get_current(CONF_GLOBAL_HUMIDITY_SENSORS, []),
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(
+                    domain="sensor",
+                    device_class=["humidity"],
+                    multiple=True,
                 )
             ),
         })

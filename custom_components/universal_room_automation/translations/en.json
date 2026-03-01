@@ -496,11 +496,21 @@
         "description": "Configure the Safety Coordinator. The water shutoff valve is activated automatically on water leak detection. Emergency lights are set to 100% brightness during evacuations.",
         "data": {
           "water_shutoff_valve": "Water Shutoff Valve",
-          "emergency_light_entities": "Emergency Light Entities"
+          "emergency_light_entities": "Emergency Light Entities",
+          "global_smoke_sensors": "Global Smoke/Gas Detectors",
+          "global_leak_sensors": "Global Water Leak Sensors",
+          "global_aq_sensors": "Global Air Quality Sensors (CO, CO\u2082, VOC)",
+          "global_temp_sensors": "Global Temperature Sensors",
+          "global_humidity_sensors": "Global Humidity Sensors"
         },
         "data_description": {
           "water_shutoff_valve": "Optional valve entity to close automatically on water leak detection (HIGH severity or above). Leave empty if no shutoff valve is installed \u2014 you can add one later.",
-          "emergency_light_entities": "Lights to set to 100% brightness during fire/CO evacuations. Select lights along evacuation routes (hallways, stairways, exits)."
+          "emergency_light_entities": "Lights to set to 100% brightness during fire/CO evacuations. Select lights along evacuation routes (hallways, stairways, exits).",
+          "global_smoke_sensors": "Smoke/gas detectors not assigned to any URA room. These are monitored globally by the Safety Coordinator.",
+          "global_leak_sensors": "Water leak sensors not assigned to any URA room (e.g., utility chase, water main).",
+          "global_aq_sensors": "Air quality sensors (CO, CO\u2082, VOC) not assigned to any URA room.",
+          "global_temp_sensors": "Temperature sensors not assigned to any URA room (e.g., attic, crawl space).",
+          "global_humidity_sensors": "Humidity sensors not assigned to any URA room."
         }
       },
       "coordinator_toggles": {
