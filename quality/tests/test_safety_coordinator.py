@@ -250,48 +250,66 @@ class TestRateOfChangeDetector:
         assert detector.get_rate("sensor.test", now) is None
 
     def test_temperature_drop_detection(self):
-        """Rapid temperature drop should be detected in heating season."""
+        """Rapid temperature drop should be detected in heating season.
+
+        v3.6.0.10: Uses 30-min window and 2x generous learning thresholds
+        (rate <= -10.0 during learning period).
+        """
         detector = RateOfChangeDetector()
         now = make_now(month=1, day=15)  # January = heating season
-        # Record a 6-degree drop over 20 minutes
-        detector.record("sensor.temp", now - timedelta(minutes=20), 72.0)
-        detector.record("sensor.temp", now, 63.0)  # Dropped 9 degrees in 20min
+        # Record a 12-degree drop over 30 minutes (rate = -12.0/30min)
+        # Exceeds learning threshold of -10.0
+        detector.record("sensor.temp", now - timedelta(minutes=30), 72.0)
+        detector.record("sensor.temp", now, 60.0)
 
         results = detector.check_thresholds("sensor.temp", "temperature", "normal", now)
         hazard_types = [r[1] for r in results]
         assert HazardType.HVAC_FAILURE in hazard_types
 
     def test_temperature_rise_detection(self):
-        """Rapid temperature rise should be detected in cooling season."""
+        """Rapid temperature rise should be detected in cooling season.
+
+        v3.6.0.10: Uses 30-min window and 2x generous learning thresholds
+        (rate >= 10.0 during learning period).
+        """
         detector = RateOfChangeDetector()
         now = make_now(month=7, day=15)  # July = cooling season
-        # Record a 6-degree rise over 20 minutes
-        detector.record("sensor.temp", now - timedelta(minutes=20), 72.0)
-        detector.record("sensor.temp", now, 81.0)  # Rose 9 degrees in 20min
+        # Record a 12-degree rise over 30 minutes (rate = 12.0/30min)
+        # Exceeds learning threshold of 10.0
+        detector.record("sensor.temp", now - timedelta(minutes=30), 72.0)
+        detector.record("sensor.temp", now, 84.0)
 
         results = detector.check_thresholds("sensor.temp", "temperature", "normal", now)
         hazard_types = [r[1] for r in results]
         assert HazardType.HVAC_FAILURE in hazard_types
 
     def test_extreme_temperature_rise(self):
-        """Extreme temperature rise (>10F/30min) should trigger OVERHEAT in any season."""
+        """Extreme temperature rise (>20F/30min) should trigger OVERHEAT in any season.
+
+        v3.6.0.10: Learning threshold for extreme rise is 20.0 (2x the original 10.0).
+        """
         detector = RateOfChangeDetector()
         now = make_now(month=1, day=15)  # January — heating season
-        # Record a 12-degree rise over 20 minutes (= 18/30min rate)
-        detector.record("sensor.temp", now - timedelta(minutes=20), 72.0)
-        detector.record("sensor.temp", now, 84.0)
+        # Record a 22-degree rise over 30 minutes (rate = 22.0/30min)
+        # Exceeds learning threshold of 20.0
+        detector.record("sensor.temp", now - timedelta(minutes=30), 72.0)
+        detector.record("sensor.temp", now, 94.0)
 
         results = detector.check_thresholds("sensor.temp", "temperature", "normal", now)
         hazard_types = [r[1] for r in results]
         assert HazardType.OVERHEAT in hazard_types
 
     def test_humidity_spike_detection(self):
-        """Rapid humidity rise should be detected in non-bathroom rooms."""
+        """Rapid humidity rise should be detected in non-bathroom rooms.
+
+        v3.6.0.10: Learning threshold for humidity rise is 40.0 (2x the original 20.0).
+        """
         detector = RateOfChangeDetector()
         now = make_now()
-        # Record a 25% humidity rise over 20 minutes (= 37.5/30min rate)
-        detector.record("sensor.hum", now - timedelta(minutes=20), 45.0)
-        detector.record("sensor.hum", now, 70.0)
+        # Record a 45% humidity rise over 30 minutes (rate = 45.0/30min)
+        # Exceeds learning threshold of 40.0
+        detector.record("sensor.hum", now - timedelta(minutes=30), 45.0)
+        detector.record("sensor.hum", now, 90.0)
 
         results = detector.check_thresholds("sensor.hum", "humidity", "normal", now)
         hazard_types = [r[1] for r in results]
@@ -301,9 +319,9 @@ class TestRateOfChangeDetector:
         """Humidity spike in bathroom should be excluded (shower pattern)."""
         detector = RateOfChangeDetector()
         now = make_now()
-        # Same readings as above but in bathroom
-        detector.record("sensor.hum", now - timedelta(minutes=20), 45.0)
-        detector.record("sensor.hum", now, 70.0)
+        # Same large spike but in bathroom — should be excluded
+        detector.record("sensor.hum", now - timedelta(minutes=30), 45.0)
+        detector.record("sensor.hum", now, 90.0)
 
         results = detector.check_thresholds("sensor.hum", "humidity", "bathroom", now)
         hazard_types = [r[1] for r in results]
@@ -328,20 +346,23 @@ class TestRateOfChangeDetector:
             assert RateOfChangeDetector._get_current_season(now) == "shoulder"
 
     def test_shoulder_season_both_directions(self):
-        """In shoulder season, both heating and cooling rate checks should be active."""
+        """In shoulder season, both heating and cooling rate checks should be active.
+
+        v3.6.0.10: Uses 30-min window and 2x learning thresholds (±10.0).
+        """
         detector = RateOfChangeDetector()
         now = make_now(month=4, day=15)  # April = shoulder
 
-        # Temperature drop
-        detector.record("sensor.temp_a", now - timedelta(minutes=20), 72.0)
-        detector.record("sensor.temp_a", now, 63.0)  # 9-degree drop
+        # Temperature drop exceeding learning threshold (-10.0)
+        detector.record("sensor.temp_a", now - timedelta(minutes=30), 72.0)
+        detector.record("sensor.temp_a", now, 60.0)  # 12-degree drop
         results = detector.check_thresholds("sensor.temp_a", "temperature", "normal", now)
         hazard_types = [r[1] for r in results]
         assert HazardType.HVAC_FAILURE in hazard_types
 
-        # Temperature rise
-        detector.record("sensor.temp_b", now - timedelta(minutes=20), 72.0)
-        detector.record("sensor.temp_b", now, 81.0)  # 9-degree rise
+        # Temperature rise exceeding learning threshold (10.0)
+        detector.record("sensor.temp_b", now - timedelta(minutes=30), 72.0)
+        detector.record("sensor.temp_b", now, 84.0)  # 12-degree rise
         results = detector.check_thresholds("sensor.temp_b", "temperature", "normal", now)
         hazard_types = [r[1] for r in results]
         assert HazardType.HVAC_FAILURE in hazard_types

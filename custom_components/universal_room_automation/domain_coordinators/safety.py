@@ -62,6 +62,7 @@ from .base import (
     ServiceCallAction,
     Severity,
 )
+from .coordinator_diagnostics import MetricBaseline
 from .signals import SIGNAL_SAFETY_HAZARD
 
 _LOGGER = logging.getLogger(__name__)
@@ -182,31 +183,40 @@ FLOODING_SUSTAINED_MINUTES = 15
 
 
 class RateOfChangeDetector:
-    """Track sensor history and detect rapid changes.
+    """Track sensor history and detect rapid changes with adaptive baselines.
 
-    Stores last N readings per entity_id. Compares rate over 30-minute
-    window. Uses date-based season detection (no HVAC entity dependency).
-    Excludes bathrooms from humidity spike detection.
+    Stores last N readings per entity_id. Computes rate over a full 30-minute
+    window (no extrapolation). Feeds each rate observation into a per-sensor
+    MetricBaseline (Welford's algorithm) to learn normal noise levels.
+
+    Once a baseline is established (>= RATE_MIN_SAMPLES), uses z-score to
+    detect anomalous rates — automatically adapting to each sensor's noise
+    profile. During learning, uses generous fixed thresholds (2x normal).
+
+    Absolute safety thresholds (smoke, CO, freeze <=35F, overheat >=100F)
+    are handled separately and fire immediately — rate detection is only
+    for gradual drift (HVAC failure, slow overheat).
     """
 
+    # Fixed thresholds used during learning period (2x generous)
     RATE_THRESHOLDS: dict[str, dict[str, Any]] = {
         "temperature_drop": {
-            "rate": -5.0,
+            "rate": -10.0,  # 2x during learning (was -5.0)
             "hazard": HazardType.HVAC_FAILURE,
             "active_season": "heating",
         },
         "temperature_rise": {
-            "rate": 5.0,
+            "rate": 10.0,  # 2x during learning (was 5.0)
             "hazard": HazardType.HVAC_FAILURE,
             "active_season": "cooling",
         },
         "temperature_rise_extreme": {
-            "rate": 10.0,
+            "rate": 20.0,  # 2x during learning (was 10.0)
             "hazard": HazardType.OVERHEAT,
             "active_season": "any",
         },
         "humidity_rise": {
-            "rate": 20.0,
+            "rate": 40.0,  # 2x during learning (was 20.0)
             "hazard": HazardType.WATER_LEAK,
             "active_season": "any",
             "exclude_room_types": ["bathroom"],
@@ -217,10 +227,19 @@ class RateOfChangeDetector:
     WINDOW_MINUTES = 30
     MAX_HISTORY = 60  # readings to keep per entity
 
+    # v3.6.0.10: Adaptive rate-of-change constants
+    MIN_WINDOW_SECONDS = 1800  # Full 30-min window, no extrapolation
+    RATE_MIN_SAMPLES = 60      # ~30 min of observations before baseline active
+    Z_RATE_ALERT = 3.0         # 3σ = statistically significant
+    Z_RATE_HIGH = 4.0          # 4σ = very unusual
+    Z_RATE_CRITICAL = 5.0      # 5σ = extreme
+
     def __init__(self) -> None:
         """Initialize the rate-of-change detector."""
         # entity_id -> deque of (datetime, float)
         self._history: dict[str, deque] = {}
+        # v3.6.0.10: Per-sensor rate baselines for adaptive thresholds
+        self._rate_baselines: dict[str, MetricBaseline] = {}
 
     def record(self, entity_id: str, timestamp: datetime, value: float) -> None:
         """Record a sensor reading."""
@@ -228,17 +247,12 @@ class RateOfChangeDetector:
             self._history[entity_id] = deque(maxlen=self.MAX_HISTORY)
         self._history[entity_id].append((timestamp, value))
 
-    # Minimum data window before computing rate. Short windows cause
-    # normal sensor noise (~0.5°F) to be extrapolated into extreme
-    # 30-minute rates (e.g., 0.5°F in 65s → 13.8°F/30min).
-    MIN_WINDOW_SECONDS = 5 * 60  # 5 minutes of data required
-
     def get_rate(self, entity_id: str, now: datetime | None = None) -> float | None:
         """Calculate rate of change over the window period.
 
         Returns rate in units per 30 minutes, or None if insufficient data.
-        Requires at least MIN_WINDOW_SECONDS of readings to avoid
-        extrapolating short-term noise into false rate spikes.
+        v3.6.0.10: Requires full 30-minute window (MIN_WINDOW_SECONDS=1800)
+        to eliminate noise from short-term extrapolation.
         """
         history = self._history.get(entity_id)
         if not history or len(history) < 2:
@@ -262,19 +276,42 @@ class RateOfChangeDetector:
         # Get the most recent reading
         latest = history[-1]
 
-        # v3.6.0.9: Require a meaningful time window before computing rate.
-        # With only 60s of data, normal sensor noise (0.5°F) extrapolates
-        # to extreme 30-min rates (e.g., 0.5/65*1800 = 13.8°F/30min).
+        # Require full 30-min window to avoid extrapolating noise
         time_diff = (latest[0] - oldest_in_window[0]).total_seconds()
         if time_diff < self.MIN_WINDOW_SECONDS:
             return None
 
-        # Rate per 30 minutes
+        # Rate per 30 minutes (actual delta, no extrapolation)
         value_diff = latest[1] - oldest_in_window[1]
         rate_per_second = value_diff / time_diff
         rate_per_30min = rate_per_second * (30 * 60)
 
         return rate_per_30min
+
+    def _get_rate_baseline(self, entity_id: str) -> MetricBaseline:
+        """Get or create a rate baseline for a sensor."""
+        if entity_id not in self._rate_baselines:
+            self._rate_baselines[entity_id] = MetricBaseline(
+                metric_name=f"rate:{entity_id}",
+                coordinator_id="safety",
+                scope="rate_of_change",
+            )
+        return self._rate_baselines[entity_id]
+
+    def _record_rate_baseline(self, entity_id: str, rate: float) -> None:
+        """Feed a rate observation into the per-sensor baseline."""
+        baseline = self._get_rate_baseline(entity_id)
+        baseline.update(rate)
+
+    def _z_score_severity(self, z: float) -> Severity | None:
+        """Map z-score to severity level. Returns None if below alert threshold."""
+        if z >= self.Z_RATE_CRITICAL:
+            return Severity.CRITICAL
+        elif z >= self.Z_RATE_HIGH:
+            return Severity.HIGH
+        elif z >= self.Z_RATE_ALERT:
+            return Severity.MEDIUM
+        return None
 
     def check_thresholds(
         self,
@@ -282,8 +319,12 @@ class RateOfChangeDetector:
         sensor_type: str,
         room_type: str = "normal",
         now: datetime | None = None,
-    ) -> list[tuple[str, HazardType, float]]:
-        """Check if rate of change exceeds any thresholds.
+    ) -> list[tuple[str, HazardType, float, Severity | None]]:
+        """Check if rate of change is anomalous.
+
+        v3.6.0.10: Two modes:
+        - Learning (< RATE_MIN_SAMPLES): use generous fixed thresholds
+        - Active baseline: use z-score for per-sensor adaptive detection
 
         Args:
             entity_id: The sensor entity ID.
@@ -292,11 +333,9 @@ class RateOfChangeDetector:
             now: Current time (for testing).
 
         Returns:
-            List of (threshold_name, hazard_type, rate) tuples for exceeded thresholds.
+            List of (threshold_name, hazard_type, rate, severity) tuples.
+            severity is None for learning-mode detections (caller assigns MEDIUM).
         """
-        # v3.6.0.5: Rate-of-change thresholds only apply to temperature
-        # and humidity sensors. CO2/CO/TVOC have their own numeric
-        # thresholds and should not trigger temperature/humidity alerts.
         if sensor_type not in ("temperature", "humidity"):
             return []
 
@@ -304,36 +343,75 @@ class RateOfChangeDetector:
         if rate is None:
             return []
 
+        # Feed rate into per-sensor baseline (always, even during learning)
+        self._record_rate_baseline(entity_id, rate)
+
+        baseline = self._get_rate_baseline(entity_id)
         season = self._get_current_season(now)
         results = []
 
-        for name, config in self.RATE_THRESHOLDS.items():
-            # Check sensor type match
-            if sensor_type == "temperature" and "temperature" not in name:
-                continue
-            if sensor_type == "humidity" and "humidity" not in name:
-                continue
+        if baseline.sample_count >= self.RATE_MIN_SAMPLES:
+            # ── Active baseline: z-score detection ──
+            z = baseline.z_score(rate)
+            severity = self._z_score_severity(z)
+            if severity is not None:
+                # Determine hazard type from rate direction and sensor type
+                hazard_type, name = self._classify_rate_hazard(
+                    rate, sensor_type, season, room_type
+                )
+                if hazard_type is not None:
+                    results.append((name, hazard_type, rate, severity))
+        else:
+            # ── Learning period: generous fixed thresholds ──
+            for name, config in self.RATE_THRESHOLDS.items():
+                if sensor_type == "temperature" and "temperature" not in name:
+                    continue
+                if sensor_type == "humidity" and "humidity" not in name:
+                    continue
 
-            # Check season applicability
-            active_season = config.get("active_season", "any")
-            if active_season != "any" and not self._season_matches(
-                season, active_season
-            ):
-                continue
+                active_season = config.get("active_season", "any")
+                if active_season != "any" and not self._season_matches(
+                    season, active_season
+                ):
+                    continue
 
-            # Check room type exclusions
-            excluded = config.get("exclude_room_types", [])
-            if room_type in excluded:
-                continue
+                excluded = config.get("exclude_room_types", [])
+                if room_type in excluded:
+                    continue
 
-            # Check threshold direction
-            threshold_rate = config["rate"]
-            if threshold_rate > 0 and rate >= threshold_rate:
-                results.append((name, config["hazard"], rate))
-            elif threshold_rate < 0 and rate <= threshold_rate:
-                results.append((name, config["hazard"], rate))
+                threshold_rate = config["rate"]
+                if threshold_rate > 0 and rate >= threshold_rate:
+                    results.append((name, config["hazard"], rate, None))
+                elif threshold_rate < 0 and rate <= threshold_rate:
+                    results.append((name, config["hazard"], rate, None))
 
         return results
+
+    def _classify_rate_hazard(
+        self,
+        rate: float,
+        sensor_type: str,
+        season: str,
+        room_type: str,
+    ) -> tuple[HazardType | None, str]:
+        """Classify an anomalous rate into a hazard type and name."""
+        if sensor_type == "temperature":
+            if rate > 0:
+                # Rising temperature
+                if rate >= 10.0:
+                    return HazardType.OVERHEAT, "temperature_rise_extreme"
+                if season != "heating" or season == "shoulder":
+                    return HazardType.HVAC_FAILURE, "temperature_rise"
+                return None, ""
+            else:
+                # Dropping temperature
+                if season != "cooling" or season == "shoulder":
+                    return HazardType.HVAC_FAILURE, "temperature_drop"
+                return None, ""
+        elif sensor_type == "humidity":
+            if rate > 0 and room_type not in ("bathroom",):
+                return HazardType.WATER_LEAK, "humidity_rise"
+        return None, ""
 
     @staticmethod
     def _get_current_season(now: datetime | None = None) -> str:
@@ -362,6 +440,18 @@ class RateOfChangeDetector:
         if current_season == "shoulder":
             return True  # Both directions active in shoulder season
         return current_season == active_season
+
+    def get_baseline_summary(self) -> dict[str, Any]:
+        """Return summary of all rate baselines for diagnostics."""
+        summary: dict[str, Any] = {}
+        for entity_id, baseline in self._rate_baselines.items():
+            summary[entity_id] = {
+                "mean": round(baseline.mean, 4),
+                "std": round(baseline.std, 4),
+                "sample_count": baseline.sample_count,
+                "active": baseline.sample_count >= self.RATE_MIN_SAMPLES,
+            }
+        return summary
 
     def clear(self, entity_id: str | None = None) -> None:
         """Clear history for an entity or all entities."""
@@ -555,6 +645,14 @@ class SafetyCoordinator(BaseCoordinator):
         except Exception:
             _LOGGER.debug("Could not load safety anomaly baselines", exc_info=True)
 
+        # v3.6.0.10: Load rate baselines from anomaly detector's SQLite store.
+        # Rate baselines are stored with coordinator_id="safety_rate" to
+        # distinguish from the anomaly detector's own baselines.
+        try:
+            await self._load_rate_baselines()
+        except Exception:
+            _LOGGER.debug("Could not load rate baselines", exc_info=True)
+
         # v3.6.0.3: Wrap discovery/subscription in try/except so partial
         # failures don't prevent the coordinator from functioning.
         try:
@@ -567,6 +665,12 @@ class SafetyCoordinator(BaseCoordinator):
                 self.hass, self._async_periodic_check, timedelta(minutes=1)
             )
             self._unsub_listeners.append(unsub)
+
+            # v3.6.0.10: Periodic save of rate baselines (every 30 min)
+            unsub_save = async_track_time_interval(
+                self.hass, self._async_save_rate_baselines, timedelta(minutes=30)
+            )
+            self._unsub_listeners.append(unsub_save)
         except Exception:
             _LOGGER.exception("Error during safety discovery (non-fatal)")
 
@@ -940,26 +1044,34 @@ class SafetyCoordinator(BaseCoordinator):
                 humidity_hazards = self._handle_humidity(entity_id, value, now)
                 hazards.extend(humidity_hazards)
 
-            # Check rate-of-change thresholds
+            # Check rate-of-change thresholds (adaptive baselines)
             room_type = self._sensor_room_types.get(entity_id, "normal")
             roc_results = self._rate_detector.check_thresholds(
                 entity_id, sensor_type, room_type, now
             )
-            for name, hazard_type, rate in roc_results:
+            for name, hazard_type, rate, roc_severity in roc_results:
                 location = self._sensor_locations.get(entity_id, "unknown")
+                # Use z-score severity if available, otherwise MEDIUM for learning-mode
+                effective_severity = roc_severity if roc_severity is not None else Severity.MEDIUM
+                # Build threshold description
+                baseline = self._rate_detector._get_rate_baseline(entity_id)
+                if baseline.sample_count >= self._rate_detector.RATE_MIN_SAMPLES:
+                    z = baseline.z_score(rate)
+                    threshold_desc = f"z={z:.1f}σ (mean={baseline.mean:.2f}, std={baseline.std:.2f})"
+                else:
+                    threshold_desc = f"fixed={self._rate_detector.RATE_THRESHOLDS.get(name, {}).get('rate', '?')} (learning: {baseline.sample_count}/{self._rate_detector.RATE_MIN_SAMPLES})"
                 hazard = Hazard(
                     type=hazard_type,
-                    severity=Severity.MEDIUM,
+                    severity=effective_severity,
                     confidence=0.75,
                     location=location,
                     sensor_id=entity_id,
                     value=rate,
-                    threshold=self._rate_detector.RATE_THRESHOLDS[name]["rate"],
+                    threshold=threshold_desc,
                     detected_at=now,
                     message=(
-                        f"Rapid {sensor_type} change detected in {location}: "
-                        f"{rate:.1f}/30min (threshold: "
-                        f"{self._rate_detector.RATE_THRESHOLDS[name]['rate']})"
+                        f"Rapid {sensor_type} change in {location}: "
+                        f"{rate:.1f}/30min ({threshold_desc})"
                     ),
                 )
                 hazards.append(hazard)
@@ -1697,6 +1809,7 @@ class SafetyCoordinator(BaseCoordinator):
         summary["sensors_monitored"] = self.sensors_monitored
         summary["binary_sensors"] = len(self._binary_sensors)
         summary["numeric_sensors"] = len(self._numeric_sensors)
+        summary["rate_baselines"] = self._rate_detector.get_baseline_summary()
         summary["hazards_detected_24h"] = self._hazards_detected_24h
         summary["alerts_sent_24h"] = self._alerts_sent_24h
         summary["false_alarm_rate"] = (
@@ -1906,11 +2019,107 @@ class SafetyCoordinator(BaseCoordinator):
         return "degraded"
 
     # =========================================================================
+    # Rate baseline persistence
+    # =========================================================================
+
+    async def _load_rate_baselines(self) -> None:
+        """Load rate-of-change baselines from SQLite.
+
+        v3.6.0.10: Uses the same metric_baselines table as AnomalyDetector,
+        but with coordinator_id="safety_rate" to avoid collisions.
+        """
+        import aiosqlite
+        database = self.hass.data.get(DOMAIN, {}).get("database")
+        if database is None:
+            return
+
+        try:
+            async with aiosqlite.connect(database.db_file) as db:
+                db.row_factory = aiosqlite.Row
+                cursor = await db.execute("""
+                    SELECT metric_name, scope, mean, variance,
+                           sample_count, last_updated
+                    FROM metric_baselines
+                    WHERE coordinator_id = ?
+                """, ("safety_rate",))
+                rows = await cursor.fetchall()
+
+                for row in rows:
+                    # metric_name is "rate:<entity_id>"
+                    metric_name = row["metric_name"]
+                    if metric_name.startswith("rate:"):
+                        entity_id = metric_name[5:]  # strip "rate:" prefix
+                        self._rate_detector._rate_baselines[entity_id] = MetricBaseline(
+                            metric_name=metric_name,
+                            coordinator_id="safety_rate",
+                            scope=row["scope"],
+                            mean=row["mean"],
+                            variance=row["variance"],
+                            sample_count=row["sample_count"],
+                            last_updated=row["last_updated"],
+                        )
+                _LOGGER.debug(
+                    "Loaded %d rate baselines for safety",
+                    len(rows),
+                )
+        except Exception as e:
+            _LOGGER.debug(
+                "Error loading rate baselines (may not exist yet): %s", e,
+            )
+
+    async def _save_rate_baselines(self) -> None:
+        """Persist rate-of-change baselines to SQLite."""
+        import aiosqlite
+        database = self.hass.data.get(DOMAIN, {}).get("database")
+        if database is None:
+            return
+
+        baselines = self._rate_detector._rate_baselines
+        if not baselines:
+            return
+
+        try:
+            async with aiosqlite.connect(database.db_file) as db:
+                for entity_id, baseline in baselines.items():
+                    await db.execute("""
+                        INSERT OR REPLACE INTO metric_baselines
+                        (coordinator_id, metric_name, scope,
+                         mean, variance, sample_count, last_updated)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """, (
+                        "safety_rate",
+                        baseline.metric_name,
+                        baseline.scope,
+                        baseline.mean,
+                        baseline.variance,
+                        baseline.sample_count,
+                        baseline.last_updated,
+                    ))
+                await db.commit()
+                _LOGGER.debug(
+                    "Saved %d rate baselines for safety",
+                    len(baselines),
+                )
+        except Exception as e:
+            _LOGGER.error("Error saving rate baselines: %s", e)
+
+    @callback
+    def _async_save_rate_baselines(self, _now: Any = None) -> None:
+        """Periodic callback to save rate baselines."""
+        self.hass.async_create_task(self._save_rate_baselines())
+
+    # =========================================================================
     # Teardown
     # =========================================================================
 
     async def async_teardown(self) -> None:
         """Tear down the Safety Coordinator."""
+        # v3.6.0.10: Save rate baselines before teardown
+        try:
+            await self._save_rate_baselines()
+        except Exception:
+            _LOGGER.debug("Could not save rate baselines on teardown", exc_info=True)
+
         self._cancel_listeners()
         self._active_hazards.clear()
         self._deduplicator.clear()
