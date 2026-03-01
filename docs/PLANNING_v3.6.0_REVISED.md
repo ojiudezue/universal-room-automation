@@ -840,6 +840,21 @@ Additional safety-specific sensors:
 
 ---
 
+### v3.6.0.11 — Presence Hardening
+**Version:** v3.6.0.11
+**Scope:** Device area_id fallback, area registry name matching, geofence from any state, AWAY hysteresis 300→30s, deferred retry
+**Dependencies:** C1 complete (v3.6.0.1+ deployed)
+
+**What ships:**
+- Device area_id fallback in room sensor discovery (catches mismatched entity/device area assignments)
+- Area registry name matching fallback in room area map (handles stale area IDs via fuzzy name match)
+- Geofence triggers from any state transition (AWAY↔HOME, SLEEP↔HOME) not just AWAY
+- AWAY hysteresis reduced from 300s to 30s for faster departure detection
+- Deferred retry on blocked state transitions (e.g., retry AWAY→SLEEP after 30s if blocked)
+- Files: `domain_coordinators/presence.py`, `domain_coordinators/house_state.py`, `const.py`, `manifest.json`
+
+---
+
 ### Cycle 3: Security Coordinator
 **Version:** v3.6.0-c3
 **Scope:** Intrusion detection, armed states, entry monitoring
