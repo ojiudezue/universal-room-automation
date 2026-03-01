@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.6.0.2
+# Universal Room Automation v3.6.0.3
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -35,7 +35,7 @@ from homeassistant.const import (
     PERCENTAGE,
     LIGHT_LUX,
 )
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.util import dt as dt_util
@@ -165,6 +165,7 @@ async def async_setup_entry(
             PresenceComplianceSensor(hass, entry),
             # v3.6.0-c2: Safety Coordinator sensors
             SafetyStatusSensor(hass, entry),
+            SafetyActiveHazardsSensor(hass, entry),
             SafetyDiagnosticsSensor(hass, entry),
             SafetyAnomalySensor(hass, entry),
             SafetyComplianceSensor(hass, entry),
@@ -3122,7 +3123,9 @@ class PresenceAnomalySensor(AggregationEntity, SensorEntity):
         if manager is None:
             return "not_initialized"
         presence = manager.coordinators.get("presence")
-        if presence is None or presence.anomaly_detector is None:
+        if presence is None:
+            return "disabled"
+        if presence.anomaly_detector is None:
             return "not_configured"
         # Show learning status if not yet active
         learning = presence.anomaly_detector.get_learning_status()
@@ -3266,10 +3269,29 @@ class SafetyStatusSensor(AggregationEntity, SensorEntity):
         safety = manager.coordinators.get("safety")
         if safety is None:
             return {}
+
+        # v3.6.0.3: Scope and detail
+        hazards_detail = safety.get_all_hazards_detail()
+        hazard_locations = set(h["location"] for h in hazards_detail)
+        num_locations = len(hazard_locations)
+
+        if not hazards_detail:
+            scope = "clear"
+        elif num_locations == 1:
+            scope = "room"
+        elif num_locations >= 3 or any(h["severity"] == "critical" for h in hazards_detail):
+            scope = "house"
+        else:
+            scope = "multi_room"
+
         return {
             "active_hazards": len(safety.active_hazards),
             "sensors_monitored": safety.sensors_monitored,
             "last_check": dt_util.utcnow().isoformat(),
+            # v3.6.0.3: Scope and detail
+            "scope": scope,
+            "worst_location": hazards_detail[0]["location"] if hazards_detail else None,
+            "hazards": hazards_detail,
         }
 
     @property
@@ -3283,6 +3305,22 @@ class SafetyStatusSensor(AggregationEntity, SensorEntity):
         elif value == "warning":
             return "mdi:shield-half-full"
         return "mdi:shield-check"
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to safety entity updates."""
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_SAFETY_ENTITIES_UPDATE
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_SAFETY_ENTITIES_UPDATE, self._handle_update
+            )
+        )
+
+    @callback
+    def _handle_update(self) -> None:
+        """Handle safety entity update signal."""
+        self.async_write_ha_state()
 
 
 class SafetyDiagnosticsSensor(AggregationEntity, SensorEntity):
@@ -3332,6 +3370,71 @@ class SafetyDiagnosticsSensor(AggregationEntity, SensorEntity):
         }
 
 
+class SafetyActiveHazardsSensor(AggregationEntity, SensorEntity):
+    """Count of active safety hazards with full detail.
+
+    v3.6.0.3: Glanceable entity — shows how many things are wrong.
+    Entity: sensor.ura_safety_active_hazards
+    """
+
+    _attr_has_entity_name = True
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_icon = "mdi:shield-check"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_safety_active_hazards"
+        self._attr_name = "Safety Active Hazards"
+        self._attr_device_info = _safety_device_info()
+
+    @property
+    def native_value(self) -> int:
+        """Return count of active hazards."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return 0
+        safety = manager.coordinators.get("safety")
+        if safety is None:
+            return 0
+        return len(safety.active_hazards)
+
+    @property
+    def icon(self) -> str:
+        """Dynamic icon based on hazard count."""
+        val = self.native_value
+        if val == 0:
+            return "mdi:shield-check"
+        return "mdi:alert-octagon"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return full hazard detail list."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return {"hazards": []}
+        safety = manager.coordinators.get("safety")
+        if safety is None:
+            return {"hazards": []}
+        return {"hazards": safety.get_all_hazards_detail()}
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to safety entity updates."""
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_SAFETY_ENTITIES_UPDATE
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_SAFETY_ENTITIES_UPDATE, self._handle_update
+            )
+        )
+
+    @callback
+    def _handle_update(self) -> None:
+        """Handle safety entity update signal."""
+        self.async_write_ha_state()
+
+
 class SafetyAnomalySensor(AggregationEntity, SensorEntity):
     """Safety anomaly status.
 
@@ -3341,6 +3444,7 @@ class SafetyAnomalySensor(AggregationEntity, SensorEntity):
 
     _attr_has_entity_name = True
     _attr_icon = "mdi:alert-circle-outline"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         """Initialize."""
@@ -3356,7 +3460,9 @@ class SafetyAnomalySensor(AggregationEntity, SensorEntity):
         if manager is None:
             return "not_initialized"
         safety = manager.coordinators.get("safety")
-        if safety is None or safety.anomaly_detector is None:
+        if safety is None:
+            return "disabled"
+        if safety.anomaly_detector is None:
             return "not_configured"
         learning = safety.anomaly_detector.get_learning_status()
         if hasattr(learning, 'value') and learning.value in ("insufficient_data", "learning"):
@@ -3373,6 +3479,7 @@ class SafetyComplianceSensor(AggregationEntity, SensorEntity):
 
     _attr_has_entity_name = True
     _attr_icon = "mdi:check-circle-outline"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         """Initialize."""
