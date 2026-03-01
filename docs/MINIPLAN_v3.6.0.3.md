@@ -385,6 +385,26 @@ The `is_on` property getter should not have side effects — this is a design fl
 
 ---
 
+## Part 7: Adaptive Rate-of-Change Detection (v3.6.0.10)
+
+Building on the Safety Coordinator infrastructure from this plan, v3.6.0.10 replaced fixed rate-of-change thresholds with per-sensor adaptive baselines.
+
+### Problem
+Fixed rate thresholds (-5.0/+5.0/+10.0°F per 30min) produce false HVAC failure alerts because sensor noise varies dramatically between devices. A noisy in-wall outlet sensor has ±7°F/30min noise, while a thermostat has ±0.5°F/30min.
+
+### Solution
+- **Full 30-min window** (MIN_WINDOW_SECONDS = 1800): no extrapolation, actual delta over actual 30 minutes
+- **Per-sensor MetricBaseline** from coordinator_diagnostics.py (Welford's online algorithm)
+- **During learning** (< 60 samples): 2x generous fixed thresholds to avoid false positives
+- **Once baseline active**: z-score detection. 3σ → MEDIUM, 4σ → HIGH, 5σ → CRITICAL
+- **Persistence**: baselines saved to SQLite via metric_baselines table (coordinator_id="safety_rate")
+- **Periodic save**: every 30 minutes to prevent data loss
+
+### Files Changed
+- `domain_coordinators/safety.py`: RateOfChangeDetector rewritten with adaptive baselines, SafetyCoordinator gains load/save/periodic-save for rate baselines
+
+---
+
 ## NOT in scope (deferred)
 
 - Zone presence fix (separate investigation)

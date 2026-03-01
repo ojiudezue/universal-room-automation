@@ -827,6 +827,19 @@ Additional safety-specific sensors:
 
 ---
 
+### v3.6.0.10 — Adaptive Rate-of-Change Detection
+**Version:** v3.6.0.10
+**Scope:** Replace fixed rate-of-change thresholds with per-sensor adaptive baselines
+**Dependencies:** C2.5 complete (v3.6.0.3 deployed)
+
+**What ships:**
+- Replaced fixed rate-of-change thresholds with per-sensor adaptive baselines using MetricBaseline (Welford's algorithm)
+- Full 30-min window (no extrapolation), z-score detection (3σ/4σ/5σ severity), generous 2x thresholds during learning
+- Rate baselines persist to SQLite, periodic save every 30 min
+- Files: `domain_coordinators/safety.py`
+
+---
+
 ### Cycle 3: Security Coordinator
 **Version:** v3.6.0-c3
 **Scope:** Intrusion detection, armed states, entry monitoring
