@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation v3.6.0.11
+# Universal Room Automation v3.6.0.12
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -862,6 +862,46 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 else:
                     _LOGGER.info("Safety Coordinator disabled via config")
 
+                # v3.6.0-c3: Register Security Coordinator
+                if cm_config.get(CONF_SECURITY_ENABLED, True):
+                    from .domain_coordinators.security import SecurityCoordinator
+                    from .const import (
+                        CONF_SECURITY_LOCK_ENTITIES,
+                        CONF_SECURITY_GARAGE_ENTITIES,
+                        CONF_SECURITY_ENTRY_SENSORS,
+                        CONF_SECURITY_LIGHT_ENTITIES,
+                        CONF_SECURITY_CAMERA_ENTITIES,
+                        CONF_SECURITY_CAMERA_RECORDING,
+                        CONF_SECURITY_CAMERA_RECORD_DURATION,
+                        CONF_SECURITY_ALARM_PANEL,
+                        CONF_SECURITY_AUTO_FOLLOW,
+                        CONF_SECURITY_LOCK_CHECK_INTERVAL,
+                    )
+                    security = SecurityCoordinator(
+                        hass,
+                        lock_entities=cm_config.get(CONF_SECURITY_LOCK_ENTITIES, []),
+                        garage_entities=cm_config.get(CONF_SECURITY_GARAGE_ENTITIES, []),
+                        entry_sensors=cm_config.get(CONF_SECURITY_ENTRY_SENSORS, []),
+                        security_lights=cm_config.get(CONF_SECURITY_LIGHT_ENTITIES, []),
+                        camera_entities=cm_config.get(CONF_SECURITY_CAMERA_ENTITIES, []),
+                        camera_recording_enabled=cm_config.get(
+                            CONF_SECURITY_CAMERA_RECORDING, False
+                        ),
+                        camera_record_duration=int(cm_config.get(
+                            CONF_SECURITY_CAMERA_RECORD_DURATION, 30
+                        )),
+                        alarm_panel_entity=cm_config.get(CONF_SECURITY_ALARM_PANEL),
+                        auto_follow_house_state=cm_config.get(
+                            CONF_SECURITY_AUTO_FOLLOW, False
+                        ),
+                        lock_check_interval=int(cm_config.get(
+                            CONF_SECURITY_LOCK_CHECK_INTERVAL, 30
+                        )),
+                    )
+                    coordinator_manager.register_coordinator(security)
+                else:
+                    _LOGGER.info("Security Coordinator disabled via config")
+
                 await coordinator_manager.async_start()
                 hass.data[DOMAIN]["coordinator_manager"] = coordinator_manager
                 _LOGGER.info("Domain Coordinator Manager initialized and started")
@@ -882,6 +922,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         # v3.6.0-c2: Register safety services
         await _async_register_safety_services(hass)
+
+        # v3.6.0-c3: Register security services
+        await _async_register_security_services(hass)
 
         # Set up aggregation sensors (sensor and binary_sensor platforms)
         # These will be registered via the platform files
@@ -1263,6 +1306,111 @@ async def _async_register_safety_services(hass: HomeAssistant) -> None:
             }),
         )
         _LOGGER.info("Registered safety test service")
+
+
+async def _async_register_security_services(hass: HomeAssistant) -> None:
+    """Register security services for HA automations.
+
+    Services:
+    - universal_room_automation.security_arm: Set armed state
+    - universal_room_automation.security_disarm: Disarm
+    - universal_room_automation.authorize_guest: Authorize a guest
+    - universal_room_automation.add_expected_arrival: Add expected arrival
+    """
+    import voluptuous as vol
+
+    async def handle_security_arm(call):
+        """Handle security_arm service call."""
+        armed_state = call.data.get("state", "armed_home")
+        manager = hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return
+        security = manager.coordinators.get("security")
+        if security is not None:
+            await security.handle_arm(armed_state)
+        else:
+            _LOGGER.warning("Security coordinator not available for arm")
+
+    async def handle_security_disarm(call):
+        """Handle security_disarm service call."""
+        manager = hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return
+        security = manager.coordinators.get("security")
+        if security is not None:
+            await security.handle_disarm()
+        else:
+            _LOGGER.warning("Security coordinator not available for disarm")
+
+    async def handle_authorize_guest(call):
+        """Handle authorize_guest service call."""
+        person_name = call.data.get("person_name", "")
+        expires_hours = call.data.get("expires_hours", 24)
+        manager = hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return
+        security = manager.coordinators.get("security")
+        if security is not None:
+            security.handle_authorize_guest(person_name, expires_hours)
+        else:
+            _LOGGER.warning("Security coordinator not available for authorize_guest")
+
+    async def handle_add_expected_arrival(call):
+        """Handle add_expected_arrival service call."""
+        person_id = call.data.get("person_id", "")
+        window_minutes = call.data.get("window_minutes", 30)
+        manager = hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return
+        security = manager.coordinators.get("security")
+        if security is not None:
+            security.handle_add_expected_arrival(person_id, window_minutes)
+        else:
+            _LOGGER.warning("Security coordinator not available for add_expected_arrival")
+
+    if not hass.services.has_service(DOMAIN, "security_arm"):
+        hass.services.async_register(
+            DOMAIN,
+            "security_arm",
+            handle_security_arm,
+            schema=vol.Schema({
+                vol.Required("state"): vol.In([
+                    "disarmed", "armed_home", "armed_away", "armed_vacation",
+                ]),
+            }),
+        )
+
+    if not hass.services.has_service(DOMAIN, "security_disarm"):
+        hass.services.async_register(
+            DOMAIN,
+            "security_disarm",
+            handle_security_disarm,
+            schema=vol.Schema({}),
+        )
+
+    if not hass.services.has_service(DOMAIN, "authorize_guest"):
+        hass.services.async_register(
+            DOMAIN,
+            "authorize_guest",
+            handle_authorize_guest,
+            schema=vol.Schema({
+                vol.Required("person_name"): str,
+                vol.Optional("expires_hours", default=24): vol.Coerce(float),
+            }),
+        )
+
+    if not hass.services.has_service(DOMAIN, "add_expected_arrival"):
+        hass.services.async_register(
+            DOMAIN,
+            "add_expected_arrival",
+            handle_add_expected_arrival,
+            schema=vol.Schema({
+                vol.Required("person_id"): str,
+                vol.Optional("window_minutes", default=30): vol.Coerce(int),
+            }),
+        )
+
+    _LOGGER.info("Registered security services")
 
 
 async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:

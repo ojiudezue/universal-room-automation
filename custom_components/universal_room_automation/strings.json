@@ -332,6 +332,7 @@
           "domain_coordinators": "\ud83e\udd16 Domain Coordinators",
           "coordinator_presence": "\ud83d\udc65 Presence Settings",
           "coordinator_safety": "\ud83d\udee1\ufe0f Safety Monitoring",
+          "coordinator_security": "\ud83d\udd12 Security",
           "coordinator_toggles": "\u2699\ufe0f Enable/Disable Coordinators",
           "basic_setup": "\ud83d\udeaa Basic Setup",
           "sensors": "\ud83d\udce1 Sensors",
@@ -514,16 +515,46 @@
           "global_humidity_sensors": "Humidity sensors not assigned to any URA room."
         }
       },
+      "coordinator_security": {
+        "title": "\ud83d\udd12 Security",
+        "description": "Configure the Security Coordinator. Manages armed states, entry monitoring, lock control, and security camera triggers. All devices are manually configured \u2014 no auto-discovery.",
+        "data": {
+          "security_lock_entities": "Lock Entities",
+          "security_garage_entities": "Garage Door Entities",
+          "security_entry_sensors": "Entry Sensors (Door/Window)",
+          "security_light_entities": "Security Light Entities",
+          "security_camera_entities": "Camera Entities",
+          "security_camera_recording": "Enable Camera Recording Triggers",
+          "security_camera_record_duration": "Camera Record Duration (seconds)",
+          "security_alarm_panel": "Alarm Panel Entity",
+          "security_auto_follow": "Auto-Follow House State",
+          "security_lock_check_interval": "Periodic Lock Check Interval (minutes)"
+        },
+        "data_description": {
+          "security_lock_entities": "Door locks to control during security events and periodic lock checks. Must be manually selected.",
+          "security_garage_entities": "Garage doors and automated egress points. Treated as locks for periodic check and lockdown.",
+          "security_entry_sensors": "Door/window binary sensors to monitor for entry events.",
+          "security_light_entities": "Lights to activate at full brightness during security alerts. Must be manually selected.",
+          "security_camera_entities": "Cameras for recording triggers during security events. Only used when recording is enabled.",
+          "security_camera_recording": "Enable camera recording triggers during alerts. Disabled by default \u2014 cameras are assumed to be on continuous recording.",
+          "security_camera_record_duration": "Duration in seconds for camera recording triggers.",
+          "security_alarm_panel": "Optional alarm panel entity for bidirectional armed state sync. Leave empty to manage armed state independently.",
+          "security_auto_follow": "Automatically set armed state based on house state (away \u2192 armed_away, home \u2192 armed_home). Off by default.",
+          "security_lock_check_interval": "Minutes between periodic lock compliance checks. Runs regardless of armed state."
+        }
+      },
       "coordinator_toggles": {
         "title": "\u2699\ufe0f Enable/Disable Coordinators",
         "description": "Toggle individual coordinators on or off. Disabled coordinators stop processing but retain their configuration and entities. Re-enabling takes effect on next reload.",
         "data": {
           "presence_coordinator_enabled": "Presence Coordinator",
-          "safety_coordinator_enabled": "Safety Coordinator"
+          "safety_coordinator_enabled": "Safety Coordinator",
+          "security_coordinator_enabled": "Security Coordinator"
         },
         "data_description": {
           "presence_coordinator_enabled": "Track house occupancy, infer house state (home/away/sleep), and manage zone presence modes.",
-          "safety_coordinator_enabled": "Monitor environmental hazards (smoke, CO, water leaks, temperature extremes, humidity) and trigger emergency responses."
+          "safety_coordinator_enabled": "Monitor environmental hazards (smoke, CO, water leaks, temperature extremes, humidity) and trigger emergency responses.",
+          "security_coordinator_enabled": "Manage armed states, entry monitoring, lock control, and security camera triggers."
         }
       },
       "zone_rooms": {

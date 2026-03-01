@@ -1,6 +1,6 @@
 """Binary sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.6.0.11
+# Universal Room Automation v3.6.0.12
 # Build: 2026-01-02
 # File: binary_sensor.py
 # v3.2.6: Renamed "Presence" to "Sensor Presence" for clarity
@@ -115,6 +115,8 @@ async def async_setup_entry(
             # v3.6.0.3: Glanceable safety binary sensors
             SafetyWaterLeakBinarySensor(hass, entry),
             SafetyAirQualityBinarySensor(hass, entry),
+            # v3.6.0-c3: Security Coordinator
+            SecurityAlertBinarySensor(hass, entry),
         ]
         async_add_entities(coordinator_binary)
         return
@@ -1216,4 +1218,84 @@ class SafetyAirQualityBinarySensor(AggregationEntity, BinarySensorEntity):
     @callback
     def _handle_update(self) -> None:
         """Handle safety entity update signal."""
+        self.async_write_ha_state()
+
+
+# ============================================================================
+# v3.6.0-c3: Security Coordinator binary sensors
+# ============================================================================
+
+
+class SecurityAlertBinarySensor(BinarySensorEntity):
+    """True when a security alert is active.
+
+    Entity: binary_sensor.ura_security_alert
+    Device: URA: Security Coordinator
+    """
+
+    _attr_device_class = BinarySensorDeviceClass.SAFETY
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:shield-alert"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        self.hass = hass
+        self.entry = entry
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .const import DOMAIN, VERSION
+        self._attr_unique_id = f"{DOMAIN}_security_coordinator_security_alert"
+        self._attr_name = "Security Alert"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "security_coordinator")},
+            name="URA: Security Coordinator",
+            manufacturer="Universal Room Automation",
+            model="Security Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+
+    @property
+    def is_on(self) -> bool:
+        """Return True if a security alert is active."""
+        from .const import DOMAIN
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return False
+        security = manager.coordinators.get("security")
+        if security is None:
+            return False
+        return security.active_alert
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return alert details."""
+        from .const import DOMAIN
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return {"alert_type": None, "armed_state": None}
+        security = manager.coordinators.get("security")
+        if security is None or not security.active_alert:
+            return {"alert_type": None, "armed_state": None}
+        details = security.alert_details
+        return {
+            "alert_type": details.get("type"),
+            "armed_state": security.armed_state.value,
+            "entity_id": details.get("entity_id"),
+            "timestamp": details.get("timestamp"),
+        }
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to security entity updates."""
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_SECURITY_ENTITIES_UPDATE
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_SECURITY_ENTITIES_UPDATE, self._handle_update
+            )
+        )
+
+    @callback
+    def _handle_update(self) -> None:
+        """Handle security entity update signal."""
         self.async_write_ha_state()
