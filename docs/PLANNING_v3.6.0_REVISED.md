@@ -2,9 +2,9 @@
 
 **Version:** 3.6.0
 **Codename:** "Whole-House Intelligence"
-**Status:** In Progress (C0 thru C1 complete, C2 next)
+**Status:** In Progress (C0 thru C2 complete, C2.5 next)
 **Supersedes:** PLANNING_v3.6.0.md
-**Last Updated:** February 28, 2026
+**Last Updated:** March 1, 2026
 **Estimated Effort:** 22-30 hours across 9 cycles (revised: +C0-diag, +diagnostics per cycle)
 **Prerequisites:** v3.5.3 deployed (DONE - February 25, 2026)
 **Target:** Q2-Q3 2026
@@ -773,6 +773,57 @@ Minimum data before anomaly activation: 30 days (safety events are rare).
 Additional safety-specific sensors:
 - `sensor.ura_safety_anomaly` — on Safety device
 - `sensor.ura_safety_compliance` — on Safety device
+
+---
+
+### Cycle 2.5: Safety Glanceability + Scoped Discovery
+**Version:** v3.6.0.3
+**Scope:** Scoped sensor discovery with global device config flow, glanceable entities, anomaly fix, push updates
+**Effort:** 3-4 hours
+**Dependencies:** C2 complete (v3.6.0.2 deployed)
+**Full spec:** `docs/MINIPLAN_v3.6.0.3.md`
+**Builder Model:** Opus 4.6
+
+**Problem:** The Safety Coordinator device page has 5 entities that don't answer basic questions: how many things are wrong, where, is it water or air, and what scope. The coordinator also vacuums every safety-class entity in HA instead of scoping to what's configured in URA. Anomaly detectors are broken in both Presence and Safety.
+
+**What ships:**
+
+**Scoped sensor discovery:**
+- Safety Coordinator stops auto-discovering all safety-class entities in HA
+- New two-source model: URA room-configured sensors + global sensors from config flow
+- Global sensors mapped back to rooms via HA `area_id` (they may be in a room, just not configured in URA)
+- Set-based dedup: sensor in both room config and global config → room location wins
+- Config flow extended with 5 EntitySelector fields: smoke/gas, leak, AQ (CO/CO2/TVOC), temperature, humidity
+
+**Anomaly fix:**
+- Move `AnomalyDetector` init to top of `async_setup()` in Presence and Safety coordinators
+- Show "disabled" (not "not_configured") when coordinator switch is off
+
+**New entities (4):**
+
+| Entity | Type | State | Key question |
+|--------|------|-------|-------------|
+| `sensor.ura_safety_active_hazards` | sensor | Count (0,1,2...) | How many things are wrong? |
+| `binary_sensor.ura_safety_water_leak` | binary_sensor | on/off | Any water problem? |
+| `binary_sensor.ura_safety_air_quality` | binary_sensor | on/off | Any air problem? |
+
+**Enriched existing entities:**
+- `sensor.ura_safety_status` — add `scope` (clear/room/multi_room/house), `worst_location`, `hazards` list
+- `binary_sensor.ura_safety_alert` — add `all_hazards` list (not just worst)
+
+**Infrastructure:**
+- Push updates via dispatcher signal (not just polling) for all safety entities
+- `EntityCategory.DIAGNOSTIC` on diagnostics/anomaly/compliance sensors
+- Guard legacy `_process_alerts()` in aggregation.py when domain coordinators active (prevents independent light flashing)
+
+**Modified files:** safety.py, presence.py, signals.py, config_flow.py, const.py, sensor.py, binary_sensor.py, strings.json, translations/en.json, manifest.json
+
+**Estimated:** ~250 new lines, ~100 modified, 10+ new tests
+
+**Deferred to future cycle:**
+- `sensor.ura_safety_affected_rooms` with zone attribution (depends on zone presence fix)
+- `sensor.ura_safety_active_responses` (needs response-tracking state management)
+- `sensor.ura_safety_recommendations` (needs recommendation engine)
 
 ---
 

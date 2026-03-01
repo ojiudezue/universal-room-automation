@@ -121,23 +121,34 @@ class ZonePresenceTracker:
 
     @property
     def _derived_mode(self) -> str:
-        """Derive zone mode from all signal tiers."""
-        if not self._has_sensors:
-            return ZonePresenceMode.UNKNOWN
+        """Derive zone mode from all signal tiers.
 
-        # Tier 1: Room occupancy sensors
-        if any(self._room_occupied.values()):
-            return ZonePresenceMode.OCCUPIED
-
-        # Tier 2: Camera person/motion detection (with timeout)
-        if self._any_camera_occupied():
-            return ZonePresenceMode.OCCUPIED
-
-        # Tier 3: BLE person location
+        v3.6.0.2: BLE (Tier 3) no longer gated by _has_sensors.
+        BLE person tracking is the most reliable signal and should
+        always determine zone state when available.
+        """
+        # Tier 3 first: BLE person location (always available, most reliable)
         if self._ble_occupied:
             return ZonePresenceMode.OCCUPIED
 
-        return ZonePresenceMode.AWAY
+        # Tiers 1 & 2 require sensor discovery
+        if self._has_sensors:
+            # Tier 1: Room occupancy sensors
+            if any(self._room_occupied.values()):
+                return ZonePresenceMode.OCCUPIED
+
+            # Tier 2: Camera person/motion detection (with timeout)
+            if self._any_camera_occupied():
+                return ZonePresenceMode.OCCUPIED
+
+            return ZonePresenceMode.AWAY
+
+        # No sensors discovered and no BLE — still report away if BLE
+        # has ever updated (meaning the zone is known to the system)
+        if self._has_ble_sensors:
+            return ZonePresenceMode.AWAY
+
+        return ZonePresenceMode.UNKNOWN
 
     def _any_camera_occupied(self) -> bool:
         """Check if any camera signal indicates occupancy (with timeout)."""
@@ -492,43 +503,95 @@ class PresenceCoordinator(BaseCoordinator):
         """
         _LOGGER.info("Setting up Presence Coordinator")
 
-        # Build room → area_id mapping from room config entries
-        self._build_room_area_map()
-
-        # Discover zones and create trackers
-        self._discover_zones()
-
-        # Discover and subscribe to room occupancy sensors (Tier 1)
-        self._discover_room_sensors()
-
-        # Discover and subscribe to zone cameras (Tier 2)
-        self._discover_zone_cameras()
-
-        # Subscribe to geofence (person entity state changes)
-        self._subscribe_geofence()
-
-        # Subscribe to census updates
-        from homeassistant.helpers.dispatcher import async_dispatcher_connect
-        self._unsub_listeners.append(
-            async_dispatcher_connect(
-                self.hass,
-                SIGNAL_CENSUS_UPDATED,
-                self._handle_census_update,
-            )
+        # v3.6.0.3: Instantiate anomaly detector FIRST so it's always available
+        # even if discovery fails. Minimum 24 samples (~1 day of hourly
+        # observations) before activation.
+        from .coordinator_diagnostics import AnomalyDetector
+        self.anomaly_detector = AnomalyDetector(
+            hass=self.hass,
+            coordinator_id="presence",
+            metric_names=self.PRESENCE_METRICS,
+            minimum_samples=24,
         )
-
-        # Periodic inference (every 60 seconds for time-based transitions + camera timeouts)
-        self._unsub_listeners.append(
-            async_track_time_interval(
-                self.hass,
-                self._periodic_inference,
-                timedelta(seconds=60),
-            )
-        )
-
-        # Load anomaly baselines if detector is configured
-        if self.anomaly_detector is not None:
+        try:
             await self.anomaly_detector.load_baselines()
+        except Exception:
+            _LOGGER.debug("Could not load presence anomaly baselines (non-fatal)", exc_info=True)
+
+        # v3.6.0.3: Wrap discovery/subscription in try/except so partial
+        # failures don't prevent the coordinator from functioning.
+        try:
+            # Build room → area_id mapping from room config entries
+            self._build_room_area_map()
+
+            # Discover zones and create trackers
+            self._discover_zones()
+
+            # Discover and subscribe to room occupancy sensors (Tier 1)
+            self._discover_room_sensors()
+
+            # Discover and subscribe to zone cameras (Tier 2)
+            self._discover_zone_cameras()
+
+            # Subscribe to geofence (person entity state changes)
+            self._subscribe_geofence()
+
+            # Subscribe to census updates
+            from homeassistant.helpers.dispatcher import async_dispatcher_connect
+            self._unsub_listeners.append(
+                async_dispatcher_connect(
+                    self.hass,
+                    SIGNAL_CENSUS_UPDATED,
+                    self._handle_census_update,
+                )
+            )
+
+            # Periodic inference (every 60 seconds for time-based transitions + camera timeouts)
+            self._unsub_listeners.append(
+                async_track_time_interval(
+                    self.hass,
+                    self._periodic_inference,
+                    timedelta(seconds=60),
+                )
+            )
+        except Exception:
+            _LOGGER.exception("Error during presence discovery (non-fatal)")
+
+        # v3.6.0-c2.3: Seed census count from existing data before first
+        # inference. Without this, _census_count=0 → infers "away" even
+        # when people are home. Read from census manager if available,
+        # else fall back to the identified_persons sensor state.
+        try:
+            census_mgr = self.hass.data.get(DOMAIN, {}).get(
+                "camera_integration_manager"
+            )
+            if census_mgr and hasattr(census_mgr, "last_result"):
+                last = census_mgr.last_result
+                if last is not None:
+                    self._census_count = last.house.total_persons
+                    _LOGGER.info(
+                        "Seeded census count from manager: %d",
+                        self._census_count,
+                    )
+            if self._census_count == 0:
+                # Fallback: read from sensor state
+                state = self.hass.states.get(
+                    f"sensor.{DOMAIN}_identified_persons_in_house"
+                )
+                if state and state.state not in ("unknown", "unavailable"):
+                    try:
+                        self._census_count = int(state.state)
+                        _LOGGER.info(
+                            "Seeded census count from sensor: %d",
+                            self._census_count,
+                        )
+                    except (ValueError, TypeError):
+                        pass
+        except Exception as e:
+            _LOGGER.warning("Failed to seed census count: %s", e)
+
+        # Run initial inference with seeded census count
+        await self._run_inference("startup")
 
         _LOGGER.info(
             "Presence Coordinator ready: %d zones tracked",
@@ -550,10 +613,24 @@ class PresenceCoordinator(BaseCoordinator):
                     self._room_area_ids[room_name] = area_id
 
     def _discover_zones(self) -> None:
-        """Discover zones and their rooms from config entries."""
-        from ..const import CONF_ENTRY_TYPE, ENTRY_TYPE_ZONE, CONF_ZONE_NAME
+        """Discover zones and their rooms from config entries.
 
-        for entry in self.hass.config_entries.async_entries(DOMAIN):
+        v3.6.0.2: Full diagnostic logging + entry ID resolution.
+        """
+        from ..const import (
+            CONF_ENTRY_TYPE, ENTRY_TYPE_ZONE, ENTRY_TYPE_ZONE_MANAGER,
+            CONF_ZONE_NAME, CONF_ROOM_NAME,
+        )
+
+        all_entries = self.hass.config_entries.async_entries(DOMAIN)
+        entry_types = [e.data.get(CONF_ENTRY_TYPE, "unknown") for e in all_entries]
+        _LOGGER.info(
+            "Zone discovery: %d config entries, types: %s",
+            len(all_entries), entry_types,
+        )
+
+        # Legacy: individual ENTRY_TYPE_ZONE entries
+        for entry in all_entries:
             if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_ZONE:
                 zone_name = entry.data.get(CONF_ZONE_NAME, "")
                 room_names = list(
@@ -566,10 +643,79 @@ class PresenceCoordinator(BaseCoordinator):
                         zone_name=zone_name,
                         room_names=room_names,
                     )
-                    _LOGGER.debug(
-                        "Zone tracker created: %s with rooms %s",
+                    _LOGGER.info(
+                        "Zone tracker created (legacy): %s with rooms %s",
                         zone_name, room_names,
                     )
+
+        # Zone Manager entry: zones in data["zones"] or options["zones"]
+        zm_found = False
+        for entry in all_entries:
+            if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_ZONE_MANAGER:
+                zm_found = True
+                # Check both data and options for zones
+                data_zones = entry.data.get("zones", {})
+                opts_zones = entry.options.get("zones", {})
+                _LOGGER.info(
+                    "Zone Manager found: entry_id=%s, data has %d zones, options has %d zones, "
+                    "data keys: %s, options keys: %s",
+                    entry.entry_id,
+                    len(data_zones), len(opts_zones),
+                    list(data_zones.keys()) if data_zones else "[]",
+                    list(opts_zones.keys()) if opts_zones else "[]",
+                )
+
+                # Options takes priority over data (config flow writes to options)
+                zones_data = opts_zones if opts_zones else data_zones
+
+                for zone_name, zone_cfg in zones_data.items():
+                    if zone_name in self._zone_trackers:
+                        continue
+                    raw_rooms = list(zone_cfg.get(CONF_ZONE_ROOMS, []))
+                    _LOGGER.info(
+                        "Zone '%s' raw room refs: %s", zone_name, raw_rooms,
+                    )
+                    # Resolve entry IDs to room names
+                    room_names = []
+                    for room_ref in raw_rooms:
+                        room_entry = self.hass.config_entries.async_get_entry(room_ref)
+                        if room_entry:
+                            name = room_entry.data.get(CONF_ROOM_NAME, "")
+                            if name:
+                                room_names.append(name)
+                                _LOGGER.debug(
+                                    "  Resolved %s -> '%s'", room_ref[:12], name,
+                                )
+                                continue
+                        # Fallback: treat as a room name directly
+                        room_names.append(room_ref)
+                        _LOGGER.debug(
+                            "  Fallback (no entry): %s used as-is", room_ref[:20],
+                        )
+                    if zone_name and room_names:
+                        self._zone_trackers[zone_name] = ZonePresenceTracker(
+                            hass=self.hass,
+                            zone_name=zone_name,
+                            room_names=room_names,
+                        )
+                        _LOGGER.info(
+                            "Zone tracker created: '%s' with %d rooms: %s",
+                            zone_name, len(room_names), room_names,
+                        )
+                    else:
+                        _LOGGER.warning(
+                            "Zone '%s' skipped: zone_name=%r, room_names=%s",
+                            zone_name, zone_name, room_names,
+                        )
+                break
+
+        if not zm_found:
+            _LOGGER.warning("No Zone Manager entry found among %d entries", len(all_entries))
+
+        _LOGGER.info(
+            "Zone discovery complete: %d zone trackers created: %s",
+            len(self._zone_trackers), list(self._zone_trackers.keys()),
+        )
 
     # ------------------------------------------------------------------
     # Tier 1: Room Occupancy Sensors (via entity registry area_id)
