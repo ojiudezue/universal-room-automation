@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.6.0.5
+# Universal Room Automation v3.6.0.6
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -166,6 +166,7 @@ async def async_setup_entry(
             # v3.6.0-c2: Safety Coordinator sensors
             SafetyStatusSensor(hass, entry),
             SafetyActiveHazardsSensor(hass, entry),
+            SafetyAffectedRoomsSensor(hass, entry),
             SafetyDiagnosticsSensor(hass, entry),
             SafetyAnomalySensor(hass, entry),
             SafetyComplianceSensor(hass, entry),
@@ -3417,6 +3418,75 @@ class SafetyActiveHazardsSensor(AggregationEntity, SensorEntity):
         if safety is None:
             return {"hazards": []}
         return {"hazards": safety.get_all_hazards_detail()}
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to safety entity updates."""
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_SAFETY_ENTITIES_UPDATE
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_SAFETY_ENTITIES_UPDATE, self._handle_update
+            )
+        )
+
+    @callback
+    def _handle_update(self) -> None:
+        """Handle safety entity update signal."""
+        self.async_write_ha_state()
+
+
+class SafetyAffectedRoomsSensor(AggregationEntity, SensorEntity):
+    """Rooms with active safety hazards, grouped by zone.
+
+    v3.6.0.6: Shows which rooms are affected and their zone grouping.
+    Entity: sensor.ura_safety_affected_rooms
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:home-alert"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_safety_affected_rooms"
+        self._attr_name = "Safety Affected Rooms"
+        self._attr_device_info = _safety_device_info()
+
+    @property
+    def native_value(self) -> str:
+        """Return comma-separated room names or 'clear'."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return "clear"
+        safety = manager.coordinators.get("safety")
+        if safety is None:
+            return "clear"
+        status = safety.get_affected_rooms()
+        rooms = status.get("affected_rooms", [])
+        if not rooms:
+            return "clear"
+        return ", ".join(rooms)
+
+    @property
+    def icon(self) -> str:
+        """Dynamic icon."""
+        if self.native_value == "clear":
+            return "mdi:home-check"
+        return "mdi:home-alert"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return affected rooms detail."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return {"affected_rooms": [], "affected_by_zone": {},
+                    "room_count": 0, "zone_count": 0, "worst_room": None}
+        safety = manager.coordinators.get("safety")
+        if safety is None:
+            return {"affected_rooms": [], "affected_by_zone": {},
+                    "room_count": 0, "zone_count": 0, "worst_room": None}
+        return safety.get_affected_rooms()
 
     async def async_added_to_hass(self) -> None:
         """Subscribe to safety entity updates."""

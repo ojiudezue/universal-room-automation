@@ -697,6 +697,24 @@ class SafetyCoordinator(BaseCoordinator):
         """
         import re
 
+        # v3.6.0.6: Skip internal/diagnostic sensors (ESP chip temps,
+        # Shelly circuit temps, etc.) — not environmental readings.
+        entity_category = getattr(entity, "entity_category", None)
+        if entity_category is not None and str(entity_category) == "diagnostic":
+            return
+
+        # v3.6.0.6: Skip known internal temperature sensor patterns.
+        # These are chip/board/circuit temps on monitoring devices, not
+        # room environmental temperatures.
+        INTERNAL_TEMP_PATTERNS = (
+            "esp_temperature", "internal_temperature", "chip_temperature",
+            "mcu_temperature", "board_temperature", "cpu_temperature",
+            "pcb_temperature", "device_temperature",
+        )
+        eid_lower = entity_id.lower()
+        if any(pattern in eid_lower for pattern in INTERNAL_TEMP_PATTERNS):
+            return
+
         # Determine location from area_id (entity-level, then device-level)
         entity_area_id = getattr(entity, "area_id", None)
         location = "unknown"
@@ -1634,6 +1652,8 @@ class SafetyCoordinator(BaseCoordinator):
                 key = f"{flooding.type.value}:{flooding.location}"
                 if key not in self._active_hazards:
                     self._active_hazards[key] = flooding
+                    # v3.6.0.6: Push entity updates on flooding escalation
+                    self._notify_entity_update()
                     # Queue intent for the flooding detection
                     manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
                     if manager is not None:
@@ -1850,6 +1870,63 @@ class SafetyCoordinator(BaseCoordinator):
             "locations": locations,
             "sensor_ids": sensor_ids,
             "worst_severity": worst,
+        }
+
+    def get_affected_rooms(self) -> dict:
+        """Return rooms with active hazards, grouped by zone.
+
+        v3.6.0.6: Affected rooms entity data.
+        """
+        if not self._active_hazards:
+            return {
+                "affected_rooms": [],
+                "affected_by_zone": {},
+                "room_count": 0,
+                "zone_count": 0,
+                "worst_room": None,
+            }
+
+        SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+
+        # Collect rooms and their worst severity
+        room_worst: dict[str, str] = {}  # room_name -> worst severity
+        for hazard in self._active_hazards.values():
+            loc = hazard.location
+            sev = hazard.severity.name.lower()
+            if loc not in room_worst or SEVERITY_ORDER.get(sev, 99) < SEVERITY_ORDER.get(room_worst[loc], 99):
+                room_worst[loc] = sev
+
+        affected_rooms = sorted(room_worst.keys())
+
+        # Build room -> zone mapping from URA room config entries
+        from ..const import (
+            CONF_ENTRY_TYPE, ENTRY_TYPE_ROOM, CONF_ROOM_NAME, CONF_ZONE,
+        )
+        room_to_zone: dict[str, str] = {}
+        for config_entry in self.hass.config_entries.async_entries(DOMAIN):
+            if config_entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ROOM:
+                continue
+            merged = {**config_entry.data, **config_entry.options}
+            room_name = merged.get(CONF_ROOM_NAME, "")
+            zone = merged.get(CONF_ZONE, "")
+            if room_name and zone:
+                room_to_zone[room_name] = zone
+
+        # Group affected rooms by zone
+        by_zone: dict[str, list[str]] = {}
+        for room in affected_rooms:
+            zone = room_to_zone.get(room, "Unassigned")
+            by_zone.setdefault(zone, []).append(room)
+
+        # Find worst room
+        worst_room = min(room_worst, key=lambda r: SEVERITY_ORDER.get(room_worst[r], 99))
+
+        return {
+            "affected_rooms": affected_rooms,
+            "affected_by_zone": by_zone,
+            "room_count": len(affected_rooms),
+            "zone_count": len(by_zone),
+            "worst_room": worst_room,
         }
 
     def _notify_entity_update(self) -> None:

@@ -1,6 +1,6 @@
 """Binary sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.6.0.5
+# Universal Room Automation v3.6.0.6
 # Build: 2026-01-02
 # File: binary_sensor.py
 # v3.2.6: Renamed "Presence" to "Sensor Presence" for clarity
@@ -1059,7 +1059,7 @@ class SafetyAlertBinarySensor(BinarySensorEntity):
         attrs["all_hazards"] = [
             {"hazard_type": h.type.value, "location": h.location,
              "severity": h.severity.name.lower()}
-            for h in safety._active_hazards.values()
+            for h in safety.active_hazards.values()
         ]
         return attrs
 
