@@ -228,10 +228,17 @@ class RateOfChangeDetector:
             self._history[entity_id] = deque(maxlen=self.MAX_HISTORY)
         self._history[entity_id].append((timestamp, value))
 
+    # Minimum data window before computing rate. Short windows cause
+    # normal sensor noise (~0.5°F) to be extrapolated into extreme
+    # 30-minute rates (e.g., 0.5°F in 65s → 13.8°F/30min).
+    MIN_WINDOW_SECONDS = 5 * 60  # 5 minutes of data required
+
     def get_rate(self, entity_id: str, now: datetime | None = None) -> float | None:
         """Calculate rate of change over the window period.
 
         Returns rate in units per 30 minutes, or None if insufficient data.
+        Requires at least MIN_WINDOW_SECONDS of readings to avoid
+        extrapolating short-term noise into false rate spikes.
         """
         history = self._history.get(entity_id)
         if not history or len(history) < 2:
@@ -255,9 +262,11 @@ class RateOfChangeDetector:
         # Get the most recent reading
         latest = history[-1]
 
-        # Need at least some time difference
+        # v3.6.0.9: Require a meaningful time window before computing rate.
+        # With only 60s of data, normal sensor noise (0.5°F) extrapolates
+        # to extreme 30-min rates (e.g., 0.5/65*1800 = 13.8°F/30min).
         time_diff = (latest[0] - oldest_in_window[0]).total_seconds()
-        if time_diff < 60:  # Less than 1 minute - not enough data
+        if time_diff < self.MIN_WINDOW_SECONDS:
             return None
 
         # Rate per 30 minutes
