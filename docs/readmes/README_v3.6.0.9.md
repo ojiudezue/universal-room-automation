@@ -1,4 +1,4 @@
-# Universal Room Automation v3.6.0.9 — Rate-of-Change Restart Fix
+# Universal Room Automation v3.6.0.9 — Rate-of-Change False Positive Fix
 
 **Release Date:** 2026-03-01
 **Previous Release:** v3.6.0.8
@@ -8,24 +8,42 @@
 
 ## Summary
 
-Fixes false rate-of-change overheat/HVAC-failure alerts after HA restarts. When sensors transition from unavailable→valid, the rate detector now clears its history for that sensor to prevent false spikes.
+Fixes false rate-of-change overheat alerts caused by two issues: (1) extrapolating short-term sensor noise over tiny time windows, and (2) stale pre-restart readings creating false rate spikes.
 
 ---
 
 ## Problem
 
-After HA restart, sensors go unavailable briefly then come back online. The rate-of-change detector had stale pre-restart readings in its history. When the sensor reported its first valid reading post-restart, the detector computed a rate against the last pre-restart value:
+### Root Cause: Minimum Window Too Short
 
-1. Pre-restart: sensor at 66°F → recorded in history
-2. HA restarts → sensor goes `unavailable` (state change skipped)
-3. Post-restart: sensor at 76°F → recorded in history
-4. Rate detector: 66→76 = +10°F in short window → **false `temperature_rise_extreme` overheat alert**
+`get_rate()` only required 60 seconds of data before computing a 30-minute extrapolated rate. Normal sensor noise (~0.5°F between readings) over 65 seconds extrapolates to extreme rates:
 
-This is what caused `sensor.invisoutlet_b7d0_temperature` (Study A) to show an overheat rate-of-change warning with value 10.4°F/30min — the sensor was 76.82°F (perfectly normal) but the rate spike from unavailable→valid transition exceeded the 10°F/30min threshold.
+```
+0.5°F / 65s * 1800s = 13.8°F/30min  →  exceeds 10.0 threshold  →  false OVERHEAT alert
+```
 
-## Fix
+This is what caused `sensor.invisoutlet_b7d0_temperature` (Study A, 77°F) to show an overheat rate warning of 14.7°F/30min — a tiny real fluctuation over a short window extrapolated into a massive rate.
 
-In `_async_sensor_state_changed()`: when the old state was `unavailable` or `unknown` and the new state is valid, clear the sensor's rate-of-change history via `self._rate_detector.clear(entity_id)`. The first post-restart reading starts fresh with no history, so no rate can be computed until a second reading arrives.
+### Contributing Factor: Post-Restart Stale History
+
+After HA restart, the rate detector could also compare stale pre-restart values against fresh post-restart values, creating additional false spikes.
+
+## Fixes
+
+### 1. Minimum Data Window: 5 Minutes
+
+`RateOfChangeDetector.MIN_WINDOW_SECONDS = 300` (5 minutes). Rate computation now requires at least 5 minutes of data before extrapolating to a 30-minute rate. This prevents short-term noise from being amplified.
+
+With 5 minutes of data, a 0.5°F fluctuation produces:
+```
+0.5°F / 300s * 1800s = 3.0°F/30min  →  well below 10.0 threshold  →  no alert
+```
+
+Only genuine sustained temperature changes (e.g., 3°F over 5 minutes = 18°F/30min) trigger alerts.
+
+### 2. Clear Rate History on Unavailable→Valid Transition
+
+When a sensor transitions from `unavailable`/`unknown` to a valid state, its rate history is cleared to prevent stale pre-restart values from contaminating the rate calculation.
 
 ---
 
@@ -33,7 +51,7 @@ In `_async_sensor_state_changed()`: when the old state was `unavailable` or `unk
 
 | File | Change |
 |------|--------|
-| `domain_coordinators/safety.py` | Clear rate history on unavailable→valid transition in `_async_sensor_state_changed()` |
+| `domain_coordinators/safety.py` | `MIN_WINDOW_SECONDS = 300` in `RateOfChangeDetector`; clear rate history on unavailable→valid transition |
 | `const.py` | Version stamp 3.6.0.9 |
 | `manifest.json` | Version stamp 3.6.0.9 |
 
@@ -41,7 +59,7 @@ In `_async_sensor_state_changed()`: when the old state was `unavailable` or `unk
 
 ## How to Verify
 
-1. After HA restart, no rate-of-change overheat/HVAC-failure alerts should appear
-2. `sensor.ura_safety_coordinator_safety_active_hazards` should show 0 (no false positives)
+1. After HA restart, no rate-of-change overheat/HVAC-failure alerts should appear within the first 5 minutes
+2. `sensor.ura_safety_coordinator_safety_active_hazards` should show 0 (no false positives from sensor noise)
 3. Safety status should be "normal"
-4. Real rate-of-change alerts (sensor genuinely changing rapidly while online) still fire correctly
+4. Real sustained temperature changes (>10°F over 5+ minutes) still trigger alerts correctly
