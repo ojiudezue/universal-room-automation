@@ -501,6 +501,9 @@ class SafetyCoordinator(BaseCoordinator):
         # Prevents repeated hazard creation on every state change after window expires
         self._humidity_hazard_fired: set[str] = set()  # entity_ids with active fired hazard
 
+        # v3.6.0.8: Unit cache for temperature normalization
+        self._sensor_units: dict[str, str] = {}  # entity_id -> unit_of_measurement
+
         # Diagnostics counters
         self._hazards_detected_24h: int = 0
         self._alerts_sent_24h: int = 0
@@ -882,7 +885,13 @@ class SafetyCoordinator(BaseCoordinator):
             sensor_type = self._numeric_sensors[entity_id]
             now = dt_util.utcnow()
 
-            # Record for rate-of-change detection
+            # v3.6.0.8: Normalize temperature to Fahrenheit.
+            # Thresholds are in °F but sensors may report °C.
+            # Check the entity's unit_of_measurement attribute.
+            if sensor_type == "temperature":
+                value = self._normalize_temperature(entity_id, value)
+
+            # Record for rate-of-change detection (after normalization)
             self._rate_detector.record(entity_id, now, value)
 
             # Check numeric thresholds
@@ -1125,6 +1134,33 @@ class SafetyCoordinator(BaseCoordinator):
         if thresholds is None:
             return None
         return thresholds.get(severity)
+
+    # =========================================================================
+    # Unit normalization
+    # =========================================================================
+
+    def _normalize_temperature(self, entity_id: str, value: float) -> float:
+        """Normalize temperature to Fahrenheit for threshold comparison.
+
+        v3.6.0.8: HA sensors report in their native unit (°C or °F).
+        All safety thresholds are in °F. Check the entity's
+        unit_of_measurement and convert if needed.
+        """
+        # Cache unit lookups to avoid repeated state reads
+        if entity_id not in self._sensor_units:
+            unit = "°F"  # Default assumption
+            try:
+                state = self.hass.states.get(entity_id)
+                if state:
+                    unit = state.attributes.get("unit_of_measurement", "°F")
+            except Exception:
+                pass
+            self._sensor_units[entity_id] = unit
+
+        unit = self._sensor_units[entity_id]
+        if unit in ("°C", "℃", "C"):
+            return value * 9.0 / 5.0 + 32.0
+        return value
 
     # =========================================================================
     # Temperature handling
@@ -1866,4 +1902,5 @@ class SafetyCoordinator(BaseCoordinator):
         self._leak_start_times.clear()
         self._active_leak_sensors.clear()
         self._humidity_hazard_fired.clear()
+        self._sensor_units.clear()
         _LOGGER.info("Safety Coordinator torn down")
