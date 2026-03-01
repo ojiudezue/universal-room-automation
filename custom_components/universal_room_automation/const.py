@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation v3.6.0.11
+# Universal Room Automation v3.6.0.12
 # Build: 2026-03-01
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "3.6.0.11"
+VERSION: Final = "3.6.0.12"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -816,6 +816,18 @@ CONF_GLOBAL_LEAK_SENSORS: Final = "global_leak_sensors"
 CONF_GLOBAL_AQ_SENSORS: Final = "global_aq_sensors"
 CONF_GLOBAL_TEMP_SENSORS: Final = "global_temp_sensors"
 CONF_GLOBAL_HUMIDITY_SENSORS: Final = "global_humidity_sensors"
+
+# v3.6.0-c3: Security Coordinator config constants
+CONF_SECURITY_LOCK_ENTITIES: Final = "security_lock_entities"
+CONF_SECURITY_GARAGE_ENTITIES: Final = "security_garage_entities"
+CONF_SECURITY_ENTRY_SENSORS: Final = "security_entry_sensors"
+CONF_SECURITY_LIGHT_ENTITIES: Final = "security_light_entities"
+CONF_SECURITY_CAMERA_ENTITIES: Final = "security_camera_entities"
+CONF_SECURITY_CAMERA_RECORDING: Final = "security_camera_recording"
+CONF_SECURITY_CAMERA_RECORD_DURATION: Final = "security_camera_record_duration"
+CONF_SECURITY_ALARM_PANEL: Final = "security_alarm_panel"
+CONF_SECURITY_AUTO_FOLLOW: Final = "security_auto_follow"
+CONF_SECURITY_LOCK_CHECK_INTERVAL: Final = "security_lock_check_interval"
 
 # Zone presence mode values
 ZONE_MODE_AWAY: Final = "away"

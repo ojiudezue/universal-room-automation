@@ -1,6 +1,6 @@
 """Config flow for Universal Room Automation v3.3.3."""
 #
-# Universal Room Automation v3.6.0.11
+# Universal Room Automation v3.6.0.12
 # Build: 2026-01-05
 # File: config_flow.py
 # v3.3.3: Added manage_zones to integration options menu
@@ -1332,6 +1332,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 menu_options=[
                     "coordinator_presence",
                     "coordinator_safety",
+                    "coordinator_security",
                 ],
             )
         elif entry_type == ENTRY_TYPE_ZONE:
@@ -1913,6 +1914,119 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
 
         return self.async_show_form(
             step_id="coordinator_safety",
+            data_schema=data_schema,
+        )
+
+    async def async_step_coordinator_security(self, user_input=None):
+        """Configure Security Coordinator settings.
+
+        v3.6.0-c3: Lock entities, garage doors, entry sensors, lights, cameras,
+        alarm panel, auto-follow, lock check interval.
+        """
+        from .const import (
+            CONF_SECURITY_LOCK_ENTITIES,
+            CONF_SECURITY_GARAGE_ENTITIES,
+            CONF_SECURITY_ENTRY_SENSORS,
+            CONF_SECURITY_LIGHT_ENTITIES,
+            CONF_SECURITY_CAMERA_ENTITIES,
+            CONF_SECURITY_CAMERA_RECORDING,
+            CONF_SECURITY_CAMERA_RECORD_DURATION,
+            CONF_SECURITY_ALARM_PANEL,
+            CONF_SECURITY_AUTO_FOLLOW,
+            CONF_SECURITY_LOCK_CHECK_INTERVAL,
+        )
+
+        if user_input is not None:
+            return self.async_create_entry(
+                title="",
+                data={**self._config_entry.options, **user_input},
+            )
+
+        data_schema = vol.Schema({
+            vol.Optional(
+                CONF_SECURITY_LOCK_ENTITIES,
+                default=self._get_current(CONF_SECURITY_LOCK_ENTITIES, []),
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(
+                    domain="lock", multiple=True
+                )
+            ),
+            vol.Optional(
+                CONF_SECURITY_GARAGE_ENTITIES,
+                default=self._get_current(CONF_SECURITY_GARAGE_ENTITIES, []),
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(
+                    domain="cover",
+                    device_class=["garage"],
+                    multiple=True,
+                )
+            ),
+            vol.Optional(
+                CONF_SECURITY_ENTRY_SENSORS,
+                default=self._get_current(CONF_SECURITY_ENTRY_SENSORS, []),
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(
+                    domain="binary_sensor",
+                    device_class=["door", "window", "opening"],
+                    multiple=True,
+                )
+            ),
+            vol.Optional(
+                CONF_SECURITY_LIGHT_ENTITIES,
+                default=self._get_current(CONF_SECURITY_LIGHT_ENTITIES, []),
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(
+                    domain="light", multiple=True
+                )
+            ),
+            vol.Optional(
+                CONF_SECURITY_CAMERA_ENTITIES,
+                default=self._get_current(CONF_SECURITY_CAMERA_ENTITIES, []),
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(
+                    domain="camera", multiple=True
+                )
+            ),
+            vol.Optional(
+                CONF_SECURITY_CAMERA_RECORDING,
+                default=self._get_current(CONF_SECURITY_CAMERA_RECORDING, False),
+            ): selector.BooleanSelector(),
+            vol.Optional(
+                CONF_SECURITY_CAMERA_RECORD_DURATION,
+                default=self._get_current(CONF_SECURITY_CAMERA_RECORD_DURATION, 30),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=10, max=300, step=10, unit_of_measurement="seconds",
+                    mode=selector.NumberSelectorMode.SLIDER,
+                )
+            ),
+            vol.Optional(
+                CONF_SECURITY_ALARM_PANEL,
+                description={"suggested_value": self._get_current(
+                    CONF_SECURITY_ALARM_PANEL
+                )},
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(
+                    domain="alarm_control_panel"
+                )
+            ),
+            vol.Optional(
+                CONF_SECURITY_AUTO_FOLLOW,
+                default=self._get_current(CONF_SECURITY_AUTO_FOLLOW, False),
+            ): selector.BooleanSelector(),
+            vol.Optional(
+                CONF_SECURITY_LOCK_CHECK_INTERVAL,
+                default=self._get_current(CONF_SECURITY_LOCK_CHECK_INTERVAL, 30),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=5, max=120, step=5, unit_of_measurement="minutes",
+                    mode=selector.NumberSelectorMode.SLIDER,
+                )
+            ),
+        })
+
+        return self.async_show_form(
+            step_id="coordinator_security",
             data_schema=data_schema,
         )
 

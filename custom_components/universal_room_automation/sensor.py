@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.6.0.11
+# Universal Room Automation v3.6.0.12
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -170,6 +170,11 @@ async def async_setup_entry(
             SafetyDiagnosticsSensor(hass, entry),
             SafetyAnomalySensor(hass, entry),
             SafetyComplianceSensor(hass, entry),
+            # v3.6.0-c3: Security Coordinator sensors
+            SecurityArmedStateSensor(hass, entry),
+            SecurityLastEntrySensor(hass, entry),
+            SecurityAnomalySensor(hass, entry),
+            SecurityComplianceSensor(hass, entry),
         ]
         async_add_entities(coordinator_sensors)
         return
@@ -3573,3 +3578,224 @@ class SafetyComplianceSensor(AggregationEntity, SensorEntity):
             return round(rate * 100, 1) if rate is not None else 100.0
         except (AttributeError, TypeError):
             return 100.0
+
+
+# ============================================================================
+# v3.6.0-c3: Security Coordinator sensors
+# ============================================================================
+
+
+def _security_device_info():
+    """Return DeviceInfo for the Security Coordinator device."""
+    from homeassistant.helpers.device_registry import DeviceInfo
+    from .const import VERSION
+    return DeviceInfo(
+        identifiers={(DOMAIN, "security_coordinator")},
+        name="URA: Security Coordinator",
+        manufacturer="Universal Room Automation",
+        model="Security Coordinator",
+        sw_version=VERSION,
+        via_device=(DOMAIN, "coordinator_manager"),
+    )
+
+
+class SecurityArmedStateSensor(AggregationEntity, SensorEntity):
+    """Current security armed state.
+
+    Entity: sensor.ura_security_armed_state
+    Device: URA: Security Coordinator
+    State: "disarmed" / "armed_home" / "armed_away" / "armed_vacation"
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:shield-lock"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_security_armed_state"
+        self._attr_name = "Security Armed State"
+        self._attr_device_info = _security_device_info()
+
+    @property
+    def native_value(self) -> str:
+        """Return the current armed state."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return "disarmed"
+        security = manager.coordinators.get("security")
+        if security is None:
+            return "disarmed"
+        return security.armed_state.value
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return armed state attributes."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return {"status": "not_initialized"}
+        security = manager.coordinators.get("security")
+        if security is None:
+            return {"status": "disabled"}
+        return {
+            "status": security.get_security_status(),
+            "active_alert": security.active_alert,
+        }
+
+    @property
+    def icon(self) -> str:
+        """Dynamic icon based on armed state."""
+        value = self.native_value
+        if value == "disarmed":
+            return "mdi:shield-off-outline"
+        if value == "armed_away":
+            return "mdi:shield-lock"
+        if value == "armed_vacation":
+            return "mdi:shield-airplane"
+        return "mdi:shield-home"
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to security entity updates."""
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_SECURITY_ENTITIES_UPDATE
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_SECURITY_ENTITIES_UPDATE, self._handle_update
+            )
+        )
+
+    @callback
+    def _handle_update(self) -> None:
+        """Handle security entity update signal."""
+        self.async_write_ha_state()
+
+
+class SecurityLastEntrySensor(AggregationEntity, SensorEntity):
+    """Last security entry event.
+
+    Entity: sensor.ura_security_last_entry
+    Device: URA: Security Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:door-open"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_security_last_entry"
+        self._attr_name = "Security Last Entry"
+        self._attr_device_info = _security_device_info()
+
+    @property
+    def native_value(self) -> str:
+        """Return the last entry verdict."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return "none"
+        security = manager.coordinators.get("security")
+        if security is None:
+            return "none"
+        event = security.last_entry_event
+        return event.get("verdict", "none")
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return last entry event details."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return {}
+        security = manager.coordinators.get("security")
+        if security is None:
+            return {}
+        return security.last_entry_event
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to security entity updates."""
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_SECURITY_ENTITIES_UPDATE
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_SECURITY_ENTITIES_UPDATE, self._handle_update
+            )
+        )
+
+    @callback
+    def _handle_update(self) -> None:
+        """Handle security entity update signal."""
+        self.async_write_ha_state()
+
+
+class SecurityAnomalySensor(AggregationEntity, SensorEntity):
+    """Security anomaly status.
+
+    Entity: sensor.ura_security_anomaly
+    Device: URA: Security Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:alert-circle-outline"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_security_anomaly"
+        self._attr_name = "Security Anomaly"
+        self._attr_device_info = _security_device_info()
+
+    @property
+    def native_value(self) -> str:
+        """Return the anomaly status."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return "not_initialized"
+        security = manager.coordinators.get("security")
+        if security is None:
+            return "disabled"
+        return security.get_anomaly_status()
+
+
+class SecurityComplianceSensor(AggregationEntity, SensorEntity):
+    """Security lock compliance rate.
+
+    Entity: sensor.ura_security_compliance
+    Device: URA: Security Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:lock-check"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_security_compliance"
+        self._attr_name = "Security Compliance"
+        self._attr_native_unit_of_measurement = "%"
+        self._attr_device_info = _security_device_info()
+
+    @property
+    def native_value(self) -> float:
+        """Return the lock compliance rate."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return 100.0
+        security = manager.coordinators.get("security")
+        if security is None:
+            return 100.0
+        summary = security.get_compliance_summary()
+        return summary.get("compliance_rate", 100.0)
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return compliance details."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return {}
+        security = manager.coordinators.get("security")
+        if security is None:
+            return {}
+        return security.get_compliance_summary()

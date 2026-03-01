@@ -15,6 +15,8 @@ SIGNAL_COMFORT_REQUEST: Final = "ura_comfort_request"
 SIGNAL_CENSUS_UPDATED: Final = "ura_census_updated"
 SIGNAL_SAFETY_HAZARD: Final = "ura_safety_hazard"
 SIGNAL_SAFETY_ENTITIES_UPDATE: Final = "ura_safety_entities_update"
+SIGNAL_SECURITY_EVENT: Final = "ura_security_event"
+SIGNAL_SECURITY_ENTITIES_UPDATE: Final = "ura_security_entities_update"
 
 
 # ============================================================================
@@ -61,4 +63,15 @@ class SafetyHazard:
     severity: str  # critical | high | medium | low
     source_entity: str = ""
     value: float | None = None
+    details: str = ""
+
+
+@dataclass
+class SecurityEvent:
+    """Payload for SIGNAL_SECURITY_EVENT."""
+
+    event_type: str  # entry_alert | unknown_person | lock_check | armed_change
+    severity: str  # critical | high | medium | low
+    source_entity: str = ""
+    armed_state: str = ""
     details: str = ""
