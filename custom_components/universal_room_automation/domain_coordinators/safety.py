@@ -52,7 +52,6 @@ from ..const import (
     CONF_ROOM_TYPE,
     DOMAIN,
     ENTRY_TYPE_ROOM,
-    ROOM_TYPE_BATHROOM,
 )
 from .base import (
     BaseCoordinator,
@@ -583,293 +582,185 @@ class SafetyCoordinator(BaseCoordinator):
             _LOGGER.debug("Could not build room mappings", exc_info=True)
 
     def _discover_sensors(self) -> None:
-        """Discover safety sensors from URA rooms + global config.
+        """Discover safety sensors from URA room configs + SC global config.
 
-        v3.6.0.3: Scoped discovery. Only monitors sensors from:
-        1. URA room-configured areas (entities matching room area_ids)
-        2. Global safety devices from config flow
+        v3.6.0.7: Config-first discovery. Instead of scanning the entire
+        entity registry and filtering inward, we start from the EXACT
+        sensors the user configured:
+
+        Source 1: URA room config entries — temperature_sensor,
+                  humidity_sensor, water_leak_sensor per room.
+                  We KNOW what type each sensor is from the config key.
+
+        Source 2: SC global config — 5 explicit sensor lists for devices
+                  not in any URA room.
+
+        No entity registry scanning. No device_class guessing. No
+        appliance filtering needed because the user already curated
+        the sensor list.
         """
-        try:
-            from homeassistant.helpers import entity_registry as er
-
-            ent_reg = er.async_get(self.hass)
-        except Exception:
-            _LOGGER.warning("Could not access entity registry for sensor discovery")
-            return
-
-        # Build area_id -> (room_name, room_type) lookup
-        area_to_room: dict[str, tuple[str, str]] = {}
-        for room_name, area_id in self._room_area_ids.items():
-            room_type = self._room_types.get(room_name, "normal")
-            area_to_room[area_id] = (room_name, room_type)
+        from ..const import (
+            CONF_TEMPERATURE_SENSOR,
+            CONF_HUMIDITY_SENSOR, CONF_WATER_LEAK_SENSOR,
+            CONF_GLOBAL_SMOKE_SENSORS, CONF_GLOBAL_LEAK_SENSORS,
+            CONF_GLOBAL_AQ_SENSORS, CONF_GLOBAL_TEMP_SENSORS,
+            CONF_GLOBAL_HUMIDITY_SENSORS, ENTRY_TYPE_COORDINATOR_MANAGER,
+        )
 
         seen_entity_ids: set[str] = set()
+        room_count = 0
 
-        # v3.6.0.5: Build device_id -> area_id lookup for entities that
-        # inherit area from their device (the common case in HA).
-        try:
-            from homeassistant.helpers import device_registry as dr
-            dev_reg = dr.async_get(self.hass)
-        except Exception:
-            dev_reg = None
+        # ── Source 1: URA room-configured sensors ──
+        for config_entry in self.hass.config_entries.async_entries(DOMAIN):
+            if config_entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ROOM:
+                continue
+            merged = {**config_entry.data, **config_entry.options}
+            room_name = merged.get(CONF_ROOM_NAME, "")
+            room_type = merged.get(CONF_ROOM_TYPE, "generic")
+            if not room_name:
+                continue
 
-        # Source 1: Entities in URA room areas
-        for entity in ent_reg.entities.values():
-            entity_area_id = getattr(entity, "area_id", None)
-            # Check device area if entity has no explicit area
-            if not entity_area_id and dev_reg:
-                device_id = getattr(entity, "device_id", None)
-                if device_id:
-                    device = dev_reg.async_get(device_id)
-                    if device:
-                        entity_area_id = device.area_id
-            if entity_area_id and entity_area_id in area_to_room:
-                self._classify_entity(entity.entity_id, entity, area_to_room)
-                seen_entity_ids.add(entity.entity_id)
+            # Temperature sensor — configured by user for this room
+            temp_id = merged.get(CONF_TEMPERATURE_SENSOR)
+            if temp_id and temp_id not in seen_entity_ids:
+                self._numeric_sensors[temp_id] = "temperature"
+                self._sensor_locations[temp_id] = room_name
+                self._sensor_room_types[temp_id] = room_type
+                seen_entity_ids.add(temp_id)
 
-        # Source 2: Global safety devices from config flow
-        global_entities = self._collect_global_entities()
-        for entity_id in global_entities:
-            if entity_id in seen_entity_ids:
-                continue  # Room-discovered takes precedence
-            entity = ent_reg.entities.get(entity_id)
-            if entity:
-                self._classify_entity(entity_id, entity, area_to_room)
-                seen_entity_ids.add(entity_id)
+            # Humidity sensor
+            hum_id = merged.get(CONF_HUMIDITY_SENSOR)
+            if hum_id and hum_id not in seen_entity_ids:
+                self._numeric_sensors[hum_id] = "humidity"
+                self._sensor_locations[hum_id] = room_name
+                self._sensor_room_types[hum_id] = room_type
+                seen_entity_ids.add(hum_id)
 
-        global_only = global_entities - seen_entity_ids
+            # Water leak sensor
+            leak_id = merged.get(CONF_WATER_LEAK_SENSOR)
+            if leak_id and leak_id not in seen_entity_ids:
+                self._binary_sensors[leak_id] = HazardType.WATER_LEAK
+                self._sensor_locations[leak_id] = room_name
+                self._sensor_room_types[leak_id] = room_type
+                seen_entity_ids.add(leak_id)
+
+            room_count += 1
+
+        # ── Source 2: SC global config sensors ──
+        # These are explicitly added by the user for devices not in any
+        # URA room (attic smoke detector, water main leak sensor, etc.)
+        global_count = 0
+        for config_entry in self.hass.config_entries.async_entries(DOMAIN):
+            if config_entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_COORDINATOR_MANAGER:
+                continue
+            merged = {**config_entry.data, **config_entry.options}
+
+            # Map: config key -> (sensor_type_or_hazard, is_binary)
+            GLOBAL_KEYS = {
+                CONF_GLOBAL_SMOKE_SENSORS: (HazardType.SMOKE, True),
+                CONF_GLOBAL_LEAK_SENSORS: (HazardType.WATER_LEAK, True),
+                CONF_GLOBAL_AQ_SENSORS: ("aq", False),
+                CONF_GLOBAL_TEMP_SENSORS: ("temperature", False),
+                CONF_GLOBAL_HUMIDITY_SENSORS: ("humidity", False),
+            }
+            for key, (sensor_info, is_binary) in GLOBAL_KEYS.items():
+                vals = merged.get(key, [])
+                if isinstance(vals, str) and vals:
+                    vals = [vals]
+                if not isinstance(vals, list):
+                    continue
+                for entity_id in vals:
+                    if entity_id in seen_entity_ids:
+                        continue  # Room config takes precedence
+                    location = self._resolve_global_location(entity_id)
+                    if is_binary:
+                        self._binary_sensors[entity_id] = sensor_info
+                    else:
+                        # For AQ, classify by device_class
+                        if sensor_info == "aq":
+                            aq_type = self._classify_aq_sensor(entity_id)
+                            self._numeric_sensors[entity_id] = aq_type
+                        else:
+                            self._numeric_sensors[entity_id] = sensor_info
+                    self._sensor_locations[entity_id] = location
+                    self._sensor_room_types[entity_id] = "normal"
+                    seen_entity_ids.add(entity_id)
+                    global_count += 1
+
         _LOGGER.info(
-            "Safety sensor discovery: %d from rooms, %d global, %d total "
+            "Safety sensor discovery: %d rooms, %d global, %d total "
             "(%d binary, %d numeric)",
-            len(seen_entity_ids) - len(global_entities) + len(global_only),
-            len(global_entities),
+            room_count,
+            global_count,
             len(seen_entity_ids),
             len(self._binary_sensors),
             len(self._numeric_sensors),
         )
 
-    def _collect_global_entities(self) -> set[str]:
-        """Collect globally configured safety device entities from CM config.
+    def _resolve_global_location(self, entity_id: str) -> str:
+        """Resolve location for a global sensor via device area_id.
 
-        v3.6.0.3: Reads global sensor lists from Coordinator Manager
-        config entry options.
+        v3.6.0.7: Maps global sensors back to rooms when possible.
         """
-        from ..const import (
-            CONF_GLOBAL_SMOKE_SENSORS,
-            CONF_GLOBAL_LEAK_SENSORS,
-            CONF_GLOBAL_AQ_SENSORS,
-            CONF_GLOBAL_TEMP_SENSORS,
-            CONF_GLOBAL_HUMIDITY_SENSORS,
-            ENTRY_TYPE_COORDINATOR_MANAGER,
-            CONF_ENTRY_TYPE,
-        )
-        entities: set[str] = set()
-        for config_entry in self.hass.config_entries.async_entries(DOMAIN):
-            if config_entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_COORDINATOR_MANAGER:
-                continue
-            merged = {**config_entry.data, **config_entry.options}
-            for key in (
-                CONF_GLOBAL_SMOKE_SENSORS,
-                CONF_GLOBAL_LEAK_SENSORS,
-                CONF_GLOBAL_AQ_SENSORS,
-                CONF_GLOBAL_TEMP_SENSORS,
-                CONF_GLOBAL_HUMIDITY_SENSORS,
-            ):
-                vals = merged.get(key, [])
-                if isinstance(vals, list):
-                    entities.update(vals)
-                elif isinstance(vals, str) and vals:
-                    entities.add(vals)
-        return entities
+        try:
+            from homeassistant.helpers import entity_registry as er
+            from homeassistant.helpers import device_registry as dr
+            ent_reg = er.async_get(self.hass)
+            dev_reg = dr.async_get(self.hass)
 
-    def _classify_entity(
-        self,
-        entity_id: str,
-        entity: Any,
-        area_to_room: dict[str, tuple[str, str]],
-    ) -> None:
-        """Classify a single entity as a safety sensor if applicable.
+            entity = ent_reg.entities.get(entity_id)
+            if not entity:
+                return self._location_from_entity_id(entity_id)
 
-        v3.6.0-c2.6: Prefers device_class for classification to avoid
-        false positives from substring matching (e.g. "temp" matching
-        template sensors). Falls back to entity_id word-boundary matching
-        only when device_class is not set.
-        """
-        import re
-
-        # v3.6.0.6: Skip internal/diagnostic sensors (ESP chip temps,
-        # Shelly circuit temps, etc.) — not environmental readings.
-        entity_category = getattr(entity, "entity_category", None)
-        if entity_category is not None and str(entity_category) == "diagnostic":
-            return
-
-        # v3.6.0.6: Skip known internal temperature sensor patterns.
-        # These are chip/board/circuit temps on monitoring devices, not
-        # room environmental temperatures.
-        INTERNAL_TEMP_PATTERNS = (
-            "esp_temperature", "internal_temperature", "chip_temperature",
-            "mcu_temperature", "board_temperature", "cpu_temperature",
-            "pcb_temperature", "device_temperature",
-        )
-        eid_lower = entity_id.lower()
-        if any(pattern in eid_lower for pattern in INTERNAL_TEMP_PATTERNS):
-            return
-
-        # Determine location from area_id (entity-level, then device-level)
-        entity_area_id = getattr(entity, "area_id", None)
-        location = "unknown"
-        room_type = "normal"
-
-        # v3.6.0.5: Also check device area_id since most entities inherit
-        # their area from the device, not from explicit entity assignment.
-        if not entity_area_id:
-            device_id = getattr(entity, "device_id", None)
-            if device_id:
-                try:
-                    from homeassistant.helpers import device_registry as dr
-                    dev_reg = dr.async_get(self.hass)
+            # Check entity area, then device area
+            area_id = getattr(entity, "area_id", None)
+            if not area_id:
+                device_id = getattr(entity, "device_id", None)
+                if device_id:
                     device = dev_reg.async_get(device_id)
                     if device:
-                        entity_area_id = device.area_id
-                except Exception:
-                    pass
+                        area_id = device.area_id
 
-        if entity_area_id and entity_area_id in area_to_room:
-            room_name, room_type = area_to_room[entity_area_id]
-            location = room_name
-        else:
-            # Fallback: try to extract location from entity_id
-            location = self._location_from_entity_id(entity_id)
+            # Map area_id to URA room name
+            if area_id:
+                for room_name, room_area_id in self._room_area_ids.items():
+                    if room_area_id == area_id:
+                        return room_name
 
-        # Get device_class from entity registry entry
-        device_class = getattr(entity, "device_class", None) or ""
-        original_device_class = getattr(entity, "original_device_class", None) or ""
-        effective_dc = (device_class or original_device_class).lower()
-
-        # Binary sensors: smoke, leak
-        if entity_id.startswith("binary_sensor."):
-            if effective_dc == "smoke":
-                self._binary_sensors[entity_id] = HazardType.SMOKE
-                self._sensor_locations[entity_id] = location
-                self._sensor_room_types[entity_id] = room_type
-            elif effective_dc in ("moisture", "water"):
-                self._binary_sensors[entity_id] = HazardType.WATER_LEAK
-                self._sensor_locations[entity_id] = location
-                self._sensor_room_types[entity_id] = room_type
-            else:
-                # Fallback to entity_id matching for binary sensors without device_class
-                eid_lower = entity_id.lower()
-                if re.search(r'\bsmoke\b', eid_lower):
-                    self._binary_sensors[entity_id] = HazardType.SMOKE
-                    self._sensor_locations[entity_id] = location
-                    self._sensor_room_types[entity_id] = room_type
-                elif re.search(r'\b(water_?leak|leak)\b', eid_lower):
-                    self._binary_sensors[entity_id] = HazardType.WATER_LEAK
-                    self._sensor_locations[entity_id] = location
-                    self._sensor_room_types[entity_id] = room_type
-
-        # Numeric sensors
-        elif entity_id.startswith("sensor."):
-            sensor_type = None
-
-            # Prefer device_class classification
-            if effective_dc == "carbon_monoxide":
-                sensor_type = "co"
-            elif effective_dc == "carbon_dioxide":
-                sensor_type = "co2"
-            elif effective_dc in ("volatile_organic_compounds", "volatile_organic_compounds_parts"):
-                sensor_type = "tvoc"
-            elif effective_dc == "temperature":
-                sensor_type = "temperature"
-            elif effective_dc == "humidity":
-                sensor_type = "humidity"
-
-            # Fallback: word-boundary matching on entity_id (no substring)
-            if sensor_type is None:
-                eid_lower = entity_id.lower()
-                if re.search(r'\bcarbon_monoxide\b', eid_lower) or re.search(r'\bco_level\b', eid_lower):
-                    sensor_type = "co"
-                elif re.search(r'\bco2\b', eid_lower) or re.search(r'\bcarbon_dioxide\b', eid_lower):
-                    sensor_type = "co2"
-                elif re.search(r'\btvoc\b', eid_lower) or re.search(r'\bvolatile\b', eid_lower):
-                    sensor_type = "tvoc"
-                elif re.search(r'\btemperature\b', eid_lower):
-                    # Only match full word "temperature", NOT "temp" which matches template sensors
-                    sensor_type = "temperature"
-                elif re.search(r'\bhumidity\b', eid_lower):
-                    sensor_type = "humidity"
-
-            if sensor_type:
-                self._numeric_sensors[entity_id] = sensor_type
-                self._sensor_locations[entity_id] = location
-                self._sensor_room_types[entity_id] = room_type
-
-    def _discover_sensors_fallback(self) -> None:
-        """Fallback sensor discovery using state machine entity IDs.
-
-        v3.6.0-c2.6: Uses device_class from state attributes and word-boundary
-        matching to avoid false positives from substring matching.
-        """
-        import re
-
-        try:
-            all_states = self.hass.states.async_all()
+            return self._location_from_entity_id(entity_id)
         except Exception:
-            return
+            return self._location_from_entity_id(entity_id)
 
-        for state in all_states:
-            entity_id = state.entity_id
-            location = self._location_from_entity_id(entity_id)
-            device_class = (state.attributes.get("device_class") or "").lower()
+    def _classify_aq_sensor(self, entity_id: str) -> str:
+        """Classify an AQ sensor as co, co2, or tvoc by device_class.
 
-            if entity_id.startswith("binary_sensor."):
-                if device_class == "smoke":
-                    self._binary_sensors[entity_id] = HazardType.SMOKE
-                    self._sensor_locations[entity_id] = location
-                elif device_class in ("moisture", "water"):
-                    self._binary_sensors[entity_id] = HazardType.WATER_LEAK
-                    self._sensor_locations[entity_id] = location
-                else:
-                    eid_lower = entity_id.lower()
-                    if re.search(r'\bsmoke\b', eid_lower):
-                        self._binary_sensors[entity_id] = HazardType.SMOKE
-                        self._sensor_locations[entity_id] = location
-                    elif re.search(r'\b(water_?leak|leak)\b', eid_lower):
-                        self._binary_sensors[entity_id] = HazardType.WATER_LEAK
-                        self._sensor_locations[entity_id] = location
-
-            elif entity_id.startswith("sensor."):
-                sensor_type = None
-
-                # Prefer device_class
-                if device_class == "carbon_monoxide":
-                    sensor_type = "co"
-                elif device_class == "carbon_dioxide":
-                    sensor_type = "co2"
-                elif device_class in ("volatile_organic_compounds", "volatile_organic_compounds_parts"):
-                    sensor_type = "tvoc"
-                elif device_class == "temperature":
-                    sensor_type = "temperature"
-                elif device_class == "humidity":
-                    sensor_type = "humidity"
-
-                # Fallback: word-boundary matching
-                if sensor_type is None:
-                    eid_lower = entity_id.lower()
-                    if re.search(r'\bcarbon_monoxide\b', eid_lower):
-                        sensor_type = "co"
-                    elif re.search(r'\bco2\b', eid_lower):
-                        sensor_type = "co2"
-                    elif re.search(r'\btvoc\b', eid_lower):
-                        sensor_type = "tvoc"
-                    elif re.search(r'\btemperature\b', eid_lower):
-                        sensor_type = "temperature"
-                    elif re.search(r'\bhumidity\b', eid_lower):
-                        sensor_type = "humidity"
-
-                if sensor_type:
-                    self._numeric_sensors[entity_id] = sensor_type
-                    self._sensor_locations[entity_id] = location
+        v3.6.0.7: For global AQ sensors, determine the specific type.
+        """
+        try:
+            from homeassistant.helpers import entity_registry as er
+            ent_reg = er.async_get(self.hass)
+            entity = ent_reg.entities.get(entity_id)
+            if entity:
+                dc = (
+                    getattr(entity, "device_class", None)
+                    or getattr(entity, "original_device_class", None)
+                    or ""
+                ).lower()
+                if dc == "carbon_monoxide":
+                    return "co"
+                elif dc == "carbon_dioxide":
+                    return "co2"
+                elif dc in ("volatile_organic_compounds", "volatile_organic_compounds_parts"):
+                    return "tvoc"
+        except Exception:
+            pass
+        # Fallback: guess from entity_id
+        eid = entity_id.lower()
+        if "co2" in eid or "carbon_dioxide" in eid:
+            return "co2"
+        elif "tvoc" in eid or "voc" in eid:
+            return "tvoc"
+        return "co"
 
     @staticmethod
     def _location_from_entity_id(entity_id: str) -> str:
