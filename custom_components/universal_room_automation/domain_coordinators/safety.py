@@ -286,6 +286,12 @@ class RateOfChangeDetector:
         Returns:
             List of (threshold_name, hazard_type, rate) tuples for exceeded thresholds.
         """
+        # v3.6.0.5: Rate-of-change thresholds only apply to temperature
+        # and humidity sensors. CO2/CO/TVOC have their own numeric
+        # thresholds and should not trigger temperature/humidity alerts.
+        if sensor_type not in ("temperature", "humidity"):
+            return []
+
         rate = self.get_rate(entity_id, now)
         if rate is None:
             return []
@@ -599,9 +605,24 @@ class SafetyCoordinator(BaseCoordinator):
 
         seen_entity_ids: set[str] = set()
 
+        # v3.6.0.5: Build device_id -> area_id lookup for entities that
+        # inherit area from their device (the common case in HA).
+        try:
+            from homeassistant.helpers import device_registry as dr
+            dev_reg = dr.async_get(self.hass)
+        except Exception:
+            dev_reg = None
+
         # Source 1: Entities in URA room areas
         for entity in ent_reg.entities.values():
             entity_area_id = getattr(entity, "area_id", None)
+            # Check device area if entity has no explicit area
+            if not entity_area_id and dev_reg:
+                device_id = getattr(entity, "device_id", None)
+                if device_id:
+                    device = dev_reg.async_get(device_id)
+                    if device:
+                        entity_area_id = device.area_id
             if entity_area_id and entity_area_id in area_to_room:
                 self._classify_entity(entity.entity_id, entity, area_to_room)
                 seen_entity_ids.add(entity.entity_id)
@@ -676,10 +697,24 @@ class SafetyCoordinator(BaseCoordinator):
         """
         import re
 
-        # Determine location from area_id
+        # Determine location from area_id (entity-level, then device-level)
         entity_area_id = getattr(entity, "area_id", None)
         location = "unknown"
         room_type = "normal"
+
+        # v3.6.0.5: Also check device area_id since most entities inherit
+        # their area from the device, not from explicit entity assignment.
+        if not entity_area_id:
+            device_id = getattr(entity, "device_id", None)
+            if device_id:
+                try:
+                    from homeassistant.helpers import device_registry as dr
+                    dev_reg = dr.async_get(self.hass)
+                    device = dev_reg.async_get(device_id)
+                    if device:
+                        entity_area_id = device.area_id
+                except Exception:
+                    pass
 
         if entity_area_id and entity_area_id in area_to_room:
             room_name, room_type = area_to_room[entity_area_id]
