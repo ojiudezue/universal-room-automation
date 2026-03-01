@@ -125,7 +125,7 @@ NUMERIC_THRESHOLDS: dict[str, dict[Severity, float]] = {
         Severity.CRITICAL: 100.0,
         Severity.HIGH: 50.0,
         Severity.MEDIUM: 35.0,
-        Severity.LOW: 10.0,
+        Severity.LOW: 25.0,  # v3.6.0-c2.6: raised from 10 (WHO safe limit) to 25
     },
     HazardType.HIGH_CO2: {
         Severity.HIGH: 2500.0,
@@ -143,18 +143,19 @@ NUMERIC_THRESHOLDS: dict[str, dict[Severity, float]] = {
         Severity.LOW: 45.0,
     },
     HazardType.OVERHEAT: {
-        Severity.HIGH: 110.0,
-        Severity.MEDIUM: 100.0,
-        Severity.LOW: 95.0,
+        Severity.HIGH: 115.0,
+        Severity.MEDIUM: 105.0,
+        Severity.LOW: 100.0,  # v3.6.0-c2.6: raised from 95 to reduce false positives
     },
 }
 
 # Room-type humidity thresholds
 # {room_type: {"low": threshold, "medium": threshold, "high": threshold, "window_hours": hours}}
 HUMIDITY_THRESHOLDS: dict[str, dict[str, float]] = {
-    "normal": {"low": 60.0, "medium": 70.0, "high": 80.0, "window_hours": 2.0},
+    # v3.6.0-c2.6: raised normal/basement thresholds to reduce false positives
+    "normal": {"low": 70.0, "medium": 80.0, "high": 90.0, "window_hours": 2.0},
     "bathroom": {"low": 80.0, "medium": 85.0, "high": 90.0, "window_hours": 4.0},
-    "basement": {"low": 55.0, "medium": 65.0, "high": 75.0, "window_hours": 2.0},
+    "basement": {"low": 65.0, "medium": 75.0, "high": 85.0, "window_hours": 2.0},
 }
 
 # Low humidity thresholds (universal)
@@ -437,6 +438,15 @@ class SafetyCoordinator(BaseCoordinator):
     COORDINATOR_ID = "safety"
     PRIORITY = 100
 
+    # v3.6.0-c2.9: Anomaly detection metrics
+    # Tracks hazard trigger frequency — detects when sensors fire more or less
+    # frequently than historical baseline (e.g., smoke detector triggering
+    # more often than normal could indicate a faulty sensor or real issue).
+    SAFETY_METRICS = [
+        "hazard_trigger_frequency",
+        "active_hazard_count",
+    ]
+
     def __init__(
         self,
         hass: HomeAssistant,
@@ -482,6 +492,9 @@ class SafetyCoordinator(BaseCoordinator):
 
         # Sustained humidity tracking: entity_id -> first_above_threshold_time
         self._humidity_above_since: dict[str, datetime] = {}
+        # v3.6.0-c2.6: Track whether we already fired a hazard for this sustained period
+        # Prevents repeated hazard creation on every state change after window expires
+        self._humidity_hazard_fired: set[str] = set()  # entity_ids with active fired hazard
 
         # Diagnostics counters
         self._hazards_detected_24h: int = 0
@@ -511,15 +524,34 @@ class SafetyCoordinator(BaseCoordinator):
         Discovers safety-related sensors via entity registry area_id mapping,
         then subscribes to state changes.
         """
-        self._build_room_mappings()
-        self._discover_sensors()
-        self._subscribe_to_sensors()
-
-        # Periodic check for sustained conditions (flooding, humidity)
-        unsub = async_track_time_interval(
-            self.hass, self._async_periodic_check, timedelta(minutes=1)
+        # v3.6.0.3: Instantiate anomaly detector FIRST so it's always
+        # available even if discovery fails.
+        from .coordinator_diagnostics import AnomalyDetector
+        self.anomaly_detector = AnomalyDetector(
+            hass=self.hass,
+            coordinator_id="safety",
+            metric_names=self.SAFETY_METRICS,
+            minimum_samples=720,
         )
-        self._unsub_listeners.append(unsub)
+        try:
+            await self.anomaly_detector.load_baselines()
+        except Exception:
+            _LOGGER.debug("Could not load safety anomaly baselines", exc_info=True)
+
+        # v3.6.0.3: Wrap discovery/subscription in try/except so partial
+        # failures don't prevent the coordinator from functioning.
+        try:
+            self._build_room_mappings()
+            self._discover_sensors()
+            self._subscribe_to_sensors()
+
+            # Periodic check for sustained conditions (flooding, humidity)
+            unsub = async_track_time_interval(
+                self.hass, self._async_periodic_check, timedelta(minutes=1)
+            )
+            self._unsub_listeners.append(unsub)
+        except Exception:
+            _LOGGER.exception("Error during safety discovery (non-fatal)")
 
         _LOGGER.info(
             "Safety Coordinator set up: %d binary sensors, %d numeric sensors",
@@ -545,7 +577,12 @@ class SafetyCoordinator(BaseCoordinator):
             _LOGGER.debug("Could not build room mappings", exc_info=True)
 
     def _discover_sensors(self) -> None:
-        """Discover safety-related sensors via entity registry."""
+        """Discover safety sensors from URA rooms + global config.
+
+        v3.6.0.3: Scoped discovery. Only monitors sensors from:
+        1. URA room-configured areas (entities matching room area_ids)
+        2. Global safety devices from config flow
+        """
         try:
             from homeassistant.helpers import entity_registry as er
 
@@ -560,16 +597,69 @@ class SafetyCoordinator(BaseCoordinator):
             room_type = self._room_types.get(room_name, "normal")
             area_to_room[area_id] = (room_name, room_type)
 
-        # Discover via entity registry
-        try:
-            all_entities = ent_reg.entities
-            for entity_id, entity in all_entities.items():
+        seen_entity_ids: set[str] = set()
+
+        # Source 1: Entities in URA room areas
+        for entity in ent_reg.entities.values():
+            entity_area_id = getattr(entity, "area_id", None)
+            if entity_area_id and entity_area_id in area_to_room:
+                self._classify_entity(entity.entity_id, entity, area_to_room)
+                seen_entity_ids.add(entity.entity_id)
+
+        # Source 2: Global safety devices from config flow
+        global_entities = self._collect_global_entities()
+        for entity_id in global_entities:
+            if entity_id in seen_entity_ids:
+                continue  # Room-discovered takes precedence
+            entity = ent_reg.entities.get(entity_id)
+            if entity:
                 self._classify_entity(entity_id, entity, area_to_room)
-        except Exception:
-            _LOGGER.debug(
-                "Entity registry iteration failed, trying fallback", exc_info=True
-            )
-            self._discover_sensors_fallback()
+                seen_entity_ids.add(entity_id)
+
+        global_only = global_entities - seen_entity_ids
+        _LOGGER.info(
+            "Safety sensor discovery: %d from rooms, %d global, %d total "
+            "(%d binary, %d numeric)",
+            len(seen_entity_ids) - len(global_entities) + len(global_only),
+            len(global_entities),
+            len(seen_entity_ids),
+            len(self._binary_sensors),
+            len(self._numeric_sensors),
+        )
+
+    def _collect_global_entities(self) -> set[str]:
+        """Collect globally configured safety device entities from CM config.
+
+        v3.6.0.3: Reads global sensor lists from Coordinator Manager
+        config entry options.
+        """
+        from ..const import (
+            CONF_GLOBAL_SMOKE_SENSORS,
+            CONF_GLOBAL_LEAK_SENSORS,
+            CONF_GLOBAL_AQ_SENSORS,
+            CONF_GLOBAL_TEMP_SENSORS,
+            CONF_GLOBAL_HUMIDITY_SENSORS,
+            ENTRY_TYPE_COORDINATOR_MANAGER,
+            CONF_ENTRY_TYPE,
+        )
+        entities: set[str] = set()
+        for config_entry in self.hass.config_entries.async_entries(DOMAIN):
+            if config_entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_COORDINATOR_MANAGER:
+                continue
+            merged = {**config_entry.data, **config_entry.options}
+            for key in (
+                CONF_GLOBAL_SMOKE_SENSORS,
+                CONF_GLOBAL_LEAK_SENSORS,
+                CONF_GLOBAL_AQ_SENSORS,
+                CONF_GLOBAL_TEMP_SENSORS,
+                CONF_GLOBAL_HUMIDITY_SENSORS,
+            ):
+                vals = merged.get(key, [])
+                if isinstance(vals, list):
+                    entities.update(vals)
+                elif isinstance(vals, str) and vals:
+                    entities.add(vals)
+        return entities
 
     def _classify_entity(
         self,
@@ -577,7 +667,15 @@ class SafetyCoordinator(BaseCoordinator):
         entity: Any,
         area_to_room: dict[str, tuple[str, str]],
     ) -> None:
-        """Classify a single entity as a safety sensor if applicable."""
+        """Classify a single entity as a safety sensor if applicable.
+
+        v3.6.0-c2.6: Prefers device_class for classification to avoid
+        false positives from substring matching (e.g. "temp" matching
+        template sensors). Falls back to entity_id word-boundary matching
+        only when device_class is not set.
+        """
+        import re
+
         # Determine location from area_id
         entity_area_id = getattr(entity, "area_id", None)
         location = "unknown"
@@ -590,32 +688,63 @@ class SafetyCoordinator(BaseCoordinator):
             # Fallback: try to extract location from entity_id
             location = self._location_from_entity_id(entity_id)
 
+        # Get device_class from entity registry entry
+        device_class = getattr(entity, "device_class", None) or ""
+        original_device_class = getattr(entity, "original_device_class", None) or ""
+        effective_dc = (device_class or original_device_class).lower()
+
         # Binary sensors: smoke, leak
         if entity_id.startswith("binary_sensor."):
-            eid_lower = entity_id.lower()
-            if "smoke" in eid_lower:
+            if effective_dc == "smoke":
                 self._binary_sensors[entity_id] = HazardType.SMOKE
                 self._sensor_locations[entity_id] = location
                 self._sensor_room_types[entity_id] = room_type
-            elif "leak" in eid_lower or "water_leak" in eid_lower:
+            elif effective_dc in ("moisture", "water"):
                 self._binary_sensors[entity_id] = HazardType.WATER_LEAK
                 self._sensor_locations[entity_id] = location
                 self._sensor_room_types[entity_id] = room_type
+            else:
+                # Fallback to entity_id matching for binary sensors without device_class
+                eid_lower = entity_id.lower()
+                if re.search(r'\bsmoke\b', eid_lower):
+                    self._binary_sensors[entity_id] = HazardType.SMOKE
+                    self._sensor_locations[entity_id] = location
+                    self._sensor_room_types[entity_id] = room_type
+                elif re.search(r'\b(water_?leak|leak)\b', eid_lower):
+                    self._binary_sensors[entity_id] = HazardType.WATER_LEAK
+                    self._sensor_locations[entity_id] = location
+                    self._sensor_room_types[entity_id] = room_type
 
         # Numeric sensors
         elif entity_id.startswith("sensor."):
-            eid_lower = entity_id.lower()
             sensor_type = None
-            if "carbon_monoxide" in eid_lower or "co_level" in eid_lower:
+
+            # Prefer device_class classification
+            if effective_dc == "carbon_monoxide":
                 sensor_type = "co"
-            elif "co2" in eid_lower or "carbon_dioxide" in eid_lower:
+            elif effective_dc == "carbon_dioxide":
                 sensor_type = "co2"
-            elif "tvoc" in eid_lower or "volatile" in eid_lower:
+            elif effective_dc in ("volatile_organic_compounds", "volatile_organic_compounds_parts"):
                 sensor_type = "tvoc"
-            elif "temperature" in eid_lower or "temp" in eid_lower:
+            elif effective_dc == "temperature":
                 sensor_type = "temperature"
-            elif "humidity" in eid_lower:
+            elif effective_dc == "humidity":
                 sensor_type = "humidity"
+
+            # Fallback: word-boundary matching on entity_id (no substring)
+            if sensor_type is None:
+                eid_lower = entity_id.lower()
+                if re.search(r'\bcarbon_monoxide\b', eid_lower) or re.search(r'\bco_level\b', eid_lower):
+                    sensor_type = "co"
+                elif re.search(r'\bco2\b', eid_lower) or re.search(r'\bcarbon_dioxide\b', eid_lower):
+                    sensor_type = "co2"
+                elif re.search(r'\btvoc\b', eid_lower) or re.search(r'\bvolatile\b', eid_lower):
+                    sensor_type = "tvoc"
+                elif re.search(r'\btemperature\b', eid_lower):
+                    # Only match full word "temperature", NOT "temp" which matches template sensors
+                    sensor_type = "temperature"
+                elif re.search(r'\bhumidity\b', eid_lower):
+                    sensor_type = "humidity"
 
             if sensor_type:
                 self._numeric_sensors[entity_id] = sensor_type
@@ -623,7 +752,13 @@ class SafetyCoordinator(BaseCoordinator):
                 self._sensor_room_types[entity_id] = room_type
 
     def _discover_sensors_fallback(self) -> None:
-        """Fallback sensor discovery using state machine entity IDs."""
+        """Fallback sensor discovery using state machine entity IDs.
+
+        v3.6.0-c2.6: Uses device_class from state attributes and word-boundary
+        matching to avoid false positives from substring matching.
+        """
+        import re
+
         try:
             all_states = self.hass.states.async_all()
         except Exception:
@@ -632,32 +767,55 @@ class SafetyCoordinator(BaseCoordinator):
         for state in all_states:
             entity_id = state.entity_id
             location = self._location_from_entity_id(entity_id)
+            device_class = (state.attributes.get("device_class") or "").lower()
 
             if entity_id.startswith("binary_sensor."):
-                eid_lower = entity_id.lower()
-                if "smoke" in eid_lower:
+                if device_class == "smoke":
                     self._binary_sensors[entity_id] = HazardType.SMOKE
                     self._sensor_locations[entity_id] = location
-                elif "leak" in eid_lower:
+                elif device_class in ("moisture", "water"):
                     self._binary_sensors[entity_id] = HazardType.WATER_LEAK
                     self._sensor_locations[entity_id] = location
+                else:
+                    eid_lower = entity_id.lower()
+                    if re.search(r'\bsmoke\b', eid_lower):
+                        self._binary_sensors[entity_id] = HazardType.SMOKE
+                        self._sensor_locations[entity_id] = location
+                    elif re.search(r'\b(water_?leak|leak)\b', eid_lower):
+                        self._binary_sensors[entity_id] = HazardType.WATER_LEAK
+                        self._sensor_locations[entity_id] = location
 
             elif entity_id.startswith("sensor."):
-                eid_lower = entity_id.lower()
-                if "carbon_monoxide" in eid_lower:
-                    self._numeric_sensors[entity_id] = "co"
-                    self._sensor_locations[entity_id] = location
-                elif "co2" in eid_lower:
-                    self._numeric_sensors[entity_id] = "co2"
-                    self._sensor_locations[entity_id] = location
-                elif "tvoc" in eid_lower:
-                    self._numeric_sensors[entity_id] = "tvoc"
-                    self._sensor_locations[entity_id] = location
-                elif "temperature" in eid_lower:
-                    self._numeric_sensors[entity_id] = "temperature"
-                    self._sensor_locations[entity_id] = location
-                elif "humidity" in eid_lower:
-                    self._numeric_sensors[entity_id] = "humidity"
+                sensor_type = None
+
+                # Prefer device_class
+                if device_class == "carbon_monoxide":
+                    sensor_type = "co"
+                elif device_class == "carbon_dioxide":
+                    sensor_type = "co2"
+                elif device_class in ("volatile_organic_compounds", "volatile_organic_compounds_parts"):
+                    sensor_type = "tvoc"
+                elif device_class == "temperature":
+                    sensor_type = "temperature"
+                elif device_class == "humidity":
+                    sensor_type = "humidity"
+
+                # Fallback: word-boundary matching
+                if sensor_type is None:
+                    eid_lower = entity_id.lower()
+                    if re.search(r'\bcarbon_monoxide\b', eid_lower):
+                        sensor_type = "co"
+                    elif re.search(r'\bco2\b', eid_lower):
+                        sensor_type = "co2"
+                    elif re.search(r'\btvoc\b', eid_lower):
+                        sensor_type = "tvoc"
+                    elif re.search(r'\btemperature\b', eid_lower):
+                        sensor_type = "temperature"
+                    elif re.search(r'\bhumidity\b', eid_lower):
+                        sensor_type = "humidity"
+
+                if sensor_type:
+                    self._numeric_sensors[entity_id] = sensor_type
                     self._sensor_locations[entity_id] = location
 
     @staticmethod
@@ -860,6 +1018,8 @@ class SafetyCoordinator(BaseCoordinator):
             if hazard_type == HazardType.WATER_LEAK:
                 self._leak_start_times.pop(entity_id, None)
                 self._active_leak_sensors.discard(entity_id)
+            # v3.6.0.3: Push entity updates on hazard clear
+            self._notify_entity_update()
             return None
 
         now = dt_util.utcnow()
@@ -965,6 +1125,8 @@ class SafetyCoordinator(BaseCoordinator):
             location = self._sensor_locations.get(entity_id, "unknown")
             key = f"{hazard_type}:{location}"
             self._active_hazards.pop(key, None)
+            # v3.6.0.3: Push entity updates on hazard clear
+            self._notify_entity_update()
             return None
 
         location = self._sensor_locations.get(entity_id, "unknown")
@@ -1084,13 +1246,15 @@ class SafetyCoordinator(BaseCoordinator):
     ) -> list[Hazard]:
         """Handle humidity sensor readings with room-type-aware thresholds.
 
+        v3.6.0-c2.6: Raised thresholds and added one-shot firing.
         Room type thresholds:
-        - Normal: LOW=60, MEDIUM=70, HIGH=80, sustained 2hr
+        - Normal: LOW=70, MEDIUM=80, HIGH=90, sustained 2hr
         - Bathroom: LOW=80, MEDIUM=85, HIGH=90, sustained 4hr
-        - Basement: LOW=55, MEDIUM=65, HIGH=75, sustained 2hr
+        - Basement: LOW=65, MEDIUM=75, HIGH=85, sustained 2hr
 
-        High humidity hazards only fire after the sustained window has elapsed.
-        Low humidity fires immediately (no sustained window needed).
+        High humidity hazards fire ONCE per sustained period (not on every
+        state change after window expires). Cleared when value drops below
+        threshold.
         """
         hazards: list[Hazard] = []
         location = self._sensor_locations.get(entity_id, "unknown")
@@ -1114,34 +1278,39 @@ class SafetyCoordinator(BaseCoordinator):
             window_hours = thresholds["window_hours"]
 
             if elapsed_hours >= window_hours:
-                # Sustained window elapsed — classify severity
-                severity_key = "low"
-                if value >= thresholds["high"]:
-                    severity = Severity.HIGH
-                    severity_key = "high"
-                elif value >= thresholds["medium"]:
-                    severity = Severity.MEDIUM
-                    severity_key = "medium"
-                else:
-                    severity = Severity.LOW
-                    severity_key = "low"
+                # v3.6.0-c2.6: Only fire hazard once per sustained period
+                if entity_id not in self._humidity_hazard_fired:
+                    self._humidity_hazard_fired.add(entity_id)
 
-                hazards.append(
-                    Hazard(
-                        type=HazardType.HIGH_HUMIDITY,
-                        severity=severity,
-                        confidence=0.80,
-                        location=location,
-                        sensor_id=entity_id,
-                        value=value,
-                        threshold=thresholds[severity_key],
-                        detected_at=now,
-                        message=f"High humidity: {value}% in {location} sustained {elapsed_hours:.1f}h (room type: {room_type})",
+                    # Sustained window elapsed — classify severity
+                    severity_key = "low"
+                    if value >= thresholds["high"]:
+                        severity = Severity.HIGH
+                        severity_key = "high"
+                    elif value >= thresholds["medium"]:
+                        severity = Severity.MEDIUM
+                        severity_key = "medium"
+                    else:
+                        severity = Severity.LOW
+                        severity_key = "low"
+
+                    hazards.append(
+                        Hazard(
+                            type=HazardType.HIGH_HUMIDITY,
+                            severity=severity,
+                            confidence=0.80,
+                            location=location,
+                            sensor_id=entity_id,
+                            value=value,
+                            threshold=thresholds[severity_key],
+                            detected_at=now,
+                            message=f"High humidity: {value}% in {location} sustained {elapsed_hours:.1f}h (room type: {room_type})",
+                        )
                     )
-                )
         else:
-            # Below all thresholds — clear sustained tracking
+            # Below all thresholds — clear sustained tracking and one-shot flag
             self._humidity_above_since.pop(entity_id, None)
+            self._humidity_hazard_fired.discard(entity_id)
 
         # Low humidity check (universal thresholds, fires immediately)
         low_severity = None
@@ -1221,43 +1390,63 @@ class SafetyCoordinator(BaseCoordinator):
             except Exception:
                 pass
 
+        # v3.6.0-c2.9: Record hazard trigger as anomaly observation
+        if self.anomaly_detector is not None:
+            try:
+                scope = hazard.location or "house"
+                anomaly = self.anomaly_detector.record_observation(
+                    "hazard_trigger_frequency",
+                    scope,
+                    1.0,  # Each trigger is a count observation
+                )
+                if anomaly:
+                    await self.anomaly_detector.store_anomaly(anomaly)
+                # Also record current active hazard count
+                anomaly2 = self.anomaly_detector.record_observation(
+                    "active_hazard_count",
+                    "house",
+                    float(len(self._active_hazards)),
+                )
+                if anomaly2:
+                    await self.anomaly_detector.store_anomaly(anomaly2)
+            except Exception:
+                _LOGGER.debug("Anomaly recording failed", exc_info=True)
+
+        # v3.6.0.3: Push entity updates on hazard change
+        self._notify_entity_update()
+
         return actions
 
     def _critical_response(self, hazard: Hazard) -> list[CoordinatorAction]:
-        """CRITICAL severity: Maximum response — all lights on, full alert."""
+        """CRITICAL severity: Maximum response — designated emergency lights, full alert.
+
+        v3.6.0-c2.8: Only uses explicitly configured emergency lights.
+        Never targets entity_id "all" — if no emergency lights are configured,
+        the response is notification-only (no light manipulation).
+        """
         actions: list[CoordinatorAction] = []
 
-        # Determine light pattern
-        pattern_key = self._get_light_pattern_key(hazard.type)
-        pattern = LIGHT_PATTERNS.get(pattern_key, LIGHT_PATTERNS.get("warning", {}))
-
-        # Emergency lights: all lights on at full brightness
-        actions.append(
-            ServiceCallAction(
-                coordinator_id=self.COORDINATOR_ID,
-                severity=Severity.CRITICAL,
-                confidence=hazard.confidence,
-                description=f"Emergency lights for {hazard.type.value}",
-                service="light.turn_on",
-                service_data={
-                    "entity_id": "all",
-                    "brightness": 255,
-                    "rgb_color": list(pattern.get("color", (255, 255, 255))),
-                },
-            )
-        )
-
-        # CO-specific: maximize ventilation
-        if hazard.type == HazardType.CARBON_MONOXIDE:
+        # Emergency lights: only configured lights, full brightness, white
+        if self._emergency_lights:
             actions.append(
                 ServiceCallAction(
                     coordinator_id=self.COORDINATOR_ID,
                     severity=Severity.CRITICAL,
                     confidence=hazard.confidence,
-                    description="Emergency ventilation for CO",
-                    service="fan.turn_on",
-                    service_data={"entity_id": "all"},
+                    description=f"Emergency lights for {hazard.type.value}",
+                    service="light.turn_on",
+                    service_data={
+                        "entity_id": self._emergency_lights,
+                        "brightness": 255,
+                    },
                 )
+            )
+        else:
+            _LOGGER.warning(
+                "CRITICAL hazard (%s) but no emergency lights configured — "
+                "skipping light response. Configure emergency lights in "
+                "Coordinator Manager → Safety Monitoring.",
+                hazard.type.value,
             )
 
         # Flooding: water shutoff (if configured)
@@ -1355,9 +1544,7 @@ class SafetyCoordinator(BaseCoordinator):
 
     def _water_shutoff_actions(self, hazard: Hazard) -> list[CoordinatorAction]:
         """Generate water shutoff actions if valve is configured."""
-        # Check for configured water shutoff valve
-        # Code path is ready — plug and play when hardware is installed
-        valve_entity = self.hass.data.get(DOMAIN, {}).get("water_shutoff_valve")
+        valve_entity = self._water_shutoff_valve
         if valve_entity:
             return [
                 ServiceCallAction(
@@ -1479,12 +1666,17 @@ class SafetyCoordinator(BaseCoordinator):
         """Clear an active hazard."""
         key = f"{hazard_type.value}:{location}"
         self._active_hazards.pop(key, None)
+        # v3.6.0.3: Push entity updates on hazard clear
+        self._notify_entity_update()
 
     def clear_all_hazards(self) -> None:
         """Clear all active hazards."""
         self._active_hazards.clear()
         self._leak_start_times.clear()
         self._active_leak_sensors.clear()
+        self._humidity_hazard_fired.clear()
+        # v3.6.0.3: Push entity updates on hazard clear
+        self._notify_entity_update()
 
     # =========================================================================
     # Diagnostics
@@ -1541,6 +1733,99 @@ class SafetyCoordinator(BaseCoordinator):
         # LOW severity = advisory (active hazard, but log-only response)
         return "advisory"
 
+    def get_all_hazards_detail(self) -> list[dict]:
+        """Return all active hazards as serializable dicts.
+
+        v3.6.0.3: Full hazard detail for glanceable entities.
+        Capped at 20, sorted by severity (critical first).
+        """
+        SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+        hazards = []
+        for hazard in self._active_hazards.values():
+            hazards.append({
+                "hazard_type": hazard.type.value,
+                "severity": hazard.severity.name.lower(),
+                "location": hazard.location,
+                "sensor_id": hazard.sensor_id,
+                "value": hazard.value,
+                "threshold": hazard.threshold,
+                "detected_at": hazard.detected_at.isoformat() if hazard.detected_at else None,
+                "message": hazard.message,
+            })
+        hazards.sort(key=lambda h: SEVERITY_ORDER.get(h["severity"], 99))
+        return hazards[:20]
+
+    def get_water_leak_status(self) -> dict:
+        """Return water leak status for binary sensor.
+
+        v3.6.0.3: Dedicated water leak glanceable entity.
+        """
+        leak_hazards = {
+            k: v for k, v in self._active_hazards.items()
+            if v.type in (HazardType.WATER_LEAK, HazardType.FLOODING)
+        }
+        if not leak_hazards:
+            return {"active": False}
+
+        locations = list(set(h.location for h in leak_hazards.values()))
+        sensor_ids = list(set(h.sensor_id for h in leak_hazards.values()))
+        flooding = any(h.type == HazardType.FLOODING for h in leak_hazards.values())
+
+        # Find earliest detection time
+        detected_times = [
+            h.detected_at for h in leak_hazards.values() if h.detected_at
+        ]
+        first_detected = min(detected_times).isoformat() if detected_times else None
+
+        return {
+            "active": True,
+            "locations": locations,
+            "sensor_ids": sensor_ids,
+            "sensor_count": len(sensor_ids),
+            "flooding_escalated": flooding,
+            "first_detected": first_detected,
+        }
+
+    def get_air_quality_status(self) -> dict:
+        """Return air quality status for binary sensor.
+
+        v3.6.0.3: Dedicated air quality glanceable entity.
+        """
+        AQ_TYPES = {HazardType.SMOKE, HazardType.CARBON_MONOXIDE, HazardType.HIGH_CO2, HazardType.HIGH_TVOC}
+        aq_hazards = {
+            k: v for k, v in self._active_hazards.items()
+            if v.type in AQ_TYPES
+        }
+        if not aq_hazards:
+            return {"active": False}
+
+        SEVERITY_ORDER = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+        hazard_types = list(set(h.type.value for h in aq_hazards.values()))
+        locations = list(set(h.location for h in aq_hazards.values()))
+        sensor_ids = list(set(h.sensor_id for h in aq_hazards.values()))
+        severities = [
+            h.severity.name.lower()
+            for h in aq_hazards.values()
+        ]
+        worst = min(severities, key=lambda s: SEVERITY_ORDER.get(s, 99))
+
+        return {
+            "active": True,
+            "hazard_types": hazard_types,
+            "locations": locations,
+            "sensor_ids": sensor_ids,
+            "worst_severity": worst,
+        }
+
+    def _notify_entity_update(self) -> None:
+        """Fire dispatcher signal to update safety entities.
+
+        v3.6.0.3: Push updates instead of polling.
+        """
+        from homeassistant.helpers.dispatcher import async_dispatcher_send
+        from .signals import SIGNAL_SAFETY_ENTITIES_UPDATE
+        async_dispatcher_send(self.hass, SIGNAL_SAFETY_ENTITIES_UPDATE)
+
     def get_diagnostics_status(self) -> str:
         """Return diagnostics health status."""
         total_sensors = self.sensors_monitored
@@ -1577,4 +1862,5 @@ class SafetyCoordinator(BaseCoordinator):
         self._rate_detector.clear()
         self._leak_start_times.clear()
         self._active_leak_sensors.clear()
+        self._humidity_hazard_fired.clear()
         _LOGGER.info("Safety Coordinator torn down")

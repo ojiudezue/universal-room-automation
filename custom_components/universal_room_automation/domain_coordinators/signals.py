@@ -14,6 +14,7 @@ SIGNAL_ENERGY_CONSTRAINT: Final = "ura_energy_constraint"
 SIGNAL_COMFORT_REQUEST: Final = "ura_comfort_request"
 SIGNAL_CENSUS_UPDATED: Final = "ura_census_updated"
 SIGNAL_SAFETY_HAZARD: Final = "ura_safety_hazard"
+SIGNAL_SAFETY_ENTITIES_UPDATE: Final = "ura_safety_entities_update"
 
 
 # ============================================================================
