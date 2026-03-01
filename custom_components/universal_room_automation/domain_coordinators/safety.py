@@ -813,6 +813,13 @@ class SafetyCoordinator(BaseCoordinator):
         if state_value in _UNAVAILABLE_STATES:
             return
 
+        # v3.6.0.8: If the sensor was previously unavailable/unknown,
+        # clear its rate history to prevent false rate-of-change spikes
+        # from the unavailable→valid transition (e.g., after HA restart).
+        old_state = event.data.get("old_state")
+        if old_state is not None and old_state.state in _UNAVAILABLE_STATES:
+            self._rate_detector.clear(entity_id)
+
         # Queue an intent for this sensor change
         from .base import Intent
 
