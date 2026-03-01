@@ -405,6 +405,58 @@ Fixed rate thresholds (-5.0/+5.0/+10.0°F per 30min) produce false HVAC failure 
 
 ---
 
+## Part 8: Presence Hardening (v3.6.0.11)
+
+Building on the Presence Coordinator from C1, v3.6.0.11 hardens zone presence detection with fallback mechanisms and geofence improvements.
+
+### Problem
+
+Zone presence remains fragile: missing HA area assignments, area registry naming mismatches, geofence triggers only on AWAY transitions, and long AWAY hysteresis (300s) cause slow detection recovery. When a room is marked UNKNOWN despite occupancy, the Presence Coordinator can't reliably emit house state changes.
+
+### Solution
+
+**Device area_id fallback in room sensor discovery:**
+- Room sensor discovery first checks entity `area_id` against room config
+- If no match, fallback to device `area_id` via `device_entities()`
+- Catches sensors with mismatched entity/device area assignments
+
+**Area registry name matching fallback in room area map:**
+- `_build_area_room_lookup()` now tries both:
+  1. Exact `area_id` match (current approach)
+  2. Fuzzy name match on HA area registry (if ID lookup fails)
+- Example: room config `area_id = "kitchen_main"` but HA registry has `area_name = "Kitchen"` → match via case-insensitive name comparison
+- Prevents unmapped rooms when area ID is stale
+
+**Geofence triggers from any state (not just AWAY):**
+- Currently geofence only triggers transition FROM AWAY to HOME
+- Now geofence triggers on:
+  - AWAY → HOME (current)
+  - HOME → AWAY (departure detection on exit)
+  - SLEEP ↔ HOME (bedtime / wake detection)
+  - Any state with geofence distance < threshold
+- Improves responsiveness to state changes
+
+**AWAY hysteresis reduced 300→30s:**
+- Faster AWAY detection after short departures (errands, brief trips outside)
+- Still protected by 30s window against zigzag due to BLE noise
+- Matched to Home Assistant's geofence convergence time
+
+**Deferred retry on blocked transitions:**
+- Some state transitions are blocked (e.g., AWAY→SLEEP blocked when occupants in house)
+- When blocked, enqueue retry timer (30s) instead of failing silently
+- Retries blocked transition until it's allowed or timeout expires
+- Improves recovery when transient conditions prevent state change
+
+### Files
+- `domain_coordinators/presence.py` — device area_id fallback, area registry name matching fallback, geofence trigger expansion, reduced AWAY hysteresis, deferred retry logic
+- `domain_coordinators/house_state.py` — state transition gate updates to support deferred retry
+- `const.py` — new constants for fallback thresholds, retry timeout
+- `manifest.json` — version 3.6.0.11
+
+**Estimated:** ~80 new lines, ~50 modified lines, 5+ new tests
+
+---
+
 ## NOT in scope (deferred)
 
 - Zone presence fix (separate investigation)

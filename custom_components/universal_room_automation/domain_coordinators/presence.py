@@ -460,6 +460,8 @@ class PresenceCoordinator(BaseCoordinator):
         self._transition_reset_date: str = ""
         # Room area_id lookup: room_name -> area_id (from config entries)
         self._room_area_ids: Dict[str, str] = {}
+        # Deferred retry for hysteresis-blocked transitions
+        self._retry_unsub: Optional[Any] = None
         # Outcome measurement
         self._outcome_true_positives: int = 0
         self._outcome_false_positives: int = 0
@@ -599,8 +601,22 @@ class PresenceCoordinator(BaseCoordinator):
         )
 
     def _build_room_area_map(self) -> None:
-        """Build room_name → area_id mapping from room config entries."""
+        """Build room_name → area_id mapping from room config entries.
+
+        v3.6.0.11: Falls back to matching room names against HA area registry
+        names when CONF_AREA_ID is not configured on the room entry.
+        """
         from ..const import CONF_ENTRY_TYPE, CONF_ROOM_NAME, ENTRY_TYPE_ROOM
+
+        # Build name→area_id lookup from HA area registry for fallback
+        area_name_to_id: Dict[str, str] = {}
+        try:
+            from homeassistant.helpers import area_registry as ar
+            area_reg = ar.async_get(self.hass)
+            for area in area_reg.async_list_areas():
+                area_name_to_id[area.name.lower()] = area.area_id
+        except Exception:
+            _LOGGER.debug("Cannot access area registry for room area fallback")
 
         for entry in self.hass.config_entries.async_entries(DOMAIN):
             if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_ROOM:
@@ -609,8 +625,22 @@ class PresenceCoordinator(BaseCoordinator):
                     entry.options.get(CONF_AREA_ID)
                     or entry.data.get(CONF_AREA_ID)
                 )
+                # Fallback: match room name to HA area name
+                if not area_id and room_name:
+                    area_id = area_name_to_id.get(room_name.lower())
+                    if area_id:
+                        _LOGGER.debug(
+                            "Room '%s' area_id resolved via area registry: %s",
+                            room_name, area_id,
+                        )
                 if room_name and area_id:
                     self._room_area_ids[room_name] = area_id
+
+        _LOGGER.info(
+            "Room area map: %d rooms mapped to areas: %s",
+            len(self._room_area_ids),
+            {k: v for k, v in self._room_area_ids.items()},
+        )
 
     def _discover_zones(self) -> None:
         """Discover zones and their rooms from config entries.
@@ -722,17 +752,18 @@ class PresenceCoordinator(BaseCoordinator):
     # ------------------------------------------------------------------
 
     def _discover_room_sensors(self) -> None:
-        """Discover room occupancy sensors using entity registry area_id mapping.
+        """Discover room occupancy sensors using entity/device registry area_id.
 
-        Uses the same approach as camera_census.py: entity registry is the
-        authoritative source for entity→area mapping, not substring matching
-        on entity_id names.
+        v3.6.0.11: Also checks device area_id when entity area_id is null.
+        Many Zigbee/MQTT sensors have area_id on the device, not the entity.
         """
         try:
             from homeassistant.helpers import entity_registry as er
+            from homeassistant.helpers import device_registry as dr
             ent_reg = er.async_get(self.hass)
+            dev_reg = dr.async_get(self.hass)
         except Exception:
-            _LOGGER.warning("Cannot access entity registry — room sensor discovery skipped")
+            _LOGGER.warning("Cannot access entity/device registry — room sensor discovery skipped")
             return
 
         entity_ids: Set[str] = set()
@@ -746,20 +777,27 @@ class PresenceCoordinator(BaseCoordinator):
                         "Room '%s' has no area_id configured — trying name-based fallback",
                         room_name,
                     )
-                    # Fallback: name-based matching (less reliable but works for rooms
-                    # without area_id configured)
                     self._discover_room_sensors_by_name(
                         tracker, room_name, entity_ids,
                     )
                     continue
 
                 # Find binary_sensor entities assigned to this area
+                # Check both entity area_id and device area_id (fallback)
                 for entity in ent_reg.entities.values():
-                    if (
-                        entity.domain == "binary_sensor"
-                        and entity.area_id == area_id
-                        and any(kw in entity.entity_id for kw in occupancy_keywords)
-                    ):
+                    if entity.domain != "binary_sensor":
+                        continue
+                    if not any(kw in entity.entity_id for kw in occupancy_keywords):
+                        continue
+
+                    # Resolve effective area: entity → device fallback
+                    effective_area = entity.area_id
+                    if not effective_area and entity.device_id:
+                        dev_entry = dev_reg.async_get(entity.device_id)
+                        if dev_entry:
+                            effective_area = dev_entry.area_id
+
+                    if effective_area == area_id:
                         entity_ids.add(entity.entity_id)
                         tracker.register_entity(entity.entity_id, room_name)
                         _LOGGER.debug(
@@ -1073,8 +1111,35 @@ class PresenceCoordinator(BaseCoordinator):
 
             tracker.update_ble_presence(zone_has_person)
 
+    def _schedule_deferred_retry(self, delay_seconds: float) -> None:
+        """Schedule a one-shot deferred inference retry after hysteresis expires.
+
+        v3.6.0.11: Prevents lost transitions when hysteresis blocks.
+        """
+        from homeassistant.helpers.event import async_call_later
+
+        # Cancel any existing retry
+        if self._retry_unsub is not None:
+            self._retry_unsub()
+            self._retry_unsub = None
+
+        @callback
+        def _retry_callback(_now):
+            self._retry_unsub = None
+            self.hass.async_create_task(self._run_inference("deferred_retry"))
+
+        self._retry_unsub = async_call_later(
+            self.hass, delay_seconds, _retry_callback,
+        )
+        _LOGGER.debug(
+            "Deferred retry scheduled in %.0fs", delay_seconds,
+        )
+
     async def _run_inference(self, trigger: str) -> None:
-        """Run state inference and apply transitions."""
+        """Run state inference and apply transitions.
+
+        v3.6.0.11: Schedules deferred retry when hysteresis blocks.
+        """
         if not self._enabled:
             return
 
@@ -1099,6 +1164,10 @@ class PresenceCoordinator(BaseCoordinator):
                 new_state, trigger=trigger
             )
             if accepted:
+                # Clear any pending retry — transition succeeded
+                if self._retry_unsub is not None:
+                    self._retry_unsub()
+                    self._retry_unsub = None
                 self._count_transition()
 
                 # Propagate sleep state to zones
@@ -1141,6 +1210,12 @@ class PresenceCoordinator(BaseCoordinator):
 
                 # Outcome measurement: record for accuracy tracking
                 self._record_outcome(current_state, new_state, trigger)
+
+            else:
+                # Transition blocked (likely hysteresis) — schedule retry
+                remaining = manager.house_state_machine.remaining_hysteresis()
+                if remaining > 0 and trigger != "deferred_retry":
+                    self._schedule_deferred_retry(remaining + 1)
 
         # Zone-scoped anomaly detection (runs every inference, not just on transition)
         await self._check_zone_anomalies()
@@ -1307,6 +1382,11 @@ class PresenceCoordinator(BaseCoordinator):
 
     async def async_teardown(self) -> None:
         """Tear down the Presence Coordinator."""
+        # Cancel deferred retry timer
+        if self._retry_unsub is not None:
+            self._retry_unsub()
+            self._retry_unsub = None
+
         self._cancel_listeners()
 
         # Save anomaly baselines
@@ -1365,16 +1445,15 @@ class PresenceCoordinator(BaseCoordinator):
         """Handle geofence enter/leave event for a person.
 
         When a person's device tracker transitions to/from 'home',
-        this provides an early signal for AWAY→ARRIVING before census
-        updates. Called by _handle_geofence_change when person.* entities
-        change state.
+        triggers inference for state re-evaluation.
+
+        v3.6.0.11: Triggers from any state on arrival, not just AWAY.
+        The inference engine determines the valid transition.
         """
         if zone == "home":
-            # Person arriving — if currently AWAY, trigger inference
-            manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
-            if manager and manager.house_state_machine.state == HouseState.AWAY:
-                self.hass.async_create_task(self._run_inference("geofence_arrive"))
-                _LOGGER.info("Geofence: %s arrived home", person_id)
+            # Person arriving — trigger inference from any state
+            self.hass.async_create_task(self._run_inference("geofence_arrive"))
+            _LOGGER.info("Geofence: %s arrived home", person_id)
         elif zone == "not_home":
             # Person left — trigger inference to check if house is now empty
             self.hass.async_create_task(self._run_inference("geofence_leave"))

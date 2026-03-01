@@ -85,7 +85,7 @@ VALID_TRANSITIONS: Final[dict[HouseState, set[HouseState]]] = {
 
 # Default hysteresis per state (seconds) — minimum time before a state can change
 DEFAULT_HYSTERESIS: Final[dict[HouseState, int]] = {
-    HouseState.AWAY: 300,       # 5 min before leaving AWAY (avoid false triggers)
+    HouseState.AWAY: 30,        # 30s — easy to leave AWAY (entering AWAY already requires census_count==0 AND no zone occupied)
     HouseState.ARRIVING: 60,    # 1 min in ARRIVING before moving to HOME
     HouseState.HOME_DAY: 120,   # 2 min minimum in HOME_DAY
     HouseState.HOME_EVENING: 120,
@@ -145,6 +145,12 @@ class HouseStateMachine:
     def dwell_seconds(self) -> float:
         """Return how long we've been in the current state."""
         return (dt_util.utcnow() - self._state_since).total_seconds()
+
+    def remaining_hysteresis(self) -> float:
+        """Return seconds remaining before the current state can transition."""
+        min_dwell = self._hysteresis.get(self._state, 0)
+        remaining = min_dwell - self.dwell_seconds
+        return max(0.0, remaining)
 
     def can_transition(self, new_state: HouseState) -> bool:
         """Check if a transition to new_state is valid and hysteresis has elapsed."""
