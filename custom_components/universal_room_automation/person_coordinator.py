@@ -1,6 +1,6 @@
 """Person tracking coordinator for Universal Room Automation."""
 #
-# Universal Room Automation v3.6.18
+# Universal Room Automation v3.6.21
 # Build: 2026-01-03
 # File: person_coordinator.py
 # v3.2.9: No changes (zone fixes in aggregation.py, fan fixes in automation.py)
@@ -81,6 +81,8 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
         self._scanner_to_rooms: dict[str, list[str]] = {}
         self._area_id_to_room: dict[str, str] = {}  # area_id -> room_name (direct match)
         self._room_coordinators: dict[str, Any] = {}  # room_name -> coordinator reference
+        # v3.6.21: Cache scanner map — only rebuild when room entries change
+        self._scanner_map_entry_ids: set[str] = set()
         
         # v3.2.8.1: Decay timeout for staleness detection
         self.decay_timeout = integration_entry.data.get(
@@ -283,22 +285,45 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
         except Exception as err:
             _LOGGER.error("Error updating person tracking data: %s", err)
             raise UpdateFailed(f"Error updating person tracking data: {err}") from err
+
     async def _build_scanner_room_map(self) -> None:
         """
         Build mapping from scanner area_ids to room names.
-        
+
+        v3.6.21: Cached — only rebuilds when room config entries change.
+
         This enables three-tier resolution:
         - Tier 1: Direct area match (area_id == bermuda area)
         - Tier 2: Scanner areas override (scanner_areas contains bermuda area)
         - Tier 3: Occupancy disambiguation (when multiple rooms share scanner)
         """
+        # v3.6.21: Check if room entries changed since last build
+        current_entry_ids = set()
+        for entry in self.hass.config_entries.async_entries(DOMAIN):
+            if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_ROOM:
+                current_entry_ids.add(entry.entry_id)
+
+        if current_entry_ids == self._scanner_map_entry_ids and self._area_id_to_room:
+            # Room coordinators may change each cycle (new coordinators init), refresh those only
+            domain_data = self.hass.data.get(DOMAIN, {})
+            for entry in self.hass.config_entries.async_entries(DOMAIN):
+                if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ROOM:
+                    continue
+                room_name = entry.data.get("room_name")
+                if room_name and entry.entry_id in domain_data:
+                    coordinator = domain_data[entry.entry_id]
+                    if hasattr(coordinator, 'data'):
+                        self._room_coordinators[room_name] = coordinator
+            return
+
+        self._scanner_map_entry_ids = current_entry_ids
         self._scanner_to_rooms = {}
         self._area_id_to_room = {}
         self._room_coordinators = {}
-        
+
         # Get area registry for name resolution
         area_reg = ar.async_get(self.hass)
-        
+
         for entry in self.hass.config_entries.async_entries(DOMAIN):
             if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ROOM:
                 continue
@@ -455,8 +480,9 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
         if len(occupied_rooms) > 1:
             # Multiple rooms occupied - pick most recently became occupied
             # Sort by time descending (most recent first), using datetime.min for None
+            _epoch = dt_util.utc_from_timestamp(0)
             occupied_rooms.sort(
-                key=lambda x: x[1] if x[1] else datetime.min,
+                key=lambda x: x[1] if x[1] else _epoch,
                 reverse=True
             )
             room = occupied_rooms[0][0]
@@ -490,42 +516,64 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
     # ==========================================================================
 
     async def _find_bermuda_area_sensor(self, person_name: str) -> str | None:
-        """Find the Bermuda area sensor for a person with fuzzy matching."""
-        # Try multiple naming patterns
+        """Find the Bermuda area sensor for a person.
+
+        v3.6.19: Replaced 8 hardcoded iPhone patterns with smarter discovery:
+        1. Config override (CONF_BERMUDA_AREA_SENSORS per person)
+        2. Private BLE derivation (device_tracker.* → sensor.*_area)
+        3. Minimal fallback (2 common patterns)
+        4. Registry fallback (Bermuda platform entities, last resort)
+        """
+        from .const import CONF_BERMUDA_AREA_SENSORS
+
         normalized_name = person_name.lower().replace(" ", "_")
-        
-        # v3.2.4 FIX: Also try first name only (Bermuda often names devices by first name)
         first_name = person_name.split()[0].lower() if person_name else ""
-        
+
+        # Strategy 1: Config override — explicit sensor per person
+        bermuda_overrides = self.integration_entry.options.get(
+            CONF_BERMUDA_AREA_SENSORS,
+            self.integration_entry.data.get(CONF_BERMUDA_AREA_SENSORS, {})
+        ) or {}
+        override_sensor = bermuda_overrides.get(person_name) or bermuda_overrides.get(normalized_name)
+        if override_sensor:
+            if self.hass.states.get(override_sensor):
+                _LOGGER.debug("Found Bermuda area sensor for %s via config override: %s", person_name, override_sensor)
+                return override_sensor
+            _LOGGER.warning("Configured Bermuda sensor %s for %s not found in HA", override_sensor, person_name)
+
+        # Strategy 2: Private BLE derivation — find device_tracker from private_ble_device
+        ent_reg = er.async_get(self.hass)
+        for entity_entry in ent_reg.entities.values():
+            if (entity_entry.platform == "private_ble_device"
+                and entity_entry.domain == "device_tracker"
+                and (first_name in entity_entry.entity_id or normalized_name in entity_entry.entity_id)):
+                # Derive area sensor: sensor.{object_id}_area
+                object_id = entity_entry.entity_id.split(".", 1)[1]
+                area_sensor = f"sensor.{object_id}_area"
+                if self.hass.states.get(area_sensor):
+                    _LOGGER.debug("Found Bermuda area sensor for %s via private_ble: %s", person_name, area_sensor)
+                    return area_sensor
+
+        # Strategy 3: Minimal fallback — two common patterns
         patterns = [
-            # Full name patterns
-            f"sensor.{normalized_name}_iphone_area",
-            f"sensor.iphone_{normalized_name}_area",
-            f"sensor.{normalized_name}_phone_area",
-            f"sensor.phone_{normalized_name}_area",
-            # First name patterns (Bermuda often uses just first name)
             f"sensor.{first_name}_iphone_area",
-            f"sensor.iphone_{first_name}_area",
-            f"sensor.{first_name}_phone_area",
-            f"sensor.phone_{first_name}_area",
+            f"sensor.{normalized_name}_area",
         ]
-        
         for pattern in patterns:
             if self.hass.states.get(pattern):
                 _LOGGER.debug("Found Bermuda area sensor for %s: %s", person_name, pattern)
                 return pattern
-        
-        # v3.2.4: Fallback - search entity registry for any area sensor containing person's name
-        ent_reg = er.async_get(self.hass)
+
+        # Strategy 4: Registry fallback — search Bermuda platform entities
         for entity_id, entity_entry in ent_reg.entities.items():
-            if (entity_id.startswith("sensor.") and 
-                entity_id.endswith("_area") and
-                "bermuda" in (entity_entry.platform or "") and
-                (first_name in entity_id or normalized_name in entity_id)):
-                _LOGGER.debug("Found Bermuda area sensor via registry search for %s: %s", person_name, entity_id)
+            if (entity_id.startswith("sensor.")
+                and entity_id.endswith("_area")
+                and "bermuda" in (entity_entry.platform or "")
+                and (first_name in entity_id or normalized_name in entity_id)):
+                _LOGGER.debug("Found Bermuda area sensor via registry for %s: %s", person_name, entity_id)
                 return entity_id
-        
-        _LOGGER.warning("No Bermuda area sensor found for %s (tried: %s)", person_name, patterns[:4])
+
+        _LOGGER.warning("No Bermuda area sensor found for %s (tried: config, private_ble, patterns, registry)", person_name)
         return None
 
     # ==========================================================================
@@ -584,7 +632,9 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
             close_scanners = 0
             very_close_scanners = 0
             detected_by_any = False
-            
+            # v3.6.21: Derive "very close" threshold from configurable high_confidence_distance
+            very_close_threshold = self.high_confidence_distance / 2
+
             for sensor_id in distance_sensors:
                 sensor_state = self.hass.states.get(sensor_id)
                 if not sensor_state or sensor_state.state in ("unknown", "unavailable"):
@@ -608,7 +658,7 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
                     )
                     
                     if is_area_scanner:
-                        if distance_ft < 5.0:
+                        if distance_ft < very_close_threshold:
                             very_close_scanners += 1
                             _LOGGER.debug(
                                 "Very close scanner: %s (%.1f ft) for %s",
@@ -807,14 +857,10 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
             
             location_lower = location.lower().replace(" ", "_")
             
-            # Check for match (exact or fuzzy)
-            is_match = (
-                room_lower == location_lower or              # Exact match
-                room_lower in location_lower or              # Room name is substring
-                location_lower in room_lower or              # Location is substring
-                location_lower.startswith(room_lower) or     # Location starts with room
-                room_lower.startswith(location_lower)        # Room starts with location
-            )
+            # v3.6.19: Exact match only — three-tier resolution already
+            # maps Bermuda areas to canonical room names. Fuzzy matching
+            # caused false positives (e.g. "den" matching "garden").
+            is_match = (room_lower == location_lower)
             
             if is_match:
                 occupants.append(person_name)
@@ -874,7 +920,7 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
             "data_available": self.data is not None,
             "person_count": len(self.data) if self.data else 0,
             "last_update": self.last_update_success_time.isoformat() if hasattr(self, 'last_update_success_time') and self.last_update_success_time else "unknown",
-            "update_interval_seconds": 30,
+            "update_interval_seconds": UPDATE_INTERVAL,
             "area_mappings_count": len(self._area_id_to_room),
             "scanner_mappings_count": len(self._scanner_to_rooms),
             "room_coordinators_count": len(self._room_coordinators),
