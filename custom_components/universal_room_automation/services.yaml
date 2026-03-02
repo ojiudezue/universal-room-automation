@@ -69,3 +69,71 @@ test_safety_hazard:
             - "high"
             - "medium"
             - "low"
+
+security_arm:
+  name: Security Arm
+  description: Set the security armed state.
+  fields:
+    state:
+      name: State
+      description: The armed state to set.
+      required: true
+      example: "armed_away"
+      selector:
+        select:
+          options:
+            - "disarmed"
+            - "armed_home"
+            - "armed_away"
+            - "armed_vacation"
+
+security_disarm:
+  name: Security Disarm
+  description: Disarm the security system and clear any active alerts.
+
+authorize_guest:
+  name: Authorize Guest
+  description: Add an authorized guest to the security allowlist.
+  fields:
+    person_name:
+      name: Person Name
+      description: The name of the guest to authorize.
+      required: true
+      example: "John Smith"
+      selector:
+        text:
+    expires_hours:
+      name: Expires Hours
+      description: How many hours the authorization lasts.
+      required: false
+      default: 24
+      example: 48
+      selector:
+        number:
+          min: 1
+          max: 720
+          unit_of_measurement: hours
+
+add_expected_arrival:
+  name: Add Expected Arrival
+  description: Add a person to the expected arrivals list for a time window.
+  fields:
+    person_id:
+      name: Person ID
+      description: The person entity ID expected to arrive.
+      required: true
+      example: "person.john"
+      selector:
+        entity:
+          domain: person
+    window_minutes:
+      name: Window Minutes
+      description: How many minutes to expect the arrival within.
+      required: false
+      default: 30
+      example: 60
+      selector:
+        number:
+          min: 5
+          max: 1440
+          unit_of_measurement: minutes
