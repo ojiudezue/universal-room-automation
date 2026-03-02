@@ -1,6 +1,6 @@
 """Switch platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.6.15
+# Universal Room Automation v3.6.16
 # Build: 2026-01-02
 # File: switch.py
 #
@@ -19,6 +19,7 @@ from .const import (
     CONF_ENTRY_TYPE,
     CONF_PRESENCE_ENABLED,
     CONF_SAFETY_ENABLED,
+    CONF_SECURITY_ENABLED,
     DOMAIN,
     ENTRY_TYPE_COORDINATOR_MANAGER,
     ENTRY_TYPE_INTEGRATION,
@@ -65,6 +66,16 @@ async def async_setup_entry(
                 device_id="safety_coordinator",
                 device_name="URA: Safety Coordinator",
                 device_model="Safety Coordinator",
+            ),
+            CoordinatorEnabledSwitch(
+                hass, entry,
+                coordinator_id="security",
+                conf_key=CONF_SECURITY_ENABLED,
+                name="Security Coordinator",
+                icon="mdi:shield-lock",
+                device_id="security_coordinator",
+                device_name="URA: Security Coordinator",
+                device_model="Security Coordinator",
             ),
         ])
         return
