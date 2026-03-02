@@ -1,6 +1,6 @@
 """Automation logic for Universal Room Automation."""
 #
-# Universal Room Automation v3.6.16
+# Universal Room Automation v3.6.17
 # Build: 2026-01-04
 # File: automation.py
 # v3.3.1.1: Added int() cast to get_auto_off_hour to handle NumberSelector float values
@@ -140,6 +140,10 @@ class RoomAutomation:
         self._alert_light_original_states: dict[str, dict] = {}
         # Warning flash dedup
         self._last_warning_date_hour: str | None = None
+        # Service call tracking (for automation health sensor)
+        self._service_calls_today: int = 0
+        self._service_failures_today: int = 0
+        self._service_call_reset_date: str = dt_util.now().strftime("%Y-%m-%d")
 
     async def _safe_service_call(
         self,
@@ -158,6 +162,13 @@ class RoomAutomation:
         """
         entity_ids = service_data.get("entity_id", "unknown")
         attempts = 1 + max_retries
+        # Reset daily counters
+        today = dt_util.now().strftime("%Y-%m-%d")
+        if today != self._service_call_reset_date:
+            self._service_calls_today = 0
+            self._service_failures_today = 0
+            self._service_call_reset_date = today
+        self._service_calls_today += 1
         for attempt in range(attempts):
             try:
                 await asyncio.wait_for(
@@ -184,6 +195,7 @@ class RoomAutomation:
             if attempt < max_retries:
                 backoff = 1 * (2 ** attempt)  # 1s, 2s exponential backoff
                 await asyncio.sleep(backoff)
+        self._service_failures_today += 1
         return False
 
     def _refresh_config(self) -> None:

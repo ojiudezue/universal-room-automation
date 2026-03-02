@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.6.16
+# Universal Room Automation v3.6.17
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -286,6 +286,7 @@ async def async_setup_entry(
         LastAutomationActionSensor(coordinator),
         LastAutomationTimeSensor(coordinator),  # v3.2.6: New sensor
         DatabaseStatusSensor(coordinator),
+        AutomationHealthSensor(coordinator),  # v3.6.17: Composite automation health
     ])
     
     async_add_entities(entities)
@@ -1673,6 +1674,150 @@ class DatabaseStatusSensor(UniversalRoomEntity, SensorEntity):
                 self._counts = await database.get_table_counts(self.coordinator.entry.entry_id)
             except Exception as e:
                 _LOGGER.error("Error updating database status: %s", e)
+
+
+# =============================================================================
+# v3.6.17: AUTOMATION HEALTH SENSOR
+# =============================================================================
+
+
+class AutomationHealthSensor(UniversalRoomEntity, SensorEntity):
+    """Composite sensor surfacing room automation internal state.
+
+    Primary state is a rollup: normal / debouncing / grace_hold /
+    failsafe / stuck_sensor.  All detail is in attributes so a single
+    entity per room replaces 8+ individual diagnostic entities.
+
+    Entity:  sensor.ura_<room>_automation_health
+    Device:  the room device
+    """
+
+    _attr_icon = "mdi:heart-pulse"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator) -> None:
+        super().__init__(coordinator, "automation_health", "Automation Health")
+
+    # -- primary state --------------------------------------------------
+
+    @property
+    def native_value(self) -> str:
+        """Return the most significant active condition."""
+        c = self.coordinator
+
+        # Failsafe is highest priority
+        if c._failsafe_fired:
+            return "failsafe"
+
+        # Stuck sensors
+        now = dt_util.now()
+        stuck = [
+            eid for eid, since in c._sensor_on_since.items()
+            if (now - since).total_seconds() > c._stuck_sensor_hours * 3600
+        ]
+        if stuck:
+            return "stuck_sensor"
+
+        # Grace hold (all sensors unavailable)
+        if c._all_sensors_unavailable_since is not None:
+            elapsed = (now - c._all_sensors_unavailable_since).total_seconds()
+            if elapsed < c._unavail_grace_seconds:
+                return "grace_hold"
+
+        # Debounce pending
+        if (
+            c._occupancy_first_detected is not None
+            and not (c.data or {}).get("occupied", False)
+        ):
+            return "debouncing"
+
+        return "normal"
+
+    # -- icon follows state ---------------------------------------------
+
+    @property
+    def icon(self) -> str:
+        val = self.native_value
+        return {
+            "normal": "mdi:heart-pulse",
+            "debouncing": "mdi:timer-sand",
+            "grace_hold": "mdi:shield-half-full",
+            "failsafe": "mdi:alert-octagon",
+            "stuck_sensor": "mdi:motion-sensor-off",
+        }.get(val, "mdi:heart-pulse")
+
+    # -- attributes -----------------------------------------------------
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        c = self.coordinator
+        now = dt_util.now()
+        attrs: dict[str, Any] = {}
+
+        # --- Tier 1: Occupancy session & failsafe ---
+        if c._became_occupied_time and (c.data or {}).get("occupied", False):
+            session_s = (now - c._became_occupied_time).total_seconds()
+            attrs["session_duration_minutes"] = round(session_s / 60, 1)
+            attrs["failsafe_remaining_minutes"] = max(
+                0, round((4 * 3600 - session_s) / 60, 1)
+            )
+        else:
+            attrs["session_duration_minutes"] = 0
+            attrs["failsafe_remaining_minutes"] = None
+        attrs["failsafe_fired"] = c._failsafe_fired
+
+        # --- Tier 1: Stuck sensors ---
+        stuck = []
+        for eid, since in c._sensor_on_since.items():
+            on_hours = (now - since).total_seconds() / 3600
+            if on_hours > c._stuck_sensor_hours:
+                stuck.append({"entity_id": eid, "on_hours": round(on_hours, 1)})
+        attrs["stuck_sensors"] = stuck
+        attrs["stuck_sensor_count"] = len(stuck)
+
+        # --- Tier 1: Debounce ---
+        if c._occupancy_first_detected is not None:
+            elapsed = (now - c._occupancy_first_detected).total_seconds()
+            attrs["debounce_active"] = elapsed < c._occupancy_debounce_seconds
+            attrs["debounce_elapsed_seconds"] = round(elapsed, 1)
+        else:
+            attrs["debounce_active"] = False
+            attrs["debounce_elapsed_seconds"] = None
+
+        # --- Tier 1: Sensor grace period ---
+        if c._all_sensors_unavailable_since is not None:
+            elapsed = (now - c._all_sensors_unavailable_since).total_seconds()
+            attrs["grace_active"] = elapsed < c._unavail_grace_seconds
+            attrs["grace_remaining_seconds"] = max(
+                0, round(c._unavail_grace_seconds - elapsed, 1)
+            )
+        else:
+            attrs["grace_active"] = False
+            attrs["grace_remaining_seconds"] = None
+
+        # --- Tier 2: Sleep bypass ---
+        if hasattr(c, "automation") and c.automation:
+            attrs["sleep_bypass_count"] = c.automation._sleep_motion_count
+        else:
+            attrs["sleep_bypass_count"] = 0
+
+        # --- Tier 2: Service call health ---
+        if hasattr(c, "automation") and c.automation:
+            a = c.automation
+            attrs["service_calls_today"] = a._service_calls_today
+            attrs["service_failures_today"] = a._service_failures_today
+        else:
+            attrs["service_calls_today"] = 0
+            attrs["service_failures_today"] = 0
+
+        # --- Tier 2: Exit verify ---
+        attrs["last_exit_verify_result"] = c._last_exit_verify_result
+        if c._last_exit_verify_time:
+            attrs["last_exit_verify_time"] = c._last_exit_verify_time.isoformat()
+        else:
+            attrs["last_exit_verify_time"] = None
+
+        return attrs
 
 
 # =============================================================================

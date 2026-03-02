@@ -1,6 +1,6 @@
 """Data coordinator for Universal Room Automation."""
 #
-# Universal Room Automation v3.6.16
+# Universal Room Automation v3.6.17
 # Build: 2026-01-02
 # File: coordinator.py
 # v3.2.8: Support for active state change listeners in aggregation sensors
@@ -124,6 +124,10 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
 
         # Failsafe tracking
         self._failsafe_fired: bool = False
+
+        # Exit verify tracking (for automation health sensor)
+        self._last_exit_verify_result: str | None = None  # "skipped_reoccupied" / "retried" / "confirmed" / "retry_failed"
+        self._last_exit_verify_time: datetime | None = None
         
         # Use _get_config for timeout (will work after __init__ completes)
         # Store entry for later _get_config calls
@@ -927,12 +931,15 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
     async def _delayed_exit_verify(self, room_name: str, data: dict[str, Any]) -> None:
         """RESILIENCE-003: Verify exit automation after 3s delay (non-blocking)."""
         await asyncio.sleep(3)
+        self._last_exit_verify_time = dt_util.now()
         # Re-check: if room became occupied again, skip retry
         if self.data and self.data.get(STATE_OCCUPIED):
             _LOGGER.debug("Room %s: Re-occupied during exit verify delay — skipping retry", room_name)
+            self._last_exit_verify_result = "skipped_reoccupied"
             return
         area_id = self._get_config(CONF_AREA_ID)
         if not area_id:
+            self._last_exit_verify_result = "confirmed"
             return
         device_counts = self._calculate_device_counts(area_id)
         lights_on = device_counts.get("lights_on", 0)
@@ -947,11 +954,15 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
             fresh_data = self.data or data
             try:
                 await self.automation.handle_occupancy_change(False, fresh_data)
+                self._last_exit_verify_result = "retried"
             except Exception as e:
                 _LOGGER.error(
                     "Room %s: Retry exit automation also failed: %s",
                     room_name, e,
                 )
+                self._last_exit_verify_result = "retry_failed"
+        else:
+            self._last_exit_verify_result = "confirmed"
 
     def set_last_action(
         self,
