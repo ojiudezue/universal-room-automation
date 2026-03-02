@@ -167,6 +167,18 @@ class SanctionChecker:
         }
 
         census = context.get("census", {})
+
+        # Validate census freshness — stale data (>5 min) should not be trusted
+        census_ts = census.get("timestamp")
+        if census_ts:
+            try:
+                ts = datetime.fromisoformat(census_ts) if isinstance(census_ts, str) else census_ts
+                age = (now - ts).total_seconds()
+                if age > 300:  # 5 minutes
+                    _LOGGER.warning("Census data stale (%.0fs old), treating as uncertain", age)
+                    return EntryVerdict.INVESTIGATE
+            except (ValueError, TypeError):
+                pass
         persons_home = census.get("persons_home", [])
         unknown_present = census.get("unknown_present", False)
 
@@ -260,12 +272,12 @@ class CameraRecordDispatcher:
             for entity_id in camera_entities:
                 self._camera_platforms[entity_id] = "generic"
 
-    async def trigger_recording(
+    def _build_camera_actions(
         self,
         camera_entities: list[str],
         duration: int = 30,
     ) -> list[ServiceCallAction]:
-        """Generate service call actions for camera recording."""
+        """Generate platform-aware service call actions for camera recording."""
         actions: list[ServiceCallAction] = []
         for entity_id in camera_entities:
             platform = self._camera_platforms.get(entity_id, "generic")
@@ -442,6 +454,10 @@ class SecurityCoordinator(BaseCoordinator):
         # Sync guard to prevent bidirectional alarm panel loops
         self._syncing_alarm_panel = False
 
+        # Entry sensor debounce: entity_id -> last trigger timestamp
+        self._entry_debounce: dict[str, datetime] = {}
+        self._entry_debounce_seconds: int = 10
+
     async def async_setup(self) -> None:
         """Set up the Security Coordinator."""
         _LOGGER.info(
@@ -561,6 +577,15 @@ class SecurityCoordinator(BaseCoordinator):
         if event.new_state not in ("on", "open"):
             return []
 
+        # Debounce: skip if same sensor fired within cooldown window
+        now = dt_util.utcnow()
+        last_trigger = self._entry_debounce.get(intent.entity_id)
+        if last_trigger and (now - last_trigger).total_seconds() < self._entry_debounce_seconds:
+            _LOGGER.debug("Entry debounced: %s (%.1fs since last)", intent.entity_id,
+                          (now - last_trigger).total_seconds())
+            return []
+        self._entry_debounce[intent.entity_id] = now
+
         # Record for pattern learning
         self._pattern_learner.record_entry(intent.entity_id)
 
@@ -609,22 +634,13 @@ class SecurityCoordinator(BaseCoordinator):
 
         actions = self._generate_lockdown_actions("Unknown person detected on property")
 
-        # Camera trigger if enabled
+        # Camera trigger if enabled (uses platform-aware dispatcher)
         if self._camera_recording_enabled and self._camera_entities:
-            for entity_id in self._camera_entities:
-                actions.append(
-                    ServiceCallAction(
-                        coordinator_id=self.COORDINATOR_ID,
-                        target_device=entity_id,
-                        severity=Severity.HIGH,
-                        service="camera.record",
-                        service_data={
-                            "entity_id": entity_id,
-                            "duration": self._camera_record_duration,
-                        },
-                        description=f"Security camera trigger: {entity_id}",
-                    )
+            actions.extend(
+                self._camera_dispatcher._build_camera_actions(
+                    self._camera_entities, self._camera_record_duration
                 )
+            )
 
         # Notification
         actions.append(
@@ -685,6 +701,9 @@ class SecurityCoordinator(BaseCoordinator):
                 )
             )
 
+        # Always signal sensor update since armed state changed
+        async_dispatcher_send(self.hass, SIGNAL_SECURITY_ENTITIES_UPDATE)
+
         # Sync to alarm panel if coupled
         if self._alarm_panel_entity:
             service = _ARMED_TO_ALARM_SERVICE.get(new_armed)
@@ -700,7 +719,6 @@ class SecurityCoordinator(BaseCoordinator):
                     )
                 ]
 
-        async_dispatcher_send(self.hass, SIGNAL_SECURITY_ENTITIES_UPDATE)
         return []
 
     def _handle_alarm_sync(self, intent: Intent) -> None:
@@ -797,22 +815,13 @@ class SecurityCoordinator(BaseCoordinator):
                 )
             )
 
-        # Camera recording trigger
+        # Camera recording trigger (uses platform-aware dispatcher)
         if self._camera_recording_enabled and self._camera_entities:
-            for cam_id in self._camera_entities:
-                actions.append(
-                    ServiceCallAction(
-                        coordinator_id=self.COORDINATOR_ID,
-                        target_device=cam_id,
-                        severity=severity,
-                        service="camera.record",
-                        service_data={
-                            "entity_id": cam_id,
-                            "duration": self._camera_record_duration,
-                        },
-                        description=f"Security camera trigger: {cam_id}",
-                    )
+            actions.extend(
+                self._camera_dispatcher._build_camera_actions(
+                    self._camera_entities, self._camera_record_duration
                 )
+            )
 
         # Notification
         actions.append(
@@ -868,40 +877,63 @@ class SecurityCoordinator(BaseCoordinator):
         self._lock_checks_today += 1
         actions: list[CoordinatorAction] = []
         unlocked: list[str] = []
+        unavailable: list[str] = []
 
         for lock_id in self._lock_entities:
             state = self.hass.states.get(lock_id)
-            if state is not None:
-                self._lock_compliance[lock_id] = state.state
-                if state.state == "unlocked":
-                    unlocked.append(lock_id)
-                    actions.append(
-                        ServiceCallAction(
-                            coordinator_id=self.COORDINATOR_ID,
-                            target_device=lock_id,
-                            severity=Severity.MEDIUM,
-                            service="lock.lock",
-                            service_data={"entity_id": lock_id},
-                            description=f"Periodic lock check: locking {lock_id}",
-                        )
+            if state is None or state.state in ("unavailable", "unknown"):
+                unavailable.append(lock_id)
+                self._lock_compliance[lock_id] = "unavailable"
+                continue
+            self._lock_compliance[lock_id] = state.state
+            if state.state == "unlocked":
+                unlocked.append(lock_id)
+                actions.append(
+                    ServiceCallAction(
+                        coordinator_id=self.COORDINATOR_ID,
+                        target_device=lock_id,
+                        severity=Severity.MEDIUM,
+                        service="lock.lock",
+                        service_data={"entity_id": lock_id},
+                        description=f"Periodic lock check: locking {lock_id}",
                     )
+                )
 
         for garage_id in self._garage_entities:
             state = self.hass.states.get(garage_id)
-            if state is not None:
-                self._lock_compliance[garage_id] = state.state
-                if state.state == "open":
-                    unlocked.append(garage_id)
-                    actions.append(
-                        ServiceCallAction(
-                            coordinator_id=self.COORDINATOR_ID,
-                            target_device=garage_id,
-                            severity=Severity.MEDIUM,
-                            service="cover.close_cover",
-                            service_data={"entity_id": garage_id},
-                            description=f"Periodic lock check: closing {garage_id}",
-                        )
+            if state is None or state.state in ("unavailable", "unknown"):
+                unavailable.append(garage_id)
+                self._lock_compliance[garage_id] = "unavailable"
+                continue
+            self._lock_compliance[garage_id] = state.state
+            if state.state == "open":
+                unlocked.append(garage_id)
+                actions.append(
+                    ServiceCallAction(
+                        coordinator_id=self.COORDINATOR_ID,
+                        target_device=garage_id,
+                        severity=Severity.MEDIUM,
+                        service="cover.close_cover",
+                        service_data={"entity_id": garage_id},
+                        description=f"Periodic lock check: closing {garage_id}",
                     )
+                )
+
+        if unavailable:
+            _LOGGER.warning(
+                "Periodic lock check: %d device(s) unavailable: %s",
+                len(unavailable),
+                ", ".join(unavailable),
+            )
+            actions.append(
+                NotificationAction(
+                    coordinator_id=self.COORDINATOR_ID,
+                    severity=Severity.MEDIUM,
+                    message=f"Lock check: {len(unavailable)} device(s) offline: {', '.join(unavailable)}",
+                    channels=["security"],
+                    description="Lock check unavailable device notification",
+                )
+            )
 
         if unlocked:
             _LOGGER.info(
