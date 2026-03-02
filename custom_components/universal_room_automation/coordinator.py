@@ -1,6 +1,6 @@
 """Data coordinator for Universal Room Automation."""
 #
-# Universal Room Automation v3.6.13
+# Universal Room Automation v3.6.14
 # Build: 2026-01-02
 # File: coordinator.py
 # v3.2.8: Support for active state change listeners in aggregation sensors
@@ -81,6 +81,8 @@ from .const import (
     CONF_NOTIFY_SERVICE,
     CONF_NOTIFY_TARGET,
     CONF_NOTIFY_LEVEL,
+    CONF_EXIT_LIGHT_ACTION,
+    LIGHT_ACTION_TURN_OFF,
 )
 from .automation import RoomAutomation
 
@@ -96,10 +98,7 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         """Initialize the coordinator."""
         # v3.2.8 STARTUP BANNER
         room_name = entry.data.get('room_name', 'Unknown')
-        _LOGGER.critical("=" * 80)
-        _LOGGER.critical("🚀 v3.2.8 COORDINATOR INITIALIZED FOR ROOM: %s", room_name)
-        _LOGGER.critical("   FIX: Environmental sensors now read from options with data fallback")
-        _LOGGER.critical("=" * 80)
+        _LOGGER.info("Coordinator initialized for room: %s", room_name)
         
         self.entry = entry
         self._last_motion_time: datetime | None = None
@@ -107,6 +106,24 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         self._last_occupied_state = False
         self._became_occupied_time: datetime | None = None  # v3.2.4: When current occupancy session started
         self._unsub_state_listeners = []
+
+        # Debounce: require sensors active for N seconds before confirming entry
+        self._occupancy_first_detected: datetime | None = None
+        self._occupancy_debounce_seconds: float = 2.0  # seconds sensor must stay on
+
+        # Sensor unavailability grace: hold state if all sensors go unavailable
+        self._all_sensors_unavailable_since: datetime | None = None
+        self._unavail_grace_seconds: int = 60
+
+        # Stuck sensor tracking: per-sensor continuous-on timestamps
+        self._sensor_on_since: dict[str, datetime] = {}
+        self._stuck_sensor_hours: float = 4.0  # hours before flagging stuck
+
+        # Energy accumulator timing
+        self._last_energy_calc_time: datetime | None = None
+
+        # Failsafe tracking
+        self._failsafe_fired: bool = False
         
         # Use _get_config for timeout (will work after __init__ completes)
         # Store entry for later _get_config calls
@@ -391,35 +408,37 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         if not area_id:
             return counts
         
-        # Count lights
+        # Count lights (guard against removed entities)
         lights = self._get_entities_in_area(area_id, "light")
         counts["lights_on"] = sum(
             1 for light in lights
-            if self.hass.states.get(light).state == "on"
+            if (s := self.hass.states.get(light)) is not None and s.state == "on"
         )
-        
+
         # Count fans
         fans = self._get_entities_in_area(area_id, "fan")
         counts["fans_on"] = sum(
             1 for fan in fans
-            if self.hass.states.get(fan).state == "on"
+            if (s := self.hass.states.get(fan)) is not None and s.state == "on"
         )
-        
+
         # Count switches
         switches = self._get_entities_in_area(area_id, "switch")
         counts["switches_on"] = sum(
             1 for switch in switches
-            if self.hass.states.get(switch).state == "on"
+            if (s := self.hass.states.get(switch)) is not None and s.state == "on"
         )
-        
+
         # Count and average covers
         covers = self._get_entities_in_area(area_id, "cover")
         open_covers = 0
         total_position = 0
         cover_count = 0
-        
+
         for cover in covers:
             state = self.hass.states.get(cover)
+            if state is None:
+                continue
             if state.state == "open":
                 open_covers += 1
             if position := state.attributes.get("current_position"):
@@ -469,56 +488,136 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                             room_name, sensor_list_name, sensor, s.state,
                         )
 
-        # Check motion
-        motion_detected = any(self._is_sensor_on(sensor) for sensor in motion_sensors if sensor)
+        # === Fix #10: Sensor unavailability grace period ===
+        all_sensors = [s for s in (motion_sensors + mmwave_sensors + occupancy_sensors) if s]
+        all_unavailable = all_sensors and all(
+            (st := self.hass.states.get(s)) is not None and st.state in ("unavailable", "unknown")
+            for s in all_sensors
+        )
+        grace_hold = False
+        if all_unavailable:
+            if self._all_sensors_unavailable_since is None:
+                self._all_sensors_unavailable_since = now
+                _LOGGER.warning(
+                    "Room %s: All %d sensors unavailable — holding occupancy state for %ds",
+                    room_name, len(all_sensors), self._unavail_grace_seconds,
+                )
+            grace_elapsed = (now - self._all_sensors_unavailable_since).total_seconds()
+            if grace_elapsed < self._unavail_grace_seconds:
+                grace_hold = True
+        else:
+            self._all_sensors_unavailable_since = None
+
+        # === Fix #9: Stuck sensor detection (before detection + trigger tracking) ===
+        for sensor_list in [motion_sensors, mmwave_sensors, occupancy_sensors]:
+            for sensor in sensor_list:
+                if not sensor:
+                    continue
+                if self._is_sensor_on(sensor):
+                    if sensor not in self._sensor_on_since:
+                        self._sensor_on_since[sensor] = now
+                else:
+                    self._sensor_on_since.pop(sensor, None)
+
+        stuck_sensors = {
+            s for s, since in self._sensor_on_since.items()
+            if (now - since).total_seconds() / 3600 >= self._stuck_sensor_hours
+        }
+        if stuck_sensors:
+            for s in stuck_sensors:
+                on_hours = (now - self._sensor_on_since[s]).total_seconds() / 3600
+                _LOGGER.warning(
+                    "Room %s: Sensor %s stuck on for %.1f hours — ignoring",
+                    room_name, s, on_hours,
+                )
+
+        # Check motion (excluding stuck sensors)
+        motion_detected = any(
+            self._is_sensor_on(sensor) for sensor in motion_sensors
+            if sensor and sensor not in stuck_sensors
+        )
         data[STATE_MOTION_DETECTED] = motion_detected
-        
-        # Track which motion sensor triggered (if motion just became active)
+
+        # Check presence/mmWave (excluding stuck sensors)
+        presence_detected = any(
+            self._is_sensor_on(sensor) for sensor in mmwave_sensors
+            if sensor and sensor not in stuck_sensors
+        )
+        data[STATE_PRESENCE_DETECTED] = presence_detected
+
+        # Check occupancy sensors (excluding stuck sensors)
+        occupancy_detected = any(
+            self._is_sensor_on(sensor) for sensor in occupancy_sensors
+            if sensor and sensor not in stuck_sensors
+        )
+
+        # Override detection to false during grace hold
+        if grace_hold:
+            motion_detected = False
+            presence_detected = False
+            occupancy_detected = False
+            data[STATE_MOTION_DETECTED] = False
+            data[STATE_PRESENCE_DETECTED] = False
+
+        # Track which sensor triggered (after stuck filtering)
         if motion_detected and (not self.data or not self.data.get(STATE_MOTION_DETECTED)):
             for sensor in motion_sensors:
-                if sensor and self._is_sensor_on(sensor):
+                if sensor and sensor not in stuck_sensors and self._is_sensor_on(sensor):
                     self._last_trigger_source = "motion"
                     self._last_trigger_entity = sensor
                     self._last_trigger_time = now
                     break
-        
-        # Check presence (mmWave)
-        presence_detected = any(self._is_sensor_on(sensor) for sensor in mmwave_sensors if sensor)
-        data[STATE_PRESENCE_DETECTED] = presence_detected
-        
-        # Track which presence sensor triggered (if presence just became active)
+
         if presence_detected and (not self.data or not self.data.get(STATE_PRESENCE_DETECTED)):
             for sensor in mmwave_sensors:
-                if sensor and self._is_sensor_on(sensor):
+                if sensor and sensor not in stuck_sensors and self._is_sensor_on(sensor):
                     self._last_trigger_source = "presence"
                     self._last_trigger_entity = sensor
                     self._last_trigger_time = now
                     break
-        
-        # Check occupancy sensors (combined motion+presence)
-        occupancy_detected = any(self._is_sensor_on(sensor) for sensor in occupancy_sensors if sensor)
-        
-        # Track occupancy sensor trigger
+
         if occupancy_detected:
             for sensor in occupancy_sensors:
-                if sensor and self._is_sensor_on(sensor):
-                    # Only update if not already tracking motion or presence
+                if sensor and sensor not in stuck_sensors and self._is_sensor_on(sensor):
                     if not motion_detected and not presence_detected:
                         self._last_trigger_source = "occupancy"
                         self._last_trigger_entity = sensor
                         self._last_trigger_time = now
                     break
-        
+
+        any_sensor_active = motion_detected or presence_detected or occupancy_detected
+
+        # === Fix #6: Entry debouncing (time-based) ===
+        # Require sensors active for N seconds before confirming new entry
+        if any_sensor_active:
+            if not self._last_occupied_state:
+                if self._occupancy_first_detected is None:
+                    self._occupancy_first_detected = now
+                elapsed = (now - self._occupancy_first_detected).total_seconds()
+                if elapsed < self._occupancy_debounce_seconds:
+                    _LOGGER.debug(
+                        "Room %s: Occupancy debounce %.1f/%.1fs — waiting",
+                        room_name, elapsed, self._occupancy_debounce_seconds,
+                    )
+                    any_sensor_active = False
+        else:
+            self._occupancy_first_detected = None
+
         # Determine occupancy (any detection method)
-        if motion_detected or presence_detected or occupancy_detected:
+        if grace_hold:
+            # Hold previous occupancy state during sensor unavailability grace
+            data[STATE_OCCUPIED] = self._last_occupied_state
+            data[STATE_TIMEOUT_REMAINING] = self._occupancy_timeout if self._last_occupied_state else 0
+        elif any_sensor_active:
             self._last_motion_time = now
+            self._failsafe_fired = False  # Reset failsafe flag on genuine activity
             data[STATE_OCCUPIED] = True
             data[STATE_TIMEOUT_REMAINING] = self._occupancy_timeout
-            
+
             # Update last occupied time when becoming occupied
             if not self._last_occupied_state:
                 self._last_occupied_time = now
-                self._became_occupied_time = now  # v3.2.4: Track when THIS occupancy session started
+                self._became_occupied_time = now
         else:
             # Calculate timeout
             if self._last_motion_time:
@@ -526,17 +625,16 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                 remaining = max(0, self._occupancy_timeout - int(elapsed))
                 data[STATE_TIMEOUT_REMAINING] = remaining
                 data[STATE_OCCUPIED] = remaining > 0
-                
+
                 # Keep last_occupied_time updated while still occupied
                 if data[STATE_OCCUPIED]:
                     self._last_occupied_time = now
                 else:
-                    # v3.2.4: Clear became_occupied_time when room becomes vacant
                     self._became_occupied_time = None
             else:
                 data[STATE_TIMEOUT_REMAINING] = 0
                 data[STATE_OCCUPIED] = False
-                self._became_occupied_time = None  # v3.2.4: Clear when vacant
+                self._became_occupied_time = None
         
         # Calculate time since last motion
         if self._last_motion_time:
@@ -551,25 +649,25 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
             data[STATE_TIME_SINCE_OCCUPIED] = None
 
         # RESILIENCE-001: Maximum active duration failsafe
+        # Uses _became_occupied_time so legitimate motion doesn't reset the timer
         if (data.get(STATE_OCCUPIED)
-                and self._last_motion_time
-                and not motion_detected
-                and not presence_detected
-                and not occupancy_detected):
-            duration = (now - self._last_motion_time).total_seconds()
+                and self._became_occupied_time):
+            duration = (now - self._became_occupied_time).total_seconds()
             if duration > MAX_OCCUPANCY_DURATION_SECONDS:
                 _LOGGER.warning(
-                    "Room %s: Forcing vacancy after %.1f hours — no active sensors (failsafe)",
+                    "Room %s: Forcing vacancy after %.1f hours (failsafe)",
                     room_name, duration / 3600,
                 )
                 data[STATE_OCCUPIED] = False
                 data[STATE_TIMEOUT_REMAINING] = 0
                 self._last_motion_time = None
+                self._failsafe_fired = True
 
         # === v3.5.1: Camera extends room occupancy ===
         # If motion/mmWave have timed out but a camera in this room's area still
         # sees a person, override vacancy and keep the room occupied.
-        if not data.get(STATE_OCCUPIED):
+        # Fix #8: Skip camera override if failsafe just fired (prevents stuck camera defeating failsafe)
+        if not data.get(STATE_OCCUPIED) and not self._failsafe_fired:
             camera_manager = self.hass.data.get(DOMAIN, {}).get("camera_manager")
             if camera_manager:
                 room_area = self._get_room_area()
@@ -631,11 +729,12 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
             data[STATE_ENERGY_TODAY] = max(0, current_value - self._energy_baseline_today)
         else:
             # Integrate power over time (for rooms without direct energy sensor)
-            if self._last_power_reading is not None:
-                elapsed_hours = 30 / 3600  # 30 seconds to hours
+            if self._last_power_reading is not None and self._last_energy_calc_time is not None:
+                elapsed_hours = (now - self._last_energy_calc_time).total_seconds() / 3600
                 avg_power = (total_power + self._last_power_reading) / 2
                 self._energy_accumulator += (avg_power * elapsed_hours) / 1000  # Wh to kWh
             self._last_power_reading = total_power
+            self._last_energy_calc_time = now
             
             # Reset at midnight
             if now.date() > self._last_energy_reset.date():
@@ -654,11 +753,13 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
             data[STATE_COVERS_OPEN_COUNT] = device_counts["covers_open"]
             data[STATE_COVERS_POSITION_AVG] = device_counts["covers_position_avg"]
         
+        # Track occupancy transition for DB logging (must be before _last_occupied_state update)
+        was_occupied = self._last_occupied_state
+
         # === Automation Logic ===
         if self._is_automation_enabled():
             # Handle occupancy changes
             if data[STATE_OCCUPIED] != self._last_occupied_state:
-                was_occupied = self._last_occupied_state
                 self._last_occupied_state = data[STATE_OCCUPIED]
                 try:
                     await self.automation.handle_occupancy_change(
@@ -668,30 +769,16 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                 except Exception as e:
                     _LOGGER.error("Error in occupancy automation: %s", e)
 
-                # RESILIENCE-003: Verify vacancy exit and retry if devices still on
+                # RESILIENCE-003: Verify vacancy exit — non-blocking delayed task
                 if was_occupied and not data[STATE_OCCUPIED]:
-                    await asyncio.sleep(3)
-                    area_id = self._get_config(CONF_AREA_ID)
-                    if area_id:
-                        device_counts = self._calculate_device_counts(area_id)
-                        lights_on = device_counts.get("lights_on", 0)
-                        switches_on = device_counts.get("switches_on", 0)
-                        fans_on = device_counts.get("fans_on", 0)
-                        if lights_on > 0 or switches_on > 0 or fans_on > 0:
-                            _LOGGER.warning(
-                                "Room %s: Exit automation may have failed — "
-                                "%d light(s), %d switch(es), %d fan(s) still on. Retrying.",
-                                room_name, lights_on, switches_on, fans_on,
-                            )
-                            try:
-                                await self.automation.handle_occupancy_change(False, data)
-                            except Exception as e:
-                                _LOGGER.error(
-                                    "Room %s: Retry exit automation also failed: %s",
-                                    room_name, e,
-                                )
+                    exit_action = self._get_config(CONF_EXIT_LIGHT_ACTION, LIGHT_ACTION_TURN_OFF)
+                    if exit_action == LIGHT_ACTION_TURN_OFF:
+                        self.hass.async_create_task(
+                            self._delayed_exit_verify(room_name, data)
+                        )
             
-            # Periodic automation tasks
+            # Periodic automation tasks (refresh config for options flow changes)
+            self.automation._refresh_config()
             try:
                 # Temperature-based fan control
                 await self.automation.handle_temperature_based_fan_control(
@@ -710,12 +797,15 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                 
             except Exception as e:
                 _LOGGER.error("Error in periodic automation: %s", e)
-        
+        else:
+            # Even with automation disabled, track state for DB logging
+            self._last_occupied_state = data[STATE_OCCUPIED]
+
         # === Data Logging (for Phase 3 & 4) ===
         database = self.hass.data[DOMAIN].get("database")
         if database:
-            # Log occupancy changes
-            if data[STATE_OCCUPIED] != self._last_occupied_state:
+            # Log occupancy changes (use was_occupied captured before _last_occupied_state update)
+            if data[STATE_OCCUPIED] != was_occupied:
                 if data[STATE_OCCUPIED]:
                     # Entry event
                     trigger = "motion" if motion_detected else "presence"
@@ -834,6 +924,35 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         
         return data
     
+    async def _delayed_exit_verify(self, room_name: str, data: dict[str, Any]) -> None:
+        """RESILIENCE-003: Verify exit automation after 3s delay (non-blocking)."""
+        await asyncio.sleep(3)
+        # Re-check: if room became occupied again, skip retry
+        if self.data and self.data.get(STATE_OCCUPIED):
+            _LOGGER.debug("Room %s: Re-occupied during exit verify delay — skipping retry", room_name)
+            return
+        area_id = self._get_config(CONF_AREA_ID)
+        if not area_id:
+            return
+        device_counts = self._calculate_device_counts(area_id)
+        lights_on = device_counts.get("lights_on", 0)
+        switches_on = device_counts.get("switches_on", 0)
+        if lights_on > 0 or switches_on > 0:
+            _LOGGER.warning(
+                "Room %s: Exit automation may have failed — "
+                "%d light(s), %d switch(es) still on. Retrying.",
+                room_name, lights_on, switches_on,
+            )
+            # Use fresh data from coordinator
+            fresh_data = self.data or data
+            try:
+                await self.automation.handle_occupancy_change(False, fresh_data)
+            except Exception as e:
+                _LOGGER.error(
+                    "Room %s: Retry exit automation also failed: %s",
+                    room_name, e,
+                )
+
     def set_last_action(
         self,
         action_type: str,
