@@ -1,4 +1,4 @@
-# v3.6.0.12 — Security Coordinator (C3)
+# v3.6.12 — Security Coordinator (C3)
 
 **Date:** 2026-03-02
 **Cycle:** C3 — Security Coordinator
