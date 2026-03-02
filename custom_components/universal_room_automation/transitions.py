@@ -1,7 +1,10 @@
-"""Room transition detection for Universal Room Automation v3.3.5.5.
+"""Room transition detection for Universal Room Automation v3.6.20.
 
 Detects and classifies room-to-room transitions for pattern learning
 and cross-room coordination.
+
+v3.6.20: Added ping-pong suppression — if A→B followed by B→A within
+         PING_PONG_WINDOW_SECONDS, the return leg is suppressed.
 """
 
 import logging
@@ -12,6 +15,8 @@ from typing import Any, Callable, Optional
 from homeassistant.core import HomeAssistant, Event, callback
 from homeassistant.util import dt as dt_util
 from homeassistant.helpers.event import async_track_time_interval
+
+from .const import PING_PONG_WINDOW_SECONDS
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -56,6 +61,10 @@ class TransitionDetector:
 
         # v3.5.2: Transit validator (optional, wired in after init)
         self._transit_validator = None
+
+        # v3.6.20: Ping-pong suppression — recent transitions per person
+        # dict[person_id, list[tuple[from_room, to_room, timestamp]]]
+        self._recent_transitions: dict[str, list[tuple[str, str, datetime]]] = {}
 
         _LOGGER.info("TransitionDetector initialized")
     
@@ -140,7 +149,7 @@ class TransitionDetector:
                 transition.path_type, transition.duration_seconds, transition.confidence
             )
 
-            # Log to database
+            # Log to database (always — even if suppressed)
             await self._log_transition(transition)
 
             # v3.5.2: Validate transition via camera checkpoint data
@@ -154,9 +163,21 @@ class TransitionDetector:
                 except Exception as e:
                     _LOGGER.error("Transit validation error: %s", e)
 
-            # Notify listeners
-            await self._notify_listeners(transition)
-            _LOGGER.debug("Notified %d transition listeners", len(self._listeners))
+            # v3.6.20: Ping-pong suppression — suppress return leg if
+            # A→B followed by B→A within window
+            if self._is_ping_pong(person_id, previous_location, current_location, timestamp):
+                _LOGGER.info(
+                    "Ping-pong suppressed: %s %s → %s (return leg within %ds window)",
+                    person_id, previous_location, current_location,
+                    PING_PONG_WINDOW_SECONDS,
+                )
+                self._record_transition(person_id, previous_location, current_location, timestamp)
+                # Skip notifying listeners — transition is logged but not acted on
+            else:
+                self._record_transition(person_id, previous_location, current_location, timestamp)
+                # Notify listeners
+                await self._notify_listeners(transition)
+                _LOGGER.debug("Notified %d transition listeners", len(self._listeners))
         
         # Update history
         self._update_history(person_id, current_location, timestamp)
@@ -245,7 +266,12 @@ class TransitionDetector:
                 location = entry["location"]
                 # Check if this might be a hallway/intermediate room
                 if location not in [from_room, to_room]:
-                    if "hallway" in location.lower() or "corridor" in location.lower():
+                    loc_lower = location.lower()
+                if any(term in loc_lower for term in (
+                    "hallway", "corridor", "hall", "foyer",
+                    "entry", "landing", "passage", "vestibule",
+                )):
+
                         return ("via_hallway", location)
         
         # Via hallway (medium duration)
@@ -310,7 +336,7 @@ class TransitionDetector:
                 via_room=transition.via_room
             )
         except Exception as e:
-            _LOGGER.error(f"Failed to log transition: {e}")
+            _LOGGER.error("Failed to log transition: %s", e)
     
     async def _update_transition_confidence(self, transition: RoomTransition, validation) -> None:
         """Update the confidence of the most recently logged transition.
@@ -330,30 +356,79 @@ class TransitionDetector:
         except Exception as e:
             _LOGGER.error("Failed to update transition validation: %s", e)
 
+    # ==========================================================================
+    # v3.6.20: PING-PONG SUPPRESSION
+    # ==========================================================================
+
+    def _is_ping_pong(
+        self, person_id: str, from_room: str, to_room: str, timestamp: datetime
+    ) -> bool:
+        """Check if this transition is the return leg of a ping-pong.
+
+        A→B followed by B→A within PING_PONG_WINDOW_SECONDS = ping-pong.
+        A→B followed by B→C = not ping-pong (different destination).
+        """
+        recent = self._recent_transitions.get(person_id, [])
+        if not recent:
+            return False
+
+        window = timedelta(seconds=PING_PONG_WINDOW_SECONDS)
+        # Check if any recent transition was to_room→from_room (the forward leg)
+        for prev_from, prev_to, prev_ts in reversed(recent):
+            if (timestamp - prev_ts) > window:
+                break  # Too old
+            if prev_from == to_room and prev_to == from_room:
+                return True
+        return False
+
+    def _record_transition(
+        self, person_id: str, from_room: str, to_room: str, timestamp: datetime
+    ) -> None:
+        """Record a transition for ping-pong detection."""
+        if person_id not in self._recent_transitions:
+            self._recent_transitions[person_id] = []
+        self._recent_transitions[person_id].append((from_room, to_room, timestamp))
+        # Keep only last 10 per person
+        if len(self._recent_transitions[person_id]) > 10:
+            self._recent_transitions[person_id] = self._recent_transitions[person_id][-10:]
+
     async def _notify_listeners(self, transition: RoomTransition) -> None:
         """Notify all registered listeners of transition."""
+        import asyncio
         for listener in self._listeners:
             try:
-                await listener(transition)
+                result = listener(transition)
+                if asyncio.iscoroutine(result):
+                    await result
             except Exception as e:
-                _LOGGER.error(f"Transition listener error: {e}")
-    
+                _LOGGER.error("Transition listener error: %s", e)
+
     async def _async_cleanup_history(self, now: datetime) -> None:
-        """Periodic cleanup of old location history."""
+        """Periodic cleanup of old location history and ping-pong records."""
         cutoff = now - timedelta(hours=1)
-        
+        ping_pong_cutoff = now - timedelta(seconds=PING_PONG_WINDOW_SECONDS * 2)
+
         for person_id in list(self._location_history.keys()):
             history = self._location_history[person_id]
-            
+
             # Remove entries older than 1 hour
             self._location_history[person_id] = [
                 entry for entry in history
                 if entry["timestamp"] > cutoff
             ]
-            
+
             # Remove empty histories
             if not self._location_history[person_id]:
                 del self._location_history[person_id]
+
+        # v3.6.20: Clean up old ping-pong records
+        for person_id in list(self._recent_transitions.keys()):
+            self._recent_transitions[person_id] = [
+                (f, t, ts) for f, t, ts in self._recent_transitions[person_id]
+                if ts > ping_pong_cutoff
+            ]
+            if not self._recent_transitions[person_id]:
+                del self._recent_transitions[person_id]
     
     async def get_recent_transitions(
         self,
@@ -367,5 +442,5 @@ class TransitionDetector:
                 hours=hours
             )
         except Exception as e:
-            _LOGGER.error(f"Failed to get recent transitions: {e}")
+            _LOGGER.error("Failed to get recent transitions: %s", e)
             return []

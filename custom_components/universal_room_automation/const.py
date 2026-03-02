@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation v3.6.18
+# Universal Room Automation v3.6.21
 # Build: 2026-03-01
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "3.6.18"
+VERSION: Final = "3.6.21"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -842,3 +842,22 @@ HOUSE_STATE_OVERRIDE_OPTIONS: Final = [
     "home_night", "sleep", "waking", "guest", "vacation",
 ]
 ZONE_PRESENCE_OVERRIDE_OPTIONS: Final = ["auto", "away", "occupied", "sleep"]
+
+# ============================================================================
+# v3.6.19 Music Following Hardening
+# ============================================================================
+
+# Bermuda area sensor config override (optional per-person dict)
+CONF_BERMUDA_AREA_SENSORS: Final = "bermuda_area_sensors"
+
+# Transfer cooldown (seconds) — blocks repeated transfers to same target
+MUSIC_TRANSFER_COOLDOWN_SECONDS: Final = 8
+
+# Ping-pong suppression window (seconds) — suppress A→B→A return leg
+PING_PONG_WINDOW_SECONDS: Final = 60
+
+# Post-transfer verification delay (seconds)
+TRANSFER_VERIFY_DELAY_SECONDS: Final = 2
+
+# Speaker group unjoin delay (seconds)
+GROUP_UNJOIN_DELAY_SECONDS: Final = 5

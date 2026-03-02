@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.6.18
+# Universal Room Automation v3.6.21
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -141,6 +141,8 @@ async def async_setup_entry(
             UnidentifiedPersonsSensor(hass, entry),
             # v3.6.0-c1: House state on integration device
             IntegrationHouseStateSensor(hass, entry),
+            # v3.6.21: Music following health sensor
+            MusicFollowingHealthSensor(hass, entry),
         ]
         async_add_entities(census_sensors)
 
@@ -3944,3 +3946,67 @@ class SecurityComplianceSensor(AggregationEntity, SensorEntity):
         if security is None:
             return {}
         return security.get_compliance_summary()
+
+
+# ============================================================================
+# v3.6.21: Music Following Health Sensor
+# ============================================================================
+
+
+class MusicFollowingHealthSensor(AggregationEntity, SensorEntity):
+    """House-level diagnostic sensor for music following.
+
+    Entity: sensor.ura_music_following_health
+    Device: Universal Room Automation (integration device)
+    State: idle / following / transferring / cooldown / error
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:music-note"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_music_following_health"
+        self._attr_name = "Music Following Health"
+        self._music_following = None
+
+    async def async_added_to_hass(self) -> None:
+        """Register diagnostic listener when added to HA."""
+        await super().async_added_to_hass()
+        mf = self.hass.data.get(DOMAIN, {}).get("music_following")
+        if mf:
+            self._music_following = mf
+            mf.add_diagnostic_listener(self._on_diagnostic_update)
+
+    @callback
+    def _on_diagnostic_update(self) -> None:
+        """Handle push update from MusicFollowing."""
+        self.async_write_ha_state()
+
+    @property
+    def native_value(self) -> str:
+        """Return the primary state."""
+        mf = self._music_following or self.hass.data.get(DOMAIN, {}).get("music_following")
+        if mf is None:
+            return "idle"
+        return mf._state
+
+    @property
+    def icon(self) -> str:
+        val = self.native_value
+        return {
+            "idle": "mdi:music-note",
+            "following": "mdi:music-note-plus",
+            "transferring": "mdi:swap-horizontal",
+            "cooldown": "mdi:timer-sand",
+            "error": "mdi:alert-circle",
+        }.get(val, "mdi:music-note")
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        mf = self._music_following or self.hass.data.get(DOMAIN, {}).get("music_following")
+        if mf is None:
+            return {}
+        return mf.get_diagnostic_data()
