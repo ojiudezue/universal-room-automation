@@ -1,6 +1,6 @@
 """Config flow for Universal Room Automation v3.3.3."""
 #
-# Universal Room Automation v3.6.14
+# Universal Room Automation v3.6.15
 # Build: 2026-01-05
 # File: config_flow.py
 # v3.3.3: Added manage_zones to integration options menu
@@ -2035,7 +2035,11 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
 
         v3.6.0-c2.1: Per-coordinator on/off toggles stored in CM entry options.
         """
-        from .const import CONF_PRESENCE_ENABLED, CONF_SAFETY_ENABLED
+        from .const import (
+            CONF_PRESENCE_ENABLED,
+            CONF_SAFETY_ENABLED,
+            CONF_SECURITY_ENABLED,
+        )
 
         if user_input is not None:
             return self.async_create_entry(
@@ -2051,6 +2055,10 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             vol.Optional(
                 CONF_SAFETY_ENABLED,
                 default=self._get_current(CONF_SAFETY_ENABLED, True),
+            ): selector.BooleanSelector(),
+            vol.Optional(
+                CONF_SECURITY_ENABLED,
+                default=self._get_current(CONF_SECURITY_ENABLED, True),
             ): selector.BooleanSelector(),
         })
 
