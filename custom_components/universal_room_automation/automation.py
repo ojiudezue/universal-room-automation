@@ -1,6 +1,6 @@
 """Automation logic for Universal Room Automation."""
 #
-# Universal Room Automation v3.6.13
+# Universal Room Automation v3.6.14
 # Build: 2026-01-04
 # File: automation.py
 # v3.3.1.1: Added int() cast to get_auto_off_hour to handle NumberSelector float values
@@ -99,6 +99,7 @@ from .const import (
     DEFAULT_NIGHT_LIGHT_DAY_COLOR,
     # State
     STATE_OCCUPIED,
+    STATE_MOTION_DETECTED,
     STATE_DARK,
     STATE_ILLUMINANCE,
     STATE_TEMPERATURE,
@@ -124,12 +125,11 @@ class RoomAutomation:
         """Initialize room automation."""
         # v3.2.8 STARTUP BANNER
         room_name = config.get('room_name', 'Unknown')
-        _LOGGER.critical("🔧 v3.2.8 AUTOMATION MODULE INITIALIZED FOR ROOM: %s", room_name)
-        _LOGGER.critical("    ✅ Light/Switch separation: ACTIVE")
-        _LOGGER.critical("    ✅ Config merge: entry.options override entry.data")
+        _LOGGER.info("Automation module initialized for room: %s", room_name)
         
         self.hass = hass
         self.config = config
+        self._config_entry = coordinator.entry  # Live reference for fresh reads
         self._sleep_motion_count = 0
         self.coordinator = coordinator
         self._humidity_fan_triggered_time: datetime | None = None
@@ -138,6 +138,8 @@ class RoomAutomation:
         # v3.1.0: Alert light state tracking
         self._alert_lights_active: bool = False
         self._alert_light_original_states: dict[str, dict] = {}
+        # Warning flash dedup
+        self._last_warning_date_hour: str | None = None
 
     async def _safe_service_call(
         self,
@@ -146,31 +148,47 @@ class RoomAutomation:
         service_data: dict,
         blocking: bool = False,
         timeout: float = 5.0,
+        max_retries: int = 0,
     ) -> bool:
-        """Call a service with timeout and error handling."""
+        """Call a service with timeout, error handling, and optional retry.
+
+        Args:
+            max_retries: Number of retry attempts (0 = no retry, fire-and-forget).
+                         Use max_retries=2 for critical operations (locks, exit automation).
+        """
         entity_ids = service_data.get("entity_id", "unknown")
-        try:
-            await asyncio.wait_for(
-                self.hass.services.async_call(
-                    domain, service, service_data, blocking=blocking
-                ),
-                timeout=timeout,
-            )
-            return True
-        except asyncio.TimeoutError:
-            _LOGGER.error(
-                "Service call timeout after %.1fs: %s.%s for %s in room %s",
-                timeout, domain, service, entity_ids,
-                self.config.get("room_name", "unknown"),
-            )
-            return False
-        except Exception as e:
-            _LOGGER.error(
-                "Service call failed: %s.%s for %s in room %s: %s",
-                domain, service, entity_ids,
-                self.config.get("room_name", "unknown"), e,
-            )
-            return False
+        attempts = 1 + max_retries
+        for attempt in range(attempts):
+            try:
+                await asyncio.wait_for(
+                    self.hass.services.async_call(
+                        domain, service, service_data, blocking=blocking
+                    ),
+                    timeout=timeout,
+                )
+                return True
+            except asyncio.TimeoutError:
+                _LOGGER.error(
+                    "Service call timeout after %.1fs: %s.%s for %s in room %s (attempt %d/%d)",
+                    timeout, domain, service, entity_ids,
+                    self.config.get("room_name", "unknown"),
+                    attempt + 1, attempts,
+                )
+            except Exception as e:
+                _LOGGER.error(
+                    "Service call failed: %s.%s for %s in room %s: %s (attempt %d/%d)",
+                    domain, service, entity_ids,
+                    self.config.get("room_name", "unknown"), e,
+                    attempt + 1, attempts,
+                )
+            if attempt < max_retries:
+                backoff = 1 * (2 ** attempt)  # 1s, 2s exponential backoff
+                await asyncio.sleep(backoff)
+        return False
+
+    def _refresh_config(self) -> None:
+        """Refresh config from entry options (picks up options flow changes without reload)."""
+        self.config = {**self._config_entry.data, **self._config_entry.options}
 
     def is_sleep_mode_active(self) -> bool:
         """Check if sleep protection is currently active."""
@@ -215,7 +233,7 @@ class RoomAutomation:
             return True
 
         # During sleep mode, check bypass
-        return self.can_bypass_sleep_mode(state_data.get(STATE_OCCUPIED, False))
+        return self.can_bypass_sleep_mode(state_data.get(STATE_MOTION_DETECTED, False))
 
     async def handle_occupancy_change(
         self,
@@ -223,6 +241,7 @@ class RoomAutomation:
         state_data: dict[str, Any],
     ) -> None:
         """Handle occupancy state change."""
+        self._refresh_config()
         room_name = self.config.get('room_name', 'Unknown')
         _LOGGER.debug("Occupancy change [%s]: occupied=%s, should_execute=%s", 
                        room_name, occupied, self.should_execute_automation(state_data))
@@ -691,7 +710,15 @@ class RoomAutomation:
             return
 
         threshold = self.config.get(CONF_FAN_TEMP_THRESHOLD, 80)
-        if temperature < threshold or not occupied:
+        hysteresis = 2.0  # degrees dead band to prevent rapid cycling
+        # Check if fans are currently on
+        any_fan_on = any(
+            (s := self.hass.states.get(f)) is not None and s.state == STATE_ON
+            for f in fans
+        )
+        # Use lower threshold for turn-off to prevent cycling
+        effective_threshold = (threshold - hysteresis) if any_fan_on else threshold
+        if temperature < effective_threshold or not occupied:
             # Turn off fans/switches if below threshold or room vacant
             # v3.2.9: Use homeassistant domain for multi-domain support
             await self._safe_service_call(
@@ -865,18 +892,20 @@ class RoomAutomation:
         # Warning at 5 minutes before the hour (e.g., 10:55 PM for 11 PM auto-off)
         warning_hour = auto_off_hour - 1 if auto_off_hour > 0 else 23
         
-        if now.hour == warning_hour and now.minute == 55:
-            # Only warn once - check if lights are actually on
+        if now.hour == warning_hour and now.minute >= 55:
+            # Dedup: only warn once per hour window
+            warning_key = f"{now.date()}-{warning_hour}"
+            if self._last_warning_date_hour == warning_key:
+                return
+            # Check if lights are actually on
             lights = self.config.get(CONF_LIGHTS, [])
-            lights_on = False
-            for light_id in lights:
-                state = self.hass.states.get(light_id)
-                if state and state.state == STATE_ON:
-                    lights_on = True
-                    break
-            
+            lights_on = any(
+                (s := self.hass.states.get(lid)) is not None and s.state == STATE_ON
+                for lid in lights
+            )
             if lights_on:
                 _LOGGER.info("Shared space auto-off warning - flashing lights")
+                self._last_warning_date_hour = warning_key
                 await self._warning_flash()
 
     async def _warning_flash(self) -> None:
@@ -884,21 +913,26 @@ class RoomAutomation:
         lights = self.config.get(CONF_LIGHTS, [])
         if not lights:
             return
-        
+
+        # Bug Class #4 fix: only flash actual light.* entities (switches don't support brightness)
+        actual_lights = [e for e in lights if e.startswith("light.")]
+        if not actual_lights:
+            return
+
         try:
             # Quick dim-restore cycle (2 flashes)
             for _ in range(2):
                 await self._safe_service_call(
                     "light",
                     SERVICE_TURN_ON,
-                    {"entity_id": lights, "brightness": 50},
+                    {"entity_id": actual_lights, "brightness": 50},
                     blocking=True,
                 )
                 await asyncio.sleep(0.3)
                 await self._safe_service_call(
                     "light",
                     SERVICE_TURN_ON,
-                    {"entity_id": lights, "brightness": 255},
+                    {"entity_id": actual_lights, "brightness": 255},
                     blocking=True,
                 )
                 await asyncio.sleep(0.3)
@@ -907,22 +941,29 @@ class RoomAutomation:
 
     async def _shared_space_turn_off_all(self) -> None:
         """Turn off all devices in shared space."""
-        # Turn off lights
+        # Turn off lights — Bug Class #4 fix: separate domains
         lights = self.config.get(CONF_LIGHTS, [])
         if lights:
-            await self._safe_service_call(
-                "light",
-                SERVICE_TURN_OFF,
-                {"entity_id": lights},
-                blocking=False,
-            )
-            _LOGGER.debug("Shared space: turned off lights")
+            actual_lights = [e for e in lights if e.startswith("light.")]
+            switches_as_lights = [e for e in lights if e.startswith("switch.")]
+            if actual_lights:
+                await self._safe_service_call(
+                    "light", SERVICE_TURN_OFF,
+                    {"entity_id": actual_lights}, blocking=False,
+                )
+            if switches_as_lights:
+                await self._safe_service_call(
+                    "switch", SERVICE_TURN_OFF,
+                    {"entity_id": switches_as_lights}, blocking=False,
+                )
+            _LOGGER.debug("Shared space: turned off %d light(s), %d switch(es)",
+                          len(actual_lights), len(switches_as_lights))
 
-        # Turn off fans
+        # Turn off fans — Bug Class #4 fix: use homeassistant domain for mixed lists
         fans = self.config.get(CONF_FANS, [])
         if fans:
             await self._safe_service_call(
-                "fan",
+                "homeassistant",
                 SERVICE_TURN_OFF,
                 {"entity_id": fans},
                 blocking=False,

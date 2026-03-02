@@ -90,7 +90,6 @@ class TransitionDetector:
         """Add listener for transition events."""
         self._listeners.append(listener)
     
-    @callback
     async def _on_location_change(self, event: Event) -> None:
         """Handle person location change event from person_coordinator.
         
@@ -339,7 +338,6 @@ class TransitionDetector:
             except Exception as e:
                 _LOGGER.error(f"Transition listener error: {e}")
     
-    @callback
     async def _async_cleanup_history(self, now: datetime) -> None:
         """Periodic cleanup of old location history."""
         cutoff = now - timedelta(hours=1)
