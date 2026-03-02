@@ -1,6 +1,6 @@
 """Person tracking coordinator for Universal Room Automation."""
 #
-# Universal Room Automation v3.6.17
+# Universal Room Automation v3.6.18
 # Build: 2026-01-03
 # File: person_coordinator.py
 # v3.2.9: No changes (zone fixes in aggregation.py, fan fixes in automation.py)
@@ -547,24 +547,30 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
         """
         try:
             # Get Bermuda distance sensors for this person
+            # v3.6.17: Only scan Bermuda entities instead of ALL entities
             ent_reg = er.async_get(self.hass)
-            all_entities = ent_reg.entities
-            
             normalized_person = person_name.lower().replace(" ", "_")
+            person_no_sep = person_name.lower().replace(" ", "")
             distance_sensors = []
-            
-            for entity_id, entity_entry in all_entities.items():
-                if (entity_id.startswith("sensor.") and
-                    "distance_to_" in entity_id and
-                    (normalized_person in entity_id or person_name.lower().replace(" ", "") in entity_id)):
-                    distance_sensors.append(entity_id)
-            
+
+            bermuda_entries = self.hass.config_entries.async_entries("bermuda")
+            for be in bermuda_entries:
+                for entity_entry in er.async_entries_for_config_entry(
+                    ent_reg, be.entry_id
+                ):
+                    eid = entity_entry.entity_id
+                    if (eid.startswith("sensor.") and
+                        "distance_to_" in eid and
+                        (normalized_person in eid or person_no_sep in eid)):
+                        distance_sensors.append(eid)
+                        # Auto-enable disabled sensors inline
+                        if entity_entry.disabled:
+                            ent_reg.async_update_entity(eid, disabled_by=None)
+                            _LOGGER.info("Auto-enabled Bermuda distance sensor: %s", eid)
+
             if not distance_sensors:
                 _LOGGER.debug("No Bermuda distance sensors found for %s", person_name)
                 return 0.5  # Medium confidence - detected via area sensor but no distance data
-            
-            # Auto-enable any disabled distance sensors for this person
-            await self._auto_enable_distance_sensors(person_name)
             
             # v3.2.4 FIX: Get scanners in the BERMUDA area (where the person was detected)
             # Not the resolved room, which may be different
@@ -660,19 +666,18 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
                 return []
             
             scanners = []
-            
-            for device in dev_reg.devices.values():
-                if device.area_id != area_entry.id:
-                    continue
-                
-                # v3.2.4 FIX: Check for BLE-capable integrations
-                # Shelly, ESPHome, and others can be BLE scanners
-                for config_entry_id in device.config_entries:
-                    config_entry = self.hass.config_entries.async_get_entry(config_entry_id)
-                    if config_entry and config_entry.domain in ("shelly", "esphome", "bluetooth", "bermuda"):
+
+            # v3.6.18: Only scan BLE integration devices instead of ALL devices
+            ble_domains = ("shelly", "esphome", "bluetooth", "bermuda")
+            for domain in ble_domains:
+                for ce in self.hass.config_entries.async_entries(domain):
+                    for device in dr.async_entries_for_config_entry(
+                        dev_reg, ce.entry_id
+                    ):
+                        if device.area_id != area_entry.id:
+                            continue
                         scanner_name = device.name_by_user or device.name
                         if scanner_name:
-                            # Normalize name for matching
                             normalized_name = scanner_name.lower().replace(" ", "_").replace("-", "_")
                             scanners.append(normalized_name)
                             _LOGGER.debug("Found BLE scanner in area %s: %s", area_name, scanner_name)
@@ -682,39 +687,6 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
         except Exception as e:
             _LOGGER.error("Error getting area scanners for %s: %s", area_name, e)
             return []
-
-    async def _auto_enable_distance_sensors(self, person_name: str) -> None:
-        """
-        Auto-enable any disabled Bermuda distance sensors for a person.
-        
-        Bermuda creates distance sensors disabled by default. We need to enable them
-        to get per-scanner distance data for confidence calculations.
-        """
-        try:
-            ent_reg = er.async_get(self.hass)
-            normalized_person = person_name.lower().replace(" ", "_")
-            
-            enabled_count = 0
-            for entity_id, entity_entry in ent_reg.entities.items():
-                if (entity_id.startswith("sensor.") and
-                    "distance_to_" in entity_id and
-                    (normalized_person in entity_id or person_name.lower().replace(" ", "") in entity_id)):
-                    
-                    # Check if sensor is disabled
-                    if entity_entry.disabled:
-                        # Enable the sensor
-                        ent_reg.async_update_entity(
-                            entity_id,
-                            disabled_by=None
-                        )
-                        enabled_count += 1
-                        _LOGGER.info("Auto-enabled Bermuda distance sensor: %s", entity_id)
-            
-            if enabled_count > 0:
-                _LOGGER.info("Enabled %d Bermuda distance sensors for %s", enabled_count, person_name)
-            
-        except Exception as e:
-            _LOGGER.error("Error auto-enabling distance sensors for %s: %s", person_name, e)
 
     # ==========================================================================
     # PUBLIC API METHODS
