@@ -135,12 +135,20 @@ class TransitionDetector:
             return
         
         # Detect and classify transition
-        transition = await self._detect_transition(
-            person_id,
-            previous_location,
-            current_location,
-            timestamp
-        )
+        try:
+            transition = await self._detect_transition(
+                person_id,
+                previous_location,
+                current_location,
+                timestamp
+            )
+        except Exception as e:
+            _LOGGER.error(
+                "Transition detection failed for %s (%s → %s): %s",
+                person_id, previous_location, current_location, e
+            )
+            self._update_history(person_id, current_location, timestamp)
+            return
         
         if transition:
             _LOGGER.info(
@@ -267,11 +275,10 @@ class TransitionDetector:
                 # Check if this might be a hallway/intermediate room
                 if location not in [from_room, to_room]:
                     loc_lower = location.lower()
-                if any(term in loc_lower for term in (
-                    "hallway", "corridor", "hall", "foyer",
-                    "entry", "landing", "passage", "vestibule",
-                )):
-
+                    if any(term in loc_lower for term in (
+                        "hallway", "corridor", "hall", "foyer",
+                        "entry", "landing", "passage", "vestibule",
+                    )):
                         return ("via_hallway", location)
         
         # Via hallway (medium duration)
