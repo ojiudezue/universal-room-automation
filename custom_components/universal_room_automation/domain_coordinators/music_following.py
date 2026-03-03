@@ -10,7 +10,8 @@ person transition callbacks, not by the intent/action pipeline.
 
 Priority: 30 (lowest active coordinator).
 
-v3.6.24: Initial implementation — coordinator elevation.
+v3.6.25: Initial implementation — coordinator elevation.
+v3.6.26: Fix anomaly detector integration — create detector, wire listener.
 """
 
 from __future__ import annotations
@@ -21,13 +22,6 @@ from typing import Any
 from homeassistant.core import HomeAssistant
 
 from ..const import (
-    CONF_MF_COOLDOWN_SECONDS,
-    CONF_MF_HIGH_CONFIDENCE_DISTANCE,
-    CONF_MF_MIN_CONFIDENCE,
-    CONF_MF_PING_PONG_WINDOW,
-    CONF_MF_POSITION_OFFSET,
-    CONF_MF_UNJOIN_DELAY,
-    CONF_MF_VERIFY_DELAY,
     DEFAULT_MF_COOLDOWN_SECONDS,
     DEFAULT_MF_HIGH_CONFIDENCE_DISTANCE,
     DEFAULT_MF_MIN_CONFIDENCE,
@@ -36,14 +30,17 @@ from ..const import (
     DEFAULT_MF_UNJOIN_DELAY,
     DEFAULT_MF_VERIFY_DELAY,
     DOMAIN,
-    MUSIC_TRANSFER_COOLDOWN_SECONDS,
-    PING_PONG_WINDOW_SECONDS,
-    TRANSFER_VERIFY_DELAY_SECONDS,
-    GROUP_UNJOIN_DELAY_SECONDS,
 )
 from .base import BaseCoordinator, CoordinatorAction, Intent
+from .coordinator_diagnostics import AnomalyDetector
 
 _LOGGER = logging.getLogger(__name__)
+
+# Metric names for AnomalyDetector (passed to constructor)
+MUSIC_FOLLOWING_METRICS = [
+    "transfer_success_rate",
+    "cooldown_frequency",
+]
 
 
 class MusicFollowingCoordinator(BaseCoordinator):
@@ -93,16 +90,14 @@ class MusicFollowingCoordinator(BaseCoordinator):
 
         Retrieves the existing MusicFollowing instance from hass.data
         (already initialized by __init__.py) and applies configurable
-        tuning parameters. If no MusicFollowing instance exists yet,
-        logs a warning — it will be picked up on next reload.
+        tuning parameters. Creates an AnomalyDetector and registers a
+        diagnostic listener to feed transfer outcomes into it.
         """
         mf = self.hass.data.get(DOMAIN, {}).get("music_following")
         if mf is not None:
             self._music_following = mf
             # Apply configurable tuning parameters
             mf.MIN_CONFIDENCE = self._min_confidence
-            # v3.6.24: Store high_confidence_distance on the MusicFollowing instance
-            # so _on_person_transition can use it for BLE distance gating
             mf._mf_high_confidence_distance = self._high_confidence_distance
             _LOGGER.info(
                 "MusicFollowingCoordinator setup: wrapping existing MusicFollowing "
@@ -122,19 +117,52 @@ class MusicFollowingCoordinator(BaseCoordinator):
                 "in hass.data — music following may not be initialized yet"
             )
 
-        # Set up anomaly detector if injected
-        if self.anomaly_detector is not None:
-            self.anomaly_detector.register_metric(
-                "transfer_success_rate",
-                window_size=50,
-                z_threshold=2.5,
+        # Anomaly detection setup — same pattern as safety/security/presence
+        self.anomaly_detector = AnomalyDetector(
+            self.hass,
+            "music_following",
+            MUSIC_FOLLOWING_METRICS,
+        )
+        try:
+            await self.anomaly_detector.load_baselines()
+        except Exception:
+            _LOGGER.debug("Failed to load music following anomaly baselines (non-fatal)")
+
+        # Wire diagnostic listener so transfer outcomes feed anomaly detector
+        if self._music_following is not None:
+            self._music_following.add_diagnostic_listener(
+                self._on_transfer_outcome
             )
-            self.anomaly_detector.register_metric(
-                "cooldown_frequency",
-                window_size=50,
-                z_threshold=2.0,
+
+    def _on_transfer_outcome(self) -> None:
+        """Diagnostic listener callback — feed transfer stats to anomaly detector.
+
+        Called by MusicFollowing._record_stat() after each transfer outcome.
+        Computes transfer_success_rate and cooldown_frequency from the
+        standalone class's running stats and records observations.
+        """
+        if self.anomaly_detector is None or self._music_following is None:
+            return
+
+        try:
+            stats = self._music_following._transfer_stats
+            total = sum(stats.values())
+            if total == 0:
+                return
+
+            # transfer_success_rate: proportion of successes (0.0-1.0)
+            success_rate = stats.get("success", 0) / total
+            self.anomaly_detector.record_observation(
+                "transfer_success_rate", "house", success_rate,
             )
-            _LOGGER.debug("MusicFollowingCoordinator: anomaly metrics registered")
+
+            # cooldown_frequency: proportion of cooldown-blocked transfers
+            cooldown_rate = stats.get("cooldown_blocked", 0) / total
+            self.anomaly_detector.record_observation(
+                "cooldown_frequency", "house", cooldown_rate,
+            )
+        except Exception:
+            pass
 
     async def evaluate(
         self,
@@ -153,10 +181,9 @@ class MusicFollowingCoordinator(BaseCoordinator):
     async def async_teardown(self) -> None:
         """Tear down the coordinator."""
         self._cancel_listeners()
-        # Save anomaly baselines if available
         if self.anomaly_detector is not None:
             try:
-                await self.anomaly_detector.async_save_baselines()
+                await self.anomaly_detector.save_baselines()
             except Exception as exc:
                 _LOGGER.debug(
                     "MusicFollowingCoordinator: failed to save anomaly baselines: %s",
