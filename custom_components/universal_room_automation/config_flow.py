@@ -1,6 +1,6 @@
 """Config flow for Universal Room Automation v3.3.3."""
 #
-# Universal Room Automation v3.6.22
+# Universal Room Automation v3.6.23
 # Build: 2026-01-05
 # File: config_flow.py
 # v3.3.3: Added manage_zones to integration options menu
@@ -194,6 +194,7 @@ from .const import (
     CONF_ZONE_NAME,
     CONF_ZONE_ROOMS,
     CONF_ZONE_DESCRIPTION,
+    CONF_ZONE_THERMOSTAT,
     CONF_SHARED_SPACE,
     CONF_SHARED_SPACE_AUTO_OFF_HOUR,
     CONF_SHARED_SPACE_WARNING,
@@ -2201,6 +2202,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             menu_options=[
                 "zone_rooms",
                 "zone_media",
+                "zone_hvac",
             ],
         )
 
@@ -2440,6 +2442,63 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
 
         return self.async_show_form(
             step_id="zone_media",
+            data_schema=data_schema,
+        )
+
+    async def async_step_zone_hvac(self, user_input=None):
+        """Configure zone thermostat (v3.6.23).
+
+        Sets the climate entity that controls this zone's HVAC.
+        Falls back to room traversal if not set.
+        """
+        zm_result = self._get_zm_zone_data()
+        zone_entry = None if zm_result else self._get_zone_entry()
+        if not zm_result and not zone_entry:
+            return self.async_abort(reason="zone_not_found")
+
+        if zm_result:
+            zm_entry, zone_name, zone_data = zm_result
+            current_thermostat = zone_data.get(CONF_ZONE_THERMOSTAT)
+        else:
+            current_thermostat = zone_entry.options.get(
+                CONF_ZONE_THERMOSTAT,
+                zone_entry.data.get(CONF_ZONE_THERMOSTAT),
+            )
+
+        if user_input is not None:
+            if zm_result:
+                merged = {**zm_entry.data, **zm_entry.options}
+                zones = dict(merged.get("zones", {}))
+                zones.setdefault(zone_name, {})
+                zones[zone_name].update(user_input)
+                self.hass.config_entries.async_update_entry(
+                    zm_entry,
+                    options={**zm_entry.options, "zones": zones},
+                )
+                return await self.async_step_zone_config_menu()
+            elif self._selected_zone_entry_id:
+                new_zone_options = {**zone_entry.options, **user_input}
+                self.hass.config_entries.async_update_entry(
+                    zone_entry, options=new_zone_options
+                )
+                return await self.async_step_zone_config_menu()
+            else:
+                return self.async_create_entry(
+                    title="",
+                    data={**zone_entry.options, **user_input},
+                )
+
+        data_schema = vol.Schema({
+            vol.Optional(
+                CONF_ZONE_THERMOSTAT,
+                default=current_thermostat or vol.UNDEFINED,
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="climate")
+            ),
+        })
+
+        return self.async_show_form(
+            step_id="zone_hvac",
             data_schema=data_schema,
         )
 
@@ -2912,6 +2971,24 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
     async def async_step_climate(self, user_input=None):
         """Reconfigure climate."""
         if user_input is not None:
+            # v3.6.23: Auto-populate zone thermostat if room is in a zone
+            climate_entity = user_input.get(CONF_CLIMATE_ENTITY)
+            if climate_entity:
+                room_zone = self._get_current(CONF_ZONE) or ""
+                if room_zone:
+                    zm_entry = self._find_zone_manager_entry()
+                    if zm_entry:
+                        merged = {**zm_entry.data, **zm_entry.options}
+                        zones = dict(merged.get("zones", {}))
+                        zone_cfg = zones.get(room_zone, {})
+                        if not zone_cfg.get(CONF_ZONE_THERMOSTAT):
+                            zone_cfg[CONF_ZONE_THERMOSTAT] = climate_entity
+                            zones[room_zone] = zone_cfg
+                            self.hass.config_entries.async_update_entry(
+                                zm_entry,
+                                options={**zm_entry.options, "zones": zones},
+                            )
+
             # FIX v3.2.3.1: Pass merged options directly to async_create_entry
             return self.async_create_entry(
                 title="",
@@ -2920,7 +2997,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
 
         data_schema = vol.Schema({
             vol.Optional(
-                CONF_CLIMATE_ENTITY, 
+                CONF_CLIMATE_ENTITY,
                 default=self._get_current(CONF_CLIMATE_ENTITY) or vol.UNDEFINED
             ): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="climate")
