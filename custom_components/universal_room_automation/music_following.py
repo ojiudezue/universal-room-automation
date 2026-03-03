@@ -197,11 +197,15 @@ class MusicFollowing:
             except Exception:
                 pass
 
+    # Stats that indicate actual music-involved transfer attempts
+    _TRANSFER_KEYS = ("success", "failed", "unverified", "active_playback_blocked")
+
     def get_diagnostic_data(self) -> dict:
         """Return current diagnostic data for sensor consumption."""
-        total = sum(self._transfer_stats.values())
+        # v3.6.28: Only count music-involved attempts, not pre-music-check rejections
+        transfers = sum(self._transfer_stats.get(k, 0) for k in self._TRANSFER_KEYS)
         successes = self._transfer_stats.get("success", 0)
-        failures = total - successes
+        failures = transfers - successes
         return {
             "state": self._state,
             "active_followers": sorted(self._enabled_persons),
@@ -210,9 +214,9 @@ class MusicFollowing:
             "last_transfer_person": self._last_transfer_person,
             "last_transfer_time": self._last_transfer_time_iso,
             "last_transfer_result": self._last_transfer_result,
-            "transfers_today": total,
+            "transfers_today": transfers,
             "transfer_failures_today": failures,
-            "transfer_success_rate": round(successes / total * 100, 1) if total > 0 else 0.0,
+            "transfer_success_rate": round(successes / transfers * 100, 1) if transfers > 0 else 0.0,
             "active_groups": {k: sorted(v) for k, v in self._active_groups.items()},
         }
     
