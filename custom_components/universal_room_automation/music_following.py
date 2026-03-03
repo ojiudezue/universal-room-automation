@@ -1,4 +1,4 @@
-"""Music following for Universal Room Automation v3.6.20.
+"""Music following for Universal Room Automation v3.6.27.
 
 Seamlessly transfer music playback when person moves between rooms.
 
@@ -279,12 +279,11 @@ class MusicFollowing:
             return
 
         async with self._transfer_lock:
-            self._state = "following"
             try:
                 await self._execute_transfer(person_id, from_room, to_room)
             finally:
-                # Reset state if not actively following
-                if self._state == "transferring":
+                # v3.6.27: Reset state unless transfer succeeded (state="following")
+                if self._state not in ("following", "idle"):
                     self._state = "idle"
 
     async def _execute_transfer(
