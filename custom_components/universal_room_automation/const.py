@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation v3.6.22
+# Universal Room Automation v3.6.23
 # Build: 2026-03-01
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "3.6.22"
+VERSION: Final = "3.6.23"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -683,6 +683,7 @@ HVAC_COOLING_THRESHOLD: Final = 5  # degrees above comfort max
 HVAC_HEATING_THRESHOLD: Final = 5  # degrees below comfort min
 
 # HVAC Zone Preset Triggers (v3.3.5.9)
+CONF_ZONE_THERMOSTAT: Final = "zone_thermostat"  # v3.6.23: Zone-level climate entity
 CONF_ZONE_VACANT_PRESET: Final = "zone_vacant_preset"
 CONF_ZONE_OCCUPIED_PRESET: Final = "zone_occupied_preset"
 DEFAULT_ZONE_VACANT_PRESET: Final = "away"

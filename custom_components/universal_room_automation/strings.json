@@ -362,7 +362,18 @@
         "description": "What would you like to configure for this zone?",
         "menu_options": {
           "zone_rooms": "\ud83c\udfe0 Zone Rooms",
-          "zone_media": "\ud83c\udfb5 Zone Media"
+          "zone_media": "\ud83c\udfb5 Zone Media",
+          "zone_hvac": "\ud83c\udf21\ufe0f Zone HVAC"
+        }
+      },
+      "zone_hvac": {
+        "title": "\ud83c\udf21\ufe0f Zone HVAC",
+        "description": "Select the thermostat that controls this zone. If not set, falls back to the first room's thermostat.",
+        "data": {
+          "zone_thermostat": "Zone Thermostat"
+        },
+        "data_description": {
+          "zone_thermostat": "Climate entity to control for this zone"
         }
       },
       "global_sensors": {

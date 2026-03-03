@@ -1078,6 +1078,12 @@ Additional energy-specific sensors:
 **Effort:** 2-3 hours
 **Dependencies:** C0, C1 (house state), C5 (energy constraints)
 
+> **Pre-work (v3.6.23):** `CONF_ZONE_THERMOSTAT` added to zone config via
+> `docs/plans/PLAN_zone_thermostat_config.md`. This gives C6 a deterministic
+> zone→thermostat mapping instead of non-deterministic room traversal. C6 should
+> read `CONF_ZONE_THERMOSTAT` directly and replace the current preset-only logic
+> in `_handle_zone_occupancy_change()` with the full control strategy model.
+
 **What ships:**
 - `HVACCoordinator` (priority 30) -- manages 3 Carrier Infinity zones
 - **Zone-to-room mapping:** Configurable via options flow:

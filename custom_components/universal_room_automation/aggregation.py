@@ -157,6 +157,7 @@ from .const import (
     ICON_TRACKING_LOST,
     # HVAC Zone Preset Triggers (v3.3.5.9)
     CONF_CLIMATE_ENTITY,
+    CONF_ZONE_THERMOSTAT,
     CONF_ZONE_VACANT_PRESET,
     CONF_ZONE_OCCUPIED_PRESET,
     DEFAULT_ZONE_VACANT_PRESET,
@@ -2394,8 +2395,25 @@ class ZoneAnyoneBinarySensor(ZoneSensorBase, BinarySensorEntity):
                 self.zone, target_preset, climate_entity, e,
             )
 
+    def _get_zone_config(self, key, default=None):
+        """Read a zone-specific config value from the zones dict."""
+        merged = {**self.entry.data, **self.entry.options}
+        zone_data = merged.get("zones", {}).get(self.zone, {})
+        return zone_data.get(key, default)
+
     def _get_zone_climate_entity(self) -> str | None:
-        """Return the climate entity from the first zone room that has one configured."""
+        """Return the zone's climate entity.
+
+        Priority:
+        1. Zone-level thermostat (CONF_ZONE_THERMOSTAT) — deterministic
+        2. First room in zone with a climate entity — fallback
+        """
+        # 1. Check zone-level config (v3.6.23)
+        zone_thermostat = self._get_zone_config(CONF_ZONE_THERMOSTAT)
+        if zone_thermostat:
+            return zone_thermostat
+
+        # 2. Fallback: traverse rooms
         for coord in self._get_zone_coordinators():
             climate = coord.entry.options.get(
                 CONF_CLIMATE_ENTITY,
