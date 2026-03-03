@@ -1,7 +1,7 @@
 # URA v3.6.28 — Transfers Today Sensor Count Fix
 
 **Date:** 2026-03-03
-**Scope:** sensor.py
+**Scope:** sensor.py, music_following.py
 
 ## Summary
 
@@ -18,6 +18,7 @@ Fixes the Transfers Today sensor to only count actual music-involved transfer at
 ## Files Changed
 
 - `custom_components/universal_room_automation/sensor.py` — `MusicFollowingTransfersTodaySensor.native_value` filtering
+- `custom_components/universal_room_automation/music_following.py` — `get_diagnostic_data()` congruent filtering (health sensor attributes)
 
 ## Tests
 
