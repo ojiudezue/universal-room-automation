@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation v3.6.24
+# Universal Room Automation v3.6.25
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -812,6 +812,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     CONF_PRESENCE_ENABLED,
                     CONF_SAFETY_ENABLED,
                     CONF_SECURITY_ENABLED,
+                    CONF_MUSIC_FOLLOWING_COORDINATOR_ENABLED,
                     DEFAULT_SLEEP_START_HOUR,
                     DEFAULT_SLEEP_END_HOUR,
                 )
@@ -902,6 +903,55 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     coordinator_manager.register_coordinator(security)
                 else:
                     _LOGGER.info("Security Coordinator disabled via config")
+
+                # v3.6.24: Register Music Following Coordinator
+                if cm_config.get(CONF_MUSIC_FOLLOWING_COORDINATOR_ENABLED, True):
+                    from .domain_coordinators.music_following import (
+                        MusicFollowingCoordinator,
+                    )
+                    from .const import (
+                        CONF_MF_COOLDOWN_SECONDS,
+                        CONF_MF_HIGH_CONFIDENCE_DISTANCE,
+                        CONF_MF_PING_PONG_WINDOW,
+                        CONF_MF_VERIFY_DELAY,
+                        CONF_MF_UNJOIN_DELAY,
+                        CONF_MF_POSITION_OFFSET,
+                        CONF_MF_MIN_CONFIDENCE,
+                        DEFAULT_MF_COOLDOWN_SECONDS,
+                        DEFAULT_MF_HIGH_CONFIDENCE_DISTANCE,
+                        DEFAULT_MF_PING_PONG_WINDOW,
+                        DEFAULT_MF_VERIFY_DELAY,
+                        DEFAULT_MF_UNJOIN_DELAY,
+                        DEFAULT_MF_POSITION_OFFSET,
+                        DEFAULT_MF_MIN_CONFIDENCE,
+                    )
+                    mf_coordinator = MusicFollowingCoordinator(
+                        hass,
+                        cooldown_seconds=int(cm_config.get(
+                            CONF_MF_COOLDOWN_SECONDS, DEFAULT_MF_COOLDOWN_SECONDS
+                        )),
+                        ping_pong_window=int(cm_config.get(
+                            CONF_MF_PING_PONG_WINDOW, DEFAULT_MF_PING_PONG_WINDOW
+                        )),
+                        verify_delay=int(cm_config.get(
+                            CONF_MF_VERIFY_DELAY, DEFAULT_MF_VERIFY_DELAY
+                        )),
+                        unjoin_delay=int(cm_config.get(
+                            CONF_MF_UNJOIN_DELAY, DEFAULT_MF_UNJOIN_DELAY
+                        )),
+                        position_offset=int(cm_config.get(
+                            CONF_MF_POSITION_OFFSET, DEFAULT_MF_POSITION_OFFSET
+                        )),
+                        min_confidence=float(cm_config.get(
+                            CONF_MF_MIN_CONFIDENCE, DEFAULT_MF_MIN_CONFIDENCE
+                        )),
+                        high_confidence_distance=float(cm_config.get(
+                            CONF_MF_HIGH_CONFIDENCE_DISTANCE, DEFAULT_MF_HIGH_CONFIDENCE_DISTANCE
+                        )),
+                    )
+                    coordinator_manager.register_coordinator(mf_coordinator)
+                else:
+                    _LOGGER.info("Music Following Coordinator disabled via config")
 
                 await coordinator_manager.async_start()
                 hass.data[DOMAIN]["coordinator_manager"] = coordinator_manager

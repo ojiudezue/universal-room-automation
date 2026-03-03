@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation v3.6.24
+# Universal Room Automation v3.6.25
 # Build: 2026-03-01
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "3.6.24"
+VERSION: Final = "3.6.25"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -786,6 +786,7 @@ CONF_SECURITY_ENABLED: Final = "security_coordinator_enabled"
 CONF_ENERGY_ENABLED: Final = "energy_coordinator_enabled"
 CONF_HVAC_ENABLED: Final = "hvac_coordinator_enabled"
 CONF_COMFORT_ENABLED: Final = "comfort_coordinator_enabled"
+CONF_MUSIC_FOLLOWING_COORDINATOR_ENABLED: Final = "music_following_coordinator_enabled"
 
 # Mapping coordinator_id -> config key for enable/disable
 COORDINATOR_ENABLED_KEYS: Final = {
@@ -795,6 +796,7 @@ COORDINATOR_ENABLED_KEYS: Final = {
     "energy": "energy_coordinator_enabled",
     "hvac": "hvac_coordinator_enabled",
     "comfort": "comfort_coordinator_enabled",
+    "music_following": "music_following_coordinator_enabled",
 }
 
 # v3.6.0-c0.4: Diagnostics constants
@@ -862,3 +864,23 @@ TRANSFER_VERIFY_DELAY_SECONDS: Final = 2
 
 # Speaker group unjoin delay (seconds)
 GROUP_UNJOIN_DELAY_SECONDS: Final = 5
+
+# ============================================================================
+# v3.6.24 Music Following Coordinator — configurable tuning parameters
+# ============================================================================
+
+CONF_MF_COOLDOWN_SECONDS: Final = "mf_cooldown_seconds"
+CONF_MF_PING_PONG_WINDOW: Final = "mf_ping_pong_window"
+CONF_MF_VERIFY_DELAY: Final = "mf_verify_delay"
+CONF_MF_UNJOIN_DELAY: Final = "mf_unjoin_delay"
+CONF_MF_POSITION_OFFSET: Final = "mf_position_offset"
+CONF_MF_MIN_CONFIDENCE: Final = "mf_min_confidence"
+CONF_MF_HIGH_CONFIDENCE_DISTANCE: Final = "mf_high_confidence_distance"
+
+DEFAULT_MF_COOLDOWN_SECONDS: Final = 8
+DEFAULT_MF_PING_PONG_WINDOW: Final = 60
+DEFAULT_MF_VERIFY_DELAY: Final = 2
+DEFAULT_MF_UNJOIN_DELAY: Final = 5
+DEFAULT_MF_POSITION_OFFSET: Final = 3
+DEFAULT_MF_MIN_CONFIDENCE: Final = 0.6
+DEFAULT_MF_HIGH_CONFIDENCE_DISTANCE: Final = 8.0  # feet — tighter than person tracking (10ft)

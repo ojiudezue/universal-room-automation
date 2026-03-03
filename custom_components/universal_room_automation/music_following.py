@@ -249,6 +249,27 @@ class MusicFollowing:
             self._record_stat("low_confidence", person_id, from_room, to_room)
             return
 
+        # v3.6.24: BLE high-confidence distance gate — verify the person's
+        # closest scanner distance is within the music-specific threshold.
+        # Tighter than person tracking default (8ft vs 10ft) to avoid
+        # transferring music on BLE bleed-through from adjacent rooms.
+        mf_dist = getattr(self, "_mf_high_confidence_distance", None)
+        if mf_dist is not None:
+            person_coord = self.hass.data.get(DOMAIN, {}).get("person_coordinator")
+            if person_coord is not None:
+                try:
+                    person_data = person_coord.data.get(person_id, {})
+                    closest_distance = person_data.get("closest_distance")
+                    if closest_distance is not None and closest_distance > mf_dist:
+                        _LOGGER.info(
+                            "🎵 Music transfer skipped: BLE distance %.1fft > music threshold %.1fft for %s",
+                            closest_distance, mf_dist, person_id
+                        )
+                        self._record_stat("low_confidence", person_id, from_room, to_room)
+                        return
+                except Exception:
+                    pass  # If distance check fails, fall through to confidence-only
+
         # v3.6.19: Concurrency lock — skip if another transfer is in progress
         if self._transfer_lock.locked():
             _LOGGER.info(
