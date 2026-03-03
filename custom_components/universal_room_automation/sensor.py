@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.6.24
+# Universal Room Automation v3.6.25
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -3957,7 +3957,8 @@ class MusicFollowingHealthSensor(AggregationEntity, SensorEntity):
     """House-level diagnostic sensor for music following.
 
     Entity: sensor.ura_music_following_health
-    Device: Universal Room Automation (integration device)
+    Device: Coordinator device when Music Following Coordinator is active,
+            otherwise falls back to integration device.
     State: idle / following / transferring / cooldown / error
     """
 
@@ -3971,6 +3972,13 @@ class MusicFollowingHealthSensor(AggregationEntity, SensorEntity):
         self._attr_unique_id = f"{DOMAIN}_music_following_health"
         self._attr_name = "Music Following Health"
         self._music_following = None
+        # v3.6.24: Point to coordinator device when coordinator is active
+        cm = hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if cm is not None and hasattr(cm, "_coordinators"):
+            for coord in getattr(cm, "_coordinators", {}).values():
+                if getattr(coord, "coordinator_id", None) == "music_following":
+                    self._attr_device_info = coord.device_info
+                    break
 
     async def async_added_to_hass(self) -> None:
         """Register diagnostic listener when added to HA."""

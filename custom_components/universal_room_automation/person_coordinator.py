@@ -1,6 +1,6 @@
 """Person tracking coordinator for Universal Room Automation."""
 #
-# Universal Room Automation v3.6.24
+# Universal Room Automation v3.6.25
 # Build: 2026-01-03
 # File: person_coordinator.py
 # v3.2.9: No changes (zone fixes in aggregation.py, fan fixes in automation.py)
@@ -634,30 +634,35 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
             detected_by_any = False
             # v3.6.21: Derive "very close" threshold from configurable high_confidence_distance
             very_close_threshold = self.high_confidence_distance / 2
+            # v3.6.24: Track closest area scanner distance for music following
+            closest_area_distance = None
 
             for sensor_id in distance_sensors:
                 sensor_state = self.hass.states.get(sensor_id)
                 if not sensor_state or sensor_state.state in ("unknown", "unavailable"):
                     continue
-                
+
                 detected_by_any = True
-                
+
                 try:
                     distance_ft = float(sensor_state.state)
-                    
+
                     # Extract scanner name from sensor_id
                     # Pattern: sensor.{person}_iphone_distance_to_{scanner_name}
                     scanner_name = sensor_id.split("distance_to_")[-1]
                     scanner_name_normalized = scanner_name.lower().replace("-", "_")
-                    
+
                     # Check if this scanner is in the area
                     is_area_scanner = any(
-                        scanner_name_normalized in s.lower() or 
+                        scanner_name_normalized in s.lower() or
                         s.lower() in scanner_name_normalized
                         for s in area_scanners
                     )
-                    
+
                     if is_area_scanner:
+                        # v3.6.24: Track closest distance
+                        if closest_area_distance is None or distance_ft < closest_area_distance:
+                            closest_area_distance = distance_ft
                         if distance_ft < very_close_threshold:
                             very_close_scanners += 1
                             _LOGGER.debug(
@@ -670,11 +675,15 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
                                 "Close scanner: %s (%.1f ft) for %s",
                                 scanner_name, distance_ft, person_name
                             )
-                    
+
                 except (ValueError, IndexError) as e:
                     _LOGGER.debug("Error parsing distance sensor %s: %s", sensor_id, e)
                     continue
-            
+
+            # v3.6.24: Store closest distance in person data for downstream consumers
+            if person_name in self.data and closest_area_distance is not None:
+                self.data[person_name]["closest_distance"] = closest_area_distance
+
             # Calculate confidence based on scanner count and distance
             if very_close_scanners >= 1:
                 return 0.9  # At least one scanner very close (<5ft)

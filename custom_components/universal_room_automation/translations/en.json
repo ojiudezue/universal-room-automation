@@ -356,6 +356,7 @@
           "coordinator_presence": "\ud83d\udc65 Presence Settings",
           "coordinator_safety": "\ud83d\udee1\ufe0f Safety Monitoring",
           "coordinator_security": "\ud83d\udd12 Security",
+          "coordinator_music_following": "\ud83c\udfb5 Music Following",
           "coordinator_toggles": "\u2699\ufe0f Enable/Disable Coordinators",
           "basic_setup": "\ud83d\udeaa Basic Setup",
           "sensors": "\ud83d\udce1 Sensors",
@@ -575,6 +576,28 @@
           "security_alarm_panel": "Optional alarm panel entity for bidirectional armed state sync. Leave empty to manage armed state independently.",
           "security_auto_follow": "Automatically set armed state based on house state (away \u2192 armed_away, home \u2192 armed_home). Off by default.",
           "security_lock_check_interval": "Minutes between periodic lock compliance checks. Runs regardless of armed state."
+        }
+      },
+      "coordinator_music_following": {
+        "title": "\ud83c\udfb5 Music Following",
+        "description": "Configure the Music Following Coordinator. Controls how music transfers when a person moves between rooms. Adjust timing parameters to tune transfer behavior for your speaker setup.",
+        "data": {
+          "mf_cooldown_seconds": "Transfer Cooldown (seconds)",
+          "mf_ping_pong_window": "Ping-Pong Suppression Window (seconds)",
+          "mf_verify_delay": "Post-Transfer Verification Delay (seconds)",
+          "mf_unjoin_delay": "Speaker Group Unjoin Delay (seconds)",
+          "mf_position_offset": "Media Position Offset (seconds)",
+          "mf_min_confidence": "Minimum Transition Confidence",
+          "mf_high_confidence_distance": "High Confidence BLE Distance (ft)"
+        },
+        "data_description": {
+          "mf_cooldown_seconds": "Minimum seconds between transfers to the same target room per person. Prevents rapid repeated transfers. Default: 8.",
+          "mf_ping_pong_window": "Seconds within which an A-to-B-to-A transition is suppressed as ping-pong. Default: 60.",
+          "mf_verify_delay": "Seconds to wait after transfer before verifying the target speaker is playing. Default: 2.",
+          "mf_unjoin_delay": "Seconds to wait before unjoining the source speaker from a group after transfer. Default: 5.",
+          "mf_position_offset": "Seconds to add to the media position when resuming on the target speaker, to account for transfer delay. Default: 3.",
+          "mf_min_confidence": "Minimum transition confidence (0.1-1.0) required to trigger a music transfer. Lower values transfer more aggressively. Default: 0.6.",
+          "mf_high_confidence_distance": "Maximum BLE distance (feet) from closest area scanner to trigger music transfer. Tighter than person tracking default (10ft) to avoid transfers on BLE bleed-through from adjacent rooms. Default: 8."
         }
       },
       "coordinator_toggles": {

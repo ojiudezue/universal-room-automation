@@ -1,6 +1,6 @@
 """Config flow for Universal Room Automation v3.6.24."""
 #
-# Universal Room Automation v3.6.24
+# Universal Room Automation v3.6.25
 # Build: 2026-01-05
 # File: config_flow.py
 # v3.3.3: Added manage_zones to integration options menu
@@ -1514,6 +1514,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     "coordinator_presence",
                     "coordinator_safety",
                     "coordinator_security",
+                    "coordinator_music_following",
                 ],
             )
         elif entry_type == ENTRY_TYPE_ZONE:
@@ -2208,6 +2209,120 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
 
         return self.async_show_form(
             step_id="coordinator_security",
+            data_schema=data_schema,
+        )
+
+    async def async_step_coordinator_music_following(self, user_input=None):
+        """Configure Music Following Coordinator tuning parameters.
+
+        v3.6.24: Cooldown, ping-pong window, verify delay, unjoin delay,
+        position offset, and minimum confidence.
+        """
+        from .const import (
+            CONF_MF_COOLDOWN_SECONDS,
+            CONF_MF_HIGH_CONFIDENCE_DISTANCE,
+            CONF_MF_PING_PONG_WINDOW,
+            CONF_MF_VERIFY_DELAY,
+            CONF_MF_UNJOIN_DELAY,
+            CONF_MF_POSITION_OFFSET,
+            CONF_MF_MIN_CONFIDENCE,
+            DEFAULT_MF_COOLDOWN_SECONDS,
+            DEFAULT_MF_HIGH_CONFIDENCE_DISTANCE,
+            DEFAULT_MF_PING_PONG_WINDOW,
+            DEFAULT_MF_VERIFY_DELAY,
+            DEFAULT_MF_UNJOIN_DELAY,
+            DEFAULT_MF_POSITION_OFFSET,
+            DEFAULT_MF_MIN_CONFIDENCE,
+        )
+
+        if user_input is not None:
+            return self.async_create_entry(
+                title="",
+                data={**self._config_entry.options, **user_input},
+            )
+
+        data_schema = vol.Schema({
+            vol.Optional(
+                CONF_MF_COOLDOWN_SECONDS,
+                default=self._get_current(
+                    CONF_MF_COOLDOWN_SECONDS, DEFAULT_MF_COOLDOWN_SECONDS
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=1, max=30, step=1, unit_of_measurement="seconds",
+                    mode=selector.NumberSelectorMode.SLIDER,
+                )
+            ),
+            vol.Optional(
+                CONF_MF_PING_PONG_WINDOW,
+                default=self._get_current(
+                    CONF_MF_PING_PONG_WINDOW, DEFAULT_MF_PING_PONG_WINDOW
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=10, max=300, step=5, unit_of_measurement="seconds",
+                    mode=selector.NumberSelectorMode.SLIDER,
+                )
+            ),
+            vol.Optional(
+                CONF_MF_VERIFY_DELAY,
+                default=self._get_current(
+                    CONF_MF_VERIFY_DELAY, DEFAULT_MF_VERIFY_DELAY
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=1, max=10, step=1, unit_of_measurement="seconds",
+                    mode=selector.NumberSelectorMode.SLIDER,
+                )
+            ),
+            vol.Optional(
+                CONF_MF_UNJOIN_DELAY,
+                default=self._get_current(
+                    CONF_MF_UNJOIN_DELAY, DEFAULT_MF_UNJOIN_DELAY
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=1, max=15, step=1, unit_of_measurement="seconds",
+                    mode=selector.NumberSelectorMode.SLIDER,
+                )
+            ),
+            vol.Optional(
+                CONF_MF_POSITION_OFFSET,
+                default=self._get_current(
+                    CONF_MF_POSITION_OFFSET, DEFAULT_MF_POSITION_OFFSET
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0, max=10, step=1, unit_of_measurement="seconds",
+                    mode=selector.NumberSelectorMode.SLIDER,
+                )
+            ),
+            vol.Optional(
+                CONF_MF_MIN_CONFIDENCE,
+                default=self._get_current(
+                    CONF_MF_MIN_CONFIDENCE, DEFAULT_MF_MIN_CONFIDENCE
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0.1, max=1.0, step=0.05,
+                    mode=selector.NumberSelectorMode.SLIDER,
+                )
+            ),
+            vol.Optional(
+                CONF_MF_HIGH_CONFIDENCE_DISTANCE,
+                default=self._get_current(
+                    CONF_MF_HIGH_CONFIDENCE_DISTANCE, DEFAULT_MF_HIGH_CONFIDENCE_DISTANCE
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=3.0, max=20.0, step=0.5, unit_of_measurement="ft",
+                    mode=selector.NumberSelectorMode.SLIDER,
+                )
+            ),
+        })
+
+        return self.async_show_form(
+            step_id="coordinator_music_following",
             data_schema=data_schema,
         )
 

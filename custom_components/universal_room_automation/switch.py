@@ -1,6 +1,6 @@
 """Switch platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.6.24
+# Universal Room Automation v3.6.25
 # Build: 2026-01-02
 # File: switch.py
 #
@@ -17,6 +17,7 @@ from homeassistant.helpers.restore_state import RestoreEntity
 from .const import (
     CONF_DOMAIN_COORDINATORS_ENABLED,
     CONF_ENTRY_TYPE,
+    CONF_MUSIC_FOLLOWING_COORDINATOR_ENABLED,
     CONF_PRESENCE_ENABLED,
     CONF_SAFETY_ENABLED,
     CONF_SECURITY_ENABLED,
@@ -76,6 +77,16 @@ async def async_setup_entry(
                 device_id="security_coordinator",
                 device_name="URA: Security Coordinator",
                 device_model="Security Coordinator",
+            ),
+            CoordinatorEnabledSwitch(
+                hass, entry,
+                coordinator_id="music_following",
+                conf_key=CONF_MUSIC_FOLLOWING_COORDINATOR_ENABLED,
+                name="Music Following Coordinator",
+                icon="mdi:music-note",
+                device_id="coordinator_music_following",
+                device_name="URA: Music Following",
+                device_model="Music Following Coordinator",
             ),
         ])
         return
