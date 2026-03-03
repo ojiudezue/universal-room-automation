@@ -137,52 +137,53 @@
       },
       "devices": {
         "title": "Devices to Automate",
-        "description": "Select the lights, fans, covers, and switches that should be automated based on room occupancy.",
+        "description": "Select the lights, fans, covers, and switches that should be automated based on room occupancy. Night light details and cover settings will be configured in follow-up steps if applicable.",
         "data": {
           "lights": "Lights",
           "light_capabilities": "Light Features",
           "night_lights": "Night Lights (Subset)",
-          "night_light_sleep_brightness": "Night Light Brightness (Sleep)",
-          "night_light_sleep_color": "Night Light Color (Sleep)",
-          "night_light_day_brightness": "Night Light Brightness (Day)",
-          "night_light_day_color": "Night Light Color (Day)",
           "fans": "Cooling Fans (or Switches)",
           "humidity_fans": "Exhaust/Humidity Fans (or Switches)",
           "covers": "Window Covers/Blinds",
-          "cover_type": "Cover Type",
           "auto_switches": "Auto Devices",
           "manual_switches": "Manual Devices",
           "auto_devices": "Auto Devices",
           "manual_devices": "Manual Devices"
         },
         "data_description": {
-          "lights": "Lights to control on entry/exit",
-          "light_capabilities": "What your lights support: basic on/off, brightness, or full color",
+          "lights": "Lights to control on entry/exit (auto-detected from area if available)",
+          "light_capabilities": "What your lights support: basic on/off, brightness, or full color (auto-detected)",
           "night_lights": "Select lights from above list to use as night lights during sleep hours",
-          "night_light_sleep_brightness": "Brightness for night lights during sleep hours (dim for safety)",
-          "night_light_sleep_color": "Color temperature during sleep hours (warm/red tones recommended)",
-          "night_light_day_brightness": "Brightness for night lights outside sleep hours",
-          "night_light_day_color": "Color temperature outside sleep hours (cool/white tones recommended)",
           "fans": "Ceiling fans, floor fans, or switches for temperature-based cooling (fan.* or switch.*)",
           "humidity_fans": "Exhaust fans (fan.* or switch.* for RF/outlet-controlled fans)",
           "covers": "Motorized blinds or shades",
-          "cover_type": "Roller shades (open/close) vs. venetian blinds (tilt)",
           "auto_switches": "Devices (lights, fans, switches, input_booleans) that turn on with occupancy and off when vacant",
           "manual_switches": "Devices (lights, fans, switches, input_booleans) that only turn off when vacant (not auto-on)",
           "auto_devices": "Devices (lights, fans, switches, input_booleans) that turn on with occupancy and off when vacant",
           "manual_devices": "Devices (lights, fans, switches, input_booleans) that only turn off when vacant (not auto-on)"
         }
       },
-      "automation_behavior": {
-        "title": "Automation Behavior",
-        "description": "Configure how lights and covers respond to occupancy changes.",
+      "night_light_detail": {
+        "title": "Night Light Settings",
+        "description": "Configure brightness and color temperature for night lights during sleep and daytime hours.",
         "data": {
-          "entry_light_action": "Lights on Entry",
-          "exit_light_action": "Lights on Exit",
-          "illuminance_dark_threshold": "Dark Threshold",
-          "light_brightness_pct": "Light Brightness",
-          "light_transition_seconds_on": "Turn On Transition",
-          "light_transition_seconds_off": "Turn Off Transition",
+          "night_light_sleep_brightness": "Night Light Brightness (Sleep)",
+          "night_light_sleep_color": "Night Light Color (Sleep)",
+          "night_light_day_brightness": "Night Light Brightness (Day)",
+          "night_light_day_color": "Night Light Color (Day)"
+        },
+        "data_description": {
+          "night_light_sleep_brightness": "Brightness for night lights during sleep hours (dim for safety)",
+          "night_light_sleep_color": "Color temperature during sleep hours (warm/red tones recommended)",
+          "night_light_day_brightness": "Brightness for night lights outside sleep hours",
+          "night_light_day_color": "Color temperature outside sleep hours (cool/white tones recommended)"
+        }
+      },
+      "cover_behavior": {
+        "title": "Cover Automation",
+        "description": "Configure how window covers/blinds respond to occupancy and time-of-day.",
+        "data": {
+          "cover_type": "Cover Type",
           "entry_cover_action": "Covers on Entry",
           "exit_cover_action": "Covers on Exit",
           "open_timing_mode": "Open Timing",
@@ -195,12 +196,7 @@
           "sunset_offset": "Sunset Offset"
         },
         "data_description": {
-          "entry_light_action": "What to do with lights when someone enters the room",
-          "exit_light_action": "What to do with lights when the room becomes vacant",
-          "illuminance_dark_threshold": "Lux level below which the room is considered 'dark'",
-          "light_brightness_pct": "Brightness level when turning lights on (1-100%)",
-          "light_transition_seconds_on": "Fade-in time when turning lights on",
-          "light_transition_seconds_off": "Fade-out time when turning lights off",
+          "cover_type": "Roller shades (open/close) vs. venetian blinds (tilt)",
           "entry_cover_action": "When to open covers on room entry",
           "exit_cover_action": "When to close covers on room exit",
           "open_timing_mode": "Control when covers are allowed to open",
@@ -213,9 +209,29 @@
           "sunset_offset": "Minutes before/after sunset for sun-based timing"
         }
       },
+      "automation_behavior": {
+        "title": "Automation Behavior",
+        "description": "Configure how lights respond to occupancy changes.",
+        "data": {
+          "entry_light_action": "Lights on Entry",
+          "exit_light_action": "Lights on Exit",
+          "illuminance_dark_threshold": "Dark Threshold",
+          "light_brightness_pct": "Light Brightness",
+          "light_transition_seconds_on": "Turn On Transition",
+          "light_transition_seconds_off": "Turn Off Transition"
+        },
+        "data_description": {
+          "entry_light_action": "What to do with lights when someone enters the room",
+          "exit_light_action": "What to do with lights when the room becomes vacant",
+          "illuminance_dark_threshold": "Lux level below which the room is considered 'dark'",
+          "light_brightness_pct": "Brightness level when turning lights on (1-100%)",
+          "light_transition_seconds_on": "Fade-in time when turning lights on",
+          "light_transition_seconds_off": "Fade-out time when turning lights off"
+        }
+      },
       "climate": {
         "title": "Climate & HVAC",
-        "description": "Configure temperature-based fan control and HVAC coordination.",
+        "description": "Configure temperature-based fan control and HVAC coordination. Fan speed thresholds will be configured in a follow-up step if fan control is enabled.",
         "data": {
           "climate_entity": "Climate/Thermostat Entity",
           "hvac_coordination_enabled": "Enable HVAC Coordination",
@@ -223,26 +239,34 @@
           "target_temp_heat": "Heating Target",
           "fan_control_enabled": "Enable Fan Control",
           "fan_temp_threshold": "Fan Start Temperature",
-          "fan_speed_low_temp": "Low Speed Temperature",
-          "fan_speed_med_temp": "Medium Speed Temperature",
-          "fan_speed_high_temp": "High Speed Temperature",
           "humidity_fan_threshold": "Humidity Fan Threshold",
           "humidity_fan_timeout": "Humidity Fan Timeout",
           "hvac_efficiency_alerts": "HVAC Efficiency Alerts"
         },
         "data_description": {
-          "climate_entity": "Your thermostat or HVAC controller",
+          "climate_entity": "Your thermostat or HVAC controller (auto-detected from area if available)",
           "hvac_coordination_enabled": "Coordinate room automation with HVAC state",
           "target_temp_cool": "Target temperature for cooling mode",
           "target_temp_heat": "Target temperature for heating mode",
-          "fan_control_enabled": "Automatically control fans based on temperature",
+          "fan_control_enabled": "Automatically control fans based on temperature (speed thresholds in next step)",
           "fan_temp_threshold": "Temperature above which fans turn on",
-          "fan_speed_low_temp": "Temperature for low fan speed",
-          "fan_speed_med_temp": "Temperature for medium fan speed",
-          "fan_speed_high_temp": "Temperature for high fan speed",
           "humidity_fan_threshold": "Humidity % above which exhaust fans turn on",
           "humidity_fan_timeout": "Seconds to run exhaust fan after humidity drops",
           "hvac_efficiency_alerts": "Alert when HVAC seems inefficient"
+        }
+      },
+      "fan_speeds": {
+        "title": "Fan Speed Thresholds",
+        "description": "Configure temperature thresholds for each fan speed level.",
+        "data": {
+          "fan_speed_low_temp": "Low Speed Temperature",
+          "fan_speed_med_temp": "Medium Speed Temperature",
+          "fan_speed_high_temp": "High Speed Temperature"
+        },
+        "data_description": {
+          "fan_speed_low_temp": "Temperature for low fan speed",
+          "fan_speed_med_temp": "Temperature for medium fan speed",
+          "fan_speed_high_temp": "Temperature for high fan speed"
         }
       },
       "sleep_protection": {

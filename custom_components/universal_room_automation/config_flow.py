@@ -1,6 +1,6 @@
-"""Config flow for Universal Room Automation v3.3.3."""
+"""Config flow for Universal Room Automation v3.6.24."""
 #
-# Universal Room Automation v3.6.23
+# Universal Room Automation v3.6.24
 # Build: 2026-01-05
 # File: config_flow.py
 # v3.3.3: Added manage_zones to integration options menu
@@ -333,7 +333,77 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
             entry for entry in self.hass.config_entries.async_entries(DOMAIN)
             if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_ZONE
         ]
-    
+
+    def _get_area_entities(self, area_id: str, domain: str, device_class: str | list[str] | None = None) -> list[str]:
+        """Get entities in an area by domain, with device area_id fallback.
+
+        v3.6.24: Area entity discovery for config UX pre-population.
+        Uses entity_registry direct area_id first, then falls back to
+        device_registry area_id (matching presence coordinator pattern).
+        """
+        if not area_id:
+            return []
+
+        from homeassistant.helpers import entity_registry as er, device_registry as dr
+
+        ent_reg = er.async_get(self.hass)
+        dev_reg = dr.async_get(self.hass)
+
+        # Normalize device_class to a set for matching
+        if device_class is None:
+            dc_set = None
+        elif isinstance(device_class, str):
+            dc_set = {device_class}
+        else:
+            dc_set = set(device_class)
+
+        results = []
+        for entry in ent_reg.entities.values():
+            # Domain filter
+            if entry.domain != domain:
+                continue
+            # Skip disabled/hidden entities
+            if entry.disabled_by is not None:
+                continue
+            # Device class filter
+            if dc_set is not None:
+                if entry.original_device_class not in dc_set and entry.device_class not in dc_set:
+                    continue
+            # Area match: entity area_id first, then device area_id fallback
+            entity_area = entry.area_id
+            if not entity_area and entry.device_id:
+                device = dev_reg.async_get(entry.device_id)
+                if device:
+                    entity_area = device.area_id
+            if entity_area == area_id:
+                results.append(entry.entity_id)
+
+        return sorted(results)
+
+    def _detect_light_capabilities(self, entity_ids: list[str]) -> str:
+        """Auto-detect light capabilities from supported_features.
+
+        v3.6.24: Reads supported_features from entity states.
+        SUPPORT_COLOR (16) → full, SUPPORT_COLOR_TEMP (2) → brightness,
+        SUPPORT_BRIGHTNESS (1) → brightness, else → basic.
+        """
+        if not entity_ids:
+            return LIGHT_CAPABILITY_BASIC
+
+        best = LIGHT_CAPABILITY_BASIC
+        for eid in entity_ids:
+            state = self.hass.states.get(eid)
+            if state is None:
+                continue
+            features = state.attributes.get("supported_features", 0) or 0
+            if features & 16:  # SUPPORT_COLOR
+                return LIGHT_CAPABILITY_FULL  # Can't get better than full
+            if features & 2:  # SUPPORT_COLOR_TEMP
+                best = LIGHT_CAPABILITY_BRIGHTNESS
+            elif features & 1 and best == LIGHT_CAPABILITY_BASIC:  # SUPPORT_BRIGHTNESS
+                best = LIGHT_CAPABILITY_BRIGHTNESS
+        return best
+
     async def async_step_integration_config(self, user_input=None):
         """Configure integration-level settings (global sensors, default notifications)."""
         if user_input is not None:
@@ -725,13 +795,13 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
     async def async_step_sensors(self, user_input=None):
         """Handle sensor configuration."""
         errors = {}
-        
+
         if user_input is not None:
             # Validate at least one occupancy detection method
             motion = user_input.get(CONF_MOTION_SENSORS, [])
             mmwave = user_input.get(CONF_MMWAVE_SENSORS, [])
             occupancy = user_input.get(CONF_OCCUPANCY_SENSORS, [])
-            
+
             if not motion and not mmwave and not occupancy:
                 errors["base"] = "no_occupancy_sensors"
             else:
@@ -743,14 +813,29 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
             {"label": "Egress Door (exterior/security)", "value": DOOR_TYPE_EGRESS},
         ]
 
+        # v3.6.24: Area pre-population for initial setup
+        area_id = self._data.get(CONF_AREA_ID)
+        area_binary = self._get_area_entities(area_id, "binary_sensor") if area_id else []
+        area_sensors = self._get_area_entities(area_id, "sensor") if area_id else []
+
+        # Filter binary_sensors by device class for pre-population
+        area_motion = self._get_area_entities(area_id, "binary_sensor", "motion") if area_id else []
+        area_occupancy = self._get_area_entities(area_id, "binary_sensor", "occupancy") if area_id else []
+        area_temp = self._get_area_entities(area_id, "sensor", "temperature") if area_id else []
+        area_humidity = self._get_area_entities(area_id, "sensor", "humidity") if area_id else []
+        area_illuminance = self._get_area_entities(area_id, "sensor", "illuminance") if area_id else []
+        area_door = self._get_area_entities(area_id, "binary_sensor", ["door", "opening"]) if area_id else []
+        area_window = self._get_area_entities(area_id, "binary_sensor", ["window", "door", "opening", "garage_door"]) if area_id else []
+        area_water = self._get_area_entities(area_id, "binary_sensor", ["moisture", "water_leak"]) if area_id else []
+
         data_schema = vol.Schema({
-            vol.Optional(CONF_MOTION_SENSORS, default=[]): selector.EntitySelector(
+            vol.Optional(CONF_MOTION_SENSORS, default=area_motion or []): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="binary_sensor", multiple=True)
             ),
             vol.Optional(CONF_MMWAVE_SENSORS, default=[]): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="binary_sensor", multiple=True)
             ),
-            vol.Optional(CONF_OCCUPANCY_SENSORS, default=[]): selector.EntitySelector(
+            vol.Optional(CONF_OCCUPANCY_SENSORS, default=area_occupancy or []): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="binary_sensor", multiple=True)
             ),
             # v3.2.4: Scanner areas for sparse scanner homes
@@ -758,26 +843,26 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
             vol.Optional(CONF_SCANNER_AREAS, default=[]): selector.AreaSelector(
                 selector.AreaSelectorConfig(multiple=True)
             ),
-            vol.Optional(CONF_TEMPERATURE_SENSOR): selector.EntitySelector(
+            vol.Optional(CONF_TEMPERATURE_SENSOR, default=area_temp[0] if area_temp else vol.UNDEFINED): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor", device_class="temperature")
             ),
-            vol.Optional(CONF_HUMIDITY_SENSOR): selector.EntitySelector(
+            vol.Optional(CONF_HUMIDITY_SENSOR, default=area_humidity[0] if area_humidity else vol.UNDEFINED): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor", device_class="humidity")
             ),
-            vol.Optional(CONF_ILLUMINANCE_SENSOR): selector.EntitySelector(
+            vol.Optional(CONF_ILLUMINANCE_SENSOR, default=area_illuminance[0] if area_illuminance else vol.UNDEFINED): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor", device_class="illuminance")
             ),
-            vol.Optional(CONF_DOOR_SENSORS): selector.EntitySelector(
+            vol.Optional(CONF_DOOR_SENSORS, default=area_door[0] if area_door else vol.UNDEFINED): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="binary_sensor", device_class=["door", "opening"])
             ),
             vol.Optional(CONF_DOOR_TYPE, default=DOOR_TYPE_INTERIOR): selector.SelectSelector(
                 selector.SelectSelectorConfig(options=door_types, mode=selector.SelectSelectorMode.DROPDOWN)
             ),
-            vol.Optional(CONF_WINDOW_SENSORS): selector.EntitySelector(
+            vol.Optional(CONF_WINDOW_SENSORS, default=area_window[0] if area_window else vol.UNDEFINED): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="binary_sensor", device_class=["window", "door", "opening", "garage_door"])
             ),
             # v3.1.0: Water leak sensor
-            vol.Optional(CONF_WATER_LEAK_SENSOR): selector.EntitySelector(
+            vol.Optional(CONF_WATER_LEAK_SENSOR, default=area_water[0] if area_water else vol.UNDEFINED): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="binary_sensor", device_class=["moisture", "water_leak"])
             ),
         })
@@ -790,10 +875,30 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
         )
 
     async def async_step_devices(self, user_input=None):
-        """Handle device configuration."""
+        """Handle device configuration.
+
+        v3.6.24: Night light detail fields moved to conditional sub-step.
+        Cover type moved to cover_behavior sub-step. Area pre-population added.
+        """
         if user_input is not None:
             self._data.update(user_input)
+            # v3.6.24: Conditional routing — night light detail if night lights selected
+            if user_input.get(CONF_NIGHT_LIGHTS):
+                return await self.async_step_night_light_detail()
+            # v3.6.24: Skip to cover_behavior if covers, else automation_behavior
+            if user_input.get(CONF_COVERS):
+                return await self.async_step_cover_behavior()
             return await self.async_step_automation_behavior()
+
+        # v3.6.24: Area pre-population
+        area_id = self._data.get(CONF_AREA_ID)
+        area_lights = self._get_area_entities(area_id, "light") if area_id else []
+        area_fans = self._get_area_entities(area_id, "fan") if area_id else []
+        area_covers = self._get_area_entities(area_id, "cover") if area_id else []
+        area_switches = self._get_area_entities(area_id, "switch") if area_id else []
+
+        # v3.6.24: Auto-detect light capabilities from area lights
+        detected_cap = self._detect_light_capabilities(area_lights) if area_lights else LIGHT_CAPABILITY_BASIC
 
         light_capabilities = [
             {"label": "Basic On/Off Only", "value": LIGHT_CAPABILITY_BASIC},
@@ -801,47 +906,27 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
             {"label": "Brightness + Color", "value": LIGHT_CAPABILITY_FULL},
         ]
 
-        cover_types = [
-            {"label": "Shades/Roller Blinds (Open/Close)", "value": COVER_TYPE_SHADE},
-            {"label": "Venetian Blinds (Tilt)", "value": COVER_TYPE_TILT},
-        ]
-
         data_schema = vol.Schema({
-            vol.Optional(CONF_LIGHTS, default=[]): selector.EntitySelector(
+            vol.Optional(CONF_LIGHTS, default=area_lights or []): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain=["light", "switch"], multiple=True)
             ),
-            vol.Optional(CONF_LIGHT_CAPABILITIES, default=LIGHT_CAPABILITY_BASIC): selector.SelectSelector(
+            vol.Optional(CONF_LIGHT_CAPABILITIES, default=detected_cap): selector.SelectSelector(
                 selector.SelectSelectorConfig(options=light_capabilities, mode=selector.SelectSelectorMode.DROPDOWN)
             ),
-            # === v3.2.2.5: Night lights (subset of CONF_LIGHTS) ===
+            # v3.2.2.5: Night lights (subset of CONF_LIGHTS) — detail fields in sub-step
             vol.Optional(CONF_NIGHT_LIGHTS, default=[]): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain=["light", "switch"], multiple=True)
             ),
-            vol.Optional(CONF_NIGHT_LIGHT_SLEEP_BRIGHTNESS, default=DEFAULT_NIGHT_LIGHT_SLEEP_BRIGHTNESS): selector.NumberSelector(
-                selector.NumberSelectorConfig(min=1, max=100, mode=selector.NumberSelectorMode.SLIDER, unit_of_measurement="%")
-            ),
-            vol.Optional(CONF_NIGHT_LIGHT_SLEEP_COLOR, default=DEFAULT_NIGHT_LIGHT_SLEEP_COLOR): selector.NumberSelector(
-                selector.NumberSelectorConfig(min=1000, max=6500, mode=selector.NumberSelectorMode.SLIDER, unit_of_measurement="K")
-            ),
-            vol.Optional(CONF_NIGHT_LIGHT_DAY_BRIGHTNESS, default=DEFAULT_NIGHT_LIGHT_DAY_BRIGHTNESS): selector.NumberSelector(
-                selector.NumberSelectorConfig(min=1, max=100, mode=selector.NumberSelectorMode.SLIDER, unit_of_measurement="%")
-            ),
-            vol.Optional(CONF_NIGHT_LIGHT_DAY_COLOR, default=DEFAULT_NIGHT_LIGHT_DAY_COLOR): selector.NumberSelector(
-                selector.NumberSelectorConfig(min=1000, max=6500, mode=selector.NumberSelectorMode.SLIDER, unit_of_measurement="K")
-            ),
-            vol.Optional(CONF_FANS, default=[]): selector.EntitySelector(
+            vol.Optional(CONF_FANS, default=area_fans or []): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="fan", multiple=True)
             ),
             vol.Optional(CONF_HUMIDITY_FANS, default=[]): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="fan", multiple=True)
             ),
-            vol.Optional(CONF_COVERS, default=[]): selector.EntitySelector(
+            vol.Optional(CONF_COVERS, default=area_covers or []): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="cover", multiple=True)
             ),
-            vol.Optional(CONF_COVER_TYPE, default=COVER_TYPE_SHADE): selector.SelectSelector(
-                selector.SelectSelectorConfig(options=cover_types, mode=selector.SelectSelectorMode.DROPDOWN)
-            ),
-            vol.Optional(CONF_AUTO_SWITCHES, default=[]): selector.EntitySelector(
+            vol.Optional(CONF_AUTO_SWITCHES, default=area_switches or []): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="switch", multiple=True)
             ),
             vol.Optional(CONF_MANUAL_SWITCHES, default=[]): selector.EntitySelector(
@@ -858,21 +943,52 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
             description_placeholders={"name": "Select devices to control"},
         )
 
-    async def async_step_automation_behavior(self, user_input=None):
-        """Handle automation behavior configuration."""
+    async def async_step_night_light_detail(self, user_input=None):
+        """Handle night light detail configuration.
+
+        v3.6.24: Conditional sub-step — only shown when night lights are selected.
+        """
         if user_input is not None:
             self._data.update(user_input)
-            return await self.async_step_climate()
+            # Route to cover_behavior if covers selected, else automation_behavior
+            if self._data.get(CONF_COVERS):
+                return await self.async_step_cover_behavior()
+            return await self.async_step_automation_behavior()
 
-        light_entry_actions = [
-            {"label": "None (Manual Control)", "value": LIGHT_ACTION_NONE},
-            {"label": "Turn On Always", "value": LIGHT_ACTION_TURN_ON},
-            {"label": "Smart (Only When Dark)", "value": LIGHT_ACTION_TURN_ON_IF_DARK},
-        ]
+        data_schema = vol.Schema({
+            vol.Optional(CONF_NIGHT_LIGHT_SLEEP_BRIGHTNESS, default=DEFAULT_NIGHT_LIGHT_SLEEP_BRIGHTNESS): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=1, max=100, mode=selector.NumberSelectorMode.SLIDER, unit_of_measurement="%")
+            ),
+            vol.Optional(CONF_NIGHT_LIGHT_SLEEP_COLOR, default=DEFAULT_NIGHT_LIGHT_SLEEP_COLOR): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=1000, max=6500, mode=selector.NumberSelectorMode.SLIDER, unit_of_measurement="K")
+            ),
+            vol.Optional(CONF_NIGHT_LIGHT_DAY_BRIGHTNESS, default=DEFAULT_NIGHT_LIGHT_DAY_BRIGHTNESS): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=1, max=100, mode=selector.NumberSelectorMode.SLIDER, unit_of_measurement="%")
+            ),
+            vol.Optional(CONF_NIGHT_LIGHT_DAY_COLOR, default=DEFAULT_NIGHT_LIGHT_DAY_COLOR): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=1000, max=6500, mode=selector.NumberSelectorMode.SLIDER, unit_of_measurement="K")
+            ),
+        })
 
-        light_exit_actions = [
-            {"label": "Turn Off", "value": LIGHT_ACTION_TURN_OFF},
-            {"label": "Leave On", "value": LIGHT_ACTION_LEAVE_ON},
+        return self.async_show_form(
+            step_id="night_light_detail",
+            data_schema=data_schema,
+            description_placeholders={"name": "Configure night light brightness and color"},
+        )
+
+    async def async_step_cover_behavior(self, user_input=None):
+        """Handle cover automation behavior configuration.
+
+        v3.6.24: Conditional sub-step — only shown when covers are selected.
+        Cover fields extracted from automation_behavior for streamlined flow.
+        """
+        if user_input is not None:
+            self._data.update(user_input)
+            return await self.async_step_automation_behavior()
+
+        cover_types = [
+            {"label": "Shades/Roller Blinds (Open/Close)", "value": COVER_TYPE_SHADE},
+            {"label": "Venetian Blinds (Tilt)", "value": COVER_TYPE_TILT},
         ]
 
         cover_actions = [
@@ -893,8 +1009,7 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
             {"label": "After Sunrise AND Time (whichever is later)", "value": TIMING_MODE_BOTH_LATEST},
             {"label": "After Sunrise OR Time (whichever is earlier)", "value": TIMING_MODE_BOTH_EARLIEST},
         ]
-        
-        # Separate list for close timing - uses sunset instead of sunrise
+
         close_timing_modes = [
             {"label": "After Sunset", "value": TIMING_MODE_SUN},
             {"label": "After Specific Time", "value": TIMING_MODE_TIME},
@@ -903,26 +1018,9 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
         ]
 
         data_schema = vol.Schema({
-            # Lighting
-            vol.Optional(CONF_ENTRY_LIGHT_ACTION, default=LIGHT_ACTION_NONE): selector.SelectSelector(
-                selector.SelectSelectorConfig(options=light_entry_actions, mode=selector.SelectSelectorMode.DROPDOWN)
+            vol.Optional(CONF_COVER_TYPE, default=COVER_TYPE_SHADE): selector.SelectSelector(
+                selector.SelectSelectorConfig(options=cover_types, mode=selector.SelectSelectorMode.DROPDOWN)
             ),
-            vol.Optional(CONF_EXIT_LIGHT_ACTION, default=LIGHT_ACTION_TURN_OFF): selector.SelectSelector(
-                selector.SelectSelectorConfig(options=light_exit_actions, mode=selector.SelectSelectorMode.DROPDOWN)
-            ),
-            vol.Optional(CONF_ILLUMINANCE_THRESHOLD, default=DEFAULT_DARK_THRESHOLD): selector.NumberSelector(
-                selector.NumberSelectorConfig(min=1, max=100, unit_of_measurement="lx", mode=selector.NumberSelectorMode.BOX)
-            ),
-            vol.Optional(CONF_LIGHT_BRIGHTNESS_PCT, default=DEFAULT_LIGHT_BRIGHTNESS): selector.NumberSelector(
-                selector.NumberSelectorConfig(min=1, max=100, unit_of_measurement="%", mode=selector.NumberSelectorMode.SLIDER)
-            ),
-            vol.Optional(CONF_LIGHT_TRANSITION_ON, default=DEFAULT_LIGHT_TRANSITION_ON): selector.NumberSelector(
-                selector.NumberSelectorConfig(min=0, max=10, unit_of_measurement="s", mode=selector.NumberSelectorMode.BOX)
-            ),
-            vol.Optional(CONF_LIGHT_TRANSITION_OFF, default=DEFAULT_LIGHT_TRANSITION_OFF): selector.NumberSelector(
-                selector.NumberSelectorConfig(min=0, max=10, unit_of_measurement="s", mode=selector.NumberSelectorMode.BOX)
-            ),
-            # Covers
             vol.Optional(CONF_ENTRY_COVER_ACTION, default=COVER_ACTION_NONE): selector.SelectSelector(
                 selector.SelectSelectorConfig(options=cover_actions, mode=selector.SelectSelectorMode.DROPDOWN)
             ),
@@ -954,19 +1052,78 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
         })
 
         return self.async_show_form(
+            step_id="cover_behavior",
+            data_schema=data_schema,
+            description_placeholders={"name": "Configure cover automation behavior"},
+        )
+
+    async def async_step_automation_behavior(self, user_input=None):
+        """Handle automation behavior configuration.
+
+        v3.6.24: Cover fields moved to cover_behavior sub-step.
+        This step now only contains lighting automation fields.
+        """
+        if user_input is not None:
+            self._data.update(user_input)
+            return await self.async_step_climate()
+
+        light_entry_actions = [
+            {"label": "None (Manual Control)", "value": LIGHT_ACTION_NONE},
+            {"label": "Turn On Always", "value": LIGHT_ACTION_TURN_ON},
+            {"label": "Smart (Only When Dark)", "value": LIGHT_ACTION_TURN_ON_IF_DARK},
+        ]
+
+        light_exit_actions = [
+            {"label": "Turn Off", "value": LIGHT_ACTION_TURN_OFF},
+            {"label": "Leave On", "value": LIGHT_ACTION_LEAVE_ON},
+        ]
+
+        data_schema = vol.Schema({
+            vol.Optional(CONF_ENTRY_LIGHT_ACTION, default=LIGHT_ACTION_NONE): selector.SelectSelector(
+                selector.SelectSelectorConfig(options=light_entry_actions, mode=selector.SelectSelectorMode.DROPDOWN)
+            ),
+            vol.Optional(CONF_EXIT_LIGHT_ACTION, default=LIGHT_ACTION_TURN_OFF): selector.SelectSelector(
+                selector.SelectSelectorConfig(options=light_exit_actions, mode=selector.SelectSelectorMode.DROPDOWN)
+            ),
+            vol.Optional(CONF_ILLUMINANCE_THRESHOLD, default=DEFAULT_DARK_THRESHOLD): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=1, max=100, unit_of_measurement="lx", mode=selector.NumberSelectorMode.BOX)
+            ),
+            vol.Optional(CONF_LIGHT_BRIGHTNESS_PCT, default=DEFAULT_LIGHT_BRIGHTNESS): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=1, max=100, unit_of_measurement="%", mode=selector.NumberSelectorMode.SLIDER)
+            ),
+            vol.Optional(CONF_LIGHT_TRANSITION_ON, default=DEFAULT_LIGHT_TRANSITION_ON): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=0, max=10, unit_of_measurement="s", mode=selector.NumberSelectorMode.BOX)
+            ),
+            vol.Optional(CONF_LIGHT_TRANSITION_OFF, default=DEFAULT_LIGHT_TRANSITION_OFF): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=0, max=10, unit_of_measurement="s", mode=selector.NumberSelectorMode.BOX)
+            ),
+        })
+
+        return self.async_show_form(
             step_id="automation_behavior",
             data_schema=data_schema,
-            description_placeholders={"name": "Configure automation behavior"},
+            description_placeholders={"name": "Configure lighting automation behavior"},
         )
 
     async def async_step_climate(self, user_input=None):
-        """Handle climate and HVAC configuration."""
+        """Handle climate and HVAC configuration.
+
+        v3.6.24: Fan speed fields moved to conditional fan_speeds sub-step.
+        Area pre-population for climate entity added.
+        """
         if user_input is not None:
             self._data.update(user_input)
+            # v3.6.24: Conditional routing — fan speeds if fan control enabled
+            if user_input.get(CONF_FAN_CONTROL_ENABLED):
+                return await self.async_step_fan_speeds()
             return await self.async_step_sleep_protection()
 
+        # v3.6.24: Area pre-population for climate entity
+        area_id = self._data.get(CONF_AREA_ID)
+        area_climate = self._get_area_entities(area_id, "climate") if area_id else []
+
         data_schema = vol.Schema({
-            vol.Optional(CONF_CLIMATE_ENTITY): selector.EntitySelector(
+            vol.Optional(CONF_CLIMATE_ENTITY, default=area_climate[0] if area_climate else vol.UNDEFINED): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="climate")
             ),
             vol.Optional(CONF_HVAC_COORDINATION_ENABLED, default=False): selector.BooleanSelector(),
@@ -978,15 +1135,6 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
             ),
             vol.Optional(CONF_FAN_CONTROL_ENABLED, default=False): selector.BooleanSelector(),
             vol.Optional(CONF_FAN_TEMP_THRESHOLD, default=DEFAULT_FAN_TEMP_THRESHOLD): selector.NumberSelector(
-                selector.NumberSelectorConfig(min=60, max=100, unit_of_measurement="°F", mode=selector.NumberSelectorMode.BOX)
-            ),
-            vol.Optional(CONF_FAN_SPEED_LOW_TEMP, default=DEFAULT_FAN_SPEED_LOW): selector.NumberSelector(
-                selector.NumberSelectorConfig(min=60, max=100, unit_of_measurement="°F", mode=selector.NumberSelectorMode.BOX)
-            ),
-            vol.Optional(CONF_FAN_SPEED_MED_TEMP, default=DEFAULT_FAN_SPEED_MED): selector.NumberSelector(
-                selector.NumberSelectorConfig(min=60, max=100, unit_of_measurement="°F", mode=selector.NumberSelectorMode.BOX)
-            ),
-            vol.Optional(CONF_FAN_SPEED_HIGH_TEMP, default=DEFAULT_FAN_SPEED_HIGH): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=60, max=100, unit_of_measurement="°F", mode=selector.NumberSelectorMode.BOX)
             ),
             vol.Optional(CONF_HUMIDITY_FAN_THRESHOLD, default=DEFAULT_HUMIDITY_THRESHOLD): selector.NumberSelector(
@@ -1002,6 +1150,33 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
             step_id="climate",
             data_schema=data_schema,
             description_placeholders={"name": "Configure climate and HVAC"},
+        )
+
+    async def async_step_fan_speeds(self, user_input=None):
+        """Handle fan speed threshold configuration.
+
+        v3.6.24: Conditional sub-step — only shown when fan control is enabled.
+        """
+        if user_input is not None:
+            self._data.update(user_input)
+            return await self.async_step_sleep_protection()
+
+        data_schema = vol.Schema({
+            vol.Optional(CONF_FAN_SPEED_LOW_TEMP, default=DEFAULT_FAN_SPEED_LOW): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=60, max=100, unit_of_measurement="°F", mode=selector.NumberSelectorMode.BOX)
+            ),
+            vol.Optional(CONF_FAN_SPEED_MED_TEMP, default=DEFAULT_FAN_SPEED_MED): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=60, max=100, unit_of_measurement="°F", mode=selector.NumberSelectorMode.BOX)
+            ),
+            vol.Optional(CONF_FAN_SPEED_HIGH_TEMP, default=DEFAULT_FAN_SPEED_HIGH): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=60, max=100, unit_of_measurement="°F", mode=selector.NumberSelectorMode.BOX)
+            ),
+        })
+
+        return self.async_show_form(
+            step_id="fan_speeds",
+            data_schema=data_schema,
+            description_placeholders={"name": "Configure fan speed temperature thresholds"},
         )
 
     async def async_step_sleep_protection(self, user_input=None):
@@ -1027,7 +1202,7 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
         return self.async_show_form(
             step_id="sleep_protection",
             data_schema=data_schema,
-            description_placeholders={"name": "Configure sleep protection"},
+            description_placeholders={"name": "Configure sleep protection. Submit unchanged to use defaults."},
         )
 
     async def async_step_energy(self, user_input=None):
@@ -1060,11 +1235,16 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
                 _LOGGER.error("Error in energy config: %s", err, exc_info=True)
                 errors["base"] = "unknown"
 
+        # v3.6.24: Area pre-population for power/energy sensors
+        area_id = self._data.get(CONF_AREA_ID)
+        area_power = self._get_area_entities(area_id, "sensor", "power") if area_id else []
+        area_energy = self._get_area_entities(area_id, "sensor", "energy") if area_id else []
+
         data_schema = vol.Schema({
-            vol.Optional(CONF_POWER_SENSORS): selector.EntitySelector(
+            vol.Optional(CONF_POWER_SENSORS, default=area_power or vol.UNDEFINED): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor", device_class="power", multiple=True)
             ),
-            vol.Optional(CONF_ENERGY_SENSOR): selector.EntitySelector(
+            vol.Optional(CONF_ENERGY_SENSOR, default=area_energy[0] if area_energy else vol.UNDEFINED): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor", device_class="energy")
             ),
             vol.Optional(CONF_ELECTRICITY_RATE, default=DEFAULT_ELECTRICITY_RATE): selector.NumberSelector(
@@ -1077,7 +1257,7 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
             step_id="energy",
             data_schema=data_schema,
             errors=errors,
-            description_placeholders={"name": "Configure energy monitoring (optional)"},
+            description_placeholders={"name": "Configure energy monitoring (optional). Submit unchanged to skip."},
         )
 
     async def async_step_notifications(self, user_input=None):
@@ -1189,7 +1369,7 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
             step_id="notifications",
             data_schema=data_schema,
             description_placeholders={
-                "name": "Configure notifications. Enable override to use room-specific settings instead of integration defaults."
+                "name": "Configure notifications. Submit unchanged to use integration defaults."
             },
         )
 
