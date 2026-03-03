@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.6.27
+# Universal Room Automation v3.6.28
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -4103,13 +4103,16 @@ class MusicFollowingTransfersTodaySensor(AggregationEntity, SensorEntity):
         """Handle push update from MusicFollowing."""
         self.async_write_ha_state()
 
+    # Stats that indicate actual music-involved transfer attempts
+    _TRANSFER_STATS = ("success", "failed", "unverified", "active_playback_blocked")
+
     @property
     def native_value(self) -> int:
-        """Return total transfer count today."""
+        """Return count of actual transfer attempts today (music-involved only)."""
         mf = self._music_following or self.hass.data.get(DOMAIN, {}).get("music_following")
         if mf is None:
             return 0
-        return sum(mf._transfer_stats.values())
+        return sum(mf._transfer_stats.get(k, 0) for k in self._TRANSFER_STATS)
 
     @property
     def icon(self) -> str:
