@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.6.26
+# Universal Room Automation v3.6.27
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -177,6 +177,11 @@ async def async_setup_entry(
             SecurityLastEntrySensor(hass, entry),
             SecurityAnomalySensor(hass, entry),
             SecurityComplianceSensor(hass, entry),
+            # v3.6.27: Music Following Coordinator sensors
+            MusicFollowingAnomalySensor(hass, entry),
+            MusicFollowingTransfersTodaySensor(hass, entry),
+            MusicFollowingActiveRoomsSensor(hass, entry),
+            MusicFollowingLastTransferSensor(hass, entry),
         ]
         async_add_entities(coordinator_sensors)
         return
@@ -3950,7 +3955,22 @@ class SecurityComplianceSensor(AggregationEntity, SensorEntity):
 
 # ============================================================================
 # v3.6.21: Music Following Health Sensor
+# v3.6.27: Music Following diagnostic sensors (anomaly, transfers, rooms, last)
 # ============================================================================
+
+
+def _music_following_device_info():
+    """Return DeviceInfo for the Music Following Coordinator device."""
+    from homeassistant.helpers.device_registry import DeviceInfo
+    from .const import VERSION
+    return DeviceInfo(
+        identifiers={(DOMAIN, "music_following_coordinator")},
+        name="URA: Music Following Coordinator",
+        manufacturer="Universal Room Automation",
+        model="Music Following Coordinator",
+        sw_version=VERSION,
+        via_device=(DOMAIN, "coordinator_manager"),
+    )
 
 
 class MusicFollowingHealthSensor(AggregationEntity, SensorEntity):
@@ -3972,13 +3992,8 @@ class MusicFollowingHealthSensor(AggregationEntity, SensorEntity):
         self._attr_unique_id = f"{DOMAIN}_music_following_health"
         self._attr_name = "Music Following Health"
         self._music_following = None
-        # v3.6.24: Point to coordinator device when coordinator is active
-        cm = hass.data.get(DOMAIN, {}).get("coordinator_manager")
-        if cm is not None and hasattr(cm, "_coordinators"):
-            for coord in getattr(cm, "_coordinators", {}).values():
-                if getattr(coord, "coordinator_id", None) == "music_following":
-                    self._attr_device_info = coord.device_info
-                    break
+        # v3.6.27: Use shared device info helper
+        self._attr_device_info = _music_following_device_info()
 
     async def async_added_to_hass(self) -> None:
         """Register diagnostic listener when added to HA."""
@@ -4018,3 +4033,242 @@ class MusicFollowingHealthSensor(AggregationEntity, SensorEntity):
         if mf is None:
             return {}
         return mf.get_diagnostic_data()
+
+
+class MusicFollowingAnomalySensor(AggregationEntity, SensorEntity):
+    """Music Following anomaly status.
+
+    v3.6.27: Anomaly detector was wired in v3.6.26 but had no visible sensor.
+    Entity: sensor.ura_music_following_anomaly
+    Device: URA: Music Following Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:alert-circle-outline"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_music_following_anomaly"
+        self._attr_name = "Music Following Anomaly"
+        self._attr_device_info = _music_following_device_info()
+
+    @property
+    def native_value(self) -> str:
+        """Return the anomaly status."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return "not_initialized"
+        mf_coord = manager.coordinators.get("music_following")
+        if mf_coord is None:
+            return "disabled"
+        if mf_coord.anomaly_detector is None:
+            return "not_configured"
+        learning = mf_coord.anomaly_detector.get_learning_status()
+        if hasattr(learning, 'value') and learning.value in ("insufficient_data", "learning"):
+            return learning.value
+        return mf_coord.anomaly_detector.get_worst_severity().value
+
+
+class MusicFollowingTransfersTodaySensor(AggregationEntity, SensorEntity):
+    """Total music transfers today with outcome breakdown.
+
+    v3.6.27: Glanceable transfer count with success/failure detail.
+    Entity: sensor.ura_music_following_transfers_today
+    Device: URA: Music Following Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_music_following_transfers_today"
+        self._attr_name = "Music Following Transfers Today"
+        self._attr_device_info = _music_following_device_info()
+        self._music_following = None
+
+    async def async_added_to_hass(self) -> None:
+        """Register diagnostic listener when added to HA."""
+        await super().async_added_to_hass()
+        mf = self.hass.data.get(DOMAIN, {}).get("music_following")
+        if mf:
+            self._music_following = mf
+            mf.add_diagnostic_listener(self._on_diagnostic_update)
+
+    @callback
+    def _on_diagnostic_update(self) -> None:
+        """Handle push update from MusicFollowing."""
+        self.async_write_ha_state()
+
+    @property
+    def native_value(self) -> int:
+        """Return total transfer count today."""
+        mf = self._music_following or self.hass.data.get(DOMAIN, {}).get("music_following")
+        if mf is None:
+            return 0
+        return sum(mf._transfer_stats.values())
+
+    @property
+    def icon(self) -> str:
+        """Dynamic icon based on failure presence."""
+        mf = self._music_following or self.hass.data.get(DOMAIN, {}).get("music_following")
+        if mf is not None and mf._transfer_stats.get("failed", 0) > 0:
+            return "mdi:swap-horizontal-circle"
+        return "mdi:swap-horizontal-bold"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return outcome breakdown."""
+        mf = self._music_following or self.hass.data.get(DOMAIN, {}).get("music_following")
+        if mf is None:
+            return {}
+        stats = mf._transfer_stats
+        total = sum(stats.values())
+        successes = stats.get("success", 0)
+        return {
+            "success": successes,
+            "failed": stats.get("failed", 0),
+            "unverified": stats.get("unverified", 0),
+            "cooldown_blocked": stats.get("cooldown_blocked", 0),
+            "active_playback_blocked": stats.get("active_playback_blocked", 0),
+            "low_confidence": stats.get("low_confidence", 0),
+            "ping_pong_suppressed": stats.get("ping_pong_suppressed", 0),
+            "success_rate": round(successes / total * 100, 1) if total > 0 else 0.0,
+        }
+
+
+class MusicFollowingActiveRoomsSensor(AggregationEntity, SensorEntity):
+    """Rooms with media players configured for music following.
+
+    v3.6.27: Shows which rooms have music following capability.
+    Entity: sensor.ura_music_following_active_rooms
+    Device: URA: Music Following Coordinator
+    """
+
+    _attr_has_entity_name = True
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_music_following_active_rooms"
+        self._attr_name = "Music Following Active Rooms"
+        self._attr_device_info = _music_following_device_info()
+        self._music_following = None
+
+    async def async_added_to_hass(self) -> None:
+        """Register diagnostic listener when added to HA."""
+        await super().async_added_to_hass()
+        mf = self.hass.data.get(DOMAIN, {}).get("music_following")
+        if mf:
+            self._music_following = mf
+            mf.add_diagnostic_listener(self._on_diagnostic_update)
+
+    @callback
+    def _on_diagnostic_update(self) -> None:
+        """Handle push update from MusicFollowing."""
+        self.async_write_ha_state()
+
+    @property
+    def native_value(self) -> str:
+        """Return CSV of room names with media players, or 'none'."""
+        mf = self._music_following or self.hass.data.get(DOMAIN, {}).get("music_following")
+        if mf is None:
+            return "none"
+        rooms = self._get_configured_rooms(mf)
+        if not rooms:
+            return "none"
+        return ", ".join(sorted(rooms))
+
+    @property
+    def icon(self) -> str:
+        """Dynamic icon."""
+        if self.native_value == "none":
+            return "mdi:music-off"
+        return "mdi:speaker-multiple"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return room and person details."""
+        mf = self._music_following or self.hass.data.get(DOMAIN, {}).get("music_following")
+        if mf is None:
+            return {"rooms": [], "room_count": 0, "enabled_persons": [], "person_count": 0}
+        rooms = sorted(self._get_configured_rooms(mf))
+        persons = sorted(mf._enabled_persons)
+        return {
+            "rooms": rooms,
+            "room_count": len(rooms),
+            "enabled_persons": persons,
+            "person_count": len(persons),
+        }
+
+    @staticmethod
+    def _get_configured_rooms(mf) -> list[str]:
+        """Get room names that have room_media_player configured."""
+        rooms = []
+        try:
+            room_entries = mf._get_room_entries()
+            for entry_data in room_entries.values():
+                if entry_data.get("room_media_player"):
+                    room_name = entry_data.get("name", entry_data.get("room_name", "unknown"))
+                    rooms.append(room_name)
+        except Exception:
+            pass
+        return rooms
+
+
+class MusicFollowingLastTransferSensor(AggregationEntity, SensorEntity):
+    """Last music transfer result with event details.
+
+    v3.6.27: Shows the most recent transfer outcome.
+    Entity: sensor.ura_music_following_last_transfer
+    Device: URA: Music Following Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:swap-horizontal"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_music_following_last_transfer"
+        self._attr_name = "Music Following Last Transfer"
+        self._attr_device_info = _music_following_device_info()
+        self._music_following = None
+
+    async def async_added_to_hass(self) -> None:
+        """Register diagnostic listener when added to HA."""
+        await super().async_added_to_hass()
+        mf = self.hass.data.get(DOMAIN, {}).get("music_following")
+        if mf:
+            self._music_following = mf
+            mf.add_diagnostic_listener(self._on_diagnostic_update)
+
+    @callback
+    def _on_diagnostic_update(self) -> None:
+        """Handle push update from MusicFollowing."""
+        self.async_write_ha_state()
+
+    @property
+    def native_value(self) -> str:
+        """Return last transfer result or 'none'."""
+        mf = self._music_following or self.hass.data.get(DOMAIN, {}).get("music_following")
+        if mf is None or not mf._last_transfer_result:
+            return "none"
+        return mf._last_transfer_result
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return last transfer event details."""
+        mf = self._music_following or self.hass.data.get(DOMAIN, {}).get("music_following")
+        if mf is None or not mf._last_transfer_result:
+            return {}
+        return {
+            "person": mf._last_transfer_person,
+            "from_room": mf._last_transfer_from,
+            "to_room": mf._last_transfer_to,
+            "time": mf._last_transfer_time_iso,
+            "result": mf._last_transfer_result,
+        }
