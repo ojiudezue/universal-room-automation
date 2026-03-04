@@ -15,6 +15,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from homeassistant.core import HomeAssistant, Event, callback
+from homeassistant.helpers import area_registry as ar_helper, entity_registry as er_helper
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.util import dt as dt_util
 
@@ -95,14 +96,29 @@ class TransitValidator:
         # Gather all camera entities to subscribe to
         camera_entities: list[str] = []
 
+        census = self.hass.data.get(DOMAIN, {}).get("census")
         camera_manager = self.hass.data.get(DOMAIN, {}).get("camera_manager")
-        if camera_manager:
+
+        if census:
             try:
-                # Get interior cameras (person detection binary sensors resolved from camera entities)
+                interior_infos = census.get_transit_interior_entities()
+                egress_infos = census.get_transit_egress_entities()
+                camera_entities.extend(
+                    info.person_binary_sensor for info in interior_infos
+                    if info.person_binary_sensor
+                )
+                camera_entities.extend(
+                    info.person_binary_sensor for info in egress_infos
+                    if info.person_binary_sensor
+                )
+            except Exception as e:
+                _LOGGER.debug("TransitValidator: census cross-platform failed: %s", e)
+                census = None  # fall through to camera_manager
+
+        if not census and camera_manager:
+            try:
                 interior = camera_manager._get_interior_camera_entities()
                 camera_entities.extend(interior)
-
-                # Get egress cameras
                 egress = camera_manager._get_integration_camera_list(CONF_EGRESS_CAMERAS)
                 camera_entities.extend(egress)
             except Exception as e:
@@ -399,15 +415,15 @@ class TransitValidator:
         # Determine room from entity area_id
         room = None
         try:
-            entity_registry = self.hass.helpers.entity_registry.async_get(self.hass)
-            entity_entry = entity_registry.async_get(entity_id)
+            ent_reg = er_helper.async_get(self.hass)
+            entity_entry = ent_reg.async_get(entity_id)
             if entity_entry and entity_entry.area_id:
-                area_registry = self.hass.helpers.area_registry.async_get(self.hass)
-                area = area_registry.async_get_area(entity_entry.area_id)
+                area_reg = ar_helper.async_get(self.hass)
+                area = area_reg.async_get_area(entity_entry.area_id)
                 if area:
                     room = area.name
         except Exception:
-            pass
+            _LOGGER.debug("Could not resolve room for camera entity %s", entity_id)
 
         # Determine person_id from face recognition data
         person_id = "unidentified"
@@ -486,33 +502,76 @@ class EgressDirectionTracker:
         self._recent_interior_events: dict[str, list[datetime]] = {}
         self._unsub: list = []
         self._egress_entities: list[str] = []
+        self._egress_count_sensors: list[str] = []
         self._interior_entities: list[str] = []
+        # Deduplication: stem -> last resolved timestamp
+        self._last_resolved: dict[str, datetime] = {}
 
     async def async_init(self) -> None:
-        """Subscribe to egress and near-door interior cameras."""
+        """Subscribe to egress and near-door interior cameras.
+
+        Uses cross-platform census helpers when available (resolves sensors
+        across Frigate + UniFi for the same physical camera). Falls back to
+        single-platform camera_manager resolution.
+        """
         from homeassistant.helpers.event import async_track_state_change_event
 
+        census = self.hass.data.get(DOMAIN, {}).get("census")
         camera_manager = self.hass.data.get(DOMAIN, {}).get("camera_manager")
-        if not camera_manager:
-            _LOGGER.debug("EgressDirectionTracker: no camera_manager, skipping subscription")
+
+        if census:
+            # Cross-platform resolution via PersonCensus
+            try:
+                egress_infos = census.get_transit_egress_entities()
+                interior_infos = census.get_transit_interior_entities()
+
+                self._egress_entities = [
+                    info.person_binary_sensor for info in egress_infos
+                    if info.person_binary_sensor
+                ]
+                self._egress_count_sensors = [
+                    info.person_count_sensor for info in egress_infos
+                    if info.person_count_sensor
+                ]
+                self._interior_entities = [
+                    info.person_binary_sensor for info in interior_infos
+                    if info.person_binary_sensor
+                ]
+            except Exception as e:
+                _LOGGER.debug("EgressDirectionTracker: census cross-platform failed: %s", e)
+                census = None  # fall through to camera_manager
+
+        if not census and camera_manager:
+            # Fallback: single-platform resolution
+            try:
+                self._egress_entities = camera_manager._get_integration_camera_list(
+                    CONF_EGRESS_CAMERAS
+                )
+                self._interior_entities = camera_manager._get_interior_camera_entities()
+            except Exception as e:
+                _LOGGER.debug("EgressDirectionTracker: error reading camera lists: %s", e)
+                return
+        elif not census and not camera_manager:
+            _LOGGER.debug("EgressDirectionTracker: no camera_manager or census, skipping subscription")
             return
 
-        try:
-            self._egress_entities = camera_manager._get_integration_camera_list(
-                CONF_EGRESS_CAMERAS
-            )
-            self._interior_entities = camera_manager._get_interior_camera_entities()
-        except Exception as e:
-            _LOGGER.debug("EgressDirectionTracker: error reading camera lists: %s", e)
-            return
-
-        # Subscribe to egress cameras
+        # Subscribe to egress binary sensors
         if self._egress_entities:
             for entity_id in set(self._egress_entities):
                 unsub = async_track_state_change_event(
                     self.hass,
                     [entity_id],
                     self._on_egress_state_change,
+                )
+                self._unsub.append(unsub)
+
+        # Subscribe to egress person_count sensors (0→N transitions)
+        if self._egress_count_sensors:
+            for entity_id in set(self._egress_count_sensors):
+                unsub = async_track_state_change_event(
+                    self.hass,
+                    [entity_id],
+                    self._on_egress_count_change,
                 )
                 self._unsub.append(unsub)
 
@@ -527,8 +586,9 @@ class EgressDirectionTracker:
                 self._unsub.append(unsub)
 
         _LOGGER.info(
-            "EgressDirectionTracker initialized: %d egress cameras, %d interior cameras",
+            "EgressDirectionTracker initialized: %d egress sensors, %d egress count sensors, %d interior sensors",
             len(self._egress_entities),
+            len(self._egress_count_sensors),
             len(self._interior_entities),
         )
 
@@ -562,6 +622,45 @@ class EgressDirectionTracker:
         async_call_later(self.hass, self.ENTRY_WINDOW_SECONDS, _delayed_resolve)
 
     @callback
+    def _on_egress_count_change(self, event: Event) -> None:
+        """Handle person_count sensor transitions from 0 → N (N > 0).
+
+        Frigate sensor.*_person_count provides high-confidence entry detection
+        when it goes from 0 to a positive value.
+        """
+        new_state = event.data.get("new_state")
+        old_state = event.data.get("old_state")
+        if not new_state or not old_state:
+            return
+
+        # Only trigger on 0 → N transitions
+        try:
+            old_val = int(old_state.state) if old_state.state.isdigit() else -1
+            new_val = int(new_state.state) if new_state.state.isdigit() else 0
+        except (ValueError, AttributeError):
+            return
+
+        if old_val != 0 or new_val <= 0:
+            return
+
+        entity_id = new_state.entity_id
+        timestamp = dt_util.now()
+
+        # Record as egress event using the stem to correlate with binary sensors
+        if entity_id not in self._recent_egress_events:
+            self._recent_egress_events[entity_id] = []
+        self._recent_egress_events[entity_id].append(timestamp)
+        self._prune_event_list(self._recent_egress_events, entity_id)
+
+        # Schedule delayed resolution
+        from homeassistant.helpers.event import async_call_later
+
+        async def _delayed_resolve(now):
+            await self._resolve_direction(entity_id, timestamp)
+
+        async_call_later(self.hass, self.ENTRY_WINDOW_SECONDS, _delayed_resolve)
+
+    @callback
     def _on_interior_state_change(self, event: Event) -> None:
         """Handle interior camera detection."""
         new_state = event.data.get("new_state")
@@ -582,10 +681,32 @@ class EgressDirectionTracker:
         self._recent_interior_events[entity_id].append(timestamp)
         self._prune_event_list(self._recent_interior_events, entity_id)
 
+    @staticmethod
+    def _extract_camera_stem(entity_id: str) -> str | None:
+        """Extract camera name stem from a sensor entity_id for deduplication."""
+        from .camera_census import CameraIntegrationManager
+        return CameraIntegrationManager._extract_camera_stem(entity_id)
+
     async def _resolve_direction(
         self, egress_camera_id: str, egress_timestamp: datetime
     ) -> None:
-        """Determine entry, exit, or ambiguous and fire event on bus."""
+        """Determine entry, exit, or ambiguous and fire event on bus.
+
+        Includes deduplication: when both Frigate and UniFi sensors fire for
+        the same physical camera within 5 seconds, only resolve once.
+        """
+        # Deduplication by camera stem
+        stem = self._extract_camera_stem(egress_camera_id)
+        if stem:
+            last = self._last_resolved.get(stem)
+            if last and (egress_timestamp - last).total_seconds() < 5.0:
+                _LOGGER.debug(
+                    "Egress dedup: skipping %s (stem=%s resolved %.1fs ago)",
+                    egress_camera_id, stem, (egress_timestamp - last).total_seconds(),
+                )
+                return
+            self._last_resolved[stem] = egress_timestamp
+
         direction = "ambiguous"
         near_door_cameras = self._get_interior_cameras_near(egress_camera_id)
 
@@ -604,7 +725,13 @@ class EgressDirectionTracker:
             if direction != "ambiguous":
                 break
 
-        confidence = 0.8 if direction != "ambiguous" else 0.3
+        # Multi-platform confidence boost: count how many platform sensors
+        # fired for the same stem within 10 seconds
+        platforms_fired = self._count_platforms_fired(stem, egress_timestamp) if stem else 1
+        if direction != "ambiguous":
+            confidence = 0.9 if platforms_fired >= 2 else 0.8
+        else:
+            confidence = 0.4 if platforms_fired >= 2 else 0.3
 
         # Fire event on HA bus
         self.hass.bus.async_fire("ura_person_egress_event", {
@@ -645,6 +772,32 @@ class EgressDirectionTracker:
         """
         return list(self._interior_entities)
 
+    def _count_platforms_fired(self, stem: str, timestamp: datetime) -> int:
+        """Count how many distinct platforms fired for the same camera stem within 10s.
+
+        Uses entity_id suffix as platform heuristic:
+          _person_occupancy / _person_count → frigate
+          _person_detected → unifi
+        """
+        fired_platforms: set[str] = set()
+
+        for entity_id, times in self._recent_egress_events.items():
+            entity_stem = self._extract_camera_stem(entity_id)
+            if entity_stem != stem:
+                continue
+            for t in times:
+                if abs((t - timestamp).total_seconds()) <= 10:
+                    # Determine platform from suffix
+                    if "_person_occupancy" in entity_id or "_person_count" in entity_id:
+                        fired_platforms.add("frigate")
+                    elif "_person_detected" in entity_id:
+                        fired_platforms.add("unifi")
+                    else:
+                        fired_platforms.add(entity_id)  # fallback: treat as unique
+                    break
+
+        return len(fired_platforms)
+
     def _prune_event_list(self, events_dict: dict, entity_id: str) -> None:
         """Prune event list to only keep recent events."""
         max_age = max(self.ENTRY_WINDOW_SECONDS, self.EXIT_WINDOW_SECONDS) + 30
@@ -654,6 +807,15 @@ class EgressDirectionTracker:
                 ts for ts in events_dict[entity_id]
                 if isinstance(ts, datetime) and ts >= cutoff
             ]
+
+        # Also prune _last_resolved entries older than 60 seconds
+        dedup_cutoff = dt_util.now() - timedelta(seconds=60)
+        stale_stems = [
+            stem for stem, ts in self._last_resolved.items()
+            if ts < dedup_cutoff
+        ]
+        for stem in stale_stems:
+            del self._last_resolved[stem]
 
     async def async_teardown(self) -> None:
         """Unsubscribe all listeners."""
