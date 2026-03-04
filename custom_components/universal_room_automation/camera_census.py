@@ -1,6 +1,6 @@
 """Camera integration and person census for Universal Room Automation v3.5.0."""
 #
-# Universal Room Automation v3.6.31
+# Universal Room Automation v3.6.32
 # Build: 2026-02-23
 # File: camera_census.py
 # Cycle 3: Camera Integration & Census Core
@@ -197,22 +197,29 @@ class CameraIntegrationManager:
 
             detected_platform: str | None = None
 
-            # --- Authoritative platform-based detection ---
-            if platform == CAMERA_PLATFORM_FRIGATE or bs_id.endswith("_person_occupancy"):
-                # Frigate: platform field is "frigate" OR name suffix
+            # --- Person detection entity matching ---
+            # Each platform requires BOTH platform match AND person-specific suffix/name
+            # to avoid including motion, sound, and other non-person binary sensors.
+            if bs_id.endswith("_person_occupancy"):
+                # Frigate person occupancy (definitive suffix match)
                 detected_platform = CAMERA_PLATFORM_FRIGATE
 
-            elif platform == CAMERA_PLATFORM_UNIFI or bs_id.endswith("_person_detected"):
-                # UniFi Protect: platform field is "unifiprotect" OR name suffix
-                detected_platform = CAMERA_PLATFORM_UNIFI
+            elif bs_id.endswith("_person_detected"):
+                # UniFi Protect / generic person detected (definitive suffix match)
+                if platform == CAMERA_PLATFORM_UNIFI:
+                    detected_platform = CAMERA_PLATFORM_UNIFI
+                elif platform == _CAMERA_PLATFORM_REOLINK:
+                    detected_platform = _CAMERA_PLATFORM_REOLINK
+                elif platform == _CAMERA_PLATFORM_DAHUA:
+                    detected_platform = _CAMERA_PLATFORM_DAHUA
+                else:
+                    # Unknown platform but has person_detected suffix — treat as UniFi-like
+                    detected_platform = CAMERA_PLATFORM_UNIFI
 
-            elif platform == _CAMERA_PLATFORM_REOLINK and "person" in bs_entity.name.lower():
-                # Reolink: must be reolink platform AND entity name contains "person"
-                detected_platform = _CAMERA_PLATFORM_REOLINK
-
-            elif platform == _CAMERA_PLATFORM_DAHUA and "person" in bs_entity.name.lower():
-                # Dahua: must be dahua platform AND entity name contains "person"
-                detected_platform = _CAMERA_PLATFORM_DAHUA
+            elif (platform in (_CAMERA_PLATFORM_REOLINK, _CAMERA_PLATFORM_DAHUA)
+                  and "person" in bs_entity.name.lower()):
+                # Reolink/Dahua with non-standard naming but "person" in name
+                detected_platform = platform
 
             else:
                 # Not a person detection entity — skip
