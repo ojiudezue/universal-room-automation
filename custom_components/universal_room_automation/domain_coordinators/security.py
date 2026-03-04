@@ -547,6 +547,12 @@ class SecurityCoordinator(BaseCoordinator):
 
         return actions
 
+    def is_hazard_active(self, hazard_type: str, location: str) -> bool:
+        """Check if a security hazard is still active (for NM re-fire logic)."""
+        if hazard_type in ("intrusion", "entry_alert", "unknown_person"):
+            return self._active_alert
+        return False
+
     async def async_teardown(self) -> None:
         """Tear down the Security Coordinator."""
         self._cancel_listeners()

@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.6.28
+# Universal Room Automation v3.6.29
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -182,6 +182,12 @@ async def async_setup_entry(
             MusicFollowingTransfersTodaySensor(hass, entry),
             MusicFollowingActiveRoomsSensor(hass, entry),
             MusicFollowingLastTransferSensor(hass, entry),
+            # v3.6.29: Notification Manager sensors
+            NMLastNotificationSensor(hass, entry),
+            NMNotificationsTodaySensor(hass, entry),
+            NMCooldownRemainingSensor(hass, entry),
+            NMChannelStatusSensor(hass, entry),
+            NMTriggerSensor(hass, entry),
         ]
         async_add_entities(coordinator_sensors)
         return
@@ -4274,4 +4280,286 @@ class MusicFollowingLastTransferSensor(AggregationEntity, SensorEntity):
             "to_room": mf._last_transfer_to,
             "time": mf._last_transfer_time_iso,
             "result": mf._last_transfer_result,
+        }
+
+
+# ============================================================================
+# v3.6.29: Notification Manager Sensors
+# ============================================================================
+
+
+def _nm_device_info():
+    """Return DeviceInfo for the Notification Manager device."""
+    from homeassistant.helpers.device_registry import DeviceInfo
+    from .const import VERSION
+    return DeviceInfo(
+        identifiers={(DOMAIN, "notification_manager")},
+        name="URA: Notification Manager",
+        manufacturer="Universal Room Automation",
+        model="Notification Manager",
+        sw_version=VERSION,
+        via_device=(DOMAIN, "coordinator_manager"),
+    )
+
+
+class NMLastNotificationSensor(AggregationEntity, SensorEntity):
+    """Last notification severity and details.
+
+    Entity: sensor.ura_notification_last
+    Device: URA: Notification Manager
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:bell-outline"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_notification_last"
+        self._attr_name = "Last Notification"
+        self._attr_device_info = _nm_device_info()
+
+    async def async_added_to_hass(self) -> None:
+        """Register signal listener."""
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_NM_ENTITIES_UPDATE
+        self.async_on_remove(
+            async_dispatcher_connect(self.hass, SIGNAL_NM_ENTITIES_UPDATE, self._handle_update)
+        )
+
+    @callback
+    def _handle_update(self) -> None:
+        """Handle NM entities update signal."""
+        self.async_write_ha_state()
+
+    @property
+    def native_value(self) -> str:
+        """Return severity of last notification or 'none'."""
+        nm = self.hass.data.get(DOMAIN, {}).get("notification_manager")
+        if nm is None or nm.last_notification is None:
+            return "none"
+        return nm.last_notification.get("severity", "none")
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return last notification details."""
+        nm = self.hass.data.get(DOMAIN, {}).get("notification_manager")
+        if nm is None or nm.last_notification is None:
+            return {}
+        data = nm.last_notification
+        return {
+            "message": data.get("message", ""),
+            "coordinator": data.get("coordinator", ""),
+            "channels": data.get("channels", []),
+            "hazard_type": data.get("hazard_type"),
+            "location": data.get("location"),
+            "timestamp": data.get("timestamp", ""),
+        }
+
+
+class NMNotificationsTodaySensor(AggregationEntity, SensorEntity):
+    """Count of notifications sent today.
+
+    Entity: sensor.ura_notifications_today
+    Device: URA: Notification Manager
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:counter"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_notifications_today"
+        self._attr_name = "Notifications Today"
+        self._attr_device_info = _nm_device_info()
+
+    async def async_added_to_hass(self) -> None:
+        """Register signal listener."""
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_NM_ENTITIES_UPDATE
+        self.async_on_remove(
+            async_dispatcher_connect(self.hass, SIGNAL_NM_ENTITIES_UPDATE, self._handle_update)
+        )
+
+    @callback
+    def _handle_update(self) -> None:
+        """Handle NM entities update signal."""
+        self.async_write_ha_state()
+
+    @property
+    def native_value(self) -> int:
+        """Return count of notifications today."""
+        nm = self.hass.data.get(DOMAIN, {}).get("notification_manager")
+        if nm is None:
+            return 0
+        return nm.notifications_today
+
+
+class NMCooldownRemainingSensor(AggregationEntity, SensorEntity):
+    """Seconds remaining in post-ack cooldown.
+
+    Entity: sensor.ura_notification_cooldown_remaining
+    Device: URA: Notification Manager
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:timer-sand"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_native_unit_of_measurement = UnitOfTime.SECONDS
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_notification_cooldown_remaining"
+        self._attr_name = "Notification Cooldown Remaining"
+        self._attr_device_info = _nm_device_info()
+
+    async def async_added_to_hass(self) -> None:
+        """Register signal listener."""
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_NM_ENTITIES_UPDATE
+        self.async_on_remove(
+            async_dispatcher_connect(self.hass, SIGNAL_NM_ENTITIES_UPDATE, self._handle_update)
+        )
+
+    @callback
+    def _handle_update(self) -> None:
+        """Handle NM entities update signal."""
+        self.async_write_ha_state()
+
+    @property
+    def native_value(self) -> int:
+        """Return seconds remaining in cooldown."""
+        nm = self.hass.data.get(DOMAIN, {}).get("notification_manager")
+        if nm is None:
+            return 0
+        return nm.cooldown_remaining
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return cooldown context."""
+        nm = self.hass.data.get(DOMAIN, {}).get("notification_manager")
+        if nm is None:
+            return {}
+        return {
+            "hazard_type": nm._cooldown_hazard_type,
+            "location": nm._cooldown_location,
+            "alert_state": nm.alert_state,
+        }
+
+
+class NMChannelStatusSensor(AggregationEntity, SensorEntity):
+    """Per-channel health status.
+
+    Entity: sensor.ura_notification_channel_status
+    Device: URA: Notification Manager
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:check-network"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_notification_channel_status"
+        self._attr_name = "Notification Channel Status"
+        self._attr_device_info = _nm_device_info()
+
+    async def async_added_to_hass(self) -> None:
+        """Register signal listener."""
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_NM_ENTITIES_UPDATE
+        self.async_on_remove(
+            async_dispatcher_connect(self.hass, SIGNAL_NM_ENTITIES_UPDATE, self._handle_update)
+        )
+
+    @callback
+    def _handle_update(self) -> None:
+        """Handle NM entities update signal."""
+        self.async_write_ha_state()
+
+    @property
+    def native_value(self) -> str:
+        """Return overall channel status."""
+        nm = self.hass.data.get(DOMAIN, {}).get("notification_manager")
+        if nm is None:
+            return "not_initialized"
+        statuses = nm.channel_status
+        if any(ch.get("status") == "degraded" for ch in statuses.values()):
+            return "degraded"
+        return "ok"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return per-channel health."""
+        nm = self.hass.data.get(DOMAIN, {}).get("notification_manager")
+        if nm is None:
+            return {}
+        return nm.channel_status
+
+
+class NMTriggerSensor(AggregationEntity, SensorEntity):
+    """Trigger sensor — state changes on each notification for user HA automations.
+
+    Entity: sensor.ura_notification_trigger
+    Device: URA: Notification Manager
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:bell-alert"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_notification_trigger"
+        self._attr_name = "Notification Trigger"
+        self._attr_device_info = _nm_device_info()
+
+    async def async_added_to_hass(self) -> None:
+        """Register signal listener."""
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_NM_ENTITIES_UPDATE
+        self.async_on_remove(
+            async_dispatcher_connect(self.hass, SIGNAL_NM_ENTITIES_UPDATE, self._handle_update)
+        )
+
+    @callback
+    def _handle_update(self) -> None:
+        """Handle NM entities update signal."""
+        self.async_write_ha_state()
+
+    @property
+    def native_value(self) -> str:
+        """Return coordinator_severity trigger string."""
+        nm = self.hass.data.get(DOMAIN, {}).get("notification_manager")
+        if nm is None or nm.last_notification is None:
+            return "none"
+        data = nm.last_notification
+        coord = data.get("coordinator", "unknown")
+        sev = data.get("severity", "unknown").lower()
+        return f"{coord}_{sev}"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return notification details for automation use."""
+        nm = self.hass.data.get(DOMAIN, {}).get("notification_manager")
+        if nm is None or nm.last_notification is None:
+            return {}
+        data = nm.last_notification
+        return {
+            "coordinator": data.get("coordinator", ""),
+            "severity": data.get("severity", ""),
+            "title": data.get("title", ""),
+            "message": data.get("message", ""),
+            "hazard_type": data.get("hazard_type"),
+            "location": data.get("location"),
+            "timestamp": data.get("timestamp", ""),
         }

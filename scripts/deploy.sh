@@ -46,9 +46,12 @@ run git -C "$REPO_DIR" add \
   "$COMPONENT_DIR/const.py" \
   "$COMPONENT_DIR/manifest.json" \
   "$COMPONENT_DIR"/*.py \
+  "$COMPONENT_DIR/domain_coordinators/"*.py \
   "$COMPONENT_DIR/strings.json" \
   "$COMPONENT_DIR/translations/" \
-  "$REPO_DIR/quality/tests/"
+  "$REPO_DIR/quality/tests/" \
+  "$REPO_DIR/docs/readmes/" \
+  "$REPO_DIR/docs/"*.md
 
 # Step 3: Commit
 step "3/7 Committing: $SUMMARY"

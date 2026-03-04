@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation v3.6.28
+# Universal Room Automation v3.6.29
 # Build: 2026-03-01
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "3.6.28"
+VERSION: Final = "3.6.29"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -797,6 +797,7 @@ COORDINATOR_ENABLED_KEYS: Final = {
     "hvac": "hvac_coordinator_enabled",
     "comfort": "comfort_coordinator_enabled",
     "music_following": "music_following_coordinator_enabled",
+    "notification_manager": "notification_manager_enabled",
 }
 
 # v3.6.0-c0.4: Diagnostics constants
@@ -884,3 +885,82 @@ DEFAULT_MF_UNJOIN_DELAY: Final = 5
 DEFAULT_MF_POSITION_OFFSET: Final = 3
 DEFAULT_MF_MIN_CONFIDENCE: Final = 0.6
 DEFAULT_MF_HIGH_CONFIDENCE_DISTANCE: Final = 8.0  # feet — tighter than person tracking (10ft)
+
+# ============================================================================
+# v3.6.29 Notification Manager
+# ============================================================================
+
+CONF_NM_ENABLED: Final = "notification_manager_enabled"
+
+# Channel enable/severity keys
+CONF_NM_PUSHOVER_ENABLED: Final = "nm_pushover_enabled"
+CONF_NM_PUSHOVER_SEVERITY: Final = "nm_pushover_severity"
+CONF_NM_PUSHOVER_SERVICE: Final = "nm_pushover_service"
+CONF_NM_COMPANION_ENABLED: Final = "nm_companion_enabled"
+CONF_NM_COMPANION_SEVERITY: Final = "nm_companion_severity"
+CONF_NM_WHATSAPP_ENABLED: Final = "nm_whatsapp_enabled"
+CONF_NM_WHATSAPP_SEVERITY: Final = "nm_whatsapp_severity"
+CONF_NM_TTS_ENABLED: Final = "nm_tts_enabled"
+CONF_NM_TTS_SEVERITY: Final = "nm_tts_severity"
+CONF_NM_TTS_SPEAKERS: Final = "nm_tts_speakers"
+CONF_NM_LIGHTS_ENABLED: Final = "nm_lights_enabled"
+CONF_NM_LIGHTS_SEVERITY: Final = "nm_lights_severity"
+CONF_NM_ALERT_LIGHTS: Final = "nm_alert_lights"
+
+# Person config keys
+CONF_NM_PERSONS: Final = "nm_persons"
+CONF_NM_PERSON_ENTITY: Final = "nm_person_entity"
+CONF_NM_PERSON_PUSHOVER_KEY: Final = "nm_person_pushover_key"
+CONF_NM_PERSON_COMPANION_SERVICE: Final = "nm_person_companion_service"
+CONF_NM_PERSON_WHATSAPP_PHONE: Final = "nm_person_whatsapp_phone"
+CONF_NM_PERSON_DELIVERY_PREF: Final = "nm_person_delivery_pref"
+CONF_NM_PERSON_DIGEST_MORNING: Final = "nm_person_digest_morning"
+CONF_NM_PERSON_DIGEST_EVENING_ENABLED: Final = "nm_person_digest_evening_enabled"
+CONF_NM_PERSON_DIGEST_EVENING: Final = "nm_person_digest_evening"
+
+# Quiet hours keys
+CONF_NM_QUIET_USE_HOUSE_STATE: Final = "nm_quiet_use_house_state"
+CONF_NM_QUIET_MANUAL_START: Final = "nm_quiet_manual_start"
+CONF_NM_QUIET_MANUAL_END: Final = "nm_quiet_manual_end"
+
+# Cooldown keys (per hazard type, in minutes)
+CONF_NM_COOLDOWN_SMOKE: Final = "nm_cooldown_smoke"
+CONF_NM_COOLDOWN_CO: Final = "nm_cooldown_co"
+CONF_NM_COOLDOWN_FLOODING: Final = "nm_cooldown_flooding"
+CONF_NM_COOLDOWN_WATER_LEAK: Final = "nm_cooldown_water_leak"
+CONF_NM_COOLDOWN_FREEZE: Final = "nm_cooldown_freeze"
+CONF_NM_COOLDOWN_INTRUSION: Final = "nm_cooldown_intrusion"
+CONF_NM_COOLDOWN_DEFAULT: Final = "nm_cooldown_default"
+
+# Delivery preference values
+NM_DELIVERY_IMMEDIATE: Final = "immediate"
+NM_DELIVERY_DIGEST: Final = "digest"
+NM_DELIVERY_OFF: Final = "off"
+
+# Default severity thresholds per channel
+DEFAULT_NM_PUSHOVER_SEVERITY: Final = "MEDIUM"
+DEFAULT_NM_COMPANION_SEVERITY: Final = "HIGH"
+DEFAULT_NM_WHATSAPP_SEVERITY: Final = "HIGH"
+DEFAULT_NM_TTS_SEVERITY: Final = "CRITICAL"
+DEFAULT_NM_LIGHTS_SEVERITY: Final = "HIGH"
+
+# Default cooldowns (minutes)
+DEFAULT_NM_COOLDOWN_SMOKE: Final = 2
+DEFAULT_NM_COOLDOWN_CO: Final = 2
+DEFAULT_NM_COOLDOWN_FLOODING: Final = 5
+DEFAULT_NM_COOLDOWN_WATER_LEAK: Final = 10
+DEFAULT_NM_COOLDOWN_FREEZE: Final = 15
+DEFAULT_NM_COOLDOWN_INTRUSION: Final = 3
+DEFAULT_NM_COOLDOWN_DEFAULT: Final = 10
+
+# Dedup windows (seconds) per severity
+NM_DEDUP_CRITICAL: Final = 60
+NM_DEDUP_HIGH: Final = 300
+NM_DEDUP_MEDIUM: Final = 900
+NM_DEDUP_LOW: Final = 3600
+
+# Repeat interval for CRITICAL alerts (seconds)
+NM_CRITICAL_REPEAT_INTERVAL: Final = 30
+
+# DB retention (days)
+RETENTION_NOTIFICATION_LOG: Final = 30

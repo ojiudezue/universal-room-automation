@@ -1,6 +1,6 @@
 """Binary sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.6.28
+# Universal Room Automation v3.6.29
 # Build: 2026-01-02
 # File: binary_sensor.py
 # v3.2.6: Renamed "Presence" to "Sensor Presence" for clarity
@@ -117,6 +117,8 @@ async def async_setup_entry(
             SafetyAirQualityBinarySensor(hass, entry),
             # v3.6.0-c3: Security Coordinator
             SecurityAlertBinarySensor(hass, entry),
+            # v3.6.29: Notification Manager
+            NMActiveAlertBinarySensor(hass, entry),
         ]
         async_add_entities(coordinator_binary)
         return
@@ -1298,4 +1300,72 @@ class SecurityAlertBinarySensor(BinarySensorEntity):
     @callback
     def _handle_update(self) -> None:
         """Handle security entity update signal."""
+        self.async_write_ha_state()
+
+
+# ============================================================================
+# v3.6.29: Notification Manager Binary Sensor
+# ============================================================================
+
+
+class NMActiveAlertBinarySensor(BinarySensorEntity):
+    """True when an unacknowledged CRITICAL/HIGH alert exists.
+
+    Entity: binary_sensor.ura_notification_active_alert
+    Device: URA: Notification Manager
+    """
+
+    _attr_device_class = BinarySensorDeviceClass.SAFETY
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:bell-alert"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        self.hass = hass
+        self.entry = entry
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .const import DOMAIN, VERSION
+        self._attr_unique_id = f"{DOMAIN}_notification_active_alert"
+        self._attr_name = "Notification Active Alert"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "notification_manager")},
+            name="URA: Notification Manager",
+            manufacturer="Universal Room Automation",
+            model="Notification Manager",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+
+    @property
+    def is_on(self) -> bool:
+        """Return True if an active alert exists."""
+        from .const import DOMAIN
+        nm = self.hass.data.get(DOMAIN, {}).get("notification_manager")
+        if nm is None:
+            return False
+        return nm.active_alert
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return alert state details."""
+        from .const import DOMAIN
+        nm = self.hass.data.get(DOMAIN, {}).get("notification_manager")
+        if nm is None:
+            return {"alert_state": "not_initialized"}
+        return {"alert_state": nm.alert_state}
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to NM alert state changes."""
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_NM_ALERT_STATE_CHANGED
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_NM_ALERT_STATE_CHANGED, self._handle_update
+            )
+        )
+
+    @callback
+    def _handle_update(self) -> None:
+        """Handle NM alert state change signal."""
         self.async_write_ha_state()

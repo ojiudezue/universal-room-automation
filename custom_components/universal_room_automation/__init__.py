@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation v3.6.28
+# Universal Room Automation v3.6.29
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -953,6 +953,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 else:
                     _LOGGER.info("Music Following Coordinator disabled via config")
 
+                # v3.6.29: Register Notification Manager
+                from .const import CONF_NM_ENABLED
+                if cm_config.get(CONF_NM_ENABLED, False):
+                    from .domain_coordinators.notification_manager import (
+                        NotificationManager,
+                    )
+                    nm = NotificationManager(hass, cm_config)
+                    coordinator_manager.set_notification_manager(nm)
+                else:
+                    _LOGGER.info("Notification Manager disabled via config")
+
                 await coordinator_manager.async_start()
                 hass.data[DOMAIN]["coordinator_manager"] = coordinator_manager
                 _LOGGER.info("Domain Coordinator Manager initialized and started")
@@ -976,6 +987,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
         # v3.6.0-c3: Register security services
         await _async_register_security_services(hass)
+
+        # v3.6.29: Register notification manager services
+        await _async_register_notification_services(hass)
 
         # Set up aggregation sensors (sensor and binary_sensor platforms)
         # These will be registered via the platform files
@@ -1462,6 +1476,57 @@ async def _async_register_security_services(hass: HomeAssistant) -> None:
         )
 
     _LOGGER.info("Registered security services")
+
+
+async def _async_register_notification_services(hass: HomeAssistant) -> None:
+    """Register notification manager services.
+
+    Services:
+    - universal_room_automation.acknowledge_notification: Ack active alert
+    - universal_room_automation.test_notification: Send test notification
+    """
+    import voluptuous as vol
+
+    async def handle_acknowledge_notification(call):
+        """Handle acknowledge_notification service call."""
+        nm = hass.data.get(DOMAIN, {}).get("notification_manager")
+        if nm:
+            await nm.async_acknowledge()
+        else:
+            _LOGGER.warning("Notification Manager not available for acknowledge")
+
+    async def handle_test_notification(call):
+        """Handle test_notification service call."""
+        severity = call.data.get("severity", "MEDIUM")
+        channel = call.data.get("channel")
+        nm = hass.data.get(DOMAIN, {}).get("notification_manager")
+        if nm:
+            await nm.async_test_notification(severity=severity, channel=channel)
+        else:
+            _LOGGER.warning("Notification Manager not available for test")
+
+    if not hass.services.has_service(DOMAIN, "acknowledge_notification"):
+        hass.services.async_register(
+            DOMAIN,
+            "acknowledge_notification",
+            handle_acknowledge_notification,
+            schema=vol.Schema({}),
+        )
+
+    if not hass.services.has_service(DOMAIN, "test_notification"):
+        hass.services.async_register(
+            DOMAIN,
+            "test_notification",
+            handle_test_notification,
+            schema=vol.Schema({
+                vol.Optional("severity", default="MEDIUM"): vol.In([
+                    "LOW", "MEDIUM", "HIGH", "CRITICAL",
+                ]),
+                vol.Optional("channel"): str,
+            }),
+        )
+
+    _LOGGER.info("Registered notification manager services")
 
 
 async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:

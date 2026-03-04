@@ -137,3 +137,32 @@ add_expected_arrival:
           min: 5
           max: 1440
           unit_of_measurement: minutes
+
+acknowledge_notification:
+  name: Acknowledge Notification
+  description: Acknowledge the active CRITICAL alert, stopping repeat notifications and starting the cooldown timer.
+
+test_notification:
+  name: Test Notification
+  description: Send a test notification to verify channel configuration. Does not trigger real hazard responses.
+  fields:
+    severity:
+      name: Severity
+      description: The severity level for the test notification.
+      required: false
+      default: "MEDIUM"
+      example: "HIGH"
+      selector:
+        select:
+          options:
+            - "LOW"
+            - "MEDIUM"
+            - "HIGH"
+            - "CRITICAL"
+    channel:
+      name: Channel
+      description: Optional specific channel to test. If not provided, sends to all qualifying channels.
+      required: false
+      example: "pushover"
+      selector:
+        text:

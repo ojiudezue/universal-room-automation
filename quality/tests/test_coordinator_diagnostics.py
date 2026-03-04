@@ -801,7 +801,7 @@ class TestDiagnosticsConstants:
         assert COORDINATOR_ENABLED_KEYS["presence"] == "presence_coordinator_enabled"
         assert COORDINATOR_ENABLED_KEYS["energy"] == "energy_coordinator_enabled"
         assert COORDINATOR_ENABLED_KEYS["music_following"] == "music_following_coordinator_enabled"
-        assert len(COORDINATOR_ENABLED_KEYS) == 7
+        assert len(COORDINATOR_ENABLED_KEYS) == 8
 
     def test_retention_constants(self):
         assert RETENTION_ANOMALY_LOG == 90
