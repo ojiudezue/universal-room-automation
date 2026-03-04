@@ -1,6 +1,6 @@
 """Config flow for Universal Room Automation v3.6.24."""
 #
-# Universal Room Automation v3.6.30
+# Universal Room Automation v3.6.31
 # Build: 2026-01-05
 # File: config_flow.py
 # v3.3.3: Added manage_zones to integration options menu
@@ -2349,10 +2349,9 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         )
 
         if user_input is not None:
-            return self.async_create_entry(
-                title="",
-                data={**self._config_entry.options, **user_input},
-            )
+            # Store channel config and advance to persons step
+            self._nm_pending = {**self._config_entry.options, **user_input}
+            return await self.async_step_coordinator_notifications_persons()
 
         severity_options = [
             {"value": "LOW", "label": "Low"},
@@ -2451,7 +2450,8 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
 
         if user_input is not None:
             # Store as a single-person entry in the persons list
-            persons = list(self._get_current(CONF_NM_PERSONS, []))
+            pending = getattr(self, "_nm_pending", {**self._config_entry.options})
+            persons = list(pending.get(CONF_NM_PERSONS, []))
             person_entry = {
                 CONF_NM_PERSON_ENTITY: user_input.get(CONF_NM_PERSON_ENTITY, ""),
                 CONF_NM_PERSON_PUSHOVER_KEY: user_input.get(CONF_NM_PERSON_PUSHOVER_KEY, ""),
@@ -2466,11 +2466,9 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             entity_id = person_entry[CONF_NM_PERSON_ENTITY]
             persons = [p for p in persons if p.get(CONF_NM_PERSON_ENTITY) != entity_id]
             persons.append(person_entry)
-
-            return self.async_create_entry(
-                title="",
-                data={**self._config_entry.options, CONF_NM_PERSONS: persons},
-            )
+            self._nm_pending = {**pending, CONF_NM_PERSONS: persons}
+            # Advance to quiet hours
+            return await self.async_step_coordinator_notifications_quiet()
 
         delivery_options = [
             {"value": NM_DELIVERY_IMMEDIATE, "label": "Immediate"},
@@ -2535,10 +2533,10 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         )
 
         if user_input is not None:
-            return self.async_create_entry(
-                title="",
-                data={**self._config_entry.options, **user_input},
-            )
+            pending = getattr(self, "_nm_pending", {**self._config_entry.options})
+            self._nm_pending = {**pending, **user_input}
+            # Advance to cooldowns
+            return await self.async_step_coordinator_notifications_cooldowns()
 
         data_schema = vol.Schema({
             vol.Optional(
@@ -2577,9 +2575,12 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         )
 
         if user_input is not None:
+            # Final step — merge all accumulated NM config and save
+            pending = getattr(self, "_nm_pending", {**self._config_entry.options})
+            final_data = {**pending, **user_input}
             return self.async_create_entry(
                 title="",
-                data={**self._config_entry.options, **user_input},
+                data=final_data,
             )
 
         cooldown_schema = {}
