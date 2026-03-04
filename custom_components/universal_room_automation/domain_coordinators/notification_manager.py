@@ -197,6 +197,22 @@ class NotificationManager:
         self._cooldown_hazard_type: str | None = None
         self._cooldown_location: str | None = None
 
+        # Diagnostic counters (for anomaly/delivery/diagnostics sensors)
+        self._send_attempts: int = 0
+        self._send_successes: int = 0
+        self._send_failures: int = 0
+        self._dedup_suppressions: int = 0
+        self._quiet_suppressions: int = 0
+        self._notifications_by_severity: dict[str, int] = {
+            "LOW": 0, "MEDIUM": 0, "HIGH": 0, "CRITICAL": 0,
+        }
+        self._notifications_by_channel: dict[str, int] = {
+            "pushover": 0, "companion": 0, "whatsapp": 0, "tts": 0, "lights": 0,
+        }
+        # Rolling window for anomaly detection (hourly counts, last 24h)
+        self._hourly_counts: list[int] = [0] * 24
+        self._current_hour_idx: int = -1
+
     @property
     def device_info(self) -> DeviceInfo:
         """Return device info for the NM device."""
@@ -243,6 +259,51 @@ class NotificationManager:
     def notifications_today(self) -> int:
         """Return count of notifications today."""
         return self._notifications_today_count
+
+    @property
+    def delivery_rate(self) -> float:
+        """Return delivery success rate (0-100%)."""
+        if self._send_attempts == 0:
+            return 100.0
+        return round(self._send_successes / self._send_attempts * 100, 1)
+
+    @property
+    def diagnostics_summary(self) -> dict[str, Any]:
+        """Return diagnostic summary for the diagnostics sensor."""
+        return {
+            "send_attempts": self._send_attempts,
+            "send_successes": self._send_successes,
+            "send_failures": self._send_failures,
+            "delivery_rate": self.delivery_rate,
+            "dedup_suppressions": self._dedup_suppressions,
+            "quiet_suppressions": self._quiet_suppressions,
+            "by_severity": dict(self._notifications_by_severity),
+            "by_channel": dict(self._notifications_by_channel),
+        }
+
+    @property
+    def anomaly_status(self) -> str:
+        """Return anomaly status based on notification volume patterns.
+
+        Uses a simple heuristic: if current hour's count exceeds 3x the
+        rolling average, flag as advisory/alert.
+        """
+        if self._notifications_today_count == 0:
+            return "nominal"
+        # Need at least a few hours of data
+        non_zero = [c for c in self._hourly_counts if c > 0]
+        if len(non_zero) < 2:
+            return "learning"
+        avg = sum(self._hourly_counts) / max(len(non_zero), 1)
+        if avg == 0:
+            return "nominal"
+        current = self._hourly_counts[self._current_hour_idx] if self._current_hour_idx >= 0 else 0
+        ratio = current / avg
+        if ratio > 5:
+            return "alert"
+        if ratio > 3:
+            return "advisory"
+        return "nominal"
 
     # =========================================================================
     # Lifecycle
@@ -344,11 +405,13 @@ class NotificationManager:
         # Quiet hours check (CRITICAL bypasses)
         if severity != Severity.CRITICAL and self._is_quiet_hours():
             _LOGGER.debug("Notification suppressed during quiet hours: %s", title)
+            self._quiet_suppressions += 1
             return
 
         # Dedup check
         if self._is_deduplicated(coordinator_id, title, location, severity):
             _LOGGER.debug("Notification deduplicated: %s", title)
+            self._dedup_suppressions += 1
             return
 
         severity_str = severity.name
@@ -469,6 +532,10 @@ class NotificationManager:
             "timestamp": now_str,
         }
         self._notifications_today_count += 1
+        self._notifications_by_severity[severity_str] = (
+            self._notifications_by_severity.get(severity_str, 0) + 1
+        )
+        self._update_hourly_count()
 
         # Fire entity updates
         async_dispatcher_send(self.hass, SIGNAL_NM_ENTITIES_UPDATE)
@@ -1268,6 +1335,14 @@ class NotificationManager:
 
     def _update_channel_health(self, channel: str, success: bool) -> None:
         """Update channel health tracking."""
+        self._send_attempts += 1
+        if success:
+            self._send_successes += 1
+            if channel in self._notifications_by_channel:
+                self._notifications_by_channel[channel] += 1
+        else:
+            self._send_failures += 1
+
         health = self._channel_health.get(channel)
         if not health:
             return
@@ -1279,3 +1354,13 @@ class NotificationManager:
             health["failures"] = health.get("failures", 0) + 1
             if health["failures"] >= 3:
                 health["status"] = "degraded"
+
+    def _update_hourly_count(self) -> None:
+        """Track notification count for the current hour (anomaly detection)."""
+        now = dt_util.now()
+        hour_idx = now.hour
+        if hour_idx != self._current_hour_idx:
+            # New hour — reset the slot
+            self._current_hour_idx = hour_idx
+            self._hourly_counts[hour_idx] = 0
+        self._hourly_counts[hour_idx] += 1
