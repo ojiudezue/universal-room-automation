@@ -1,6 +1,6 @@
 """Camera integration and person census for Universal Room Automation v3.5.0."""
 #
-# Universal Room Automation v3.6.32
+# Universal Room Automation v3.6.33
 # Build: 2026-02-23
 # File: camera_census.py
 # Cycle 3: Camera Integration & Census Core
@@ -318,6 +318,116 @@ class CameraIntegrationManager:
 
         return all_camera_infos
 
+    def resolve_cross_platform_sensors(
+        self,
+        camera_entity_ids: list[str],
+    ) -> list[CameraInfo]:
+        """Resolve camera.* entities to person detection sensors across ALL platforms.
+
+        Standard resolve_configured_cameras() only finds sensors on the same device
+        as the camera.* entity. But a physical camera may have separate devices per
+        integration (e.g. Frigate device + UniFi Protect device for the same camera).
+
+        This method:
+          1. Calls resolve_configured_cameras() to get device-matched sensors
+          2. Extracts a name stem from each found sensor (e.g. "madrone_g6_entry")
+          3. Searches the entity registry for sibling sensors on OTHER platforms:
+             - binary_sensor.{stem}_person_detected
+             - binary_sensor.{stem}_person_occupancy
+             - binary_sensor.{stem}_person
+             - sensor.{stem}_person_count
+          4. Returns combined list, deduplicated by entity_id
+        """
+        # Step 1: standard resolution (same-device sensors)
+        base_infos = self.resolve_configured_cameras(camera_entity_ids)
+        seen_entity_ids = {info.entity_id for info in base_infos}
+        additional: list[CameraInfo] = []
+
+        ent_reg = er.async_get(self.hass)
+
+        # Step 2-3: for each found sensor, extract stem and search for siblings
+        for info in base_infos:
+            stem = self._extract_camera_stem(info.entity_id)
+            if not stem:
+                continue
+
+            # Sibling patterns to search for
+            sibling_candidates = [
+                (f"binary_sensor.{stem}_person_detected", "binary_sensor"),
+                (f"binary_sensor.{stem}_person_occupancy", "binary_sensor"),
+                (f"binary_sensor.{stem}_person", "binary_sensor"),
+                (f"sensor.{stem}_person_count", "sensor"),
+            ]
+
+            for candidate_id, domain in sibling_candidates:
+                if candidate_id in seen_entity_ids:
+                    continue
+
+                entry = ent_reg.async_get(candidate_id)
+                if entry is None:
+                    continue
+
+                seen_entity_ids.add(candidate_id)
+
+                if domain == "sensor":
+                    # person_count sensor — attach to existing CameraInfo if possible
+                    if info.person_count_sensor is None:
+                        info.person_count_sensor = candidate_id
+                    else:
+                        # Already has one; create separate CameraInfo for tracking
+                        additional.append(CameraInfo(
+                            entity_id=candidate_id,
+                            platform=entry.platform or CAMERA_PLATFORM_FRIGATE,
+                            area_id=entry.area_id or info.area_id,
+                            person_binary_sensor=None,
+                            person_count_sensor=candidate_id,
+                        ))
+                else:
+                    # binary_sensor sibling — determine platform
+                    platform = entry.platform or ""
+                    if candidate_id.endswith("_person_occupancy"):
+                        detected_platform = CAMERA_PLATFORM_FRIGATE
+                    elif candidate_id.endswith("_person_detected"):
+                        detected_platform = CAMERA_PLATFORM_UNIFI if platform == CAMERA_PLATFORM_UNIFI else platform or CAMERA_PLATFORM_UNIFI
+                    else:
+                        detected_platform = platform or CAMERA_PLATFORM_UNIFI
+
+                    additional.append(CameraInfo(
+                        entity_id=candidate_id,
+                        platform=detected_platform,
+                        area_id=entry.area_id or info.area_id,
+                        person_binary_sensor=candidate_id,
+                    ))
+
+        if additional:
+            _LOGGER.info(
+                "Cross-platform resolution found %d additional sensors: %s",
+                len(additional),
+                [a.entity_id for a in additional],
+            )
+
+        return base_infos + additional
+
+    @staticmethod
+    def _extract_camera_stem(entity_id: str) -> str | None:
+        """Extract the camera name stem from a person detection entity_id.
+
+        Examples:
+          binary_sensor.madrone_g6_entry_person_occupancy -> madrone_g6_entry
+          binary_sensor.madrone_g6_entry_person_detected  -> madrone_g6_entry
+          sensor.madrone_g6_entry_person_count            -> madrone_g6_entry
+        """
+        # Remove domain prefix
+        if "." not in entity_id:
+            return None
+        name = entity_id.split(".", 1)[1]
+
+        # Known suffixes to strip
+        for suffix in ("_person_occupancy", "_person_detected", "_person_count", "_person"):
+            if name.endswith(suffix):
+                return name[: -len(suffix)]
+        return None
+
     async def async_discover(
         self,
         room_cameras: list[str] | None = None,
@@ -558,6 +668,32 @@ class PersonCensus:
         self.hass = hass
         self._camera_manager = camera_manager
         self._last_result: FullCensusResult | None = None
+
+    # ------------------------------------------------------------------
+    # Transit detection helpers (cross-platform)
+    # ------------------------------------------------------------------
+
+    def get_transit_egress_entities(self) -> list[CameraInfo]:
+        """Return cross-platform CameraInfo for configured egress cameras."""
+        raw_cameras = self._get_raw_camera_list(CONF_EGRESS_CAMERAS)
+        if not raw_cameras:
+            return []
+        return self._camera_manager.resolve_cross_platform_sensors(raw_cameras)
+
+    def get_transit_interior_entities(self) -> list[CameraInfo]:
+        """Return cross-platform CameraInfo for configured interior cameras."""
+        raw_cameras = self._get_raw_camera_list(CONF_CAMERA_PERSON_ENTITIES)
+        if not raw_cameras:
+            return []
+        return self._camera_manager.resolve_cross_platform_sensors(raw_cameras)
+
+    def _get_raw_camera_list(self, conf_key: str) -> list[str]:
+        """Read raw camera.* entity IDs from the integration config entry."""
+        for entry in self.hass.config_entries.async_entries(DOMAIN):
+            if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_INTEGRATION:
+                merged = {**entry.data, **entry.options}
+                return merged.get(conf_key, [])
+        return []
 
     # ------------------------------------------------------------------
     # Public API
