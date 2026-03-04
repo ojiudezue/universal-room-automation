@@ -586,3 +586,74 @@ class TestTestNotification:
         await nm.async_test_notification()
         hass.services.async_call.assert_called()
         assert nm.last_notification["severity"] == "MEDIUM"
+
+
+class TestDiagnosticCounters:
+    """Test diagnostic counters and anomaly detection."""
+
+    @pytest.mark.asyncio
+    async def test_delivery_rate_100_initially(self):
+        """Delivery rate is 100% with no attempts."""
+        hass = _make_hass()
+        nm = NotificationManager(hass, _make_config())
+        assert nm.delivery_rate == 100.0
+
+    @pytest.mark.asyncio
+    async def test_delivery_rate_after_sends(self):
+        """Delivery rate tracks send success/failure."""
+        hass = _make_hass()
+        nm = NotificationManager(hass, _make_config())
+        nm._update_channel_health("pushover", True)
+        nm._update_channel_health("pushover", True)
+        nm._update_channel_health("pushover", False)
+        assert nm._send_attempts == 3
+        assert nm._send_successes == 2
+        assert nm._send_failures == 1
+        assert nm.delivery_rate == pytest.approx(66.7, abs=0.1)
+
+    @pytest.mark.asyncio
+    async def test_quiet_suppression_counted(self):
+        """Quiet hour suppressions are tracked."""
+        hass = _make_hass()
+        nm = NotificationManager(hass, _make_config(**{CONF_NM_QUIET_USE_HOUSE_STATE: True}))
+        mock_cm = MagicMock()
+        mock_cm.house_state = "sleep"
+        hass.data[DOMAIN]["coordinator_manager"] = mock_cm
+        await nm.async_notify("safety", Severity.HIGH, "Test", "Msg")
+        assert nm._quiet_suppressions == 1
+
+    @pytest.mark.asyncio
+    async def test_dedup_suppression_counted(self):
+        """Dedup suppressions are tracked."""
+        hass = _make_hass()
+        nm = NotificationManager(hass, _make_config())
+        await nm.async_notify("safety", Severity.MEDIUM, "Test", "Msg")
+        await nm.async_notify("safety", Severity.MEDIUM, "Test", "Msg")
+        assert nm._dedup_suppressions == 1
+
+    def test_anomaly_nominal_initially(self):
+        """Anomaly status is nominal with no notifications."""
+        hass = _make_hass()
+        nm = NotificationManager(hass, _make_config())
+        assert nm.anomaly_status == "nominal"
+
+    def test_diagnostics_summary_keys(self):
+        """Diagnostics summary has expected keys."""
+        hass = _make_hass()
+        nm = NotificationManager(hass, _make_config())
+        summary = nm.diagnostics_summary
+        assert "send_attempts" in summary
+        assert "delivery_rate" in summary
+        assert "dedup_suppressions" in summary
+        assert "by_severity" in summary
+        assert "by_channel" in summary
+
+    @pytest.mark.asyncio
+    async def test_severity_tracking(self):
+        """By-severity counter increments correctly."""
+        hass = _make_hass()
+        nm = NotificationManager(hass, _make_config())
+        await nm.async_notify("safety", Severity.MEDIUM, "Test1", "Msg")
+        await nm.async_notify("safety", Severity.HIGH, "Test2", "Msg")
+        assert nm._notifications_by_severity["MEDIUM"] == 1
+        assert nm._notifications_by_severity["HIGH"] == 1

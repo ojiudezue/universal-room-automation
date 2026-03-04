@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.6.29
+# Universal Room Automation v3.6.30
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -188,6 +188,9 @@ async def async_setup_entry(
             NMCooldownRemainingSensor(hass, entry),
             NMChannelStatusSensor(hass, entry),
             NMTriggerSensor(hass, entry),
+            NMAnomalySensor(hass, entry),
+            NMDeliveryRateSensor(hass, entry),
+            NMDiagnosticsSensor(hass, entry),
         ]
         async_add_entities(coordinator_sensors)
         return
@@ -4563,3 +4566,170 @@ class NMTriggerSensor(AggregationEntity, SensorEntity):
             "location": data.get("location"),
             "timestamp": data.get("timestamp", ""),
         }
+
+
+class NMAnomalySensor(AggregationEntity, SensorEntity):
+    """Notification volume anomaly status.
+
+    Entity: sensor.ura_notification_anomaly
+    Device: URA: Notification Manager
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:alert-circle-outline"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_notification_anomaly"
+        self._attr_name = "Notification Anomaly"
+        self._attr_device_info = _nm_device_info()
+
+    async def async_added_to_hass(self) -> None:
+        """Register signal listener."""
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_NM_ENTITIES_UPDATE
+        self.async_on_remove(
+            async_dispatcher_connect(self.hass, SIGNAL_NM_ENTITIES_UPDATE, self._handle_update)
+        )
+
+    @callback
+    def _handle_update(self) -> None:
+        """Handle NM entities update signal."""
+        self.async_write_ha_state()
+
+    @property
+    def native_value(self) -> str:
+        """Return anomaly status."""
+        nm = self.hass.data.get(DOMAIN, {}).get("notification_manager")
+        if nm is None:
+            return "not_initialized"
+        if not nm.enabled:
+            return "disabled"
+        return nm.anomaly_status
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return anomaly detail attributes."""
+        nm = self.hass.data.get(DOMAIN, {}).get("notification_manager")
+        if nm is None:
+            return {}
+        return {
+            "dedup_suppressions": nm._dedup_suppressions,
+            "quiet_suppressions": nm._quiet_suppressions,
+            "notifications_today": nm.notifications_today,
+        }
+
+
+class NMDeliveryRateSensor(AggregationEntity, SensorEntity):
+    """Notification delivery success rate.
+
+    Entity: sensor.ura_notification_delivery_rate
+    Device: URA: Notification Manager
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:check-network-outline"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_native_unit_of_measurement = "%"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_notification_delivery_rate"
+        self._attr_name = "Notification Delivery Rate"
+        self._attr_device_info = _nm_device_info()
+
+    async def async_added_to_hass(self) -> None:
+        """Register signal listener."""
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_NM_ENTITIES_UPDATE
+        self.async_on_remove(
+            async_dispatcher_connect(self.hass, SIGNAL_NM_ENTITIES_UPDATE, self._handle_update)
+        )
+
+    @callback
+    def _handle_update(self) -> None:
+        """Handle NM entities update signal."""
+        self.async_write_ha_state()
+
+    @property
+    def native_value(self) -> float:
+        """Return delivery success rate."""
+        nm = self.hass.data.get(DOMAIN, {}).get("notification_manager")
+        if nm is None:
+            return 100.0
+        return nm.delivery_rate
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return delivery detail."""
+        nm = self.hass.data.get(DOMAIN, {}).get("notification_manager")
+        if nm is None:
+            return {}
+        return {
+            "send_attempts": nm._send_attempts,
+            "send_successes": nm._send_successes,
+            "send_failures": nm._send_failures,
+        }
+
+
+class NMDiagnosticsSensor(AggregationEntity, SensorEntity):
+    """Composite NM health and diagnostics.
+
+    Entity: sensor.ura_notification_diagnostics
+    Device: URA: Notification Manager
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:stethoscope"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_notification_diagnostics"
+        self._attr_name = "Notification Diagnostics"
+        self._attr_device_info = _nm_device_info()
+
+    async def async_added_to_hass(self) -> None:
+        """Register signal listener."""
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_NM_ENTITIES_UPDATE
+        self.async_on_remove(
+            async_dispatcher_connect(self.hass, SIGNAL_NM_ENTITIES_UPDATE, self._handle_update)
+        )
+
+    @callback
+    def _handle_update(self) -> None:
+        """Handle NM entities update signal."""
+        self.async_write_ha_state()
+
+    @property
+    def native_value(self) -> str:
+        """Return overall NM health status."""
+        nm = self.hass.data.get(DOMAIN, {}).get("notification_manager")
+        if nm is None:
+            return "not_initialized"
+        if not nm.enabled:
+            return "disabled"
+        # Degraded if any channel is degraded or delivery rate < 80%
+        any_degraded = any(
+            ch["status"] == "degraded" for ch in nm.channel_status.values()
+        )
+        if any_degraded or nm.delivery_rate < 80:
+            return "degraded"
+        return "healthy"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return full diagnostic breakdown."""
+        nm = self.hass.data.get(DOMAIN, {}).get("notification_manager")
+        if nm is None:
+            return {}
+        return nm.diagnostics_summary

@@ -1,6 +1,6 @@
 """Switch platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.6.29
+# Universal Room Automation v3.6.30
 # Build: 2026-01-02
 # File: switch.py
 #
@@ -85,8 +85,8 @@ async def async_setup_entry(
                 conf_key=CONF_MUSIC_FOLLOWING_COORDINATOR_ENABLED,
                 name="Music Following Coordinator",
                 icon="mdi:music-note",
-                device_id="coordinator_music_following",
-                device_name="URA: Music Following",
+                device_id="music_following_coordinator",
+                device_name="URA: Music Following Coordinator",
                 device_model="Music Following Coordinator",
             ),
             # v3.6.29: Notification Manager
