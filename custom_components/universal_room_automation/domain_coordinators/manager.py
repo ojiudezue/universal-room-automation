@@ -19,6 +19,7 @@ from .base import (
     BaseCoordinator,
     CoordinatorAction,
     Intent,
+    NotificationAction,
     Severity,
     ServiceCallAction,
     SEVERITY_FACTORS,
@@ -140,6 +141,9 @@ class CoordinatorManager:
         self._decision_logger = DecisionLogger(hass)
         self._compliance_tracker = ComplianceTracker(hass)
 
+        # v3.6.29: Notification Manager (not a coordinator — standalone service)
+        self._notification_manager = None
+
     @property
     def device_info(self) -> DeviceInfo:
         """Return device info for the Coordinator Manager device."""
@@ -151,6 +155,16 @@ class CoordinatorManager:
             sw_version=VERSION,
             via_device=(DOMAIN, "integration"),
         )
+
+    @property
+    def notification_manager(self):
+        """Return the Notification Manager instance."""
+        return self._notification_manager
+
+    def set_notification_manager(self, nm) -> None:
+        """Set the Notification Manager instance."""
+        self._notification_manager = nm
+        _LOGGER.info("Notification Manager registered with Coordinator Manager")
 
     @property
     def house_state_machine(self) -> HouseStateMachine:
@@ -225,6 +239,17 @@ class CoordinatorManager:
             except Exception:
                 _LOGGER.exception("Failed to start coordinator %s", coord_id)
 
+        # v3.6.29: Start Notification Manager
+        if self._notification_manager:
+            try:
+                await self._notification_manager.async_setup()
+                self.hass.data.setdefault(DOMAIN, {})["notification_manager"] = (
+                    self._notification_manager
+                )
+                _LOGGER.info("Notification Manager started")
+            except Exception:
+                _LOGGER.exception("Failed to start Notification Manager")
+
         _LOGGER.info(
             "Coordinator Manager started with %d coordinators",
             len(self._coordinators),
@@ -252,6 +277,14 @@ class CoordinatorManager:
                 _LOGGER.exception(
                     "Error stopping coordinator %s", coordinator.coordinator_id
                 )
+
+        # v3.6.29: Stop Notification Manager
+        if self._notification_manager:
+            try:
+                await self._notification_manager.async_teardown()
+                self.hass.data.get(DOMAIN, {}).pop("notification_manager", None)
+            except Exception:
+                _LOGGER.exception("Error stopping Notification Manager")
 
         self._intent_queue.clear()
         _LOGGER.info("Coordinator Manager stopped")
@@ -389,6 +422,25 @@ class CoordinatorManager:
                         coordinator.coordinator_id,
                         action.severity.name,
                     )
+
+            elif action.action_type == ActionType.NOTIFICATION:
+                # v3.6.29: Route NotificationAction through NM
+                if isinstance(action, NotificationAction) and self._notification_manager:
+                    try:
+                        await self._notification_manager.async_notify(
+                            coordinator_id=coordinator.coordinator_id,
+                            severity=action.severity,
+                            title=action.description,
+                            message=action.message,
+                        )
+                    except Exception:
+                        _LOGGER.debug("NM routing failed (non-fatal)")
+                _LOGGER.info(
+                    "Notification from %s: %s (severity=%s)",
+                    coordinator.coordinator_id,
+                    action.description,
+                    action.severity.name,
+                )
 
             elif action.action_type == ActionType.LOG_ONLY:
                 _LOGGER.info(

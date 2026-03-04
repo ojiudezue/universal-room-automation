@@ -1,6 +1,6 @@
 """Database for Universal Room Automation."""
 #
-# Universal Room Automation v3.6.28
+# Universal Room Automation v3.6.29
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors
@@ -473,6 +473,34 @@ class UniversalRoomDatabase:
                 await db.execute("""
                     CREATE INDEX IF NOT EXISTS idx_param_history
                     ON parameter_history(coordinator_id, parameter_name)
+                """)
+
+                # v3.6.29: Notification Manager log
+                await db.execute("""
+                    CREATE TABLE IF NOT EXISTS notification_log (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        timestamp TEXT NOT NULL,
+                        coordinator_id TEXT NOT NULL,
+                        severity TEXT NOT NULL,
+                        title TEXT NOT NULL,
+                        message TEXT NOT NULL,
+                        hazard_type TEXT,
+                        location TEXT,
+                        person_id TEXT,
+                        channel TEXT,
+                        delivered INTEGER DEFAULT 0,
+                        acknowledged INTEGER DEFAULT 0,
+                        ack_time TEXT,
+                        cooldown_expires TEXT
+                    )
+                """)
+                await db.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_notification_log_date
+                    ON notification_log(timestamp)
+                """)
+                await db.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_notification_log_pending
+                    ON notification_log(person_id, delivered, severity)
                 """)
 
                 # v3.6.0: House state history
@@ -1976,3 +2004,178 @@ class UniversalRoomDatabase:
         except Exception as e:
             _LOGGER.error("Error fetching entry/exit events: %s", e)
             return []
+
+    # =========================================================================
+    # v3.6.29: Notification Manager database methods
+    # =========================================================================
+
+    async def log_notification(
+        self,
+        coordinator_id: str,
+        severity: str,
+        title: str,
+        message: str,
+        hazard_type: str | None = None,
+        location: str | None = None,
+        person_id: str | None = None,
+        channel: str | None = None,
+        delivered: int = 1,
+    ) -> int | None:
+        """Log a notification to the database. Returns the row ID."""
+        try:
+            async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
+                cursor = await db.execute("""
+                    INSERT INTO notification_log
+                    (timestamp, coordinator_id, severity, title, message,
+                     hazard_type, location, person_id, channel, delivered)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    dt_util.utcnow().isoformat(),
+                    coordinator_id, severity, title, message,
+                    hazard_type, location, person_id, channel, delivered,
+                ))
+                await db.commit()
+                return cursor.lastrowid
+        except Exception as e:
+            _LOGGER.error("Failed to log notification: %s", e)
+            return None
+
+    async def get_notifications_today(self) -> list[dict]:
+        """Get all delivered notifications from today."""
+        try:
+            today_start = dt_util.start_of_local_day().isoformat()
+            async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
+                db.row_factory = aiosqlite.Row
+                cursor = await db.execute("""
+                    SELECT * FROM notification_log
+                    WHERE timestamp >= ? AND delivered > 0
+                    ORDER BY timestamp DESC
+                """, (today_start,))
+                rows = await cursor.fetchall()
+                return [dict(row) for row in rows]
+        except Exception as e:
+            _LOGGER.error("Error fetching today's notifications: %s", e)
+            return []
+
+    async def get_last_notification(self) -> dict | None:
+        """Get the most recent delivered notification."""
+        try:
+            async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
+                db.row_factory = aiosqlite.Row
+                cursor = await db.execute("""
+                    SELECT * FROM notification_log
+                    WHERE delivered > 0
+                    ORDER BY timestamp DESC LIMIT 1
+                """)
+                row = await cursor.fetchone()
+                return dict(row) if row else None
+        except Exception as e:
+            _LOGGER.error("Error fetching last notification: %s", e)
+            return None
+
+    async def get_pending_digest(self, person_id: str) -> list[dict]:
+        """Get pending digest notifications for a person."""
+        try:
+            async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
+                db.row_factory = aiosqlite.Row
+                cursor = await db.execute("""
+                    SELECT * FROM notification_log
+                    WHERE person_id = ? AND delivered = 0
+                      AND severity IN ('LOW', 'MEDIUM')
+                    ORDER BY timestamp
+                """, (person_id,))
+                rows = await cursor.fetchall()
+                return [dict(row) for row in rows]
+        except Exception as e:
+            _LOGGER.error("Error fetching pending digest: %s", e)
+            return []
+
+    async def mark_digest_delivered(self, person_id: str) -> None:
+        """Mark all pending digest items as delivered for a person."""
+        try:
+            async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
+                await db.execute("""
+                    UPDATE notification_log SET delivered = 2
+                    WHERE person_id = ? AND delivered = 0
+                      AND severity IN ('LOW', 'MEDIUM')
+                """, (person_id,))
+                await db.commit()
+        except Exception as e:
+            _LOGGER.error("Error marking digest delivered: %s", e)
+
+    async def acknowledge_notification(self) -> None:
+        """Acknowledge the most recent unacknowledged CRITICAL notification."""
+        try:
+            async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
+                await db.execute("""
+                    UPDATE notification_log
+                    SET acknowledged = 1, ack_time = ?
+                    WHERE id = (
+                        SELECT id FROM notification_log
+                        WHERE acknowledged = 0 AND severity = 'CRITICAL'
+                        ORDER BY timestamp DESC LIMIT 1
+                    )
+                """, (dt_util.utcnow().isoformat(),))
+                await db.commit()
+        except Exception as e:
+            _LOGGER.error("Error acknowledging notification: %s", e)
+
+    async def get_active_critical(self) -> dict | None:
+        """Get the most recent unacknowledged CRITICAL notification."""
+        try:
+            async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
+                db.row_factory = aiosqlite.Row
+                cursor = await db.execute("""
+                    SELECT * FROM notification_log
+                    WHERE severity = 'CRITICAL' AND acknowledged = 0
+                    ORDER BY timestamp DESC LIMIT 1
+                """)
+                row = await cursor.fetchone()
+                return dict(row) if row else None
+        except Exception as e:
+            _LOGGER.error("Error fetching active critical: %s", e)
+            return None
+
+    async def get_active_cooldown(self) -> dict | None:
+        """Get the active cooldown notification (acked but cooldown not expired)."""
+        try:
+            now = dt_util.utcnow().isoformat()
+            async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
+                db.row_factory = aiosqlite.Row
+                cursor = await db.execute("""
+                    SELECT * FROM notification_log
+                    WHERE severity = 'CRITICAL' AND acknowledged = 1
+                      AND cooldown_expires IS NOT NULL AND cooldown_expires > ?
+                    ORDER BY timestamp DESC LIMIT 1
+                """, (now,))
+                row = await cursor.fetchone()
+                return dict(row) if row else None
+        except Exception as e:
+            _LOGGER.error("Error fetching active cooldown: %s", e)
+            return None
+
+    async def set_cooldown(self, notification_id: int, cooldown_expires: str) -> None:
+        """Set the cooldown expiry for a notification."""
+        try:
+            async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
+                await db.execute("""
+                    UPDATE notification_log SET cooldown_expires = ?
+                    WHERE id = ?
+                """, (cooldown_expires, notification_id))
+                await db.commit()
+        except Exception as e:
+            _LOGGER.error("Error setting cooldown: %s", e)
+
+    async def prune_notification_log(self, retention_days: int = 30) -> int:
+        """Prune notifications older than retention_days. Returns rows deleted."""
+        try:
+            cutoff = (dt_util.utcnow() - timedelta(days=retention_days)).isoformat()
+            async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
+                cursor = await db.execute("""
+                    DELETE FROM notification_log WHERE timestamp < ?
+                """, (cutoff,))
+                await db.commit()
+                return cursor.rowcount
+        except Exception as e:
+            _LOGGER.error("Error pruning notification log: %s", e)
+            return 0

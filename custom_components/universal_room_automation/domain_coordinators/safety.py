@@ -2112,6 +2112,18 @@ class SafetyCoordinator(BaseCoordinator):
     # Teardown
     # =========================================================================
 
+    def is_hazard_active(self, hazard_type: str, location: str) -> bool:
+        """Check if a specific hazard is still active (for NM re-fire logic)."""
+        key = f"{hazard_type}:{location}"
+        # Also check without enum prefix
+        for active_key in self._active_hazards:
+            if key == active_key or active_key.endswith(f":{location}"):
+                # Match by location and partial type
+                active_type = active_key.split(":")[0]
+                if hazard_type in active_type or active_type in hazard_type:
+                    return True
+        return key in self._active_hazards
+
     async def async_teardown(self) -> None:
         """Tear down the Safety Coordinator."""
         # v3.6.0.10: Save rate baselines before teardown

@@ -1,6 +1,6 @@
 """Config flow for Universal Room Automation v3.6.24."""
 #
-# Universal Room Automation v3.6.28
+# Universal Room Automation v3.6.29
 # Build: 2026-01-05
 # File: config_flow.py
 # v3.3.3: Added manage_zones to integration options menu
@@ -1515,6 +1515,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     "coordinator_safety",
                     "coordinator_security",
                     "coordinator_music_following",
+                    "coordinator_notifications",
                 ],
             )
         elif entry_type == ENTRY_TYPE_ZONE:
@@ -2324,6 +2325,286 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         return self.async_show_form(
             step_id="coordinator_music_following",
             data_schema=data_schema,
+        )
+
+    # =========================================================================
+    # v3.6.29: Notification Manager Config Flow Steps
+    # =========================================================================
+
+    async def async_step_coordinator_notifications(self, user_input=None):
+        """Configure Notification Manager channels.
+
+        v3.6.29: Enable/disable channels, set severity thresholds, configure
+        channel-specific settings (service names, speaker lists, lights).
+        """
+        from .const import (
+            CONF_NM_PUSHOVER_ENABLED, CONF_NM_PUSHOVER_SEVERITY, CONF_NM_PUSHOVER_SERVICE,
+            CONF_NM_COMPANION_ENABLED, CONF_NM_COMPANION_SEVERITY,
+            CONF_NM_WHATSAPP_ENABLED, CONF_NM_WHATSAPP_SEVERITY,
+            CONF_NM_TTS_ENABLED, CONF_NM_TTS_SEVERITY, CONF_NM_TTS_SPEAKERS,
+            CONF_NM_LIGHTS_ENABLED, CONF_NM_LIGHTS_SEVERITY, CONF_NM_ALERT_LIGHTS,
+            DEFAULT_NM_PUSHOVER_SEVERITY, DEFAULT_NM_COMPANION_SEVERITY,
+            DEFAULT_NM_WHATSAPP_SEVERITY, DEFAULT_NM_TTS_SEVERITY,
+            DEFAULT_NM_LIGHTS_SEVERITY,
+        )
+
+        if user_input is not None:
+            return self.async_create_entry(
+                title="",
+                data={**self._config_entry.options, **user_input},
+            )
+
+        severity_options = [
+            {"value": "LOW", "label": "Low"},
+            {"value": "MEDIUM", "label": "Medium"},
+            {"value": "HIGH", "label": "High"},
+            {"value": "CRITICAL", "label": "Critical"},
+        ]
+
+        data_schema = vol.Schema({
+            vol.Optional(
+                CONF_NM_PUSHOVER_ENABLED,
+                default=self._get_current(CONF_NM_PUSHOVER_ENABLED, False),
+            ): selector.BooleanSelector(),
+            vol.Optional(
+                CONF_NM_PUSHOVER_SEVERITY,
+                default=self._get_current(CONF_NM_PUSHOVER_SEVERITY, DEFAULT_NM_PUSHOVER_SEVERITY),
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(options=severity_options, mode=selector.SelectSelectorMode.DROPDOWN)
+            ),
+            vol.Optional(
+                CONF_NM_PUSHOVER_SERVICE,
+                default=self._get_current(CONF_NM_PUSHOVER_SERVICE, "notify.pushover"),
+            ): selector.TextSelector(),
+            vol.Optional(
+                CONF_NM_COMPANION_ENABLED,
+                default=self._get_current(CONF_NM_COMPANION_ENABLED, False),
+            ): selector.BooleanSelector(),
+            vol.Optional(
+                CONF_NM_COMPANION_SEVERITY,
+                default=self._get_current(CONF_NM_COMPANION_SEVERITY, DEFAULT_NM_COMPANION_SEVERITY),
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(options=severity_options, mode=selector.SelectSelectorMode.DROPDOWN)
+            ),
+            vol.Optional(
+                CONF_NM_WHATSAPP_ENABLED,
+                default=self._get_current(CONF_NM_WHATSAPP_ENABLED, False),
+            ): selector.BooleanSelector(),
+            vol.Optional(
+                CONF_NM_WHATSAPP_SEVERITY,
+                default=self._get_current(CONF_NM_WHATSAPP_SEVERITY, DEFAULT_NM_WHATSAPP_SEVERITY),
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(options=severity_options, mode=selector.SelectSelectorMode.DROPDOWN)
+            ),
+            vol.Optional(
+                CONF_NM_TTS_ENABLED,
+                default=self._get_current(CONF_NM_TTS_ENABLED, False),
+            ): selector.BooleanSelector(),
+            vol.Optional(
+                CONF_NM_TTS_SEVERITY,
+                default=self._get_current(CONF_NM_TTS_SEVERITY, DEFAULT_NM_TTS_SEVERITY),
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(options=severity_options, mode=selector.SelectSelectorMode.DROPDOWN)
+            ),
+            vol.Optional(
+                CONF_NM_TTS_SPEAKERS,
+                default=self._get_current(CONF_NM_TTS_SPEAKERS, []),
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="media_player", multiple=True)
+            ),
+            vol.Optional(
+                CONF_NM_LIGHTS_ENABLED,
+                default=self._get_current(CONF_NM_LIGHTS_ENABLED, False),
+            ): selector.BooleanSelector(),
+            vol.Optional(
+                CONF_NM_LIGHTS_SEVERITY,
+                default=self._get_current(CONF_NM_LIGHTS_SEVERITY, DEFAULT_NM_LIGHTS_SEVERITY),
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(options=severity_options, mode=selector.SelectSelectorMode.DROPDOWN)
+            ),
+            vol.Optional(
+                CONF_NM_ALERT_LIGHTS,
+                default=self._get_current(CONF_NM_ALERT_LIGHTS, []),
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="light", multiple=True)
+            ),
+        })
+
+        return self.async_show_form(
+            step_id="coordinator_notifications",
+            data_schema=data_schema,
+        )
+
+    async def async_step_coordinator_notifications_persons(self, user_input=None):
+        """Configure per-person notification settings.
+
+        v3.6.29: Person entity, channel credentials, delivery preference, digest times.
+        """
+        from .const import (
+            CONF_NM_PERSONS,
+            CONF_NM_PERSON_ENTITY, CONF_NM_PERSON_PUSHOVER_KEY,
+            CONF_NM_PERSON_COMPANION_SERVICE, CONF_NM_PERSON_WHATSAPP_PHONE,
+            CONF_NM_PERSON_DELIVERY_PREF, CONF_NM_PERSON_DIGEST_MORNING,
+            CONF_NM_PERSON_DIGEST_EVENING_ENABLED, CONF_NM_PERSON_DIGEST_EVENING,
+            NM_DELIVERY_IMMEDIATE, NM_DELIVERY_DIGEST, NM_DELIVERY_OFF,
+        )
+
+        if user_input is not None:
+            # Store as a single-person entry in the persons list
+            persons = list(self._get_current(CONF_NM_PERSONS, []))
+            person_entry = {
+                CONF_NM_PERSON_ENTITY: user_input.get(CONF_NM_PERSON_ENTITY, ""),
+                CONF_NM_PERSON_PUSHOVER_KEY: user_input.get(CONF_NM_PERSON_PUSHOVER_KEY, ""),
+                CONF_NM_PERSON_COMPANION_SERVICE: user_input.get(CONF_NM_PERSON_COMPANION_SERVICE, ""),
+                CONF_NM_PERSON_WHATSAPP_PHONE: user_input.get(CONF_NM_PERSON_WHATSAPP_PHONE, ""),
+                CONF_NM_PERSON_DELIVERY_PREF: user_input.get(CONF_NM_PERSON_DELIVERY_PREF, NM_DELIVERY_IMMEDIATE),
+                CONF_NM_PERSON_DIGEST_MORNING: user_input.get(CONF_NM_PERSON_DIGEST_MORNING, "08:00"),
+                CONF_NM_PERSON_DIGEST_EVENING_ENABLED: user_input.get(CONF_NM_PERSON_DIGEST_EVENING_ENABLED, False),
+                CONF_NM_PERSON_DIGEST_EVENING: user_input.get(CONF_NM_PERSON_DIGEST_EVENING, "18:00"),
+            }
+            # Replace existing entry for same person or add new
+            entity_id = person_entry[CONF_NM_PERSON_ENTITY]
+            persons = [p for p in persons if p.get(CONF_NM_PERSON_ENTITY) != entity_id]
+            persons.append(person_entry)
+
+            return self.async_create_entry(
+                title="",
+                data={**self._config_entry.options, CONF_NM_PERSONS: persons},
+            )
+
+        delivery_options = [
+            {"value": NM_DELIVERY_IMMEDIATE, "label": "Immediate"},
+            {"value": NM_DELIVERY_DIGEST, "label": "Daily Digest"},
+            {"value": NM_DELIVERY_OFF, "label": "Off"},
+        ]
+
+        data_schema = vol.Schema({
+            vol.Required(
+                CONF_NM_PERSON_ENTITY,
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="person")
+            ),
+            vol.Optional(
+                CONF_NM_PERSON_PUSHOVER_KEY,
+                default="",
+            ): selector.TextSelector(),
+            vol.Optional(
+                CONF_NM_PERSON_COMPANION_SERVICE,
+                default="",
+            ): selector.TextSelector(
+                selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT)
+            ),
+            vol.Optional(
+                CONF_NM_PERSON_WHATSAPP_PHONE,
+                default="",
+            ): selector.TextSelector(),
+            vol.Optional(
+                CONF_NM_PERSON_DELIVERY_PREF,
+                default=NM_DELIVERY_IMMEDIATE,
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(options=delivery_options, mode=selector.SelectSelectorMode.DROPDOWN)
+            ),
+            vol.Optional(
+                CONF_NM_PERSON_DIGEST_MORNING,
+                default="08:00",
+            ): selector.TimeSelector(),
+            vol.Optional(
+                CONF_NM_PERSON_DIGEST_EVENING_ENABLED,
+                default=False,
+            ): selector.BooleanSelector(),
+            vol.Optional(
+                CONF_NM_PERSON_DIGEST_EVENING,
+                default="18:00",
+            ): selector.TimeSelector(),
+        })
+
+        return self.async_show_form(
+            step_id="coordinator_notifications_persons",
+            data_schema=data_schema,
+        )
+
+    async def async_step_coordinator_notifications_quiet(self, user_input=None):
+        """Configure quiet hours settings.
+
+        v3.6.29: House state toggle or manual time window.
+        """
+        from .const import (
+            CONF_NM_QUIET_USE_HOUSE_STATE,
+            CONF_NM_QUIET_MANUAL_START,
+            CONF_NM_QUIET_MANUAL_END,
+        )
+
+        if user_input is not None:
+            return self.async_create_entry(
+                title="",
+                data={**self._config_entry.options, **user_input},
+            )
+
+        data_schema = vol.Schema({
+            vol.Optional(
+                CONF_NM_QUIET_USE_HOUSE_STATE,
+                default=self._get_current(CONF_NM_QUIET_USE_HOUSE_STATE, True),
+            ): selector.BooleanSelector(),
+            vol.Optional(
+                CONF_NM_QUIET_MANUAL_START,
+                default=self._get_current(CONF_NM_QUIET_MANUAL_START, "22:00"),
+            ): selector.TimeSelector(),
+            vol.Optional(
+                CONF_NM_QUIET_MANUAL_END,
+                default=self._get_current(CONF_NM_QUIET_MANUAL_END, "07:00"),
+            ): selector.TimeSelector(),
+        })
+
+        return self.async_show_form(
+            step_id="coordinator_notifications_quiet",
+            data_schema=data_schema,
+        )
+
+    async def async_step_coordinator_notifications_cooldowns(self, user_input=None):
+        """Configure per-hazard-type cooldown durations.
+
+        v3.6.29: Minutes before re-evaluating after ack.
+        """
+        from .const import (
+            CONF_NM_COOLDOWN_SMOKE, CONF_NM_COOLDOWN_CO,
+            CONF_NM_COOLDOWN_FLOODING, CONF_NM_COOLDOWN_WATER_LEAK,
+            CONF_NM_COOLDOWN_FREEZE, CONF_NM_COOLDOWN_INTRUSION,
+            CONF_NM_COOLDOWN_DEFAULT,
+            DEFAULT_NM_COOLDOWN_SMOKE, DEFAULT_NM_COOLDOWN_CO,
+            DEFAULT_NM_COOLDOWN_FLOODING, DEFAULT_NM_COOLDOWN_WATER_LEAK,
+            DEFAULT_NM_COOLDOWN_FREEZE, DEFAULT_NM_COOLDOWN_INTRUSION,
+            DEFAULT_NM_COOLDOWN_DEFAULT,
+        )
+
+        if user_input is not None:
+            return self.async_create_entry(
+                title="",
+                data={**self._config_entry.options, **user_input},
+            )
+
+        cooldown_schema = {}
+        for key, default in [
+            (CONF_NM_COOLDOWN_SMOKE, DEFAULT_NM_COOLDOWN_SMOKE),
+            (CONF_NM_COOLDOWN_CO, DEFAULT_NM_COOLDOWN_CO),
+            (CONF_NM_COOLDOWN_FLOODING, DEFAULT_NM_COOLDOWN_FLOODING),
+            (CONF_NM_COOLDOWN_WATER_LEAK, DEFAULT_NM_COOLDOWN_WATER_LEAK),
+            (CONF_NM_COOLDOWN_FREEZE, DEFAULT_NM_COOLDOWN_FREEZE),
+            (CONF_NM_COOLDOWN_INTRUSION, DEFAULT_NM_COOLDOWN_INTRUSION),
+            (CONF_NM_COOLDOWN_DEFAULT, DEFAULT_NM_COOLDOWN_DEFAULT),
+        ]:
+            cooldown_schema[vol.Optional(
+                key,
+                default=self._get_current(key, default),
+            )] = selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=1, max=60, step=1, unit_of_measurement="minutes",
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            )
+
+        return self.async_show_form(
+            step_id="coordinator_notifications_cooldowns",
+            data_schema=vol.Schema(cooldown_schema),
         )
 
     async def async_step_coordinator_toggles(self, user_input=None):

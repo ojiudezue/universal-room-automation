@@ -6,7 +6,7 @@ Reads VERSION from const.py and updates:
 2. manifest.json version field
 
 Optional CLI usage:
-  python3 stamp_version.py 3.3.5.7
+  python3 stamp_version.py 3.6.0.1
   When a version argument is provided, const.py is updated first,
   then the normal stamping proceeds.
 """
@@ -20,8 +20,11 @@ COMPONENT_DIR = Path(__file__).resolve().parent.parent / "custom_components" / "
 CONST_FILE = COMPONENT_DIR / "const.py"
 MANIFEST_FILE = COMPONENT_DIR / "manifest.json"
 
+# Match the entire version string after "# Universal Room Automation v"
+# This handles accumulated versions like "v3.6.0-c2.9.3-c2.9.2-..." and
+# clean versions like "v3.6.0.1"
 HEADER_PATTERN = re.compile(
-    r"(# Universal Room Automation v)\d+\.\d+\.\d+(?:\.\d+)*"
+    r"(# Universal Room Automation v)[^\n]+"
 )
 
 

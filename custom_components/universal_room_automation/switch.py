@@ -1,6 +1,6 @@
 """Switch platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.6.28
+# Universal Room Automation v3.6.29
 # Build: 2026-01-02
 # File: switch.py
 #
@@ -18,6 +18,7 @@ from .const import (
     CONF_DOMAIN_COORDINATORS_ENABLED,
     CONF_ENTRY_TYPE,
     CONF_MUSIC_FOLLOWING_COORDINATOR_ENABLED,
+    CONF_NM_ENABLED,
     CONF_PRESENCE_ENABLED,
     CONF_SAFETY_ENABLED,
     CONF_SECURITY_ENABLED,
@@ -87,6 +88,17 @@ async def async_setup_entry(
                 device_id="coordinator_music_following",
                 device_name="URA: Music Following",
                 device_model="Music Following Coordinator",
+            ),
+            # v3.6.29: Notification Manager
+            CoordinatorEnabledSwitch(
+                hass, entry,
+                coordinator_id="notification_manager",
+                conf_key=CONF_NM_ENABLED,
+                name="Notification Manager",
+                icon="mdi:bell-ring",
+                device_id="notification_manager",
+                device_name="URA: Notification Manager",
+                device_model="Notification Manager",
             ),
         ])
         return

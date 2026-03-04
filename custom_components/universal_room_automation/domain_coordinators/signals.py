@@ -17,6 +17,8 @@ SIGNAL_SAFETY_HAZARD: Final = "ura_safety_hazard"
 SIGNAL_SAFETY_ENTITIES_UPDATE: Final = "ura_safety_entities_update"
 SIGNAL_SECURITY_EVENT: Final = "ura_security_event"
 SIGNAL_SECURITY_ENTITIES_UPDATE: Final = "ura_security_entities_update"
+SIGNAL_NM_ENTITIES_UPDATE: Final = "ura_nm_entities_update"
+SIGNAL_NM_ALERT_STATE_CHANGED: Final = "ura_nm_alert_state_changed"
 
 
 # ============================================================================

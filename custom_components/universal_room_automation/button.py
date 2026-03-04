@@ -1,6 +1,6 @@
 """Button platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.6.28
+# Universal Room Automation v3.6.29
 # Build: 2026-01-04
 # File: button.py
 #
@@ -35,6 +35,15 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up Universal Room Automation buttons."""
+    from .const import CONF_ENTRY_TYPE, ENTRY_TYPE_COORDINATOR_MANAGER
+
+    # v3.6.29: Coordinator Manager entry — NM acknowledge button
+    if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_COORDINATOR_MANAGER:
+        async_add_entities([NMAcknowledgeButton(hass, entry)])
+        return
+
+    if entry.entry_id not in hass.data.get(DOMAIN, {}):
+        return
     coordinator: UniversalRoomCoordinator = hass.data[DOMAIN][entry.entry_id]
     
     entities = [
@@ -459,3 +468,51 @@ class OptimizeNowButton(UniversalRoomEntity, ButtonEntity):
         # TODO: Implement optimization analysis
         # For now, just log
         _LOGGER.warning("Optimization analysis not yet implemented")
+
+
+# ============================================================================
+# v3.6.29: Notification Manager Acknowledge Button
+# ============================================================================
+
+
+class NMAcknowledgeButton(ButtonEntity):
+    """Button to acknowledge an active CRITICAL alert.
+
+    Entity: button.ura_notification_acknowledge
+    Device: URA: Notification Manager
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:bell-check"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        self.hass = hass
+        self._entry = entry
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .const import VERSION
+        self._attr_unique_id = f"{DOMAIN}_notification_acknowledge"
+        self._attr_name = "Acknowledge Alert"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "notification_manager")},
+            name="URA: Notification Manager",
+            manufacturer="Universal Room Automation",
+            model="Notification Manager",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+
+    @property
+    def available(self) -> bool:
+        """Button is available when NM is active."""
+        nm = self.hass.data.get(DOMAIN, {}).get("notification_manager")
+        return nm is not None
+
+    async def async_press(self) -> None:
+        """Handle button press — acknowledge the active alert."""
+        nm = self.hass.data.get(DOMAIN, {}).get("notification_manager")
+        if nm:
+            await nm.async_acknowledge()
+            _LOGGER.info("Alert acknowledged via dashboard button")
+        else:
+            _LOGGER.warning("Notification Manager not available")

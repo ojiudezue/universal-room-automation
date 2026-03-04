@@ -229,6 +229,10 @@ class BaseCoordinator(ABC):
     async def async_teardown(self) -> None:
         """Tear down the coordinator — unsubscribe listeners, clean up."""
 
+    def is_hazard_active(self, hazard_type: str, location: str) -> bool:
+        """Check if a specific hazard is still active. Override in subclasses."""
+        return False
+
     def get_diagnostics_summary(self) -> dict[str, Any]:
         """Return diagnostics summary for this coordinator.
 

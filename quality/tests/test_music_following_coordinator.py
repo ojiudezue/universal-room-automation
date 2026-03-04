@@ -374,4 +374,4 @@ class TestBackwardCompatibility:
         assert "hvac" in COORDINATOR_ENABLED_KEYS
         assert "comfort" in COORDINATOR_ENABLED_KEYS
         assert "music_following" in COORDINATOR_ENABLED_KEYS
-        assert len(COORDINATOR_ENABLED_KEYS) == 7
+        assert len(COORDINATOR_ENABLED_KEYS) == 8

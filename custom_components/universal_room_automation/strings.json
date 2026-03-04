@@ -358,6 +358,10 @@
           "coordinator_safety": "\ud83d\udee1\ufe0f Safety Monitoring",
           "coordinator_security": "\ud83d\udd12 Security",
           "coordinator_music_following": "\ud83c\udfb5 Music Following",
+          "coordinator_notifications": "\ud83d\udd14 Notifications",
+          "coordinator_notifications_persons": "\ud83d\udc64 Notification Persons",
+          "coordinator_notifications_quiet": "\ud83c\udf19 Quiet Hours",
+          "coordinator_notifications_cooldowns": "\u23f1\ufe0f Cooldowns",
           "coordinator_toggles": "\u2699\ufe0f Enable/Disable Coordinators",
           "basic_setup": "\ud83d\udeaa Basic Setup",
           "sensors": "\ud83d\udce1 Sensors",
@@ -599,6 +603,100 @@
           "mf_position_offset": "Seconds to add to the media position when resuming on the target speaker, to account for transfer delay. Default: 3.",
           "mf_min_confidence": "Minimum transition confidence (0.1-1.0) required to trigger a music transfer. Lower values transfer more aggressively. Default: 0.6.",
           "mf_high_confidence_distance": "Maximum BLE distance (feet) from closest area scanner to trigger music transfer. Tighter than person tracking default (10ft) to avoid transfers on BLE bleed-through from adjacent rooms. Default: 8."
+        }
+      },
+      "coordinator_notifications": {
+        "title": "\ud83d\udd14 Notification Channels",
+        "description": "Configure notification channels. Enable channels and set minimum severity thresholds for each. CRITICAL alerts always bypass quiet hours and severity filters.",
+        "data": {
+          "nm_pushover_enabled": "Pushover Enabled",
+          "nm_pushover_severity": "Pushover Severity Threshold",
+          "nm_pushover_service": "Pushover Service Name",
+          "nm_companion_enabled": "Companion App Enabled",
+          "nm_companion_severity": "Companion App Severity Threshold",
+          "nm_whatsapp_enabled": "WhatsApp Enabled",
+          "nm_whatsapp_severity": "WhatsApp Severity Threshold",
+          "nm_tts_enabled": "TTS Enabled",
+          "nm_tts_severity": "TTS Severity Threshold",
+          "nm_tts_speakers": "TTS Speaker Entities",
+          "nm_lights_enabled": "Alert Lights Enabled",
+          "nm_lights_severity": "Alert Lights Severity Threshold",
+          "nm_alert_lights": "Alert Light Entities"
+        },
+        "data_description": {
+          "nm_pushover_enabled": "Enable Pushover push notifications.",
+          "nm_pushover_severity": "Minimum severity to trigger Pushover. Default: MEDIUM.",
+          "nm_pushover_service": "HA notify service for Pushover (e.g., notify.pushover).",
+          "nm_companion_enabled": "Enable HA Companion App push notifications with action buttons.",
+          "nm_companion_severity": "Minimum severity to trigger Companion App. Default: HIGH.",
+          "nm_whatsapp_enabled": "Enable WhatsApp messaging via ha-wa-bridge.",
+          "nm_whatsapp_severity": "Minimum severity to trigger WhatsApp. Default: HIGH.",
+          "nm_tts_enabled": "Enable TTS announcements on speakers.",
+          "nm_tts_severity": "Minimum severity to trigger TTS. Default: CRITICAL.",
+          "nm_tts_speakers": "Media player entities for TTS announcements.",
+          "nm_lights_enabled": "Enable alert light patterns during hazards.",
+          "nm_lights_severity": "Minimum severity to trigger alert lights. Default: HIGH.",
+          "nm_alert_lights": "Light entities to use for alert patterns (flash, pulse, etc.)."
+        }
+      },
+      "coordinator_notifications_persons": {
+        "title": "\ud83d\udc64 Notification Persons",
+        "description": "Configure per-person notification settings. Each person can have their own channel credentials and delivery preferences. Submit once per person.",
+        "data": {
+          "nm_person_entity": "Person Entity",
+          "nm_person_pushover_key": "Pushover User Key",
+          "nm_person_companion_service": "Companion App Notify Service",
+          "nm_person_whatsapp_phone": "WhatsApp Phone Number",
+          "nm_person_delivery_pref": "Low/Medium Delivery Preference",
+          "nm_person_digest_morning": "Morning Digest Time",
+          "nm_person_digest_evening_enabled": "Evening Digest Enabled",
+          "nm_person_digest_evening": "Evening Digest Time"
+        },
+        "data_description": {
+          "nm_person_entity": "Select a person to configure notifications for.",
+          "nm_person_pushover_key": "Pushover user key for this person (leave empty if not using Pushover).",
+          "nm_person_companion_service": "HA Companion App notify service (e.g., notify.mobile_app_phone). Leave empty if not using.",
+          "nm_person_whatsapp_phone": "WhatsApp phone number with country code (e.g., +1234567890). Leave empty if not using.",
+          "nm_person_delivery_pref": "How LOW and MEDIUM alerts are delivered. Immediate: each individually. Daily Digest: batched summary. Off: suppressed. CRITICAL/HIGH are always immediate.",
+          "nm_person_digest_morning": "Time for morning digest delivery. Default: 08:00.",
+          "nm_person_digest_evening_enabled": "Enable a second digest delivery in the evening.",
+          "nm_person_digest_evening": "Time for evening digest delivery. Default: 18:00."
+        }
+      },
+      "coordinator_notifications_quiet": {
+        "title": "\ud83c\udf19 Quiet Hours",
+        "description": "Configure when non-CRITICAL notifications are suppressed. CRITICAL alerts always bypass quiet hours.",
+        "data": {
+          "nm_quiet_use_house_state": "Use House State (SLEEP + HOME_NIGHT = quiet)",
+          "nm_quiet_manual_start": "Manual Quiet Start Time",
+          "nm_quiet_manual_end": "Manual Quiet End Time"
+        },
+        "data_description": {
+          "nm_quiet_use_house_state": "When enabled, quiet hours activate automatically when house state is SLEEP or HOME_NIGHT. Disable to use manual time window.",
+          "nm_quiet_manual_start": "Start time for manual quiet hours (used when house state mode is off).",
+          "nm_quiet_manual_end": "End time for manual quiet hours."
+        }
+      },
+      "coordinator_notifications_cooldowns": {
+        "title": "\u23f1\ufe0f Post-Acknowledge Cooldowns",
+        "description": "Configure how long to wait after acknowledging a CRITICAL alert before re-evaluating whether the hazard is still active. If still active, the alert re-fires.",
+        "data": {
+          "nm_cooldown_smoke": "Smoke / Fire Cooldown",
+          "nm_cooldown_co": "Carbon Monoxide Cooldown",
+          "nm_cooldown_flooding": "Flooding Cooldown",
+          "nm_cooldown_water_leak": "Water Leak Cooldown",
+          "nm_cooldown_freeze": "Freeze Risk Cooldown",
+          "nm_cooldown_intrusion": "Intrusion Cooldown",
+          "nm_cooldown_default": "Default Cooldown"
+        },
+        "data_description": {
+          "nm_cooldown_smoke": "Minutes before re-checking after acknowledging a smoke/fire alert. Default: 2.",
+          "nm_cooldown_co": "Minutes before re-checking after acknowledging a CO alert. Default: 2.",
+          "nm_cooldown_flooding": "Minutes before re-checking after acknowledging a flooding alert. Default: 5.",
+          "nm_cooldown_water_leak": "Minutes before re-checking after acknowledging a water leak alert. Default: 10.",
+          "nm_cooldown_freeze": "Minutes before re-checking after acknowledging a freeze risk alert. Default: 15.",
+          "nm_cooldown_intrusion": "Minutes before re-checking after acknowledging a security intrusion alert. Default: 3.",
+          "nm_cooldown_default": "Default cooldown for unspecified hazard types. Default: 10."
         }
       },
       "coordinator_toggles": {
