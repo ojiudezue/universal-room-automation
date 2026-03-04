@@ -744,6 +744,17 @@ def my_function(param1, param2):
 
 ---
 
+## 📋 TECH DEBT
+
+### Music Following Device Group Duplication (v3.6.30)
+Music Following was originally a house-level feature, later promoted to a coordinator. Its device appears in both the top-level "Universal Room Automation" integration group AND the "URA: Coordinator Manager" group. Other coordinators (Presence, Safety, Security, NM) only appear under Coordinator Manager. An orphaned "URA: Music Following" device (old identifier `coordinator_music_following`, 0 entities) also lingers in the registry.
+
+**Risk:** MF initialization in `__init__.py` may be tied to the house config entry. Moving it or deleting the orphan could break MF functionality. No config flow entry point for MF exists in the house group.
+
+**Status:** Parked. Orphan can be deleted via HA UI. Grouping fix requires investigating MF init path.
+
+---
+
 **Quality Context v3.0**  
 **Last Updated:** January 4, 2026  
 **Next Update:** After discovering new patterns  
