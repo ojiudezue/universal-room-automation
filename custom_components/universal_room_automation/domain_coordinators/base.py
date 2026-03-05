@@ -133,6 +133,8 @@ class NotificationAction(CoordinatorAction):
     action_type: ActionType = ActionType.NOTIFICATION
     message: str = ""
     channels: list[str] = field(default_factory=list)
+    hazard_type: str = ""  # Maps to NM light pattern (e.g., "intruder", "fire")
+    location: str = ""  # Source entity/room for context
 
 
 @dataclass
