@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.6.34
+# Universal Room Automation v3.6.35
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -177,6 +177,9 @@ async def async_setup_entry(
             SecurityLastEntrySensor(hass, entry),
             SecurityAnomalySensor(hass, entry),
             SecurityComplianceSensor(hass, entry),
+            SecurityOpenEntriesSensor(hass, entry),
+            SecurityLastLockSweepSensor(hass, entry),
+            SecurityExpectedArrivalsSensor(hass, entry),
             # v3.6.27: Music Following Coordinator sensors
             MusicFollowingAnomalySensor(hass, entry),
             MusicFollowingTransfersTodaySensor(hass, entry),
@@ -3918,6 +3921,22 @@ class SecurityAnomalySensor(AggregationEntity, SensorEntity):
             return "disabled"
         return security.get_anomaly_status()
 
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to security entity updates."""
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_SECURITY_ENTITIES_UPDATE
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_SECURITY_ENTITIES_UPDATE, self._handle_update
+            )
+        )
+
+    @callback
+    def _handle_update(self) -> None:
+        """Handle security entity update signal."""
+        self.async_write_ha_state()
+
 
 class SecurityComplianceSensor(AggregationEntity, SensorEntity):
     """Security lock compliance rate.
@@ -3960,6 +3979,231 @@ class SecurityComplianceSensor(AggregationEntity, SensorEntity):
         if security is None:
             return {}
         return security.get_compliance_summary()
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to security entity updates."""
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_SECURITY_ENTITIES_UPDATE
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_SECURITY_ENTITIES_UPDATE, self._handle_update
+            )
+        )
+
+    @callback
+    def _handle_update(self) -> None:
+        """Handle security entity update signal."""
+        self.async_write_ha_state()
+
+
+class SecurityOpenEntriesSensor(AggregationEntity, SensorEntity):
+    """Count of currently-open configured doors/windows.
+
+    Entity: sensor.ura_security_open_entries
+    Device: URA: Security Coordinator
+    State: integer count of open entries
+    Attributes: list of open entries with entity_id, opened_at, open_minutes
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:door-open"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_security_open_entries"
+        self._attr_name = "Security Open Entries"
+        self._attr_device_info = _security_device_info()
+
+    @property
+    def native_value(self) -> int:
+        """Return count of open entry sensors."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return 0
+        security = manager.coordinators.get("security")
+        if security is None:
+            return 0
+        return len(security.open_entries)
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return open entry details."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return {}
+        security = manager.coordinators.get("security")
+        if security is None:
+            return {}
+        return security.get_open_entries_snapshot()
+
+    @property
+    def icon(self) -> str:
+        """Dynamic icon based on open count."""
+        if self.native_value > 0:
+            return "mdi:door-open"
+        return "mdi:door-closed-lock"
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to security entity updates."""
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_SECURITY_ENTITIES_UPDATE
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_SECURITY_ENTITIES_UPDATE, self._handle_update
+            )
+        )
+
+    @callback
+    def _handle_update(self) -> None:
+        """Handle security entity update signal."""
+        self.async_write_ha_state()
+
+
+class SecurityLastLockSweepSensor(AggregationEntity, SensorEntity):
+    """Last lock sweep timestamp and results.
+
+    Entity: sensor.ura_security_last_lock_sweep
+    Device: URA: Security Coordinator
+    State: ISO timestamp of last sweep (or "never")
+    Attributes: found_unlocked, lock_actions_sent, unavailable, checks_today
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:lock-check"
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_security_last_lock_sweep"
+        self._attr_name = "Security Last Lock Sweep"
+        self._attr_device_info = _security_device_info()
+
+    @property
+    def native_value(self):
+        """Return the timestamp of the last lock sweep."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        security = manager.coordinators.get("security")
+        if security is None:
+            return None
+        sweep = security.last_lock_sweep
+        ts = sweep.get("timestamp")
+        if not ts:
+            return None
+        from datetime import datetime
+        try:
+            return datetime.fromisoformat(ts)
+        except (ValueError, TypeError):
+            return None
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return lock sweep result details."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return {}
+        security = manager.coordinators.get("security")
+        if security is None:
+            return {}
+        sweep = security.last_lock_sweep
+        if not sweep:
+            return {"status": "no_sweep_yet"}
+        return {
+            "found_unlocked": sweep.get("found_unlocked", []),
+            "lock_actions_sent": sweep.get("lock_actions_sent", []),
+            "unavailable": sweep.get("unavailable", []),
+            "checks_today": sweep.get("checks_today", 0),
+        }
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to security entity updates."""
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_SECURITY_ENTITIES_UPDATE
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_SECURITY_ENTITIES_UPDATE, self._handle_update
+            )
+        )
+
+    @callback
+    def _handle_update(self) -> None:
+        """Handle security entity update signal."""
+        self.async_write_ha_state()
+
+
+class SecurityExpectedArrivalsSensor(AggregationEntity, SensorEntity):
+    """Expected arrivals and authorized guests currently active.
+
+    Entity: sensor.ura_security_expected_arrivals
+    Device: URA: Security Coordinator
+    State: count of active expected arrivals (geofence + manual)
+    Attributes: expected_arrivals list, authorized_guests list
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:account-arrow-left"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_security_expected_arrivals"
+        self._attr_name = "Security Expected Arrivals"
+        self._attr_device_info = _security_device_info()
+
+    @property
+    def native_value(self) -> int:
+        """Return count of active expected arrivals."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return 0
+        security = manager.coordinators.get("security")
+        if security is None:
+            return 0
+        snapshot = security.get_arrivals_snapshot()
+        return snapshot.get("expected_count", 0)
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return arrival and guest details."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return {}
+        security = manager.coordinators.get("security")
+        if security is None:
+            return {}
+        return security.get_arrivals_snapshot()
+
+    @property
+    def icon(self) -> str:
+        """Dynamic icon based on arrival count."""
+        if self.native_value > 0:
+            return "mdi:account-arrow-left"
+        return "mdi:account-check"
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to security entity updates."""
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_SECURITY_ENTITIES_UPDATE
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_SECURITY_ENTITIES_UPDATE, self._handle_update
+            )
+        )
+
+    @callback
+    def _handle_update(self) -> None:
+        """Handle security entity update signal."""
+        self.async_write_ha_state()
 
 
 # ============================================================================

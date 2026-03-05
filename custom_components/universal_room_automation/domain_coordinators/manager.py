@@ -432,6 +432,8 @@ class CoordinatorManager:
                             severity=action.severity,
                             title=action.description,
                             message=action.message,
+                            hazard_type=action.hazard_type or None,
+                            location=action.location or None,
                         )
                     except Exception:
                         _LOGGER.debug("NM routing failed (non-fatal)")

@@ -201,6 +201,32 @@ class SanctionChecker:
         # Nobody home and door opens → investigate
         return EntryVerdict.INVESTIGATE
 
+    def get_expected_arrivals_snapshot(self) -> list[dict[str, Any]]:
+        """Return current expected arrivals for sensor exposure."""
+        now = dt_util.utcnow()
+        result = []
+        for person_id, expires in self._expected_arrivals.items():
+            if expires > now:
+                result.append({
+                    "person_id": person_id,
+                    "expires": expires.isoformat(),
+                    "minutes_remaining": round((expires - now).total_seconds() / 60, 1),
+                })
+        return result
+
+    def get_authorized_guests_snapshot(self) -> list[dict[str, Any]]:
+        """Return current authorized guests for sensor exposure."""
+        now = dt_util.utcnow()
+        result = []
+        for name, expires in self._authorized_guests.items():
+            if expires > now:
+                result.append({
+                    "guest_name": name,
+                    "expires": expires.isoformat(),
+                    "hours_remaining": round((expires - now).total_seconds() / 3600, 1),
+                })
+        return result
+
     def has_unknown_persons(self, context: dict[str, Any]) -> bool:
         """Check if unknown persons are detected."""
         census = context.get("census", {})
@@ -445,6 +471,12 @@ class SecurityCoordinator(BaseCoordinator):
         self._lock_checks_today: int = 0
         self._last_reset_date: str = ""
 
+        # Open entries tracking: entity_id -> opened_at timestamp
+        self._open_entries: dict[str, datetime] = {}
+
+        # Lock sweep results (persisted for sensor exposure)
+        self._last_lock_sweep: dict[str, Any] = {}
+
         # Sub-components
         self._sanction_checker = SanctionChecker(hass)
         self._entry_processor = EntryProcessor(hass, self._sanction_checker)
@@ -484,6 +516,11 @@ class SecurityCoordinator(BaseCoordinator):
                     self._handle_entry_sensor_change,
                 )
             )
+            # Seed open entries from current state (handles HA restart)
+            for sensor_id in self._entry_sensors:
+                state = self.hass.states.get(sensor_id)
+                if state and state.state in ("on", "open"):
+                    self._open_entries[sensor_id] = dt_util.utcnow()
 
         # Alarm panel bidirectional sync
         if self._alarm_panel_entity:
@@ -494,6 +531,10 @@ class SecurityCoordinator(BaseCoordinator):
                     self._handle_alarm_panel_change,
                 )
             )
+
+        # Geofence arrival: watch person.* entities for not_home → home
+        # Automatically adds arriving persons to expected arrivals list
+        self._setup_geofence_listener()
 
         # Periodic lock check
         if self._lock_check_interval > 0 and (
@@ -579,7 +620,15 @@ class SecurityCoordinator(BaseCoordinator):
             old_state=intent.data.get("old_state", "off"),
         )
 
-        # Only process door/window opening (off→on or closed→open)
+        # Track open/close for open entries sensor
+        if event.new_state in ("on", "open"):
+            self._open_entries[intent.entity_id] = dt_util.utcnow()
+        elif event.new_state in ("off", "closed", "unavailable", "unknown"):
+            if intent.entity_id in self._open_entries:
+                self._open_entries.pop(intent.entity_id)
+                async_dispatcher_send(self.hass, SIGNAL_SECURITY_ENTITIES_UPDATE)
+
+        # Only process door/window opening (off->on or closed->open)
         if event.new_state not in ("on", "open"):
             return []
 
@@ -648,13 +697,15 @@ class SecurityCoordinator(BaseCoordinator):
                 )
             )
 
-        # Notification
+        # Notification with hazard_type for NM light patterns
         actions.append(
             NotificationAction(
                 coordinator_id=self.COORDINATOR_ID,
                 severity=Severity.HIGH,
                 message="Unknown person detected — all doors locked",
                 channels=["security"],
+                hazard_type="intruder",
+                location="property",
                 description="Unknown person alert notification",
             )
         )
@@ -784,6 +835,8 @@ class SecurityCoordinator(BaseCoordinator):
                     severity=Severity.MEDIUM,
                     message=f"Investigate entry at {entity_id} — armed, unrecognized",
                     channels=["security"],
+                    hazard_type="investigate",
+                    location=entity_id,
                     description=f"Entry investigate: {entity_id}",
                 )
             ]
@@ -808,19 +861,6 @@ class SecurityCoordinator(BaseCoordinator):
             self._generate_lockdown_actions(f"Security alert at {entity_id}")
         )
 
-        # Security lights
-        for light_id in self._security_light_entities:
-            actions.append(
-                ServiceCallAction(
-                    coordinator_id=self.COORDINATOR_ID,
-                    target_device=light_id,
-                    severity=severity,
-                    service="light.turn_on",
-                    service_data={"entity_id": light_id, "brightness": 255},
-                    description=f"Security light: {light_id}",
-                )
-            )
-
         # Camera recording trigger (uses platform-aware dispatcher)
         if self._camera_recording_enabled and self._camera_entities:
             actions.extend(
@@ -829,13 +869,18 @@ class SecurityCoordinator(BaseCoordinator):
                 )
             )
 
-        # Notification
+        # Notification with hazard_type for NM light patterns
+        # NM handles light patterns (intruder flash, etc.) when hazard_type is set.
+        # If NM is unavailable, manager still logs the notification.
+        hazard = "intruder" if verdict == EntryVerdict.ALERT_HIGH else "investigate"
         actions.append(
             NotificationAction(
                 coordinator_id=self.COORDINATOR_ID,
                 severity=severity,
                 message=f"Security {verdict.value}: entry at {entity_id}",
                 channels=["security"],
+                hazard_type=hazard,
+                location=entity_id,
                 description=f"Security alert notification: {entity_id}",
             )
         )
@@ -964,6 +1009,17 @@ class SecurityCoordinator(BaseCoordinator):
                         self.COORDINATOR_ID, entity_id, "locked"
                     )
 
+        # Persist sweep results for sensor exposure
+        # Note: "lock_actions_sent" are proposed actions; actual execution
+        # depends on CoordinatorManager conflict resolution.
+        self._last_lock_sweep = {
+            "timestamp": dt_util.utcnow().isoformat(),
+            "found_unlocked": unlocked,
+            "lock_actions_sent": unlocked.copy(),
+            "unavailable": unavailable,
+            "checks_today": self._lock_checks_today,
+        }
+
         async_dispatcher_send(self.hass, SIGNAL_SECURITY_ENTITIES_UPDATE)
         return actions
 
@@ -1035,6 +1091,69 @@ class SecurityCoordinator(BaseCoordinator):
                 coordinator_id=self.COORDINATOR_ID,
             )
         )
+
+    # =========================================================================
+    # Geofence arrival listener
+    # =========================================================================
+
+    def _setup_geofence_listener(self) -> None:
+        """Subscribe to person.* entities for arrival detection."""
+        person_entities = [
+            state.entity_id
+            for state in self.hass.states.async_all("person")
+        ]
+        if not person_entities:
+            _LOGGER.debug("No person entities found for geofence arrival detection")
+            return
+
+        _LOGGER.info(
+            "Geofence arrival listener: watching %d person entities",
+            len(person_entities),
+        )
+        self._unsub_listeners.append(
+            async_track_state_change_event(
+                self.hass,
+                person_entities,
+                self._handle_person_state_change,
+            )
+        )
+
+    @callback
+    def _handle_person_state_change(self, event: Event) -> None:
+        """Auto-add expected arrival when person transitions toward home.
+
+        Only active when armed — no need to track arrivals when disarmed.
+        """
+        if self._armed_state == ArmedState.DISARMED:
+            return
+
+        new_state = event.data.get("new_state")
+        old_state = event.data.get("old_state")
+        if new_state is None or old_state is None:
+            return
+
+        entity_id = event.data.get("entity_id", "")
+        old_val = old_state.state
+        new_val = new_state.state
+
+        # not_home → home: person just arrived
+        if old_val == "not_home" and new_val == "home":
+            _LOGGER.info(
+                "Geofence arrival: %s arrived home, adding to expected arrivals",
+                entity_id,
+            )
+            self._sanction_checker.add_expected_arrival(entity_id, window_minutes=10)
+            async_dispatcher_send(self.hass, SIGNAL_SECURITY_ENTITIES_UPDATE)
+
+        # not_home → zone (approaching): could be a nearby zone
+        elif old_val == "not_home" and new_val not in ("not_home", "home", "unavailable", "unknown"):
+            _LOGGER.info(
+                "Geofence proximity: %s entered zone '%s', adding to expected arrivals",
+                entity_id,
+                new_val,
+            )
+            self._sanction_checker.add_expected_arrival(entity_id, window_minutes=30)
+            async_dispatcher_send(self.hass, SIGNAL_SECURITY_ENTITIES_UPDATE)
 
     # =========================================================================
     # Service handlers
@@ -1111,6 +1230,17 @@ class SecurityCoordinator(BaseCoordinator):
     # Public status methods (for sensors)
     # =========================================================================
 
+    def get_arrivals_snapshot(self) -> dict[str, Any]:
+        """Return expected arrivals and authorized guests for sensor exposure."""
+        arrivals = self._sanction_checker.get_expected_arrivals_snapshot()
+        guests = self._sanction_checker.get_authorized_guests_snapshot()
+        return {
+            "expected_arrivals": arrivals,
+            "expected_count": len(arrivals),
+            "authorized_guests": guests,
+            "guest_count": len(guests),
+        }
+
     @property
     def armed_state(self) -> ArmedState:
         """Return the current armed state."""
@@ -1135,6 +1265,32 @@ class SecurityCoordinator(BaseCoordinator):
     def lock_compliance(self) -> dict[str, str]:
         """Return lock compliance status."""
         return self._lock_compliance
+
+    @property
+    def open_entries(self) -> dict[str, datetime]:
+        """Return currently open entry sensors with their opened-at timestamps."""
+        return self._open_entries
+
+    @property
+    def last_lock_sweep(self) -> dict[str, Any]:
+        """Return the last lock sweep results."""
+        return self._last_lock_sweep
+
+    def get_open_entries_snapshot(self) -> dict[str, Any]:
+        """Return open entries data for sensor exposure."""
+        now = dt_util.utcnow()
+        entries = []
+        for entity_id, opened_at in self._open_entries.items():
+            duration_s = (now - opened_at).total_seconds()
+            entries.append({
+                "entity_id": entity_id,
+                "opened_at": opened_at.isoformat(),
+                "open_minutes": round(duration_s / 60, 1),
+            })
+        return {
+            "count": len(self._open_entries),
+            "entries": entries,
+        }
 
     def get_security_status(self) -> str:
         """Return overall security status string."""
