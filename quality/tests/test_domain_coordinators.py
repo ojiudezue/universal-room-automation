@@ -622,4 +622,4 @@ class TestBaseCoordinator:
     def test_device_info(self):
         coord = _MockCoordinator(MagicMock(), "safety", "Safety", 100)
         info = coord.device_info
-        assert ("universal_room_automation", "coordinator_safety") in info.get("identifiers", set())
+        assert ("universal_room_automation", "safety_coordinator") in info.get("identifiers", set())

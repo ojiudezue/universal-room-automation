@@ -199,7 +199,7 @@ class BaseCoordinator(ABC):
     def device_info(self) -> DeviceInfo:
         """Return device info for this coordinator's device."""
         return DeviceInfo(
-            identifiers={(DOMAIN, f"coordinator_{self.coordinator_id}")},
+            identifiers={(DOMAIN, f"{self.coordinator_id}_coordinator")},
             name=f"URA: {self.name}",
             manufacturer="Universal Room Automation",
             model="Domain Coordinator",
