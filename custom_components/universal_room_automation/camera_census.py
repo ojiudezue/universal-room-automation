@@ -1,6 +1,6 @@
 """Camera integration and person census for Universal Room Automation v3.5.0."""
 #
-# Universal Room Automation v3.6.33
+# Universal Room Automation v3.6.34
 # Build: 2026-02-23
 # File: camera_census.py
 # Cycle 3: Camera Integration & Census Core
@@ -1255,7 +1255,9 @@ class PersonCensus:
                 face_sensor_id = f"sensor.{base_name}_last_recognized_face"
 
                 state = self.hass.states.get(face_sensor_id)
-                if state and state.state not in ("unavailable", "unknown", "", "none", "None"):
+                if state and state.state.strip().lower() not in (
+                    "unavailable", "unknown", "", "none", "no_match",
+                ):
                     face_ids.add(state.state.strip())
 
         if face_ids:
