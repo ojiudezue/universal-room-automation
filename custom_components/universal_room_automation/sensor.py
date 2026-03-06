@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.6.40
+# Universal Room Automation v3.7.0
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -194,6 +194,32 @@ async def async_setup_entry(
             NMAnomalySensor(hass, entry),
             NMDeliveryRateSensor(hass, entry),
             NMDiagnosticsSensor(hass, entry),
+            # v3.7.0-E1: Energy Coordinator sensors
+            EnergyTOUPeriodSensor(hass, entry),
+            EnergyTOURateSensor(hass, entry),
+            EnergyTOUSeasonSensor(hass, entry),
+            EnergyBatteryStrategySensor(hass, entry),
+            EnergySolarDayClassSensor(hass, entry),
+            # v3.7.0-E2: Pool + EV sensors
+            EnergyPoolOptimizationSensor(hass, entry),
+            EnergyEVChargingStatusSensor(hass, entry),
+            # v3.7.0-E3: Circuit + Generator sensors
+            EnergyCircuitAnomalySensor(hass, entry),
+            EnergyGeneratorStatusSensor(hass, entry),
+            # v3.7.0-E4: Billing + Cost sensors
+            EnergyCoordCostTodaySensor(hass, entry),
+            EnergyCostCycleSensor(hass, entry),
+            EnergyPredictedBillSensor(hass, entry),
+            EnergyCurrentRateSensor(hass, entry),
+            EnergyImportTodaySensor(hass, entry),
+            EnergyExportTodaySensor(hass, entry),
+            # v3.7.0-E5: Forecast sensors
+            EnergyForecastTodaySensor(hass, entry),
+            EnergyBatteryFullTimeSensor(hass, entry),
+            EnergyForecastAccuracySensor(hass, entry),
+            # v3.7.0-E6: Situation + Constraint sensors
+            EnergySituationSensor(hass, entry),
+            EnergyHVACConstraintSensor(hass, entry),
         ]
         async_add_entities(coordinator_sensors)
         return
@@ -4977,3 +5003,800 @@ class NMDiagnosticsSensor(AggregationEntity, SensorEntity):
         if nm is None:
             return {}
         return nm.diagnostics_summary
+
+
+# ============================================================================
+# v3.7.0-E1: ENERGY COORDINATOR SENSORS
+# ============================================================================
+
+
+def _energy_device_info():
+    """Return device info for Energy Coordinator sensors."""
+    return DeviceInfo(
+        identifiers={(DOMAIN, "energy_coordinator")},
+        name="URA: Energy Coordinator",
+        manufacturer="Universal Room Automation",
+        model="Energy Coordinator",
+        sw_version=VERSION,
+        via_device=(DOMAIN, "coordinator_manager"),
+    )
+
+
+class EnergyTOUPeriodSensor(AggregationEntity, SensorEntity):
+    """Current TOU period: off_peak, mid_peak, or peak.
+
+    Entity: sensor.ura_tou_period
+    Device: URA: Energy Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:clock-time-four"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_tou_period"
+        self._attr_name = "TOU Period"
+        self._attr_device_info = _energy_device_info()
+
+    @property
+    def native_value(self) -> str:
+        """Return current TOU period."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return "unknown"
+        energy = manager.coordinators.get("energy")
+        if energy is None:
+            return "unknown"
+        return energy.tou_period
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return TOU details."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return {}
+        energy = manager.coordinators.get("energy")
+        if energy is None:
+            return {}
+        info = energy.tou_engine.get_period_info()
+        next_t = info.get("next_transition", {})
+        return {
+            "season": info.get("season"),
+            "import_rate": info.get("import_rate"),
+            "export_rate": info.get("export_rate"),
+            "effective_import_rate": info.get("effective_import_rate"),
+            "next_period": next_t.get("next_period"),
+            "hours_until_transition": next_t.get("hours_until"),
+        }
+
+
+class EnergyTOURateSensor(AggregationEntity, SensorEntity):
+    """Current TOU import rate in $/kWh.
+
+    Entity: sensor.ura_tou_rate
+    Device: URA: Energy Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:currency-usd"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = "$/kWh"
+    _attr_suggested_display_precision = 4
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_tou_rate"
+        self._attr_name = "TOU Rate"
+        self._attr_device_info = _energy_device_info()
+
+    @property
+    def native_value(self) -> float | None:
+        """Return current import rate."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        energy = manager.coordinators.get("energy")
+        if energy is None:
+            return None
+        return round(energy.tou_rate, 6)
+
+
+class EnergyTOUSeasonSensor(AggregationEntity, SensorEntity):
+    """Current TOU season: summer, shoulder, or winter.
+
+    Entity: sensor.ura_tou_season
+    Device: URA: Energy Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:weather-sunny"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_tou_season"
+        self._attr_name = "TOU Season"
+        self._attr_device_info = _energy_device_info()
+
+    @property
+    def native_value(self) -> str:
+        """Return current season."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return "unknown"
+        energy = manager.coordinators.get("energy")
+        if energy is None:
+            return "unknown"
+        return energy.tou_season
+
+
+class EnergyBatteryStrategySensor(AggregationEntity, SensorEntity):
+    """Current battery strategy mode and reason.
+
+    Entity: sensor.ura_battery_strategy
+    Device: URA: Energy Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:battery-charging"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_battery_strategy"
+        self._attr_name = "Battery Strategy"
+        self._attr_device_info = _energy_device_info()
+
+    @property
+    def native_value(self) -> str:
+        """Return current battery mode."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return "unknown"
+        energy = manager.coordinators.get("energy")
+        if energy is None:
+            return "unknown"
+        status = energy.battery_status
+        return status.get("mode", "unknown")
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return battery strategy details."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return {}
+        energy = manager.coordinators.get("energy")
+        if energy is None:
+            return {}
+        return energy.battery_status
+
+
+class EnergySolarDayClassSensor(AggregationEntity, SensorEntity):
+    """Solar day classification from Solcast forecast.
+
+    Entity: sensor.ura_solar_day_class
+    Device: URA: Energy Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:white-balance-sunny"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_solar_day_class"
+        self._attr_name = "Solar Day Class"
+        self._attr_device_info = _energy_device_info()
+
+    @property
+    def native_value(self) -> str:
+        """Return solar day classification."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return "unknown"
+        energy = manager.coordinators.get("energy")
+        if energy is None:
+            return "unknown"
+        return energy.solar_day_class
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return Solcast forecast details."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return {}
+        energy = manager.coordinators.get("energy")
+        if energy is None:
+            return {}
+        battery = energy.battery_strategy
+        return {
+            "forecast_today_kwh": battery.solcast_today,
+            "forecast_remaining_kwh": battery.solcast_remaining,
+        }
+
+
+# ============================================================================
+# v3.7.0-E2: ENERGY POOL + EV SENSORS
+# ============================================================================
+
+
+class EnergyPoolOptimizationSensor(AggregationEntity, SensorEntity):
+    """Current pool optimization state.
+
+    Entity: sensor.ura_pool_optimization
+    Device: URA: Energy Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:pool"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_pool_optimization"
+        self._attr_name = "Pool Optimization"
+        self._attr_device_info = _energy_device_info()
+
+    @property
+    def native_value(self) -> str:
+        """Return pool optimization state."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return "unknown"
+        energy = manager.coordinators.get("energy")
+        if energy is None:
+            return "unknown"
+        return energy.pool_status.get("state", "unknown")
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return pool details."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return {}
+        energy = manager.coordinators.get("energy")
+        if energy is None:
+            return {}
+        return energy.pool_status
+
+
+class EnergyEVChargingStatusSensor(AggregationEntity, SensorEntity):
+    """EV charging status across all EVSEs.
+
+    Entity: sensor.ura_ev_charging_status
+    Device: URA: Energy Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:ev-station"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_ev_charging_status"
+        self._attr_name = "EV Charging Status"
+        self._attr_device_info = _energy_device_info()
+
+    @property
+    def native_value(self) -> str:
+        """Return overall EV status."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return "unknown"
+        energy = manager.coordinators.get("energy")
+        if energy is None:
+            return "unknown"
+        status = energy.ev_status
+        paused = status.get("paused_by_energy", [])
+        if paused:
+            return "paused"
+        # Check if any EVSE is actively charging
+        for key, val in status.items():
+            if isinstance(val, dict) and val.get("charging"):
+                return "charging"
+        return "idle"
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return per-EVSE details."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return {}
+        energy = manager.coordinators.get("energy")
+        if energy is None:
+            return {}
+        return energy.ev_status
+
+
+# ============================================================================
+# v3.7.0-E3: CIRCUIT + GENERATOR SENSORS
+# ============================================================================
+
+
+class EnergyCircuitAnomalySensor(AggregationEntity, SensorEntity):
+    """Circuit anomaly state.
+
+    Entity: sensor.ura_circuit_anomaly
+    Device: URA: Energy Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:flash-alert"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_circuit_anomaly"
+        self._attr_name = "Circuit Anomaly"
+        self._attr_device_info = _energy_device_info()
+
+    @property
+    def native_value(self) -> str:
+        """Return anomaly state."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return "unknown"
+        energy = manager.coordinators.get("energy")
+        if energy is None:
+            return "unknown"
+        status = energy.circuit_status
+        count = status.get("anomaly_count", 0)
+        if count > 0:
+            return f"alert ({count})"
+        return "normal"
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return circuit monitoring details."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return {}
+        energy = manager.coordinators.get("energy")
+        if energy is None:
+            return {}
+        return energy.circuit_status
+
+
+class EnergyGeneratorStatusSensor(AggregationEntity, SensorEntity):
+    """Generator status sensor.
+
+    Entity: sensor.ura_generator_status
+    Device: URA: Energy Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:engine"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_generator_status"
+        self._attr_name = "Generator Status"
+        self._attr_device_info = _energy_device_info()
+
+    @property
+    def native_value(self) -> str:
+        """Return generator status."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return "unknown"
+        energy = manager.coordinators.get("energy")
+        if energy is None:
+            return "unknown"
+        return energy.generator_status.get("status", "unknown")
+
+
+# ============================================================================
+# v3.7.0-E4: BILLING + COST SENSORS
+# ============================================================================
+
+
+class EnergyCoordCostTodaySensor(AggregationEntity, SensorEntity):
+    """Net energy cost today (coordinator-level).
+
+    Entity: sensor.ura_energy_cost_today
+    Device: URA: Energy Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:cash"
+    _attr_device_class = SensorDeviceClass.MONETARY
+    _attr_state_class = SensorStateClass.TOTAL
+    _attr_native_unit_of_measurement = "USD"
+    _attr_suggested_display_precision = 2
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_energy_cost_today"
+        self._attr_name = "Energy Cost Today"
+        self._attr_device_info = _energy_device_info()
+
+    @property
+    def native_value(self) -> float | None:
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        energy = manager.coordinators.get("energy")
+        if energy is None:
+            return None
+        return energy.cost_today
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return {}
+        energy = manager.coordinators.get("energy")
+        if energy is None:
+            return {}
+        status = energy.billing_status
+        return {
+            "import_kwh": status.get("import_kwh_today"),
+            "import_cost": status.get("import_cost_today"),
+            "export_kwh": status.get("export_kwh_today"),
+            "export_credit": status.get("export_credit_today"),
+        }
+
+
+class EnergyCostCycleSensor(AggregationEntity, SensorEntity):
+    """Cost so far in billing cycle.
+
+    Entity: sensor.ura_energy_cost_this_cycle
+    Device: URA: Energy Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:calendar-clock"
+    _attr_device_class = SensorDeviceClass.MONETARY
+    _attr_state_class = SensorStateClass.TOTAL
+    _attr_native_unit_of_measurement = "USD"
+    _attr_suggested_display_precision = 2
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_energy_cost_this_cycle"
+        self._attr_name = "Energy Cost This Cycle"
+        self._attr_device_info = _energy_device_info()
+
+    @property
+    def native_value(self) -> float | None:
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        energy = manager.coordinators.get("energy")
+        if energy is None:
+            return None
+        return energy.cost_this_cycle
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return {}
+        energy = manager.coordinators.get("energy")
+        if energy is None:
+            return {}
+        status = energy.billing_status
+        return {
+            "days_in_cycle": status.get("days_in_cycle"),
+            "cycle_start_date": status.get("cycle_start_date"),
+            "import_kwh_cycle": status.get("import_kwh_cycle"),
+            "export_kwh_cycle": status.get("export_kwh_cycle"),
+        }
+
+
+class EnergyPredictedBillSensor(AggregationEntity, SensorEntity):
+    """Predicted monthly bill (available after 7 days in cycle).
+
+    Entity: sensor.ura_energy_predicted_bill
+    Device: URA: Energy Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:receipt-text"
+    _attr_device_class = SensorDeviceClass.MONETARY
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = "USD"
+    _attr_suggested_display_precision = 2
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_energy_predicted_bill"
+        self._attr_name = "Predicted Bill"
+        self._attr_device_info = _energy_device_info()
+
+    @property
+    def native_value(self) -> float | None:
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        energy = manager.coordinators.get("energy")
+        if energy is None:
+            return None
+        return energy.predicted_bill
+
+
+class EnergyCurrentRateSensor(AggregationEntity, SensorEntity):
+    """Current effective import rate.
+
+    Entity: sensor.ura_energy_current_rate
+    Device: URA: Energy Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:currency-usd"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = "$/kWh"
+    _attr_suggested_display_precision = 4
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_energy_current_rate"
+        self._attr_name = "Current Energy Rate"
+        self._attr_device_info = _energy_device_info()
+
+    @property
+    def native_value(self) -> float | None:
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        energy = manager.coordinators.get("energy")
+        if energy is None:
+            return None
+        return round(energy.current_effective_rate, 6)
+
+
+class EnergyImportTodaySensor(AggregationEntity, SensorEntity):
+    """Import kWh today.
+
+    Entity: sensor.ura_energy_import_today
+    Device: URA: Energy Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:transmission-tower-import"
+    _attr_device_class = SensorDeviceClass.ENERGY
+    _attr_state_class = SensorStateClass.TOTAL_INCREASING
+    _attr_native_unit_of_measurement = "kWh"
+    _attr_suggested_display_precision = 2
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_energy_import_today"
+        self._attr_name = "Energy Import Today"
+        self._attr_device_info = _energy_device_info()
+
+    @property
+    def native_value(self) -> float | None:
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        energy = manager.coordinators.get("energy")
+        if energy is None:
+            return None
+        return energy.billing_status.get("import_kwh_today")
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return {}
+        energy = manager.coordinators.get("energy")
+        if energy is None:
+            return {}
+        return {"cost": energy.billing_status.get("import_cost_today")}
+
+
+class EnergyExportTodaySensor(AggregationEntity, SensorEntity):
+    """Export kWh today.
+
+    Entity: sensor.ura_energy_export_today
+    Device: URA: Energy Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:transmission-tower-export"
+    _attr_device_class = SensorDeviceClass.ENERGY
+    _attr_state_class = SensorStateClass.TOTAL_INCREASING
+    _attr_native_unit_of_measurement = "kWh"
+    _attr_suggested_display_precision = 2
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_energy_export_today"
+        self._attr_name = "Energy Export Today"
+        self._attr_device_info = _energy_device_info()
+
+    @property
+    def native_value(self) -> float | None:
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        energy = manager.coordinators.get("energy")
+        if energy is None:
+            return None
+        return energy.billing_status.get("export_kwh_today")
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return {}
+        energy = manager.coordinators.get("energy")
+        if energy is None:
+            return {}
+        return {"credit": energy.billing_status.get("export_credit_today")}
+
+
+# ============================================================================
+# v3.7.0-E5: FORECAST SENSORS
+# ============================================================================
+
+
+class EnergyForecastTodaySensor(AggregationEntity, SensorEntity):
+    """Predicted net energy today (positive=export, negative=import).
+
+    Entity: sensor.ura_energy_forecast_today
+    Device: URA: Energy Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:chart-line"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = "kWh"
+    _attr_suggested_display_precision = 1
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_energy_forecast_today"
+        self._attr_name = "Energy Forecast Today"
+        self._attr_device_info = _energy_device_info()
+
+    @property
+    def native_value(self) -> float | None:
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        energy = manager.coordinators.get("energy")
+        if energy is None:
+            return None
+        return energy.forecast_today.get("predicted_net_kwh")
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return {}
+        energy = manager.coordinators.get("energy")
+        if energy is None:
+            return {}
+        return energy.forecast_today
+
+
+class EnergyBatteryFullTimeSensor(AggregationEntity, SensorEntity):
+    """Estimated time battery reaches 100%.
+
+    Entity: sensor.ura_energy_battery_full_time
+    Device: URA: Energy Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:battery-clock"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_energy_battery_full_time"
+        self._attr_name = "Battery Full Time"
+        self._attr_device_info = _energy_device_info()
+
+    @property
+    def native_value(self) -> str | None:
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        energy = manager.coordinators.get("energy")
+        if energy is None:
+            return None
+        return energy.battery_full_time
+
+
+class EnergyForecastAccuracySensor(AggregationEntity, SensorEntity):
+    """Forecast accuracy (7-day rolling %).
+
+    Entity: sensor.ura_energy_forecast_accuracy
+    Device: URA: Energy Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:target"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = "%"
+    _attr_suggested_display_precision = 1
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_energy_forecast_accuracy"
+        self._attr_name = "Forecast Accuracy"
+        self._attr_device_info = _energy_device_info()
+
+    @property
+    def native_value(self) -> float | None:
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        energy = manager.coordinators.get("energy")
+        if energy is None:
+            return None
+        accuracy = energy.forecast_accuracy
+        return accuracy if accuracy > 0 else None
+
+
+# ============================================================================
+# v3.7.0-E6: SITUATION + CONSTRAINT SENSORS
+# ============================================================================
+
+
+class EnergySituationSensor(AggregationEntity, SensorEntity):
+    """Overall energy situation.
+
+    Entity: sensor.ura_energy_situation
+    Device: URA: Energy Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:lightning-bolt"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_energy_situation"
+        self._attr_name = "Energy Situation"
+        self._attr_device_info = _energy_device_info()
+
+    @property
+    def native_value(self) -> str:
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return "unknown"
+        energy = manager.coordinators.get("energy")
+        if energy is None:
+            return "unknown"
+        return energy.energy_situation
+
+
+class EnergyHVACConstraintSensor(AggregationEntity, SensorEntity):
+    """Current HVAC constraint mode for future HVAC coordinator.
+
+    Entity: sensor.ura_hvac_constraint
+    Device: URA: Energy Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:thermostat"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_hvac_constraint"
+        self._attr_name = "HVAC Constraint"
+        self._attr_device_info = _energy_device_info()
+
+    @property
+    def native_value(self) -> str:
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return "normal"
+        energy = manager.coordinators.get("energy")
+        if energy is None:
+            return "normal"
+        return energy.hvac_constraint.get("mode", "normal")
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return {}
+        energy = manager.coordinators.get("energy")
+        if energy is None:
+            return {}
+        return energy.hvac_constraint
