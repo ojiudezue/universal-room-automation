@@ -1,6 +1,6 @@
 """Data coordinator for Universal Room Automation."""
 #
-# Universal Room Automation v3.6.38
+# Universal Room Automation v3.6.39
 # Build: 2026-01-02
 # File: coordinator.py
 # v3.2.8: Support for active state change listeners in aggregation sensors
@@ -827,7 +827,8 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                 await self.automation.check_scheduled_auto_off()
                 await self.automation.check_auto_off_warning()
 
-                # v3.6.38: Timed cover close (sunset/time-based)
+                # v3.6.38: Timed cover open/close (sunrise/sunset/time-based)
+                await self.automation.check_timed_cover_open()
                 await self.automation.check_timed_cover_close()
                 
             except Exception as e:
