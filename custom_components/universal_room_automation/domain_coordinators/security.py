@@ -1074,14 +1074,8 @@ class SecurityCoordinator(BaseCoordinator):
                 )
             )
 
-            # Compliance tracking
-            if self.compliance_tracker is not None:
-                for entity_id in unlocked:
-                    self.compliance_tracker.schedule_check(
-                        self.COORDINATOR_ID, entity_id, "locked"
-                    )
-
-        # Persist sweep results for sensor exposure
+        # Persist sweep results for sensor exposure BEFORE compliance tracking
+        # so sweep data is always saved even if compliance tracking fails.
         # Note: "lock_actions_sent" are proposed actions; actual execution
         # depends on CoordinatorManager conflict resolution.
         self._last_lock_sweep = {
@@ -1093,6 +1087,24 @@ class SecurityCoordinator(BaseCoordinator):
         }
 
         async_dispatcher_send(self.hass, SIGNAL_SECURITY_ENTITIES_UPDATE)
+
+        # Compliance tracking (non-critical — don't let failures crash the sweep)
+        if unlocked and self.compliance_tracker is not None:
+            for entity_id in unlocked:
+                try:
+                    await self.compliance_tracker.schedule_check(
+                        decision_id=0,
+                        scope=self.COORDINATOR_ID,
+                        device_type="lock",
+                        device_id=entity_id,
+                        commanded_state={"state": "locked"},
+                    )
+                except Exception:
+                    _LOGGER.debug(
+                        "Compliance check scheduling failed for %s (non-fatal)",
+                        entity_id,
+                    )
+
         return actions
 
     # =========================================================================
