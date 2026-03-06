@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation v3.6.38
+# Universal Room Automation v3.6.39
 # Build: 2026-03-01
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "3.6.38"
+VERSION: Final = "3.6.39"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -383,13 +383,34 @@ CONF_CLOSE_TIME: Final = "close_time"
 CONF_SUNSET_OFFSET: Final = "sunset_offset"
 CONF_TIMED_CLOSE_ENABLED: Final = "timed_close_enabled"
 
-# Cover actions
+# Cover actions (legacy — kept for backwards compat)
 COVER_ACTION_NONE: Final = "none"
 COVER_ACTION_ALWAYS: Final = "always"
 COVER_ACTION_SMART: Final = "smart"
 COVER_ACTION_AFTER_SUNSET: Final = "after_sunset"
 
-# Cover timing modes
+# v3.6.39: Cover open modes (replaces entry_cover_action + open_timing_mode)
+CONF_COVER_OPEN_MODE: Final = "cover_open_mode"
+COVER_OPEN_NONE: Final = "none"
+COVER_OPEN_ON_ENTRY: Final = "on_entry"
+COVER_OPEN_AT_TIME: Final = "at_time"
+COVER_OPEN_ON_ENTRY_AFTER_TIME: Final = "on_entry_after_time"
+COVER_OPEN_AT_TIME_OR_ON_ENTRY: Final = "at_time_or_on_entry"
+
+# v3.6.39: Cover open time source
+CONF_COVER_OPEN_TIME_SOURCE: Final = "cover_open_time_source"
+TIME_SOURCE_SUNRISE: Final = "sunrise"
+TIME_SOURCE_SPECIFIC_HOUR: Final = "specific_hour"
+CONF_COVER_OPEN_HOUR: Final = "cover_open_hour"
+DEFAULT_COVER_OPEN_HOUR: Final = 7
+
+# v3.6.39: Cover close time source
+CONF_COVER_CLOSE_TIME_SOURCE: Final = "cover_close_time_source"
+TIME_SOURCE_SUNSET: Final = "sunset"
+CONF_COVER_CLOSE_HOUR: Final = "cover_close_hour"
+DEFAULT_COVER_CLOSE_HOUR: Final = 21
+
+# Cover timing modes (legacy — kept for backwards compat)
 TIMING_MODE_SUN: Final = "sun"
 TIMING_MODE_TIME: Final = "time"
 TIMING_MODE_BOTH_LATEST: Final = "both_latest"

@@ -1,6 +1,6 @@
 """Automation logic for Universal Room Automation."""
 #
-# Universal Room Automation v3.6.38
+# Universal Room Automation v3.6.39
 # Build: 2026-01-04
 # File: automation.py
 # v3.3.1.1: Added int() cast to get_auto_off_hour to handle NumberSelector float values
@@ -42,18 +42,34 @@ from .const import (
     CONF_CLOSE_TIME,
     CONF_SUNSET_OFFSET,
     CONF_TIMED_CLOSE_ENABLED,
+    # v3.6.39: New cover open/close config
+    CONF_COVER_OPEN_MODE,
+    COVER_OPEN_NONE,
+    COVER_OPEN_ON_ENTRY,
+    COVER_OPEN_AT_TIME,
+    COVER_OPEN_ON_ENTRY_AFTER_TIME,
+    COVER_OPEN_AT_TIME_OR_ON_ENTRY,
+    CONF_COVER_OPEN_TIME_SOURCE,
+    TIME_SOURCE_SUNRISE,
+    TIME_SOURCE_SPECIFIC_HOUR,
+    CONF_COVER_OPEN_HOUR,
+    DEFAULT_COVER_OPEN_HOUR,
+    CONF_COVER_CLOSE_TIME_SOURCE,
+    TIME_SOURCE_SUNSET,
+    CONF_COVER_CLOSE_HOUR,
+    DEFAULT_COVER_CLOSE_HOUR,
     # Light actions
     LIGHT_ACTION_NONE,
     LIGHT_ACTION_TURN_ON,
     LIGHT_ACTION_TURN_ON_IF_DARK,
     LIGHT_ACTION_TURN_OFF,
     LIGHT_ACTION_LEAVE_ON,
-    # Cover actions
+    # Cover actions (legacy)
     COVER_ACTION_NONE,
     COVER_ACTION_ALWAYS,
     COVER_ACTION_SMART,
     COVER_ACTION_AFTER_SUNSET,
-    # Timing modes
+    # Timing modes (legacy)
     TIMING_MODE_SUN,
     TIMING_MODE_TIME,
     TIMING_MODE_BOTH_LATEST,
@@ -140,7 +156,8 @@ class RoomAutomation:
         self._alert_light_original_states: dict[str, dict] = {}
         # Warning flash dedup
         self._last_warning_date_hour: str | None = None
-        # Timed cover close dedup
+        # Timed cover open/close dedup
+        self._last_timed_open_date: str | None = None
         self._last_timed_close_date: str | None = None
         # Service call tracking (for automation health sensor)
         self._service_calls_today: int = 0
@@ -625,28 +642,49 @@ class RoomAutomation:
         )
         _LOGGER.debug("Turned off manual devices: %s", devices)
 
-    def _is_within_cover_time_window(self) -> bool:
-        """Check if current time is within configured cover open window."""
-        timing_mode = self.config.get(CONF_OPEN_TIMING_MODE, TIMING_MODE_SUN)
-        now = dt_util.now()
+    # =========================================================================
+    # v3.6.39: Cover open/close helpers
+    # =========================================================================
 
+    def _get_cover_open_mode(self) -> str:
+        """Resolve cover open mode (new config with legacy fallback)."""
+        mode = self.config.get(CONF_COVER_OPEN_MODE)
+        if mode is not None:
+            return mode
+        # Legacy fallback
+        action = self.config.get(CONF_ENTRY_COVER_ACTION, COVER_ACTION_NONE)
+        if action == COVER_ACTION_NONE:
+            return COVER_OPEN_NONE
+        # Both "always" and "smart" mapped to on_entry_after_time
+        return COVER_OPEN_ON_ENTRY_AFTER_TIME
+
+    def _is_cover_open_time(self) -> bool:
+        """Check if the configured open time has been reached.
+
+        Uses new config (CONF_COVER_OPEN_TIME_SOURCE) with legacy fallback
+        to CONF_OPEN_TIMING_MODE.
+        """
+        now = dt_util.now()
+        source = self.config.get(CONF_COVER_OPEN_TIME_SOURCE)
+        if source is not None:
+            if source == TIME_SOURCE_SUNRISE:
+                return self._is_after_sunrise(now)
+            return now.hour >= int(self.config.get(
+                CONF_COVER_OPEN_HOUR, DEFAULT_COVER_OPEN_HOUR
+            ))
+
+        # Legacy: use CONF_OPEN_TIMING_MODE
+        timing_mode = self.config.get(CONF_OPEN_TIMING_MODE, TIMING_MODE_SUN)
         after_sunrise = self._is_after_sunrise(now)
         in_time_range = self._is_in_open_time_range(now)
-
         if timing_mode == TIMING_MODE_SUN:
             return after_sunrise
-
         if timing_mode == TIMING_MODE_TIME:
             return in_time_range
-
         if timing_mode == TIMING_MODE_BOTH_LATEST:
-            # Both must be true (whichever is later gates it)
             return after_sunrise and in_time_range
-
         if timing_mode == TIMING_MODE_BOTH_EARLIEST:
-            # Either is enough (whichever is earlier opens the gate)
             return after_sunrise or in_time_range
-
         return True
 
     def _is_after_sunrise(self, now: datetime) -> bool:
@@ -661,39 +699,119 @@ class RoomAutomation:
         return now >= adjusted
 
     def _is_in_open_time_range(self, now: datetime) -> bool:
-        """Check if current time is within the configured open time range."""
+        """Check if current time is within the configured open time range (legacy)."""
         start_hour = self.config.get(CONF_OPEN_TIME_START, 7)
         end_hour = self.config.get(CONF_OPEN_TIME_END, 20)
         return start_hour <= now.hour < end_hour
 
+    def _are_covers_already_open(self) -> bool:
+        """Check if all configured covers are already open."""
+        covers = self.config.get(CONF_COVERS, [])
+        if not covers:
+            return True
+        for cover_id in covers:
+            state = self.hass.states.get(cover_id)
+            if state is None or state.state != "open":
+                return False
+        return True
+
+    def _are_covers_already_closed(self) -> bool:
+        """Check if all configured covers are already closed."""
+        covers = self.config.get(CONF_COVERS, [])
+        if not covers:
+            return True
+        for cover_id in covers:
+            state = self.hass.states.get(cover_id)
+            if state is None or state.state != "closed":
+                return False
+        return True
+
     async def _control_covers_entry(self, state_data: dict[str, Any]) -> None:
-        """Control covers on entry."""
+        """Control covers on occupancy entry.
+
+        Handles modes: on_entry, on_entry_after_time, at_time_or_on_entry.
+        Mode at_time is handled by check_timed_cover_open (periodic).
+        """
         if self.is_sleep_mode_active() and self.config.get(CONF_SLEEP_BLOCK_COVERS, True):
             return
 
-        action = self.config.get(CONF_ENTRY_COVER_ACTION, COVER_ACTION_NONE)
-        if action == COVER_ACTION_NONE:
+        mode = self._get_cover_open_mode()
+        if mode == COVER_OPEN_NONE or mode == COVER_OPEN_AT_TIME:
             return
 
         covers = self.config.get(CONF_COVERS, [])
         if not covers:
             return
 
-        # Check time window
-        if action in [COVER_ACTION_ALWAYS, COVER_ACTION_SMART]:
-            if not self._is_within_cover_time_window():
+        if mode == COVER_OPEN_ON_ENTRY:
+            # Open on entry regardless of time
+            pass
+        elif mode == COVER_OPEN_ON_ENTRY_AFTER_TIME:
+            if not self._is_cover_open_time():
                 return
+        elif mode == COVER_OPEN_AT_TIME_OR_ON_ENTRY:
+            # On entry path: always open (the at_time part is periodic)
+            pass
+        else:
+            return
 
+        if self._are_covers_already_open():
+            return
+
+        room_name = self.config.get("room_name", "Unknown")
         await self._safe_service_call(
             "cover",
             "open_cover",
             {"entity_id": covers},
             blocking=False,
         )
-        _LOGGER.debug("Opened covers: %s", covers)
+        _LOGGER.info("Cover open [%s]: mode=%s, opened %d cover(s)",
+                      room_name, mode, len(covers))
+
+    async def check_timed_cover_open(self) -> None:
+        """Open covers at sunrise/configured time regardless of occupancy.
+
+        Handles modes: at_time, at_time_or_on_entry.
+        Called by coordinator on each update cycle (periodic task).
+        Only triggers once per day per room.
+        """
+        mode = self._get_cover_open_mode()
+        if mode not in (COVER_OPEN_AT_TIME, COVER_OPEN_AT_TIME_OR_ON_ENTRY):
+            return
+
+        if self.is_sleep_mode_active() and self.config.get(CONF_SLEEP_BLOCK_COVERS, True):
+            return
+
+        covers = self.config.get(CONF_COVERS, [])
+        if not covers:
+            return
+
+        today = dt_util.now().strftime("%Y-%m-%d")
+        if self._last_timed_open_date == today:
+            return
+
+        if not self._is_cover_open_time():
+            return
+
+        if self._are_covers_already_open():
+            self._last_timed_open_date = today
+            return
+
+        room_name = self.config.get("room_name", "Unknown")
+        _LOGGER.info(
+            "Timed cover open [%s]: opening %d cover(s) (mode=%s)",
+            room_name, len(covers), mode,
+        )
+        await self._safe_service_call(
+            "cover",
+            "open_cover",
+            {"entity_id": covers},
+            blocking=False,
+        )
+        self._last_timed_open_date = today
 
     async def _control_covers_exit(self, state_data: dict[str, Any]) -> None:
-        """Control covers on exit."""
+        """Control covers on exit (vacancy)."""
         action = self.config.get(CONF_EXIT_COVER_ACTION, COVER_ACTION_NONE)
         if action == COVER_ACTION_NONE:
             return
@@ -704,28 +822,24 @@ class RoomAutomation:
 
         # Check if after sunset for after_sunset action
         if action == COVER_ACTION_AFTER_SUNSET:
-            sunset = sun.get_astral_event_date(
-                self.hass, "sunset", dt_util.start_of_local_day()
-            )
-            if sunset and dt_util.now() < sunset:
+            if not self._is_after_sunset(dt_util.now()):
                 return
 
+        # Respect manual override: skip if already closed
+        if self._are_covers_already_closed():
+            return
+
+        room_name = self.config.get("room_name", "Unknown")
         await self._safe_service_call(
             "cover",
             "close_cover",
             {"entity_id": covers},
             blocking=False,
         )
-        _LOGGER.debug("Closed covers: %s", covers)
+        _LOGGER.info("Cover close on exit [%s]: closed %d cover(s)", room_name, len(covers))
 
     async def check_timed_cover_close(self) -> None:
-        """Check if it's time for scheduled cover close.
-
-        Supports three timing modes:
-        - sun: Close after sunset (+ optional offset)
-        - time: Close after a specific hour
-        - both_latest: Close after BOTH sunset and time have passed
-        - both_earliest: Close after EITHER sunset or time
+        """Close covers at sunset/configured time.
 
         Called by coordinator on each update cycle (periodic task).
         Only triggers once per day per room.
@@ -740,31 +854,21 @@ class RoomAutomation:
         now = dt_util.now()
         today = now.strftime("%Y-%m-%d")
 
-        # Only trigger once per day
         if self._last_timed_close_date == today:
             return
 
-        timing_mode = self.config.get(CONF_CLOSE_TIMING_MODE, TIMING_MODE_SUN)
-        after_sunset = self._is_after_sunset(now)
-        after_close_time = self._is_after_close_time(now)
+        if not self._is_cover_close_time(now):
+            return
 
-        should_close = False
-        if timing_mode == TIMING_MODE_SUN:
-            should_close = after_sunset
-        elif timing_mode == TIMING_MODE_TIME:
-            should_close = after_close_time
-        elif timing_mode == TIMING_MODE_BOTH_LATEST:
-            should_close = after_sunset and after_close_time
-        elif timing_mode == TIMING_MODE_BOTH_EARLIEST:
-            should_close = after_sunset or after_close_time
-
-        if not should_close:
+        # Respect manual override: skip if already closed
+        if self._are_covers_already_closed():
+            self._last_timed_close_date = today
             return
 
         room_name = self.config.get("room_name", "Unknown")
         _LOGGER.info(
-            "Timed cover close [%s]: closing %d cover(s) (mode=%s)",
-            room_name, len(covers), timing_mode,
+            "Timed cover close [%s]: closing %d cover(s)",
+            room_name, len(covers),
         )
         await self._safe_service_call(
             "cover",
@@ -774,6 +878,34 @@ class RoomAutomation:
         )
         self._last_timed_close_date = today
 
+    def _is_cover_close_time(self, now: datetime) -> bool:
+        """Check if the configured close time has been reached.
+
+        Uses new config (CONF_COVER_CLOSE_TIME_SOURCE) with legacy fallback
+        to CONF_CLOSE_TIMING_MODE.
+        """
+        source = self.config.get(CONF_COVER_CLOSE_TIME_SOURCE)
+        if source is not None:
+            if source == TIME_SOURCE_SUNSET:
+                return self._is_after_sunset(now)
+            return now.hour >= int(self.config.get(
+                CONF_COVER_CLOSE_HOUR, DEFAULT_COVER_CLOSE_HOUR
+            ))
+
+        # Legacy: use CONF_CLOSE_TIMING_MODE
+        timing_mode = self.config.get(CONF_CLOSE_TIMING_MODE, TIMING_MODE_SUN)
+        after_sunset = self._is_after_sunset(now)
+        after_close_time = self._is_after_close_time(now)
+        if timing_mode == TIMING_MODE_SUN:
+            return after_sunset
+        if timing_mode == TIMING_MODE_TIME:
+            return after_close_time
+        if timing_mode == TIMING_MODE_BOTH_LATEST:
+            return after_sunset and after_close_time
+        if timing_mode == TIMING_MODE_BOTH_EARLIEST:
+            return after_sunset or after_close_time
+        return False
+
     def _is_after_sunset(self, now: datetime) -> bool:
         """Check if current time is after sunset + offset."""
         sunset_offset = self.config.get(CONF_SUNSET_OFFSET, 0)
@@ -781,12 +913,12 @@ class RoomAutomation:
             self.hass, "sunset", dt_util.start_of_local_day()
         )
         if sunset_time is None:
-            return False  # Can't determine — don't close
+            return False
         adjusted = sunset_time + timedelta(minutes=sunset_offset)
         return now >= adjusted
 
     def _is_after_close_time(self, now: datetime) -> bool:
-        """Check if current time is at or after the configured close hour."""
+        """Check if current time is at or after the configured close hour (legacy)."""
         close_hour = int(self.config.get(CONF_CLOSE_TIME, 20))
         return now.hour >= close_hour
 

@@ -1,6 +1,6 @@
 """Config flow for Universal Room Automation v3.6.24."""
 #
-# Universal Room Automation v3.6.38
+# Universal Room Automation v3.6.39
 # Build: 2026-01-05
 # File: config_flow.py
 # v3.3.3: Added manage_zones to integration options menu
@@ -113,16 +113,26 @@ from .const import (
     CONF_LIGHT_BRIGHTNESS_PCT,
     CONF_LIGHT_TRANSITION_ON,
     CONF_LIGHT_TRANSITION_OFF,
-    CONF_ENTRY_COVER_ACTION,
     CONF_EXIT_COVER_ACTION,
-    CONF_OPEN_TIMING_MODE,
-    CONF_OPEN_TIME_START,
-    CONF_OPEN_TIME_END,
     CONF_SUNRISE_OFFSET,
-    CONF_CLOSE_TIMING_MODE,
-    CONF_CLOSE_TIME,
     CONF_SUNSET_OFFSET,
     CONF_TIMED_CLOSE_ENABLED,
+    # v3.6.39: New cover config
+    CONF_COVER_OPEN_MODE,
+    COVER_OPEN_NONE,
+    COVER_OPEN_ON_ENTRY,
+    COVER_OPEN_AT_TIME,
+    COVER_OPEN_ON_ENTRY_AFTER_TIME,
+    COVER_OPEN_AT_TIME_OR_ON_ENTRY,
+    CONF_COVER_OPEN_TIME_SOURCE,
+    TIME_SOURCE_SUNRISE,
+    TIME_SOURCE_SPECIFIC_HOUR,
+    CONF_COVER_OPEN_HOUR,
+    DEFAULT_COVER_OPEN_HOUR,
+    CONF_COVER_CLOSE_TIME_SOURCE,
+    TIME_SOURCE_SUNSET,
+    CONF_COVER_CLOSE_HOUR,
+    DEFAULT_COVER_CLOSE_HOUR,
     LIGHT_ACTION_NONE,
     LIGHT_ACTION_TURN_ON,
     LIGHT_ACTION_TURN_ON_IF_DARK,
@@ -130,19 +140,11 @@ from .const import (
     LIGHT_ACTION_LEAVE_ON,
     COVER_ACTION_NONE,
     COVER_ACTION_ALWAYS,
-    COVER_ACTION_SMART,
     COVER_ACTION_AFTER_SUNSET,
-    TIMING_MODE_SUN,
-    TIMING_MODE_TIME,
-    TIMING_MODE_BOTH_LATEST,
-    TIMING_MODE_BOTH_EARLIEST,
     DEFAULT_DARK_THRESHOLD,
     DEFAULT_LIGHT_BRIGHTNESS,
     DEFAULT_LIGHT_TRANSITION_ON,
     DEFAULT_LIGHT_TRANSITION_OFF,
-    DEFAULT_OPEN_TIME_START,
-    DEFAULT_OPEN_TIME_END,
-    DEFAULT_CLOSE_TIME,
     DEFAULT_SUNRISE_OFFSET,
     DEFAULT_SUNSET_OFFSET,
     # Climate & HVAC
@@ -991,10 +993,18 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
             {"label": "Venetian Blinds (Tilt)", "value": COVER_TYPE_TILT},
         ]
 
-        cover_actions = [
-            {"label": "None (Manual Only)", "value": COVER_ACTION_NONE},
-            {"label": "Always (During Allowed Hours)", "value": COVER_ACTION_ALWAYS},
-            {"label": "Smart (Sun-Based)", "value": COVER_ACTION_SMART},
+        # v3.6.39: New 5-mode cover open system
+        cover_open_modes = [
+            {"label": "None (Manual Only)", "value": COVER_OPEN_NONE},
+            {"label": "On Entry (Any Time)", "value": COVER_OPEN_ON_ENTRY},
+            {"label": "At Time (Scheduled)", "value": COVER_OPEN_AT_TIME},
+            {"label": "On Entry After Time", "value": COVER_OPEN_ON_ENTRY_AFTER_TIME},
+            {"label": "At Time or On Entry", "value": COVER_OPEN_AT_TIME_OR_ON_ENTRY},
+        ]
+
+        open_time_sources = [
+            {"label": "Sunrise", "value": TIME_SOURCE_SUNRISE},
+            {"label": "Specific Hour", "value": TIME_SOURCE_SPECIFIC_HOUR},
         ]
 
         cover_exit_actions = [
@@ -1003,47 +1013,37 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
             {"label": "After Sunset Only", "value": COVER_ACTION_AFTER_SUNSET},
         ]
 
-        timing_modes = [
-            {"label": "After Sunrise", "value": TIMING_MODE_SUN},
-            {"label": "After Specific Time", "value": TIMING_MODE_TIME},
-            {"label": "After Sunrise AND Time (whichever is later)", "value": TIMING_MODE_BOTH_LATEST},
-            {"label": "After Sunrise OR Time (whichever is earlier)", "value": TIMING_MODE_BOTH_EARLIEST},
-        ]
-
-        close_timing_modes = [
-            {"label": "After Sunset", "value": TIMING_MODE_SUN},
-            {"label": "After Specific Time", "value": TIMING_MODE_TIME},
-            {"label": "After Sunset AND Time (whichever is later)", "value": TIMING_MODE_BOTH_LATEST},
-            {"label": "After Sunset OR Time (whichever is earlier)", "value": TIMING_MODE_BOTH_EARLIEST},
+        close_time_sources = [
+            {"label": "Sunset", "value": TIME_SOURCE_SUNSET},
+            {"label": "Specific Hour", "value": TIME_SOURCE_SPECIFIC_HOUR},
         ]
 
         data_schema = vol.Schema({
             vol.Optional(CONF_COVER_TYPE, default=COVER_TYPE_SHADE): selector.SelectSelector(
                 selector.SelectSelectorConfig(options=cover_types, mode=selector.SelectSelectorMode.DROPDOWN)
             ),
-            vol.Optional(CONF_ENTRY_COVER_ACTION, default=COVER_ACTION_NONE): selector.SelectSelector(
-                selector.SelectSelectorConfig(options=cover_actions, mode=selector.SelectSelectorMode.DROPDOWN)
+            # --- Open ---
+            vol.Optional(CONF_COVER_OPEN_MODE, default=COVER_OPEN_NONE): selector.SelectSelector(
+                selector.SelectSelectorConfig(options=cover_open_modes, mode=selector.SelectSelectorMode.DROPDOWN)
             ),
-            vol.Optional(CONF_EXIT_COVER_ACTION, default=COVER_ACTION_NONE): selector.SelectSelector(
-                selector.SelectSelectorConfig(options=cover_exit_actions, mode=selector.SelectSelectorMode.DROPDOWN)
+            vol.Optional(CONF_COVER_OPEN_TIME_SOURCE, default=TIME_SOURCE_SUNRISE): selector.SelectSelector(
+                selector.SelectSelectorConfig(options=open_time_sources, mode=selector.SelectSelectorMode.DROPDOWN)
             ),
-            vol.Optional(CONF_OPEN_TIMING_MODE, default=TIMING_MODE_SUN): selector.SelectSelector(
-                selector.SelectSelectorConfig(options=timing_modes, mode=selector.SelectSelectorMode.DROPDOWN)
-            ),
-            vol.Optional(CONF_OPEN_TIME_START, default=DEFAULT_OPEN_TIME_START): selector.NumberSelector(
-                selector.NumberSelectorConfig(min=0, max=23, mode=selector.NumberSelectorMode.SLIDER)
-            ),
-            vol.Optional(CONF_OPEN_TIME_END, default=DEFAULT_OPEN_TIME_END): selector.NumberSelector(
+            vol.Optional(CONF_COVER_OPEN_HOUR, default=DEFAULT_COVER_OPEN_HOUR): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=0, max=23, mode=selector.NumberSelectorMode.SLIDER)
             ),
             vol.Optional(CONF_SUNRISE_OFFSET, default=DEFAULT_SUNRISE_OFFSET): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=-60, max=120, step=15, unit_of_measurement="min", mode=selector.NumberSelectorMode.BOX)
             ),
-            vol.Optional(CONF_TIMED_CLOSE_ENABLED, default=False): selector.BooleanSelector(),
-            vol.Optional(CONF_CLOSE_TIMING_MODE, default=TIMING_MODE_SUN): selector.SelectSelector(
-                selector.SelectSelectorConfig(options=close_timing_modes, mode=selector.SelectSelectorMode.DROPDOWN)
+            # --- Close ---
+            vol.Optional(CONF_EXIT_COVER_ACTION, default=COVER_ACTION_NONE): selector.SelectSelector(
+                selector.SelectSelectorConfig(options=cover_exit_actions, mode=selector.SelectSelectorMode.DROPDOWN)
             ),
-            vol.Optional(CONF_CLOSE_TIME, default=DEFAULT_CLOSE_TIME): selector.NumberSelector(
+            vol.Optional(CONF_TIMED_CLOSE_ENABLED, default=False): selector.BooleanSelector(),
+            vol.Optional(CONF_COVER_CLOSE_TIME_SOURCE, default=TIME_SOURCE_SUNSET): selector.SelectSelector(
+                selector.SelectSelectorConfig(options=close_time_sources, mode=selector.SelectSelectorMode.DROPDOWN)
+            ),
+            vol.Optional(CONF_COVER_CLOSE_HOUR, default=DEFAULT_COVER_CLOSE_HOUR): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=0, max=23, mode=selector.NumberSelectorMode.SLIDER)
             ),
             vol.Optional(CONF_SUNSET_OFFSET, default=DEFAULT_SUNSET_OFFSET): selector.NumberSelector(
@@ -3413,10 +3413,18 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             {"label": "Leave On", "value": LIGHT_ACTION_LEAVE_ON},
         ]
 
-        cover_actions = [
-            {"label": "None (Manual Only)", "value": COVER_ACTION_NONE},
-            {"label": "Always (During Allowed Hours)", "value": COVER_ACTION_ALWAYS},
-            {"label": "Smart (Sun-Based)", "value": COVER_ACTION_SMART},
+        # v3.6.39: New 5-mode cover open system
+        cover_open_modes = [
+            {"label": "None (Manual Only)", "value": COVER_OPEN_NONE},
+            {"label": "On Entry (Any Time)", "value": COVER_OPEN_ON_ENTRY},
+            {"label": "At Time (Scheduled)", "value": COVER_OPEN_AT_TIME},
+            {"label": "On Entry After Time", "value": COVER_OPEN_ON_ENTRY_AFTER_TIME},
+            {"label": "At Time or On Entry", "value": COVER_OPEN_AT_TIME_OR_ON_ENTRY},
+        ]
+
+        open_time_sources = [
+            {"label": "Sunrise", "value": TIME_SOURCE_SUNRISE},
+            {"label": "Specific Hour", "value": TIME_SOURCE_SPECIFIC_HOUR},
         ]
 
         cover_exit_actions = [
@@ -3425,19 +3433,9 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             {"label": "After Sunset Only", "value": COVER_ACTION_AFTER_SUNSET},
         ]
 
-        timing_modes = [
-            {"label": "After Sunrise", "value": TIMING_MODE_SUN},
-            {"label": "After Specific Time", "value": TIMING_MODE_TIME},
-            {"label": "After Sunrise AND Time (whichever is later)", "value": TIMING_MODE_BOTH_LATEST},
-            {"label": "After Sunrise OR Time (whichever is earlier)", "value": TIMING_MODE_BOTH_EARLIEST},
-        ]
-        
-        # Separate list for close timing - uses sunset instead of sunrise
-        close_timing_modes = [
-            {"label": "After Sunset", "value": TIMING_MODE_SUN},
-            {"label": "After Specific Time", "value": TIMING_MODE_TIME},
-            {"label": "After Sunset AND Time (whichever is later)", "value": TIMING_MODE_BOTH_LATEST},
-            {"label": "After Sunset OR Time (whichever is earlier)", "value": TIMING_MODE_BOTH_EARLIEST},
+        close_time_sources = [
+            {"label": "Sunset", "value": TIME_SOURCE_SUNSET},
+            {"label": "Specific Hour", "value": TIME_SOURCE_SPECIFIC_HOUR},
         ]
 
         data_schema = vol.Schema({
@@ -3478,34 +3476,22 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=0, max=10, unit_of_measurement="s", mode=selector.NumberSelectorMode.BOX)
             ),
-            # Covers
+            # --- Covers: Open ---
             vol.Optional(
-                CONF_ENTRY_COVER_ACTION,
-                default=self._get_current(CONF_ENTRY_COVER_ACTION, COVER_ACTION_NONE)
+                CONF_COVER_OPEN_MODE,
+                default=self._get_current(CONF_COVER_OPEN_MODE, COVER_OPEN_NONE)
             ): selector.SelectSelector(
-                selector.SelectSelectorConfig(options=cover_actions, mode=selector.SelectSelectorMode.DROPDOWN)
+                selector.SelectSelectorConfig(options=cover_open_modes, mode=selector.SelectSelectorMode.DROPDOWN)
             ),
             vol.Optional(
-                CONF_EXIT_COVER_ACTION,
-                default=self._get_current(CONF_EXIT_COVER_ACTION, COVER_ACTION_NONE)
+                CONF_COVER_OPEN_TIME_SOURCE,
+                default=self._get_current(CONF_COVER_OPEN_TIME_SOURCE, TIME_SOURCE_SUNRISE)
             ): selector.SelectSelector(
-                selector.SelectSelectorConfig(options=cover_exit_actions, mode=selector.SelectSelectorMode.DROPDOWN)
+                selector.SelectSelectorConfig(options=open_time_sources, mode=selector.SelectSelectorMode.DROPDOWN)
             ),
             vol.Optional(
-                CONF_OPEN_TIMING_MODE,
-                default=self._get_current(CONF_OPEN_TIMING_MODE, TIMING_MODE_SUN)
-            ): selector.SelectSelector(
-                selector.SelectSelectorConfig(options=timing_modes, mode=selector.SelectSelectorMode.DROPDOWN)
-            ),
-            vol.Optional(
-                CONF_OPEN_TIME_START,
-                default=self._get_current(CONF_OPEN_TIME_START, DEFAULT_OPEN_TIME_START)
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(min=0, max=23, mode=selector.NumberSelectorMode.SLIDER)
-            ),
-            vol.Optional(
-                CONF_OPEN_TIME_END,
-                default=self._get_current(CONF_OPEN_TIME_END, DEFAULT_OPEN_TIME_END)
+                CONF_COVER_OPEN_HOUR,
+                default=self._get_current(CONF_COVER_OPEN_HOUR, DEFAULT_COVER_OPEN_HOUR)
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=0, max=23, mode=selector.NumberSelectorMode.SLIDER)
             ),
@@ -3515,19 +3501,26 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=-60, max=120, step=15, unit_of_measurement="min", mode=selector.NumberSelectorMode.BOX)
             ),
+            # --- Covers: Close ---
+            vol.Optional(
+                CONF_EXIT_COVER_ACTION,
+                default=self._get_current(CONF_EXIT_COVER_ACTION, COVER_ACTION_NONE)
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(options=cover_exit_actions, mode=selector.SelectSelectorMode.DROPDOWN)
+            ),
             vol.Optional(
                 CONF_TIMED_CLOSE_ENABLED,
                 default=self._get_current(CONF_TIMED_CLOSE_ENABLED, False)
             ): selector.BooleanSelector(),
             vol.Optional(
-                CONF_CLOSE_TIMING_MODE,
-                default=self._get_current(CONF_CLOSE_TIMING_MODE, TIMING_MODE_SUN)
+                CONF_COVER_CLOSE_TIME_SOURCE,
+                default=self._get_current(CONF_COVER_CLOSE_TIME_SOURCE, TIME_SOURCE_SUNSET)
             ): selector.SelectSelector(
-                selector.SelectSelectorConfig(options=close_timing_modes, mode=selector.SelectSelectorMode.DROPDOWN)
+                selector.SelectSelectorConfig(options=close_time_sources, mode=selector.SelectSelectorMode.DROPDOWN)
             ),
             vol.Optional(
-                CONF_CLOSE_TIME,
-                default=self._get_current(CONF_CLOSE_TIME, DEFAULT_CLOSE_TIME)
+                CONF_COVER_CLOSE_HOUR,
+                default=self._get_current(CONF_COVER_CLOSE_HOUR, DEFAULT_COVER_CLOSE_HOUR)
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=0, max=23, mode=selector.NumberSelectorMode.SLIDER)
             ),
