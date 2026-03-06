@@ -15,6 +15,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
 from .energy_const import (
+    DEFAULT_BATTERY_CAPACITY_ENTITY,
     DEFAULT_BATTERY_SOC_ENTITY,
     DEFAULT_SOLCAST_REMAINING_ENTITY,
     DEFAULT_SOLCAST_TODAY_ENTITY,
@@ -23,8 +24,8 @@ from .energy_const import (
 
 _LOGGER = logging.getLogger(__name__)
 
-# Battery capacity in kWh (5 Encharge-3 units = 15 kWh total usable)
-BATTERY_TOTAL_CAPACITY_KWH = 15.0
+# Fallback battery capacity if Envoy entity unavailable (kWh)
+BATTERY_TOTAL_CAPACITY_KWH_FALLBACK = 15.0
 # Average charge rate from solar in kW
 AVERAGE_CHARGE_RATE_KW = 3.5
 
@@ -148,6 +149,13 @@ class DailyEnergyPredictor:
 
         return self._get_current_prediction()
 
+    def _get_battery_capacity_kwh(self) -> float:
+        """Get battery capacity in kWh from Envoy, fallback to default."""
+        capacity_wh = self._get_float(DEFAULT_BATTERY_CAPACITY_ENTITY)
+        if capacity_wh is not None and capacity_wh > 0:
+            return capacity_wh / 1000.0
+        return BATTERY_TOTAL_CAPACITY_KWH_FALLBACK
+
     def _estimate_battery_full_time(self, now: datetime) -> None:
         """Estimate when battery will reach 100% SOC today."""
         soc = self._get_float(self._battery_soc_entity)
@@ -162,7 +170,8 @@ class DailyEnergyPredictor:
             return
 
         # How much energy needed to fill battery
-        remaining_capacity_kwh = BATTERY_TOTAL_CAPACITY_KWH * (100 - soc) / 100.0
+        total_capacity = self._get_battery_capacity_kwh()
+        remaining_capacity_kwh = total_capacity * (100 - soc) / 100.0
 
         # Can we fill it with remaining solar?
         if remaining_forecast < remaining_capacity_kwh:

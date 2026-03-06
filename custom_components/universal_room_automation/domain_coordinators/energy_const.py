@@ -107,6 +107,16 @@ DEFAULT_BATTERY_SOC_ENTITY: Final = "sensor.encharge_aggregate_battery_percentag
 DEFAULT_BATTERY_POWER_ENTITY: Final = "sensor.envoy_202428004328_encharge_aggregate_power"
 DEFAULT_NET_POWER_ENTITY: Final = "sensor.envoy_202428004328_balanced_net_power_consumption"
 
+# Envoy lifetime accumulators (for accurate daily consumption tracking)
+# These monotonically increase and never reset — delta gives true daily values.
+DEFAULT_LIFETIME_CONSUMPTION_ENTITY: Final = "sensor.envoy_202428004328_lifetime_energy_consumption"
+DEFAULT_LIFETIME_PRODUCTION_ENTITY: Final = "sensor.envoy_202428004328_lifetime_energy_production"
+DEFAULT_LIFETIME_NET_IMPORT_ENTITY: Final = "sensor.envoy_202428004328_lifetime_net_energy_consumption"
+DEFAULT_LIFETIME_NET_EXPORT_ENTITY: Final = "sensor.envoy_202428004328_lifetime_net_energy_production"
+DEFAULT_LIFETIME_BATTERY_CHARGED_ENTITY: Final = "sensor.envoy_202428004328_lifetime_battery_energy_charged"
+DEFAULT_LIFETIME_BATTERY_DISCHARGED_ENTITY: Final = "sensor.envoy_202428004328_lifetime_battery_energy_discharged"
+DEFAULT_BATTERY_CAPACITY_ENTITY: Final = "sensor.envoy_202428004328_battery_capacity"
+
 # Enpower control entities
 DEFAULT_STORAGE_MODE_ENTITY: Final = "select.enpower_482348004678_storage_mode"
 DEFAULT_RESERVE_SOC_ENTITY: Final = "number.enpower_482348004678_reserve_battery_level"

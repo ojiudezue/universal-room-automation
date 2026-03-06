@@ -38,6 +38,7 @@ from .energy_const import (
     CONF_ENERGY_STORAGE_MODE_ENTITY,
     CONF_ENERGY_WEATHER_ENTITY,
     DEFAULT_DECISION_INTERVAL_MINUTES,
+    DEFAULT_LIFETIME_CONSUMPTION_ENTITY,
     DEFAULT_RESERVE_SOC,
 )
 from .energy_tou import TOURateEngine
@@ -105,6 +106,11 @@ class EnergyCoordinator(BaseCoordinator):
         self._last_battery_decision: dict[str, Any] = {}
         self._tou_transition_count: int = 0
         self._last_reset_date: str = ""
+
+        # Envoy lifetime consumption snapshot for accurate daily tracking.
+        # At each date change, delta = current - snapshot = true daily consumption.
+        # Uses Envoy's consumption CT (includes grid + solar self-consumed + battery).
+        self._lifetime_consumption_snapshot: float | None = None
 
     def _build_entity_map(self, config: dict[str, str] | None) -> dict[str, str]:
         """Build entity mapping from config keys to battery strategy keys."""
@@ -179,20 +185,43 @@ class EnergyCoordinator(BaseCoordinator):
 
         return actions
 
+    def _get_lifetime_consumption(self) -> float | None:
+        """Read Envoy lifetime energy consumption (MWh, monotonically increasing)."""
+        state = self.hass.states.get(DEFAULT_LIFETIME_CONSUMPTION_ENTITY)
+        if state is None or state.state in ("unknown", "unavailable"):
+            return None
+        try:
+            return float(state.state)
+        except (ValueError, TypeError):
+            return None
+
     def _maybe_reset_daily(self) -> None:
         """Reset daily counters and feed accuracy tracking if date changed.
 
+        Uses Envoy's lifetime_energy_consumption delta for true daily consumption.
+        This is measured directly by the consumption CT and includes all sources
+        (grid import + solar self-consumed + battery discharged to home).
         Must run BEFORE billing.accumulate() to capture yesterday's totals.
         """
         from homeassistant.util import dt as dt_util
         today = dt_util.now().date().isoformat()
+
+        # Read current lifetime consumption for snapshot tracking
+        current_lifetime = self._get_lifetime_consumption()
+
         if today != self._last_reset_date:
-            # Record yesterday's actual consumption for baseline learning
-            billing_status = self._billing.get_status()
-            actual_kwh = billing_status.get("import_kwh_today", 0) + billing_status.get(
-                "export_kwh_today", 0
-            )
-            if actual_kwh > 0 and self._last_reset_date:
+            # Calculate yesterday's actual consumption from lifetime delta
+            actual_kwh = None
+            if (
+                self._lifetime_consumption_snapshot is not None
+                and current_lifetime is not None
+                and self._last_reset_date
+            ):
+                # Lifetime values are in MWh — convert delta to kWh
+                delta_mwh = current_lifetime - self._lifetime_consumption_snapshot
+                actual_kwh = delta_mwh * 1000.0
+
+            if actual_kwh is not None and actual_kwh > 0:
                 self._predictor.record_actual_consumption(actual_kwh)
 
                 # Evaluate yesterday's forecast accuracy
@@ -203,7 +232,9 @@ class EnergyCoordinator(BaseCoordinator):
                 )
                 if accuracy_result:
                     _LOGGER.info(
-                        "Forecast accuracy: error=%.1f kWh (%.1f%%)",
+                        "Forecast accuracy: predicted=%.1f actual=%.1f error=%.1f kWh (%.1f%%)",
+                        predicted or 0,
+                        actual_kwh,
                         accuracy_result["error_kwh"],
                         accuracy_result["pct_error"],
                     )
@@ -211,8 +242,13 @@ class EnergyCoordinator(BaseCoordinator):
                 # Feed Bayesian adjustment back to predictor
                 self._predictor._adjustment_factor = self._accuracy.get_adjustment_factor()
 
+            # Reset snapshot for new day
+            self._lifetime_consumption_snapshot = current_lifetime
             self._tou_transition_count = 0
             self._last_reset_date = today
+        elif self._lifetime_consumption_snapshot is None and current_lifetime is not None:
+            # First run or Envoy was unavailable — seed the snapshot
+            self._lifetime_consumption_snapshot = current_lifetime
 
     async def _async_decision_cycle(self, _now=None) -> None:
         """Run the periodic decision cycle (every N minutes)."""
