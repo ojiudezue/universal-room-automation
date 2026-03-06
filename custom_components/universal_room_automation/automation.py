@@ -1,6 +1,6 @@
 """Automation logic for Universal Room Automation."""
 #
-# Universal Room Automation v3.6.37
+# Universal Room Automation v3.6.38
 # Build: 2026-01-04
 # File: automation.py
 # v3.3.1.1: Added int() cast to get_auto_off_hour to handle NumberSelector float values
@@ -11,7 +11,7 @@
 
 import asyncio
 import logging
-from datetime import datetime, time
+from datetime import datetime, time, timedelta
 from typing import Any
 
 from homeassistant.core import HomeAssistant, State
@@ -140,6 +140,8 @@ class RoomAutomation:
         self._alert_light_original_states: dict[str, dict] = {}
         # Warning flash dedup
         self._last_warning_date_hour: str | None = None
+        # Timed cover close dedup
+        self._last_timed_close_date: str | None = None
         # Service call tracking (for automation health sensor)
         self._service_calls_today: int = 0
         self._service_failures_today: int = 0
@@ -624,36 +626,45 @@ class RoomAutomation:
         _LOGGER.debug("Turned off manual devices: %s", devices)
 
     def _is_within_cover_time_window(self) -> bool:
-        """Check if current time is within configured cover operation window."""
+        """Check if current time is within configured cover open window."""
         timing_mode = self.config.get(CONF_OPEN_TIMING_MODE, TIMING_MODE_SUN)
         now = dt_util.now()
 
+        after_sunrise = self._is_after_sunrise(now)
+        in_time_range = self._is_in_open_time_range(now)
+
         if timing_mode == TIMING_MODE_SUN:
-            # Check if after sunrise
-            sunrise_offset = self.config.get(CONF_SUNRISE_OFFSET, 0)
-            sunrise_time = sun.get_astral_event_date(
-                self.hass, "sunrise", dt_util.start_of_local_day()
-            )
-            if sunrise_time:
-                sunrise_time = sunrise_time.replace(
-                    minute=sunrise_time.minute + sunrise_offset
-                )
-                if now < sunrise_time:
-                    return False
+            return after_sunrise
 
-        elif timing_mode == TIMING_MODE_TIME:
-            # Check if within time range
-            start_hour = self.config.get(CONF_OPEN_TIME_START, 7)
-            end_hour = self.config.get(CONF_OPEN_TIME_END, 20)
-            current_hour = now.hour
-            if not (start_hour <= current_hour < end_hour):
-                return False
+        if timing_mode == TIMING_MODE_TIME:
+            return in_time_range
 
-        elif timing_mode in [TIMING_MODE_BOTH_LATEST, TIMING_MODE_BOTH_EARLIEST]:
-            # Implement combined logic
-            pass  # TODO: Add both sun and time logic
+        if timing_mode == TIMING_MODE_BOTH_LATEST:
+            # Both must be true (whichever is later gates it)
+            return after_sunrise and in_time_range
+
+        if timing_mode == TIMING_MODE_BOTH_EARLIEST:
+            # Either is enough (whichever is earlier opens the gate)
+            return after_sunrise or in_time_range
 
         return True
+
+    def _is_after_sunrise(self, now: datetime) -> bool:
+        """Check if current time is after sunrise + offset."""
+        sunrise_offset = self.config.get(CONF_SUNRISE_OFFSET, 0)
+        sunrise_time = sun.get_astral_event_date(
+            self.hass, "sunrise", dt_util.start_of_local_day()
+        )
+        if sunrise_time is None:
+            return True  # Can't determine — allow
+        adjusted = sunrise_time + timedelta(minutes=sunrise_offset)
+        return now >= adjusted
+
+    def _is_in_open_time_range(self, now: datetime) -> bool:
+        """Check if current time is within the configured open time range."""
+        start_hour = self.config.get(CONF_OPEN_TIME_START, 7)
+        end_hour = self.config.get(CONF_OPEN_TIME_END, 20)
+        return start_hour <= now.hour < end_hour
 
     async def _control_covers_entry(self, state_data: dict[str, Any]) -> None:
         """Control covers on entry."""
@@ -706,6 +717,78 @@ class RoomAutomation:
             blocking=False,
         )
         _LOGGER.debug("Closed covers: %s", covers)
+
+    async def check_timed_cover_close(self) -> None:
+        """Check if it's time for scheduled cover close.
+
+        Supports three timing modes:
+        - sun: Close after sunset (+ optional offset)
+        - time: Close after a specific hour
+        - both_latest: Close after BOTH sunset and time have passed
+        - both_earliest: Close after EITHER sunset or time
+
+        Called by coordinator on each update cycle (periodic task).
+        Only triggers once per day per room.
+        """
+        if not self.config.get(CONF_TIMED_CLOSE_ENABLED, False):
+            return
+
+        covers = self.config.get(CONF_COVERS, [])
+        if not covers:
+            return
+
+        now = dt_util.now()
+        today = now.strftime("%Y-%m-%d")
+
+        # Only trigger once per day
+        if self._last_timed_close_date == today:
+            return
+
+        timing_mode = self.config.get(CONF_CLOSE_TIMING_MODE, TIMING_MODE_SUN)
+        after_sunset = self._is_after_sunset(now)
+        after_close_time = self._is_after_close_time(now)
+
+        should_close = False
+        if timing_mode == TIMING_MODE_SUN:
+            should_close = after_sunset
+        elif timing_mode == TIMING_MODE_TIME:
+            should_close = after_close_time
+        elif timing_mode == TIMING_MODE_BOTH_LATEST:
+            should_close = after_sunset and after_close_time
+        elif timing_mode == TIMING_MODE_BOTH_EARLIEST:
+            should_close = after_sunset or after_close_time
+
+        if not should_close:
+            return
+
+        room_name = self.config.get("room_name", "Unknown")
+        _LOGGER.info(
+            "Timed cover close [%s]: closing %d cover(s) (mode=%s)",
+            room_name, len(covers), timing_mode,
+        )
+        await self._safe_service_call(
+            "cover",
+            "close_cover",
+            {"entity_id": covers},
+            blocking=False,
+        )
+        self._last_timed_close_date = today
+
+    def _is_after_sunset(self, now: datetime) -> bool:
+        """Check if current time is after sunset + offset."""
+        sunset_offset = self.config.get(CONF_SUNSET_OFFSET, 0)
+        sunset_time = sun.get_astral_event_date(
+            self.hass, "sunset", dt_util.start_of_local_day()
+        )
+        if sunset_time is None:
+            return False  # Can't determine — don't close
+        adjusted = sunset_time + timedelta(minutes=sunset_offset)
+        return now >= adjusted
+
+    def _is_after_close_time(self, now: datetime) -> bool:
+        """Check if current time is at or after the configured close hour."""
+        close_hour = int(self.config.get(CONF_CLOSE_TIME, 20))
+        return now.hour >= close_hour
 
     async def handle_temperature_based_fan_control(
         self, temperature: float | None, occupied: bool
