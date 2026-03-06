@@ -1,6 +1,6 @@
 """Binary sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.7.3
+# Universal Room Automation v3.7.4
 # Build: 2026-01-02
 # File: binary_sensor.py
 # v3.2.6: Renamed "Presence" to "Sensor Presence" for clarity
@@ -119,6 +119,8 @@ async def async_setup_entry(
             SecurityAlertBinarySensor(hass, entry),
             # v3.6.29: Notification Manager
             NMActiveAlertBinarySensor(hass, entry),
+            # v3.7.3: Energy Coordinator
+            EnergyEnvoyAvailableBinarySensor(hass, entry),
         ]
         async_add_entities(coordinator_binary)
         return
@@ -1369,3 +1371,63 @@ class NMActiveAlertBinarySensor(BinarySensorEntity):
     def _handle_update(self) -> None:
         """Handle NM alert state change signal."""
         self.async_write_ha_state()
+
+
+# ============================================================================
+# v3.7.3: Energy Coordinator binary sensors
+# ============================================================================
+
+
+class EnergyEnvoyAvailableBinarySensor(AggregationEntity, BinarySensorEntity):
+    """True when the Envoy is responding (SOC + storage mode readable).
+
+    When off, the Energy Coordinator holds current state and issues no commands.
+    Entity: binary_sensor.ura_energy_coordinator_envoy_available
+    Device: URA: Energy Coordinator
+    """
+
+    _attr_device_class = BinarySensorDeviceClass.CONNECTIVITY
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:solar-panel"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_energy_envoy_available"
+        self._attr_name = "Energy Envoy Available"
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .const import VERSION
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "energy_coordinator")},
+            name="URA: Energy Coordinator",
+            manufacturer="Universal Room Automation",
+            model="Energy Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+
+    @property
+    def is_on(self) -> bool | None:
+        """Return True if Envoy is available."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        energy = manager.coordinators.get("energy")
+        if energy is None:
+            return None
+        return energy.battery_strategy.envoy_available
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return Envoy availability details."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return {}
+        energy = manager.coordinators.get("energy")
+        if energy is None:
+            return {}
+        summary = energy.get_energy_summary()
+        return {
+            "unavailable_count": summary.get("envoy_unavailable_count", 0),
+            "last_available": summary.get("envoy_last_available"),
+        }

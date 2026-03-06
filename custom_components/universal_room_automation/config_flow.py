@@ -1,6 +1,6 @@
 """Config flow for Universal Room Automation v3.6.24."""
 #
-# Universal Room Automation v3.7.3
+# Universal Room Automation v3.7.4
 # Build: 2026-01-05
 # File: config_flow.py
 # v3.3.3: Added manage_zones to integration options menu
@@ -1514,6 +1514,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     "coordinator_presence",
                     "coordinator_safety",
                     "coordinator_security",
+                    "coordinator_energy",
                     "coordinator_music_following",
                     "coordinator_notifications",
                 ],
@@ -2097,6 +2098,63 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
 
         return self.async_show_form(
             step_id="coordinator_safety",
+            data_schema=data_schema,
+        )
+
+    async def async_step_coordinator_energy(self, user_input=None):
+        """Configure Energy Coordinator settings.
+
+        v3.7.0: Reserve SOC, bill cycle day, decision interval.
+        """
+        from .domain_coordinators.energy_const import (
+            CONF_ENERGY_RESERVE_SOC,
+            CONF_ENERGY_BILL_CYCLE_DAY,
+            CONF_ENERGY_DECISION_INTERVAL,
+            DEFAULT_RESERVE_SOC,
+            DEFAULT_BILL_CYCLE_START_DAY,
+            DEFAULT_DECISION_INTERVAL_MINUTES,
+        )
+
+        if user_input is not None:
+            return self.async_create_entry(
+                title="",
+                data={**self._config_entry.options, **user_input},
+            )
+
+        data_schema = vol.Schema({
+            vol.Optional(
+                CONF_ENERGY_RESERVE_SOC,
+                default=self._get_current(CONF_ENERGY_RESERVE_SOC, DEFAULT_RESERVE_SOC),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=5, max=100, step=5,
+                    unit_of_measurement="%",
+                    mode=selector.NumberSelectorMode.SLIDER,
+                )
+            ),
+            vol.Optional(
+                CONF_ENERGY_BILL_CYCLE_DAY,
+                default=self._get_current(CONF_ENERGY_BILL_CYCLE_DAY, DEFAULT_BILL_CYCLE_START_DAY),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=1, max=28, step=1,
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
+            vol.Optional(
+                CONF_ENERGY_DECISION_INTERVAL,
+                default=self._get_current(CONF_ENERGY_DECISION_INTERVAL, DEFAULT_DECISION_INTERVAL_MINUTES),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=1, max=30, step=1,
+                    unit_of_measurement="min",
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
+        })
+
+        return self.async_show_form(
+            step_id="coordinator_energy",
             data_schema=data_schema,
         )
 
