@@ -339,6 +339,9 @@ class EnergyCoordinator(BaseCoordinator):
             return
 
         try:
+            if "." not in service:
+                _LOGGER.warning("Energy: malformed service string: %s", service)
+                return
             domain, svc = service.split(".", 1)
             svc_data = {**data}
             if target and "entity_id" not in svc_data:

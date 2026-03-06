@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import logging
 from collections import deque
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from homeassistant.core import HomeAssistant
@@ -171,7 +171,7 @@ class DailyEnergyPredictor:
 
         # Estimate hours to fill at average charge rate
         hours_to_fill = remaining_capacity_kwh / AVERAGE_CHARGE_RATE_KW
-        estimated_time = now + __import__("datetime").timedelta(hours=hours_to_fill)
+        estimated_time = now + timedelta(hours=hours_to_fill)
         self._battery_full_time = estimated_time.strftime("%H:%M")
 
     def record_actual_consumption(self, actual_kwh: float) -> None:
