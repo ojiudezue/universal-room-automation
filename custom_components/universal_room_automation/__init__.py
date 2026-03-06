@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation v3.6.40
+# Universal Room Automation v3.7.0
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -962,6 +962,36 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     coordinator_manager.register_coordinator(mf_coordinator)
                 else:
                     _LOGGER.info("Music Following Coordinator disabled via config")
+
+                # v3.7.0-E1: Register Energy Coordinator
+                from .const import CONF_ENERGY_ENABLED
+                if cm_config.get(CONF_ENERGY_ENABLED, False):
+                    from .domain_coordinators.energy import EnergyCoordinator
+                    from .domain_coordinators.energy_const import (
+                        CONF_ENERGY_RESERVE_SOC,
+                        CONF_ENERGY_DECISION_INTERVAL,
+                        DEFAULT_RESERVE_SOC,
+                        DEFAULT_DECISION_INTERVAL_MINUTES,
+                    )
+                    energy_entity_config = {}
+                    # Pull any entity overrides from cm_config
+                    for key in cm_config:
+                        if key.startswith("energy_") and key.endswith("_entity"):
+                            energy_entity_config[key] = cm_config[key]
+                    energy = EnergyCoordinator(
+                        hass,
+                        reserve_soc=int(cm_config.get(
+                            CONF_ENERGY_RESERVE_SOC, DEFAULT_RESERVE_SOC
+                        )),
+                        decision_interval=int(cm_config.get(
+                            CONF_ENERGY_DECISION_INTERVAL,
+                            DEFAULT_DECISION_INTERVAL_MINUTES,
+                        )),
+                        entity_config=energy_entity_config or None,
+                    )
+                    coordinator_manager.register_coordinator(energy)
+                else:
+                    _LOGGER.info("Energy Coordinator disabled via config")
 
                 # v3.6.29: Register Notification Manager
                 from .const import CONF_NM_ENABLED
