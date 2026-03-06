@@ -117,6 +117,10 @@ DEFAULT_LIFETIME_BATTERY_CHARGED_ENTITY: Final = "sensor.envoy_202428004328_life
 DEFAULT_LIFETIME_BATTERY_DISCHARGED_ENTITY: Final = "sensor.envoy_202428004328_lifetime_battery_energy_discharged"
 DEFAULT_BATTERY_CAPACITY_ENTITY: Final = "sensor.envoy_202428004328_battery_capacity"
 
+# Envoy daily sensors (reset at midnight — useful for cross-checks)
+DEFAULT_CONSUMPTION_TODAY_ENTITY: Final = "sensor.envoy_202428004328_energy_consumption_today"
+DEFAULT_PRODUCTION_TODAY_ENTITY: Final = "sensor.envoy_202428004328_energy_production_today"
+
 # Enpower control entities
 DEFAULT_STORAGE_MODE_ENTITY: Final = "select.enpower_482348004678_storage_mode"
 DEFAULT_RESERVE_SOC_ENTITY: Final = "number.enpower_482348004678_reserve_battery_level"
