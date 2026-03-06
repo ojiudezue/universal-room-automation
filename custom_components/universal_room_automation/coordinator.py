@@ -1,6 +1,6 @@
 """Data coordinator for Universal Room Automation."""
 #
-# Universal Room Automation v3.6.37
+# Universal Room Automation v3.6.38
 # Build: 2026-01-02
 # File: coordinator.py
 # v3.2.8: Support for active state change listeners in aggregation sensors
@@ -15,7 +15,7 @@ from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.event import async_track_state_change_event
+from homeassistant.helpers.event import async_call_later, async_track_state_change_event
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
 from homeassistant.helpers import entity_registry as er
@@ -109,7 +109,8 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
 
         # Debounce: require sensors active for N seconds before confirming entry
         self._occupancy_first_detected: datetime | None = None
-        self._occupancy_debounce_seconds: float = 2.0  # seconds sensor must stay on
+        self._occupancy_debounce_seconds: float = 0.5  # seconds sensor must stay on
+        self._debounce_refresh_unsub = None  # cancel handle for scheduled debounce refresh
 
         # Sensor unavailability grace: hold state if all sensors go unavailable
         self._all_sensors_unavailable_since: datetime | None = None
@@ -345,8 +346,17 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                 room_name
             )
     
+    @callback
+    def _debounce_refresh_callback(self, _now=None) -> None:
+        """Re-evaluate occupancy after debounce period expires."""
+        self._debounce_refresh_unsub = None
+        self.hass.async_create_task(self.async_refresh())
+
     async def async_will_remove_from_hass(self) -> None:
         """Unsubscribe from state listeners."""
+        if self._debounce_refresh_unsub is not None:
+            self._debounce_refresh_unsub()
+            self._debounce_refresh_unsub = None
         for unsub in self._unsub_state_listeners:
             unsub()
         self._unsub_state_listeners.clear()
@@ -592,7 +602,9 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         any_sensor_active = motion_detected or presence_detected or occupancy_detected
 
         # === Fix #6: Entry debouncing (time-based) ===
-        # Require sensors active for N seconds before confirming new entry
+        # Require sensors active for N seconds before confirming new entry.
+        # When debounce blocks, schedule a follow-up refresh so we don't
+        # wait for the 30s polling interval to confirm occupancy.
         if any_sensor_active:
             if not self._last_occupied_state:
                 if self._occupancy_first_detected is None:
@@ -604,8 +616,24 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                         room_name, elapsed, self._occupancy_debounce_seconds,
                     )
                     any_sensor_active = False
+                    # Schedule follow-up refresh after debounce expires
+                    if self._debounce_refresh_unsub is None:
+                        remaining = self._occupancy_debounce_seconds - elapsed + 0.05
+                        self._debounce_refresh_unsub = async_call_later(
+                            self.hass,
+                            remaining,
+                            self._debounce_refresh_callback,
+                        )
+                else:
+                    # Debounce passed — cancel any pending follow-up
+                    if self._debounce_refresh_unsub is not None:
+                        self._debounce_refresh_unsub()
+                        self._debounce_refresh_unsub = None
         else:
             self._occupancy_first_detected = None
+            if self._debounce_refresh_unsub is not None:
+                self._debounce_refresh_unsub()
+                self._debounce_refresh_unsub = None
 
         # Determine occupancy (any detection method)
         if grace_hold:
@@ -798,6 +826,9 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                 # v3.1.0: Shared space scheduled auto-off check
                 await self.automation.check_scheduled_auto_off()
                 await self.automation.check_auto_off_warning()
+
+                # v3.6.38: Timed cover close (sunset/time-based)
+                await self.automation.check_timed_cover_close()
                 
             except Exception as e:
                 _LOGGER.error("Error in periodic automation: %s", e)
