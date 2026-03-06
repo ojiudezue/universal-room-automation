@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.7.0
+# Universal Room Automation v3.7.1
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -5012,6 +5012,8 @@ class NMDiagnosticsSensor(AggregationEntity, SensorEntity):
 
 def _energy_device_info():
     """Return device info for Energy Coordinator sensors."""
+    from homeassistant.helpers.device_registry import DeviceInfo
+    from .const import VERSION
     return DeviceInfo(
         identifiers={(DOMAIN, "energy_coordinator")},
         name="URA: Energy Coordinator",

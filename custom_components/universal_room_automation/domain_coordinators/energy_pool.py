@@ -115,7 +115,10 @@ class PoolOptimizer:
             # Restore normal speed on off-peak/mid-peak
             if self._state != POOL_STATE_NORMAL and self._original_speed is not None:
                 restore_speed = self._original_speed
-                if current is not None and current < restore_speed:
+                if current is None:
+                    # Entity temporarily unavailable — keep state, retry next cycle
+                    _LOGGER.debug("Pool: speed entity unavailable, deferring restore")
+                else:
                     actions.append({
                         "service": "number.set_value",
                         "target": self._speed_entity,
@@ -125,8 +128,8 @@ class PoolOptimizer:
                         "Pool: restoring speed %d → %d GPM (off-peak)",
                         int(current), int(restore_speed),
                     )
-                self._original_speed = None
-                self._state = POOL_STATE_NORMAL
+                    self._original_speed = None
+                    self._state = POOL_STATE_NORMAL
 
         return actions
 
