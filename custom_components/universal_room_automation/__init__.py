@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation v3.6.36
+# Universal Room Automation v3.6.37
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -884,6 +884,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         CONF_SECURITY_ALARM_PANEL,
                         CONF_SECURITY_AUTO_FOLLOW,
                         CONF_SECURITY_LOCK_CHECK_INTERVAL,
+                        CONF_SECURITY_DELEGATE_LIGHTS_TO_NM,
                     )
                     security = SecurityCoordinator(
                         hass,
@@ -905,6 +906,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         lock_check_interval=int(cm_config.get(
                             CONF_SECURITY_LOCK_CHECK_INTERVAL, 30
                         )),
+                        delegate_lights_to_nm=cm_config.get(
+                            CONF_SECURITY_DELEGATE_LIGHTS_TO_NM, True
+                        ),
                     )
                     coordinator_manager.register_coordinator(security)
                 else:
