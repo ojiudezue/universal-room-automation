@@ -358,6 +358,7 @@
           "coordinator_safety": "\ud83d\udee1\ufe0f Safety Monitoring",
           "coordinator_security": "\ud83d\udd12 Security",
           "coordinator_music_following": "\ud83c\udfb5 Music Following",
+          "coordinator_energy": "\u26a1 Energy",
           "coordinator_notifications": "\ud83d\udd14 Notifications",
           "coordinator_notifications_persons": "\ud83d\udc64 Notification Persons",
           "coordinator_notifications_quiet": "\ud83c\udf19 Quiet Hours",
@@ -581,6 +582,20 @@
           "security_alarm_panel": "Optional alarm panel entity for bidirectional armed state sync. Leave empty to manage armed state independently.",
           "security_auto_follow": "Automatically set armed state based on house state (away \u2192 armed_away, home \u2192 armed_home). Off by default.",
           "security_lock_check_interval": "Minutes between periodic lock compliance checks. Runs regardless of armed state."
+        }
+      },
+      "coordinator_energy": {
+        "title": "\u26a1 Energy Coordinator",
+        "description": "Configure the Energy Coordinator. Manages battery strategy, pool/EV optimization, TOU-aware cost tracking, and daily forecasting via Enphase Envoy and Solcast.",
+        "data": {
+          "energy_reserve_soc": "Battery Reserve SOC (%)",
+          "energy_bill_cycle_day": "Billing Cycle Start Day",
+          "energy_decision_interval": "Decision Interval (minutes)"
+        },
+        "data_description": {
+          "energy_reserve_soc": "Minimum battery reserve percentage. Battery won't discharge below this level during normal operation. Default: 20%.",
+          "energy_bill_cycle_day": "Day of the month your PEC billing cycle starts. Used for cost tracking and bill prediction. Default: 23.",
+          "energy_decision_interval": "Minutes between energy decision cycles. Controls how often battery strategy, pool speed, and EV charging are evaluated. Default: 5."
         }
       },
       "coordinator_music_following": {
