@@ -1,6 +1,6 @@
 """Switch platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.6.36
+# Universal Room Automation v3.6.37
 # Build: 2026-01-02
 # File: switch.py
 #
@@ -100,6 +100,8 @@ async def async_setup_entry(
                 device_name="URA: Notification Manager",
                 device_model="Notification Manager",
             ),
+            # v3.6.37: Security → NM light delegation toggle
+            SecurityDelegateLightsSwitch(hass),
         ])
         return
 
@@ -254,6 +256,69 @@ class CoordinatorEnabledSwitch(SwitchEntity):
             if ce.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_INTEGRATION:
                 await self.hass.config_entries.async_reload(ce.entry_id)
                 break
+
+
+class SecurityDelegateLightsSwitch(SwitchEntity, RestoreEntity):
+    """Toggle whether Security Coordinator delegates light control to Notification Manager.
+
+    When ON (default): Security alerts send NotificationAction with hazard_type,
+    and NM handles light patterns (intruder flash, investigate, etc.).
+    When OFF: Security directly controls configured security lights via ServiceCallAction.
+
+    Entity: switch.ura_security_delegate_lights_to_nm
+    Device: Security Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:lightbulb-auto"
+
+    def __init__(self, hass: HomeAssistant) -> None:
+        """Initialize."""
+        self.hass = hass
+        self._attr_unique_id = f"{DOMAIN}_security_delegate_lights_to_nm"
+        self._attr_name = "Delegate Lights to NM"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "security_coordinator")},
+            name="URA: Security Coordinator",
+            manufacturer="Universal Room Automation",
+            model="Security Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+        self._is_on = True
+
+    @property
+    def is_on(self) -> bool:
+        """Return True if light delegation to NM is enabled."""
+        return self._is_on
+
+    async def async_added_to_hass(self) -> None:
+        """Restore state and sync to coordinator."""
+        last_state = await self.async_get_last_state()
+        if last_state is not None:
+            self._is_on = last_state.state == "on"
+        self._sync_to_coordinator()
+
+    async def async_turn_on(self, **kwargs) -> None:
+        """Enable NM light delegation."""
+        self._is_on = True
+        self._sync_to_coordinator()
+        self.async_write_ha_state()
+
+    async def async_turn_off(self, **kwargs) -> None:
+        """Disable NM light delegation (use direct light control)."""
+        self._is_on = False
+        self._sync_to_coordinator()
+        self.async_write_ha_state()
+
+    def _sync_to_coordinator(self) -> None:
+        """Push current state to the SecurityCoordinator instance."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return
+        security = manager.coordinators.get("security")
+        if security is not None:
+            security.delegate_lights_to_nm = self._is_on
 
 
 class AutomationSwitch(UniversalRoomEntity, SwitchEntity, RestoreEntity):

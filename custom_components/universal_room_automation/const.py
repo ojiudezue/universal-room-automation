@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation v3.6.36
+# Universal Room Automation v3.6.37
 # Build: 2026-03-01
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "3.6.36"
+VERSION: Final = "3.6.37"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -832,6 +832,7 @@ CONF_SECURITY_CAMERA_RECORD_DURATION: Final = "security_camera_record_duration"
 CONF_SECURITY_ALARM_PANEL: Final = "security_alarm_panel"
 CONF_SECURITY_AUTO_FOLLOW: Final = "security_auto_follow"
 CONF_SECURITY_LOCK_CHECK_INTERVAL: Final = "security_lock_check_interval"
+CONF_SECURITY_DELEGATE_LIGHTS_TO_NM: Final = "security_delegate_lights_to_nm"
 
 # Zone presence mode values
 ZONE_MODE_AWAY: Final = "away"

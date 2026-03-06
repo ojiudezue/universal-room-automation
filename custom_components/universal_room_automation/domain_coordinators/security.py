@@ -46,6 +46,7 @@ from ..const import (
     CONF_SECURITY_CAMERA_ENTITIES,
     CONF_SECURITY_CAMERA_RECORD_DURATION,
     CONF_SECURITY_CAMERA_RECORDING,
+    CONF_SECURITY_DELEGATE_LIGHTS_TO_NM,
     CONF_SECURITY_ENTRY_SENSORS,
     CONF_SECURITY_GARAGE_ENTITIES,
     CONF_SECURITY_LIGHT_ENTITIES,
@@ -442,6 +443,7 @@ class SecurityCoordinator(BaseCoordinator):
         alarm_panel_entity: str | None = None,
         auto_follow_house_state: bool = False,
         lock_check_interval: int = 30,
+        delegate_lights_to_nm: bool = True,
     ) -> None:
         """Initialize the Security Coordinator."""
         super().__init__(
@@ -461,6 +463,7 @@ class SecurityCoordinator(BaseCoordinator):
         self._alarm_panel_entity = alarm_panel_entity
         self._auto_follow_house_state = auto_follow_house_state
         self._lock_check_interval = lock_check_interval
+        self._delegate_lights_to_nm = delegate_lights_to_nm
 
         # Runtime state
         self._active_alert = False
@@ -697,18 +700,34 @@ class SecurityCoordinator(BaseCoordinator):
                 )
             )
 
-        # Notification with hazard_type for NM light patterns
-        actions.append(
-            NotificationAction(
-                coordinator_id=self.COORDINATOR_ID,
-                severity=Severity.HIGH,
-                message="Unknown person detected — all doors locked",
-                channels=["security"],
-                hazard_type="intruder",
-                location="property",
-                description="Unknown person alert notification",
+        # Light handling: delegate to NM or direct control
+        if self._delegate_lights_to_nm:
+            actions.append(
+                NotificationAction(
+                    coordinator_id=self.COORDINATOR_ID,
+                    severity=Severity.HIGH,
+                    message="Unknown person detected — all doors locked",
+                    channels=["security"],
+                    hazard_type="intruder",
+                    location="property",
+                    description="Unknown person alert notification",
+                )
             )
-        )
+        else:
+            actions.extend(
+                self._build_security_light_actions(
+                    Severity.HIGH, "Unknown person — security lights"
+                )
+            )
+            actions.append(
+                NotificationAction(
+                    coordinator_id=self.COORDINATOR_ID,
+                    severity=Severity.HIGH,
+                    message="Unknown person detected — all doors locked",
+                    channels=["security"],
+                    description="Unknown person alert notification",
+                )
+            )
 
         async_dispatcher_send(self.hass, SIGNAL_SECURITY_ENTITIES_UPDATE)
         return actions
@@ -829,17 +848,35 @@ class SecurityCoordinator(BaseCoordinator):
             ]
 
         if verdict == EntryVerdict.INVESTIGATE:
-            return [
-                NotificationAction(
-                    coordinator_id=self.COORDINATOR_ID,
-                    severity=Severity.MEDIUM,
-                    message=f"Investigate entry at {entity_id} — armed, unrecognized",
-                    channels=["security"],
-                    hazard_type="investigate",
-                    location=entity_id,
-                    description=f"Entry investigate: {entity_id}",
+            actions: list[CoordinatorAction] = []
+            if self._delegate_lights_to_nm:
+                actions.append(
+                    NotificationAction(
+                        coordinator_id=self.COORDINATOR_ID,
+                        severity=Severity.MEDIUM,
+                        message=f"Investigate entry at {entity_id} — armed, unrecognized",
+                        channels=["security"],
+                        hazard_type="investigate",
+                        location=entity_id,
+                        description=f"Entry investigate: {entity_id}",
+                    )
                 )
-            ]
+            else:
+                actions.extend(
+                    self._build_security_light_actions(
+                        Severity.MEDIUM, f"Investigate lights ({entity_id})"
+                    )
+                )
+                actions.append(
+                    NotificationAction(
+                        coordinator_id=self.COORDINATOR_ID,
+                        severity=Severity.MEDIUM,
+                        message=f"Investigate entry at {entity_id} — armed, unrecognized",
+                        channels=["security"],
+                        description=f"Entry investigate: {entity_id}",
+                    )
+                )
+            return actions
 
         # ALERT or ALERT_HIGH
         self._active_alert = True
@@ -869,22 +906,57 @@ class SecurityCoordinator(BaseCoordinator):
                 )
             )
 
-        # Notification with hazard_type for NM light patterns
-        # NM handles light patterns (intruder flash, etc.) when hazard_type is set.
-        # If NM is unavailable, manager still logs the notification.
-        hazard = "intruder" if verdict == EntryVerdict.ALERT_HIGH else "investigate"
-        actions.append(
-            NotificationAction(
-                coordinator_id=self.COORDINATOR_ID,
-                severity=severity,
-                message=f"Security {verdict.value}: entry at {entity_id}",
-                channels=["security"],
-                hazard_type=hazard,
-                location=entity_id,
-                description=f"Security alert notification: {entity_id}",
+        # Light handling: delegate to NM (via hazard_type) or direct control
+        if self._delegate_lights_to_nm:
+            hazard = "intruder" if verdict == EntryVerdict.ALERT_HIGH else "investigate"
+            actions.append(
+                NotificationAction(
+                    coordinator_id=self.COORDINATOR_ID,
+                    severity=severity,
+                    message=f"Security {verdict.value}: entry at {entity_id}",
+                    channels=["security"],
+                    hazard_type=hazard,
+                    location=entity_id,
+                    description=f"Security alert notification: {entity_id}",
+                )
             )
-        )
+        else:
+            actions.extend(
+                self._build_security_light_actions(
+                    severity, f"Security alert lights ({verdict.value})"
+                )
+            )
+            actions.append(
+                NotificationAction(
+                    coordinator_id=self.COORDINATOR_ID,
+                    severity=severity,
+                    message=f"Security {verdict.value}: entry at {entity_id}",
+                    channels=["security"],
+                    description=f"Security alert notification: {entity_id}",
+                )
+            )
 
+        return actions
+
+    def _build_security_light_actions(
+        self, severity: Severity, description: str
+    ) -> list[ServiceCallAction]:
+        """Generate direct ServiceCallActions for security lights (NM bypass)."""
+        actions: list[ServiceCallAction] = []
+        for light_id in self._security_light_entities:
+            actions.append(
+                ServiceCallAction(
+                    coordinator_id=self.COORDINATOR_ID,
+                    target_device=light_id,
+                    severity=severity,
+                    service="light.turn_on",
+                    service_data={
+                        "entity_id": light_id,
+                        "flash": "long",
+                    },
+                    description=f"{description}: {light_id}",
+                )
+            )
         return actions
 
     def _generate_lockdown_actions(
@@ -1240,6 +1312,16 @@ class SecurityCoordinator(BaseCoordinator):
             "authorized_guests": guests,
             "guest_count": len(guests),
         }
+
+    @property
+    def delegate_lights_to_nm(self) -> bool:
+        """Return whether light control is delegated to Notification Manager."""
+        return self._delegate_lights_to_nm
+
+    @delegate_lights_to_nm.setter
+    def delegate_lights_to_nm(self, value: bool) -> None:
+        """Set whether light control is delegated to Notification Manager."""
+        self._delegate_lights_to_nm = value
 
     @property
     def armed_state(self) -> ArmedState:
