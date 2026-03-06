@@ -1,6 +1,6 @@
 """Automation logic for Universal Room Automation."""
 #
-# Universal Room Automation v3.6.39
+# Universal Room Automation v3.6.40
 # Build: 2026-01-04
 # File: automation.py
 # v3.3.1.1: Added int() cast to get_auto_off_hour to handle NumberSelector float values
@@ -655,16 +655,18 @@ class RoomAutomation:
         action = self.config.get(CONF_ENTRY_COVER_ACTION, COVER_ACTION_NONE)
         if action == COVER_ACTION_NONE:
             return COVER_OPEN_NONE
-        # Both "always" and "smart" mapped to on_entry_after_time
+        if action == COVER_ACTION_ALWAYS:
+            return COVER_OPEN_ON_ENTRY
         return COVER_OPEN_ON_ENTRY_AFTER_TIME
 
-    def _is_cover_open_time(self) -> bool:
+    def _is_cover_open_time(self, now: datetime | None = None) -> bool:
         """Check if the configured open time has been reached.
 
         Uses new config (CONF_COVER_OPEN_TIME_SOURCE) with legacy fallback
         to CONF_OPEN_TIMING_MODE.
         """
-        now = dt_util.now()
+        if now is None:
+            now = dt_util.now()
         source = self.config.get(CONF_COVER_OPEN_TIME_SOURCE)
         if source is not None:
             if source == TIME_SOURCE_SUNRISE:
@@ -786,11 +788,12 @@ class RoomAutomation:
         if not covers:
             return
 
-        today = dt_util.now().strftime("%Y-%m-%d")
+        now = dt_util.now()
+        today = now.strftime("%Y-%m-%d")
         if self._last_timed_open_date == today:
             return
 
-        if not self._is_cover_open_time():
+        if not self._is_cover_open_time(now):
             return
 
         if self._are_covers_already_open():
