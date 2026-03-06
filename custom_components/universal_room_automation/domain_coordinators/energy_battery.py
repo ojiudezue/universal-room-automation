@@ -158,6 +158,11 @@ class BatteryStrategy:
         }
         return condition in storm_conditions
 
+    @property
+    def envoy_available(self) -> bool:
+        """Whether the Envoy is responding (SOC and storage mode both readable)."""
+        return self.battery_soc is not None and self.current_storage_mode is not None
+
     def determine_mode(self, tou_period: str) -> dict[str, Any]:
         """Determine optimal battery mode based on TOU period and conditions.
 
@@ -169,6 +174,24 @@ class BatteryStrategy:
         """
         soc = self.battery_soc
         current_mode = self.current_storage_mode
+
+        # Envoy offline — do NOT issue commands when blind.
+        # Hold whatever state the system is in until we can read it again.
+        if not self.envoy_available:
+            _LOGGER.warning(
+                "Envoy unavailable (SOC=%s, mode=%s) — holding current state",
+                soc, current_mode,
+            )
+            return {
+                "mode": current_mode or "unknown",
+                "reason": "Envoy unavailable — holding (no commands issued)",
+                "actions": [],
+                "soc": soc,
+                "solar_production": self.solar_production,
+                "net_power": self.net_power,
+                "solar_day_class": self.classify_solar_day(),
+                "envoy_available": False,
+            }
 
         # Grid disconnected — emergency backup
         if not self.grid_connected:
@@ -307,6 +330,7 @@ class BatteryStrategy:
             "solar_production": self.solar_production,
             "net_power": self.net_power,
             "solar_day_class": self.classify_solar_day(),
+            "envoy_available": True,
         }
 
     def get_status(self) -> dict[str, Any]:
@@ -319,6 +343,7 @@ class BatteryStrategy:
             "net_power": self.net_power,
             "battery_power": self.battery_power,
             "grid_connected": self.grid_connected,
+            "envoy_available": self.envoy_available,
             "solar_day_class": self.classify_solar_day(),
             "storm_forecast": self.has_storm_forecast(),
             "reserve_soc": self.reserve_soc,

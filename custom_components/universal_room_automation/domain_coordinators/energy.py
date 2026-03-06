@@ -38,6 +38,7 @@ from .energy_const import (
     CONF_ENERGY_STORAGE_MODE_ENTITY,
     CONF_ENERGY_WEATHER_ENTITY,
     DEFAULT_DECISION_INTERVAL_MINUTES,
+    DEFAULT_CONSUMPTION_TODAY_ENTITY,
     DEFAULT_LIFETIME_CONSUMPTION_ENTITY,
     DEFAULT_RESERVE_SOC,
 )
@@ -111,6 +112,12 @@ class EnergyCoordinator(BaseCoordinator):
         # At each date change, delta = current - snapshot = true daily consumption.
         # Uses Envoy's consumption CT (includes grid + solar self-consumed + battery).
         self._lifetime_consumption_snapshot: float | None = None
+
+        # Envoy availability tracking
+        self._envoy_unavailable_count: int = 0
+        self._envoy_last_available: str | None = None
+        # Cross-check: last logged divergence (avoid log spam)
+        self._last_crosscheck_hour: int = -1
 
     def _build_entity_map(self, config: dict[str, str] | None) -> dict[str, str]:
         """Build entity mapping from config keys to battery strategy keys."""
@@ -250,6 +257,95 @@ class EnergyCoordinator(BaseCoordinator):
             # First run or Envoy was unavailable — seed the snapshot
             self._lifetime_consumption_snapshot = current_lifetime
 
+    def _track_envoy_availability(self, decision: dict[str, Any]) -> None:
+        """Track Envoy availability and alert on extended outages."""
+        from homeassistant.util import dt as dt_util
+
+        envoy_ok = decision.get("envoy_available", True)
+        if envoy_ok:
+            if self._envoy_unavailable_count > 0:
+                _LOGGER.info(
+                    "Envoy reconnected after %d unavailable cycles",
+                    self._envoy_unavailable_count,
+                )
+            self._envoy_unavailable_count = 0
+            self._envoy_last_available = dt_util.now().isoformat()
+        else:
+            self._envoy_unavailable_count += 1
+            # Alert via NM after 3 consecutive misses (~15 minutes)
+            if self._envoy_unavailable_count == 3:
+                self.hass.async_create_task(
+                    self._send_nm_alert(
+                        title="Envoy Offline",
+                        message=(
+                            f"Envoy has been unavailable for "
+                            f"{self._envoy_unavailable_count * self._decision_interval} minutes. "
+                            f"Battery strategy is holding — no commands being issued."
+                        ),
+                        severity="high",
+                        hazard_type="envoy_offline",
+                        location="main_panel",
+                    )
+                )
+
+    def _crosscheck_consumption(self) -> None:
+        """Cross-check our lifetime delta against Envoy's energy_consumption_today.
+
+        Runs once per hour. If the Envoy's daily sensor and our running delta
+        diverge by more than 15%, something is off (Envoy reboot, stale snapshot,
+        CT calibration drift).
+        """
+        from homeassistant.util import dt as dt_util
+        now = dt_util.now()
+
+        # Only check once per hour to avoid log noise
+        if now.hour == self._last_crosscheck_hour:
+            return
+
+        # Need both data sources
+        current_lifetime = self._get_lifetime_consumption()
+        if current_lifetime is None or self._lifetime_consumption_snapshot is None:
+            return
+
+        envoy_today_state = self.hass.states.get(DEFAULT_CONSUMPTION_TODAY_ENTITY)
+        if envoy_today_state is None or envoy_today_state.state in ("unknown", "unavailable"):
+            return
+
+        try:
+            envoy_today_kwh = float(envoy_today_state.state)
+        except (ValueError, TypeError):
+            return
+
+        # Our delta (MWh → kWh)
+        our_delta_kwh = (current_lifetime - self._lifetime_consumption_snapshot) * 1000.0
+
+        self._last_crosscheck_hour = now.hour
+
+        # Skip early morning when both values are near zero
+        if envoy_today_kwh < 1.0 and our_delta_kwh < 1.0:
+            return
+
+        # Check divergence
+        reference = max(envoy_today_kwh, our_delta_kwh, 0.1)
+        divergence_pct = abs(envoy_today_kwh - our_delta_kwh) / reference * 100
+
+        if divergence_pct > 15:
+            _LOGGER.warning(
+                "Consumption cross-check divergence: Envoy today=%.2f kWh, "
+                "our lifetime delta=%.2f kWh (%.1f%% off). "
+                "Possible Envoy reboot or stale snapshot.",
+                envoy_today_kwh,
+                our_delta_kwh,
+                divergence_pct,
+            )
+            # If Envoy's daily value is significantly higher, our snapshot may
+            # be stale (Envoy rebooted and lifetime reset). Re-seed it.
+            if envoy_today_kwh > our_delta_kwh * 2 and our_delta_kwh < 5:
+                _LOGGER.warning(
+                    "Re-seeding lifetime snapshot — likely Envoy reboot detected"
+                )
+                self._lifetime_consumption_snapshot = current_lifetime
+
     async def _async_decision_cycle(self, _now=None) -> None:
         """Run the periodic decision cycle (every N minutes)."""
         if not self._enabled:
@@ -325,13 +421,20 @@ class EnergyCoordinator(BaseCoordinator):
             # E6: Energy situation assessment
             self._update_energy_situation(period)
 
+            # Envoy availability tracking
+            self._track_envoy_availability(decision)
+
+            # Cross-check consumption tracking (hourly, when data available)
+            self._crosscheck_consumption()
+
             _LOGGER.debug(
-                "Energy cycle: period=%s, battery=%s (%s), soc=%s%%, pool=%s",
+                "Energy cycle: period=%s, battery=%s (%s), soc=%s%%, pool=%s, envoy=%s",
                 period,
                 decision["mode"],
                 decision["reason"],
                 decision.get("soc"),
                 self._pool.state,
+                "ok" if decision.get("envoy_available", True) else "OFFLINE",
             )
         except Exception:
             _LOGGER.exception("Error in energy decision cycle")
@@ -618,4 +721,7 @@ class EnergyCoordinator(BaseCoordinator):
             "load_shedding_active": self.load_shedding_active,
             "decision_interval_minutes": self._decision_interval,
             "tou_transitions_today": self._tou_transition_count,
+            "envoy_available": self._battery.envoy_available,
+            "envoy_unavailable_count": self._envoy_unavailable_count,
+            "envoy_last_available": self._envoy_last_available,
         }
