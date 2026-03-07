@@ -52,11 +52,13 @@ class OverrideArrester:
         hass: HomeAssistant,
         zone_manager: ZoneManager,
         compromise_minutes: int = DEFAULT_COMPROMISE_MINUTES,
+        ac_reset_timeout: int = AC_RESET_STUCK_MINUTES,
     ) -> None:
         """Initialize override arrester."""
         self.hass = hass
         self._zone_manager = zone_manager
         self._compromise_minutes = compromise_minutes
+        self._ac_reset_timeout = ac_reset_timeout
 
         # Listener unsubscribes
         self._state_unsubs: list[CALLBACK_TYPE] = []
@@ -413,7 +415,7 @@ class OverrideArrester:
         """Check for stuck AC cycles across all zones.
 
         Called from the 5-minute HVAC decision cycle.
-        A zone is "stuck" if actively heating/cooling for AC_RESET_STUCK_MINUTES
+        A zone is "stuck" if actively heating/cooling for ac_reset_timeout minutes
         and current temp hasn't moved toward setpoint.
         """
         now = dt_util.now()
@@ -455,7 +457,7 @@ class OverrideArrester:
             stuck_since = datetime.fromisoformat(zone.last_stuck_detected)
             stuck_minutes = (now - stuck_since).total_seconds() / 60
 
-            if stuck_minutes < AC_RESET_STUCK_MINUTES:
+            if stuck_minutes < self._ac_reset_timeout:
                 continue
 
             # Stuck long enough — perform reset

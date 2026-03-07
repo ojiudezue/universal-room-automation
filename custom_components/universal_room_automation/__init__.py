@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation v3.8.6
+# Universal Room Automation v3.8.7
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -1061,11 +1061,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     from .domain_coordinators.hvac_const import (
                         CONF_HVAC_MAX_SLEEP_OFFSET,
                         CONF_HVAC_COMPROMISE_MINUTES,
+                        CONF_HVAC_AC_RESET_TIMEOUT,
                         CONF_HVAC_FAN_ACTIVATION_DELTA,
                         CONF_HVAC_FAN_HYSTERESIS,
                         CONF_HVAC_FAN_MIN_RUNTIME,
                         DEFAULT_MAX_SLEEP_OFFSET,
                         DEFAULT_COMPROMISE_MINUTES,
+                        DEFAULT_AC_RESET_TIMEOUT,
                         DEFAULT_FAN_ACTIVATION_DELTA,
                         DEFAULT_FAN_HYSTERESIS,
                         DEFAULT_FAN_MIN_RUNTIME,
@@ -1077,6 +1079,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         )),
                         compromise_minutes=int(cm_config.get(
                             CONF_HVAC_COMPROMISE_MINUTES, DEFAULT_COMPROMISE_MINUTES
+                        )),
+                        ac_reset_timeout=int(cm_config.get(
+                            CONF_HVAC_AC_RESET_TIMEOUT, DEFAULT_AC_RESET_TIMEOUT
                         )),
                         fan_activation_delta=float(cm_config.get(
                             CONF_HVAC_FAN_ACTIVATION_DELTA, DEFAULT_FAN_ACTIVATION_DELTA
