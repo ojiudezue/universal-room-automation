@@ -151,7 +151,11 @@ class BatteryStrategy:
             return "unknown"
 
         if self._solar_classification_mode == "custom" and self._custom_solar_thresholds:
-            for classification, threshold in self._custom_solar_thresholds.items():
+            for classification, threshold in sorted(
+                self._custom_solar_thresholds.items(),
+                key=lambda x: x[1],
+                reverse=True,
+            ):
                 if forecast >= threshold:
                     return classification
             return "very_poor"

@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.7.8
+# Universal Room Automation v3.7.9
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -5238,6 +5238,7 @@ class EnergyPoolOptimizationSensor(AggregationEntity, SensorEntity):
     """
 
     _attr_has_entity_name = True
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_icon = "mdi:pool"
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
@@ -5278,6 +5279,7 @@ class EnergyEVChargingStatusSensor(AggregationEntity, SensorEntity):
     """
 
     _attr_has_entity_name = True
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_icon = "mdi:ev-station"
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
@@ -5331,6 +5333,7 @@ class EnergyCircuitAnomalySensor(AggregationEntity, SensorEntity):
     """
 
     _attr_has_entity_name = True
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_icon = "mdi:flash-alert"
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
@@ -5375,6 +5378,7 @@ class EnergyGeneratorStatusSensor(AggregationEntity, SensorEntity):
     """
 
     _attr_has_entity_name = True
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_icon = "mdi:engine"
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
@@ -5721,6 +5725,7 @@ class EnergyBatteryFullTimeSensor(AggregationEntity, SensorEntity):
     """
 
     _attr_has_entity_name = True
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_icon = "mdi:battery-clock"
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
@@ -5748,6 +5753,7 @@ class EnergyForecastAccuracySensor(AggregationEntity, SensorEntity):
     """
 
     _attr_has_entity_name = True
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_icon = "mdi:target"
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = "%"
@@ -5811,6 +5817,7 @@ class EnergyHVACConstraintSensor(AggregationEntity, SensorEntity):
     """
 
     _attr_has_entity_name = True
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_icon = "mdi:thermostat"
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
