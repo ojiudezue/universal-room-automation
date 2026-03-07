@@ -103,6 +103,9 @@ class EnergyCoordinator(BaseCoordinator):
 
         self._decision_timer_unsub = None
 
+        # Observation mode: sensors compute, no actions executed
+        self._observation_mode: bool = False
+
         # State tracking
         self._last_battery_decision: dict[str, Any] = {}
         self._tou_transition_count: int = 0
@@ -366,24 +369,25 @@ class EnergyCoordinator(BaseCoordinator):
             decision = self._battery.determine_mode(period)
             self._last_battery_decision = decision
 
-            # Execute battery actions
-            for action_spec in decision.get("actions", []):
-                await self._execute_service_action(action_spec)
+            # Execute actions (skipped in observation mode)
+            if not self._observation_mode:
+                for action_spec in decision.get("actions", []):
+                    await self._execute_service_action(action_spec)
 
-            # E2: Pool optimization
-            pool_actions = self._pool.determine_actions(period)
-            for action_spec in pool_actions:
-                await self._execute_service_action(action_spec)
+                # E2: Pool optimization
+                pool_actions = self._pool.determine_actions(period)
+                for action_spec in pool_actions:
+                    await self._execute_service_action(action_spec)
 
-            # E2: EV charger control
-            ev_actions = self._ev.determine_actions(period)
-            for action_spec in ev_actions:
-                await self._execute_service_action(action_spec)
+                # E2: EV charger control
+                ev_actions = self._ev.determine_actions(period)
+                for action_spec in ev_actions:
+                    await self._execute_service_action(action_spec)
 
-            # E2: Smart plug control
-            plug_actions = self._smart_plugs.determine_actions(period)
-            for action_spec in plug_actions:
-                await self._execute_service_action(action_spec)
+                # E2: Smart plug control
+                plug_actions = self._smart_plugs.determine_actions(period)
+                for action_spec in plug_actions:
+                    await self._execute_service_action(action_spec)
 
             # E3: Circuit anomaly checks
             circuit_anomalies = self._circuits.check_anomalies()
@@ -693,6 +697,23 @@ class EnergyCoordinator(BaseCoordinator):
         }
 
     @property
+    def observation_mode(self) -> bool:
+        """Whether observation mode is active (sensors only, no actions)."""
+        return self._observation_mode
+
+    @observation_mode.setter
+    def observation_mode(self, value: bool) -> None:
+        """Set observation mode."""
+        self._observation_mode = value
+        _LOGGER.info("Energy Coordinator observation mode: %s", value)
+
+    @property
+    def delivery_rate(self) -> float:
+        """Current delivery + transmission rate per kWh."""
+        from .energy_const import PEC_FIXED_CHARGES
+        return PEC_FIXED_CHARGES["delivery_per_kwh"] + PEC_FIXED_CHARGES["transmission_per_kwh"]
+
+    @property
     def load_shedding_active(self) -> bool:
         """Whether any load shedding is active (pool reduced, EVs paused, plugs paused)."""
         return (
@@ -724,4 +745,5 @@ class EnergyCoordinator(BaseCoordinator):
             "envoy_available": self._battery.envoy_available,
             "envoy_unavailable_count": self._envoy_unavailable_count,
             "envoy_last_available": self._envoy_last_available,
+            "observation_mode": self._observation_mode,
         }

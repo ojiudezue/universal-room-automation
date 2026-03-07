@@ -74,11 +74,30 @@ PEC_FIXED_CHARGES: Final = {
 # Solar Day Classification Thresholds (kWh)
 # ============================================================================
 
+# Per-month solar thresholds (kWh) derived from actual Enphase production data
+# (50 panels, 19.4kW DC). Keyed by month number → (P25, P50, P75).
+# Classification: excellent >= P75, good >= P50, moderate >= P25, poor < P25.
+SOLAR_MONTHLY_THRESHOLDS: Final = {
+    1: (33.0, 61.0, 83.0),   # Jan (extrapolated from Dec)
+    2: (49.0, 66.0, 80.0),
+    3: (60.0, 80.0, 95.0),
+    4: (73.0, 93.0, 108.0),
+    5: (85.0, 103.0, 118.0),
+    6: (106.0, 125.0, 136.0),
+    7: (100.0, 120.0, 133.0),
+    8: (88.0, 108.0, 124.0),
+    9: (68.0, 88.0, 104.0),
+    10: (50.0, 68.0, 83.0),
+    11: (36.0, 52.0, 66.0),
+    12: (33.0, 61.0, 83.0),
+}
+
+# Fallback static thresholds for custom override mode
 SOLAR_DAY_THRESHOLDS: Final = {
-    "excellent": 60.0,
-    "good": 45.0,
-    "moderate": 30.0,
-    "poor": 15.0,
+    "excellent": 100.0,
+    "good": 80.0,
+    "moderate": 50.0,
+    "poor": 30.0,
     # below poor = very_poor
 }
 
@@ -103,7 +122,7 @@ BATTERY_MODE_BACKUP: Final = "backup"
 # Solar / Grid / Battery
 DEFAULT_SOLAR_PRODUCTION_ENTITY: Final = "sensor.envoy_202428004328_current_power_production"
 DEFAULT_GRID_CONSUMPTION_ENTITY: Final = "sensor.envoy_202428004328_current_power_consumption"
-DEFAULT_BATTERY_SOC_ENTITY: Final = "sensor.encharge_aggregate_battery_percentage"
+DEFAULT_BATTERY_SOC_ENTITY: Final = "sensor.envoy_202428004328_battery"
 DEFAULT_BATTERY_POWER_ENTITY: Final = "sensor.envoy_202428004328_encharge_aggregate_power"
 DEFAULT_NET_POWER_ENTITY: Final = "sensor.envoy_202428004328_balanced_net_power_consumption"
 
@@ -156,3 +175,12 @@ CONF_ENERGY_CHARGE_FROM_GRID_ENTITY: Final = "energy_charge_from_grid_entity"
 CONF_ENERGY_SOLCAST_TODAY_ENTITY: Final = "energy_solcast_today_entity"
 CONF_ENERGY_SOLCAST_REMAINING_ENTITY: Final = "energy_solcast_remaining_entity"
 CONF_ENERGY_WEATHER_ENTITY: Final = "energy_weather_entity"
+CONF_ENERGY_SOLAR_CLASSIFICATION_MODE: Final = "energy_solar_classification_mode"
+CONF_ENERGY_SOLAR_THRESHOLD_EXCELLENT: Final = "energy_solar_threshold_excellent"
+CONF_ENERGY_SOLAR_THRESHOLD_GOOD: Final = "energy_solar_threshold_good"
+CONF_ENERGY_SOLAR_THRESHOLD_MODERATE: Final = "energy_solar_threshold_moderate"
+CONF_ENERGY_SOLAR_THRESHOLD_POOR: Final = "energy_solar_threshold_poor"
+
+# Solar classification modes
+SOLAR_CLASS_MODE_AUTOMATIC: Final = "automatic"
+SOLAR_CLASS_MODE_CUSTOM: Final = "custom"

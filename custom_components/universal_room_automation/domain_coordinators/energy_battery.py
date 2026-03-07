@@ -29,6 +29,7 @@ from .energy_const import (
     DEFAULT_STORM_CHARGE_THRESHOLD,
     DEFAULT_WEATHER_ENTITY,
     SOLAR_DAY_THRESHOLDS,
+    SOLAR_MONTHLY_THRESHOLDS,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -42,6 +43,8 @@ class BatteryStrategy:
         hass: HomeAssistant,
         reserve_soc: int = DEFAULT_RESERVE_SOC,
         entity_config: dict[str, str] | None = None,
+        solar_classification_mode: str = "automatic",
+        custom_solar_thresholds: dict[str, float] | None = None,
     ) -> None:
         """Initialize battery strategy."""
         self.hass = hass
@@ -49,6 +52,8 @@ class BatteryStrategy:
         self._entities = entity_config or {}
         self._last_mode: str | None = None
         self._last_reason: str = ""
+        self._solar_classification_mode = solar_classification_mode
+        self._custom_solar_thresholds = custom_solar_thresholds
 
     def _get_entity(self, key: str, default: str) -> str:
         """Get entity ID from config or default."""
@@ -136,14 +141,32 @@ class BatteryStrategy:
         )
 
     def classify_solar_day(self) -> str:
-        """Classify today's solar forecast: excellent/good/moderate/poor/very_poor."""
+        """Classify today's solar forecast: excellent/good/moderate/poor/very_poor.
+
+        Uses per-month percentile thresholds by default, or custom absolute
+        thresholds if configured.
+        """
         forecast = self.solcast_today
         if forecast is None:
             return "unknown"
-        for classification, threshold in SOLAR_DAY_THRESHOLDS.items():
-            if forecast >= threshold:
-                return classification
-        return "very_poor"
+
+        if self._solar_classification_mode == "custom" and self._custom_solar_thresholds:
+            for classification, threshold in self._custom_solar_thresholds.items():
+                if forecast >= threshold:
+                    return classification
+            return "very_poor"
+
+        # Automatic (monthly) mode — use per-month P25/P50/P75
+        from homeassistant.util import dt as dt_util
+        month = dt_util.now().month
+        p25, p50, p75 = SOLAR_MONTHLY_THRESHOLDS.get(month, (50.0, 80.0, 100.0))
+        if forecast >= p75:
+            return "excellent"
+        if forecast >= p50:
+            return "good"
+        if forecast >= p25:
+            return "moderate"
+        return "poor"
 
     def has_storm_forecast(self) -> bool:
         """Check weather entity for storm/severe weather conditions."""
