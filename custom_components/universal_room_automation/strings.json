@@ -359,6 +359,7 @@
           "coordinator_security": "\ud83d\udd12 Security",
           "coordinator_music_following": "\ud83c\udfb5 Music Following",
           "coordinator_energy": "\u26a1 Energy",
+          "coordinator_hvac": "\ud83c\udf21\ufe0f HVAC",
           "coordinator_notifications": "\ud83d\udd14 Notifications",
           "coordinator_notifications_persons": "\ud83d\udc64 Notification Persons",
           "coordinator_notifications_quiet": "\ud83c\udf19 Quiet Hours",
@@ -614,6 +615,28 @@
           "energy_solar_threshold_good": "Custom mode: forecast above this = good day. Only used when Solar Day Classification is set to Custom.",
           "energy_solar_threshold_moderate": "Custom mode: forecast above this = moderate day. Only used when Solar Day Classification is set to Custom.",
           "energy_solar_threshold_poor": "Custom mode: forecast above this = poor day. Below this = very poor. Only used when Solar Day Classification is set to Custom."
+        }
+      },
+      "coordinator_hvac": {
+        "title": "\ud83c\udf21\ufe0f HVAC Coordinator",
+        "description": "Configure the HVAC Coordinator. Manages zone presets, override detection, fan control, cover solar gain management, and predictive pre-conditioning.",
+        "data": {
+          "hvac_max_sleep_offset": "Sleep Setpoint Offset",
+          "hvac_compromise_minutes": "Override Compromise Duration",
+          "hvac_ac_reset_timeout": "AC Reset Stuck Timeout",
+          "hvac_fan_activation_delta": "Fan Activation Delta",
+          "hvac_fan_hysteresis": "Fan Deactivation Hysteresis",
+          "hvac_fan_min_runtime": "Fan Minimum Runtime",
+          "hvac_cover_entities": "Managed Cover Entities"
+        },
+        "data_description": {
+          "hvac_max_sleep_offset": "Maximum temperature adjustment during sleep preset. Cooling setpoint raised by this amount. Default: 1.5\u00b0F.",
+          "hvac_compromise_minutes": "How long to hold the compromise setpoint before reverting a normal override. Default: 30 minutes.",
+          "hvac_ac_reset_timeout": "Minutes a zone must be stuck past setpoint before triggering an AC reset cycle. Default: 10 minutes.",
+          "hvac_fan_activation_delta": "Temperature above cooling setpoint that activates fans. Default: 2.0\u00b0F.",
+          "hvac_fan_hysteresis": "Hysteresis band for fan deactivation. Fans turn off when delta drops to (activation - hysteresis). Default: 1.5\u00b0F.",
+          "hvac_fan_min_runtime": "Minimum fan runtime once activated, preventing short cycling. Default: 10 minutes.",
+          "hvac_cover_entities": "Explicit list of cover entities for solar gain management. If empty, covers are auto-discovered from room entries."
         }
       },
       "coordinator_music_following": {
