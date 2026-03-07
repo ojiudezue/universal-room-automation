@@ -1,6 +1,6 @@
 """Data coordinator for Universal Room Automation."""
 #
-# Universal Room Automation v3.8.7
+# Universal Room Automation v3.8.8
 # Build: 2026-01-02
 # File: coordinator.py
 # v3.2.8: Support for active state change listeners in aggregation sensors
@@ -44,6 +44,8 @@ from .const import (
     STATE_ILLUMINANCE,
     STATE_DARK,
     STATE_TIMEOUT_REMAINING,
+    STATE_BLE_PERSONS,
+    STATE_OCCUPANCY_SOURCE,
     STATE_POWER_CURRENT,
     STATE_ENERGY_TODAY,
     STATE_ENERGY_WEEKLY,
@@ -636,15 +638,25 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                 self._debounce_refresh_unsub = None
 
         # Determine occupancy (any detection method)
+        # Track which source is driving occupancy for sensor exposure
+        data[STATE_BLE_PERSONS] = []
         if grace_hold:
             # Hold previous occupancy state during sensor unavailability grace
             data[STATE_OCCUPIED] = self._last_occupied_state
             data[STATE_TIMEOUT_REMAINING] = self._occupancy_timeout if self._last_occupied_state else 0
+            data[STATE_OCCUPANCY_SOURCE] = "grace_hold" if self._last_occupied_state else "none"
         elif any_sensor_active:
             self._last_motion_time = now
             self._failsafe_fired = False  # Reset failsafe flag on genuine activity
             data[STATE_OCCUPIED] = True
             data[STATE_TIMEOUT_REMAINING] = self._occupancy_timeout
+            # Determine primary source
+            if motion_detected:
+                data[STATE_OCCUPANCY_SOURCE] = "motion"
+            elif presence_detected:
+                data[STATE_OCCUPANCY_SOURCE] = "mmwave"
+            else:
+                data[STATE_OCCUPANCY_SOURCE] = "occupancy_sensor"
 
             # Update last occupied time when becoming occupied
             if not self._last_occupied_state:
@@ -661,11 +673,14 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                 # Keep last_occupied_time updated while still occupied
                 if data[STATE_OCCUPIED]:
                     self._last_occupied_time = now
+                    data[STATE_OCCUPANCY_SOURCE] = "timeout"
                 else:
                     self._became_occupied_time = None
+                    data[STATE_OCCUPANCY_SOURCE] = "none"
             else:
                 data[STATE_TIMEOUT_REMAINING] = 0
                 data[STATE_OCCUPIED] = False
+                data[STATE_OCCUPANCY_SOURCE] = "none"
                 self._became_occupied_time = None
         
         # Calculate time since last motion
@@ -691,6 +706,7 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                     room_name, duration / 3600,
                 )
                 data[STATE_OCCUPIED] = False
+                data[STATE_OCCUPANCY_SOURCE] = "failsafe"
                 data[STATE_TIMEOUT_REMAINING] = 0
                 self._last_motion_time = None
                 self._failsafe_fired = True
@@ -709,9 +725,15 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                         state = self.hass.states.get(person_sensor)
                         if state and state.state == "on":
                             data[STATE_OCCUPIED] = True
+                            data[STATE_OCCUPANCY_SOURCE] = "camera"
                             data[STATE_TIMEOUT_REMAINING] = self._occupancy_timeout
                             if not self._last_motion_time:
                                 self._last_motion_time = now
+                            # Ensure failsafe timer tracks camera-held occupancy
+                            if self._became_occupied_time is None:
+                                self._became_occupied_time = now
+                            if not self._last_occupied_state:
+                                self._last_occupied_time = now
                             _LOGGER.debug(
                                 "Room %s: Camera person sensor %s overrides vacancy — "
                                 "person detected",
@@ -719,6 +741,45 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                                 person_sensor,
                             )
                             break
+
+        # === v3.8.8: BLE/Bermuda extends room occupancy ===
+        # If motion/mmWave/camera have timed out but person_coordinator knows
+        # a tracked person is in this room via BLE, override vacancy.
+        # Respects failsafe like camera override.
+        if not data.get(STATE_OCCUPIED) and not self._failsafe_fired:
+            person_coordinator = self.hass.data.get(DOMAIN, {}).get(
+                "person_coordinator"
+            )
+            if person_coordinator:
+                ble_persons = person_coordinator.get_persons_in_room(room_name)
+                if ble_persons:
+                    data[STATE_OCCUPIED] = True
+                    data[STATE_OCCUPANCY_SOURCE] = "ble"
+                    data[STATE_BLE_PERSONS] = list(ble_persons)
+                    data[STATE_TIMEOUT_REMAINING] = self._occupancy_timeout
+                    if not self._last_motion_time:
+                        self._last_motion_time = now
+                    # Ensure failsafe timer tracks BLE-held occupancy
+                    if self._became_occupied_time is None:
+                        self._became_occupied_time = now
+                    if not self._last_occupied_state:
+                        self._last_occupied_time = now
+                    _LOGGER.debug(
+                        "Room %s: BLE persons %s override vacancy",
+                        room_name,
+                        ble_persons,
+                    )
+
+        # Always populate ble_persons even when occupied by other sources
+        # (single lookup, avoids double-call when BLE override already set it)
+        if not data.get(STATE_BLE_PERSONS):
+            person_coordinator = self.hass.data.get(DOMAIN, {}).get(
+                "person_coordinator"
+            )
+            if person_coordinator:
+                data[STATE_BLE_PERSONS] = list(
+                    person_coordinator.get_persons_in_room(room_name)
+                )
 
         # === Phase 1: Environmental Sensors ===
         # v3.2.3.2 FIX: Use _get_config to read from options (user changes) with data fallback
@@ -844,7 +905,7 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
             if data[STATE_OCCUPIED] != was_occupied:
                 if data[STATE_OCCUPIED]:
                     # Entry event
-                    trigger = "motion" if motion_detected else "presence"
+                    trigger = data.get(STATE_OCCUPANCY_SOURCE, "motion")
                     await database.log_occupancy_event(
                         self.entry.entry_id,
                         "entry",
