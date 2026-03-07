@@ -1,6 +1,6 @@
 """Binary sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.8.7
+# Universal Room Automation v3.8.8
 # Build: 2026-01-02
 # File: binary_sensor.py
 # v3.2.6: Renamed "Presence" to "Sensor Presence" for clarity
@@ -30,6 +30,8 @@ from .const import (
     ICON_DARK,
     ICON_ROOM_ALERT,
     STATE_OCCUPIED,
+    STATE_BLE_PERSONS,
+    STATE_OCCUPANCY_SOURCE,
     STATE_MOTION_DETECTED,
     STATE_PRESENCE_DETECTED,
     STATE_DARK,
@@ -186,11 +188,19 @@ class OccupiedBinarySensor(UniversalRoomEntity, BinarySensorEntity):
     @property
     def extra_state_attributes(self) -> dict:
         """Return additional state attributes."""
-        return {
+        attrs = {
             ATTR_LAST_MOTION: self.coordinator._last_motion_time.isoformat()
             if self.coordinator._last_motion_time else None,
             ATTR_TIMEOUT: self.coordinator.data.get("timeout_remaining", 0) if self.coordinator.data else 0,
         }
+        if self.coordinator.data:
+            attrs["occupancy_source"] = self.coordinator.data.get(
+                STATE_OCCUPANCY_SOURCE, "none"
+            )
+            attrs["ble_persons"] = self.coordinator.data.get(
+                STATE_BLE_PERSONS, []
+            )
+        return attrs
 
 
 class MotionDetectedBinarySensor(UniversalRoomEntity, BinarySensorEntity):
