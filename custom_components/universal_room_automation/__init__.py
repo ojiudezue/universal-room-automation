@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation v3.7.12
+# Universal Room Automation v3.8.0
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -1053,6 +1053,24 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     coordinator_manager.register_coordinator(energy)
                 else:
                     _LOGGER.info("Energy Coordinator disabled via config")
+
+                # v3.8.0-H1: Register HVAC Coordinator
+                from .const import CONF_HVAC_ENABLED
+                if cm_config.get(CONF_HVAC_ENABLED, False):
+                    from .domain_coordinators.hvac import HVACCoordinator
+                    from .domain_coordinators.hvac_const import (
+                        DEFAULT_MAX_SLEEP_OFFSET,
+                        CONF_HVAC_MAX_SLEEP_OFFSET,
+                    )
+                    hvac = HVACCoordinator(
+                        hass,
+                        max_sleep_offset=float(cm_config.get(
+                            CONF_HVAC_MAX_SLEEP_OFFSET, DEFAULT_MAX_SLEEP_OFFSET
+                        )),
+                    )
+                    coordinator_manager.register_coordinator(hvac)
+                else:
+                    _LOGGER.info("HVAC Coordinator disabled via config")
 
                 # v3.6.29: Register Notification Manager
                 from .const import CONF_NM_ENABLED

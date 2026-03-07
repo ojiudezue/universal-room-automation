@@ -39,11 +39,15 @@ class HouseStateChange:
 class EnergyConstraint:
     """Payload for SIGNAL_ENERGY_CONSTRAINT."""
 
-    mode: str  # normal | pre_cool | coast | shed
+    mode: str  # normal | pre_cool | pre_heat | coast | shed
     setpoint_offset: float  # degrees F, negative = lower, positive = raise
     occupied_only: bool = True
     max_runtime_minutes: int | None = None
     fan_assist: bool = False
+    reason: str = ""
+    solar_class: str = ""
+    forecast_high_temp: float | None = None
+    soc: int | None = None
 
 
 @dataclass

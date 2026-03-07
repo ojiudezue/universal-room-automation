@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.7.12
+# Universal Room Automation v3.8.0
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -226,7 +226,20 @@ async def async_setup_entry(
             EnergyNetConsumptionSensor(hass, entry),
             EnergyEVChargeRateASensor(hass, entry),
             EnergyEVChargeRateBSensor(hass, entry),
+            # v3.8.0-H1: HVAC Coordinator sensors
+            HVACModeSensor(hass, entry),
+            HVACAnomalySensor(hass, entry),
+            HVACComplianceSensor(hass, entry),
         ]
+        # v3.8.0-H1: Add per-zone HVAC sensors dynamically
+        manager = hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager:
+            hvac_coord = manager.coordinators.get("hvac")
+            if hvac_coord:
+                for zone_id in hvac_coord.zone_manager.zones:
+                    coordinator_sensors.append(
+                        HVACZoneStatusSensor(hass, entry, zone_id)
+                    )
         async_add_entities(coordinator_sensors)
         return
 
@@ -5992,3 +6005,239 @@ class EnergyEVChargeRateBSensor(AggregationEntity, SensorEntity):
         if energy is None:
             return None
         return energy.evse_garage_b_power
+
+
+# ============================================================================
+# v3.8.0-H1: HVAC COORDINATOR SENSORS
+# ============================================================================
+
+
+def _hvac_device_info():
+    """Return device info for HVAC Coordinator sensors."""
+    from homeassistant.helpers.device_registry import DeviceInfo
+    from .const import VERSION
+    return DeviceInfo(
+        identifiers={(DOMAIN, "hvac_coordinator")},
+        name="URA: HVAC Coordinator",
+        manufacturer="Universal Room Automation",
+        model="HVAC Coordinator",
+        sw_version=VERSION,
+        via_device=(DOMAIN, "coordinator_manager"),
+    )
+
+
+class HVACModeSensor(AggregationEntity, SensorEntity):
+    """HVAC operating mode.
+
+    Entity: sensor.ura_hvac_coordinator_mode
+    Device: URA: HVAC Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:thermostat"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_hvac_coordinator_mode"
+        self._attr_name = "Mode"
+        self._attr_device_info = _hvac_device_info()
+
+    @property
+    def native_value(self) -> str:
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return "not_initialized"
+        hvac = manager.coordinators.get("hvac")
+        if hvac is None:
+            return "disabled"
+        return hvac.get_mode()
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return {}
+        hvac = manager.coordinators.get("hvac")
+        if hvac is None:
+            return {}
+        return hvac.get_mode_attrs()
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.hvac_const import SIGNAL_HVAC_ENTITIES_UPDATE
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_HVAC_ENTITIES_UPDATE, self._handle_update
+            )
+        )
+
+    @callback
+    def _handle_update(self) -> None:
+        self.async_write_ha_state()
+
+
+class HVACZoneStatusSensor(AggregationEntity, SensorEntity):
+    """Per-zone HVAC status.
+
+    Entity: sensor.ura_hvac_coordinator_zone_{n}_status
+    Device: URA: HVAC Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(
+        self, hass: HomeAssistant, entry: ConfigEntry, zone_id: str
+    ) -> None:
+        super().__init__(hass, entry)
+        self._zone_id = zone_id
+        zone_num = zone_id.split("_")[-1] if "_" in zone_id else zone_id
+        self._attr_unique_id = f"{DOMAIN}_hvac_coordinator_{zone_id}_status"
+        self._attr_name = f"Zone {zone_num} Status"
+        self._attr_icon = "mdi:thermostat"
+        self._attr_device_info = _hvac_device_info()
+
+    @property
+    def native_value(self) -> str:
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return "unavailable"
+        hvac = manager.coordinators.get("hvac")
+        if hvac is None:
+            return "disabled"
+        zone = hvac.zone_manager.zones.get(self._zone_id)
+        if zone is None:
+            return "unknown"
+        return zone.hvac_mode or "unknown"
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return {}
+        hvac = manager.coordinators.get("hvac")
+        if hvac is None:
+            return {}
+        return hvac.zone_manager.get_zone_status_attrs(self._zone_id)
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.hvac_const import SIGNAL_HVAC_ENTITIES_UPDATE
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_HVAC_ENTITIES_UPDATE, self._handle_update
+            )
+        )
+
+    @callback
+    def _handle_update(self) -> None:
+        self.async_write_ha_state()
+
+
+class HVACAnomalySensor(AggregationEntity, SensorEntity):
+    """HVAC anomaly status.
+
+    Entity: sensor.ura_hvac_coordinator_anomaly
+    Device: URA: HVAC Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:alert-circle-outline"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_hvac_coordinator_anomaly"
+        self._attr_name = "HVAC Anomaly"
+        self._attr_device_info = _hvac_device_info()
+
+    @property
+    def native_value(self) -> str:
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return "not_initialized"
+        hvac = manager.coordinators.get("hvac")
+        if hvac is None:
+            return "disabled"
+        return hvac.get_anomaly_status()
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return {}
+        hvac = manager.coordinators.get("hvac")
+        if hvac is None:
+            return {}
+        if hvac.anomaly_detector is None:
+            return {}
+        return hvac.anomaly_detector.get_status_summary()
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.hvac_const import SIGNAL_HVAC_ENTITIES_UPDATE
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_HVAC_ENTITIES_UPDATE, self._handle_update
+            )
+        )
+
+    @callback
+    def _handle_update(self) -> None:
+        self.async_write_ha_state()
+
+
+class HVACComplianceSensor(AggregationEntity, SensorEntity):
+    """HVAC compliance rate.
+
+    Entity: sensor.ura_hvac_coordinator_compliance
+    Device: URA: HVAC Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:check-decagram"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_hvac_coordinator_compliance"
+        self._attr_name = "HVAC Compliance"
+        self._attr_device_info = _hvac_device_info()
+
+    @property
+    def native_value(self) -> str:
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return "not_initialized"
+        hvac = manager.coordinators.get("hvac")
+        if hvac is None:
+            return "disabled"
+        summary = hvac.get_compliance_summary()
+        return str(summary.get("overrides_today", 0))
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return {}
+        hvac = manager.coordinators.get("hvac")
+        if hvac is None:
+            return {}
+        return hvac.get_compliance_summary()
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.hvac_const import SIGNAL_HVAC_ENTITIES_UPDATE
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_HVAC_ENTITIES_UPDATE, self._handle_update
+            )
+        )
+
+    @callback
+    def _handle_update(self) -> None:
+        self.async_write_ha_state()

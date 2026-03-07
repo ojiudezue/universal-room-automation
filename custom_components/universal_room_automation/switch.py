@@ -1,6 +1,6 @@
 """Switch platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.7.12
+# Universal Room Automation v3.8.0
 # Build: 2026-01-02
 # File: switch.py
 #
@@ -19,6 +19,7 @@ from .const import (
     CONF_DOMAIN_COORDINATORS_ENABLED,
     CONF_ENERGY_ENABLED,
     CONF_ENTRY_TYPE,
+    CONF_HVAC_ENABLED,
     CONF_MUSIC_FOLLOWING_COORDINATOR_ENABLED,
     CONF_NM_ENABLED,
     CONF_PRESENCE_ENABLED,
@@ -101,6 +102,17 @@ async def async_setup_entry(
                 device_id="energy_coordinator",
                 device_name="URA: Energy Coordinator",
                 device_model="Energy Coordinator",
+            ),
+            # v3.8.0: HVAC Coordinator
+            CoordinatorEnabledSwitch(
+                hass, entry,
+                coordinator_id="hvac",
+                conf_key=CONF_HVAC_ENABLED,
+                name="HVAC Coordinator",
+                icon="mdi:thermostat",
+                device_id="hvac_coordinator",
+                device_name="URA: HVAC Coordinator",
+                device_model="HVAC Coordinator",
             ),
             # v3.6.29: Notification Manager
             CoordinatorEnabledSwitch(
