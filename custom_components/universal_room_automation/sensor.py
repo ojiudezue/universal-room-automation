@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.7.5
+# Universal Room Automation v3.7.6
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -211,6 +211,7 @@ async def async_setup_entry(
             EnergyCostCycleSensor(hass, entry),
             EnergyPredictedBillSensor(hass, entry),
             EnergyCurrentRateSensor(hass, entry),
+            EnergyDeliveryRateSensor(hass, entry),
             EnergyImportTodaySensor(hass, entry),
             EnergyExportTodaySensor(hass, entry),
             # v3.7.0-E5: Forecast sensors
@@ -5536,7 +5537,7 @@ class EnergyCurrentRateSensor(AggregationEntity, SensorEntity):
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         super().__init__(hass, entry)
         self._attr_unique_id = f"{DOMAIN}_energy_current_rate"
-        self._attr_name = "Current Energy Rate"
+        self._attr_name = "Actual Energy Rate"
         self._attr_device_info = _energy_device_info()
 
     @property
@@ -5548,6 +5549,36 @@ class EnergyCurrentRateSensor(AggregationEntity, SensorEntity):
         if energy is None:
             return None
         return round(energy.current_effective_rate, 6)
+
+
+class EnergyDeliveryRateSensor(AggregationEntity, SensorEntity):
+    """Delivery + transmission rate per kWh (non-commodity charges).
+
+    Entity: sensor.ura_energy_delivery_rate
+    Device: URA: Energy Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:truck-delivery"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = "$/kWh"
+    _attr_suggested_display_precision = 4
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_energy_delivery_rate"
+        self._attr_name = "Delivery Rate"
+        self._attr_device_info = _energy_device_info()
+
+    @property
+    def native_value(self) -> float | None:
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        energy = manager.coordinators.get("energy")
+        if energy is None:
+            return None
+        return round(energy.delivery_rate, 6)
 
 
 class EnergyImportTodaySensor(AggregationEntity, SensorEntity):

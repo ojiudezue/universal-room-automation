@@ -83,11 +83,14 @@ class DailyEnergyPredictor:
             return None
 
     def generate_prediction(self) -> dict[str, Any]:
-        """Generate daily energy prediction. Called once at start of day."""
+        """Generate daily energy prediction. Called once at start of day.
+
+        Retries if Solcast was unavailable on first attempt (e.g., HA startup).
+        """
         now = dt_util.now()
         today = now.date().isoformat()
 
-        if self._prediction_date == today:
+        if self._prediction_date == today and self._predicted_production_kwh is not None:
             return self._get_current_prediction()
 
         self._prediction_date = today

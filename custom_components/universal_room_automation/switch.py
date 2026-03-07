@@ -1,6 +1,6 @@
 """Switch platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.7.5
+# Universal Room Automation v3.7.6
 # Build: 2026-01-02
 # File: switch.py
 #
@@ -10,6 +10,7 @@ import logging
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.restore_state import RestoreEntity
@@ -114,6 +115,8 @@ async def async_setup_entry(
             ),
             # v3.6.37: Security → NM light delegation toggle
             SecurityDelegateLightsSwitch(hass),
+            # v3.7.6: Energy Observation Mode toggle
+            EnergyObservationModeSwitch(hass, entry),
         ])
         return
 
@@ -268,6 +271,70 @@ class CoordinatorEnabledSwitch(SwitchEntity):
             if ce.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_INTEGRATION:
                 await self.hass.config_entries.async_reload(ce.entry_id)
                 break
+
+
+class EnergyObservationModeSwitch(SwitchEntity):
+    """Toggle Energy Coordinator observation mode.
+
+    When ON: All sensors compute normally, but no control actions are executed.
+    When OFF (default): Normal operation — sensors + actions.
+
+    Entity: switch.ura_energy_observation_mode
+    Device: URA: Energy Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:eye-outline"
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        self.hass = hass
+        self._entry = entry
+        self._attr_unique_id = f"{DOMAIN}_energy_observation_mode"
+        self._attr_name = "Observation Mode"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "energy_coordinator")},
+            name="URA: Energy Coordinator",
+            manufacturer="Universal Room Automation",
+            model="Energy Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+
+    def _get_energy(self):
+        """Get the energy coordinator instance."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        return manager.coordinators.get("energy")
+
+    @property
+    def is_on(self) -> bool:
+        """Return True if observation mode is active."""
+        energy = self._get_energy()
+        if energy is None:
+            return False
+        return energy.observation_mode
+
+    async def async_turn_on(self, **kwargs) -> None:
+        """Enable observation mode."""
+        energy = self._get_energy()
+        if energy is not None:
+            energy.observation_mode = True
+            self.async_write_ha_state()
+
+    async def async_turn_off(self, **kwargs) -> None:
+        """Disable observation mode."""
+        energy = self._get_energy()
+        if energy is not None:
+            energy.observation_mode = False
+            self.async_write_ha_state()
+
+    @property
+    def available(self) -> bool:
+        """Only available when energy coordinator is active."""
+        return self._get_energy() is not None
 
 
 class SecurityDelegateLightsSwitch(SwitchEntity, RestoreEntity):
