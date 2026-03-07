@@ -157,11 +157,15 @@ class EnergyCoordinator(BaseCoordinator):
     async def async_setup(self) -> None:
         """Set up the energy coordinator — start decision timer."""
         from datetime import timedelta
+        from homeassistant.util import dt as dt_util
 
         # Cancel existing timer if re-entering (disable/enable cycle)
         if self._decision_timer_unsub is not None:
             self._decision_timer_unsub()
             self._decision_timer_unsub = None
+
+        # Restore billing cycle totals from DB (survives restarts)
+        await self._restore_cycle_from_db(dt_util.now())
 
         # Start periodic decision cycle
         self._decision_timer_unsub = async_track_time_interval(
@@ -204,6 +208,19 @@ class EnergyCoordinator(BaseCoordinator):
 
         return actions
 
+    async def _restore_cycle_from_db(self, now) -> None:
+        """Restore billing cycle totals from DB on startup."""
+        db = self.hass.data.get("universal_room_automation", {}).get("database")
+        if db is None:
+            return
+        cycle_start = self._billing._get_cycle_start(now).isoformat()
+        cycle_end = now.date().isoformat()
+        try:
+            cycle_data = await db.get_energy_daily_for_cycle(cycle_start, cycle_end)
+            self._billing.update_from_db(cycle_data)
+        except Exception as e:
+            _LOGGER.warning("Could not restore billing cycle from DB: %s", e)
+
     def _get_lifetime_consumption(self) -> float | None:
         """Read Envoy lifetime energy consumption (MWh, monotonically increasing)."""
         state = self.hass.states.get(DEFAULT_LIFETIME_CONSUMPTION_ENTITY)
@@ -229,6 +246,9 @@ class EnergyCoordinator(BaseCoordinator):
         current_lifetime = self._get_lifetime_consumption()
 
         if today != self._last_reset_date:
+            # Capture yesterday's billing totals BEFORE they're reset
+            yesterday_totals = self._billing.get_yesterday_totals()
+
             # Calculate yesterday's actual consumption from lifetime delta
             actual_kwh = None
             if (
@@ -261,6 +281,12 @@ class EnergyCoordinator(BaseCoordinator):
                 # Feed Bayesian adjustment back to predictor
                 self._predictor._adjustment_factor = self._accuracy.get_adjustment_factor()
 
+            # Save daily snapshot to DB (async fire-and-forget)
+            if yesterday_totals:
+                self.hass.async_create_task(
+                    self._save_daily_snapshot(yesterday_totals, actual_kwh)
+                )
+
             # Reset snapshot for new day
             self._lifetime_consumption_snapshot = current_lifetime
             self._tou_transition_count = 0
@@ -268,6 +294,31 @@ class EnergyCoordinator(BaseCoordinator):
         elif self._lifetime_consumption_snapshot is None and current_lifetime is not None:
             # First run or Envoy was unavailable — seed the snapshot
             self._lifetime_consumption_snapshot = current_lifetime
+
+    async def _save_daily_snapshot(
+        self, totals: dict, consumption_kwh: float | None
+    ) -> None:
+        """Save yesterday's billing totals to energy_daily table."""
+        db = self.hass.data.get("universal_room_automation", {}).get("database")
+        if db is None:
+            return
+        try:
+            await db.log_energy_daily(
+                date_str=totals["date"],
+                import_kwh=totals["import_kwh"],
+                export_kwh=totals["export_kwh"],
+                import_cost=totals["import_cost"],
+                export_credit=totals["export_credit"],
+                net_cost=totals["net_cost"],
+                consumption_kwh=consumption_kwh,
+            )
+            _LOGGER.info(
+                "Saved daily energy snapshot for %s: import=%.1f export=%.1f cost=$%.2f",
+                totals["date"], totals["import_kwh"], totals["export_kwh"],
+                totals["net_cost"],
+            )
+        except Exception as e:
+            _LOGGER.error("Failed to save daily energy snapshot: %s", e)
 
     def _track_envoy_availability(self, decision: dict[str, Any]) -> None:
         """Track Envoy availability and alert on extended outages."""
