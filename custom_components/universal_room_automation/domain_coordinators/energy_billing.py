@@ -69,7 +69,7 @@ class CostTracker:
         self._last_accumulate_time: float | None = None
 
     def _get_net_power(self) -> float | None:
-        """Get net power in watts (positive=importing, negative=exporting)."""
+        """Get net power in kW (positive=importing, negative=exporting)."""
         state = self.hass.states.get(self._net_power_entity)
         if state is None or state.state in ("unknown", "unavailable"):
             return None

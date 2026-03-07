@@ -187,9 +187,13 @@ class DailyEnergyPredictor:
         self._battery_full_time = estimated_time.strftime("%H:%M")
 
     def record_actual_consumption(self, actual_kwh: float) -> None:
-        """Record actual daily consumption for baseline learning."""
-        now = dt_util.now()
-        dow = now.weekday()
+        """Record actual daily consumption for baseline learning.
+
+        Called at midnight when the date rolls over, so actual_kwh is
+        yesterday's consumption.  Attribute it to yesterday's day-of-week.
+        """
+        yesterday = dt_util.now() - timedelta(days=1)
+        dow = yesterday.weekday()
         self._consumption_history[dow].append(actual_kwh)
 
     def _get_current_prediction(self) -> dict[str, Any]:
