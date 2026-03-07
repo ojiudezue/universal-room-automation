@@ -1,6 +1,6 @@
 """Database for Universal Room Automation."""
 #
-# Universal Room Automation v3.7.10
+# Universal Room Automation v3.7.11
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors
@@ -517,6 +517,24 @@ class UniversalRoomDatabase:
                 await db.execute("""
                     CREATE INDEX IF NOT EXISTS idx_house_state_timestamp
                     ON house_state_log(timestamp)
+                """)
+
+                # v3.7.11: Daily energy billing snapshots
+                await db.execute("""
+                    CREATE TABLE IF NOT EXISTS energy_daily (
+                        date TEXT PRIMARY KEY,
+                        import_kwh REAL NOT NULL DEFAULT 0,
+                        export_kwh REAL NOT NULL DEFAULT 0,
+                        import_cost REAL NOT NULL DEFAULT 0,
+                        export_credit REAL NOT NULL DEFAULT 0,
+                        net_cost REAL NOT NULL DEFAULT 0,
+                        consumption_kwh REAL,
+                        solar_production_kwh REAL
+                    )
+                """)
+                await db.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_energy_daily_date
+                    ON energy_daily(date DESC)
                 """)
 
                 await db.commit()
@@ -2179,3 +2197,72 @@ class UniversalRoomDatabase:
         except Exception as e:
             _LOGGER.error("Error pruning notification log: %s", e)
             return 0
+
+    # ====================================================================
+    # v3.7.11: Energy Daily Billing Snapshots
+    # ====================================================================
+
+    async def log_energy_daily(
+        self,
+        date_str: str,
+        import_kwh: float,
+        export_kwh: float,
+        import_cost: float,
+        export_credit: float,
+        net_cost: float,
+        consumption_kwh: float | None = None,
+        solar_production_kwh: float | None = None,
+    ) -> None:
+        """Save daily energy snapshot. Uses INSERT OR REPLACE for idempotency."""
+        try:
+            async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
+                await db.execute("""
+                    INSERT OR REPLACE INTO energy_daily
+                    (date, import_kwh, export_kwh, import_cost, export_credit,
+                     net_cost, consumption_kwh, solar_production_kwh)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    date_str, import_kwh, export_kwh, import_cost,
+                    export_credit, net_cost, consumption_kwh,
+                    solar_production_kwh,
+                ))
+                await db.commit()
+        except Exception as e:
+            _LOGGER.error("Error saving energy daily snapshot: %s", e)
+
+    async def get_energy_daily_for_cycle(
+        self, cycle_start: str, cycle_end: str
+    ) -> dict:
+        """Sum energy_daily rows for a billing cycle date range.
+
+        Returns dict with total import/export/cost and day count.
+        """
+        try:
+            async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
+                cursor = await db.execute("""
+                    SELECT
+                        COUNT(*) as days,
+                        COALESCE(SUM(import_kwh), 0) as total_import,
+                        COALESCE(SUM(export_kwh), 0) as total_export,
+                        COALESCE(SUM(import_cost), 0) as total_import_cost,
+                        COALESCE(SUM(export_credit), 0) as total_export_credit,
+                        COALESCE(SUM(net_cost), 0) as total_net_cost
+                    FROM energy_daily
+                    WHERE date >= ? AND date < ?
+                """, (cycle_start, cycle_end))
+                row = await cursor.fetchone()
+                if row:
+                    return {
+                        "days": row[0],
+                        "import_kwh": row[1],
+                        "export_kwh": row[2],
+                        "import_cost": row[3],
+                        "export_credit": row[4],
+                        "net_cost": row[5],
+                    }
+                return {"days": 0, "import_kwh": 0, "export_kwh": 0,
+                        "import_cost": 0, "export_credit": 0, "net_cost": 0}
+        except Exception as e:
+            _LOGGER.error("Error querying energy daily for cycle: %s", e)
+            return {"days": 0, "import_kwh": 0, "export_kwh": 0,
+                    "import_cost": 0, "export_credit": 0, "net_cost": 0}

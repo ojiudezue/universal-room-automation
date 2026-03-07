@@ -78,6 +78,23 @@ class CostTracker:
         except (ValueError, TypeError):
             return None
 
+    def get_yesterday_totals(self) -> dict[str, float] | None:
+        """Return yesterday's daily totals if we have them (before reset).
+
+        Must be called BEFORE accumulate() on date change to capture
+        the previous day's data before it's wiped.
+        """
+        if not self._last_date or self._last_date == dt_util.now().date().isoformat():
+            return None  # No date change yet or same day
+        return {
+            "date": self._last_date,
+            "import_kwh": round(self._import_kwh_today, 4),
+            "export_kwh": round(self._export_kwh_today, 4),
+            "import_cost": round(self._import_cost_today, 4),
+            "export_credit": round(self._export_credit_today, 4),
+            "net_cost": round(self._cost_today, 4),
+        }
+
     def accumulate(self) -> None:
         """Accumulate cost based on current power readings.
 
@@ -153,6 +170,7 @@ class CostTracker:
             self._cost_this_cycle = 0.0
             self._import_kwh_cycle = 0.0
             self._export_kwh_cycle = 0.0
+            self._db_days_in_cycle = 0
             _LOGGER.info("Billing cycle reset: new cycle started %s", cycle_key)
 
         self._days_in_cycle = (now.date() - cycle_date).days
@@ -171,11 +189,41 @@ class CostTracker:
             # Cycle day doesn't exist in last month (e.g., 31st in Feb)
             return last_month
 
+    def update_from_db(self, db_cycle_data: dict) -> None:
+        """Update cycle accumulators from DB data on startup.
+
+        Called once after coordinator starts, to restore cycle totals
+        that would otherwise be lost on HA restart.
+        Must set _cycle_start_date so _check_cycle_reset() doesn't wipe.
+        """
+        db_days = db_cycle_data.get("days", 0)
+        if db_days > 0:
+            self._import_kwh_cycle = db_cycle_data.get("import_kwh", 0)
+            self._export_kwh_cycle = db_cycle_data.get("export_kwh", 0)
+            self._cost_this_cycle = db_cycle_data.get("net_cost", 0)
+            self._db_days_in_cycle = db_days
+            # Set cycle start so _check_cycle_reset() recognizes this cycle
+            self._cycle_start_date = self._get_cycle_start(
+                dt_util.now()
+            ).isoformat()
+            _LOGGER.info(
+                "Restored billing cycle from DB: %d days, $%.2f net cost",
+                db_days, self._cost_this_cycle,
+            )
+
     def _update_prediction(self, now: datetime) -> None:
-        """Update bill prediction after 7+ days of cycle data."""
-        if self._days_in_cycle < 7:
+        """Update bill prediction.
+
+        Uses DB day count if available (survives restarts), else in-memory.
+        Shows prediction after 7+ days of data in current cycle.
+        """
+        effective_days = getattr(self, "_db_days_in_cycle", 0) or self._days_in_cycle
+        if effective_days < 7:
             self._predicted_bill = None
+            self._prediction_label = f"Learning ({effective_days} days)"
             return
+
+        self._prediction_label = None
 
         # Estimate total cycle days (~30)
         cycle_start = self._get_cycle_start(now)
@@ -191,7 +239,7 @@ class CostTracker:
         total_days = (cycle_end - cycle_start).days or 30
 
         # Linear extrapolation + fixed charges
-        daily_rate = self._cost_this_cycle / max(self._days_in_cycle, 1)
+        daily_rate = self._cost_this_cycle / max(effective_days, 1)
         projected_variable = daily_rate * total_days
         fixed = PEC_FIXED_CHARGES["service_availability"]
         self._predicted_bill = round(projected_variable + fixed, 2)
@@ -216,6 +264,11 @@ class CostTracker:
         """Current effective import rate including delivery and transmission."""
         return self._tou.get_effective_import_rate()
 
+    @property
+    def prediction_label(self) -> str | None:
+        """Learning label shown while < 7 days of data."""
+        return getattr(self, "_prediction_label", None)
+
     def get_status(self) -> dict[str, Any]:
         """Return billing status for sensors."""
         return {
@@ -230,5 +283,6 @@ class CostTracker:
             "days_in_cycle": self._days_in_cycle,
             "cycle_start_date": self._cycle_start_date,
             "predicted_bill": self.predicted_bill,
+            "prediction_label": self.prediction_label,
             "current_effective_rate": round(self.current_effective_rate, 6),
         }

@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.7.10
+# Universal Room Automation v3.7.11
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -5528,6 +5528,24 @@ class EnergyPredictedBillSensor(AggregationEntity, SensorEntity):
         if energy is None:
             return None
         return energy.predicted_bill
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        energy = manager.coordinators.get("energy")
+        if energy is None:
+            return None
+        billing = energy.billing_status
+        attrs = {}
+        label = billing.get("prediction_label") if billing else None
+        if label:
+            attrs["status"] = label
+        if billing:
+            attrs["days_in_cycle"] = billing.get("days_in_cycle", 0)
+            attrs["cycle_start_date"] = billing.get("cycle_start_date", "")
+        return attrs or None
 
 
 class EnergyCurrentRateSensor(AggregationEntity, SensorEntity):
