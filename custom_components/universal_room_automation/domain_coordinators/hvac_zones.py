@@ -23,6 +23,7 @@ from ..const import (
     DOMAIN,
     ENTRY_TYPE_ROOM,
     ENTRY_TYPE_ZONE,
+    ENTRY_TYPE_ZONE_MANAGER,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -123,36 +124,106 @@ class ZoneManager:
     async def async_discover_zones(self) -> int:
         """Discover HVAC zones from zone config entries.
 
-        Reads CONF_ZONE_THERMOSTAT from each zone entry.
+        Reads CONF_ZONE_THERMOSTAT from:
+        1. Zone Manager entry zones dict (current architecture, v3.6.0+)
+        2. Legacy individual ENTRY_TYPE_ZONE entries (pre-v3.6.0 fallback)
+
         Returns count of discovered zones.
         """
         self._zones.clear()
         zone_num = 0
 
+        # Build entry_id -> room_name mapping for Zone Manager rooms
+        entry_id_to_room_name: dict[str, str] = {}
+        for entry in self.hass.config_entries.async_entries(DOMAIN):
+            if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_ROOM:
+                room_name = entry.data.get(CONF_ROOM_NAME, "")
+                if room_name:
+                    entry_id_to_room_name[entry.entry_id] = room_name
+
+        # 1. Read from Zone Manager entry (primary source)
+        seen_thermostats: set[str] = set()
+        for entry in self.hass.config_entries.async_entries(DOMAIN):
+            if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ZONE_MANAGER:
+                continue
+
+            merged = {**entry.data, **entry.options}
+            zones_dict = merged.get("zones", {})
+
+            for zm_zone_name, zone_cfg in zones_dict.items():
+                thermostat = zone_cfg.get(CONF_ZONE_THERMOSTAT)
+                if not thermostat:
+                    continue
+                if thermostat in seen_thermostats:
+                    _LOGGER.debug(
+                        "HVAC: Skipping %s — thermostat %s already assigned",
+                        zm_zone_name, thermostat,
+                    )
+                    continue
+
+                seen_thermostats.add(thermostat)
+                zone_num += 1
+                zone_id = f"zone_{zone_num}"
+
+                # Convert entry IDs to room names
+                raw_rooms = zone_cfg.get(CONF_ZONE_ROOMS, [])
+                room_names = []
+                if isinstance(raw_rooms, list):
+                    for r in raw_rooms:
+                        name = entry_id_to_room_name.get(r)
+                        if name:
+                            room_names.append(name)
+                        else:
+                            _LOGGER.warning(
+                                "HVAC: Zone %s has unknown room entry %s",
+                                zm_zone_name, r,
+                            )
+
+                self._zones[zone_id] = ZoneState(
+                    zone_id=zone_id,
+                    zone_name=zm_zone_name,
+                    climate_entity=thermostat,
+                    rooms=room_names,
+                )
+
+                _LOGGER.info(
+                    "HVAC: Discovered %s (%s) → %s (%d rooms)",
+                    zone_id, zm_zone_name, thermostat, len(room_names),
+                )
+
+        # 2. Legacy fallback: individual ENTRY_TYPE_ZONE entries
         for entry in self.hass.config_entries.async_entries(DOMAIN):
             if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ZONE:
                 continue
 
             merged = {**entry.data, **entry.options}
             thermostat = merged.get(CONF_ZONE_THERMOSTAT)
-            if not thermostat:
+            if not thermostat or thermostat in seen_thermostats:
                 continue
 
+            seen_thermostats.add(thermostat)
             zone_num += 1
             zone_name = merged.get("zone_name", f"Zone {zone_num}")
             zone_id = f"zone_{zone_num}"
-            rooms = merged.get(CONF_ZONE_ROOMS, [])
+
+            # Convert entry IDs to room names (same as Zone Manager path)
+            raw_rooms = merged.get(CONF_ZONE_ROOMS, [])
+            room_names = []
+            if isinstance(raw_rooms, list):
+                for r in raw_rooms:
+                    room_names.append(entry_id_to_room_name.get(r, r))
 
             self._zones[zone_id] = ZoneState(
                 zone_id=zone_id,
                 zone_name=zone_name,
                 climate_entity=thermostat,
-                rooms=rooms if isinstance(rooms, list) else [],
+                rooms=room_names,
             )
 
             _LOGGER.info(
-                "HVAC: Discovered %s → %s (%d rooms)",
-                zone_id, thermostat, len(rooms) if isinstance(rooms, list) else 0,
+                "HVAC: Discovered %s (%s) → %s (%d rooms)",
+                zone_id, zone_name, thermostat,
+                len(rooms) if isinstance(rooms, list) else 0,
             )
 
         _LOGGER.info("HVAC: Discovered %d zones with thermostats", len(self._zones))
