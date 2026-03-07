@@ -1,6 +1,6 @@
 """Person tracking coordinator for Universal Room Automation."""
 #
-# Universal Room Automation v3.8.8
+# Universal Room Automation v3.8.9
 # Build: 2026-01-03
 # File: person_coordinator.py
 # v3.2.9: No changes (zone fixes in aggregation.py, fan fixes in automation.py)
@@ -81,6 +81,8 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
         self._scanner_to_rooms: dict[str, list[str]] = {}
         self._area_id_to_room: dict[str, str] = {}  # area_id -> room_name (direct match)
         self._room_coordinators: dict[str, Any] = {}  # room_name -> coordinator reference
+        # v3.8.9: Rooms with direct (Tier 1) BLE coverage (no CONF_SCANNER_AREAS)
+        self._direct_ble_rooms: set[str] = set()
         # v3.6.21: Cache scanner map — only rebuild when room entries change
         self._scanner_map_entry_ids: set[str] = set()
         
@@ -320,6 +322,7 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
         self._scanner_to_rooms = {}
         self._area_id_to_room = {}
         self._room_coordinators = {}
+        self._direct_ble_rooms = set()
 
         # Get area registry for name resolution
         area_reg = ar.async_get(self.hass)
@@ -337,7 +340,12 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
             
             area_id = config.get(CONF_AREA_ID)
             scanner_areas = config.get(CONF_SCANNER_AREAS) or []
-            
+
+            # v3.8.9: Track rooms with direct BLE coverage (Tier 1)
+            # A room is Tier 1 if it has an area_id but no scanner_areas override.
+            if area_id and not scanner_areas:
+                self._direct_ble_rooms.add(room_name.lower().replace(" ", "_"))
+
             # Build area_id to room mapping for Tier 1 (direct match)
             if area_id:
                 # Get the HA area name for this area_id
@@ -894,6 +902,20 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
     def get_persons_in_room(self, room_name: str) -> list[str]:
         """Alias for get_room_occupants - for v3.2.0 compatibility."""
         return self.get_room_occupants(room_name)
+
+    def is_room_direct_ble(self, room_name: str) -> bool:
+        """
+        Return True if room has direct (Tier 1) BLE scanner coverage.
+
+        A room is Tier 1 when its own CONF_AREA_ID matches a Bermuda area
+        and it does NOT configure CONF_SCANNER_AREAS. Rooms that configure
+        CONF_SCANNER_AREAS are Tier 2 (shared scanner from an adjacent room)
+        and return False — BLE alone should not drive occupancy for these
+        rooms without motion/mmWave confirmation.
+
+        Uses cached _direct_ble_rooms set built during _build_scanner_room_map.
+        """
+        return room_name.lower().replace(" ", "_") in self._direct_ble_rooms
 
     def get_zone_occupants(self, zone_rooms: list[str]) -> list[str]:
         """

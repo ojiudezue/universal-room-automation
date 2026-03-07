@@ -1,6 +1,6 @@
 """Data coordinator for Universal Room Automation."""
 #
-# Universal Room Automation v3.8.8
+# Universal Room Automation v3.8.9
 # Build: 2026-01-02
 # File: coordinator.py
 # v3.2.8: Support for active state change listeners in aggregation sensors
@@ -746,6 +746,9 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         # If motion/mmWave/camera have timed out but person_coordinator knows
         # a tracked person is in this room via BLE, override vacancy.
         # Respects failsafe like camera override.
+        # v3.8.9: Sparse BLE hardening — rooms using a shared scanner
+        # (Tier 2 / CONF_SCANNER_AREAS) require recent motion/mmWave
+        # confirmation. BLE alone cannot create occupancy for those rooms.
         if not data.get(STATE_OCCUPIED) and not self._failsafe_fired:
             person_coordinator = self.hass.data.get(DOMAIN, {}).get(
                 "person_coordinator"
@@ -753,22 +756,50 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
             if person_coordinator:
                 ble_persons = person_coordinator.get_persons_in_room(room_name)
                 if ble_persons:
-                    data[STATE_OCCUPIED] = True
-                    data[STATE_OCCUPANCY_SOURCE] = "ble"
-                    data[STATE_BLE_PERSONS] = list(ble_persons)
-                    data[STATE_TIMEOUT_REMAINING] = self._occupancy_timeout
-                    if not self._last_motion_time:
-                        self._last_motion_time = now
-                    # Ensure failsafe timer tracks BLE-held occupancy
-                    if self._became_occupied_time is None:
-                        self._became_occupied_time = now
-                    if not self._last_occupied_state:
-                        self._last_occupied_time = now
-                    _LOGGER.debug(
-                        "Room %s: BLE persons %s override vacancy",
-                        room_name,
-                        ble_persons,
+                    # Check if this room has direct BLE coverage (Tier 1)
+                    # or shared/indirect coverage (Tier 2)
+                    direct_ble = person_coordinator.is_room_direct_ble(
+                        room_name
                     )
+
+                    # Tier 2 rooms need recent motion to confirm BLE placement.
+                    # "Recent" = motion within 2x occupancy timeout.
+                    ble_allowed = direct_ble
+                    if not direct_ble and self._last_motion_time:
+                        motion_age = (now - self._last_motion_time).total_seconds()
+                        if motion_age < self._occupancy_timeout * 2:
+                            ble_allowed = True
+
+                    if ble_allowed:
+                        data[STATE_OCCUPIED] = True
+                        data[STATE_OCCUPANCY_SOURCE] = "ble"
+                        data[STATE_BLE_PERSONS] = list(ble_persons)
+                        data[STATE_TIMEOUT_REMAINING] = self._occupancy_timeout
+                        if not self._last_motion_time:
+                            self._last_motion_time = now
+                        # Ensure failsafe timer tracks BLE-held occupancy
+                        if self._became_occupied_time is None:
+                            self._became_occupied_time = now
+                        if not self._last_occupied_state:
+                            self._last_occupied_time = now
+                        _LOGGER.debug(
+                            "Room %s: BLE persons %s override vacancy "
+                            "(tier=%s)",
+                            room_name,
+                            ble_persons,
+                            "direct" if direct_ble else "shared+confirmed",
+                        )
+                    else:
+                        # Populate ble_persons for diagnostic visibility
+                        # even though BLE is not driving occupancy.
+                        data[STATE_BLE_PERSONS] = list(ble_persons)
+                        _LOGGER.debug(
+                            "Room %s: BLE persons %s present but shared "
+                            "scanner — no recent motion confirmation, "
+                            "skipping BLE override",
+                            room_name,
+                            ble_persons,
+                        )
 
         # Always populate ble_persons even when occupied by other sources
         # (single lookup, avoids double-call when BLE override already set it)
