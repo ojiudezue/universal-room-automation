@@ -64,6 +64,8 @@ class EnergyCoordinator(BaseCoordinator):
         pool_speed_entity: str | None = None,
         evse_config: dict | None = None,
         smart_plug_entities: list[str] | None = None,
+        solar_classification_mode: str = "automatic",
+        custom_solar_thresholds: dict[str, float] | None = None,
     ) -> None:
         """Initialize Energy Coordinator."""
         super().__init__(
@@ -83,6 +85,8 @@ class EnergyCoordinator(BaseCoordinator):
             hass,
             reserve_soc=reserve_soc,
             entity_config=self._build_entity_map(entity_config),
+            solar_classification_mode=solar_classification_mode,
+            custom_solar_thresholds=custom_solar_thresholds,
         )
         # E2: Pool, EV, Smart Plugs
         self._pool = PoolOptimizer(hass, pool_speed_entity=pool_speed_entity)

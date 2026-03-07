@@ -1,6 +1,6 @@
 """Config flow for Universal Room Automation v3.6.24."""
 #
-# Universal Room Automation v3.7.9
+# Universal Room Automation v3.7.10
 # Build: 2026-01-05
 # File: config_flow.py
 # v3.3.3: Added manage_zones to integration options menu
@@ -2105,14 +2105,26 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         """Configure Energy Coordinator settings.
 
         v3.7.0: Reserve SOC, bill cycle day, decision interval.
+        v3.7.10: Entity selectors, solar classification mode.
         """
         from .domain_coordinators.energy_const import (
             CONF_ENERGY_RESERVE_SOC,
             CONF_ENERGY_BILL_CYCLE_DAY,
             CONF_ENERGY_DECISION_INTERVAL,
+            CONF_ENERGY_EVSE_A_ENTITY,
+            CONF_ENERGY_EVSE_B_ENTITY,
+            CONF_ENERGY_L1_CHARGER_ENTITIES,
+            CONF_ENERGY_WEATHER_ENTITY,
+            CONF_ENERGY_SOLAR_CLASSIFICATION_MODE,
+            CONF_ENERGY_SOLAR_THRESHOLD_EXCELLENT,
+            CONF_ENERGY_SOLAR_THRESHOLD_GOOD,
+            CONF_ENERGY_SOLAR_THRESHOLD_MODERATE,
+            CONF_ENERGY_SOLAR_THRESHOLD_POOR,
             DEFAULT_RESERVE_SOC,
             DEFAULT_BILL_CYCLE_START_DAY,
             DEFAULT_DECISION_INTERVAL_MINUTES,
+            SOLAR_CLASS_MODE_AUTOMATIC,
+            SOLAR_CLASS_MODE_CUSTOM,
         )
 
         if user_input is not None:
@@ -2120,6 +2132,20 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 title="",
                 data={**self._config_entry.options, **user_input},
             )
+
+        # Weather entity default: inherit from house/integration entry if set
+        weather_default = self._get_current(CONF_ENERGY_WEATHER_ENTITY)
+        if not weather_default:
+            integration = self.hass.data.get(DOMAIN, {}).get("integration")
+            if integration:
+                weather_default = (
+                    integration.options.get(CONF_WEATHER_ENTITY)
+                    or integration.data.get(CONF_WEATHER_ENTITY)
+                )
+
+        solar_mode = self._get_current(
+            CONF_ENERGY_SOLAR_CLASSIFICATION_MODE, SOLAR_CLASS_MODE_AUTOMATIC
+        )
 
         data_schema = vol.Schema({
             vol.Optional(
@@ -2148,6 +2174,79 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 selector.NumberSelectorConfig(
                     min=1, max=30, step=1,
                     unit_of_measurement="min",
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
+            vol.Optional(
+                CONF_ENERGY_WEATHER_ENTITY,
+                description={"suggested_value": weather_default},
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="weather")
+            ),
+            vol.Optional(
+                CONF_ENERGY_EVSE_A_ENTITY,
+                description={"suggested_value": self._get_current(CONF_ENERGY_EVSE_A_ENTITY)},
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor", device_class="power")
+            ),
+            vol.Optional(
+                CONF_ENERGY_EVSE_B_ENTITY,
+                description={"suggested_value": self._get_current(CONF_ENERGY_EVSE_B_ENTITY)},
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor", device_class="power")
+            ),
+            vol.Optional(
+                CONF_ENERGY_L1_CHARGER_ENTITIES,
+                default=self._get_current(CONF_ENERGY_L1_CHARGER_ENTITIES, []),
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="switch", multiple=True)
+            ),
+            vol.Optional(
+                CONF_ENERGY_SOLAR_CLASSIFICATION_MODE,
+                default=solar_mode,
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=[SOLAR_CLASS_MODE_AUTOMATIC, SOLAR_CLASS_MODE_CUSTOM],
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                )
+            ),
+            vol.Optional(
+                CONF_ENERGY_SOLAR_THRESHOLD_EXCELLENT,
+                default=self._get_current(CONF_ENERGY_SOLAR_THRESHOLD_EXCELLENT, 100.0),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0, max=300, step=1,
+                    unit_of_measurement="kWh",
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
+            vol.Optional(
+                CONF_ENERGY_SOLAR_THRESHOLD_GOOD,
+                default=self._get_current(CONF_ENERGY_SOLAR_THRESHOLD_GOOD, 80.0),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0, max=300, step=1,
+                    unit_of_measurement="kWh",
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
+            vol.Optional(
+                CONF_ENERGY_SOLAR_THRESHOLD_MODERATE,
+                default=self._get_current(CONF_ENERGY_SOLAR_THRESHOLD_MODERATE, 50.0),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0, max=300, step=1,
+                    unit_of_measurement="kWh",
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
+            vol.Optional(
+                CONF_ENERGY_SOLAR_THRESHOLD_POOR,
+                default=self._get_current(CONF_ENERGY_SOLAR_THRESHOLD_POOR, 30.0),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0, max=300, step=1,
+                    unit_of_measurement="kWh",
                     mode=selector.NumberSelectorMode.BOX,
                 )
             ),

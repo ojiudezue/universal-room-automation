@@ -590,12 +590,30 @@
         "data": {
           "energy_reserve_soc": "Battery Reserve SOC (%)",
           "energy_bill_cycle_day": "Billing Cycle Start Day",
-          "energy_decision_interval": "Decision Interval (minutes)"
+          "energy_decision_interval": "Decision Interval (minutes)",
+          "energy_weather_entity": "Weather Entity",
+          "energy_evse_a_entity": "EVSE Garage A (power sensor)",
+          "energy_evse_b_entity": "EVSE Garage B (power sensor)",
+          "energy_l1_charger_entities": "L1 Charger Smart Plugs",
+          "energy_solar_classification_mode": "Solar Day Classification",
+          "energy_solar_threshold_excellent": "Excellent Threshold (kWh)",
+          "energy_solar_threshold_good": "Good Threshold (kWh)",
+          "energy_solar_threshold_moderate": "Moderate Threshold (kWh)",
+          "energy_solar_threshold_poor": "Poor Threshold (kWh)"
         },
         "data_description": {
           "energy_reserve_soc": "Minimum battery reserve percentage. Battery won't discharge below this level during normal operation. Default: 20%.",
           "energy_bill_cycle_day": "Day of the month your PEC billing cycle starts. Used for cost tracking and bill prediction. Default: 23.",
-          "energy_decision_interval": "Minutes between energy decision cycles. Controls how often battery strategy, pool speed, and EV charging are evaluated. Default: 5."
+          "energy_decision_interval": "Minutes between energy decision cycles. Controls how often battery strategy, pool speed, and EV charging are evaluated. Default: 5.",
+          "energy_weather_entity": "Weather entity for temperature-based consumption prediction. Inherits from house settings if not set here.",
+          "energy_evse_a_entity": "Power sensor for Garage A EV charger (e.g., Emporia WiFi). Used to track EV charging load.",
+          "energy_evse_b_entity": "Power sensor for Garage B EV charger. Used to track EV charging load.",
+          "energy_l1_charger_entities": "Smart plug switches used as L1 chargers. Binary charge status derived from switch state (no power sensor needed).",
+          "energy_solar_classification_mode": "Automatic uses monthly percentile thresholds from your production history. Custom lets you set fixed kWh thresholds year-round.",
+          "energy_solar_threshold_excellent": "Custom mode: forecast above this = excellent day. Only used when Solar Day Classification is set to Custom.",
+          "energy_solar_threshold_good": "Custom mode: forecast above this = good day. Only used when Solar Day Classification is set to Custom.",
+          "energy_solar_threshold_moderate": "Custom mode: forecast above this = moderate day. Only used when Solar Day Classification is set to Custom.",
+          "energy_solar_threshold_poor": "Custom mode: forecast above this = poor day. Below this = very poor. Only used when Solar Day Classification is set to Custom."
         }
       },
       "coordinator_music_following": {

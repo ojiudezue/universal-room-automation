@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation v3.7.9
+# Universal Room Automation v3.7.10
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -970,14 +970,71 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     from .domain_coordinators.energy_const import (
                         CONF_ENERGY_RESERVE_SOC,
                         CONF_ENERGY_DECISION_INTERVAL,
+                        CONF_ENERGY_EVSE_A_ENTITY,
+                        CONF_ENERGY_EVSE_B_ENTITY,
+                        CONF_ENERGY_L1_CHARGER_ENTITIES,
+                        CONF_ENERGY_WEATHER_ENTITY,
+                        CONF_ENERGY_SOLAR_CLASSIFICATION_MODE,
+                        CONF_ENERGY_SOLAR_THRESHOLD_EXCELLENT,
+                        CONF_ENERGY_SOLAR_THRESHOLD_GOOD,
+                        CONF_ENERGY_SOLAR_THRESHOLD_MODERATE,
+                        CONF_ENERGY_SOLAR_THRESHOLD_POOR,
                         DEFAULT_RESERVE_SOC,
                         DEFAULT_DECISION_INTERVAL_MINUTES,
+                        DEFAULT_L1_CHARGER_ENTITIES,
+                        SOLAR_CLASS_MODE_AUTOMATIC,
                     )
                     energy_entity_config = {}
                     # Pull any entity overrides from cm_config
                     for key in cm_config:
                         if key.startswith("energy_") and key.endswith("_entity"):
                             energy_entity_config[key] = cm_config[key]
+
+                    # Weather entity: use EC config, fall back to house entry
+                    if CONF_ENERGY_WEATHER_ENTITY not in energy_entity_config:
+                        integration = hass.data.get(DOMAIN, {}).get("integration")
+                        if integration:
+                            house_weather = (
+                                integration.options.get(CONF_WEATHER_ENTITY)
+                                or integration.data.get(CONF_WEATHER_ENTITY)
+                            )
+                            if house_weather:
+                                energy_entity_config[CONF_ENERGY_WEATHER_ENTITY] = house_weather
+
+                    # EVSE config — EVChargerController expects nested dicts
+                    # with at minimum a "power" key per charger
+                    from .domain_coordinators.energy_pool import DEFAULT_EVSE_ENTITIES
+                    evse_config = {}
+                    for evse_id, defaults in DEFAULT_EVSE_ENTITIES.items():
+                        evse_config[evse_id] = dict(defaults)
+                    # Override power entities from user config
+                    evse_a_power = cm_config.get(CONF_ENERGY_EVSE_A_ENTITY)
+                    if evse_a_power:
+                        evse_config["garage_a"]["power"] = evse_a_power
+                    evse_b_power = cm_config.get(CONF_ENERGY_EVSE_B_ENTITY)
+                    if evse_b_power:
+                        evse_config["garage_b"]["power"] = evse_b_power
+
+                    # Smart plug entities
+                    smart_plug_entities = cm_config.get(
+                        CONF_ENERGY_L1_CHARGER_ENTITIES,
+                        DEFAULT_L1_CHARGER_ENTITIES,
+                    )
+
+                    # Solar classification config
+                    solar_mode = cm_config.get(
+                        CONF_ENERGY_SOLAR_CLASSIFICATION_MODE,
+                        SOLAR_CLASS_MODE_AUTOMATIC,
+                    )
+                    custom_solar_thresholds = None
+                    if solar_mode == "custom":
+                        custom_solar_thresholds = {
+                            "excellent": float(cm_config.get(CONF_ENERGY_SOLAR_THRESHOLD_EXCELLENT, 100.0)),
+                            "good": float(cm_config.get(CONF_ENERGY_SOLAR_THRESHOLD_GOOD, 80.0)),
+                            "moderate": float(cm_config.get(CONF_ENERGY_SOLAR_THRESHOLD_MODERATE, 50.0)),
+                            "poor": float(cm_config.get(CONF_ENERGY_SOLAR_THRESHOLD_POOR, 30.0)),
+                        }
+
                     energy = EnergyCoordinator(
                         hass,
                         reserve_soc=int(cm_config.get(
@@ -988,6 +1045,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                             DEFAULT_DECISION_INTERVAL_MINUTES,
                         )),
                         entity_config=energy_entity_config or None,
+                        evse_config=evse_config,
+                        smart_plug_entities=smart_plug_entities,
+                        solar_classification_mode=solar_mode,
+                        custom_solar_thresholds=custom_solar_thresholds,
                     )
                     coordinator_manager.register_coordinator(energy)
                 else:
