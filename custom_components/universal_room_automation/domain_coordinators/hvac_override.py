@@ -74,6 +74,9 @@ class OverrideArrester:
         self._energy_offset: float = 0.0
         self._energy_coast: bool = False
 
+        # Suppression: entity_ids to ignore overrides on (during URA-initiated changes)
+        self._suppressed_entities: set[str] = set()
+
     def setup(self) -> None:
         """Subscribe to climate entity state changes."""
         entity_ids = [
@@ -116,6 +119,14 @@ class OverrideArrester:
         self._energy_offset = offset
         self._energy_coast = coast
 
+    def suppress(self, entity_id: str) -> None:
+        """Suppress override detection for an entity (URA-initiated change)."""
+        self._suppressed_entities.add(entity_id)
+
+    def unsuppress(self, entity_id: str) -> None:
+        """Re-enable override detection for an entity."""
+        self._suppressed_entities.discard(entity_id)
+
     @callback
     def _handle_climate_change(self, event: Event) -> None:
         """Handle climate entity state change — detect overrides."""
@@ -124,6 +135,11 @@ class OverrideArrester:
         old_state = event.data.get("old_state")
 
         if new_state is None or old_state is None:
+            return
+
+        # Skip if suppressed (URA-initiated temperature change)
+        if entity_id in self._suppressed_entities:
+            self._suppressed_entities.discard(entity_id)
             return
 
         # Find which zone this entity belongs to
