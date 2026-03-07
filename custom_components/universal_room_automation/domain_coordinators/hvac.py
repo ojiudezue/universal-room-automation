@@ -32,6 +32,7 @@ from .hvac_const import (
 from .hvac_covers import CoverController
 from .hvac_fans import FanController
 from .hvac_override import OverrideArrester
+from .hvac_predict import HVACPredictor
 from .hvac_preset import PresetManager
 from .hvac_zones import ZoneManager
 from .signals import (
@@ -73,6 +74,9 @@ class HVACCoordinator(BaseCoordinator):
         )
         self._fan_controller = FanController(hass, self._zone_manager)
         self._cover_controller = CoverController(hass, self._zone_manager)
+        self._predictor = HVACPredictor(
+            hass, self._zone_manager, self._preset_manager, self._override_arrester,
+        )
 
         # Energy constraint state
         self._energy_constraint: EnergyConstraint | None = None
@@ -117,6 +121,11 @@ class HVACCoordinator(BaseCoordinator):
     def cover_controller(self) -> CoverController:
         """Return cover controller for sensor access."""
         return self._cover_controller
+
+    @property
+    def predictor(self) -> HVACPredictor:
+        """Return predictor for sensor access."""
+        return self._predictor
 
     @property
     def energy_constraint_mode(self) -> str:
@@ -193,6 +202,12 @@ class HVACCoordinator(BaseCoordinator):
         _LOGGER.info("HVAC: %d fan rooms, %d managed covers", fan_rooms, cover_count)
         self._cover_controller.setup_listeners()
 
+        # Share outdoor temp sensor with predictor
+        if self._cover_controller._outdoor_temp_entity:
+            self._predictor.set_outdoor_temp_entity(
+                self._cover_controller._outdoor_temp_entity
+            )
+
         # Start override arrester (event-driven)
         self._override_arrester.setup()
 
@@ -244,6 +259,9 @@ class HVACCoordinator(BaseCoordinator):
         today = now.date().isoformat()
         if today != self._last_daily_reset:
             self._last_daily_reset = today
+            # Flush predictor outcome BEFORE resetting zone counters
+            # so it captures yesterday's override/reset counts
+            self._predictor.flush_daily_outcome()
             self._zone_manager.reset_daily_counters()
             self._preset_manager.determine_season()
 
@@ -264,6 +282,9 @@ class HVACCoordinator(BaseCoordinator):
         # Fan and cover control
         await self._fan_controller.update(self._energy_constraint)
         await self._cover_controller.update(self._energy_constraint)
+
+        # Predictive sensors and pre-conditioning
+        await self._predictor.update(self._energy_constraint, self._house_state)
 
         # Record anomaly observations
         self._record_anomaly_observations()
@@ -475,6 +496,10 @@ class HVACCoordinator(BaseCoordinator):
         cover_status = self._cover_controller.get_cover_status()
         attrs["covers_closed"] = cover_status.get("covers_closed", False)
         attrs["managed_covers"] = cover_status.get("managed_covers", 0)
+        attrs["pre_cool_likelihood"] = self._predictor.pre_cool_likelihood
+        attrs["comfort_risk"] = self._predictor.comfort_violation_risk
+        attrs["pre_cool_active"] = self._predictor.pre_cool_active
+        attrs["pre_heat_active"] = self._predictor.pre_heat_active
         return attrs
 
     async def async_teardown(self) -> None:

@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.8.4
+# Universal Room Automation v3.8.5
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -231,6 +231,8 @@ async def async_setup_entry(
             HVACAnomalySensor(hass, entry),
             HVACComplianceSensor(hass, entry),
             HVACOverrideFrequencySensor(hass, entry),
+            HVACPreCoolLikelihoodSensor(hass, entry),
+            HVACComfortRiskSensor(hass, entry),
         ]
         # v3.8.0-H1: Add per-zone HVAC sensors dynamically
         manager = hass.data.get(DOMAIN, {}).get("coordinator_manager")
@@ -6281,6 +6283,109 @@ class HVACOverrideFrequencySensor(AggregationEntity, SensorEntity):
         if hvac is None:
             return {}
         return hvac.override_arrester.get_override_status()
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.hvac_const import SIGNAL_HVAC_ENTITIES_UPDATE
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_HVAC_ENTITIES_UPDATE, self._handle_update
+            )
+        )
+
+    @callback
+    def _handle_update(self) -> None:
+        self.async_write_ha_state()
+
+
+class HVACPreCoolLikelihoodSensor(AggregationEntity, SensorEntity):
+    """HVAC pre-cool likelihood percentage.
+
+    Entity: sensor.ura_hvac_coordinator_pre_cool_likelihood
+    Device: URA: HVAC Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:snowflake-alert"
+    _attr_native_unit_of_measurement = "%"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_hvac_coordinator_pre_cool_likelihood"
+        self._attr_name = "HVAC Pre-Cool Likelihood"
+        self._attr_device_info = _hvac_device_info()
+
+    @property
+    def native_value(self) -> int:
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return 0
+        hvac = manager.coordinators.get("hvac")
+        if hvac is None:
+            return 0
+        return hvac.predictor.pre_cool_likelihood
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return {}
+        hvac = manager.coordinators.get("hvac")
+        if hvac is None:
+            return {}
+        return hvac.predictor.get_prediction_attrs()
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.hvac_const import SIGNAL_HVAC_ENTITIES_UPDATE
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_HVAC_ENTITIES_UPDATE, self._handle_update
+            )
+        )
+
+    @callback
+    def _handle_update(self) -> None:
+        self.async_write_ha_state()
+
+
+class HVACComfortRiskSensor(AggregationEntity, SensorEntity):
+    """HVAC comfort violation risk level.
+
+    Entity: sensor.ura_hvac_coordinator_comfort_risk
+    Device: URA: HVAC Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:thermometer-alert"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_hvac_coordinator_comfort_risk"
+        self._attr_name = "HVAC Comfort Risk"
+        self._attr_device_info = _hvac_device_info()
+
+    @property
+    def native_value(self) -> str:
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return "unknown"
+        hvac = manager.coordinators.get("hvac")
+        if hvac is None:
+            return "disabled"
+        return hvac.predictor.comfort_violation_risk
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return {}
+        hvac = manager.coordinators.get("hvac")
+        if hvac is None:
+            return {}
+        return hvac.predictor.get_outcome_attrs()
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
