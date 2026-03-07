@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.8.2
+# Universal Room Automation v3.8.3
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -230,6 +230,7 @@ async def async_setup_entry(
             HVACModeSensor(hass, entry),
             HVACAnomalySensor(hass, entry),
             HVACComplianceSensor(hass, entry),
+            HVACOverrideFrequencySensor(hass, entry),
         ]
         # v3.8.0-H1: Add per-zone HVAC sensors dynamically
         manager = hass.data.get(DOMAIN, {}).get("coordinator_manager")
@@ -6227,6 +6228,59 @@ class HVACComplianceSensor(AggregationEntity, SensorEntity):
         if hvac is None:
             return {}
         return hvac.get_compliance_summary()
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.hvac_const import SIGNAL_HVAC_ENTITIES_UPDATE
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_HVAC_ENTITIES_UPDATE, self._handle_update
+            )
+        )
+
+    @callback
+    def _handle_update(self) -> None:
+        self.async_write_ha_state()
+
+
+class HVACOverrideFrequencySensor(AggregationEntity, SensorEntity):
+    """HVAC override frequency — tracks overrides and AC resets today.
+
+    Entity: sensor.ura_hvac_coordinator_override_frequency
+    Device: URA: HVAC Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:alert-octagon"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_hvac_coordinator_override_frequency"
+        self._attr_name = "HVAC Override Frequency"
+        self._attr_device_info = _hvac_device_info()
+
+    @property
+    def native_value(self) -> str:
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return "not_initialized"
+        hvac = manager.coordinators.get("hvac")
+        if hvac is None:
+            return "disabled"
+        status = hvac.override_arrester.get_override_status()
+        return str(status.get("overrides_today", 0))
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return {}
+        hvac = manager.coordinators.get("hvac")
+        if hvac is None:
+            return {}
+        return hvac.override_arrester.get_override_status()
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()

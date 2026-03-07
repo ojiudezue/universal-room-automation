@@ -39,6 +39,18 @@ DEFAULT_FAN_ACTIVATION_DELTA: Final = 2.0  # F
 DEFAULT_FAN_HYSTERESIS: Final = 1.5  # F
 DEFAULT_FAN_MIN_RUNTIME: Final = 10  # minutes
 
+# Override Arrester thresholds
+OVERRIDE_SEVERE_DELTA: Final = 3.0  # F — severe override threshold
+OVERRIDE_NORMAL_DELTA: Final = 1.0  # F — normal override threshold
+OVERRIDE_SEVERE_GRACE_MINUTES: Final = 2  # grace before reverting severe
+OVERRIDE_NORMAL_GRACE_MINUTES: Final = 5  # grace before compromise on normal
+OVERRIDE_COAST_TOLERANCE_BONUS: Final = 1.0  # F — widen tolerance during energy coast
+
+# AC Reset
+AC_RESET_MAX_PER_DAY: Final = 2  # max resets per zone per day
+AC_RESET_STUCK_MINUTES: Final = 10  # minutes past setpoint before reset
+AC_RESET_OFF_DURATION_SECONDS: Final = 60  # seconds to hold off during reset
+
 # ============================================================================
 # Seasonal preset ranges (cool_setpoint, heat_setpoint)
 # ============================================================================

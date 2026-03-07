@@ -64,6 +64,8 @@ class ZoneState:
     # Override tracking
     override_count_today: int = 0
     ac_reset_count_today: int = 0
+    last_override_direction: str = ""  # "cooler" or "warmer" or ""
+    last_stuck_detected: str = ""  # ISO timestamp when stuck cycle detected
 
     @property
     def any_room_occupied(self) -> bool:
@@ -223,7 +225,7 @@ class ZoneManager:
             _LOGGER.info(
                 "HVAC: Discovered %s (%s) → %s (%d rooms)",
                 zone_id, zone_name, thermostat,
-                len(rooms) if isinstance(rooms, list) else 0,
+                len(room_names),
             )
 
         _LOGGER.info("HVAC: Discovered %d zones with thermostats", len(self._zones))
