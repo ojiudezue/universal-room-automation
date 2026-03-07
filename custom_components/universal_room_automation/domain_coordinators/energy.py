@@ -182,6 +182,10 @@ class EnergyCoordinator(BaseCoordinator):
         # Uses Envoy's consumption CT (includes grid + solar self-consumed + battery).
         self._lifetime_consumption_snapshot: float | None = None
 
+        # Cached forecast temps (updated each decision cycle via async service)
+        self._cached_forecast_high: float | None = None
+        self._cached_forecast_low: float | None = None
+
         # Envoy availability tracking
         self._envoy_unavailable_count: int = 0
         self._envoy_last_available: str | None = None
@@ -618,6 +622,9 @@ class EnergyCoordinator(BaseCoordinator):
             # E5: Sunrise refresh (re-predict with fresh Solcast after sunrise)
             self._predictor.refresh_at_sunrise()
 
+            # E6: Fetch forecast temps (async service call, cached for property)
+            await self._update_forecast_temps()
+
             # E6: Load shedding evaluation (before constraint so shed level is current)
             if not self._observation_mode:
                 self._update_load_shedding(period)
@@ -698,26 +705,44 @@ class EnergyCoordinator(BaseCoordinator):
         except Exception:
             _LOGGER.exception("Energy: failed to execute %s on %s", service, target)
 
-    def _get_forecast_temps(self) -> tuple[float | None, float | None]:
-        """Return (forecast_high, forecast_low) from predictor and weather entity."""
-        forecast_high = None
-        forecast_low = None
+    async def _update_forecast_temps(self) -> None:
+        """Fetch daily forecast high/low via weather.get_forecasts service.
+
+        Caches results in _cached_forecast_high/_cached_forecast_low.
+        Modern HA (2024.3+) removed forecast from weather entity attributes.
+        """
+        weather_eid = None
         if self._predictor:
-            if hasattr(self._predictor, "_prediction_temperature"):
-                forecast_high = self._predictor._prediction_temperature
             weather_eid = getattr(self._predictor, "_weather_entity", None)
-            if weather_eid:
-                ws = self.hass.states.get(weather_eid)
-                if ws and ws.attributes:
-                    fc = ws.attributes.get("forecast", [])
-                    if fc and isinstance(fc, list) and len(fc) > 0:
-                        tl = fc[0].get("templow")
-                        if tl is not None:
-                            try:
-                                forecast_low = float(tl)
-                            except (ValueError, TypeError):
-                                pass
-        return forecast_high, forecast_low
+        if not weather_eid:
+            return
+
+        try:
+            response = await self.hass.services.async_call(
+                "weather",
+                "get_forecasts",
+                {"entity_id": weather_eid, "type": "daily"},
+                blocking=True,
+                return_response=True,
+            )
+            if response and weather_eid in response:
+                forecasts = response[weather_eid].get("forecast", [])
+                if forecasts and isinstance(forecasts, list) and len(forecasts) > 0:
+                    today = forecasts[0]
+                    th = today.get("temperature")
+                    if th is not None:
+                        try:
+                            self._cached_forecast_high = float(th)
+                        except (ValueError, TypeError):
+                            pass
+                    tl = today.get("templow")
+                    if tl is not None:
+                        try:
+                            self._cached_forecast_low = float(tl)
+                        except (ValueError, TypeError):
+                            pass
+        except Exception:
+            _LOGGER.debug("Failed to fetch weather forecast for %s", weather_eid)
 
     def _update_hvac_constraint(self, tou_period: str) -> None:
         """Determine HVAC constraint mode based on TOU, SOC, weather, and import.
@@ -728,7 +753,8 @@ class EnergyCoordinator(BaseCoordinator):
         soc = self._battery.battery_soc or 0
         solar_class = self._battery.classify_solar_day()
         reason = ""
-        forecast_high, forecast_low = self._get_forecast_temps()
+        forecast_high = self._cached_forecast_high
+        forecast_low = self._cached_forecast_low
 
         # Determine constraint mode (priority order: shed > coast > pre_cool > pre_heat > normal)
         if (
@@ -1189,7 +1215,6 @@ class EnergyCoordinator(BaseCoordinator):
         if self._hvac_constraint_mode in ("coast", "shed"):
             max_runtime = int(transition.get("hours_until", 0) * 60)
 
-        forecast_high, forecast_low = self._get_forecast_temps()
         soc = self._battery.battery_soc or 0
         solar_class = self._battery.classify_solar_day()
 
@@ -1200,8 +1225,8 @@ class EnergyCoordinator(BaseCoordinator):
             "reason": self._hvac_constraint_reason,
             "solar_class": solar_class,
             "soc": soc if soc > 0 else None,
-            "forecast_high_temp": forecast_high,
-            "forecast_low_temp": forecast_low,
+            "forecast_high_temp": self._cached_forecast_high,
+            "forecast_low_temp": self._cached_forecast_low,
             "fan_assist": self._hvac_constraint_mode in ("coast", "shed"),
         }
 
