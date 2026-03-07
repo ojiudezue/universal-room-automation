@@ -108,6 +108,7 @@ class EnergyCoordinator(BaseCoordinator):
         # E6: HVAC constraints + covers
         self._hvac_constraint_mode: str = "normal"
         self._hvac_constraint_offset: float = 0.0
+        self._last_published_constraint: str = ""  # track to avoid duplicate signals
         self._energy_situation: str = "normal"
         self._load_shedding_enabled: bool = False  # stubbed off
 
@@ -641,24 +642,60 @@ class EnergyCoordinator(BaseCoordinator):
     def _update_hvac_constraint(self, tou_period: str) -> None:
         """Determine HVAC constraint mode based on TOU and conditions.
 
-        Published via dispatcher signal (stub — HVAC coordinator will consume).
+        v3.8.0-E6: Now fires SIGNAL_ENERGY_CONSTRAINT for HVAC coordinator.
         """
         soc = self._battery.battery_soc or 0
         solar_class = self._battery.classify_solar_day()
+        reason = ""
 
         if tou_period == "peak":
             self._hvac_constraint_mode = "coast"
-            self._hvac_constraint_offset = 3.0  # Allow +3F drift
+            self._hvac_constraint_offset = 3.0
+            reason = "peak TOU period"
         elif tou_period == "mid_peak" and solar_class in ("poor", "very_poor"):
             self._hvac_constraint_mode = "coast"
             self._hvac_constraint_offset = 2.0
+            reason = "mid-peak poor solar"
         elif tou_period == "off_peak" and soc < 50 and solar_class in ("excellent", "good"):
-            # Pre-cool before peak when we have solar
             self._hvac_constraint_mode = "pre_cool"
             self._hvac_constraint_offset = -2.0
+            reason = "off-peak pre-cool (low SOC, good solar)"
         else:
             self._hvac_constraint_mode = "normal"
             self._hvac_constraint_offset = 0.0
+            reason = "normal conditions"
+
+        # v3.8.0-E6: Fire dispatcher signal on constraint change
+        constraint_key = f"{self._hvac_constraint_mode}:{self._hvac_constraint_offset}"
+        if constraint_key != self._last_published_constraint:
+            self._last_published_constraint = constraint_key
+            from .signals import EnergyConstraint, SIGNAL_ENERGY_CONSTRAINT
+            from homeassistant.helpers.dispatcher import async_dispatcher_send
+
+            # Get forecast high temp if available
+            forecast_high = None
+            if self._predictor and hasattr(self._predictor, "_prediction_temperature"):
+                forecast_high = self._predictor._prediction_temperature
+
+            constraint = EnergyConstraint(
+                mode=self._hvac_constraint_mode,
+                setpoint_offset=self._hvac_constraint_offset,
+                occupied_only=True,
+                fan_assist=(self._hvac_constraint_mode == "coast"),
+                reason=reason,
+                solar_class=solar_class,
+                forecast_high_temp=forecast_high,
+                soc=soc if soc > 0 else None,
+            )
+            async_dispatcher_send(
+                self.hass, SIGNAL_ENERGY_CONSTRAINT, constraint
+            )
+            _LOGGER.info(
+                "Energy: Published HVAC constraint mode=%s offset=%.1f reason=%s",
+                self._hvac_constraint_mode,
+                self._hvac_constraint_offset,
+                reason,
+            )
 
     def _update_energy_situation(self, tou_period: str) -> None:
         """Assess overall energy situation."""

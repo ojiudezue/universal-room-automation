@@ -1,0 +1,260 @@
+"""Zone management for HVAC Coordinator.
+
+Auto-discovers HVAC zones from CONF_ZONE_THERMOSTAT config on URA zones,
+aggregates room conditions (temperature, humidity, occupancy) per zone,
+and provides zone-aware control.
+
+v3.8.0-H1: Initial implementation.
+"""
+
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass, field
+from typing import Any
+
+from homeassistant.core import HomeAssistant
+
+from ..const import (
+    CONF_ENTRY_TYPE,
+    CONF_ROOM_NAME,
+    CONF_ZONE_ROOMS,
+    CONF_ZONE_THERMOSTAT,
+    DOMAIN,
+    ENTRY_TYPE_ROOM,
+    ENTRY_TYPE_ZONE,
+)
+
+_LOGGER = logging.getLogger(__name__)
+
+
+@dataclass
+class RoomCondition:
+    """Aggregated condition for a single room."""
+
+    room_name: str
+    temperature: float | None = None
+    humidity: float | None = None
+    occupied: bool = False
+    weight: float = 1.0
+
+
+@dataclass
+class ZoneState:
+    """State of a single HVAC zone."""
+
+    zone_id: str
+    zone_name: str
+    climate_entity: str
+    rooms: list[str] = field(default_factory=list)
+
+    # Current climate entity state
+    preset_mode: str = ""
+    hvac_mode: str = ""
+    hvac_action: str = ""
+    current_temperature: float | None = None
+    current_humidity: float | None = None
+    target_temp_high: float | None = None
+    target_temp_low: float | None = None
+
+    # Aggregated room conditions
+    room_conditions: list[RoomCondition] = field(default_factory=list)
+
+    # Override tracking
+    override_count_today: int = 0
+    ac_reset_count_today: int = 0
+
+    @property
+    def any_room_occupied(self) -> bool:
+        """Return True if any room in this zone is occupied."""
+        return any(r.occupied for r in self.room_conditions)
+
+    @property
+    def occupied_rooms(self) -> list[str]:
+        """Return list of occupied room names."""
+        return [r.room_name for r in self.room_conditions if r.occupied]
+
+    @property
+    def avg_temperature(self) -> float | None:
+        """Weighted average temperature across rooms."""
+        temps = [
+            (r.temperature, r.weight)
+            for r in self.room_conditions
+            if r.temperature is not None
+        ]
+        if not temps:
+            return self.current_temperature
+        total_weight = sum(w for _, w in temps)
+        if total_weight == 0:
+            return None
+        return sum(t * w for t, w in temps) / total_weight
+
+    @property
+    def avg_humidity(self) -> float | None:
+        """Average humidity across rooms."""
+        vals = [r.humidity for r in self.room_conditions if r.humidity is not None]
+        if not vals:
+            return self.current_humidity
+        return sum(vals) / len(vals)
+
+
+class ZoneManager:
+    """Discovers and manages HVAC zones.
+
+    Auto-discovers zones from CONF_ZONE_THERMOSTAT config entries.
+    Aggregates room conditions per zone from URA room data.
+    """
+
+    def __init__(self, hass: HomeAssistant) -> None:
+        """Initialize zone manager."""
+        self.hass = hass
+        self._zones: dict[str, ZoneState] = {}
+
+    @property
+    def zones(self) -> dict[str, ZoneState]:
+        """Return all discovered zones."""
+        return self._zones
+
+    @property
+    def zone_count(self) -> int:
+        """Return number of discovered zones."""
+        return len(self._zones)
+
+    async def async_discover_zones(self) -> int:
+        """Discover HVAC zones from zone config entries.
+
+        Reads CONF_ZONE_THERMOSTAT from each zone entry.
+        Returns count of discovered zones.
+        """
+        self._zones.clear()
+        zone_num = 0
+
+        for entry in self.hass.config_entries.async_entries(DOMAIN):
+            if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ZONE:
+                continue
+
+            merged = {**entry.data, **entry.options}
+            thermostat = merged.get(CONF_ZONE_THERMOSTAT)
+            if not thermostat:
+                continue
+
+            zone_num += 1
+            zone_name = merged.get("zone_name", f"Zone {zone_num}")
+            zone_id = f"zone_{zone_num}"
+            rooms = merged.get(CONF_ZONE_ROOMS, [])
+
+            self._zones[zone_id] = ZoneState(
+                zone_id=zone_id,
+                zone_name=zone_name,
+                climate_entity=thermostat,
+                rooms=rooms if isinstance(rooms, list) else [],
+            )
+
+            _LOGGER.info(
+                "HVAC: Discovered %s → %s (%d rooms)",
+                zone_id, thermostat, len(rooms) if isinstance(rooms, list) else 0,
+            )
+
+        _LOGGER.info("HVAC: Discovered %d zones with thermostats", len(self._zones))
+        return len(self._zones)
+
+    def update_zone_climate_state(self, zone_id: str) -> None:
+        """Update zone state from its climate entity."""
+        zone = self._zones.get(zone_id)
+        if zone is None:
+            return
+
+        state = self.hass.states.get(zone.climate_entity)
+        if state is None or state.state == "unavailable":
+            return
+
+        zone.hvac_mode = state.state
+        zone.hvac_action = state.attributes.get("hvac_action", "")
+        zone.preset_mode = state.attributes.get("preset_mode", "")
+        zone.current_temperature = state.attributes.get("current_temperature")
+        zone.current_humidity = state.attributes.get("current_humidity")
+        zone.target_temp_high = state.attributes.get("target_temp_high")
+        zone.target_temp_low = state.attributes.get("target_temp_low")
+
+    def update_all_zones(self) -> None:
+        """Update climate state for all zones."""
+        for zone_id in self._zones:
+            self.update_zone_climate_state(zone_id)
+
+    def update_room_conditions(self) -> None:
+        """Aggregate room conditions per zone from URA room coordinators.
+
+        Room coordinators are stored at hass.data[DOMAIN][entry.entry_id],
+        keyed by config entry UUID. We find them by matching room_name
+        from config entries against zone.rooms.
+        """
+        # Build room_name -> coordinator mapping
+        room_coordinators: dict[str, Any] = {}
+        for entry in self.hass.config_entries.async_entries(DOMAIN):
+            if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ROOM:
+                continue
+            room_name = entry.data.get(CONF_ROOM_NAME, "")
+            if not room_name:
+                continue
+            coordinator = self.hass.data.get(DOMAIN, {}).get(entry.entry_id)
+            if coordinator is not None:
+                room_coordinators[room_name] = coordinator
+
+        for zone in self._zones.values():
+            zone.room_conditions.clear()
+            for room_name in zone.rooms:
+                coordinator = room_coordinators.get(room_name)
+                if coordinator is None:
+                    continue
+
+                # Read from room coordinator data dict
+                data = {}
+                if hasattr(coordinator, "data") and coordinator.data:
+                    data = coordinator.data
+
+                condition = RoomCondition(
+                    room_name=room_name,
+                    temperature=data.get("temperature"),
+                    humidity=data.get("humidity"),
+                    occupied=data.get("occupied", False),
+                )
+                zone.room_conditions.append(condition)
+
+    def get_zone_status_attrs(self, zone_id: str) -> dict[str, Any]:
+        """Return rich attribute dict for a zone status sensor."""
+        zone = self._zones.get(zone_id)
+        if zone is None:
+            return {}
+
+        return {
+            "friendly_name": zone.zone_name,
+            "zone_id": zone.zone_id,
+            "climate_entity": zone.climate_entity,
+            "preset_mode": zone.preset_mode,
+            "hvac_action": zone.hvac_action,
+            "current_temperature": zone.current_temperature,
+            "current_humidity": zone.current_humidity,
+            "target_temp_high": zone.target_temp_high,
+            "target_temp_low": zone.target_temp_low,
+            "any_room_occupied": zone.any_room_occupied,
+            "occupied_rooms": zone.occupied_rooms,
+            "avg_temperature": (
+                round(zone.avg_temperature, 1)
+                if zone.avg_temperature is not None
+                else None
+            ),
+            "avg_humidity": (
+                round(zone.avg_humidity, 1)
+                if zone.avg_humidity is not None
+                else None
+            ),
+            "room_count": len(zone.rooms),
+            "override_count_today": zone.override_count_today,
+            "ac_reset_count_today": zone.ac_reset_count_today,
+        }
+
+    def reset_daily_counters(self) -> None:
+        """Reset daily counters for all zones (call at midnight)."""
+        for zone in self._zones.values():
+            zone.override_count_today = 0
+            zone.ac_reset_count_today = 0
