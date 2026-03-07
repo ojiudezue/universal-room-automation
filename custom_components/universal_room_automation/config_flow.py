@@ -1,6 +1,6 @@
 """Config flow for Universal Room Automation v3.6.24."""
 #
-# Universal Room Automation v3.8.9
+# Universal Room Automation v3.9.0
 # Build: 2026-01-05
 # File: config_flow.py
 # v3.3.3: Added manage_zones to integration options menu
@@ -2128,6 +2128,24 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             DEFAULT_DECISION_INTERVAL_MINUTES,
             SOLAR_CLASS_MODE_AUTOMATIC,
             SOLAR_CLASS_MODE_CUSTOM,
+            CONF_ENERGY_LOAD_SHEDDING_ENABLED,
+            CONF_ENERGY_LOAD_SHEDDING_THRESHOLD,
+            CONF_ENERGY_LOAD_SHEDDING_SUSTAINED_MINUTES,
+            CONF_ENERGY_LOAD_SHEDDING_MODE,
+            CONF_ENERGY_CONSTRAINT_COAST_OFFSET,
+            CONF_ENERGY_CONSTRAINT_PRECOOL_OFFSET,
+            CONF_ENERGY_CONSTRAINT_PREHEAT_OFFSET,
+            CONF_ENERGY_CONSTRAINT_SHED_OFFSET,
+            CONF_ENERGY_PREHEAT_TEMP_THRESHOLD,
+            DEFAULT_LOAD_SHEDDING_THRESHOLD_KW,
+            DEFAULT_LOAD_SHEDDING_SUSTAINED_MINUTES,
+            LOAD_SHEDDING_MODE_FIXED,
+            LOAD_SHEDDING_MODE_AUTO,
+            DEFAULT_CONSTRAINT_COAST_OFFSET,
+            DEFAULT_CONSTRAINT_PRECOOL_OFFSET,
+            DEFAULT_CONSTRAINT_PREHEAT_OFFSET,
+            DEFAULT_CONSTRAINT_SHED_OFFSET,
+            DEFAULT_PREHEAT_TEMP_THRESHOLD,
         )
 
         if user_input is not None:
@@ -2253,6 +2271,91 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     mode=selector.NumberSelectorMode.BOX,
                 )
             ),
+            # v3.9.0: Load shedding config
+            vol.Optional(
+                CONF_ENERGY_LOAD_SHEDDING_ENABLED,
+                default=self._get_current(CONF_ENERGY_LOAD_SHEDDING_ENABLED, False),
+            ): selector.BooleanSelector(),
+            vol.Optional(
+                CONF_ENERGY_LOAD_SHEDDING_MODE,
+                default=self._get_current(CONF_ENERGY_LOAD_SHEDDING_MODE, LOAD_SHEDDING_MODE_FIXED),
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=[LOAD_SHEDDING_MODE_FIXED, LOAD_SHEDDING_MODE_AUTO],
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                )
+            ),
+            vol.Optional(
+                CONF_ENERGY_LOAD_SHEDDING_THRESHOLD,
+                default=self._get_current(CONF_ENERGY_LOAD_SHEDDING_THRESHOLD, DEFAULT_LOAD_SHEDDING_THRESHOLD_KW),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=1, max=20, step=0.5,
+                    unit_of_measurement="kW",
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
+            vol.Optional(
+                CONF_ENERGY_LOAD_SHEDDING_SUSTAINED_MINUTES,
+                default=self._get_current(CONF_ENERGY_LOAD_SHEDDING_SUSTAINED_MINUTES, DEFAULT_LOAD_SHEDDING_SUSTAINED_MINUTES),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=5, max=60, step=5,
+                    unit_of_measurement="min",
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
+            # v3.9.0: Constraint offset config
+            vol.Optional(
+                CONF_ENERGY_CONSTRAINT_COAST_OFFSET,
+                default=self._get_current(CONF_ENERGY_CONSTRAINT_COAST_OFFSET, DEFAULT_CONSTRAINT_COAST_OFFSET),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0, max=10, step=0.5,
+                    unit_of_measurement="°F",
+                    mode=selector.NumberSelectorMode.SLIDER,
+                )
+            ),
+            vol.Optional(
+                CONF_ENERGY_CONSTRAINT_PRECOOL_OFFSET,
+                default=self._get_current(CONF_ENERGY_CONSTRAINT_PRECOOL_OFFSET, DEFAULT_CONSTRAINT_PRECOOL_OFFSET),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=-5, max=0, step=0.5,
+                    unit_of_measurement="°F",
+                    mode=selector.NumberSelectorMode.SLIDER,
+                )
+            ),
+            vol.Optional(
+                CONF_ENERGY_CONSTRAINT_PREHEAT_OFFSET,
+                default=self._get_current(CONF_ENERGY_CONSTRAINT_PREHEAT_OFFSET, DEFAULT_CONSTRAINT_PREHEAT_OFFSET),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0, max=5, step=0.5,
+                    unit_of_measurement="°F",
+                    mode=selector.NumberSelectorMode.SLIDER,
+                )
+            ),
+            vol.Optional(
+                CONF_ENERGY_CONSTRAINT_SHED_OFFSET,
+                default=self._get_current(CONF_ENERGY_CONSTRAINT_SHED_OFFSET, DEFAULT_CONSTRAINT_SHED_OFFSET),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=1, max=10, step=0.5,
+                    unit_of_measurement="°F",
+                    mode=selector.NumberSelectorMode.SLIDER,
+                )
+            ),
+            vol.Optional(
+                CONF_ENERGY_PREHEAT_TEMP_THRESHOLD,
+                default=self._get_current(CONF_ENERGY_PREHEAT_TEMP_THRESHOLD, DEFAULT_PREHEAT_TEMP_THRESHOLD),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=20, max=60, step=1,
+                    unit_of_measurement="°F",
+                    mode=selector.NumberSelectorMode.SLIDER,
+                )
+            ),
         })
 
         return self.async_show_form(
@@ -2279,6 +2382,8 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             DEFAULT_FAN_ACTIVATION_DELTA,
             DEFAULT_FAN_HYSTERESIS,
             DEFAULT_FAN_MIN_RUNTIME,
+            CONF_HVAC_ARRESTER_ENABLED,
+            DEFAULT_ARRESTER_ENABLED,
         )
 
         if user_input is not None:
@@ -2354,6 +2459,11 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             ): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="cover", multiple=True)
             ),
+            # v3.9.0: Override arrester config
+            vol.Optional(
+                CONF_HVAC_ARRESTER_ENABLED,
+                default=self._get_current(CONF_HVAC_ARRESTER_ENABLED, DEFAULT_ARRESTER_ENABLED),
+            ): selector.BooleanSelector(),
         })
 
         return self.async_show_form(

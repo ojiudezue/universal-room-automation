@@ -204,3 +204,36 @@ CONF_ENERGY_TOU_RATE_FILE: Final = "energy_tou_rate_file"
 # Solar classification modes
 SOLAR_CLASS_MODE_AUTOMATIC: Final = "automatic"
 SOLAR_CLASS_MODE_CUSTOM: Final = "custom"
+
+# ============================================================================
+# E6: Load Shedding + Constraint Config
+# ============================================================================
+
+CONF_ENERGY_LOAD_SHEDDING_ENABLED: Final = "energy_load_shedding_enabled"
+CONF_ENERGY_LOAD_SHEDDING_THRESHOLD: Final = "energy_load_shedding_threshold_kw"
+CONF_ENERGY_LOAD_SHEDDING_SUSTAINED_MINUTES: Final = "energy_load_shedding_sustained_minutes"
+CONF_ENERGY_LOAD_SHEDDING_MODE: Final = "energy_load_shedding_mode"
+
+CONF_ENERGY_CONSTRAINT_COAST_OFFSET: Final = "energy_constraint_coast_offset"
+CONF_ENERGY_CONSTRAINT_PRECOOL_OFFSET: Final = "energy_constraint_precool_offset"
+CONF_ENERGY_CONSTRAINT_PREHEAT_OFFSET: Final = "energy_constraint_preheat_offset"
+CONF_ENERGY_CONSTRAINT_SHED_OFFSET: Final = "energy_constraint_shed_offset"
+CONF_ENERGY_PREHEAT_TEMP_THRESHOLD: Final = "energy_preheat_temp_threshold"
+
+# Load shedding defaults
+DEFAULT_LOAD_SHEDDING_THRESHOLD_KW: Final = 5.0
+DEFAULT_LOAD_SHEDDING_SUSTAINED_MINUTES: Final = 15
+LOAD_SHEDDING_MODE_FIXED: Final = "fixed"
+LOAD_SHEDDING_MODE_AUTO: Final = "auto"
+LOAD_SHEDDING_AUTO_MIN_DAYS: Final = 30
+LOAD_SHEDDING_AUTO_PERCENTILE: Final = 90  # 90th percentile of peak import
+
+# Constraint offset defaults (degrees F)
+DEFAULT_CONSTRAINT_COAST_OFFSET: Final = 3.0
+DEFAULT_CONSTRAINT_PRECOOL_OFFSET: Final = -2.0
+DEFAULT_CONSTRAINT_PREHEAT_OFFSET: Final = 2.0
+DEFAULT_CONSTRAINT_SHED_OFFSET: Final = 5.0
+DEFAULT_PREHEAT_TEMP_THRESHOLD: Final = 40.0  # F — forecast low below this triggers pre_heat
+
+# Load shedding priority order (cascade)
+LOAD_SHEDDING_PRIORITY: Final = ["pool", "ev", "smart_plugs", "hvac"]

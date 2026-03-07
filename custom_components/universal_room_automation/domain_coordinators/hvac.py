@@ -22,6 +22,8 @@ from homeassistant.util import dt as dt_util
 
 from .base import BaseCoordinator, CoordinatorAction, Intent
 from .hvac_const import (
+    CONF_HVAC_ARRESTER_ENABLED,
+    DEFAULT_ARRESTER_ENABLED,
     HVAC_ANOMALY_MIN_SAMPLES,
     HVAC_COORDINATOR_ID,
     HVAC_COORDINATOR_NAME,
@@ -64,6 +66,7 @@ class HVACCoordinator(BaseCoordinator):
         fan_activation_delta: float = 2.0,
         fan_hysteresis: float = 1.5,
         fan_min_runtime: int = 10,
+        arrester_enabled: bool = DEFAULT_ARRESTER_ENABLED,
     ) -> None:
         """Initialize HVAC Coordinator."""
         super().__init__(
@@ -78,6 +81,7 @@ class HVACCoordinator(BaseCoordinator):
             hass, self._zone_manager,
             compromise_minutes=compromise_minutes,
             ac_reset_timeout=ac_reset_timeout,
+            enabled=arrester_enabled,
         )
         self._fan_controller = FanController(
             hass, self._zone_manager,
@@ -103,6 +107,9 @@ class HVACCoordinator(BaseCoordinator):
         self._last_daily_reset: str = ""
         self._decision_timer_unsub = None
         self._pending_preset_change: bool = False
+
+        # Observation mode — sensors run but no actions taken
+        self._observation_mode: bool = False
 
         # Diagnostics
         self._decision_logger = None
@@ -143,6 +150,17 @@ class HVACCoordinator(BaseCoordinator):
     def energy_constraint_mode(self) -> str:
         """Return current energy constraint mode."""
         return self._energy_constraint_mode
+
+    @property
+    def observation_mode(self) -> bool:
+        """Whether HVAC observation mode is active."""
+        return self._observation_mode
+
+    @observation_mode.setter
+    def observation_mode(self, value: bool) -> None:
+        """Set HVAC observation mode."""
+        self._observation_mode = value
+        _LOGGER.info("HVAC Coordinator observation mode: %s", value)
 
     @property
     def energy_offset(self) -> float:
@@ -281,19 +299,26 @@ class HVACCoordinator(BaseCoordinator):
         self._zone_manager.update_all_zones()
         self._zone_manager.update_room_conditions()
 
-        # Apply presets based on house state
-        await self._apply_house_state_presets()
+        if not self._observation_mode:
+            # Apply presets based on house state
+            await self._apply_house_state_presets()
 
-        # Update override arrester energy state and check AC resets
-        self._override_arrester.update_energy_state(
-            self._energy_offset,
-            self._energy_constraint_mode == "coast",
-        )
-        await self._override_arrester.check_ac_reset()
+            # Update override arrester energy state and check AC resets
+            self._override_arrester.update_energy_state(
+                self._energy_offset,
+                self._energy_constraint_mode == "coast",
+            )
+            await self._override_arrester.check_ac_reset()
 
-        # Fan and cover control
-        await self._fan_controller.update(self._energy_constraint)
-        await self._cover_controller.update(self._energy_constraint)
+            # Fan and cover control
+            await self._fan_controller.update(self._energy_constraint)
+            await self._cover_controller.update(self._energy_constraint)
+        else:
+            # Still update arrester state for diagnostics (no actions)
+            self._override_arrester.update_energy_state(
+                self._energy_offset,
+                self._energy_constraint_mode == "coast",
+            )
 
         # Predictive sensors and pre-conditioning
         await self._predictor.update(self._energy_constraint, self._house_state)
@@ -512,6 +537,9 @@ class HVACCoordinator(BaseCoordinator):
         attrs["comfort_risk"] = self._predictor.comfort_violation_risk
         attrs["pre_cool_active"] = self._predictor.pre_cool_active
         attrs["pre_heat_active"] = self._predictor.pre_heat_active
+        attrs["observation_mode"] = self._observation_mode
+        attrs["arrester_state"] = self._override_arrester.get_arrester_state()
+        attrs["arrester_enabled"] = self._override_arrester.enabled
         return attrs
 
     async def async_teardown(self) -> None:
