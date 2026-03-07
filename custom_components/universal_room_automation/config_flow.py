@@ -1,6 +1,6 @@
 """Config flow for Universal Room Automation v3.6.24."""
 #
-# Universal Room Automation v3.8.1
+# Universal Room Automation v3.8.2
 # Build: 2026-01-05
 # File: config_flow.py
 # v3.3.3: Added manage_zones to integration options menu
@@ -628,7 +628,9 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
                 zone_manager_entry = self._find_zone_manager_entry()
                 if zone_manager_entry:
                     merged = {**zone_manager_entry.data, **zone_manager_entry.options}
-                    zones = dict(merged.get("zones", {}))
+                    zones = {
+                        k: dict(v) for k, v in merged.get("zones", {}).items()
+                    }
                     zones[zone_name] = {
                         CONF_ZONE_DESCRIPTION: user_input.get(CONF_ZONE_DESCRIPTION, ""),
                         CONF_ZONE_ROOMS: selected_rooms,
@@ -3016,7 +3018,11 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             if zm_result:
                 # v3.6.0-c2.3: Update zone in ZM entry's zones dict
                 merged = {**zm_entry.data, **zm_entry.options}
-                zones = dict(merged.get("zones", {}))
+                # Deep copy inner dicts to avoid in-place mutation of
+                # entry.options (async_update_entry skips save if equal).
+                zones = {
+                    k: dict(v) for k, v in merged.get("zones", {}).items()
+                }
                 # Remove old name key if renamed
                 if old_zone_name != zone_name and old_zone_name in zones:
                     zones[zone_name] = zones.pop(old_zone_name)
@@ -3129,7 +3135,9 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             if zm_result:
                 # v3.6.0-c2.3: Update zone media in ZM entry's zones dict
                 merged = {**zm_entry.data, **zm_entry.options}
-                zones = dict(merged.get("zones", {}))
+                zones = {
+                    k: dict(v) for k, v in merged.get("zones", {}).items()
+                }
                 zones.setdefault(zone_name, {})
                 zones[zone_name].update(user_input)
                 self.hass.config_entries.async_update_entry(
@@ -3202,7 +3210,12 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         if user_input is not None:
             if zm_result:
                 merged = {**zm_entry.data, **zm_entry.options}
-                zones = dict(merged.get("zones", {}))
+                # Deep copy zone dicts to avoid in-place mutation of
+                # entry.options (which would make async_update_entry
+                # think nothing changed and skip the save).
+                zones = {
+                    k: dict(v) for k, v in merged.get("zones", {}).items()
+                }
                 zones.setdefault(zone_name, {})
                 zones[zone_name].update(user_input)
                 self.hass.config_entries.async_update_entry(
@@ -3706,7 +3719,10 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     zm_entry = self._find_zone_manager_entry()
                     if zm_entry:
                         merged = {**zm_entry.data, **zm_entry.options}
-                        zones = dict(merged.get("zones", {}))
+                        zones = {
+                            k: dict(v)
+                            for k, v in merged.get("zones", {}).items()
+                        }
                         zone_cfg = zones.get(room_zone, {})
                         if not zone_cfg.get(CONF_ZONE_THERMOSTAT):
                             zone_cfg[CONF_ZONE_THERMOSTAT] = climate_entity
