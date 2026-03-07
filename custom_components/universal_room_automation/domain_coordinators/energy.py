@@ -725,24 +725,36 @@ class EnergyCoordinator(BaseCoordinator):
                 blocking=True,
                 return_response=True,
             )
-            if response and weather_eid in response:
-                forecasts = response[weather_eid].get("forecast", [])
-                if forecasts and isinstance(forecasts, list) and len(forecasts) > 0:
-                    today = forecasts[0]
-                    th = today.get("temperature")
-                    if th is not None:
-                        try:
-                            self._cached_forecast_high = float(th)
-                        except (ValueError, TypeError):
-                            pass
-                    tl = today.get("templow")
-                    if tl is not None:
-                        try:
-                            self._cached_forecast_low = float(tl)
-                        except (ValueError, TypeError):
-                            pass
-        except Exception:
-            _LOGGER.debug("Failed to fetch weather forecast for %s", weather_eid)
+            if not response:
+                _LOGGER.warning("Forecast service returned empty response for %s", weather_eid)
+                return
+            if weather_eid not in response:
+                _LOGGER.warning(
+                    "Forecast response missing key %s, got keys: %s",
+                    weather_eid, list(response.keys()),
+                )
+                return
+            forecasts = response[weather_eid].get("forecast", [])
+            if forecasts and isinstance(forecasts, list) and len(forecasts) > 0:
+                today = forecasts[0]
+                th = today.get("temperature")
+                if th is not None:
+                    try:
+                        self._cached_forecast_high = float(th)
+                    except (ValueError, TypeError):
+                        pass
+                tl = today.get("templow")
+                if tl is not None:
+                    try:
+                        self._cached_forecast_low = float(tl)
+                    except (ValueError, TypeError):
+                        pass
+                _LOGGER.debug(
+                    "Forecast temps: high=%s low=%s from %s",
+                    self._cached_forecast_high, self._cached_forecast_low, weather_eid,
+                )
+        except Exception as exc:
+            _LOGGER.warning("Failed to fetch weather forecast for %s: %s", weather_eid, exc)
 
     def _update_hvac_constraint(self, tou_period: str) -> None:
         """Determine HVAC constraint mode based on TOU, SOC, weather, and import.
