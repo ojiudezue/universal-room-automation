@@ -1,6 +1,6 @@
 """Database for Universal Room Automation."""
 #
-# Universal Room Automation v3.7.11
+# Universal Room Automation v3.7.12
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors
@@ -551,6 +551,21 @@ class UniversalRoomDatabase:
                     await db.execute(
                         "ALTER TABLE room_transitions ADD COLUMN checkpoint_rooms TEXT"
                     )
+                await db.commit()
+
+                # v3.7.12: Add accuracy + temperature columns to energy_daily
+                cursor = await db.execute("PRAGMA table_info(energy_daily)")
+                ed_columns = {row[1] for row in await cursor.fetchall()}
+                for col, col_type in [
+                    ("predicted_consumption_kwh", "REAL"),
+                    ("avg_temperature", "REAL"),
+                    ("prediction_error_pct", "REAL"),
+                    ("adjustment_factor", "REAL"),
+                ]:
+                    if col not in ed_columns:
+                        await db.execute(
+                            f"ALTER TABLE energy_daily ADD COLUMN {col} {col_type}"
+                        )
                 await db.commit()
 
                 _LOGGER.info("Database initialized successfully")
@@ -2212,6 +2227,10 @@ class UniversalRoomDatabase:
         net_cost: float,
         consumption_kwh: float | None = None,
         solar_production_kwh: float | None = None,
+        predicted_consumption_kwh: float | None = None,
+        avg_temperature: float | None = None,
+        prediction_error_pct: float | None = None,
+        adjustment_factor: float | None = None,
     ) -> None:
         """Save daily energy snapshot. Uses INSERT OR REPLACE for idempotency."""
         try:
@@ -2219,12 +2238,15 @@ class UniversalRoomDatabase:
                 await db.execute("""
                     INSERT OR REPLACE INTO energy_daily
                     (date, import_kwh, export_kwh, import_cost, export_credit,
-                     net_cost, consumption_kwh, solar_production_kwh)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                     net_cost, consumption_kwh, solar_production_kwh,
+                     predicted_consumption_kwh, avg_temperature,
+                     prediction_error_pct, adjustment_factor)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     date_str, import_kwh, export_kwh, import_cost,
                     export_credit, net_cost, consumption_kwh,
-                    solar_production_kwh,
+                    solar_production_kwh, predicted_consumption_kwh,
+                    avg_temperature, prediction_error_pct, adjustment_factor,
                 ))
                 await db.commit()
         except Exception as e:
@@ -2266,3 +2288,50 @@ class UniversalRoomDatabase:
             _LOGGER.error("Error querying energy daily for cycle: %s", e)
             return {"days": 0, "import_kwh": 0, "export_kwh": 0,
                     "import_cost": 0, "export_credit": 0, "net_cost": 0}
+
+    async def get_energy_daily_recent(self, days: int = 30) -> list[dict]:
+        """Get recent energy_daily rows for accuracy restore + regression.
+
+        Returns list of dicts with all columns, ordered by date ascending.
+        """
+        try:
+            async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
+                db.row_factory = aiosqlite.Row
+                cursor = await db.execute("""
+                    SELECT date, consumption_kwh, predicted_consumption_kwh,
+                           prediction_error_pct, adjustment_factor,
+                           avg_temperature
+                    FROM energy_daily
+                    WHERE consumption_kwh IS NOT NULL
+                    ORDER BY date DESC
+                    LIMIT ?
+                """, (days,))
+                rows = await cursor.fetchall()
+                return [dict(row) for row in reversed(rows)]
+        except Exception as e:
+            _LOGGER.error("Error querying recent energy daily: %s", e)
+            return []
+
+    async def get_energy_temp_pairs(self, min_days: int = 30) -> list[tuple]:
+        """Get consumption-temperature pairs for regression fitting.
+
+        Returns list of (consumption_kwh, avg_temperature) tuples.
+        Only includes rows where both values are non-null.
+        """
+        try:
+            async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
+                cursor = await db.execute("""
+                    SELECT consumption_kwh, avg_temperature
+                    FROM energy_daily
+                    WHERE consumption_kwh IS NOT NULL
+                      AND avg_temperature IS NOT NULL
+                    ORDER BY date DESC
+                    LIMIT 90
+                """)
+                rows = await cursor.fetchall()
+                if len(rows) >= min_days:
+                    return [(row[0], row[1]) for row in rows]
+                return []
+        except Exception as e:
+            _LOGGER.error("Error querying temp pairs: %s", e)
+            return []

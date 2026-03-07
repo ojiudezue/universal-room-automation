@@ -101,7 +101,8 @@ class EnergyCoordinator(BaseCoordinator):
         self._billing = CostTracker(hass, self._tou)
 
         # E5: Forecasting + prediction
-        self._predictor = DailyEnergyPredictor(hass)
+        weather_ent = (entity_config or {}).get(CONF_ENERGY_WEATHER_ENTITY)
+        self._predictor = DailyEnergyPredictor(hass, weather_entity=weather_ent)
         self._accuracy = AccuracyTracker()
 
         # E6: HVAC constraints + covers
@@ -167,6 +168,12 @@ class EnergyCoordinator(BaseCoordinator):
         # Restore billing cycle totals from DB (survives restarts)
         await self._restore_cycle_from_db(dt_util.now())
 
+        # Restore forecast accuracy history from DB
+        await self._restore_accuracy_from_db()
+
+        # Fit temperature regression from historical data
+        await self._fit_temp_regression()
+
         # Start periodic decision cycle
         self._decision_timer_unsub = async_track_time_interval(
             self.hass,
@@ -221,6 +228,56 @@ class EnergyCoordinator(BaseCoordinator):
         except Exception as e:
             _LOGGER.warning("Could not restore billing cycle from DB: %s", e)
 
+    async def _restore_accuracy_from_db(self) -> None:
+        """Restore forecast accuracy history from DB on startup."""
+        db = self.hass.data.get("universal_room_automation", {}).get("database")
+        if db is None:
+            return
+        try:
+            rows = await db.get_energy_daily_recent(days=30)
+            if rows:
+                self._accuracy.restore_from_db(rows)
+                self._predictor._adjustment_factor = (
+                    self._accuracy.get_adjustment_factor()
+                )
+        except Exception as e:
+            _LOGGER.warning("Could not restore accuracy from DB: %s", e)
+
+    async def _fit_temp_regression(self) -> None:
+        """Fit temperature regression from historical consumption-temperature pairs.
+
+        Requires 30+ paired data points. Uses simple linear regression:
+        consumption = base + coeff * |temp - 72|
+        """
+        db = self.hass.data.get("universal_room_automation", {}).get("database")
+        if db is None:
+            return
+        try:
+            pairs = await db.get_energy_temp_pairs(min_days=30)
+            if len(pairs) < 30:
+                return
+
+            # Simple linear regression: y = a + b*x
+            # where y = consumption_kwh, x = |temp - 72|
+            n = len(pairs)
+            xs = [abs(t - 72.0) for _, t in pairs]
+            ys = [c for c, _ in pairs]
+            sum_x = sum(xs)
+            sum_y = sum(ys)
+            sum_xy = sum(x * y for x, y in zip(xs, ys))
+            sum_x2 = sum(x * x for x in xs)
+
+            denom = n * sum_x2 - sum_x * sum_x
+            if abs(denom) < 1e-10:
+                return  # Degenerate data
+
+            coeff = (n * sum_xy - sum_x * sum_y) / denom
+            base = (sum_y - coeff * sum_x) / n
+
+            self._predictor.set_temp_regression(base, coeff)
+        except Exception as e:
+            _LOGGER.warning("Could not fit temperature regression: %s", e)
+
     def _get_lifetime_consumption(self) -> float | None:
         """Read Envoy lifetime energy consumption (MWh, monotonically increasing)."""
         state = self.hass.states.get(DEFAULT_LIFETIME_CONSUMPTION_ENTITY)
@@ -260,19 +317,22 @@ class EnergyCoordinator(BaseCoordinator):
                 delta_mwh = current_lifetime - self._lifetime_consumption_snapshot
                 actual_kwh = delta_mwh * 1000.0
 
+            accuracy_result = None
+            predicted_consumption = None
+
             if actual_kwh is not None and actual_kwh > 0:
                 self._predictor.record_actual_consumption(actual_kwh)
 
                 # Evaluate yesterday's forecast accuracy
                 forecast = self._predictor._get_current_prediction()
-                predicted = forecast.get("predicted_consumption_kwh")
+                predicted_consumption = forecast.get("predicted_consumption_kwh")
                 accuracy_result = self._accuracy.evaluate_accuracy(
-                    predicted, actual_kwh, self._last_reset_date
+                    predicted_consumption, actual_kwh, self._last_reset_date
                 )
                 if accuracy_result:
                     _LOGGER.info(
                         "Forecast accuracy: predicted=%.1f actual=%.1f error=%.1f kWh (%.1f%%)",
-                        predicted or 0,
+                        predicted_consumption or 0,
                         actual_kwh,
                         accuracy_result["error_kwh"],
                         accuracy_result["pct_error"],
@@ -283,8 +343,18 @@ class EnergyCoordinator(BaseCoordinator):
 
             # Save daily snapshot to DB (async fire-and-forget)
             if yesterday_totals:
+                error_pct = accuracy_result["pct_error"] if accuracy_result else None
+                adj_factor = self._accuracy.get_adjustment_factor() if accuracy_result else None
+                avg_temp = self._predictor._prediction_temperature
                 self.hass.async_create_task(
-                    self._save_daily_snapshot(yesterday_totals, actual_kwh)
+                    self._save_daily_snapshot(
+                        yesterday_totals,
+                        actual_kwh,
+                        predicted_consumption_kwh=predicted_consumption,
+                        prediction_error_pct=error_pct,
+                        adjustment_factor=adj_factor,
+                        avg_temperature=avg_temp,
+                    )
                 )
 
             # Reset snapshot for new day
@@ -296,7 +366,13 @@ class EnergyCoordinator(BaseCoordinator):
             self._lifetime_consumption_snapshot = current_lifetime
 
     async def _save_daily_snapshot(
-        self, totals: dict, consumption_kwh: float | None
+        self,
+        totals: dict,
+        consumption_kwh: float | None,
+        predicted_consumption_kwh: float | None = None,
+        prediction_error_pct: float | None = None,
+        adjustment_factor: float | None = None,
+        avg_temperature: float | None = None,
     ) -> None:
         """Save yesterday's billing totals to energy_daily table."""
         db = self.hass.data.get("universal_room_automation", {}).get("database")
@@ -311,6 +387,10 @@ class EnergyCoordinator(BaseCoordinator):
                 export_credit=totals["export_credit"],
                 net_cost=totals["net_cost"],
                 consumption_kwh=consumption_kwh,
+                predicted_consumption_kwh=predicted_consumption_kwh,
+                avg_temperature=avg_temperature,
+                prediction_error_pct=prediction_error_pct,
+                adjustment_factor=adjustment_factor,
             )
             _LOGGER.info(
                 "Saved daily energy snapshot for %s: import=%.1f export=%.1f cost=$%.2f",
@@ -478,6 +558,9 @@ class EnergyCoordinator(BaseCoordinator):
 
             # E5: Daily prediction (generates once per day, no-ops after)
             self._predictor.generate_prediction()
+
+            # E5: Sunrise refresh (re-predict with fresh Solcast after sunrise)
+            self._predictor.refresh_at_sunrise()
 
             # E6: HVAC constraint determination
             self._update_hvac_constraint(period)
