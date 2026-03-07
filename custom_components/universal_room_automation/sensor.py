@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.7.7
+# Universal Room Automation v3.7.8
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -5904,10 +5904,7 @@ class EnergyNetConsumptionSensor(AggregationEntity, SensorEntity):
         energy = manager.coordinators.get("energy")
         if energy is None:
             return None
-        val = energy.net_consumption_kw
-        if val is not None:
-            val = val / 1000.0  # Envoy reports watts, convert to kW
-        return val
+        return energy.net_consumption_kw
 
 
 class EnergyEVChargeRateASensor(AggregationEntity, SensorEntity):

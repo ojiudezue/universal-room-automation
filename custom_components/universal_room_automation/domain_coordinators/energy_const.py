@@ -124,7 +124,7 @@ DEFAULT_SOLAR_PRODUCTION_ENTITY: Final = "sensor.envoy_202428004328_current_powe
 DEFAULT_GRID_CONSUMPTION_ENTITY: Final = "sensor.envoy_202428004328_current_power_consumption"
 DEFAULT_BATTERY_SOC_ENTITY: Final = "sensor.envoy_202428004328_battery"
 DEFAULT_BATTERY_POWER_ENTITY: Final = "sensor.envoy_202428004328_encharge_aggregate_power"
-DEFAULT_NET_POWER_ENTITY: Final = "sensor.envoy_202428004328_balanced_net_power_consumption"
+DEFAULT_NET_POWER_ENTITY: Final = "sensor.envoy_202428004328_current_net_power_consumption"
 
 # Envoy lifetime accumulators (for accurate daily consumption tracking)
 # These monotonically increase and never reset — delta gives true daily values.
