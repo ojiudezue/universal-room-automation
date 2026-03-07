@@ -29,6 +29,7 @@ from .hvac_const import (
     HVAC_METRICS,
     SIGNAL_HVAC_ENTITIES_UPDATE,
 )
+from .hvac_override import OverrideArrester
 from .hvac_preset import PresetManager
 from .hvac_zones import ZoneManager
 from .signals import (
@@ -65,6 +66,9 @@ class HVACCoordinator(BaseCoordinator):
         )
         self._zone_manager = ZoneManager(hass)
         self._preset_manager = PresetManager(hass, max_sleep_offset=max_sleep_offset)
+        self._override_arrester = OverrideArrester(
+            hass, self._zone_manager,
+        )
 
         # Energy constraint state
         self._energy_constraint: EnergyConstraint | None = None
@@ -94,6 +98,11 @@ class HVACCoordinator(BaseCoordinator):
     def preset_manager(self) -> PresetManager:
         """Return preset manager for sensor access."""
         return self._preset_manager
+
+    @property
+    def override_arrester(self) -> OverrideArrester:
+        """Return override arrester for sensor access."""
+        return self._override_arrester
 
     @property
     def energy_constraint_mode(self) -> str:
@@ -164,6 +173,9 @@ class HVACCoordinator(BaseCoordinator):
         self._zone_manager.update_all_zones()
         self._zone_manager.update_room_conditions()
 
+        # Start override arrester (event-driven)
+        self._override_arrester.setup()
+
         # Start periodic decision cycle (every 5 minutes)
         self._decision_timer_unsub = async_track_time_interval(
             self.hass,
@@ -221,6 +233,13 @@ class HVACCoordinator(BaseCoordinator):
 
         # Apply presets based on house state
         await self._apply_house_state_presets()
+
+        # Update override arrester energy state and check AC resets
+        self._override_arrester.update_energy_state(
+            self._energy_offset,
+            self._energy_constraint_mode == "coast",
+        )
+        await self._override_arrester.check_ac_reset()
 
         # Record anomaly observations
         self._record_anomaly_observations()
@@ -436,6 +455,9 @@ class HVACCoordinator(BaseCoordinator):
         if self._decision_timer_unsub:
             self._decision_timer_unsub()
             self._decision_timer_unsub = None
+
+        # Tear down override arrester
+        self._override_arrester.teardown()
 
         self._cancel_listeners()
 
