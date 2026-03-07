@@ -156,6 +156,21 @@ DEFAULT_SOLCAST_PEAK_TIME_ENTITY: Final = "sensor.solcast_pv_forecast_peak_time_
 # Weather
 DEFAULT_WEATHER_ENTITY: Final = "weather.phalanxmadrone"
 
+# EVSE (Emporia WiFi chargers)
+DEFAULT_EVSE_GARAGE_A_POWER_ENTITY: Final = "sensor.garage_a_power_minute_average"
+DEFAULT_EVSE_GARAGE_B_POWER_ENTITY: Final = "sensor.garage_b_power_minute_average"
+
+# Monitored plugs (L1 charger — switch-only, no power sensor)
+DEFAULT_L1_CHARGER_ENTITIES: Final = [
+    "switch.smartplug_moes_wifi_garagealeftfront_socket_1",
+    "switch.smartplug_moes_wifi_garagealeftfront_socket_2",
+    "switch.smartplug_moes_wifi_garagealeftfront_socket_3",
+    "switch.smartplug_moes_wifi_garagealeftfront_socket_4",
+]
+
+# TOU rate file path
+DEFAULT_TOU_RATE_FILE: Final = "universal_room_automation/tou_rates.json"
+
 # ============================================================================
 # Config Keys (Energy-specific options flow)
 # ============================================================================
@@ -180,6 +195,11 @@ CONF_ENERGY_SOLAR_THRESHOLD_EXCELLENT: Final = "energy_solar_threshold_excellent
 CONF_ENERGY_SOLAR_THRESHOLD_GOOD: Final = "energy_solar_threshold_good"
 CONF_ENERGY_SOLAR_THRESHOLD_MODERATE: Final = "energy_solar_threshold_moderate"
 CONF_ENERGY_SOLAR_THRESHOLD_POOR: Final = "energy_solar_threshold_poor"
+
+CONF_ENERGY_EVSE_A_ENTITY: Final = "energy_evse_a_entity"
+CONF_ENERGY_EVSE_B_ENTITY: Final = "energy_evse_b_entity"
+CONF_ENERGY_L1_CHARGER_ENTITIES: Final = "energy_l1_charger_entities"
+CONF_ENERGY_TOU_RATE_FILE: Final = "energy_tou_rate_file"
 
 # Solar classification modes
 SOLAR_CLASS_MODE_AUTOMATIC: Final = "automatic"

@@ -1,6 +1,6 @@
 """Person tracking coordinator for Universal Room Automation."""
 #
-# Universal Room Automation v3.7.6
+# Universal Room Automation v3.7.7
 # Build: 2026-01-03
 # File: person_coordinator.py
 # v3.2.9: No changes (zone fixes in aggregation.py, fan fixes in automation.py)

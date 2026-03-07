@@ -1,6 +1,6 @@
 """Binary sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.7.6
+# Universal Room Automation v3.7.7
 # Build: 2026-01-02
 # File: binary_sensor.py
 # v3.2.6: Renamed "Presence" to "Sensor Presence" for clarity
@@ -121,6 +121,8 @@ async def async_setup_entry(
             NMActiveAlertBinarySensor(hass, entry),
             # v3.7.3: Energy Coordinator
             EnergyEnvoyAvailableBinarySensor(hass, entry),
+            # v3.7.7: L1 Charger status
+            EnergyL1ChargerBinarySensor(hass, entry),
         ]
         async_add_entities(coordinator_binary)
         return
@@ -1431,3 +1433,42 @@ class EnergyEnvoyAvailableBinarySensor(AggregationEntity, BinarySensorEntity):
             "unavailable_count": summary.get("envoy_unavailable_count", 0),
             "last_available": summary.get("envoy_last_available"),
         }
+
+
+class EnergyL1ChargerBinarySensor(AggregationEntity, BinarySensorEntity):
+    """L1 charger status — on when any Moes plug socket is on.
+
+    Entity: binary_sensor.ura_energy_l1_charger_garage_a
+    Device: URA: Energy Coordinator
+    """
+
+    _attr_device_class = BinarySensorDeviceClass.PLUG
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:ev-plug-type1"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_energy_l1_charger_garage_a"
+        self._attr_name = "L1 Charger Garage A"
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .const import VERSION
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "energy_coordinator")},
+            name="URA: Energy Coordinator",
+            manufacturer="Universal Room Automation",
+            model="Energy Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+
+    @property
+    def is_on(self) -> bool | None:
+        """Return True if any L1 charger socket is on (charging)."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        energy = manager.coordinators.get("energy")
+        if energy is None:
+            return None
+        return energy.l1_charger_active

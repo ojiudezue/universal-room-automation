@@ -73,7 +73,12 @@ class EnergyCoordinator(BaseCoordinator):
             priority=40,
         )
         self._decision_interval = decision_interval
-        self._tou = TOURateEngine()
+
+        # Try loading TOU rates from JSON file, fall back to PEC defaults
+        from .energy_const import DEFAULT_TOU_RATE_FILE
+        config_dir = hass.config.path("")
+        self._tou = TOURateEngine.from_json_file(config_dir, DEFAULT_TOU_RATE_FILE)
+
         self._battery = BatteryStrategy(
             hass,
             reserve_soc=reserve_soc,
@@ -712,6 +717,53 @@ class EnergyCoordinator(BaseCoordinator):
         """Current delivery + transmission rate per kWh."""
         from .energy_const import PEC_FIXED_CHARGES
         return PEC_FIXED_CHARGES["delivery_per_kwh"] + PEC_FIXED_CHARGES["transmission_per_kwh"]
+
+    # =========================================================================
+    # Monitoring accessors (consumption, EV, L1 charger)
+    # =========================================================================
+
+    def _get_state_float(self, entity_id: str) -> float | None:
+        """Get numeric state from entity."""
+        state = self.hass.states.get(entity_id)
+        if state is None or state.state in ("unknown", "unavailable"):
+            return None
+        try:
+            return float(state.state)
+        except (ValueError, TypeError):
+            return None
+
+    @property
+    def total_consumption_kw(self) -> float | None:
+        """Total home consumption from Envoy CT (kW)."""
+        from .energy_const import DEFAULT_GRID_CONSUMPTION_ENTITY
+        return self._get_state_float(DEFAULT_GRID_CONSUMPTION_ENTITY)
+
+    @property
+    def net_consumption_kw(self) -> float | None:
+        """Net consumption (positive=importing, negative=exporting) from Envoy (kW)."""
+        return self._battery.net_power
+
+    @property
+    def evse_garage_a_power(self) -> float | None:
+        """EVSE Garage A power draw in watts."""
+        from .energy_const import DEFAULT_EVSE_GARAGE_A_POWER_ENTITY
+        return self._get_state_float(DEFAULT_EVSE_GARAGE_A_POWER_ENTITY)
+
+    @property
+    def evse_garage_b_power(self) -> float | None:
+        """EVSE Garage B power draw in watts."""
+        from .energy_const import DEFAULT_EVSE_GARAGE_B_POWER_ENTITY
+        return self._get_state_float(DEFAULT_EVSE_GARAGE_B_POWER_ENTITY)
+
+    @property
+    def l1_charger_active(self) -> bool:
+        """Whether any L1 charger socket is on (Moes plug, switch-only)."""
+        from .energy_const import DEFAULT_L1_CHARGER_ENTITIES
+        for entity_id in DEFAULT_L1_CHARGER_ENTITIES:
+            state = self.hass.states.get(entity_id)
+            if state is not None and state.state == "on":
+                return True
+        return False
 
     @property
     def load_shedding_active(self) -> bool:

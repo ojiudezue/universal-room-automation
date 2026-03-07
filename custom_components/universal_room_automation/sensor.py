@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.7.6
+# Universal Room Automation v3.7.7
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -221,6 +221,11 @@ async def async_setup_entry(
             # v3.7.0-E6: Situation + Constraint sensors
             EnergySituationSensor(hass, entry),
             EnergyHVACConstraintSensor(hass, entry),
+            # v3.7.7: Consumption + EV monitoring sensors
+            EnergyTotalConsumptionSensor(hass, entry),
+            EnergyNetConsumptionSensor(hass, entry),
+            EnergyEVChargeRateASensor(hass, entry),
+            EnergyEVChargeRateBSensor(hass, entry),
         ]
         async_add_entities(coordinator_sensors)
         return
@@ -5833,3 +5838,135 @@ class EnergyHVACConstraintSensor(AggregationEntity, SensorEntity):
         if energy is None:
             return {}
         return energy.hvac_constraint
+
+
+# ============================================================================
+# v3.7.7: CONSUMPTION + EV MONITORING SENSORS
+# ============================================================================
+
+
+class EnergyTotalConsumptionSensor(AggregationEntity, SensorEntity):
+    """Total home consumption from Envoy CT clamp (ground truth).
+
+    Entity: sensor.ura_energy_total_consumption
+    Device: URA: Energy Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:home-lightning-bolt"
+    _attr_device_class = SensorDeviceClass.POWER
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = "kW"
+    _attr_suggested_display_precision = 2
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_energy_total_consumption"
+        self._attr_name = "Total Consumption"
+        self._attr_device_info = _energy_device_info()
+
+    @property
+    def native_value(self) -> float | None:
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        energy = manager.coordinators.get("energy")
+        if energy is None:
+            return None
+        return energy.total_consumption_kw
+
+
+class EnergyNetConsumptionSensor(AggregationEntity, SensorEntity):
+    """Net consumption (positive=importing from grid, negative=exporting).
+
+    Entity: sensor.ura_energy_net_consumption
+    Device: URA: Energy Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:transmission-tower"
+    _attr_device_class = SensorDeviceClass.POWER
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = "kW"
+    _attr_suggested_display_precision = 2
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_energy_net_consumption"
+        self._attr_name = "Net Consumption"
+        self._attr_device_info = _energy_device_info()
+
+    @property
+    def native_value(self) -> float | None:
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        energy = manager.coordinators.get("energy")
+        if energy is None:
+            return None
+        val = energy.net_consumption_kw
+        if val is not None:
+            val = val / 1000.0  # Envoy reports watts, convert to kW
+        return val
+
+
+class EnergyEVChargeRateASensor(AggregationEntity, SensorEntity):
+    """EVSE Garage A charge rate in watts.
+
+    Entity: sensor.ura_energy_ev_charge_rate_garage_a
+    Device: URA: Energy Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:ev-station"
+    _attr_device_class = SensorDeviceClass.POWER
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = "W"
+    _attr_suggested_display_precision = 0
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_energy_ev_charge_rate_garage_a"
+        self._attr_name = "EV Charge Rate Garage A"
+        self._attr_device_info = _energy_device_info()
+
+    @property
+    def native_value(self) -> float | None:
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        energy = manager.coordinators.get("energy")
+        if energy is None:
+            return None
+        return energy.evse_garage_a_power
+
+
+class EnergyEVChargeRateBSensor(AggregationEntity, SensorEntity):
+    """EVSE Garage B charge rate in watts.
+
+    Entity: sensor.ura_energy_ev_charge_rate_garage_b
+    Device: URA: Energy Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:ev-station"
+    _attr_device_class = SensorDeviceClass.POWER
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = "W"
+    _attr_suggested_display_precision = 0
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_energy_ev_charge_rate_garage_b"
+        self._attr_name = "EV Charge Rate Garage B"
+        self._attr_device_info = _energy_device_info()
+
+    @property
+    def native_value(self) -> float | None:
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        energy = manager.coordinators.get("energy")
+        if energy is None:
+            return None
+        return energy.evse_garage_b_power
