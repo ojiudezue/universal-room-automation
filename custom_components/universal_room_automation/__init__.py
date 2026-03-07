@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation v3.8.5
+# Universal Room Automation v3.8.6
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -1059,13 +1059,33 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 if cm_config.get(CONF_HVAC_ENABLED, False):
                     from .domain_coordinators.hvac import HVACCoordinator
                     from .domain_coordinators.hvac_const import (
-                        DEFAULT_MAX_SLEEP_OFFSET,
                         CONF_HVAC_MAX_SLEEP_OFFSET,
+                        CONF_HVAC_COMPROMISE_MINUTES,
+                        CONF_HVAC_FAN_ACTIVATION_DELTA,
+                        CONF_HVAC_FAN_HYSTERESIS,
+                        CONF_HVAC_FAN_MIN_RUNTIME,
+                        DEFAULT_MAX_SLEEP_OFFSET,
+                        DEFAULT_COMPROMISE_MINUTES,
+                        DEFAULT_FAN_ACTIVATION_DELTA,
+                        DEFAULT_FAN_HYSTERESIS,
+                        DEFAULT_FAN_MIN_RUNTIME,
                     )
                     hvac = HVACCoordinator(
                         hass,
                         max_sleep_offset=float(cm_config.get(
                             CONF_HVAC_MAX_SLEEP_OFFSET, DEFAULT_MAX_SLEEP_OFFSET
+                        )),
+                        compromise_minutes=int(cm_config.get(
+                            CONF_HVAC_COMPROMISE_MINUTES, DEFAULT_COMPROMISE_MINUTES
+                        )),
+                        fan_activation_delta=float(cm_config.get(
+                            CONF_HVAC_FAN_ACTIVATION_DELTA, DEFAULT_FAN_ACTIVATION_DELTA
+                        )),
+                        fan_hysteresis=float(cm_config.get(
+                            CONF_HVAC_FAN_HYSTERESIS, DEFAULT_FAN_HYSTERESIS
+                        )),
+                        fan_min_runtime=int(cm_config.get(
+                            CONF_HVAC_FAN_MIN_RUNTIME, DEFAULT_FAN_MIN_RUNTIME
                         )),
                     )
                     coordinator_manager.register_coordinator(hvac)

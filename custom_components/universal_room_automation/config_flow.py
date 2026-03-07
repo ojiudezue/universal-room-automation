@@ -1,6 +1,6 @@
 """Config flow for Universal Room Automation v3.6.24."""
 #
-# Universal Room Automation v3.8.5
+# Universal Room Automation v3.8.6
 # Build: 2026-01-05
 # File: config_flow.py
 # v3.3.3: Added manage_zones to integration options menu
@@ -1517,6 +1517,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     "coordinator_safety",
                     "coordinator_security",
                     "coordinator_energy",
+                    "coordinator_hvac",
                     "coordinator_music_following",
                     "coordinator_notifications",
                 ],
@@ -2256,6 +2257,107 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
 
         return self.async_show_form(
             step_id="coordinator_energy",
+            data_schema=data_schema,
+        )
+
+    async def async_step_coordinator_hvac(self, user_input=None):
+        """Configure HVAC Coordinator settings.
+
+        v3.8.6: Sleep offset, override compromise, fan tuning, cover entities.
+        """
+        from .domain_coordinators.hvac_const import (
+            CONF_HVAC_MAX_SLEEP_OFFSET,
+            CONF_HVAC_COMPROMISE_MINUTES,
+            CONF_HVAC_AC_RESET_TIMEOUT,
+            CONF_HVAC_FAN_ACTIVATION_DELTA,
+            CONF_HVAC_FAN_HYSTERESIS,
+            CONF_HVAC_FAN_MIN_RUNTIME,
+            CONF_HVAC_COVER_ENTITIES,
+            DEFAULT_MAX_SLEEP_OFFSET,
+            DEFAULT_COMPROMISE_MINUTES,
+            DEFAULT_AC_RESET_TIMEOUT,
+            DEFAULT_FAN_ACTIVATION_DELTA,
+            DEFAULT_FAN_HYSTERESIS,
+            DEFAULT_FAN_MIN_RUNTIME,
+        )
+
+        if user_input is not None:
+            return self.async_create_entry(
+                title="",
+                data={**self._config_entry.options, **user_input},
+            )
+
+        data_schema = vol.Schema({
+            vol.Optional(
+                CONF_HVAC_MAX_SLEEP_OFFSET,
+                default=self._get_current(CONF_HVAC_MAX_SLEEP_OFFSET, DEFAULT_MAX_SLEEP_OFFSET),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0, max=5, step=0.5,
+                    unit_of_measurement="°F",
+                    mode=selector.NumberSelectorMode.SLIDER,
+                )
+            ),
+            vol.Optional(
+                CONF_HVAC_COMPROMISE_MINUTES,
+                default=self._get_current(CONF_HVAC_COMPROMISE_MINUTES, DEFAULT_COMPROMISE_MINUTES),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=5, max=120, step=5,
+                    unit_of_measurement="min",
+                    mode=selector.NumberSelectorMode.SLIDER,
+                )
+            ),
+            vol.Optional(
+                CONF_HVAC_AC_RESET_TIMEOUT,
+                default=self._get_current(CONF_HVAC_AC_RESET_TIMEOUT, DEFAULT_AC_RESET_TIMEOUT),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=5, max=30, step=1,
+                    unit_of_measurement="min",
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
+            vol.Optional(
+                CONF_HVAC_FAN_ACTIVATION_DELTA,
+                default=self._get_current(CONF_HVAC_FAN_ACTIVATION_DELTA, DEFAULT_FAN_ACTIVATION_DELTA),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0.5, max=5, step=0.5,
+                    unit_of_measurement="°F",
+                    mode=selector.NumberSelectorMode.SLIDER,
+                )
+            ),
+            vol.Optional(
+                CONF_HVAC_FAN_HYSTERESIS,
+                default=self._get_current(CONF_HVAC_FAN_HYSTERESIS, DEFAULT_FAN_HYSTERESIS),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0.5, max=5, step=0.5,
+                    unit_of_measurement="°F",
+                    mode=selector.NumberSelectorMode.SLIDER,
+                )
+            ),
+            vol.Optional(
+                CONF_HVAC_FAN_MIN_RUNTIME,
+                default=self._get_current(CONF_HVAC_FAN_MIN_RUNTIME, DEFAULT_FAN_MIN_RUNTIME),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=1, max=30, step=1,
+                    unit_of_measurement="min",
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
+            vol.Optional(
+                CONF_HVAC_COVER_ENTITIES,
+                default=self._get_current(CONF_HVAC_COVER_ENTITIES, []),
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="cover", multiple=True)
+            ),
+        })
+
+        return self.async_show_form(
+            step_id="coordinator_hvac",
             data_schema=data_schema,
         )
 

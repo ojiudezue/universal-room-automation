@@ -59,6 +59,10 @@ class HVACCoordinator(BaseCoordinator):
         self,
         hass: HomeAssistant,
         max_sleep_offset: float = 1.5,
+        compromise_minutes: int = 30,
+        fan_activation_delta: float = 2.0,
+        fan_hysteresis: float = 1.5,
+        fan_min_runtime: int = 10,
     ) -> None:
         """Initialize HVAC Coordinator."""
         super().__init__(
@@ -71,8 +75,14 @@ class HVACCoordinator(BaseCoordinator):
         self._preset_manager = PresetManager(hass, max_sleep_offset=max_sleep_offset)
         self._override_arrester = OverrideArrester(
             hass, self._zone_manager,
+            compromise_minutes=compromise_minutes,
         )
-        self._fan_controller = FanController(hass, self._zone_manager)
+        self._fan_controller = FanController(
+            hass, self._zone_manager,
+            activation_delta=fan_activation_delta,
+            deactivation_delta=fan_hysteresis,
+            min_runtime=fan_min_runtime,
+        )
         self._cover_controller = CoverController(hass, self._zone_manager)
         self._predictor = HVACPredictor(
             hass, self._zone_manager, self._preset_manager, self._override_arrester,
