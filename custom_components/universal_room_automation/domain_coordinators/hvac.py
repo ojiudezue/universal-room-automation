@@ -60,6 +60,7 @@ class HVACCoordinator(BaseCoordinator):
         hass: HomeAssistant,
         max_sleep_offset: float = 1.5,
         compromise_minutes: int = 30,
+        ac_reset_timeout: int = 10,
         fan_activation_delta: float = 2.0,
         fan_hysteresis: float = 1.5,
         fan_min_runtime: int = 10,
@@ -76,6 +77,7 @@ class HVACCoordinator(BaseCoordinator):
         self._override_arrester = OverrideArrester(
             hass, self._zone_manager,
             compromise_minutes=compromise_minutes,
+            ac_reset_timeout=ac_reset_timeout,
         )
         self._fan_controller = FanController(
             hass, self._zone_manager,
