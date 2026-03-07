@@ -21,13 +21,72 @@ class TOURateEngine:
     """Resolves TOU season, period, and rates from a rate table.
 
     The rate table defaults to PEC 2026 but can be overridden via config.
+    Supports loading from a JSON file at /config/universal_room_automation/tou_rates.json.
     """
 
-    def __init__(self, rate_table: dict | None = None) -> None:
+    def __init__(self, rate_table: dict | None = None, fixed_charges: dict | None = None) -> None:
         """Initialize with optional rate table override."""
         self._rates = rate_table or PEC_TOU_RATES
-        self._fixed = PEC_FIXED_CHARGES
+        self._fixed = fixed_charges or PEC_FIXED_CHARGES
         self._last_period: str | None = None
+        self._rate_file_loaded: bool = rate_table is not None
+
+    @classmethod
+    def from_json_file(cls, config_dir: str, filename: str) -> "TOURateEngine":
+        """Load TOU rates from a JSON file.
+
+        Expected format: see docs/plans/ENERGY_COORDINATOR_PLAN.md section 11.5
+        Falls back to PEC defaults if file not found or invalid.
+        """
+        import json
+        from pathlib import Path
+
+        filepath = Path(config_dir) / filename
+        if not filepath.exists():
+            _LOGGER.debug("TOU rate file not found at %s, using PEC defaults", filepath)
+            return cls()
+
+        try:
+            data = json.loads(filepath.read_text())
+        except (json.JSONDecodeError, OSError) as exc:
+            _LOGGER.warning("Failed to load TOU rate file %s: %s — using PEC defaults", filepath, exc)
+            return cls()
+
+        # Convert JSON format to internal rate table format
+        try:
+            rate_table = {}
+            for season_name, season_data in data.get("seasons", {}).items():
+                periods = {}
+                for period_name, period_data in season_data.get("periods", {}).items():
+                    hours = [tuple(h) for h in period_data.get("hours", [])]
+                    rate = period_data.get("rate", 0.0)
+                    periods[period_name] = {
+                        "hours": hours,
+                        "import_rate": rate,
+                        "export_rate": rate,
+                    }
+                rate_table[season_name] = {
+                    "months": season_data.get("months", []),
+                    "periods": periods,
+                }
+
+            fixed = data.get("fixed_charges", {})
+            fixed_charges = {
+                "service_availability": fixed.get("service_availability_monthly", 32.50),
+                "delivery_per_kwh": fixed.get("delivery_per_kwh", 0.022546),
+                "transmission_per_kwh": fixed.get("transmission_per_kwh", 0.019930),
+            }
+
+            _LOGGER.info(
+                "Loaded TOU rates from %s (utility: %s, effective: %s)",
+                filepath,
+                data.get("utility", "unknown"),
+                data.get("effective_date", "unknown"),
+            )
+            return cls(rate_table=rate_table, fixed_charges=fixed_charges)
+        except Exception:
+            _LOGGER.exception("Failed to parse TOU rate file %s — using PEC defaults", filepath)
+            return cls()
 
     def get_season(self, now: datetime | None = None) -> str:
         """Return the current TOU season: summer, shoulder, or winter."""
