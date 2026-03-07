@@ -29,6 +29,8 @@ from .hvac_const import (
     HVAC_METRICS,
     SIGNAL_HVAC_ENTITIES_UPDATE,
 )
+from .hvac_covers import CoverController
+from .hvac_fans import FanController
 from .hvac_override import OverrideArrester
 from .hvac_preset import PresetManager
 from .hvac_zones import ZoneManager
@@ -69,6 +71,8 @@ class HVACCoordinator(BaseCoordinator):
         self._override_arrester = OverrideArrester(
             hass, self._zone_manager,
         )
+        self._fan_controller = FanController(hass, self._zone_manager)
+        self._cover_controller = CoverController(hass, self._zone_manager)
 
         # Energy constraint state
         self._energy_constraint: EnergyConstraint | None = None
@@ -103,6 +107,16 @@ class HVACCoordinator(BaseCoordinator):
     def override_arrester(self) -> OverrideArrester:
         """Return override arrester for sensor access."""
         return self._override_arrester
+
+    @property
+    def fan_controller(self) -> FanController:
+        """Return fan controller for sensor access."""
+        return self._fan_controller
+
+    @property
+    def cover_controller(self) -> CoverController:
+        """Return cover controller for sensor access."""
+        return self._cover_controller
 
     @property
     def energy_constraint_mode(self) -> str:
@@ -173,6 +187,12 @@ class HVACCoordinator(BaseCoordinator):
         self._zone_manager.update_all_zones()
         self._zone_manager.update_room_conditions()
 
+        # Discover fans and covers
+        fan_rooms = self._fan_controller.discover_fans()
+        cover_count = self._cover_controller.discover_covers()
+        _LOGGER.info("HVAC: %d fan rooms, %d managed covers", fan_rooms, cover_count)
+        self._cover_controller.setup_listeners()
+
         # Start override arrester (event-driven)
         self._override_arrester.setup()
 
@@ -240,6 +260,10 @@ class HVACCoordinator(BaseCoordinator):
             self._energy_constraint_mode == "coast",
         )
         await self._override_arrester.check_ac_reset()
+
+        # Fan and cover control
+        await self._fan_controller.update(self._energy_constraint)
+        await self._cover_controller.update(self._energy_constraint)
 
         # Record anomaly observations
         self._record_anomaly_observations()
@@ -445,6 +469,12 @@ class HVACCoordinator(BaseCoordinator):
         if self._energy_constraint:
             attrs["fan_assist"] = self._energy_constraint.fan_assist
             attrs["occupied_only"] = self._energy_constraint.occupied_only
+        fan_status = self._fan_controller.get_fan_status()
+        attrs["active_fans"] = fan_status.get("active_fan_rooms", 0)
+        attrs["fan_assist_active"] = fan_status.get("fan_assist_active", False)
+        cover_status = self._cover_controller.get_cover_status()
+        attrs["covers_closed"] = cover_status.get("covers_closed", False)
+        attrs["managed_covers"] = cover_status.get("managed_covers", 0)
         return attrs
 
     async def async_teardown(self) -> None:
@@ -456,8 +486,9 @@ class HVACCoordinator(BaseCoordinator):
             self._decision_timer_unsub()
             self._decision_timer_unsub = None
 
-        # Tear down override arrester
+        # Tear down override arrester and cover controller
         self._override_arrester.teardown()
+        self._cover_controller.teardown()
 
         self._cancel_listeners()
 

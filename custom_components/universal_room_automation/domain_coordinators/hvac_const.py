@@ -51,6 +51,26 @@ AC_RESET_MAX_PER_DAY: Final = 2  # max resets per zone per day
 AC_RESET_STUCK_MINUTES: Final = 10  # minutes past setpoint before reset
 AC_RESET_OFF_DURATION_SECONDS: Final = 60  # seconds to hold off during reset
 
+# Fan speed scaling (above cooling setpoint)
+FAN_SPEED_LOW_PCT: Final = 33
+FAN_SPEED_MED_PCT: Final = 66
+FAN_SPEED_HIGH_PCT: Final = 100
+FAN_SPEED_LOW_DELTA: Final = 2.0  # +2-3F -> low
+FAN_SPEED_MED_DELTA: Final = 3.0  # +3-5F -> med
+FAN_SPEED_HIGH_DELTA: Final = 5.0  # >+5F -> high
+DEFAULT_FAN_VACANCY_HOLD: Final = 300  # 5 min hold after vacancy
+DEFAULT_HUMIDITY_FAN_ON: Final = 60  # % RH threshold to activate
+DEFAULT_HUMIDITY_FAN_OFF: Final = 50  # % RH threshold to deactivate (10% hysteresis)
+
+# Cover Controller
+COVER_SOLAR_MONTHS: Final = frozenset({4, 5, 6, 7, 8, 9, 10})
+COVER_SOLAR_HOUR_START: Final = 13
+COVER_SOLAR_HOUR_END: Final = 18
+COVER_CLOSE_TEMP: Final = 85.0  # F
+COVER_OPEN_TEMP: Final = 80.0  # F (5F hysteresis)
+COVER_MANUAL_OVERRIDE_HOURS: Final = 2
+COVER_COMMAND_WINDOW_SECONDS: Final = 120  # ignore state changes within this window (covers take 45-90s to move)
+
 # ============================================================================
 # Seasonal preset ranges (cool_setpoint, heat_setpoint)
 # ============================================================================
