@@ -118,7 +118,8 @@ class CostTracker:
 
         # net_power > 0 = importing from grid
         # net_power < 0 = exporting to grid
-        energy_kwh = abs(net_power) / 1000.0 * elapsed_hours
+        # Envoy reports net power in kW, so kW * hours = kWh directly
+        energy_kwh = abs(net_power) * elapsed_hours
 
         if net_power > 0:
             # Importing
