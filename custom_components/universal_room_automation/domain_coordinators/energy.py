@@ -29,18 +29,39 @@ from .energy_const import (
     CONF_ENERGY_BATTERY_POWER_ENTITY,
     CONF_ENERGY_BATTERY_SOC_ENTITY,
     CONF_ENERGY_CHARGE_FROM_GRID_ENTITY,
+    CONF_ENERGY_CONSTRAINT_COAST_OFFSET,
+    CONF_ENERGY_CONSTRAINT_PRECOOL_OFFSET,
+    CONF_ENERGY_CONSTRAINT_PREHEAT_OFFSET,
+    CONF_ENERGY_CONSTRAINT_SHED_OFFSET,
     CONF_ENERGY_GRID_ENABLED_ENTITY,
+    CONF_ENERGY_LOAD_SHEDDING_ENABLED,
+    CONF_ENERGY_LOAD_SHEDDING_MODE,
+    CONF_ENERGY_LOAD_SHEDDING_SUSTAINED_MINUTES,
+    CONF_ENERGY_LOAD_SHEDDING_THRESHOLD,
     CONF_ENERGY_NET_POWER_ENTITY,
+    CONF_ENERGY_PREHEAT_TEMP_THRESHOLD,
     CONF_ENERGY_RESERVE_SOC_ENTITY,
     CONF_ENERGY_SOLAR_ENTITY,
     CONF_ENERGY_SOLCAST_REMAINING_ENTITY,
     CONF_ENERGY_SOLCAST_TODAY_ENTITY,
     CONF_ENERGY_STORAGE_MODE_ENTITY,
     CONF_ENERGY_WEATHER_ENTITY,
-    DEFAULT_DECISION_INTERVAL_MINUTES,
+    DEFAULT_CONSTRAINT_COAST_OFFSET,
+    DEFAULT_CONSTRAINT_PRECOOL_OFFSET,
+    DEFAULT_CONSTRAINT_PREHEAT_OFFSET,
+    DEFAULT_CONSTRAINT_SHED_OFFSET,
     DEFAULT_CONSUMPTION_TODAY_ENTITY,
+    DEFAULT_DECISION_INTERVAL_MINUTES,
     DEFAULT_LIFETIME_CONSUMPTION_ENTITY,
+    DEFAULT_LOAD_SHEDDING_SUSTAINED_MINUTES,
+    DEFAULT_LOAD_SHEDDING_THRESHOLD_KW,
+    DEFAULT_PREHEAT_TEMP_THRESHOLD,
     DEFAULT_RESERVE_SOC,
+    LOAD_SHEDDING_AUTO_MIN_DAYS,
+    LOAD_SHEDDING_AUTO_PERCENTILE,
+    LOAD_SHEDDING_MODE_AUTO,
+    LOAD_SHEDDING_MODE_FIXED,
+    LOAD_SHEDDING_PRIORITY,
 )
 from .energy_tou import TOURateEngine
 
@@ -108,9 +129,43 @@ class EnergyCoordinator(BaseCoordinator):
         # E6: HVAC constraints + covers
         self._hvac_constraint_mode: str = "normal"
         self._hvac_constraint_offset: float = 0.0
+        self._hvac_constraint_reason: str = ""
         self._last_published_constraint: str = ""  # track to avoid duplicate signals
         self._energy_situation: str = "normal"
-        self._load_shedding_enabled: bool = False  # stubbed off
+        # E6 v3.9.0: Load shedding + configurable constraints
+        ec = entity_config or {}
+        self._load_shedding_enabled: bool = ec.get(
+            CONF_ENERGY_LOAD_SHEDDING_ENABLED, False
+        )
+        self._load_shedding_threshold_kw: float = ec.get(
+            CONF_ENERGY_LOAD_SHEDDING_THRESHOLD, DEFAULT_LOAD_SHEDDING_THRESHOLD_KW
+        )
+        self._load_shedding_sustained_minutes: int = ec.get(
+            CONF_ENERGY_LOAD_SHEDDING_SUSTAINED_MINUTES, DEFAULT_LOAD_SHEDDING_SUSTAINED_MINUTES
+        )
+        self._load_shedding_mode: str = ec.get(
+            CONF_ENERGY_LOAD_SHEDDING_MODE, LOAD_SHEDDING_MODE_FIXED
+        )
+        self._constraint_coast_offset: float = ec.get(
+            CONF_ENERGY_CONSTRAINT_COAST_OFFSET, DEFAULT_CONSTRAINT_COAST_OFFSET
+        )
+        self._constraint_precool_offset: float = ec.get(
+            CONF_ENERGY_CONSTRAINT_PRECOOL_OFFSET, DEFAULT_CONSTRAINT_PRECOOL_OFFSET
+        )
+        self._constraint_preheat_offset: float = ec.get(
+            CONF_ENERGY_CONSTRAINT_PREHEAT_OFFSET, DEFAULT_CONSTRAINT_PREHEAT_OFFSET
+        )
+        self._constraint_shed_offset: float = ec.get(
+            CONF_ENERGY_CONSTRAINT_SHED_OFFSET, DEFAULT_CONSTRAINT_SHED_OFFSET
+        )
+        self._preheat_temp_threshold: float = ec.get(
+            CONF_ENERGY_PREHEAT_TEMP_THRESHOLD, DEFAULT_PREHEAT_TEMP_THRESHOLD
+        )
+        # Load shedding state tracking
+        self._sustained_import_readings: list[float] = []
+        self._load_shedding_active_level: int = 0  # 0=none, 1-4=cascade level
+        self._learned_threshold_kw: float | None = None  # auto-learned from history
+        self._peak_import_history: list[float] = []  # for learning
 
         self._decision_timer_unsub = None
 
@@ -563,6 +618,10 @@ class EnergyCoordinator(BaseCoordinator):
             # E5: Sunrise refresh (re-predict with fresh Solcast after sunrise)
             self._predictor.refresh_at_sunrise()
 
+            # E6: Load shedding evaluation (before constraint so shed level is current)
+            if not self._observation_mode:
+                self._update_load_shedding(period)
+
             # E6: HVAC constraint determination
             self._update_hvac_constraint(period)
 
@@ -639,49 +698,102 @@ class EnergyCoordinator(BaseCoordinator):
         except Exception:
             _LOGGER.exception("Energy: failed to execute %s on %s", service, target)
 
-    def _update_hvac_constraint(self, tou_period: str) -> None:
-        """Determine HVAC constraint mode based on TOU and conditions.
+    def _get_forecast_temps(self) -> tuple[float | None, float | None]:
+        """Return (forecast_high, forecast_low) from predictor and weather entity."""
+        forecast_high = None
+        forecast_low = None
+        if self._predictor:
+            if hasattr(self._predictor, "_prediction_temperature"):
+                forecast_high = self._predictor._prediction_temperature
+            weather_eid = getattr(self._predictor, "_weather_entity", None)
+            if weather_eid:
+                ws = self.hass.states.get(weather_eid)
+                if ws and ws.attributes:
+                    fc = ws.attributes.get("forecast", [])
+                    if fc and isinstance(fc, list) and len(fc) > 0:
+                        tl = fc[0].get("templow")
+                        if tl is not None:
+                            try:
+                                forecast_low = float(tl)
+                            except (ValueError, TypeError):
+                                pass
+        return forecast_high, forecast_low
 
-        v3.8.0-E6: Now fires SIGNAL_ENERGY_CONSTRAINT for HVAC coordinator.
+    def _update_hvac_constraint(self, tou_period: str) -> None:
+        """Determine HVAC constraint mode based on TOU, SOC, weather, and import.
+
+        v3.9.0-E6: Full implementation with configurable offsets, pre_heat, shed,
+        max_runtime_minutes, and auto-learned load shedding threshold.
         """
         soc = self._battery.battery_soc or 0
         solar_class = self._battery.classify_solar_day()
         reason = ""
+        forecast_high, forecast_low = self._get_forecast_temps()
 
-        if tou_period == "peak":
+        # Determine constraint mode (priority order: shed > coast > pre_cool > pre_heat > normal)
+        if (
+            tou_period == "peak"
+            and soc < 20
+            and self._load_shedding_enabled
+            and self._load_shedding_active_level > 0
+        ):
+            self._hvac_constraint_mode = "shed"
+            self._hvac_constraint_offset = self._constraint_shed_offset
+            reason = f"peak TOU, low SOC ({soc}%), active load shedding"
+        elif tou_period == "peak":
             self._hvac_constraint_mode = "coast"
-            self._hvac_constraint_offset = 3.0
+            self._hvac_constraint_offset = self._constraint_coast_offset
             reason = "peak TOU period"
         elif tou_period == "mid_peak" and solar_class in ("poor", "very_poor"):
             self._hvac_constraint_mode = "coast"
-            self._hvac_constraint_offset = 2.0
+            self._hvac_constraint_offset = self._constraint_coast_offset - 1.0
             reason = "mid-peak poor solar"
-        elif tou_period == "off_peak" and soc < 50 and solar_class in ("excellent", "good"):
+        elif (
+            tou_period == "off_peak"
+            and soc < 50
+            and solar_class in ("excellent", "good")
+        ):
             self._hvac_constraint_mode = "pre_cool"
-            self._hvac_constraint_offset = -2.0
+            self._hvac_constraint_offset = self._constraint_precool_offset
             reason = "off-peak pre-cool (low SOC, good solar)"
+        elif (
+            tou_period == "off_peak"
+            and forecast_low is not None
+            and forecast_low < self._preheat_temp_threshold
+            and soc > 50
+        ):
+            self._hvac_constraint_mode = "pre_heat"
+            self._hvac_constraint_offset = self._constraint_preheat_offset
+            reason = f"off-peak pre-heat (forecast low {forecast_low:.0f}F < {self._preheat_temp_threshold:.0f}F)"
         else:
             self._hvac_constraint_mode = "normal"
             self._hvac_constraint_offset = 0.0
             reason = "normal conditions"
 
-        # v3.8.0-E6: Fire dispatcher signal on constraint change
-        constraint_key = f"{self._hvac_constraint_mode}:{self._hvac_constraint_offset}"
+        self._hvac_constraint_reason = reason
+
+        # Compute max_runtime_minutes from time remaining in current period
+        max_runtime = None
+        if self._hvac_constraint_mode in ("coast", "shed"):
+            transition = self._tou.get_next_transition()
+            hours_until = transition.get("hours_until", 0)
+            max_runtime = int(hours_until * 60)
+
+        # Fire dispatcher signal on constraint change
+        constraint_key = (
+            f"{self._hvac_constraint_mode}:{self._hvac_constraint_offset}:{max_runtime}"
+        )
         if constraint_key != self._last_published_constraint:
             self._last_published_constraint = constraint_key
             from .signals import EnergyConstraint, SIGNAL_ENERGY_CONSTRAINT
             from homeassistant.helpers.dispatcher import async_dispatcher_send
 
-            # Get forecast high temp if available
-            forecast_high = None
-            if self._predictor and hasattr(self._predictor, "_prediction_temperature"):
-                forecast_high = self._predictor._prediction_temperature
-
             constraint = EnergyConstraint(
                 mode=self._hvac_constraint_mode,
                 setpoint_offset=self._hvac_constraint_offset,
                 occupied_only=True,
-                fan_assist=(self._hvac_constraint_mode == "coast"),
+                max_runtime_minutes=max_runtime,
+                fan_assist=(self._hvac_constraint_mode in ("coast", "shed")),
                 reason=reason,
                 solar_class=solar_class,
                 forecast_high_temp=forecast_high,
@@ -691,9 +803,11 @@ class EnergyCoordinator(BaseCoordinator):
                 self.hass, SIGNAL_ENERGY_CONSTRAINT, constraint
             )
             _LOGGER.info(
-                "Energy: Published HVAC constraint mode=%s offset=%.1f reason=%s",
+                "Energy: Published HVAC constraint mode=%s offset=%.1f "
+                "max_runtime=%s reason=%s",
                 self._hvac_constraint_mode,
                 self._hvac_constraint_offset,
+                max_runtime,
                 reason,
             )
 
@@ -707,6 +821,205 @@ class EnergyCoordinator(BaseCoordinator):
             self._energy_situation = "optimizing"
         else:
             self._energy_situation = "normal"
+
+    def _update_load_shedding(self, tou_period: str) -> None:
+        """Evaluate and cascade load shedding based on sustained grid import.
+
+        v3.9.0-E6: Monitors grid import during peak/mid-peak. When sustained
+        import exceeds threshold for configured duration, progressively sheds
+        loads in priority order: pool -> EV -> smart_plugs -> hvac (coast).
+
+        Threshold auto-learns from historical 90th percentile peak import
+        after 30 days of data.
+        """
+        if not self._load_shedding_enabled:
+            self._load_shedding_active_level = 0
+            self._sustained_import_readings.clear()
+            return
+
+        # Only shed during peak and mid-peak
+        if tou_period not in ("peak", "mid_peak"):
+            if self._load_shedding_active_level > 0:
+                _LOGGER.info("Energy: Load shedding released (off-peak)")
+            self._load_shedding_active_level = 0
+            self._sustained_import_readings.clear()
+            return
+
+        # Read current grid import
+        net_power = self._battery.net_power
+        if net_power is None:
+            return
+
+        # net_power is in watts, threshold is in kW — convert
+        import_kw = max(net_power / 1000.0, 0.0)
+
+        # Record for history (auto-learning)
+        if tou_period == "peak" and import_kw > 0:
+            self._peak_import_history.append(import_kw)
+            # Keep 30 days worth (at 5-min intervals during 4hr peak = ~48/day * 30)
+            if len(self._peak_import_history) > 1500:
+                self._peak_import_history = self._peak_import_history[-1500:]
+
+        # Determine effective threshold
+        threshold = self._get_effective_shedding_threshold()
+
+        # Track sustained import
+        self._sustained_import_readings.append(import_kw)
+        readings_needed = max(
+            1,
+            self._load_shedding_sustained_minutes // self._decision_interval,
+        )
+        # Keep only the window we need
+        if len(self._sustained_import_readings) > readings_needed:
+            self._sustained_import_readings = self._sustained_import_readings[
+                -readings_needed:
+            ]
+
+        # Check if sustained: all readings in window exceed threshold
+        if len(self._sustained_import_readings) >= readings_needed:
+            sustained = all(
+                r >= threshold for r in self._sustained_import_readings
+            )
+        else:
+            sustained = False
+
+        if sustained and self._load_shedding_active_level < len(LOAD_SHEDDING_PRIORITY):
+            # Escalate one level
+            self._load_shedding_active_level += 1
+            shed_target = LOAD_SHEDDING_PRIORITY[self._load_shedding_active_level - 1]
+            _LOGGER.warning(
+                "Energy: Load shedding escalated to level %d — shedding %s "
+                "(sustained import %.1f kW > threshold %.1f kW for %d min)",
+                self._load_shedding_active_level,
+                shed_target,
+                import_kw,
+                threshold,
+                self._load_shedding_sustained_minutes,
+            )
+            # Execute the actual shed action
+            self._execute_shed_action(shed_target, activate=True)
+            # Clear readings to require another sustained window for next escalation
+            self._sustained_import_readings.clear()
+        elif (
+            not sustained
+            and self._load_shedding_active_level > 0
+            and len(self._sustained_import_readings) >= readings_needed
+        ):
+            # Full window of below-threshold readings — de-escalate one level
+            released = LOAD_SHEDDING_PRIORITY[self._load_shedding_active_level - 1]
+            self._execute_shed_action(released, activate=False)
+            self._load_shedding_active_level -= 1
+            if self._load_shedding_active_level == 0:
+                _LOGGER.info("Energy: Load shedding fully released")
+            else:
+                _LOGGER.info(
+                    "Energy: Load shedding de-escalated to level %d (released %s)",
+                    self._load_shedding_active_level, released,
+                )
+
+    def _execute_shed_action(self, target: str, activate: bool) -> None:
+        """Execute or release a load shedding action for the given target.
+
+        Uses the subsystem controllers' action pattern — generates service call
+        specs and executes them through _execute_service_action.
+        """
+        actions: list[dict[str, Any]] = []
+
+        if target == "pool":
+            from .energy_pool import POOL_REDUCED_SPEED, POOL_STATE_REDUCED, POOL_STATE_NORMAL
+            if activate:
+                current = self._pool.current_speed
+                if current is not None and current > POOL_REDUCED_SPEED:
+                    if self._pool._original_speed is None:
+                        self._pool._original_speed = current
+                    actions.append({
+                        "service": "number.set_value",
+                        "target": self._pool._speed_entity,
+                        "data": {"value": POOL_REDUCED_SPEED},
+                    })
+                    self._pool._state = POOL_STATE_REDUCED
+            else:
+                if self._pool._original_speed is not None:
+                    actions.append({
+                        "service": "number.set_value",
+                        "target": self._pool._speed_entity,
+                        "data": {"value": self._pool._original_speed},
+                    })
+                    self._pool._original_speed = None
+                    self._pool._state = POOL_STATE_NORMAL
+        elif target == "ev":
+            for evse_id, config in self._ev._evse.items():
+                switch_entity = config.get("switch", "")
+                if not switch_entity:
+                    continue
+                if activate:
+                    state = self._ev._get_evse_state(evse_id)
+                    if state["is_on"] and evse_id not in self._ev._paused_by_us:
+                        actions.append({
+                            "service": "switch.turn_off",
+                            "target": switch_entity,
+                            "data": {},
+                        })
+                        self._ev._paused_by_us.add(evse_id)
+                else:
+                    if evse_id in self._ev._paused_by_us:
+                        actions.append({
+                            "service": "switch.turn_on",
+                            "target": switch_entity,
+                            "data": {},
+                        })
+                        self._ev._paused_by_us.discard(evse_id)
+        elif target == "smart_plugs":
+            for entity_id in self._smart_plugs._plugs:
+                state = self.hass.states.get(entity_id)
+                if state is None:
+                    continue
+                if activate:
+                    if state.state == "on" and entity_id not in self._smart_plugs._paused_by_us:
+                        actions.append({
+                            "service": "switch.turn_off",
+                            "target": entity_id,
+                            "data": {},
+                        })
+                        self._smart_plugs._paused_by_us.add(entity_id)
+                else:
+                    if entity_id in self._smart_plugs._paused_by_us:
+                        actions.append({
+                            "service": "switch.turn_on",
+                            "target": entity_id,
+                            "data": {},
+                        })
+                        self._smart_plugs._paused_by_us.discard(entity_id)
+        elif target == "hvac":
+            # HVAC shedding is handled via the constraint signal (shed mode),
+            # not by direct service calls. _update_hvac_constraint publishes
+            # the shed constraint when _load_shedding_active_level > 0.
+            pass
+
+        for action_spec in actions:
+            self.hass.async_create_task(self._execute_service_action(action_spec))
+        if actions:
+            _LOGGER.info(
+                "Energy: Load shed %s — %s (%d actions)",
+                "activated" if activate else "released", target, len(actions),
+            )
+
+    def _get_effective_shedding_threshold(self) -> float:
+        """Return the effective load shedding threshold.
+
+        In 'auto' mode, uses the 90th percentile of historical peak import
+        after 30 days. Falls back to configured fixed threshold.
+        """
+        if (
+            self._load_shedding_mode == LOAD_SHEDDING_MODE_AUTO
+            and len(self._peak_import_history) >= LOAD_SHEDDING_AUTO_MIN_DAYS * 10
+        ):
+            # Compute percentile from history
+            sorted_readings = sorted(self._peak_import_history)
+            idx = int(len(sorted_readings) * LOAD_SHEDDING_AUTO_PERCENTILE / 100)
+            self._learned_threshold_kw = sorted_readings[min(idx, len(sorted_readings) - 1)]
+            return self._learned_threshold_kw
+        return self._load_shedding_threshold_kw
 
     async def _send_nm_alert(
         self,
@@ -870,10 +1183,26 @@ class EnergyCoordinator(BaseCoordinator):
 
     @property
     def hvac_constraint(self) -> dict[str, Any]:
-        """Current HVAC constraint for future HVAC coordinator."""
+        """Current HVAC constraint — full detail for sensors."""
+        transition = self._tou.get_next_transition()
+        max_runtime = None
+        if self._hvac_constraint_mode in ("coast", "shed"):
+            max_runtime = int(transition.get("hours_until", 0) * 60)
+
+        forecast_high, forecast_low = self._get_forecast_temps()
+        soc = self._battery.battery_soc or 0
+        solar_class = self._battery.classify_solar_day()
+
         return {
             "mode": self._hvac_constraint_mode,
             "offset": self._hvac_constraint_offset,
+            "max_runtime_minutes": max_runtime,
+            "reason": self._hvac_constraint_reason,
+            "solar_class": solar_class,
+            "soc": soc if soc > 0 else None,
+            "forecast_high_temp": forecast_high,
+            "forecast_low_temp": forecast_low,
+            "fan_assist": self._hvac_constraint_mode in ("coast", "shed"),
         }
 
     @property
@@ -948,6 +1277,31 @@ class EnergyCoordinator(BaseCoordinator):
             or bool(self._ev._paused_by_us)
             or bool(self._smart_plugs._paused_by_us)
         )
+
+    @property
+    def load_shedding_status(self) -> dict[str, Any]:
+        """Load shedding status for sensors."""
+        active_loads: list[str] = []
+        if self._load_shedding_active_level > 0:
+            active_loads = LOAD_SHEDDING_PRIORITY[:self._load_shedding_active_level]
+        return {
+            "enabled": self._load_shedding_enabled,
+            "active": self._load_shedding_active_level > 0,
+            "level": self._load_shedding_active_level,
+            "max_levels": len(LOAD_SHEDDING_PRIORITY),
+            "shed_loads": active_loads,
+            "threshold_kw": self._get_effective_shedding_threshold(),
+            "configured_threshold_kw": self._load_shedding_threshold_kw,
+            "learned_threshold_kw": self._learned_threshold_kw,
+            "mode": self._load_shedding_mode,
+            "sustained_minutes": self._load_shedding_sustained_minutes,
+            "sustained_readings": len(self._sustained_import_readings),
+        }
+
+    @property
+    def battery_decision_status(self) -> dict[str, Any]:
+        """Last battery decision for sensors."""
+        return self._last_battery_decision
 
     def get_energy_summary(self) -> dict[str, Any]:
         """Return comprehensive energy state for diagnostics."""

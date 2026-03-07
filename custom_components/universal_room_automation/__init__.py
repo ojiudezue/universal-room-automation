@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation v3.8.9
+# Universal Room Automation v3.9.0
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -985,9 +985,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         SOLAR_CLASS_MODE_AUTOMATIC,
                     )
                     energy_entity_config = {}
-                    # Pull any entity overrides from cm_config
+                    # Pull any energy config from cm_config (entities + E6 options)
                     for key in cm_config:
-                        if key.startswith("energy_") and key.endswith("_entity"):
+                        if key.startswith("energy_"):
                             energy_entity_config[key] = cm_config[key]
 
                     # Weather entity: use EC config, fall back to house entry
@@ -1065,12 +1065,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         CONF_HVAC_FAN_ACTIVATION_DELTA,
                         CONF_HVAC_FAN_HYSTERESIS,
                         CONF_HVAC_FAN_MIN_RUNTIME,
+                        CONF_HVAC_ARRESTER_ENABLED,
                         DEFAULT_MAX_SLEEP_OFFSET,
                         DEFAULT_COMPROMISE_MINUTES,
                         DEFAULT_AC_RESET_TIMEOUT,
                         DEFAULT_FAN_ACTIVATION_DELTA,
                         DEFAULT_FAN_HYSTERESIS,
                         DEFAULT_FAN_MIN_RUNTIME,
+                        DEFAULT_ARRESTER_ENABLED,
                     )
                     hvac = HVACCoordinator(
                         hass,
@@ -1091,6 +1093,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         )),
                         fan_min_runtime=int(cm_config.get(
                             CONF_HVAC_FAN_MIN_RUNTIME, DEFAULT_FAN_MIN_RUNTIME
+                        )),
+                        arrester_enabled=bool(cm_config.get(
+                            CONF_HVAC_ARRESTER_ENABLED, DEFAULT_ARRESTER_ENABLED
                         )),
                     )
                     coordinator_manager.register_coordinator(hvac)

@@ -27,6 +27,7 @@ CONF_HVAC_AC_RESET_TIMEOUT: Final = "hvac_ac_reset_timeout"
 CONF_HVAC_FAN_ACTIVATION_DELTA: Final = "hvac_fan_activation_delta"
 CONF_HVAC_FAN_HYSTERESIS: Final = "hvac_fan_hysteresis"
 CONF_HVAC_FAN_MIN_RUNTIME: Final = "hvac_fan_min_runtime"
+CONF_HVAC_ARRESTER_ENABLED: Final = "hvac_arrester_enabled"
 
 # ============================================================================
 # Defaults
@@ -38,6 +39,7 @@ DEFAULT_AC_RESET_TIMEOUT: Final = 10  # minutes
 DEFAULT_FAN_ACTIVATION_DELTA: Final = 2.0  # F
 DEFAULT_FAN_HYSTERESIS: Final = 1.5  # F
 DEFAULT_FAN_MIN_RUNTIME: Final = 10  # minutes
+DEFAULT_ARRESTER_ENABLED: Final = True
 
 # Override Arrester thresholds
 OVERRIDE_SEVERE_DELTA: Final = 3.0  # F — severe override threshold

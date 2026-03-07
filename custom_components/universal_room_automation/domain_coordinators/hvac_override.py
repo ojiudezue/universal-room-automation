@@ -53,12 +53,14 @@ class OverrideArrester:
         zone_manager: ZoneManager,
         compromise_minutes: int = DEFAULT_COMPROMISE_MINUTES,
         ac_reset_timeout: int = AC_RESET_STUCK_MINUTES,
+        enabled: bool = True,
     ) -> None:
         """Initialize override arrester."""
         self.hass = hass
         self._zone_manager = zone_manager
         self._compromise_minutes = compromise_minutes
         self._ac_reset_timeout = ac_reset_timeout
+        self._enabled = enabled
 
         # Listener unsubscribes
         self._state_unsubs: list[CALLBACK_TYPE] = []
@@ -129,6 +131,27 @@ class OverrideArrester:
         """Re-enable override detection for an entity."""
         self._suppressed_entities.discard(entity_id)
 
+    @property
+    def enabled(self) -> bool:
+        """Return whether the arrester is actively reverting overrides."""
+        return self._enabled
+
+    @enabled.setter
+    def enabled(self, value: bool) -> None:
+        """Set arrester enabled state. Cancels in-flight timers on disable."""
+        self._enabled = value
+        if not value:
+            # Cancel all pending timers to prevent stale reverts/compromises
+            for cancel in self._grace_timers.values():
+                cancel()
+            self._grace_timers.clear()
+            for cancel in self._compromise_timers.values():
+                cancel()
+            self._compromise_timers.clear()
+            self._override_active.clear()
+            self._compromise_active.clear()
+        _LOGGER.info("Override Arrester %s", "enabled" if value else "disabled (passive mode)")
+
     @callback
     def _handle_climate_change(self, event: Event) -> None:
         """Handle climate entity state change — detect overrides."""
@@ -191,6 +214,15 @@ class OverrideArrester:
             return
 
         if expected_cool is None and expected_heat is None:
+            return
+
+        # Passive mode: track override but don't revert
+        if not self._enabled:
+            zone.override_count_today += 1
+            _LOGGER.info(
+                "Override detected on %s (passive mode, no revert): delta from old setpoints",
+                zone.zone_name,
+            )
             return
 
         # Widen tolerance during energy coast
@@ -636,8 +668,48 @@ class OverrideArrester:
         active_compromises = sum(1 for v in self._compromise_active.values() if v)
 
         return {
+            "enabled": self._enabled,
             "overrides_today": total_overrides,
             "ac_resets_today": total_resets,
             "active_overrides": active_overrides,
             "active_compromises": active_compromises,
+        }
+
+    def get_arrester_state(self) -> str:
+        """Return current arrester state for diagnostic sensor."""
+        if not self._enabled:
+            return "disabled"
+        if any(self._compromise_active.values()):
+            return "compromise"
+        if self._grace_timers:
+            return "grace_period"
+        if any(self._override_active.values()):
+            return "active"
+        return "idle"
+
+    def get_arrester_detail(self) -> dict[str, Any]:
+        """Return per-zone arrester detail for diagnostic sensor."""
+        zones_detail = {}
+        for zone_id, zone in self._zone_manager.zones.items():
+            detail: dict[str, Any] = {
+                "overrides_today": zone.override_count_today,
+                "ac_resets_today": zone.ac_reset_count_today,
+            }
+            if self._override_active.get(zone_id, False):
+                detail["state"] = "override_active"
+            if self._compromise_active.get(zone_id, False):
+                detail["state"] = "compromise"
+            if zone_id in self._grace_timers:
+                detail["state"] = "grace_period"
+            if "state" not in detail:
+                detail["state"] = "idle"
+            if zone.last_override_direction:
+                detail["last_direction"] = zone.last_override_direction
+            zones_detail[zone.zone_name] = detail
+        return {
+            "state": self.get_arrester_state(),
+            "enabled": self._enabled,
+            "zones": zones_detail,
+            "energy_coast": self._energy_coast,
+            "energy_offset": self._energy_offset,
         }

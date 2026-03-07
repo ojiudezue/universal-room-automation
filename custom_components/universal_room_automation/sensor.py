@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.8.9
+# Universal Room Automation v3.9.0
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -221,6 +221,9 @@ async def async_setup_entry(
             # v3.7.0-E6: Situation + Constraint sensors
             EnergySituationSensor(hass, entry),
             EnergyHVACConstraintSensor(hass, entry),
+            # v3.9.0-E6: Battery decision + Load shedding sensors
+            EnergyBatteryDecisionSensor(hass, entry),
+            EnergyLoadSheddingSensor(hass, entry),
             # v3.7.7: Consumption + EV monitoring sensors
             EnergyTotalConsumptionSensor(hass, entry),
             EnergyNetConsumptionSensor(hass, entry),
@@ -233,6 +236,8 @@ async def async_setup_entry(
             HVACOverrideFrequencySensor(hass, entry),
             HVACPreCoolLikelihoodSensor(hass, entry),
             HVACComfortRiskSensor(hass, entry),
+            # v3.9.0: HVAC transparency sensors
+            HVACArresterStateSensor(hass, entry),
         ]
         # v3.8.0-H1: Add per-zone HVAC sensors dynamically
         manager = hass.data.get(DOMAIN, {}).get("coordinator_manager")
@@ -242,6 +247,10 @@ async def async_setup_entry(
                 for zone_id in hvac_coord.zone_manager.zones:
                     coordinator_sensors.append(
                         HVACZoneStatusSensor(hass, entry, zone_id)
+                    )
+                    # v3.9.0: Per-zone preset diagnostic sensor
+                    coordinator_sensors.append(
+                        HVACZonePresetSensor(hass, entry, zone_id)
                     )
         async_add_entities(coordinator_sensors)
         return
@@ -6386,6 +6395,227 @@ class HVACComfortRiskSensor(AggregationEntity, SensorEntity):
         if hvac is None:
             return {}
         return hvac.predictor.get_outcome_attrs()
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.hvac_const import SIGNAL_HVAC_ENTITIES_UPDATE
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_HVAC_ENTITIES_UPDATE, self._handle_update
+            )
+        )
+
+    @callback
+    def _handle_update(self) -> None:
+        self.async_write_ha_state()
+
+
+# ============================================================================
+# v3.9.0-E6: ENERGY TRANSPARENCY SENSORS
+# ============================================================================
+
+
+class EnergyBatteryDecisionSensor(AggregationEntity, SensorEntity):
+    """Last battery strategy decision and reason.
+
+    Entity: sensor.ura_energy_battery_decision
+    Device: URA: Energy Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:battery-sync"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_energy_battery_decision"
+        self._attr_name = "Battery Decision"
+        self._attr_device_info = _energy_device_info()
+
+    @property
+    def native_value(self) -> str:
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return "not_initialized"
+        energy = manager.coordinators.get("energy")
+        if energy is None:
+            return "disabled"
+        decision = energy.battery_decision_status
+        return decision.get("mode", "unknown") if decision else "unknown"
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return {}
+        energy = manager.coordinators.get("energy")
+        if energy is None:
+            return {}
+        return energy.battery_decision_status or {}
+
+
+class EnergyLoadSheddingSensor(AggregationEntity, SensorEntity):
+    """Load shedding status — active level and shed loads.
+
+    Entity: sensor.ura_energy_load_shedding
+    Device: URA: Energy Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:power-plug-off"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_energy_load_shedding"
+        self._attr_name = "Load Shedding"
+        self._attr_device_info = _energy_device_info()
+
+    @property
+    def native_value(self) -> str:
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return "not_initialized"
+        energy = manager.coordinators.get("energy")
+        if energy is None:
+            return "disabled"
+        status = energy.load_shedding_status
+        if not status.get("enabled"):
+            return "disabled"
+        if status.get("active"):
+            return f"level_{status['level']}"
+        return "idle"
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return {}
+        energy = manager.coordinators.get("energy")
+        if energy is None:
+            return {}
+        return energy.load_shedding_status
+
+
+# ============================================================================
+# v3.9.0: HVAC TRANSPARENCY SENSORS
+# ============================================================================
+
+
+class HVACArresterStateSensor(AggregationEntity, SensorEntity):
+    """Override arrester state — idle, grace_period, compromise, reverting, disabled.
+
+    Entity: sensor.ura_hvac_arrester_state
+    Device: URA: HVAC Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:shield-alert"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_hvac_arrester_state"
+        self._attr_name = "Override Arrester State"
+        self._attr_device_info = _hvac_device_info()
+
+    @property
+    def native_value(self) -> str:
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return "not_initialized"
+        hvac = manager.coordinators.get("hvac")
+        if hvac is None:
+            return "disabled"
+        return hvac.override_arrester.get_arrester_state()
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return {}
+        hvac = manager.coordinators.get("hvac")
+        if hvac is None:
+            return {}
+        return hvac.override_arrester.get_arrester_detail()
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.hvac_const import SIGNAL_HVAC_ENTITIES_UPDATE
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_HVAC_ENTITIES_UPDATE, self._handle_update
+            )
+        )
+
+    @callback
+    def _handle_update(self) -> None:
+        self.async_write_ha_state()
+
+
+class HVACZonePresetSensor(AggregationEntity, SensorEntity):
+    """Per-zone preset diagnostic — shows current target preset and setpoints.
+
+    Entity: sensor.ura_hvac_zone_preset_{zone_id}
+    Device: URA: HVAC Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:thermostat-box"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry, zone_id: str) -> None:
+        super().__init__(hass, entry)
+        self._zone_id = zone_id
+        self._attr_unique_id = f"{DOMAIN}_hvac_zone_preset_{zone_id}"
+        self._attr_name = f"HVAC Zone Preset {zone_id.replace('_', ' ').title()}"
+        self._attr_device_info = _hvac_device_info()
+
+    @property
+    def native_value(self) -> str:
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return "not_initialized"
+        hvac = manager.coordinators.get("hvac")
+        if hvac is None:
+            return "disabled"
+        zone = hvac.zone_manager.zones.get(self._zone_id)
+        if zone is None:
+            return "unknown"
+        return zone.preset_mode or "none"
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return {}
+        hvac = manager.coordinators.get("hvac")
+        if hvac is None:
+            return {}
+        zone = hvac.zone_manager.zones.get(self._zone_id)
+        if zone is None:
+            return {}
+        attrs = {
+            "zone_name": zone.zone_name,
+            "climate_entity": zone.climate_entity,
+            "preset_mode": zone.preset_mode,
+            "target_temp_high": zone.target_temp_high,
+            "target_temp_low": zone.target_temp_low,
+            "current_temperature": zone.current_temperature,
+            "hvac_mode": zone.hvac_mode,
+            "hvac_action": zone.hvac_action,
+            "overrides_today": zone.override_count_today,
+            "ac_resets_today": zone.ac_reset_count_today,
+        }
+        if zone.last_override_direction:
+            attrs["last_override_direction"] = zone.last_override_direction
+        # Add seasonal preset target from PresetManager
+        season = hvac.preset_manager.current_season
+        if season:
+            attrs["season"] = season
+        return attrs
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()

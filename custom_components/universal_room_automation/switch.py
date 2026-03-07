@@ -1,6 +1,6 @@
 """Switch platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.8.9
+# Universal Room Automation v3.9.0
 # Build: 2026-01-02
 # File: switch.py
 #
@@ -129,6 +129,9 @@ async def async_setup_entry(
             SecurityDelegateLightsSwitch(hass),
             # v3.7.6: Energy Observation Mode toggle
             EnergyObservationModeSwitch(hass, entry),
+            # v3.9.0: HVAC transparency switches
+            HVACOverrideArresterSwitch(hass, entry),
+            HVACObservationModeSwitch(hass, entry),
         ])
         return
 
@@ -347,6 +350,153 @@ class EnergyObservationModeSwitch(SwitchEntity):
     def available(self) -> bool:
         """Only available when energy coordinator is active."""
         return self._get_energy() is not None
+
+
+class HVACOverrideArresterSwitch(SwitchEntity, RestoreEntity):
+    """Toggle HVAC Override Arrester.
+
+    When ON (default): Arrester detects manual overrides and reverts/compromises.
+    When OFF: Passive mode — overrides are tracked for diagnostics but not reverted.
+
+    Entity: switch.ura_hvac_override_arrester
+    Device: URA: HVAC Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:shield-alert"
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        self.hass = hass
+        self._entry = entry
+        self._attr_unique_id = f"{DOMAIN}_hvac_override_arrester"
+        self._attr_name = "Override Arrester"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "hvac_coordinator")},
+            name="URA: HVAC Coordinator",
+            manufacturer="Universal Room Automation",
+            model="HVAC Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+
+    def _get_hvac(self):
+        """Get the HVAC coordinator instance."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        return manager.coordinators.get("hvac")
+
+    @property
+    def is_on(self) -> bool:
+        """Return True if override arrester is enabled."""
+        hvac = self._get_hvac()
+        if hvac is None:
+            return True  # default on
+        return hvac.override_arrester.enabled
+
+    async def async_turn_on(self, **kwargs) -> None:
+        """Enable override arrester."""
+        hvac = self._get_hvac()
+        if hvac is not None:
+            hvac.override_arrester.enabled = True
+            self.async_write_ha_state()
+
+    async def async_turn_off(self, **kwargs) -> None:
+        """Disable override arrester (passive mode)."""
+        hvac = self._get_hvac()
+        if hvac is not None:
+            hvac.override_arrester.enabled = False
+            self.async_write_ha_state()
+
+    async def async_added_to_hass(self) -> None:
+        """Restore previous state on startup."""
+        await super().async_added_to_hass()
+        last_state = await self.async_get_last_state()
+        if last_state is not None:
+            hvac = self._get_hvac()
+            if hvac is not None:
+                hvac.override_arrester.enabled = last_state.state == "on"
+
+    @property
+    def available(self) -> bool:
+        """Only available when HVAC coordinator is active."""
+        return self._get_hvac() is not None
+
+
+class HVACObservationModeSwitch(SwitchEntity, RestoreEntity):
+    """Toggle HVAC Coordinator observation mode.
+
+    When ON: Sensors and diagnostics compute normally, but no HVAC actions
+    are executed (no preset changes, no fan/cover control, no AC resets).
+    When OFF (default): Normal operation.
+
+    Entity: switch.ura_hvac_observation_mode
+    Device: URA: HVAC Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:eye-outline"
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        self.hass = hass
+        self._entry = entry
+        self._attr_unique_id = f"{DOMAIN}_hvac_observation_mode"
+        self._attr_name = "HVAC Observation Mode"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "hvac_coordinator")},
+            name="URA: HVAC Coordinator",
+            manufacturer="Universal Room Automation",
+            model="HVAC Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+
+    def _get_hvac(self):
+        """Get the HVAC coordinator instance."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        return manager.coordinators.get("hvac")
+
+    @property
+    def is_on(self) -> bool:
+        """Return True if HVAC observation mode is active."""
+        hvac = self._get_hvac()
+        if hvac is None:
+            return False
+        return hvac.observation_mode
+
+    async def async_turn_on(self, **kwargs) -> None:
+        """Enable HVAC observation mode."""
+        hvac = self._get_hvac()
+        if hvac is not None:
+            hvac.observation_mode = True
+            self.async_write_ha_state()
+
+    async def async_turn_off(self, **kwargs) -> None:
+        """Disable HVAC observation mode."""
+        hvac = self._get_hvac()
+        if hvac is not None:
+            hvac.observation_mode = False
+            self.async_write_ha_state()
+
+    async def async_added_to_hass(self) -> None:
+        """Restore previous state on startup."""
+        await super().async_added_to_hass()
+        last_state = await self.async_get_last_state()
+        if last_state is not None:
+            hvac = self._get_hvac()
+            if hvac is not None:
+                hvac.observation_mode = last_state.state == "on"
+
+    @property
+    def available(self) -> bool:
+        """Only available when HVAC coordinator is active."""
+        return self._get_hvac() is not None
 
 
 class SecurityDelegateLightsSwitch(SwitchEntity, RestoreEntity):
