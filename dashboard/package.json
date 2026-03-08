@@ -1,0 +1,25 @@
+{
+  "name": "ura-dashboard",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "node -e \"const fs=require('fs'),d='../custom_components/universal_room_automation/frontend/assets';if(fs.existsSync(d))fs.rmSync(d,{recursive:true})\" && tsc && vite build && node -e \"const fs=require('fs'),p='../custom_components/universal_room_automation/frontend/assets';fs.readdirSync(p).filter(f=>f.endsWith('.js')&&!f.startsWith('index')&&!f.startsWith('vendor')&&!f.startsWith('hakit')&&!f.startsWith('en')).forEach(f=>fs.unlinkSync(p+'/'+f))\"",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@hakit/components": "^4.0.0",
+    "@hakit/core": "^4.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "recharts": "^3.8.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.0",
+    "typescript": "^5.7.0",
+    "vite": "^6.0.0"
+  }
+}
