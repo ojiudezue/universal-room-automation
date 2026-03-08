@@ -56,6 +56,10 @@ dmypy.json
 .env
 .env.local
 
+# Dashboard build artifacts (source only — built output ships in frontend/)
+dashboard/node_modules/
+dashboard/dist/
+
 # Temporary files
 *.tmp
 *.bak

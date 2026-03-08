@@ -49,6 +49,8 @@ run git -C "$REPO_DIR" add \
   "$COMPONENT_DIR/domain_coordinators/"*.py \
   "$COMPONENT_DIR/strings.json" \
   "$COMPONENT_DIR/translations/" \
+  "$COMPONENT_DIR/frontend/" \
+  "$COMPONENT_DIR/brand/" \
   "$REPO_DIR/quality/tests/" \
   "$REPO_DIR/docs/readmes/" \
   "$REPO_DIR/docs/"*.md
