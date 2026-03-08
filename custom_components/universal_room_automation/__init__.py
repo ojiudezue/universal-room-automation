@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation v3.9.4
+# Universal Room Automation v3.9.5
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -1147,7 +1147,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # v3.2.5: Add update listener to reload entry when options change
         entry.async_on_unload(entry.add_update_listener(_async_update_listener))
         
-        # v3.9.4: Register URA Dashboard panel (iframe served from frontend/)
+        # v3.9.4: Register URA Dashboard panel (panel_custom with auth passthrough)
         import os
         frontend_path = os.path.join(os.path.dirname(__file__), "frontend")
         if os.path.isdir(frontend_path):
@@ -1157,13 +1157,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 await hass.http.async_register_static_paths(
                     [StaticPathConfig(panel_url, frontend_path, False)]
                 )
-                hass.components.frontend.async_register_built_in_panel(
-                    "iframe",
+                from homeassistant.components import panel_custom
+                await panel_custom.async_register_panel(
+                    hass,
+                    webcomponent_name="ura-dashboard-panel",
+                    frontend_url_path="ura-dashboard",
                     sidebar_title="URA",
                     sidebar_icon="mdi:home-automation",
-                    frontend_url_path="ura-dashboard",
-                    config={"url": f"{panel_url}/index.html"},
+                    module_url=f"{panel_url}/ura-panel.js",
+                    embed_iframe=False,
                     require_admin=False,
+                    config={},
                 )
                 _LOGGER.info("URA Dashboard panel registered at /ura-dashboard")
             except Exception as exc:
