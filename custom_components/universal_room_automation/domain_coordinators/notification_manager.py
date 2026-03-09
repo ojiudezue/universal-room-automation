@@ -1,11 +1,12 @@
 """Notification Manager — centralized notification delivery and inbound handling.
 
-Handles 5 channel types (Pushover, Companion App, WhatsApp, TTS, Alert Lights)
+Handles 6 channel types (Pushover, Companion App, WhatsApp, iMessage, TTS, Alert Lights)
 with severity-based routing, per-person config, ack/cooldown/re-fire for
 CRITICAL alerts, quiet hours, daily digest mode, and SQLite persistence.
 
 v3.6.29: Initial implementation (C4a).
 v3.9.7: C4b — Inbound message parsing, safe word ack, response dict, TTS ack.
+v3.9.8: C4b+ — BlueBubbles/iMessage channel, Pushover device targeting fix.
 """
 
 from __future__ import annotations
@@ -46,6 +47,8 @@ from ..const import (
     CONF_NM_COOLDOWN_SMOKE,
     CONF_NM_COOLDOWN_WATER_LEAK,
     CONF_NM_ENABLED,
+    CONF_NM_IMESSAGE_ENABLED,
+    CONF_NM_IMESSAGE_SEVERITY,
     CONF_NM_LIGHTS_ENABLED,
     CONF_NM_LIGHTS_SEVERITY,
     CONF_NM_PERSONS,
@@ -55,6 +58,8 @@ from ..const import (
     CONF_NM_PERSON_DIGEST_EVENING_ENABLED,
     CONF_NM_PERSON_DIGEST_MORNING,
     CONF_NM_PERSON_ENTITY,
+    CONF_NM_PERSON_IMESSAGE_HANDLE,
+    CONF_NM_PERSON_PUSHOVER_DEVICE,
     CONF_NM_PERSON_PUSHOVER_KEY,
     CONF_NM_PERSON_WHATSAPP_PHONE,
     CONF_NM_PUSHOVER_ENABLED,
@@ -63,6 +68,8 @@ from ..const import (
     CONF_NM_QUIET_MANUAL_END,
     CONF_NM_QUIET_MANUAL_START,
     CONF_NM_QUIET_USE_HOUSE_STATE,
+    CONF_NM_SAFE_WORD,
+    CONF_NM_SILENCE_DURATION,
     CONF_NM_TTS_ENABLED,
     CONF_NM_TTS_SEVERITY,
     CONF_NM_TTS_SPEAKERS,
@@ -76,8 +83,10 @@ from ..const import (
     DEFAULT_NM_COOLDOWN_INTRUSION,
     DEFAULT_NM_COOLDOWN_SMOKE,
     DEFAULT_NM_COOLDOWN_WATER_LEAK,
+    DEFAULT_NM_IMESSAGE_SEVERITY,
     DEFAULT_NM_LIGHTS_SEVERITY,
     DEFAULT_NM_PUSHOVER_SEVERITY,
+    DEFAULT_NM_SILENCE_DURATION,
     DEFAULT_NM_TTS_SEVERITY,
     DEFAULT_NM_WHATSAPP_SEVERITY,
     DOMAIN,
@@ -91,9 +100,7 @@ from ..const import (
     NM_DELIVERY_OFF,
     RETENTION_NOTIFICATION_LOG,
     VERSION,
-    CONF_NM_SAFE_WORD,
-    CONF_NM_SILENCE_DURATION,
-    DEFAULT_NM_SILENCE_DURATION,
+    WEBHOOK_BB_ID,
 )
 from .base import Severity
 from .signals import SIGNAL_NM_ALERT_STATE_CHANGED, SIGNAL_NM_ENTITIES_UPDATE
@@ -213,6 +220,7 @@ class NotificationManager:
             "pushover": {"status": "ok", "last_success": None, "failures": 0},
             "companion": {"status": "ok", "last_success": None, "failures": 0},
             "whatsapp": {"status": "ok", "last_success": None, "failures": 0},
+            "imessage": {"status": "ok", "last_success": None, "failures": 0},
             "tts": {"status": "ok", "last_success": None, "failures": 0},
             "lights": {"status": "ok", "last_success": None, "failures": 0},
         }
@@ -236,7 +244,7 @@ class NotificationManager:
             "LOW": 0, "MEDIUM": 0, "HIGH": 0, "CRITICAL": 0,
         }
         self._notifications_by_channel: dict[str, int] = {
-            "pushover": 0, "companion": 0, "whatsapp": 0, "tts": 0, "lights": 0,
+            "pushover": 0, "companion": 0, "whatsapp": 0, "imessage": 0, "tts": 0, "lights": 0,
         }
         # Rolling window for anomaly detection (hourly counts, last 24h)
         self._hourly_counts: list[int] = [0] * 24
@@ -245,10 +253,11 @@ class NotificationManager:
         # C4b: Inbound handling
         self._wa_unsub: CALLBACK_TYPE | None = None
         self._webhook_unsub: bool = False
+        self._bb_webhook_registered: bool = False
         self._silence_until: datetime | None = None
         self._inbound_today_count: int = 0
         self._inbound_by_channel: dict[str, int] = {
-            "whatsapp": 0, "pushover": 0, "companion": 0,
+            "whatsapp": 0, "pushover": 0, "companion": 0, "imessage": 0,
         }
         self._inbound_by_command: dict[str, int] = {
             "ack": 0, "status": 0, "silence": 0, "help": 0, "safe_word": 0, "unknown": 0,
@@ -327,6 +336,7 @@ class NotificationManager:
                     ("whatsapp", self._wa_unsub is not None),
                     ("pushover", self._webhook_unsub),
                     ("companion", self._action_unsub is not None),
+                    ("imessage", self._bb_webhook_registered),
                 ] if enabled
             ],
         }
@@ -426,6 +436,17 @@ class NotificationManager:
             except Exception as e:
                 _LOGGER.warning("Failed to register Pushover webhook: %s", e)
 
+        # C4b+: Register BlueBubbles inbound webhook
+        if self._config.get(CONF_NM_IMESSAGE_ENABLED, False):
+            try:
+                webhook.async_register(
+                    self.hass, DOMAIN, "NM BlueBubbles Reply",
+                    WEBHOOK_BB_ID, self._handle_bb_webhook,
+                )
+                self._bb_webhook_registered = True
+            except Exception as e:
+                _LOGGER.warning("Failed to register BlueBubbles webhook: %s", e)
+
         _LOGGER.info(
             "Notification Manager ready (state=%s, today=%d)",
             self._alert_state,
@@ -469,6 +490,12 @@ class NotificationManager:
             except Exception:
                 pass
             self._webhook_unsub = False
+        if self._bb_webhook_registered:
+            try:
+                webhook.async_unregister(self.hass, WEBHOOK_BB_ID)
+            except Exception:
+                pass
+            self._bb_webhook_registered = False
 
         # Cancel light pattern
         if self._light_pattern_task and not self._light_pattern_task.done():
@@ -580,9 +607,10 @@ class NotificationManager:
             # Pushover
             if self._channel_qualifies("pushover", severity):
                 pushover_key = person_cfg.get(CONF_NM_PERSON_PUSHOVER_KEY, "")
+                pushover_device = person_cfg.get(CONF_NM_PERSON_PUSHOVER_DEVICE, "")
                 if pushover_key:
                     if effective_pref == NM_DELIVERY_IMMEDIATE:
-                        await self._send_pushover(title, message_with_dict, severity, pushover_key)
+                        await self._send_pushover(title, message_with_dict, severity, pushover_key, pushover_device)
                         channels_fired.append("pushover")
                         if database:
                             await database.log_notification(
@@ -637,6 +665,25 @@ class NotificationManager:
                                 hazard_type, location, person_id, "whatsapp", 0,
                             )
 
+            # iMessage (BlueBubbles)
+            if self._channel_qualifies("imessage", severity):
+                imessage_handle = person_cfg.get(CONF_NM_PERSON_IMESSAGE_HANDLE, "")
+                if imessage_handle:
+                    if effective_pref == NM_DELIVERY_IMMEDIATE:
+                        await self._send_imessage(title, message_with_dict, imessage_handle)
+                        channels_fired.append("imessage")
+                        if database:
+                            await database.log_notification(
+                                coordinator_id, severity_str, title, message,
+                                hazard_type, location, person_id, "imessage", 1,
+                            )
+                    elif effective_pref == NM_DELIVERY_DIGEST:
+                        if database:
+                            await database.log_notification(
+                                coordinator_id, severity_str, title, message,
+                                hazard_type, location, person_id, "imessage", 0,
+                            )
+
         # Update sensor caches
         self._last_notification = {
             "severity": severity_str,
@@ -674,6 +721,7 @@ class NotificationManager:
         message: str,
         severity: Severity,
         user_key: str,
+        device: str = "",
     ) -> None:
         """Send notification via Pushover."""
         service_name = self._config.get(CONF_NM_PUSHOVER_SERVICE, "notify.pushover")
@@ -682,8 +730,10 @@ class NotificationManager:
             data: dict[str, Any] = {
                 "title": title,
                 "message": message,
-                "target": user_key,
             }
+            # Target specific device if configured, otherwise sends to all
+            if device:
+                data["target"] = device
             # Set priority based on severity
             if severity == Severity.CRITICAL:
                 data["data"] = {"priority": 1, "sound": "siren"}
@@ -752,6 +802,19 @@ class NotificationManager:
             _LOGGER.error("WhatsApp send failed: %s", e)
             self._update_channel_health("whatsapp", False)
 
+    async def _send_imessage(self, title: str, message: str, handle: str) -> None:
+        """Send notification via BlueBubbles (iMessage)."""
+        try:
+            await self.hass.services.async_call(
+                "bluebubbles", "send_message",
+                {"addresses": [handle], "message": f"{title}\n{message}"},
+                blocking=True,
+            )
+            self._update_channel_health("imessage", True)
+        except Exception as e:
+            _LOGGER.error("iMessage send via BlueBubbles failed: %s", e)
+            self._update_channel_health("imessage", False)
+
     async def _send_tts(self, title: str, message: str) -> None:
         """Send TTS announcement to configured speakers."""
         speakers = self._config.get(CONF_NM_TTS_SPEAKERS, [])
@@ -809,7 +872,7 @@ class NotificationManager:
                     "state": state.state,
                     "brightness": state.attributes.get("brightness"),
                     "rgb_color": state.attributes.get("rgb_color"),
-                    "color_temp": state.attributes.get("color_temp"),
+                    "color_temp_kelvin": state.attributes.get("color_temp_kelvin"),
                 }
 
     async def _restore_alert_lights(self) -> None:
@@ -826,8 +889,8 @@ class NotificationManager:
                         svc_data["brightness"] = orig["brightness"]
                     if orig.get("rgb_color"):
                         svc_data["rgb_color"] = orig["rgb_color"]
-                    elif orig.get("color_temp"):
-                        svc_data["color_temp"] = orig["color_temp"]
+                    elif orig.get("color_temp_kelvin"):
+                        svc_data["color_temp_kelvin"] = orig["color_temp_kelvin"]
                     await self.hass.services.async_call(
                         "light", "turn_on", svc_data, blocking=False
                     )
@@ -968,9 +1031,10 @@ class NotificationManager:
         for person_cfg in persons:
             if self._channel_qualifies("pushover", Severity.CRITICAL):
                 key = person_cfg.get(CONF_NM_PERSON_PUSHOVER_KEY, "")
+                device = person_cfg.get(CONF_NM_PERSON_PUSHOVER_DEVICE, "")
                 if key:
                     await self._send_pushover(
-                        data["title"], data["message"], Severity.CRITICAL, key
+                        data["title"], data["message"], Severity.CRITICAL, key, device
                     )
             if self._channel_qualifies("companion", Severity.CRITICAL):
                 svc = person_cfg.get(CONF_NM_PERSON_COMPANION_SERVICE, "")
@@ -979,6 +1043,14 @@ class NotificationManager:
                         data["title"], data["message"], Severity.CRITICAL, svc,
                         is_critical=True,
                     )
+            if self._channel_qualifies("whatsapp", Severity.CRITICAL):
+                phone = person_cfg.get(CONF_NM_PERSON_WHATSAPP_PHONE, "")
+                if phone:
+                    await self._send_whatsapp(data["title"], data["message"], phone)
+            if self._channel_qualifies("imessage", Severity.CRITICAL):
+                handle = person_cfg.get(CONF_NM_PERSON_IMESSAGE_HANDLE, "")
+                if handle:
+                    await self._send_imessage(data["title"], data["message"], handle)
 
         # TTS repeat
         if self._channel_qualifies("tts", Severity.CRITICAL):
@@ -1177,6 +1249,37 @@ class NotificationManager:
         person_id = self._match_person_by_pushover_key(user_key)
         await self._process_inbound_reply(person_id, "pushover", message)
 
+    async def _handle_bb_webhook(
+        self, hass: HomeAssistant, webhook_id: str, request,
+    ) -> None:
+        """Handle BlueBubbles new-message webhook POST."""
+        try:
+            data = await request.json()
+        except Exception:
+            return
+
+        # Only process incoming new-message events
+        event_type = data.get("type", "")
+        if event_type != "new-message":
+            return
+
+        msg_data = data.get("data", {})
+
+        # Skip messages sent by us
+        if msg_data.get("isFromMe", False):
+            return
+
+        text = msg_data.get("text", "")
+        if not text:
+            return
+
+        # Extract sender handle (phone or email)
+        handle_obj = msg_data.get("handle", {})
+        sender = handle_obj.get("address", "") if isinstance(handle_obj, dict) else ""
+
+        person_id = self._match_person_by_imessage_handle(sender)
+        await self._process_inbound_reply(person_id, "imessage", text)
+
     def _match_person_by_phone(self, phone: str) -> str | None:
         """Match a phone number to a person entity ID."""
         persons = self._config.get(CONF_NM_PERSONS, [])
@@ -1192,6 +1295,22 @@ class NotificationManager:
         for p in persons:
             p_key = p.get(CONF_NM_PERSON_PUSHOVER_KEY, "")
             if p_key and p_key == user_key:
+                return p.get(CONF_NM_PERSON_ENTITY)
+        return None
+
+    def _match_person_by_imessage_handle(self, handle: str) -> str | None:
+        """Match an iMessage handle (phone or email) to a person entity ID."""
+        persons = self._config.get(CONF_NM_PERSONS, [])
+        normalized = handle.strip().lower()
+        for p in persons:
+            p_handle = p.get(CONF_NM_PERSON_IMESSAGE_HANDLE, "").strip().lower()
+            if not p_handle:
+                continue
+            # Email match: exact case-insensitive
+            if "@" in p_handle and p_handle == normalized:
+                return p.get(CONF_NM_PERSON_ENTITY)
+            # Phone match: last 10 digits (same logic as WhatsApp)
+            if "@" not in p_handle and normalized.endswith(p_handle[-10:]):
                 return p.get(CONF_NM_PERSON_ENTITY)
         return None
 
@@ -1245,12 +1364,10 @@ class NotificationManager:
             self._inbound_by_command["safe_word"] += 1
             if is_critical:
                 person_name = self._get_person_name(person_id)
+                hazard_type = self._active_alert_data.get("hazard_type", "")
+                location = self._active_alert_data.get("location", "")
                 await self.async_acknowledge()
-                await self._announce_ack(
-                    person_name,
-                    self._active_alert_data.get("hazard_type", ""),
-                    self._active_alert_data.get("location", ""),
-                )
+                await self._announce_ack(person_name, hazard_type, location)
                 response = f"CRITICAL alert acknowledged by {person_name}."
             elif has_active_alert:
                 await self.async_acknowledge()
@@ -1408,10 +1525,15 @@ class NotificationManager:
             phone = person_cfg.get(CONF_NM_PERSON_WHATSAPP_PHONE, "")
             if phone:
                 await self._send_whatsapp("URA", message, phone)
+        elif channel == "imessage":
+            handle = person_cfg.get(CONF_NM_PERSON_IMESSAGE_HANDLE, "")
+            if handle:
+                await self._send_imessage("URA", message, handle)
         elif channel == "pushover":
             key = person_cfg.get(CONF_NM_PERSON_PUSHOVER_KEY, "")
+            device = person_cfg.get(CONF_NM_PERSON_PUSHOVER_DEVICE, "")
             if key:
-                await self._send_pushover("URA", message, Severity.LOW, key)
+                await self._send_pushover("URA", message, Severity.LOW, key, device)
         elif channel == "companion":
             svc = person_cfg.get(CONF_NM_PERSON_COMPANION_SERVICE, "")
             if svc:
@@ -1490,6 +1612,7 @@ class NotificationManager:
             "pushover": (CONF_NM_PUSHOVER_ENABLED, CONF_NM_PUSHOVER_SEVERITY, DEFAULT_NM_PUSHOVER_SEVERITY),
             "companion": (CONF_NM_COMPANION_ENABLED, CONF_NM_COMPANION_SEVERITY, DEFAULT_NM_COMPANION_SEVERITY),
             "whatsapp": (CONF_NM_WHATSAPP_ENABLED, CONF_NM_WHATSAPP_SEVERITY, DEFAULT_NM_WHATSAPP_SEVERITY),
+            "imessage": (CONF_NM_IMESSAGE_ENABLED, CONF_NM_IMESSAGE_SEVERITY, DEFAULT_NM_IMESSAGE_SEVERITY),
             "tts": (CONF_NM_TTS_ENABLED, CONF_NM_TTS_SEVERITY, DEFAULT_NM_TTS_SEVERITY),
             "lights": (CONF_NM_LIGHTS_ENABLED, CONF_NM_LIGHTS_SEVERITY, DEFAULT_NM_LIGHTS_SEVERITY),
         }
@@ -1571,8 +1694,9 @@ class NotificationManager:
         sent = False
         if self._config.get(CONF_NM_PUSHOVER_ENABLED):
             key = person_cfg.get(CONF_NM_PERSON_PUSHOVER_KEY, "")
+            device = person_cfg.get(CONF_NM_PERSON_PUSHOVER_DEVICE, "")
             if key:
-                await self._send_pushover("URA Daily Summary", digest_message, Severity.LOW, key)
+                await self._send_pushover("URA Daily Summary", digest_message, Severity.LOW, key, device)
                 sent = True
 
         if not sent and self._config.get(CONF_NM_COMPANION_ENABLED):
@@ -1585,6 +1709,12 @@ class NotificationManager:
             phone = person_cfg.get(CONF_NM_PERSON_WHATSAPP_PHONE, "")
             if phone:
                 await self._send_whatsapp("URA Daily Summary", digest_message, phone)
+                sent = True
+
+        if not sent and self._config.get(CONF_NM_IMESSAGE_ENABLED):
+            handle = person_cfg.get(CONF_NM_PERSON_IMESSAGE_HANDLE, "")
+            if handle:
+                await self._send_imessage("URA Daily Summary", digest_message, handle)
                 sent = True
 
         if sent:
@@ -1724,8 +1854,9 @@ class NotificationManager:
             if channel == "pushover":
                 for p in persons:
                     key = p.get(CONF_NM_PERSON_PUSHOVER_KEY, "")
+                    device = p.get(CONF_NM_PERSON_PUSHOVER_DEVICE, "")
                     if key:
-                        await self._send_pushover(title, message, sev, key)
+                        await self._send_pushover(title, message, sev, key, device)
             elif channel == "companion":
                 for p in persons:
                     svc = p.get(CONF_NM_PERSON_COMPANION_SERVICE, "")
@@ -1736,6 +1867,11 @@ class NotificationManager:
                     phone = p.get(CONF_NM_PERSON_WHATSAPP_PHONE, "")
                     if phone:
                         await self._send_whatsapp(title, message, phone)
+            elif channel == "imessage":
+                for p in persons:
+                    handle = p.get(CONF_NM_PERSON_IMESSAGE_HANDLE, "")
+                    if handle:
+                        await self._send_imessage(title, message, handle)
             elif channel == "tts":
                 await self._send_tts(title, message)
             elif channel == "lights":

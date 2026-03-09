@@ -1,6 +1,6 @@
 """Config flow for Universal Room Automation v3.6.24."""
 #
-# Universal Room Automation v3.9.7
+# Universal Room Automation v3.9.8
 # Build: 2026-01-05
 # File: config_flow.py
 # v3.3.3: Added manage_zones to integration options menu
@@ -2712,11 +2712,12 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             CONF_NM_PUSHOVER_ENABLED, CONF_NM_PUSHOVER_SEVERITY, CONF_NM_PUSHOVER_SERVICE,
             CONF_NM_COMPANION_ENABLED, CONF_NM_COMPANION_SEVERITY,
             CONF_NM_WHATSAPP_ENABLED, CONF_NM_WHATSAPP_SEVERITY,
+            CONF_NM_IMESSAGE_ENABLED, CONF_NM_IMESSAGE_SEVERITY,
             CONF_NM_TTS_ENABLED, CONF_NM_TTS_SEVERITY, CONF_NM_TTS_SPEAKERS,
             CONF_NM_LIGHTS_ENABLED, CONF_NM_LIGHTS_SEVERITY, CONF_NM_ALERT_LIGHTS,
             DEFAULT_NM_PUSHOVER_SEVERITY, DEFAULT_NM_COMPANION_SEVERITY,
-            DEFAULT_NM_WHATSAPP_SEVERITY, DEFAULT_NM_TTS_SEVERITY,
-            DEFAULT_NM_LIGHTS_SEVERITY,
+            DEFAULT_NM_WHATSAPP_SEVERITY, DEFAULT_NM_IMESSAGE_SEVERITY,
+            DEFAULT_NM_TTS_SEVERITY, DEFAULT_NM_LIGHTS_SEVERITY,
         )
 
         if user_input is not None:
@@ -2767,6 +2768,16 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 selector.SelectSelectorConfig(options=severity_options, mode=selector.SelectSelectorMode.DROPDOWN)
             ),
             vol.Optional(
+                CONF_NM_IMESSAGE_ENABLED,
+                default=self._get_current(CONF_NM_IMESSAGE_ENABLED, False),
+            ): selector.BooleanSelector(),
+            vol.Optional(
+                CONF_NM_IMESSAGE_SEVERITY,
+                default=self._get_current(CONF_NM_IMESSAGE_SEVERITY, DEFAULT_NM_IMESSAGE_SEVERITY),
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(options=severity_options, mode=selector.SelectSelectorMode.DROPDOWN)
+            ),
+            vol.Optional(
                 CONF_NM_TTS_ENABLED,
                 default=self._get_current(CONF_NM_TTS_ENABLED, False),
             ): selector.BooleanSelector(),
@@ -2813,7 +2824,9 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         from .const import (
             CONF_NM_PERSONS,
             CONF_NM_PERSON_ENTITY, CONF_NM_PERSON_PUSHOVER_KEY,
+            CONF_NM_PERSON_PUSHOVER_DEVICE,
             CONF_NM_PERSON_COMPANION_SERVICE, CONF_NM_PERSON_WHATSAPP_PHONE,
+            CONF_NM_PERSON_IMESSAGE_HANDLE,
             CONF_NM_PERSON_DELIVERY_PREF, CONF_NM_PERSON_DIGEST_MORNING,
             CONF_NM_PERSON_DIGEST_EVENING_ENABLED, CONF_NM_PERSON_DIGEST_EVENING,
             NM_DELIVERY_IMMEDIATE, NM_DELIVERY_DIGEST, NM_DELIVERY_OFF,
@@ -2826,8 +2839,10 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             person_entry = {
                 CONF_NM_PERSON_ENTITY: user_input.get(CONF_NM_PERSON_ENTITY, ""),
                 CONF_NM_PERSON_PUSHOVER_KEY: user_input.get(CONF_NM_PERSON_PUSHOVER_KEY, ""),
+                CONF_NM_PERSON_PUSHOVER_DEVICE: user_input.get(CONF_NM_PERSON_PUSHOVER_DEVICE, ""),
                 CONF_NM_PERSON_COMPANION_SERVICE: user_input.get(CONF_NM_PERSON_COMPANION_SERVICE, ""),
                 CONF_NM_PERSON_WHATSAPP_PHONE: user_input.get(CONF_NM_PERSON_WHATSAPP_PHONE, ""),
+                CONF_NM_PERSON_IMESSAGE_HANDLE: user_input.get(CONF_NM_PERSON_IMESSAGE_HANDLE, ""),
                 CONF_NM_PERSON_DELIVERY_PREF: user_input.get(CONF_NM_PERSON_DELIVERY_PREF, NM_DELIVERY_IMMEDIATE),
                 CONF_NM_PERSON_DIGEST_MORNING: user_input.get(CONF_NM_PERSON_DIGEST_MORNING, "08:00"),
                 CONF_NM_PERSON_DIGEST_EVENING_ENABLED: user_input.get(CONF_NM_PERSON_DIGEST_EVENING_ENABLED, False),
@@ -2858,6 +2873,10 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 default="",
             ): selector.TextSelector(),
             vol.Optional(
+                CONF_NM_PERSON_PUSHOVER_DEVICE,
+                default="",
+            ): selector.TextSelector(),
+            vol.Optional(
                 CONF_NM_PERSON_COMPANION_SERVICE,
                 default="",
             ): selector.TextSelector(
@@ -2865,6 +2884,10 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             ),
             vol.Optional(
                 CONF_NM_PERSON_WHATSAPP_PHONE,
+                default="",
+            ): selector.TextSelector(),
+            vol.Optional(
+                CONF_NM_PERSON_IMESSAGE_HANDLE,
                 default="",
             ): selector.TextSelector(),
             vol.Optional(

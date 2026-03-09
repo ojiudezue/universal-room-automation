@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation v3.9.7
+# Universal Room Automation v3.9.8
 # Build: 2026-03-01
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "3.9.7"
+VERSION: Final = "3.9.8"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -924,6 +924,8 @@ CONF_NM_COMPANION_ENABLED: Final = "nm_companion_enabled"
 CONF_NM_COMPANION_SEVERITY: Final = "nm_companion_severity"
 CONF_NM_WHATSAPP_ENABLED: Final = "nm_whatsapp_enabled"
 CONF_NM_WHATSAPP_SEVERITY: Final = "nm_whatsapp_severity"
+CONF_NM_IMESSAGE_ENABLED: Final = "nm_imessage_enabled"
+CONF_NM_IMESSAGE_SEVERITY: Final = "nm_imessage_severity"
 CONF_NM_TTS_ENABLED: Final = "nm_tts_enabled"
 CONF_NM_TTS_SEVERITY: Final = "nm_tts_severity"
 CONF_NM_TTS_SPEAKERS: Final = "nm_tts_speakers"
@@ -935,8 +937,10 @@ CONF_NM_ALERT_LIGHTS: Final = "nm_alert_lights"
 CONF_NM_PERSONS: Final = "nm_persons"
 CONF_NM_PERSON_ENTITY: Final = "nm_person_entity"
 CONF_NM_PERSON_PUSHOVER_KEY: Final = "nm_person_pushover_key"
+CONF_NM_PERSON_PUSHOVER_DEVICE: Final = "nm_person_pushover_device"
 CONF_NM_PERSON_COMPANION_SERVICE: Final = "nm_person_companion_service"
 CONF_NM_PERSON_WHATSAPP_PHONE: Final = "nm_person_whatsapp_phone"
+CONF_NM_PERSON_IMESSAGE_HANDLE: Final = "nm_person_imessage_handle"
 CONF_NM_PERSON_DELIVERY_PREF: Final = "nm_person_delivery_pref"
 CONF_NM_PERSON_DIGEST_MORNING: Final = "nm_person_digest_morning"
 CONF_NM_PERSON_DIGEST_EVENING_ENABLED: Final = "nm_person_digest_evening_enabled"
@@ -965,6 +969,7 @@ NM_DELIVERY_OFF: Final = "off"
 DEFAULT_NM_PUSHOVER_SEVERITY: Final = "MEDIUM"
 DEFAULT_NM_COMPANION_SEVERITY: Final = "HIGH"
 DEFAULT_NM_WHATSAPP_SEVERITY: Final = "HIGH"
+DEFAULT_NM_IMESSAGE_SEVERITY: Final = "HIGH"
 DEFAULT_NM_TTS_SEVERITY: Final = "CRITICAL"
 DEFAULT_NM_LIGHTS_SEVERITY: Final = "HIGH"
 
@@ -990,6 +995,9 @@ NM_CRITICAL_REPEAT_INTERVAL: Final = 30
 CONF_NM_SAFE_WORD: Final = "nm_safe_word"
 CONF_NM_SILENCE_DURATION: Final = "nm_silence_duration"
 DEFAULT_NM_SILENCE_DURATION: Final = 30  # minutes
+
+# v3.9.8 C4b+: BlueBubbles/iMessage webhook
+WEBHOOK_BB_ID: Final = f"{DOMAIN}_bluebubbles_reply"
 
 # DB retention (days)
 RETENTION_NOTIFICATION_LOG: Final = 30

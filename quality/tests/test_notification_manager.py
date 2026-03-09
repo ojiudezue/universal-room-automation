@@ -178,11 +178,15 @@ from custom_components.universal_room_automation.const import (
     CONF_NM_ALERT_LIGHTS,
     CONF_NM_WHATSAPP_ENABLED,
     CONF_NM_WHATSAPP_SEVERITY,
+    CONF_NM_IMESSAGE_ENABLED,
+    CONF_NM_IMESSAGE_SEVERITY,
     CONF_NM_PERSONS,
     CONF_NM_PERSON_ENTITY,
     CONF_NM_PERSON_PUSHOVER_KEY,
+    CONF_NM_PERSON_PUSHOVER_DEVICE,
     CONF_NM_PERSON_COMPANION_SERVICE,
     CONF_NM_PERSON_WHATSAPP_PHONE,
+    CONF_NM_PERSON_IMESSAGE_HANDLE,
     CONF_NM_PERSON_DELIVERY_PREF,
     CONF_NM_QUIET_USE_HOUSE_STATE,
     CONF_NM_QUIET_MANUAL_START,
@@ -1110,3 +1114,218 @@ class TestChannelHandlerRouting:
         mock_event.data = {"action": "SOME_OTHER_ACTION"}
         nm._handle_companion_action(mock_event)
         hass.async_create_task.assert_not_called()
+
+
+# =============================================================================
+# v3.9.8: BlueBubbles/iMessage + Pushover device fix
+# =============================================================================
+
+class TestBlueBubblesInbound:
+    """Test BlueBubbles webhook inbound handling."""
+
+    def test_bb_webhook_routes_new_message(self):
+        """BB webhook extracts handle/text and calls process_inbound."""
+        hass = _make_hass()
+        config = _make_config(**{
+            CONF_NM_IMESSAGE_ENABLED: True,
+            CONF_NM_IMESSAGE_SEVERITY: "LOW",
+            CONF_NM_PERSONS: [{
+                CONF_NM_PERSON_ENTITY: "person.test",
+                CONF_NM_PERSON_PUSHOVER_KEY: "",
+                CONF_NM_PERSON_COMPANION_SERVICE: "",
+                CONF_NM_PERSON_WHATSAPP_PHONE: "",
+                CONF_NM_PERSON_IMESSAGE_HANDLE: "+15551234567",
+                CONF_NM_PERSON_DELIVERY_PREF: NM_DELIVERY_IMMEDIATE,
+            }],
+        })
+        nm = NotificationManager(hass, config)
+        # Simulate webhook POST
+        import asyncio
+        request = MagicMock()
+        request.json = AsyncMock(return_value={
+            "type": "new-message",
+            "data": {
+                "text": "ok",
+                "handle": {"address": "+15551234567"},
+                "isFromMe": False,
+            }
+        })
+        asyncio.get_event_loop().run_until_complete(
+            nm._handle_bb_webhook(hass, "test_webhook", request)
+        )
+        # Verify inbound was processed (channel counter incremented)
+        assert nm._inbound_by_channel["imessage"] >= 1
+
+    def test_bb_webhook_skips_from_me(self):
+        """BB webhook ignores messages sent by us."""
+        hass = _make_hass()
+        nm = NotificationManager(hass, _make_config())
+        import asyncio
+        request = MagicMock()
+        request.json = AsyncMock(return_value={
+            "type": "new-message",
+            "data": {
+                "text": "hello",
+                "handle": {"address": "+15551234567"},
+                "isFromMe": True,
+            }
+        })
+        asyncio.get_event_loop().run_until_complete(
+            nm._handle_bb_webhook(hass, "test_webhook", request)
+        )
+        hass.async_create_task.assert_not_called()
+
+    def test_bb_webhook_skips_non_new_message(self):
+        """BB webhook ignores non-new-message events."""
+        hass = _make_hass()
+        nm = NotificationManager(hass, _make_config())
+        import asyncio
+        request = MagicMock()
+        request.json = AsyncMock(return_value={
+            "type": "updated-message",
+            "data": {"text": "edited"}
+        })
+        asyncio.get_event_loop().run_until_complete(
+            nm._handle_bb_webhook(hass, "test_webhook", request)
+        )
+        hass.async_create_task.assert_not_called()
+
+    def test_bb_webhook_skips_empty_text(self):
+        """BB webhook ignores messages with empty text."""
+        hass = _make_hass()
+        nm = NotificationManager(hass, _make_config())
+        import asyncio
+        request = MagicMock()
+        request.json = AsyncMock(return_value={
+            "type": "new-message",
+            "data": {
+                "text": "",
+                "handle": {"address": "+15551234567"},
+                "isFromMe": False,
+            }
+        })
+        asyncio.get_event_loop().run_until_complete(
+            nm._handle_bb_webhook(hass, "test_webhook", request)
+        )
+        hass.async_create_task.assert_not_called()
+
+
+class TestImessagePersonMatching:
+    """Test iMessage handle matching."""
+
+    def test_match_by_email(self):
+        """Email handle matches case-insensitively."""
+        hass = _make_hass()
+        config = _make_config(**{
+            CONF_NM_PERSONS: [{
+                CONF_NM_PERSON_ENTITY: "person.test",
+                CONF_NM_PERSON_PUSHOVER_KEY: "",
+                CONF_NM_PERSON_COMPANION_SERVICE: "",
+                CONF_NM_PERSON_WHATSAPP_PHONE: "",
+                CONF_NM_PERSON_IMESSAGE_HANDLE: "User@iCloud.com",
+                CONF_NM_PERSON_DELIVERY_PREF: NM_DELIVERY_IMMEDIATE,
+            }],
+        })
+        nm = NotificationManager(hass, config)
+        assert nm._match_person_by_imessage_handle("user@icloud.com") == "person.test"
+
+    def test_match_by_phone_last_10(self):
+        """Phone handle matches by last 10 digits."""
+        hass = _make_hass()
+        config = _make_config(**{
+            CONF_NM_PERSONS: [{
+                CONF_NM_PERSON_ENTITY: "person.test",
+                CONF_NM_PERSON_PUSHOVER_KEY: "",
+                CONF_NM_PERSON_COMPANION_SERVICE: "",
+                CONF_NM_PERSON_WHATSAPP_PHONE: "",
+                CONF_NM_PERSON_IMESSAGE_HANDLE: "+15551234567",
+                CONF_NM_PERSON_DELIVERY_PREF: NM_DELIVERY_IMMEDIATE,
+            }],
+        })
+        nm = NotificationManager(hass, config)
+        assert nm._match_person_by_imessage_handle("+15551234567") == "person.test"
+
+    def test_no_match_returns_none(self):
+        """Unknown handle returns None."""
+        hass = _make_hass()
+        nm = NotificationManager(hass, _make_config())
+        assert nm._match_person_by_imessage_handle("unknown@example.com") is None
+
+
+class TestPushoverDeviceTargeting:
+    """Test Pushover device targeting fix."""
+
+    def test_send_pushover_with_device(self):
+        """Pushover send includes target when device is configured."""
+        hass = _make_hass()
+        nm = NotificationManager(hass, _make_config())
+        import asyncio
+        asyncio.get_event_loop().run_until_complete(
+            nm._send_pushover("Test", "msg", Severity.MEDIUM, "ukey", "iphone")
+        )
+        call_args = hass.services.async_call.call_args
+        data = call_args[0][2]  # third positional arg is the service data
+        assert data["target"] == "iphone"
+
+    def test_send_pushover_no_device_omits_target(self):
+        """Pushover send omits target when device is empty."""
+        hass = _make_hass()
+        nm = NotificationManager(hass, _make_config())
+        import asyncio
+        asyncio.get_event_loop().run_until_complete(
+            nm._send_pushover("Test", "msg", Severity.MEDIUM, "ukey", "")
+        )
+        call_args = hass.services.async_call.call_args
+        data = call_args[0][2]
+        assert "target" not in data
+
+
+class TestImessageChannelQualifies:
+    """Test iMessage channel qualification."""
+
+    def test_imessage_channel_qualifies_when_enabled(self):
+        """iMessage qualifies when enabled and severity met."""
+        hass = _make_hass()
+        config = _make_config(**{
+            CONF_NM_IMESSAGE_ENABLED: True,
+            CONF_NM_IMESSAGE_SEVERITY: "HIGH",
+        })
+        nm = NotificationManager(hass, config)
+        assert nm._channel_qualifies("imessage", Severity.HIGH) is True
+        assert nm._channel_qualifies("imessage", Severity.CRITICAL) is True
+
+    def test_imessage_channel_not_enabled(self):
+        """iMessage does not qualify when not enabled."""
+        hass = _make_hass()
+        nm = NotificationManager(hass, _make_config())
+        assert nm._channel_qualifies("imessage", Severity.CRITICAL) is False
+
+
+class TestImessageOutbound:
+    """Test iMessage send method."""
+
+    def test_send_imessage_calls_service(self):
+        """iMessage send calls bluebubbles.send_message."""
+        hass = _make_hass()
+        nm = NotificationManager(hass, _make_config())
+        import asyncio
+        asyncio.get_event_loop().run_until_complete(
+            nm._send_imessage("Alert", "Fire detected", "user@icloud.com")
+        )
+        hass.services.async_call.assert_called_once_with(
+            "bluebubbles", "send_message",
+            {"addresses": ["user@icloud.com"], "message": "Alert\nFire detected"},
+            blocking=True,
+        )
+
+    def test_send_imessage_failure_updates_health(self):
+        """iMessage send failure degrades channel health."""
+        hass = _make_hass()
+        hass.services.async_call = AsyncMock(side_effect=Exception("BB down"))
+        nm = NotificationManager(hass, _make_config())
+        import asyncio
+        asyncio.get_event_loop().run_until_complete(
+            nm._send_imessage("Alert", "msg", "user@icloud.com")
+        )
+        assert nm._channel_health["imessage"]["failures"] == 1
+        assert nm._channel_health["imessage"]["status"] == "ok"
