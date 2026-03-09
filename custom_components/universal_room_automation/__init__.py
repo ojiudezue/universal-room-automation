@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation v3.9.7
+# Universal Room Automation v3.9.8
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -1719,7 +1719,7 @@ async def _async_register_notification_services(hass: HomeAssistant) -> None:
             schema=vol.Schema({
                 vol.Required("text"): str,
                 vol.Optional("channel", default="companion"): vol.In([
-                    "companion", "whatsapp", "pushover",
+                    "companion", "whatsapp", "pushover", "imessage",
                 ]),
             }),
         )
