@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.9.8
+# Universal Room Automation v3.9.9
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -241,15 +241,21 @@ async def async_setup_entry(
             HVACArresterStateSensor(hass, entry),
         ]
         # v3.8.0-H1: Add per-zone HVAC sensors dynamically
-        manager = hass.data.get(DOMAIN, {}).get("coordinator_manager")
-        if manager:
-            hvac_coord = manager.coordinators.get("hvac")
-            if hvac_coord:
-                for zone_id in hvac_coord.zone_manager.zones:
+        # Read zone IDs from Zone Manager config entry (not coordinator)
+        # to avoid race condition where coordinator_manager isn't ready yet
+        from .const import ENTRY_TYPE_ZONE_MANAGER as _ZM, CONF_ZONE_THERMOSTAT
+        zone_num = 0
+        for zm_entry in hass.config_entries.async_entries(DOMAIN):
+            if zm_entry.data.get(CONF_ENTRY_TYPE) != _ZM:
+                continue
+            merged = {**zm_entry.data, **zm_entry.options}
+            for _zname, zcfg in merged.get("zones", {}).items():
+                if zcfg.get(CONF_ZONE_THERMOSTAT):
+                    zone_num += 1
+                    zone_id = f"zone_{zone_num}"
                     coordinator_sensors.append(
                         HVACZoneStatusSensor(hass, entry, zone_id)
                     )
-                    # v3.9.0: Per-zone preset diagnostic sensor
                     coordinator_sensors.append(
                         HVACZonePresetSensor(hass, entry, zone_id)
                     )
