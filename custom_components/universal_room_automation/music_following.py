@@ -32,6 +32,7 @@ from homeassistant.util import dt as dt_util
 
 from .transitions import RoomTransition
 from .const import (
+    DOMAIN,
     MUSIC_TRANSFER_COOLDOWN_SECONDS,
     TRANSFER_VERIFY_DELAY_SECONDS,
     GROUP_UNJOIN_DELAY_SECONDS,
