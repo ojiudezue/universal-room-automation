@@ -1,6 +1,6 @@
 """Database for Universal Room Automation."""
 #
-# Universal Room Automation v3.9.6
+# Universal Room Automation v3.9.7
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors
@@ -501,6 +501,25 @@ class UniversalRoomDatabase:
                 await db.execute("""
                     CREATE INDEX IF NOT EXISTS idx_notification_log_pending
                     ON notification_log(person_id, delivered, severity)
+                """)
+
+                # v3.9.7 C4b: Notification inbound message log
+                await db.execute("""
+                    CREATE TABLE IF NOT EXISTS notification_inbound (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        timestamp TEXT NOT NULL DEFAULT (datetime('now')),
+                        person_id TEXT,
+                        channel TEXT NOT NULL,
+                        raw_text TEXT NOT NULL,
+                        parsed_command TEXT,
+                        response_text TEXT,
+                        alert_id INTEGER,
+                        success INTEGER NOT NULL DEFAULT 0
+                    )
+                """)
+                await db.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_notification_inbound_date
+                    ON notification_inbound(timestamp)
                 """)
 
                 # v3.6.0: House state history
@@ -2212,6 +2231,68 @@ class UniversalRoomDatabase:
         except Exception as e:
             _LOGGER.error("Error pruning notification log: %s", e)
             return 0
+
+    # ====================================================================
+    # v3.9.7 C4b: Notification Inbound
+    # ====================================================================
+
+    async def log_inbound(
+        self,
+        person_id: str | None,
+        channel: str,
+        raw_text: str,
+        parsed_command: str | None,
+        response_text: str | None,
+        alert_id: int | None,
+        success: bool,
+    ) -> int | None:
+        """Log an inbound message. Returns row ID."""
+        try:
+            now = dt_util.utcnow().isoformat()
+            async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
+                cursor = await db.execute("""
+                    INSERT INTO notification_inbound
+                    (timestamp, person_id, channel, raw_text, parsed_command,
+                     response_text, alert_id, success)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, (now, person_id, channel, raw_text, parsed_command,
+                      response_text, alert_id, 1 if success else 0))
+                await db.commit()
+                return cursor.lastrowid
+        except Exception as e:
+            _LOGGER.error("Error logging inbound message: %s", e)
+            return None
+
+    async def prune_inbound_log(self, retention_days: int = 30) -> int:
+        """Prune inbound messages older than retention_days. Returns rows deleted."""
+        try:
+            cutoff = (dt_util.utcnow() - timedelta(days=retention_days)).isoformat()
+            async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
+                cursor = await db.execute("""
+                    DELETE FROM notification_inbound WHERE timestamp < ?
+                """, (cutoff,))
+                await db.commit()
+                return cursor.rowcount
+        except Exception as e:
+            _LOGGER.error("Error pruning inbound log: %s", e)
+            return 0
+
+    async def get_inbound_today(self) -> list[dict]:
+        """Get all inbound messages from today."""
+        try:
+            today_start = dt_util.start_of_local_day().isoformat()
+            async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
+                db.row_factory = aiosqlite.Row
+                cursor = await db.execute("""
+                    SELECT * FROM notification_inbound
+                    WHERE timestamp >= ?
+                    ORDER BY timestamp DESC
+                """, (today_start,))
+                rows = await cursor.fetchall()
+                return [dict(r) for r in rows]
+        except Exception as e:
+            _LOGGER.error("Error fetching inbound today: %s", e)
+            return []
 
     # ====================================================================
     # v3.7.11: Energy Daily Billing Snapshots

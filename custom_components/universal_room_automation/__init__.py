@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation v3.9.6
+# Universal Room Automation v3.9.7
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -1698,6 +1698,29 @@ async def _async_register_notification_services(hass: HomeAssistant) -> None:
                     "LOW", "MEDIUM", "HIGH", "CRITICAL",
                 ]),
                 vol.Optional("channel"): str,
+            }),
+        )
+
+    # C4b: test_inbound service
+    async def handle_test_inbound(call):
+        """Handle test_inbound service call."""
+        nm = hass.data.get(DOMAIN, {}).get("notification_manager")
+        if nm:
+            text = call.data.get("text", "status")
+            channel = call.data.get("channel", "companion")
+            response = await nm._process_inbound_reply(None, channel, text)
+            _LOGGER.info("Test inbound response: %s", response)
+
+    if not hass.services.has_service(DOMAIN, "test_inbound"):
+        hass.services.async_register(
+            DOMAIN,
+            "test_inbound",
+            handle_test_inbound,
+            schema=vol.Schema({
+                vol.Required("text"): str,
+                vol.Optional("channel", default="companion"): vol.In([
+                    "companion", "whatsapp", "pushover",
+                ]),
             }),
         )
 

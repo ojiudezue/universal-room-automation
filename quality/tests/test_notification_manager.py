@@ -80,6 +80,10 @@ _mods = {
         "start_of_local_day": _start_of_local_day,
     },
     "homeassistant.components": {},
+    "homeassistant.components.webhook": {
+        "async_register": lambda hass, domain, name, webhook_id, handler: None,
+        "async_unregister": lambda hass, webhook_id: None,
+    },
     "homeassistant.components.sensor": {
         "SensorEntity": type("SensorEntity", (), {}),
         "SensorDeviceClass": _mock_cls(),
@@ -187,6 +191,8 @@ from custom_components.universal_room_automation.const import (
     NM_DELIVERY_IMMEDIATE,
     NM_DELIVERY_DIGEST,
     NM_DELIVERY_OFF,
+    CONF_NM_SAFE_WORD,
+    CONF_NM_SILENCE_DURATION,
 )
 import custom_components.universal_room_automation.domain_coordinators.notification_manager as _nm_mod
 from custom_components.universal_room_automation.domain_coordinators.notification_manager import (
@@ -194,6 +200,7 @@ from custom_components.universal_room_automation.domain_coordinators.notificatio
     DEDUP_WINDOWS,
     LIGHT_PATTERNS,
     NotificationManager,
+    RESPONSE_COMMANDS,
     SEVERITY_MAP,
 )
 from custom_components.universal_room_automation.domain_coordinators.base import Severity
@@ -657,3 +664,449 @@ class TestDiagnosticCounters:
         await nm.async_notify("safety", Severity.HIGH, "Test2", "Msg")
         assert nm._notifications_by_severity["MEDIUM"] == 1
         assert nm._notifications_by_severity["HIGH"] == 1
+
+
+# ============================================================================
+# C4b: Inbound Message Handling Tests
+# ============================================================================
+
+
+class TestResponseDictParsing:
+    """Test the response dictionary command resolution."""
+
+    def test_ack_aliases(self):
+        """All ack aliases resolve to 'ack'."""
+        for alias in ("1", "ack", "ok", "acknowledge", "a"):
+            assert RESPONSE_COMMANDS[alias] == "ack"
+
+    def test_status_aliases(self):
+        """All status aliases resolve to 'status'."""
+        for alias in ("2", "status", "s", "info"):
+            assert RESPONSE_COMMANDS[alias] == "status"
+
+    def test_silence_aliases(self):
+        """All silence aliases resolve to 'silence'."""
+        for alias in ("3", "stop", "silence", "mute", "quiet"):
+            assert RESPONSE_COMMANDS[alias] == "silence"
+
+    def test_help_aliases(self):
+        """All help aliases resolve to 'help'."""
+        for alias in ("help", "?", "h"):
+            assert RESPONSE_COMMANDS[alias] == "help"
+
+    def test_unknown_command(self):
+        """Unknown text is not in the dict."""
+        assert RESPONSE_COMMANDS.get("foobar") is None
+
+
+class TestInboundProcessing:
+    """Test _process_inbound_reply behavior."""
+
+    @pytest.mark.asyncio
+    async def test_ack_no_active_alert(self):
+        """Ack with no active alert returns 'No active alerts'."""
+        hass = _make_hass()
+        nm = NotificationManager(hass, _make_config())
+        response = await nm._process_inbound_reply(None, "companion", "ok")
+        assert "No active alerts" in response
+        assert nm._inbound_today_count == 1
+
+    @pytest.mark.asyncio
+    async def test_status_no_active_alert(self):
+        """Status with no active alert returns 'All clear'."""
+        hass = _make_hass()
+        nm = NotificationManager(hass, _make_config())
+        response = await nm._process_inbound_reply(None, "companion", "status")
+        assert "All clear" in response
+
+    @pytest.mark.asyncio
+    async def test_silence_command(self):
+        """Silence command sets silence_until."""
+        hass = _make_hass()
+        nm = NotificationManager(hass, _make_config(**{CONF_NM_SILENCE_DURATION: 30}))
+        response = await nm._process_inbound_reply(None, "companion", "stop")
+        assert "silenced for 30 minutes" in response
+        assert nm._silence_until is not None
+
+    @pytest.mark.asyncio
+    async def test_help_command(self):
+        """Help command returns response dict text."""
+        hass = _make_hass()
+        nm = NotificationManager(hass, _make_config())
+        response = await nm._process_inbound_reply(None, "companion", "help")
+        assert "Reply:" in response
+
+    @pytest.mark.asyncio
+    async def test_unknown_command_returns_help(self):
+        """Unknown text returns help text."""
+        hass = _make_hass()
+        nm = NotificationManager(hass, _make_config())
+        response = await nm._process_inbound_reply(None, "companion", "foobar")
+        assert "Unknown command" in response
+        assert nm._inbound_by_command["unknown"] == 1
+
+
+class TestSafeWordValidation:
+    """Test safe word system for CRITICAL alerts."""
+
+    @pytest.mark.asyncio
+    async def test_safe_word_configured_property(self):
+        """safe_word_configured is True when word >= 4 chars."""
+        hass = _make_hass()
+        nm = NotificationManager(hass, _make_config(**{CONF_NM_SAFE_WORD: "myword"}))
+        assert nm.safe_word_configured is True
+
+    @pytest.mark.asyncio
+    async def test_safe_word_not_configured(self):
+        """safe_word_configured is False when empty."""
+        hass = _make_hass()
+        nm = NotificationManager(hass, _make_config(**{CONF_NM_SAFE_WORD: ""}))
+        assert nm.safe_word_configured is False
+
+    @pytest.mark.asyncio
+    async def test_safe_word_too_short(self):
+        """safe_word_configured is False when < 4 chars."""
+        hass = _make_hass()
+        nm = NotificationManager(hass, _make_config(**{CONF_NM_SAFE_WORD: "ab"}))
+        assert nm.safe_word_configured is False
+
+    @pytest.mark.asyncio
+    async def test_ack_rejected_for_critical_without_safe_word(self):
+        """Simple 'ok' is rejected when CRITICAL alert is active."""
+        hass = _make_hass()
+        nm = NotificationManager(hass, _make_config(**{CONF_NM_SAFE_WORD: "myword"}))
+        # Manually set CRITICAL alert state
+        nm._alert_state = AlertState.REPEATING
+        nm._active_alert_data = {
+            "coordinator_id": "safety",
+            "severity": "CRITICAL",
+            "title": "Smoke detected",
+            "message": "Smoke in kitchen",
+            "hazard_type": "smoke",
+            "location": "kitchen",
+        }
+        response = await nm._process_inbound_reply(None, "companion", "ok")
+        assert "safe word" in response.lower()
+        # Alert should still be active
+        assert nm._alert_state == AlertState.REPEATING
+
+    @pytest.mark.asyncio
+    async def test_safe_word_acks_critical(self):
+        """Correct safe word acknowledges CRITICAL alert."""
+        hass = _make_hass()
+        nm = NotificationManager(hass, _make_config(**{CONF_NM_SAFE_WORD: "myword"}))
+        nm._alert_state = AlertState.REPEATING
+        nm._active_alert_data = {
+            "coordinator_id": "safety",
+            "severity": "CRITICAL",
+            "title": "Smoke detected",
+            "message": "Smoke in kitchen",
+            "hazard_type": "smoke",
+            "location": "kitchen",
+        }
+        response = await nm._process_inbound_reply(None, "companion", "myword")
+        assert "acknowledged" in response.lower()
+        assert nm._inbound_by_command["safe_word"] == 1
+
+    @pytest.mark.asyncio
+    async def test_safe_word_case_insensitive(self):
+        """Safe word matching is case-insensitive."""
+        hass = _make_hass()
+        nm = NotificationManager(hass, _make_config(**{CONF_NM_SAFE_WORD: "MyWord"}))
+        nm._alert_state = AlertState.REPEATING
+        nm._active_alert_data = {
+            "coordinator_id": "safety",
+            "severity": "CRITICAL",
+            "title": "Smoke",
+            "message": "Smoke detected",
+            "hazard_type": "smoke",
+            "location": "kitchen",
+        }
+        response = await nm._process_inbound_reply(None, "companion", "MYWORD")
+        assert "acknowledged" in response.lower()
+
+    @pytest.mark.asyncio
+    async def test_safe_word_no_active_alert(self):
+        """Safe word with no active alert returns no-alert message."""
+        hass = _make_hass()
+        nm = NotificationManager(hass, _make_config(**{CONF_NM_SAFE_WORD: "myword"}))
+        response = await nm._process_inbound_reply(None, "companion", "myword")
+        assert "No active alert" in response
+
+
+class TestPersonMatching:
+    """Test person matching from channel metadata."""
+
+    def test_match_by_phone(self):
+        """Phone matching uses last 10 digits."""
+        hass = _make_hass()
+        config = _make_config(**{
+            CONF_NM_PERSONS: [{
+                CONF_NM_PERSON_ENTITY: "person.john",
+                CONF_NM_PERSON_PUSHOVER_KEY: "",
+                CONF_NM_PERSON_COMPANION_SERVICE: "",
+                CONF_NM_PERSON_WHATSAPP_PHONE: "+11234567890",
+                CONF_NM_PERSON_DELIVERY_PREF: NM_DELIVERY_IMMEDIATE,
+            }],
+        })
+        nm = NotificationManager(hass, config)
+        assert nm._match_person_by_phone("+11234567890") == "person.john"
+        assert nm._match_person_by_phone("1234567890") == "person.john"
+
+    def test_match_by_pushover_key(self):
+        """Pushover key matching is exact."""
+        hass = _make_hass()
+        config = _make_config(**{
+            CONF_NM_PERSONS: [{
+                CONF_NM_PERSON_ENTITY: "person.jane",
+                CONF_NM_PERSON_PUSHOVER_KEY: "pushover_key_123",
+                CONF_NM_PERSON_COMPANION_SERVICE: "",
+                CONF_NM_PERSON_WHATSAPP_PHONE: "",
+                CONF_NM_PERSON_DELIVERY_PREF: NM_DELIVERY_IMMEDIATE,
+            }],
+        })
+        nm = NotificationManager(hass, config)
+        assert nm._match_person_by_pushover_key("pushover_key_123") == "person.jane"
+        assert nm._match_person_by_pushover_key("wrong_key") is None
+
+    def test_unknown_phone(self):
+        """Unknown phone returns None."""
+        hass = _make_hass()
+        nm = NotificationManager(hass, _make_config())
+        assert nm._match_person_by_phone("+19999999999") is None
+
+
+class TestInboundCounters:
+    """Test inbound diagnostic counters."""
+
+    @pytest.mark.asyncio
+    async def test_inbound_today_increments(self):
+        """Each inbound message increments the counter."""
+        hass = _make_hass()
+        nm = NotificationManager(hass, _make_config())
+        await nm._process_inbound_reply(None, "companion", "status")
+        await nm._process_inbound_reply(None, "whatsapp", "help")
+        assert nm.inbound_today == 2
+
+    @pytest.mark.asyncio
+    async def test_inbound_by_channel(self):
+        """Channel counters track correctly."""
+        hass = _make_hass()
+        nm = NotificationManager(hass, _make_config())
+        await nm._process_inbound_reply(None, "companion", "status")
+        await nm._process_inbound_reply(None, "whatsapp", "ok")
+        assert nm.inbound_by_channel["companion"] == 1
+        assert nm.inbound_by_channel["whatsapp"] == 1
+
+    @pytest.mark.asyncio
+    async def test_inbound_by_command(self):
+        """Command counters track correctly."""
+        hass = _make_hass()
+        nm = NotificationManager(hass, _make_config())
+        await nm._process_inbound_reply(None, "companion", "status")
+        await nm._process_inbound_reply(None, "companion", "help")
+        await nm._process_inbound_reply(None, "companion", "xyz")
+        assert nm.inbound_by_command["status"] == 1
+        assert nm.inbound_by_command["help"] == 1
+        assert nm.inbound_by_command["unknown"] == 1
+
+    @pytest.mark.asyncio
+    async def test_diagnostics_includes_inbound(self):
+        """Diagnostics summary includes inbound data."""
+        hass = _make_hass()
+        nm = NotificationManager(hass, _make_config())
+        summary = nm.diagnostics_summary
+        assert "inbound_today" in summary
+        assert "safe_word_configured" in summary
+        assert "inbound_channels_active" in summary
+
+
+class TestSilencedMessageHandling:
+    """Test that silence suppresses inbound processing and outbound sends."""
+
+    @pytest.mark.asyncio
+    async def test_silenced_inbound_returns_silenced_message(self):
+        """Commands (except status/help/safe_word) return 'silenced' when active."""
+        hass = _make_hass()
+        nm = NotificationManager(hass, _make_config(**{CONF_NM_SILENCE_DURATION: 30}))
+        # Activate silence
+        await nm._process_inbound_reply(None, "companion", "stop")
+        assert nm._silence_until is not None
+        # Now ack should be rejected as silenced
+        response = await nm._process_inbound_reply(None, "companion", "ok")
+        assert "silenced" in response.lower()
+
+    @pytest.mark.asyncio
+    async def test_status_bypasses_silence(self):
+        """Status command works even while silenced."""
+        hass = _make_hass()
+        nm = NotificationManager(hass, _make_config(**{CONF_NM_SILENCE_DURATION: 30}))
+        await nm._process_inbound_reply(None, "companion", "stop")
+        response = await nm._process_inbound_reply(None, "companion", "status")
+        assert "All clear" in response
+
+    @pytest.mark.asyncio
+    async def test_help_bypasses_silence(self):
+        """Help command works even while silenced."""
+        hass = _make_hass()
+        nm = NotificationManager(hass, _make_config(**{CONF_NM_SILENCE_DURATION: 30}))
+        await nm._process_inbound_reply(None, "companion", "stop")
+        response = await nm._process_inbound_reply(None, "companion", "help")
+        assert "Reply:" in response
+
+    @pytest.mark.asyncio
+    async def test_safe_word_bypasses_silence(self):
+        """Safe word works even while silenced."""
+        hass = _make_hass()
+        nm = NotificationManager(hass, _make_config(**{
+            CONF_NM_SILENCE_DURATION: 30,
+            CONF_NM_SAFE_WORD: "myword",
+        }))
+        nm._alert_state = AlertState.REPEATING
+        nm._active_alert_data = {
+            "coordinator_id": "safety", "severity": "CRITICAL",
+            "title": "Smoke", "message": "Smoke!", "hazard_type": "smoke",
+            "location": "kitchen",
+        }
+        await nm._process_inbound_reply(None, "companion", "stop")
+        response = await nm._process_inbound_reply(None, "companion", "myword")
+        assert "acknowledged" in response.lower()
+
+    @pytest.mark.asyncio
+    async def test_silence_suppresses_outbound_non_critical(self):
+        """Non-CRITICAL outbound notifications are suppressed while silenced."""
+        hass = _make_hass()
+        nm = NotificationManager(hass, _make_config(**{CONF_NM_SILENCE_DURATION: 30}))
+        # Activate silence
+        await nm._process_inbound_reply(None, "companion", "silence")
+        # Send a MEDIUM notification — should be suppressed
+        await nm.async_notify("safety", Severity.MEDIUM, "Test", "Msg")
+        hass.services.async_call.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_silence_does_not_suppress_critical(self):
+        """CRITICAL outbound notifications bypass silence."""
+        hass = _make_hass()
+        nm = NotificationManager(hass, _make_config(**{CONF_NM_SILENCE_DURATION: 30}))
+        await nm._process_inbound_reply(None, "companion", "silence")
+        await nm.async_notify("safety", Severity.CRITICAL, "Fire", "Fire!")
+        hass.services.async_call.assert_called()
+
+
+class TestActiveAlertInbound:
+    """Test inbound processing when non-CRITICAL alert is active."""
+
+    @pytest.mark.asyncio
+    async def test_ack_non_critical_active_alert(self):
+        """Ack succeeds for non-CRITICAL active alert without safe word."""
+        hass = _make_hass()
+        nm = NotificationManager(hass, _make_config())
+        # Set up a HIGH (non-CRITICAL) active alert
+        nm._alert_state = AlertState.REPEATING
+        nm._active_alert_data = {
+            "coordinator_id": "safety", "severity": "HIGH",
+            "title": "Water leak", "message": "Water detected",
+            "hazard_type": "water_leak", "location": "kitchen",
+        }
+        response = await nm._process_inbound_reply(None, "companion", "ok")
+        assert "acknowledged" in response.lower()
+
+    @pytest.mark.asyncio
+    async def test_status_with_active_alert(self):
+        """Status shows alert details when alert is active."""
+        hass = _make_hass()
+        nm = NotificationManager(hass, _make_config())
+        nm._alert_state = AlertState.REPEATING
+        nm._active_alert_data = {
+            "coordinator_id": "safety", "severity": "HIGH",
+            "title": "Water leak", "message": "Water detected",
+            "hazard_type": "water_leak", "location": "kitchen",
+        }
+        response = await nm._process_inbound_reply(None, "companion", "status")
+        assert "water_leak" in response
+        assert "kitchen" in response
+        assert "REPEATING" in response
+
+    @pytest.mark.asyncio
+    async def test_help_shows_critical_text_for_critical(self):
+        """Help shows CRITICAL-specific text when CRITICAL alert is active."""
+        hass = _make_hass()
+        nm = NotificationManager(hass, _make_config(**{CONF_NM_SAFE_WORD: "myword"}))
+        nm._alert_state = AlertState.REPEATING
+        nm._active_alert_data = {
+            "coordinator_id": "safety", "severity": "CRITICAL",
+            "title": "Smoke", "message": "Smoke!", "hazard_type": "smoke",
+            "location": "kitchen",
+        }
+        response = await nm._process_inbound_reply(None, "companion", "help")
+        assert "safe word" in response.lower()
+
+
+class TestChannelHandlerRouting:
+    """Test channel event handler routing to _process_inbound_reply."""
+
+    def test_whatsapp_handler_routes(self):
+        """WhatsApp handler extracts phone/message and calls process_inbound."""
+        hass = _make_hass()
+        config = _make_config(**{
+            CONF_NM_WHATSAPP_ENABLED: True,
+            CONF_NM_WHATSAPP_SEVERITY: "LOW",
+            CONF_NM_PERSONS: [{
+                CONF_NM_PERSON_ENTITY: "person.test",
+                CONF_NM_PERSON_PUSHOVER_KEY: "",
+                CONF_NM_PERSON_COMPANION_SERVICE: "",
+                CONF_NM_PERSON_WHATSAPP_PHONE: "+11234567890",
+                CONF_NM_PERSON_DELIVERY_PREF: NM_DELIVERY_IMMEDIATE,
+            }],
+        })
+        nm = NotificationManager(hass, config)
+        mock_event = MagicMock()
+        mock_event.data = {"phone": "+11234567890", "message": "status"}
+        nm._handle_whatsapp_reply(mock_event)
+        # Should have called async_create_task
+        hass.async_create_task.assert_called_once()
+
+    def test_whatsapp_handler_ignores_empty_message(self):
+        """WhatsApp handler ignores events with empty message."""
+        hass = _make_hass()
+        nm = NotificationManager(hass, _make_config())
+        mock_event = MagicMock()
+        mock_event.data = {"phone": "+11234567890", "message": ""}
+        nm._handle_whatsapp_reply(mock_event)
+        hass.async_create_task.assert_not_called()
+
+    def test_companion_action_acknowledge(self):
+        """Companion ACKNOWLEDGE_URA action triggers async_acknowledge."""
+        hass = _make_hass()
+        nm = NotificationManager(hass, _make_config())
+        mock_event = MagicMock()
+        mock_event.data = {"action": "ACKNOWLEDGE_URA"}
+        nm._handle_companion_action(mock_event)
+        hass.async_create_task.assert_called_once()
+
+    def test_companion_action_status(self):
+        """Companion STATUS_URA action routes to process_inbound."""
+        hass = _make_hass()
+        nm = NotificationManager(hass, _make_config())
+        mock_event = MagicMock()
+        mock_event.data = {"action": "STATUS_URA"}
+        nm._handle_companion_action(mock_event)
+        hass.async_create_task.assert_called_once()
+
+    def test_companion_action_critical_text_input(self):
+        """Companion ACKNOWLEDGE_URA_CRITICAL with text routes to process_inbound."""
+        hass = _make_hass()
+        nm = NotificationManager(hass, _make_config())
+        mock_event = MagicMock()
+        mock_event.data = {"action": "ACKNOWLEDGE_URA_CRITICAL", "reply_text": "myword"}
+        nm._handle_companion_action(mock_event)
+        hass.async_create_task.assert_called_once()
+
+    def test_companion_action_unknown_ignored(self):
+        """Unknown companion action is ignored."""
+        hass = _make_hass()
+        nm = NotificationManager(hass, _make_config())
+        mock_event = MagicMock()
+        mock_event.data = {"action": "SOME_OTHER_ACTION"}
+        nm._handle_companion_action(mock_event)
+        hass.async_create_task.assert_not_called()
