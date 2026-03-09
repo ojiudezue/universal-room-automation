@@ -100,6 +100,98 @@ class OverrideArrester:
             "Override Arrester: watching %d climate entities", len(entity_ids)
         )
 
+    async def async_startup_audit(
+        self, preset_manager, house_state: str = "home_day",
+    ) -> None:
+        """Scan zones for stale overrides that survived a restart.
+
+        On HA restart, in-memory grace/compromise timers are lost.  If a zone
+        is still in 'manual' preset, the event-driven detection won't fire
+        again (no state *change*).  This audit catches those zones and
+        schedules a revert using seasonal defaults as the expected setpoints.
+
+        Called from the first decision cycle (not async_setup) so that climate
+        entities have had time to report their initial state.
+        """
+        if not self._enabled:
+            return
+
+        season = preset_manager.current_season or preset_manager.determine_season()
+        target_preset = preset_manager.get_preset_for_house_state(house_state) or "home"
+        setpoints = preset_manager.get_seasonal_setpoints(target_preset, season)
+        if setpoints is None:
+            _LOGGER.debug("Startup audit: no seasonal setpoints for %s/%s", target_preset, season)
+            return
+
+        expected_cool, expected_heat = setpoints
+        tolerance_bonus = OVERRIDE_COAST_TOLERANCE_BONUS if self._energy_coast else 0.0
+        normal_threshold = OVERRIDE_NORMAL_DELTA + tolerance_bonus
+
+        for zone in self._zone_manager.zones.values():
+            state = self.hass.states.get(zone.climate_entity)
+            if state is None:
+                continue
+
+            preset = state.attributes.get("preset_mode", "")
+            if preset != "manual":
+                continue
+
+            # Zone is in manual — likely a stale override from before restart
+            current_high = state.attributes.get("target_temp_high")
+            current_low = state.attributes.get("target_temp_low")
+
+            delta = self._compute_override_delta(
+                current_high, current_low,
+                expected_cool, expected_heat,
+            )
+            if delta is None:
+                continue
+
+            abs_delta = abs(delta)
+
+            if abs_delta < normal_threshold:
+                _LOGGER.debug(
+                    "Startup audit: %s in manual but within tolerance (%.1fF)",
+                    zone.zone_name, abs_delta,
+                )
+                continue
+
+            # Stale override detected — revert to the appropriate preset
+            zone.override_count_today += 1
+            zone.last_override_direction = "cooler" if delta < 0 else "warmer"
+            self._override_active[zone.zone_id] = True
+
+            _LOGGER.warning(
+                "Startup audit: stale override on %s (%.1fF %s, manual preset). "
+                "Reverting to '%s' in %ds.",
+                zone.zone_name, abs_delta, zone.last_override_direction,
+                target_preset, OVERRIDE_SEVERE_GRACE_MINUTES * 60,
+            )
+
+            # Use severe grace (short) since this override already persisted
+            # through a restart — user has already had their grace period
+            self._cancel_zone_timers(zone.zone_id)
+            grace_seconds = OVERRIDE_SEVERE_GRACE_MINUTES * 60
+            self._grace_timers[zone.zone_id] = async_call_later(
+                self.hass,
+                grace_seconds,
+                lambda _now, z=zone, p=target_preset: self.hass.async_create_task(
+                    self._revert_override(z, p)
+                ),
+            )
+
+            self.hass.async_create_task(
+                self._send_nm_alert(
+                    title=f"HVAC Startup Audit: {zone.zone_name}",
+                    message=(
+                        f"Stale override ({abs_delta:.0f}F {zone.last_override_direction}) "
+                        f"detected after restart. Reverting to {target_preset} in "
+                        f"{OVERRIDE_SEVERE_GRACE_MINUTES} minutes."
+                    ),
+                    severity="medium",
+                )
+            )
+
     def teardown(self) -> None:
         """Cancel all listeners and timers."""
         for unsub in self._state_unsubs:
