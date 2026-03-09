@@ -240,6 +240,7 @@ class HVACCoordinator(BaseCoordinator):
 
         # Start override arrester (event-driven)
         self._override_arrester.setup()
+        self._startup_audit_done = False
 
         # Start periodic decision cycle (every 5 minutes)
         self._decision_timer_unsub = async_track_time_interval(
@@ -298,6 +299,13 @@ class HVACCoordinator(BaseCoordinator):
         # Update zone states
         self._zone_manager.update_all_zones()
         self._zone_manager.update_room_conditions()
+
+        # One-time startup audit: catch stale overrides that survived restart
+        if not self._startup_audit_done:
+            self._startup_audit_done = True
+            await self._override_arrester.async_startup_audit(
+                self._preset_manager, self._house_state or "home_day",
+            )
 
         if not self._observation_mode:
             # Apply presets based on house state
