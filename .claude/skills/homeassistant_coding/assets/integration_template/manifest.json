@@ -1,0 +1,10 @@
+{
+  "domain": "my_integration",
+  "name": "My Integration",
+  "documentation": "https://github.com/yourusername/my_integration",
+  "codeowners": ["@yourusername"],
+  "requirements": [],
+  "version": "1.0.0",
+  "config_flow": true,
+  "iot_class": "local_polling"
+}

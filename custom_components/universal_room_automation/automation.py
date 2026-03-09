@@ -1,6 +1,6 @@
 """Automation logic for Universal Room Automation."""
 #
-# Universal Room Automation v3.9.5
+# Universal Room Automation v3.9.6
 # Build: 2026-01-04
 # File: automation.py
 # v3.3.1.1: Added int() cast to get_auto_off_hour to handle NumberSelector float values
@@ -531,7 +531,7 @@ class RoomAutomation:
             
             # Add color temp for FULL capability only
             if capability == LIGHT_CAPABILITY_FULL:
-                service_data["kelvin"] = color_temp
+                service_data["color_temp_kelvin"] = color_temp
             
             await self._safe_service_call(
                 "light", SERVICE_TURN_ON, service_data, blocking=False
@@ -1320,7 +1320,7 @@ class RoomAutomation:
                     "state": state.state,
                     "brightness": state.attributes.get("brightness"),
                     "rgb_color": state.attributes.get("rgb_color"),
-                    "color_temp": state.attributes.get("color_temp"),
+                    "color_temp_kelvin": state.attributes.get("color_temp_kelvin"),
                 }
         
         _LOGGER.debug("Stored original states for %d alert lights", len(self._alert_light_original_states))
@@ -1346,8 +1346,8 @@ class RoomAutomation:
                     service_data["brightness"] = original["brightness"]
                 if original.get("rgb_color"):
                     service_data["rgb_color"] = original["rgb_color"]
-                elif original.get("color_temp"):
-                    service_data["color_temp"] = original["color_temp"]
+                elif original.get("color_temp_kelvin"):
+                    service_data["color_temp_kelvin"] = original["color_temp_kelvin"]
 
                 await self._safe_service_call(
                     "light",
