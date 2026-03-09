@@ -1,6 +1,6 @@
 """Config flow for Universal Room Automation v3.6.24."""
 #
-# Universal Room Automation v3.9.6
+# Universal Room Automation v3.9.7
 # Build: 2026-01-05
 # File: config_flow.py
 # v3.3.3: Added manage_zones to integration options menu
@@ -2901,6 +2901,9 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             CONF_NM_QUIET_USE_HOUSE_STATE,
             CONF_NM_QUIET_MANUAL_START,
             CONF_NM_QUIET_MANUAL_END,
+            CONF_NM_SAFE_WORD,
+            CONF_NM_SILENCE_DURATION,
+            DEFAULT_NM_SILENCE_DURATION,
         )
 
         if user_input is not None:
@@ -2922,6 +2925,18 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 CONF_NM_QUIET_MANUAL_END,
                 default=self._get_current(CONF_NM_QUIET_MANUAL_END, "07:00"),
             ): selector.TimeSelector(),
+            vol.Optional(
+                CONF_NM_SAFE_WORD,
+                default=self._get_current(CONF_NM_SAFE_WORD, ""),
+            ): selector.TextSelector(
+                selector.TextSelectorConfig(type=selector.TextSelectorType.PASSWORD)
+            ),
+            vol.Optional(
+                CONF_NM_SILENCE_DURATION,
+                default=self._get_current(CONF_NM_SILENCE_DURATION, DEFAULT_NM_SILENCE_DURATION),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=5, max=120, step=5, unit_of_measurement="min")
+            ),
         })
 
         return self.async_show_form(

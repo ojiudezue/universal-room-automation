@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.9.6
+# Universal Room Automation v3.9.7
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -194,6 +194,7 @@ async def async_setup_entry(
             NMAnomalySensor(hass, entry),
             NMDeliveryRateSensor(hass, entry),
             NMDiagnosticsSensor(hass, entry),
+            NMInboundTodaySensor(hass, entry),
             # v3.7.0-E1: Energy Coordinator sensors
             EnergyTOUPeriodSensor(hass, entry),
             EnergyTOURateSensor(hass, entry),
@@ -5034,6 +5035,60 @@ class NMDiagnosticsSensor(AggregationEntity, SensorEntity):
         if nm is None:
             return {}
         return nm.diagnostics_summary
+
+
+class NMInboundTodaySensor(AggregationEntity, SensorEntity):
+    """Count of inbound messages received today.
+
+    Entity: sensor.ura_notification_inbound_today
+    Device: URA: Notification Manager
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:message-reply-text"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_state_class = SensorStateClass.TOTAL
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_notification_inbound_today"
+        self._attr_name = "Notification Inbound Today"
+        self._attr_device_info = _nm_device_info()
+
+    async def async_added_to_hass(self) -> None:
+        """Register signal listener."""
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_NM_ENTITIES_UPDATE
+        self.async_on_remove(
+            async_dispatcher_connect(self.hass, SIGNAL_NM_ENTITIES_UPDATE, self._handle_update)
+        )
+
+    @callback
+    def _handle_update(self) -> None:
+        """Handle NM entities update signal."""
+        self.async_write_ha_state()
+
+    @property
+    def native_value(self) -> int:
+        """Return count of inbound messages today."""
+        nm = self.hass.data.get(DOMAIN, {}).get("notification_manager")
+        if nm is None:
+            return 0
+        return nm.inbound_today
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return inbound breakdown."""
+        nm = self.hass.data.get(DOMAIN, {}).get("notification_manager")
+        if nm is None:
+            return {}
+        return {
+            "by_channel": nm.inbound_by_channel,
+            "by_command": nm.inbound_by_command,
+            "safe_word_configured": nm.safe_word_configured,
+        }
 
 
 # ============================================================================

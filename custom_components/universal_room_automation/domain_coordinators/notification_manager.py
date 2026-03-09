@@ -1,10 +1,11 @@
-"""Notification Manager — centralized outbound notification delivery.
+"""Notification Manager — centralized notification delivery and inbound handling.
 
 Handles 5 channel types (Pushover, Companion App, WhatsApp, TTS, Alert Lights)
 with severity-based routing, per-person config, ack/cooldown/re-fire for
 CRITICAL alerts, quiet hours, daily digest mode, and SQLite persistence.
 
 v3.6.29: Initial implementation (C4a).
+v3.9.7: C4b — Inbound message parsing, safe word ack, response dict, TTS ack.
 """
 
 from __future__ import annotations
@@ -23,6 +24,7 @@ except ImportError:
     class StrEnum(str, Enum):
         pass
 
+from homeassistant.components import webhook
 from homeassistant.core import CALLBACK_TYPE, Event, HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.dispatcher import async_dispatcher_send
@@ -89,6 +91,9 @@ from ..const import (
     NM_DELIVERY_OFF,
     RETENTION_NOTIFICATION_LOG,
     VERSION,
+    CONF_NM_SAFE_WORD,
+    CONF_NM_SILENCE_DURATION,
+    DEFAULT_NM_SILENCE_DURATION,
 )
 from .base import Severity
 from .signals import SIGNAL_NM_ALERT_STATE_CHANGED, SIGNAL_NM_ENTITIES_UPDATE
@@ -152,6 +157,30 @@ COOLDOWN_CONFIG: dict[str, tuple[str, int]] = {
 }
 
 
+# =========================================================================
+# C4b: Response dictionary for inbound message parsing
+# =========================================================================
+
+RESPONSE_COMMANDS: dict[str, str] = {
+    # Acknowledge
+    "1": "ack", "ack": "ack", "ok": "ack", "acknowledge": "ack", "a": "ack",
+    # Status
+    "2": "status", "status": "status", "s": "status", "info": "status",
+    # Silence
+    "3": "silence", "stop": "silence", "silence": "silence",
+    "mute": "silence", "quiet": "silence",
+    # Help
+    "help": "help", "?": "help", "h": "help",
+}
+
+RESPONSE_DICT_TEXT = "Reply: 1=Ack  2=Status  3=Silence"
+CRITICAL_RESPONSE_TEXT = (
+    "Reply with your safe word to acknowledge.\n"
+    "Reply: 2=Status  3=Silence repeats (30 min)"
+)
+WEBHOOK_ID = f"{DOMAIN}_pushover_reply"
+
+
 class NotificationManager:
     """Centralized notification delivery for all domain coordinators.
 
@@ -212,6 +241,18 @@ class NotificationManager:
         # Rolling window for anomaly detection (hourly counts, last 24h)
         self._hourly_counts: list[int] = [0] * 24
         self._current_hour_idx: int = -1
+
+        # C4b: Inbound handling
+        self._wa_unsub: CALLBACK_TYPE | None = None
+        self._webhook_unsub: bool = False
+        self._silence_until: datetime | None = None
+        self._inbound_today_count: int = 0
+        self._inbound_by_channel: dict[str, int] = {
+            "whatsapp": 0, "pushover": 0, "companion": 0,
+        }
+        self._inbound_by_command: dict[str, int] = {
+            "ack": 0, "status": 0, "silence": 0, "help": 0, "safe_word": 0, "unknown": 0,
+        }
 
     @property
     def device_info(self) -> DeviceInfo:
@@ -279,6 +320,15 @@ class NotificationManager:
             "quiet_suppressions": self._quiet_suppressions,
             "by_severity": dict(self._notifications_by_severity),
             "by_channel": dict(self._notifications_by_channel),
+            "inbound_today": self._inbound_today_count,
+            "safe_word_configured": self.safe_word_configured,
+            "inbound_channels_active": [
+                ch for ch, enabled in [
+                    ("whatsapp", self._wa_unsub is not None),
+                    ("pushover", self._webhook_unsub),
+                    ("companion", self._action_unsub is not None),
+                ] if enabled
+            ],
         }
 
     @property
@@ -305,6 +355,27 @@ class NotificationManager:
             return "advisory"
         return "nominal"
 
+    @property
+    def inbound_today(self) -> int:
+        """Return count of inbound messages today."""
+        return self._inbound_today_count
+
+    @property
+    def inbound_by_channel(self) -> dict[str, int]:
+        """Return inbound message breakdown by channel."""
+        return dict(self._inbound_by_channel)
+
+    @property
+    def inbound_by_command(self) -> dict[str, int]:
+        """Return inbound message breakdown by parsed command."""
+        return dict(self._inbound_by_command)
+
+    @property
+    def safe_word_configured(self) -> bool:
+        """Return whether a safe word is configured."""
+        word = self._config.get(CONF_NM_SAFE_WORD, "")
+        return bool(word and len(word.strip()) >= 4)
+
     # =========================================================================
     # Lifecycle
     # =========================================================================
@@ -323,6 +394,9 @@ class NotificationManager:
             pruned = await database.prune_notification_log(RETENTION_NOTIFICATION_LOG)
             if pruned:
                 _LOGGER.info("Pruned %d old notification log entries", pruned)
+            pruned_inbound = await database.prune_inbound_log(RETENTION_NOTIFICATION_LOG)
+            if pruned_inbound:
+                _LOGGER.info("Pruned %d old inbound log entries", pruned_inbound)
 
         # Recover state from DB
         await self._recover_state_from_db()
@@ -334,6 +408,23 @@ class NotificationManager:
         self._action_unsub = self.hass.bus.async_listen(
             "mobile_app_notification_action", self._handle_companion_action
         )
+
+        # C4b: Subscribe to WhatsApp inbound events
+        if self._config.get(CONF_NM_WHATSAPP_ENABLED, False):
+            self._wa_unsub = self.hass.bus.async_listen(
+                "whatsapp_message_received", self._handle_whatsapp_reply
+            )
+
+        # C4b: Register Pushover reply webhook
+        if self._config.get(CONF_NM_PUSHOVER_ENABLED, False):
+            try:
+                webhook.async_register(
+                    self.hass, DOMAIN, "NM Pushover Reply",
+                    WEBHOOK_ID, self._handle_pushover_webhook,
+                )
+                self._webhook_unsub = True
+            except Exception as e:
+                _LOGGER.warning("Failed to register Pushover webhook: %s", e)
 
         _LOGGER.info(
             "Notification Manager ready (state=%s, today=%d)",
@@ -367,6 +458,17 @@ class NotificationManager:
         if self._action_unsub:
             self._action_unsub()
             self._action_unsub = None
+
+        # Cancel inbound listeners (C4b)
+        if self._wa_unsub:
+            self._wa_unsub()
+            self._wa_unsub = None
+        if self._webhook_unsub:
+            try:
+                webhook.async_unregister(self.hass, WEBHOOK_ID)
+            except Exception:
+                pass
+            self._webhook_unsub = False
 
         # Cancel light pattern
         if self._light_pattern_task and not self._light_pattern_task.done():
@@ -408,6 +510,15 @@ class NotificationManager:
             self._quiet_suppressions += 1
             return
 
+        # C4b: Silence check — suppress non-CRITICAL when silenced
+        if (
+            severity != Severity.CRITICAL
+            and self._silence_until
+            and dt_util.utcnow() < self._silence_until
+        ):
+            _LOGGER.debug("Notification suppressed by silence: %s", title)
+            return
+
         # Dedup check
         if self._is_deduplicated(coordinator_id, title, location, severity):
             _LOGGER.debug("Notification deduplicated: %s", title)
@@ -422,6 +533,12 @@ class NotificationManager:
             "NM notify: coordinator=%s severity=%s title=%s",
             coordinator_id, severity_str, title,
         )
+
+        # C4b: Append response dict to message for text channels
+        if severity == Severity.CRITICAL:
+            message_with_dict = f"{message}\n\n{CRITICAL_RESPONSE_TEXT}"
+        else:
+            message_with_dict = f"{message}\n\n{RESPONSE_DICT_TEXT}"
 
         # Determine which channels qualify by severity threshold
         channels_fired: list[str] = []
@@ -465,7 +582,7 @@ class NotificationManager:
                 pushover_key = person_cfg.get(CONF_NM_PERSON_PUSHOVER_KEY, "")
                 if pushover_key:
                     if effective_pref == NM_DELIVERY_IMMEDIATE:
-                        await self._send_pushover(title, message, severity, pushover_key)
+                        await self._send_pushover(title, message_with_dict, severity, pushover_key)
                         channels_fired.append("pushover")
                         if database:
                             await database.log_notification(
@@ -506,7 +623,7 @@ class NotificationManager:
                 phone = person_cfg.get(CONF_NM_PERSON_WHATSAPP_PHONE, "")
                 if phone:
                     if effective_pref == NM_DELIVERY_IMMEDIATE:
-                        await self._send_whatsapp(title, message, phone)
+                        await self._send_whatsapp(title, message_with_dict, phone)
                         channels_fired.append("whatsapp")
                         if database:
                             await database.log_notification(
@@ -597,11 +714,24 @@ class NotificationManager:
                 data["data"] = {
                     "actions": [
                         {
-                            "action": "ACKNOWLEDGE_URA",
-                            "title": "Acknowledge",
-                        }
+                            "action": "ACKNOWLEDGE_URA_CRITICAL",
+                            "title": "Acknowledge (safe word)",
+                            "behavior": "textInput",
+                            "textInputPlaceholder": "Enter safe word",
+                            "textInputButtonTitle": "Submit",
+                        },
+                        {"action": "STATUS_URA", "title": "Status"},
+                        {"action": "SILENCE_URA", "title": "Silence 30min"},
                     ],
                     "push": {"sound": {"name": "default", "critical": 1, "volume": 1.0}},
+                }
+            else:
+                data["data"] = {
+                    "actions": [
+                        {"action": "ACKNOWLEDGE_URA", "title": "Acknowledge"},
+                        {"action": "STATUS_URA", "title": "Status"},
+                        {"action": "SILENCE_URA", "title": "Silence 30min"},
+                    ],
                 }
             await self.hass.services.async_call(domain, service, data, blocking=True)
             self._update_channel_health("companion", True)
@@ -992,7 +1122,7 @@ class NotificationManager:
             async_dispatcher_send(self.hass, SIGNAL_NM_ENTITIES_UPDATE)
 
     # =========================================================================
-    # Companion App action handler
+    # C4b: Inbound message handling
     # =========================================================================
 
     @callback
@@ -1001,6 +1131,300 @@ class NotificationManager:
         action = event.data.get("action", "")
         if action == "ACKNOWLEDGE_URA":
             self.hass.async_create_task(self.async_acknowledge())
+        elif action == "STATUS_URA":
+            self.hass.async_create_task(
+                self._process_inbound_reply(None, "companion", "status")
+            )
+        elif action == "SILENCE_URA":
+            self.hass.async_create_task(
+                self._process_inbound_reply(None, "companion", "silence")
+            )
+        elif action == "ACKNOWLEDGE_URA_CRITICAL":
+            # Text input action — the reply text is in event.data
+            text = event.data.get("reply_text", event.data.get("textInput", ""))
+            if text:
+                self.hass.async_create_task(
+                    self._process_inbound_reply(None, "companion", text)
+                )
+
+    @callback
+    def _handle_whatsapp_reply(self, event: Event) -> None:
+        """Handle inbound WhatsApp message via ha-wa-bridge."""
+        phone = event.data.get("phone", "")
+        message = event.data.get("message", "")
+        if not message:
+            return
+        person_id = self._match_person_by_phone(phone)
+        self.hass.async_create_task(
+            self._process_inbound_reply(person_id, "whatsapp", message)
+        )
+
+    async def _handle_pushover_webhook(
+        self, hass: HomeAssistant, webhook_id: str, request
+    ) -> None:
+        """Handle Pushover reply webhook POST."""
+        try:
+            data = await request.json()
+        except Exception:
+            try:
+                data = await request.post()
+            except Exception:
+                return
+        user_key = data.get("user", "")
+        message = data.get("message", "")
+        if not message:
+            return
+        person_id = self._match_person_by_pushover_key(user_key)
+        await self._process_inbound_reply(person_id, "pushover", message)
+
+    def _match_person_by_phone(self, phone: str) -> str | None:
+        """Match a phone number to a person entity ID."""
+        persons = self._config.get(CONF_NM_PERSONS, [])
+        for p in persons:
+            p_phone = p.get(CONF_NM_PERSON_WHATSAPP_PHONE, "")
+            if p_phone and phone.endswith(p_phone[-10:]):
+                return p.get(CONF_NM_PERSON_ENTITY)
+        return None
+
+    def _match_person_by_pushover_key(self, user_key: str) -> str | None:
+        """Match a Pushover user key to a person entity ID."""
+        persons = self._config.get(CONF_NM_PERSONS, [])
+        for p in persons:
+            p_key = p.get(CONF_NM_PERSON_PUSHOVER_KEY, "")
+            if p_key and p_key == user_key:
+                return p.get(CONF_NM_PERSON_ENTITY)
+        return None
+
+    async def _process_inbound_reply(
+        self,
+        person_id: str | None,
+        channel: str,
+        raw_text: str,
+    ) -> str:
+        """Process an inbound text reply. Returns response text."""
+        text = raw_text.strip().lower()
+        database = self.hass.data.get(DOMAIN, {}).get("database")
+
+        # Track inbound
+        self._inbound_today_count += 1
+        if channel in self._inbound_by_channel:
+            self._inbound_by_channel[channel] += 1
+
+        # Parse command
+        command = RESPONSE_COMMANDS.get(text)
+        safe_word = self._config.get(CONF_NM_SAFE_WORD, "")
+        is_safe_word = (
+            safe_word
+            and len(safe_word.strip()) >= 4
+            and text == safe_word.strip().lower()
+        )
+
+        # Check if currently silenced
+        if self._silence_until and dt_util.utcnow() < self._silence_until:
+            if command not in ("status", "help") and not is_safe_word:
+                response = "Alerts silenced. Will resume at {}.".format(
+                    self._silence_until.strftime("%H:%M")
+                )
+                await self._log_and_reply(
+                    database, person_id, channel, raw_text,
+                    "silenced", response, success=True,
+                )
+                return response
+
+        has_active_alert = self._alert_state in (
+            AlertState.ALERTING, AlertState.REPEATING
+        )
+        is_critical = (
+            has_active_alert
+            and self._active_alert_data
+            and self._active_alert_data.get("severity") == "CRITICAL"
+        )
+
+        # Safe word match
+        if is_safe_word:
+            self._inbound_by_command["safe_word"] += 1
+            if is_critical:
+                person_name = self._get_person_name(person_id)
+                await self.async_acknowledge()
+                await self._announce_ack(
+                    person_name,
+                    self._active_alert_data.get("hazard_type", ""),
+                    self._active_alert_data.get("location", ""),
+                )
+                response = f"CRITICAL alert acknowledged by {person_name}."
+            elif has_active_alert:
+                await self.async_acknowledge()
+                response = "Alert acknowledged."
+            else:
+                response = "No active alert to acknowledge."
+            await self._log_and_reply(
+                database, person_id, channel, "[safe_word]",
+                "safe_word", response, success=is_critical or has_active_alert,
+            )
+            return response
+
+        if command == "ack":
+            self._inbound_by_command["ack"] += 1
+            if is_critical:
+                response = "CRITICAL alert requires safe word. Reply with your safe word to acknowledge."
+            elif has_active_alert:
+                await self.async_acknowledge()
+                response = "Alert acknowledged."
+            else:
+                response = "No active alerts."
+            await self._log_and_reply(
+                database, person_id, channel, raw_text,
+                "ack", response, success=has_active_alert and not is_critical,
+            )
+            return response
+
+        if command == "status":
+            self._inbound_by_command["status"] += 1
+            response = self._build_status_response()
+            await self._log_and_reply(
+                database, person_id, channel, raw_text,
+                "status", response, success=True,
+            )
+            return response
+
+        if command == "silence":
+            self._inbound_by_command["silence"] += 1
+            silence_mins = int(
+                self._config.get(CONF_NM_SILENCE_DURATION, DEFAULT_NM_SILENCE_DURATION)
+            )
+            self._silence_until = dt_util.utcnow() + timedelta(minutes=silence_mins)
+            response = f"Non-CRITICAL alerts silenced for {silence_mins} minutes."
+            await self._log_and_reply(
+                database, person_id, channel, raw_text,
+                "silence", response, success=True,
+            )
+            return response
+
+        if command == "help":
+            self._inbound_by_command["help"] += 1
+            response = RESPONSE_DICT_TEXT
+            if is_critical:
+                response = CRITICAL_RESPONSE_TEXT
+            await self._log_and_reply(
+                database, person_id, channel, raw_text,
+                "help", response, success=True,
+            )
+            return response
+
+        # Unrecognized
+        self._inbound_by_command["unknown"] += 1
+        response = f"Unknown command. {RESPONSE_DICT_TEXT}"
+        await self._log_and_reply(
+            database, person_id, channel, raw_text,
+            "unknown", response, success=False,
+        )
+        return response
+
+    def _build_status_response(self) -> str:
+        """Build a status response summarizing current alert state."""
+        if self._alert_state == AlertState.IDLE:
+            return "URA Alert Status: No active alerts. All clear."
+
+        lines = ["URA Alert Status:"]
+        if self._active_alert_data:
+            data = self._active_alert_data
+            lines.append(
+                f"- Active: {data.get('hazard_type', 'unknown')} "
+                f"in {data.get('location', 'unknown')} "
+                f"({data.get('severity', '?')})"
+            )
+        lines.append(f"- State: {self._alert_state.value.upper()}")
+        if self._alert_state == AlertState.COOLDOWN:
+            mins = self._cooldown_remaining // 60
+            lines.append(f"- Cooldown: {mins}min remaining")
+        if self._silence_until and dt_util.utcnow() < self._silence_until:
+            lines.append(
+                f"- Silenced until {self._silence_until.strftime('%H:%M')}"
+            )
+        return "\n".join(lines)
+
+    async def _announce_ack(
+        self, person_name: str, hazard_type: str, location: str
+    ) -> None:
+        """Announce CRITICAL alert acknowledgment via TTS."""
+        speakers = self._config.get(CONF_NM_TTS_SPEAKERS, [])
+        if not speakers:
+            return
+        message = f"{hazard_type} alert acknowledged by {person_name}"
+        if location:
+            message += f" in {location}"
+        try:
+            for speaker in speakers:
+                await self.hass.services.async_call(
+                    "tts", "speak",
+                    {"media_player_entity_id": speaker, "message": message},
+                    blocking=False,
+                )
+        except Exception as e:
+            _LOGGER.error("TTS ack announcement failed: %s", e)
+
+    async def _log_and_reply(
+        self,
+        database,
+        person_id: str | None,
+        channel: str,
+        raw_text: str,
+        parsed_command: str,
+        response: str,
+        success: bool,
+    ) -> None:
+        """Log inbound to DB, send reply, and update sensors."""
+        alert_id = None
+        if self._active_alert_data and database:
+            active = await database.get_active_critical()
+            if active:
+                alert_id = active.get("id")
+
+        if database:
+            await database.log_inbound(
+                person_id, channel, raw_text,
+                parsed_command, response, alert_id, success,
+            )
+
+        # Send reply back via originating channel
+        if person_id:
+            await self._send_reply(person_id, channel, response)
+
+        async_dispatcher_send(self.hass, SIGNAL_NM_ENTITIES_UPDATE)
+
+    async def _send_reply(
+        self, person_id: str, channel: str, message: str
+    ) -> None:
+        """Send a text response back via the originating channel."""
+        persons = self._config.get(CONF_NM_PERSONS, [])
+        person_cfg = next(
+            (p for p in persons if p.get(CONF_NM_PERSON_ENTITY) == person_id),
+            None,
+        )
+        if not person_cfg:
+            return
+
+        if channel == "whatsapp":
+            phone = person_cfg.get(CONF_NM_PERSON_WHATSAPP_PHONE, "")
+            if phone:
+                await self._send_whatsapp("URA", message, phone)
+        elif channel == "pushover":
+            key = person_cfg.get(CONF_NM_PERSON_PUSHOVER_KEY, "")
+            if key:
+                await self._send_pushover("URA", message, Severity.LOW, key)
+        elif channel == "companion":
+            svc = person_cfg.get(CONF_NM_PERSON_COMPANION_SERVICE, "")
+            if svc:
+                await self._send_companion("URA", message, Severity.LOW, svc)
+
+    def _get_person_name(self, person_id: str | None) -> str:
+        """Get a display name for a person entity ID."""
+        if not person_id:
+            return "someone"
+        state = self.hass.states.get(person_id)
+        if state and state.attributes.get("friendly_name"):
+            return state.attributes["friendly_name"]
+        return person_id.replace("person.", "").replace("_", " ").title()
 
     # =========================================================================
     # Quiet hours

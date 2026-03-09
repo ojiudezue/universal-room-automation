@@ -678,17 +678,21 @@
         }
       },
       "coordinator_notifications_quiet": {
-        "title": "\ud83c\udf19 Quiet Hours",
-        "description": "Configure when non-CRITICAL notifications are suppressed. CRITICAL alerts always bypass quiet hours.",
+        "title": "\ud83c\udf19 Quiet Hours & Safe Word",
+        "description": "Configure quiet hours and the safe word for acknowledging CRITICAL alerts via text reply.",
         "data": {
           "nm_quiet_use_house_state": "Use House State (SLEEP + HOME_NIGHT = quiet)",
           "nm_quiet_manual_start": "Manual Quiet Start Time",
-          "nm_quiet_manual_end": "Manual Quiet End Time"
+          "nm_quiet_manual_end": "Manual Quiet End Time",
+          "nm_safe_word": "Safe Word (for CRITICAL alert acknowledgment)",
+          "nm_silence_duration": "Silence Duration (minutes)"
         },
         "data_description": {
           "nm_quiet_use_house_state": "When enabled, quiet hours activate automatically when house state is SLEEP or HOME_NIGHT. Disable to use manual time window.",
           "nm_quiet_manual_start": "Start time for manual quiet hours (used when house state mode is off).",
-          "nm_quiet_manual_end": "End time for manual quiet hours."
+          "nm_quiet_manual_end": "End time for manual quiet hours.",
+          "nm_safe_word": "A shared household secret word (min 4 chars) required to acknowledge CRITICAL alerts via text reply. Never sent in notifications.",
+          "nm_silence_duration": "How long 'silence' command suppresses non-CRITICAL alerts. Default: 30 minutes."
         }
       },
       "coordinator_notifications_cooldowns": {
