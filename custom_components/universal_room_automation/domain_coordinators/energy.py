@@ -193,6 +193,7 @@ class EnergyCoordinator(BaseCoordinator):
         self._last_crosscheck_hour: int = -1
         # Throttle peak import DB saves to once per hour
         self._last_peak_save_hour: int = -1
+        self._peak_import_dirty: bool = False
 
     def _build_entity_map(self, config: dict[str, str] | None) -> dict[str, str]:
         """Build entity mapping from config keys to battery strategy keys."""
@@ -309,36 +310,31 @@ class EnergyCoordinator(BaseCoordinator):
             _LOGGER.warning("Could not restore accuracy from DB: %s", e)
 
     async def _restore_peak_import_history(self) -> None:
-        """Restore peak import readings and learned threshold from DB.
+        """Restore peak import readings from DB.
 
-        The threshold is recomputed from readings each cycle, but restoring it
-        ensures the diagnostic sensor shows the correct value immediately.
+        The learned threshold is recomputed from readings on the first
+        decision cycle, so only the raw readings need restoration.
         """
         db = self.hass.data.get("universal_room_automation", {}).get("database")
         if db is None:
             return
         try:
-            readings, threshold = await db.get_peak_import_history()
+            readings = await db.get_peak_import_history()
             if readings:
                 self._peak_import_history = readings
-                self._learned_threshold_kw = threshold
                 _LOGGER.info(
-                    "Restored %d peak import readings, learned threshold: %s kW",
-                    len(readings),
-                    f"{threshold:.1f}" if threshold is not None else "none",
+                    "Restored %d peak import readings from DB", len(readings),
                 )
         except Exception as e:
             _LOGGER.warning("Could not restore peak import history from DB: %s", e)
 
     async def _save_peak_import_history(self) -> None:
-        """Persist peak import readings and learned threshold to DB."""
+        """Persist peak import readings to DB."""
         db = self.hass.data.get("universal_room_automation", {}).get("database")
         if db is None:
             return
         try:
-            await db.save_peak_import_history(
-                self._peak_import_history, self._learned_threshold_kw
-            )
+            await db.save_peak_import_history(self._peak_import_history)
         except Exception as e:
             _LOGGER.warning("Could not save peak import history to DB: %s", e)
 
@@ -667,12 +663,18 @@ class EnergyCoordinator(BaseCoordinator):
             # E6: Load shedding evaluation (before constraint so shed level is current)
             if not self._observation_mode:
                 self._update_load_shedding(period)
-                # Persist peak import history hourly (survives restarts)
-                from homeassistant.util import dt as dt_util
-                current_hour = dt_util.now().hour
-                if current_hour != self._last_peak_save_hour and self._peak_import_history:
-                    self._last_peak_save_hour = current_hour
-                    await self._save_peak_import_history()
+
+            # Persist peak import history hourly (independent of observation mode)
+            from homeassistant.util import dt as dt_util
+            current_hour = dt_util.now().hour
+            if (
+                self._peak_import_dirty
+                and current_hour != self._last_peak_save_hour
+                and self._peak_import_history
+            ):
+                self._last_peak_save_hour = current_hour
+                self._peak_import_dirty = False
+                await self._save_peak_import_history()
 
             # E6: HVAC constraint determination
             self._update_hvac_constraint(period)
@@ -939,6 +941,7 @@ class EnergyCoordinator(BaseCoordinator):
         # Record for history (auto-learning)
         if tou_period == "peak" and import_kw > 0:
             self._peak_import_history.append(import_kw)
+            self._peak_import_dirty = True
             # Keep 30 days worth (at 5-min intervals during 4hr peak = ~48/day * 30)
             if len(self._peak_import_history) > 1500:
                 self._peak_import_history = self._peak_import_history[-1500:]

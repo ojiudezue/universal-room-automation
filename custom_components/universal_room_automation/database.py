@@ -1,6 +1,6 @@
 """Database for Universal Room Automation."""
 #
-# Universal Room Automation v3.9.12
+# Universal Room Automation v3.9.13
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors
@@ -583,14 +583,6 @@ class UniversalRoomDatabase:
                 await db.execute("""
                     CREATE INDEX IF NOT EXISTS idx_energy_peak_import_seq
                     ON energy_peak_import(seq ASC)
-                """)
-                # Learned threshold — single-row table (always id=1)
-                await db.execute("""
-                    CREATE TABLE IF NOT EXISTS energy_learned_threshold (
-                        id INTEGER PRIMARY KEY CHECK (id = 1),
-                        threshold_kw REAL,
-                        updated_at REAL
-                    )
                 """)
                 await db.commit()
 
@@ -2441,56 +2433,38 @@ class UniversalRoomDatabase:
 
     # ── Peak import history (load shedding auto-learning) ──────────
 
-    async def save_peak_import_history(
-        self,
-        readings: list[float],
-        learned_threshold_kw: float | None,
-    ) -> None:
-        """Persist peak import readings and learned threshold.
+    async def save_peak_import_history(self, readings: list[float]) -> None:
+        """Persist peak import readings for load shedding auto-learning.
 
-        Replaces all rows — called periodically from Energy Coordinator.
+        Replaces all rows — called hourly from Energy Coordinator.
         Keeps at most 1500 readings (matches in-memory cap).
+        The learned threshold is recomputed from readings on each cycle,
+        so only the raw readings need persistence.
         """
         try:
             async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
                 await db.execute("DELETE FROM energy_peak_import")
                 if readings:
-                    # Batch insert with monotonic sequence for ordering
                     await db.executemany(
                         "INSERT INTO energy_peak_import (seq, import_kw) VALUES (?, ?)",
                         [(i, r) for i, r in enumerate(readings)],
                     )
-                # Upsert learned threshold
-                await db.execute("""
-                    INSERT OR REPLACE INTO energy_learned_threshold
-                    (id, threshold_kw, updated_at)
-                    VALUES (1, ?, strftime('%s', 'now'))
-                """, (learned_threshold_kw,))
                 await db.commit()
         except Exception as e:
             _LOGGER.error("Error saving peak import history: %s", e)
 
-    async def get_peak_import_history(self) -> tuple[list[float], float | None]:
-        """Restore peak import readings and learned threshold.
+    async def get_peak_import_history(self) -> list[float]:
+        """Restore peak import readings for load shedding auto-learning.
 
-        Returns (readings_list, learned_threshold_kw).
+        Returns list of import_kw readings in original order.
         """
-        readings: list[float] = []
-        threshold: float | None = None
         try:
             async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
                 cursor = await db.execute(
                     "SELECT import_kw FROM energy_peak_import ORDER BY seq ASC"
                 )
                 rows = await cursor.fetchall()
-                readings = [row[0] for row in rows]
-
-                cursor = await db.execute(
-                    "SELECT threshold_kw FROM energy_learned_threshold WHERE id = 1"
-                )
-                row = await cursor.fetchone()
-                if row and row[0] is not None:
-                    threshold = row[0]
+                return [row[0] for row in rows]
         except Exception as e:
             _LOGGER.error("Error restoring peak import history: %s", e)
-        return readings, threshold
+            return []
