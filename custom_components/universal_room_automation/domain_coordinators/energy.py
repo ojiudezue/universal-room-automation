@@ -191,6 +191,8 @@ class EnergyCoordinator(BaseCoordinator):
         self._envoy_last_available: str | None = None
         # Cross-check: last logged divergence (avoid log spam)
         self._last_crosscheck_hour: int = -1
+        # Throttle peak import DB saves to once per hour
+        self._last_peak_save_hour: int = -1
 
     def _build_entity_map(self, config: dict[str, str] | None) -> dict[str, str]:
         """Build entity mapping from config keys to battery strategy keys."""
@@ -230,6 +232,9 @@ class EnergyCoordinator(BaseCoordinator):
 
         # Restore forecast accuracy history from DB
         await self._restore_accuracy_from_db()
+
+        # Restore peak import history for load shedding auto-learning
+        await self._restore_peak_import_history()
 
         # Fit temperature regression from historical data
         await self._fit_temp_regression()
@@ -302,6 +307,40 @@ class EnergyCoordinator(BaseCoordinator):
                 )
         except Exception as e:
             _LOGGER.warning("Could not restore accuracy from DB: %s", e)
+
+    async def _restore_peak_import_history(self) -> None:
+        """Restore peak import readings and learned threshold from DB.
+
+        The threshold is recomputed from readings each cycle, but restoring it
+        ensures the diagnostic sensor shows the correct value immediately.
+        """
+        db = self.hass.data.get("universal_room_automation", {}).get("database")
+        if db is None:
+            return
+        try:
+            readings, threshold = await db.get_peak_import_history()
+            if readings:
+                self._peak_import_history = readings
+                self._learned_threshold_kw = threshold
+                _LOGGER.info(
+                    "Restored %d peak import readings, learned threshold: %s kW",
+                    len(readings),
+                    f"{threshold:.1f}" if threshold is not None else "none",
+                )
+        except Exception as e:
+            _LOGGER.warning("Could not restore peak import history from DB: %s", e)
+
+    async def _save_peak_import_history(self) -> None:
+        """Persist peak import readings and learned threshold to DB."""
+        db = self.hass.data.get("universal_room_automation", {}).get("database")
+        if db is None:
+            return
+        try:
+            await db.save_peak_import_history(
+                self._peak_import_history, self._learned_threshold_kw
+            )
+        except Exception as e:
+            _LOGGER.warning("Could not save peak import history to DB: %s", e)
 
     async def _fit_temp_regression(self) -> None:
         """Fit temperature regression from historical consumption-temperature pairs.
@@ -628,6 +667,12 @@ class EnergyCoordinator(BaseCoordinator):
             # E6: Load shedding evaluation (before constraint so shed level is current)
             if not self._observation_mode:
                 self._update_load_shedding(period)
+                # Persist peak import history hourly (survives restarts)
+                from homeassistant.util import dt as dt_util
+                current_hour = dt_util.now().hour
+                if current_hour != self._last_peak_save_hour and self._peak_import_history:
+                    self._last_peak_save_hour = current_hour
+                    await self._save_peak_import_history()
 
             # E6: HVAC constraint determination
             self._update_hvac_constraint(period)
@@ -1088,7 +1133,10 @@ class EnergyCoordinator(BaseCoordinator):
             _LOGGER.debug("Energy: NM alert failed (non-fatal): %s", title)
 
     async def async_teardown(self) -> None:
-        """Tear down — cancel decision timer."""
+        """Tear down — cancel decision timer, persist peak import history."""
+        # Save peak import history so it survives restarts
+        if self._peak_import_history:
+            await self._save_peak_import_history()
         if self._decision_timer_unsub is not None:
             self._decision_timer_unsub()
             self._decision_timer_unsub = None
