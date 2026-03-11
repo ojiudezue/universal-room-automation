@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.10.0
+# Universal Room Automation v3.10.1
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -2475,6 +2475,9 @@ class _CensusBaseSensor(AggregationEntity, SensorEntity):
     Reads data from hass.data[DOMAIN]["census"] (PersonCensus instance).
     Gracefully returns 0 / unavailable if census has not run yet or
     camera integration is not configured.
+
+    Subscribes to SIGNAL_CENSUS_UPDATED for immediate push updates
+    when event-driven census triggers (v3.10.1).
     """
 
     _attr_has_entity_name = True
@@ -2483,6 +2486,24 @@ class _CensusBaseSensor(AggregationEntity, SensorEntity):
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         """Initialize census base sensor."""
         super().__init__(hass, entry)
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to census updates for immediate push."""
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_CENSUS_UPDATED
+
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass,
+                SIGNAL_CENSUS_UPDATED,
+                self._handle_census_update,
+            )
+        )
+
+    def _handle_census_update(self, data: dict) -> None:
+        """Handle census update signal — push state immediately."""
+        self.async_write_ha_state()
 
     def _get_census(self):
         """Return last FullCensusResult or None."""
@@ -2517,7 +2538,7 @@ class URAPersonsInHouseSensor(_CensusBaseSensor):
         result = self._get_census()
         if result is None:
             return {}
-        return {
+        attrs = {
             "identified_count": result.house.identified_count,
             "unidentified_count": result.house.unidentified_count,
             "confidence": result.house.confidence,
@@ -2528,6 +2549,15 @@ class URAPersonsInHouseSensor(_CensusBaseSensor):
             "active_platforms": result.house.active_platforms,
             "last_updated": result.timestamp.isoformat() if result.timestamp else None,
         }
+        # v3.10.1 enhanced census attributes
+        if result.house.enhanced_census:
+            attrs["wifi_guest_floor"] = result.house.wifi_guest_floor
+            attrs["camera_unrecognized"] = result.house.camera_unrecognized
+            attrs["peak_held"] = result.house.peak_held
+            attrs["peak_age_minutes"] = result.house.peak_age_minutes
+            attrs["face_recognized_persons"] = result.house.face_recognized_persons
+            attrs["enhanced_census"] = True
+        return attrs
 
 
 class URAIdentifiedPersonsInHouseSensor(_CensusBaseSensor):
@@ -2609,11 +2639,16 @@ class URAPersonsOnPropertySensor(_CensusBaseSensor):
         result = self._get_census()
         if result is None:
             return {}
-        return {
+        attrs = {
             "confidence": result.property_exterior.confidence,
             "source_agreement": result.property_exterior.source_agreement,
             "last_updated": result.timestamp.isoformat() if result.timestamp else None,
         }
+        # v3.10.1 enhanced census attributes
+        if result.property_exterior.enhanced_census:
+            attrs["peak_held"] = result.property_exterior.peak_held
+            attrs["peak_age_minutes"] = result.property_exterior.peak_age_minutes
+        return attrs
 
 
 class URATotalPersonsOnPropertySensor(_CensusBaseSensor):

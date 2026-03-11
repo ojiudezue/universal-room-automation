@@ -1,6 +1,6 @@
 """Camera integration and person census for Universal Room Automation v3.5.0."""
 #
-# Universal Room Automation v3.10.0
+# Universal Room Automation v3.10.1
 # Build: 2026-02-23
 # File: camera_census.py
 # Cycle 3: Camera Integration & Census Core
@@ -12,6 +12,7 @@
 #   - FullCensusResult: Combined house + property result dataclass
 #
 
+import asyncio
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -19,6 +20,7 @@ from typing import Any
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import entity_registry as er
+from homeassistant.util import dt as dt_util
 
 from .const import (
     DOMAIN,
@@ -38,6 +40,17 @@ from .const import (
     CENSUS_AGREEMENT_DISAGREE,
     CENSUS_AGREEMENT_SINGLE,
     CONF_CENSUS_CROSS_VALIDATION,
+    # v3.10.1 Census v2
+    CONF_ENHANCED_CENSUS,
+    CONF_CENSUS_HOLD_INTERIOR,
+    CONF_CENSUS_HOLD_EXTERIOR,
+    DEFAULT_CENSUS_HOLD_INTERIOR_MINUTES,
+    DEFAULT_CENSUS_HOLD_EXTERIOR_MINUTES,
+    CENSUS_DECAY_STEP_SECONDS,
+    CENSUS_FACE_RECOGNITION_WINDOW_SECONDS,
+    CONF_GUEST_VLAN_SSID,
+    DEFAULT_GUEST_VLAN_SSID,
+    PHONE_MANUFACTURERS,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -79,6 +92,13 @@ class CensusZoneResult:
     degraded_mode: bool = False         # True when primary platform (Frigate) is unavailable
     active_platforms: list[str] = field(default_factory=list)  # Platforms contributing data
     timestamp: datetime = field(default_factory=datetime.now)
+    # v3.10.1 enhanced census attributes
+    wifi_guest_floor: int = 0
+    camera_unrecognized: int = 0
+    peak_held: bool = False
+    peak_age_minutes: int = 0
+    face_recognized_persons: list[str] = field(default_factory=list)
+    enhanced_census: bool = False
 
 
 @dataclass
@@ -668,6 +688,13 @@ class PersonCensus:
         self.hass = hass
         self._camera_manager = camera_manager
         self._last_result: FullCensusResult | None = None
+        self._update_lock = asyncio.Lock()
+
+        # v3.10.1 Census v2: hold/decay state
+        self._peak_house_camera_count: int = 0
+        self._peak_house_timestamp: datetime | None = None
+        self._peak_property_count: int = 0
+        self._peak_property_timestamp: datetime | None = None
 
     # ------------------------------------------------------------------
     # Transit detection helpers (cross-platform)
@@ -705,8 +732,16 @@ class PersonCensus:
         Returns a FullCensusResult. Always returns a valid result;
         falls back to BLE-only or zero data gracefully if cameras
         are unavailable or not configured.
+
+        Uses an asyncio lock to prevent concurrent mutations of
+        peak hold/decay state from overlapping periodic + event triggers.
         """
-        now = datetime.now()
+        async with self._update_lock:
+            return await self._async_update_census_locked()
+
+    async def _async_update_census_locked(self) -> FullCensusResult:
+        """Inner census update (must be called under self._update_lock)."""
+        now = dt_util.utcnow()
 
         # --- 1. Gather BLE person data from person_coordinator ---
         ble_persons = self._get_ble_persons()
@@ -716,6 +751,15 @@ class PersonCensus:
 
         # --- 3. Property (exterior) census ---
         property_result = await self._calculate_property_census(now)
+
+        # --- 3.5. Apply enhanced census v2 (if enabled) ---
+        if self._is_enhanced_census_enabled():
+            house_result = self._apply_enhanced_house_census(
+                house_result, ble_persons, now
+            )
+            property_result = self._apply_enhanced_property_census(
+                property_result, now
+            )
 
         # --- 4. Combine ---
         total_on_property = house_result.total_persons + property_result.total_persons
@@ -1264,3 +1308,358 @@ class PersonCensus:
             _LOGGER.debug("Face recognition identified: %s", face_ids)
 
         return face_ids
+
+    # ------------------------------------------------------------------
+    # v3.10.1: Enhanced Census (event-driven sensor fusion)
+    # ------------------------------------------------------------------
+
+    def _is_enhanced_census_enabled(self) -> bool:
+        """Return True if enhanced census v2 is enabled (default True)."""
+        for entry in self.hass.config_entries.async_entries(DOMAIN):
+            if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_INTEGRATION:
+                merged = {**entry.data, **entry.options}
+                return bool(merged.get(CONF_ENHANCED_CENSUS, True))
+        return True
+
+    def _get_hold_seconds(self, zone: str) -> int:
+        """Return hold duration in seconds for the given zone."""
+        for entry in self.hass.config_entries.async_entries(DOMAIN):
+            if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_INTEGRATION:
+                merged = {**entry.data, **entry.options}
+                if zone == "house":
+                    minutes = merged.get(
+                        CONF_CENSUS_HOLD_INTERIOR,
+                        DEFAULT_CENSUS_HOLD_INTERIOR_MINUTES,
+                    )
+                else:
+                    minutes = merged.get(
+                        CONF_CENSUS_HOLD_EXTERIOR,
+                        DEFAULT_CENSUS_HOLD_EXTERIOR_MINUTES,
+                    )
+                return int(minutes) * 60
+        if zone == "house":
+            return DEFAULT_CENSUS_HOLD_INTERIOR_MINUTES * 60
+        return DEFAULT_CENSUS_HOLD_EXTERIOR_MINUTES * 60
+
+    def _apply_hold_decay(
+        self, fresh_count: int, zone: str, now: datetime
+    ) -> tuple[int, bool, int]:
+        """Apply hold/decay to a camera-based count.
+
+        Returns (held_count, is_peak_held, peak_age_minutes).
+
+        Logic:
+          - If fresh_count >= stored peak: update peak, use fresh_count
+          - If within hold window: use stored peak
+          - After hold window (house only): decay -1 per CENSUS_DECAY_STEP_SECONDS
+          - After hold window (property): instant drop to fresh_count
+        """
+        hold_seconds = self._get_hold_seconds(zone)
+
+        if zone == "house":
+            peak = self._peak_house_camera_count
+            peak_ts = self._peak_house_timestamp
+        else:
+            peak = self._peak_property_count
+            peak_ts = self._peak_property_timestamp
+
+        # Update peak if fresh count is higher or equal
+        if fresh_count >= peak or peak_ts is None:
+            peak = fresh_count
+            peak_ts = now
+            if zone == "house":
+                self._peak_house_camera_count = peak
+                self._peak_house_timestamp = peak_ts
+            else:
+                self._peak_property_count = peak
+                self._peak_property_timestamp = peak_ts
+            return (fresh_count, False, 0)
+
+        elapsed = (now - peak_ts).total_seconds()
+
+        # Within hold window: use peak
+        if elapsed < hold_seconds:
+            age_min = int(elapsed / 60)
+            return (peak, True, age_min)
+
+        # After hold window
+        if zone == "house":
+            # Gradual decay: -1 per CENSUS_DECAY_STEP_SECONDS after hold expires
+            elapsed_after_hold = elapsed - hold_seconds
+            decay_steps = int(elapsed_after_hold / CENSUS_DECAY_STEP_SECONDS)
+            decayed = max(fresh_count, peak - decay_steps)
+            if decayed <= fresh_count:
+                # Decay complete — reset peak to fresh
+                self._peak_house_camera_count = fresh_count
+                self._peak_house_timestamp = now
+                return (fresh_count, False, 0)
+            age_min = int(elapsed / 60)
+            return (decayed, True, age_min)
+        else:
+            # Property: instant drop after hold expires
+            self._peak_property_count = fresh_count
+            self._peak_property_timestamp = now
+            return (fresh_count, False, 0)
+
+    def _get_unrecognized_camera_count(self) -> int:
+        """Count interior cameras detecting persons with unrecognized faces.
+
+        For each Frigate camera with person_count > 0, check if
+        last_recognized_face is unknown/empty. If so, that camera
+        is seeing an unrecognized person (potential guest).
+
+        Face recognition must be fresh (within CENSUS_FACE_RECOGNITION_WINDOW_SECONDS)
+        to be trusted. Stale face matches are treated as unknown.
+        """
+        unrecognized = 0
+        now = dt_util.utcnow()
+        configured_interior = self._get_interior_camera_entities()
+
+        for entity_id in configured_interior:
+            platform = self._camera_manager.get_platform_for_camera(entity_id)
+            if platform != CAMERA_PLATFORM_FRIGATE:
+                continue
+
+            camera_info = self._camera_manager._camera_by_entity.get(entity_id)
+            if not camera_info or not camera_info.person_count_sensor:
+                continue
+
+            # Check if this camera currently sees a person
+            count = self._get_sensor_int(camera_info.person_count_sensor)
+            if count <= 0:
+                continue
+
+            # Check face recognition for this camera
+            bs_id = camera_info.entity_id
+            if not bs_id.endswith("_person_occupancy"):
+                # Can't derive face sensor — count as unrecognized
+                unrecognized += count
+                continue
+
+            base_name = bs_id[len("binary_sensor."):-len("_person_occupancy")]
+            face_sensor_id = f"sensor.{base_name}_last_recognized_face"
+            face_state = self.hass.states.get(face_sensor_id)
+
+            face_is_fresh = False
+            if face_state and face_state.state.strip().lower() not in (
+                "unavailable", "unknown", "", "none", "no_match",
+            ):
+                # Check freshness — stale face matches are unreliable
+                last_changed = face_state.last_changed
+                if last_changed is not None:
+                    try:
+                        if last_changed.tzinfo is not None:
+                            age = (now - last_changed).total_seconds()
+                        else:
+                            age = (now - last_changed.replace(
+                                tzinfo=dt_util.UTC
+                            )).total_seconds()
+                        face_is_fresh = age <= CENSUS_FACE_RECOGNITION_WINDOW_SECONDS
+                    except (TypeError, AttributeError):
+                        face_is_fresh = False
+
+            if face_is_fresh:
+                # Camera sees someone AND face is recently recognized — not a guest
+                # But there may be MORE people than the recognized face
+                unrecognized += max(0, count - 1)
+            else:
+                # Face is unknown, stale, or no match — all detected are unrecognized
+                unrecognized += count
+
+        return unrecognized
+
+    def _get_wifi_guest_count(self) -> int:
+        """Count phones on guest WiFi VLAN.
+
+        Looks for device_tracker entities from UniFi that are:
+          - state = "home"
+          - on guest VLAN (essid matches configured guest SSID, or is_guest=True)
+          - OUI matches a phone manufacturer (not IoT)
+
+        Returns count of guest phone devices currently connected.
+        """
+        guest_ssid = ""
+        for entry in self.hass.config_entries.async_entries(DOMAIN):
+            if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_INTEGRATION:
+                merged = {**entry.data, **entry.options}
+                guest_ssid = merged.get(CONF_GUEST_VLAN_SSID, DEFAULT_GUEST_VLAN_SSID)
+                break
+
+        guest_count = 0
+        all_states = self.hass.states.async_all("device_tracker")
+
+        for state in all_states:
+            if state.state != "home":
+                continue
+
+            attrs = state.attributes
+            source_type = attrs.get("source_type", "")
+            if source_type != "router":
+                continue
+
+            # Check if on guest VLAN
+            is_guest = False
+            if guest_ssid:
+                if attrs.get("essid") == guest_ssid:
+                    is_guest = True
+            else:
+                # Auto-detect: use is_guest flag from UniFi
+                if attrs.get("is_guest", False):
+                    is_guest = True
+
+            if not is_guest:
+                continue
+
+            # Filter by phone manufacturer
+            oui = attrs.get("oui", "")
+            if oui in PHONE_MANUFACTURERS:
+                guest_count += 1
+                _LOGGER.debug(
+                    "WiFi guest device: %s (oui=%s, essid=%s)",
+                    state.entity_id, oui, attrs.get("essid", ""),
+                )
+
+        return guest_count
+
+    def _get_face_recognized_person_names(self, now: datetime) -> list[str]:
+        """Return person IDs (slug format) Frigate has face-matched recently.
+
+        Checks sensor.frigate_*_last_camera for each tracked person.
+        A person is "recently recognized" if their last_camera sensor
+        has a valid camera name (not "Unknown") and was updated within
+        the face recognition window.
+
+        Returns person IDs in slug format (e.g., "oji_udezue") to match
+        the BLE person_id format from person_coordinator.
+        """
+        recognized: list[str] = []
+
+        # Get tracked persons from integration config
+        tracked_persons: list[str] = []
+        for entry in self.hass.config_entries.async_entries(DOMAIN):
+            if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_INTEGRATION:
+                merged = {**entry.data, **entry.options}
+                raw = merged.get("tracked_persons", [])
+                for p in raw:
+                    # Normalize to slug: "person.oji_udezue" -> "oji_udezue"
+                    slug = p.replace("person.", "").strip()
+                    if slug:
+                        tracked_persons.append(slug)
+                break
+
+        for person_slug in tracked_persons:
+            # Frigate uses lowercase names: sensor.frigate_oji_udezue_last_camera
+            sensor_id = f"sensor.frigate_{person_slug.lower()}_last_camera"
+            state = self.hass.states.get(sensor_id)
+            if state is None:
+                continue
+
+            # Check if value is a real camera name (not "Unknown")
+            if state.state.strip().lower() in ("unknown", "unavailable", ""):
+                continue
+
+            # Check if recently updated — use UTC-aware comparison
+            last_changed = state.last_changed
+            if last_changed is not None:
+                try:
+                    # Ensure both sides are timezone-aware (HA states use UTC)
+                    if last_changed.tzinfo is not None:
+                        age = (now - last_changed).total_seconds()
+                    else:
+                        age = (now - last_changed.replace(
+                            tzinfo=dt_util.UTC
+                        )).total_seconds()
+                except (TypeError, AttributeError):
+                    age = CENSUS_FACE_RECOGNITION_WINDOW_SECONDS + 1
+
+                if age <= CENSUS_FACE_RECOGNITION_WINDOW_SECONDS:
+                    recognized.append(person_slug)
+
+        return recognized
+
+    def _apply_enhanced_house_census(
+        self,
+        raw_result: CensusZoneResult,
+        ble_persons: list[str],
+        now: datetime,
+    ) -> CensusZoneResult:
+        """Apply enhanced census v2 to the house zone result.
+
+        Replaces the original unidentified formula with:
+          unidentified = max(camera_unrecognized, wifi_guests)
+        Then applies hold/decay to stabilize the count.
+        """
+        # Get v2 signals
+        camera_unrecognized = self._get_unrecognized_camera_count()
+        wifi_guests = self._get_wifi_guest_count()
+        face_recognized = self._get_face_recognized_person_names(now)
+
+        # Recognized persons = BLE home + face recognized (union)
+        recognized_set = set(ble_persons) | set(face_recognized)
+        identified_count = len(recognized_set)
+
+        # Unidentified = max of camera unrecognized and WiFi guest floor
+        unidentified_raw = max(camera_unrecognized, wifi_guests)
+
+        # Apply hold/decay to unidentified count
+        held_unidentified, peak_held, peak_age = self._apply_hold_decay(
+            unidentified_raw, "house", now
+        )
+
+        total = identified_count + held_unidentified
+
+        return CensusZoneResult(
+            zone=raw_result.zone,
+            identified_count=identified_count,
+            identified_persons=sorted(recognized_set),
+            unidentified_count=held_unidentified,
+            total_persons=total,
+            confidence=raw_result.confidence,
+            source_agreement=raw_result.source_agreement,
+            frigate_count=raw_result.frigate_count,
+            unifi_count=raw_result.unifi_count,
+            degraded_mode=raw_result.degraded_mode,
+            active_platforms=raw_result.active_platforms,
+            timestamp=raw_result.timestamp,
+            # v2 attributes
+            wifi_guest_floor=wifi_guests,
+            camera_unrecognized=camera_unrecognized,
+            peak_held=peak_held,
+            peak_age_minutes=peak_age,
+            face_recognized_persons=face_recognized,
+            enhanced_census=True,
+        )
+
+    def _apply_enhanced_property_census(
+        self,
+        raw_result: CensusZoneResult,
+        now: datetime,
+    ) -> CensusZoneResult:
+        """Apply hold/decay to the property (exterior) zone result."""
+        raw_count = raw_result.total_persons
+        held_count, peak_held, peak_age = self._apply_hold_decay(
+            raw_count, "property", now
+        )
+
+        if held_count == raw_count and not peak_held:
+            # No change needed
+            return raw_result
+
+        return CensusZoneResult(
+            zone=raw_result.zone,
+            identified_count=raw_result.identified_count,
+            identified_persons=raw_result.identified_persons,
+            unidentified_count=held_count,
+            total_persons=raw_result.identified_count + held_count,
+            confidence=raw_result.confidence,
+            source_agreement=raw_result.source_agreement,
+            frigate_count=raw_result.frigate_count,
+            unifi_count=raw_result.unifi_count,
+            degraded_mode=raw_result.degraded_mode,
+            active_platforms=raw_result.active_platforms,
+            timestamp=raw_result.timestamp,
+            # v2 attributes
+            peak_held=peak_held,
+            peak_age_minutes=peak_age,
+            enhanced_census=True,
+        )

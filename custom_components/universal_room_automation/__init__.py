@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation v3.10.0
+# Universal Room Automation v3.10.1
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -20,7 +20,10 @@ from homeassistant.const import Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
-from homeassistant.helpers.event import async_track_time_interval
+from homeassistant.helpers.event import (
+    async_track_time_interval,
+    async_track_state_change_event,
+)
 
 from .const import (
     DOMAIN,
@@ -51,6 +54,8 @@ from .const import (
     SCAN_INTERVAL_CENSUS,  # v3.5.0: Census update interval
     DEFAULT_ELECTRICITY_RATE,
     NOTIFY_LEVEL_ERRORS,
+    CONF_ENHANCED_CENSUS,  # v3.10.1: Enhanced census toggle
+    CENSUS_EVENT_DEBOUNCE_SECONDS,  # v3.10.1: Event debounce
 )
 from .const import VERSION
 from .coordinator import UniversalRoomCoordinator
@@ -679,6 +684,56 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 + len(camera_manager.get_all_unifi_cameras()),
                 SCAN_INTERVAL_CENSUS,
             )
+
+            # v3.10.1: Event-driven census triggers (when enhanced census enabled)
+            enhanced = merged_config.get(CONF_ENHANCED_CENSUS, True)
+            if enhanced:
+                import time as _time
+                _last_event_census_time = 0.0
+
+                async def _event_census_trigger(event):
+                    """Trigger immediate census on detection event (debounced)."""
+                    nonlocal _last_event_census_time
+                    now = _time.monotonic()
+                    if now - _last_event_census_time < CENSUS_EVENT_DEBOUNCE_SECONDS:
+                        return
+                    _last_event_census_time = now
+                    try:
+                        await census.async_update_census()
+                    except Exception as exc:
+                        _LOGGER.warning("Event-triggered census update failed: %s", exc)
+
+                # Collect person detection entity IDs to watch
+                _person_detection_entities = []
+                for cam_info in camera_manager.get_all_frigate_cameras():
+                    if cam_info.entity_id:
+                        _person_detection_entities.append(cam_info.entity_id)
+                for cam_info in camera_manager.get_all_unifi_cameras():
+                    if cam_info.person_binary_sensor:
+                        _person_detection_entities.append(cam_info.person_binary_sensor)
+
+                unsub_event_listeners = []
+                if _person_detection_entities:
+                    unsub = async_track_state_change_event(
+                        hass, _person_detection_entities, _event_census_trigger
+                    )
+                    unsub_event_listeners.append(unsub)
+
+                # Watch Bermuda global device count for new BLE devices
+                # Always register even if entity doesn't exist yet —
+                # async_track_state_change_event will fire when it first appears
+                unsub = async_track_state_change_event(
+                    hass,
+                    ["sensor.bermuda_global_total_device_count"],
+                    _event_census_trigger,
+                )
+                unsub_event_listeners.append(unsub)
+
+                hass.data[DOMAIN]["unsub_census_events"] = unsub_event_listeners
+                _LOGGER.info(
+                    "Enhanced census v2: watching %d detection entities + BLE count",
+                    len(_person_detection_entities),
+                )
         except Exception as e:
             _LOGGER.error("Failed to initialize camera census: %s", e)
 
@@ -1384,6 +1439,9 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         unsub_census = hass.data[DOMAIN].pop("unsub_census", None)
         if unsub_census:
             unsub_census()
+        # v3.10.1: Clean up event-driven census listeners
+        for unsub in hass.data[DOMAIN].pop("unsub_census_events", []):
+            unsub()
         for key in ["camera_manager", "census"]:
             if key in hass.data[DOMAIN]:
                 del hass.data[DOMAIN][key]

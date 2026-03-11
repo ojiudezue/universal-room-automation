@@ -484,14 +484,22 @@
           "camera_person_entities": "Indoor Cameras",
           "egress_cameras": "Door Cameras",
           "perimeter_cameras": "Outdoor Cameras",
-          "face_recognition_enabled": "Enable Face Recognition"
+          "face_recognition_enabled": "Enable Face Recognition",
+          "enhanced_census": "Enhanced Census (v2)",
+          "guest_vlan_ssid": "Guest WiFi SSID",
+          "census_hold_interior": "Interior Hold (minutes)",
+          "census_hold_exterior": "Exterior Hold (minutes)"
         },
         "data_description": {
           "census_cross_validation": "When you run multiple camera platforms (e.g., Frigate and UniFi Protect), person counts are compared between them for higher accuracy. Turn this off if you only use one camera platform or prefer simpler, single-source counting.",
           "camera_person_entities": "Select cameras inside your home. Each camera is automatically mapped to a room using its area assignment in Home Assistant. Works with UniFi Protect, Frigate, Reolink, and Dahua.",
           "egress_cameras": "Cameras at your exterior doors (front door, back door, garage). Used to track who enters and leaves — not used for room occupancy. Deliveries and visitors at the door won't trigger room automation.",
           "perimeter_cameras": "Cameras covering your yard, driveway, or fence line. Used to count people on your property who are outside the house.",
-          "face_recognition_enabled": "When enabled, face recognition data from camera events is used to confirm the identity of persons during transit validation. Requires a camera integration that provides face recognition. Defaults to off — path validation works without it."
+          "face_recognition_enabled": "When enabled, face recognition data from camera events is used to confirm the identity of persons during transit validation. Requires a camera integration that provides face recognition. Defaults to off — path validation works without it.",
+          "enhanced_census": "Enable event-driven sensor fusion with hold/decay, WiFi guest VLAN detection, and Frigate face recognition differentiation. Separates 'people seen' from 'people recognized' for better guest detection.",
+          "guest_vlan_ssid": "SSID of your guest WiFi network (e.g., 'Revel'). Phones connected to this SSID are counted as guests. Leave blank to disable WiFi guest detection.",
+          "census_hold_interior": "How long (in minutes) to hold the peak person count for indoor cameras before starting decay. Prevents count drops when people move between rooms or sit in camera blind spots. Default: 15 minutes.",
+          "census_hold_exterior": "How long (in minutes) to hold the peak person count for outdoor/perimeter cameras before dropping. Shorter than interior because outdoor detections are more transient. Default: 5 minutes."
         }
       },
       "perimeter_alerting": {

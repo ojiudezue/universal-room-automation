@@ -1,6 +1,6 @@
 """Config flow for Universal Room Automation v3.6.24."""
 #
-# Universal Room Automation v3.10.0
+# Universal Room Automation v3.10.1
 # Build: 2026-01-05
 # File: config_flow.py
 # v3.3.3: Added manage_zones to integration options menu
@@ -234,6 +234,14 @@ from .const import (
     # v3.10.0: Automation Chaining
     CONF_AUTOMATION_CHAINS,
     AUTOMATION_CHAIN_TRIGGERS_M1,
+    # v3.10.1: Census v2
+    CONF_ENHANCED_CENSUS,
+    CONF_CENSUS_HOLD_INTERIOR,
+    CONF_CENSUS_HOLD_EXTERIOR,
+    DEFAULT_CENSUS_HOLD_INTERIOR_MINUTES,
+    DEFAULT_CENSUS_HOLD_EXTERIOR_MINUTES,
+    CONF_GUEST_VLAN_SSID,
+    DEFAULT_GUEST_VLAN_SSID,
 )
 
 
@@ -1848,6 +1856,39 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 CONF_FACE_RECOGNITION_ENABLED,
                 default=self._get_current(CONF_FACE_RECOGNITION_ENABLED, False),
             ): selector.BooleanSelector(),
+            # v3.10.1: Enhanced census v2
+            vol.Optional(
+                CONF_ENHANCED_CENSUS,
+                default=self._get_current(CONF_ENHANCED_CENSUS, True),
+            ): selector.BooleanSelector(),
+            vol.Optional(
+                CONF_GUEST_VLAN_SSID,
+                default=self._get_current(CONF_GUEST_VLAN_SSID, DEFAULT_GUEST_VLAN_SSID),
+            ): selector.TextSelector(
+                selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT)
+            ),
+            vol.Optional(
+                CONF_CENSUS_HOLD_INTERIOR,
+                default=self._get_current(
+                    CONF_CENSUS_HOLD_INTERIOR, DEFAULT_CENSUS_HOLD_INTERIOR_MINUTES
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=1, max=60, step=1, unit_of_measurement="min",
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
+            vol.Optional(
+                CONF_CENSUS_HOLD_EXTERIOR,
+                default=self._get_current(
+                    CONF_CENSUS_HOLD_EXTERIOR, DEFAULT_CENSUS_HOLD_EXTERIOR_MINUTES
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=1, max=30, step=1, unit_of_measurement="min",
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
         })
 
         return self.async_show_form(

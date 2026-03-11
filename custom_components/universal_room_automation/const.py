@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation v3.10.0
+# Universal Room Automation v3.10.1
 # Build: 2026-03-01
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "3.10.0"
+VERSION: Final = "3.10.1"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -1017,3 +1017,44 @@ TRIGGER_LUX_BRIGHT: Final = "lux_bright"
 AUTOMATION_CHAIN_TRIGGERS_M1: Final = [
     TRIGGER_ENTER, TRIGGER_EXIT, TRIGGER_LUX_DARK, TRIGGER_LUX_BRIGHT,
 ]
+
+# ============================================================================
+# v3.10.1 Census v2: Event-Driven Sensor Fusion
+# ============================================================================
+
+# Master enable/disable
+CONF_ENHANCED_CENSUS: Final = "enhanced_census"
+
+# Hold/decay timing (defaults in seconds, configurable via UI in minutes)
+CONF_CENSUS_HOLD_INTERIOR: Final = "census_hold_interior"
+CONF_CENSUS_HOLD_EXTERIOR: Final = "census_hold_exterior"
+DEFAULT_CENSUS_HOLD_INTERIOR_MINUTES: Final = 15
+DEFAULT_CENSUS_HOLD_EXTERIOR_MINUTES: Final = 5
+CENSUS_DECAY_STEP_SECONDS: Final = 300  # -1 person per 5 min after hold expires
+
+# Event-driven census
+CENSUS_EVENT_DEBOUNCE_SECONDS: Final = 5  # Debounce rapid detection events
+
+# Face recognition window (how long a Frigate face match stays "active")
+CENSUS_FACE_RECOGNITION_WINDOW_SECONDS: Final = 1800  # 30 minutes
+
+# WiFi guest VLAN detection
+CONF_GUEST_VLAN_SSID: Final = "guest_vlan_ssid"
+DEFAULT_GUEST_VLAN_SSID: Final = ""  # Empty = auto-detect via is_guest flag
+
+# Phone manufacturer allowlist (OUI values from UniFi device_tracker)
+PHONE_MANUFACTURERS: Final = frozenset({
+    "Apple, Inc.",
+    "Samsung Electronics Co.,Ltd",
+    "Google, Inc.",
+    "OnePlus Technology (Shenzhen) Co., Ltd",
+    "Huawei Technologies Co.,Ltd",
+    "Xiaomi Communications Co Ltd",
+    "Motorola Mobility LLC, a Lenovo Company",
+    "LG Electronics",
+    "Sony Mobile Communications Inc",
+    "OPPO",
+    "vivo Mobile Communication Co., Ltd.",
+    "Nothing Technology Limited",
+    "Fairphone",
+})
