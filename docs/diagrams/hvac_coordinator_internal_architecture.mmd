@@ -1,0 +1,23 @@
+graph TB
+    subgraph HC["HVAC Coordinator (P:30)"]
+        direction TB
+        HMain["HVACCoordinator<br/>Decision Cycle"]
+
+        subgraph HVACSub["Sub-Modules"]
+            Zones["Zone Manager<br/>(zone discovery,<br/>climate entities)"]
+            Presets["Preset Manager<br/>(seasonal setpoints,<br/>house state mapping)"]
+            Fans["Fan Controller<br/>(temp hysteresis,<br/>occupancy gating)"]
+            Covers["Cover Controller<br/>(solar gain,<br/>direction-based)"]
+            Predict["Pre-Conditioning<br/>(comfort risk,<br/>zone demand)"]
+            Arrester["Override Arrester<br/>(2-tier severity,<br/>startup audit)"]
+        end
+    end
+
+    HMain --> Zones
+    HMain --> Presets
+    HMain --> Fans
+    HMain --> Covers
+    HMain --> Predict
+    HMain --> Arrester
+    Presets -->|setpoints| Zones
+    Arrester -->|revert override| Zones

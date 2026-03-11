@@ -1,0 +1,16 @@
+stateDiagram-v2
+    [*] --> away
+    away --> arriving: person detected
+    arriving --> home_day: dwell > threshold (daytime)
+    arriving --> home_evening: dwell > threshold (evening)
+    arriving --> home_night: dwell > threshold (night)
+    home_day --> home_evening: time transition
+    home_evening --> home_night: time transition
+    home_night --> sleep: all zones quiet
+    sleep --> waking: motion detected
+    waking --> home_day: time transition
+    home_day --> away: all persons departed
+    home_evening --> away: all persons departed
+    home_night --> away: all persons departed
+    away --> vacation: extended absence
+    vacation --> arriving: person detected

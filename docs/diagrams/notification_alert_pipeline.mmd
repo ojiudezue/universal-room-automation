@@ -1,0 +1,39 @@
+flowchart TB
+    subgraph Trigger["Alert Sources"]
+        SafetyHaz["Safety Hazard<br/>(smoke, CO, water, freeze)"]
+        SecEvent["Security Event<br/>(intrusion, entry alert)"]
+        EnergyAlert["Energy Alert<br/>(Envoy offline, shed)"]
+        HVACAlert["HVAC Alert<br/>(override detected)"]
+    end
+
+    subgraph NMPipeline["Notification Manager Pipeline"]
+        Dedup["Dedup Window<br/>CRITICAL: 60s<br/>HIGH: 300s<br/>MEDIUM: 900s<br/>LOW: 3600s"]
+        Severity["Severity Router"]
+        QuietHrs["Quiet Hours<br/>Check"]
+        Cooldown["Per-Hazard<br/>Cooldown"]
+
+        subgraph Channels["Channel Dispatch"]
+            CH_PO["Pushover"]
+            CH_CO["Companion"]
+            CH_WA["WhatsApp"]
+            CH_IM["iMessage"]
+            CH_TT["TTS"]
+            CH_LI["Alert Lights"]
+        end
+
+        Repeat["CRITICAL Repeat<br/>(every 60s until ack)"]
+        SafeWord["Safe Word<br/>System"]
+        Digest["Morning/Evening<br/>Digest"]
+    end
+
+    subgraph Inbound["Inbound Channels"]
+        IB_CO["Companion Actions"]
+        IB_WA["WhatsApp Reply"]
+        IB_PO["Pushover Reply"]
+        IB_IM["iMessage Webhook"]
+    end
+
+    Trigger --> Dedup --> Severity --> QuietHrs --> Cooldown --> Channels
+    Channels -->|CRITICAL| Repeat
+    Inbound --> SafeWord
+    SafeWord -->|acknowledge| Repeat
