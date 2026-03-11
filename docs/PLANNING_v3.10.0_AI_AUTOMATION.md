@@ -25,9 +25,11 @@ Both share a common **trigger infrastructure** that detects events beyond the ex
 | Milestone | Version | Scope | Effort |
 |-----------|---------|-------|--------|
 | M1 | v3.10.0 | Trigger infrastructure + automation chaining (enter/exit/lux) | ~5 hrs |
-| M2 | v3.10.1 | Coordinator signal triggers + conflict sensor | ~4 hrs |
-| M3 | v3.10.2 | AI NL rules (parse-once, person-specific) | ~7 hrs |
-| M4 | v3.10.3 | Polish: rule list UI, diagnostics, tests | ~4 hrs |
+| M2 | v3.10.2 | Coordinator signal triggers + conflict sensor | ~4 hrs |
+| M3 | v3.10.3 | AI NL rules (parse-once, person-specific) | ~7 hrs |
+| M4 | v3.10.4 | Polish: rule list UI, diagnostics, tests | ~4 hrs |
+
+> **Note:** v3.10.1 is a standalone Census v2 maintenance release (see PLANNING_v3.10.1_CENSUS_V2.md). AI Automation M2 resumes at v3.10.2.
 
 ---
 
