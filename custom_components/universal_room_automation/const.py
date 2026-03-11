@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation v3.9.13
+# Universal Room Automation v3.10.0
 # Build: 2026-03-01
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "3.9.13"
+VERSION: Final = "3.10.0"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -1001,3 +1001,19 @@ WEBHOOK_BB_ID: Final = f"{DOMAIN}_bluebubbles_reply"
 
 # DB retention (days)
 RETENTION_NOTIFICATION_LOG: Final = 30
+
+# v3.10.0: Automation Chaining
+CONF_AUTOMATION_CHAINS: Final = "automation_chains"
+
+# v3.10.0: Lux trigger thresholds
+LUX_DARK_THRESHOLD: Final = 50       # Below = dark (triggers lux_dark)
+LUX_BRIGHT_THRESHOLD: Final = 200    # Above = bright (triggers lux_bright)
+
+# v3.10.0: Trigger type constants (M1 subset)
+TRIGGER_ENTER: Final = "enter"
+TRIGGER_EXIT: Final = "exit"
+TRIGGER_LUX_DARK: Final = "lux_dark"
+TRIGGER_LUX_BRIGHT: Final = "lux_bright"
+AUTOMATION_CHAIN_TRIGGERS_M1: Final = [
+    TRIGGER_ENTER, TRIGGER_EXIT, TRIGGER_LUX_DARK, TRIGGER_LUX_BRIGHT,
+]

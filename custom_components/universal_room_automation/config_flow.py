@@ -1,6 +1,6 @@
 """Config flow for Universal Room Automation v3.6.24."""
 #
-# Universal Room Automation v3.9.13
+# Universal Room Automation v3.10.0
 # Build: 2026-01-05
 # File: config_flow.py
 # v3.3.3: Added manage_zones to integration options menu
@@ -231,6 +231,9 @@ from .const import (
     DEFAULT_PERIMETER_ALERT_END,
     # v3.5.2: Face Recognition
     CONF_FACE_RECOGNITION_ENABLED,
+    # v3.10.0: Automation Chaining
+    CONF_AUTOMATION_CHAINS,
+    AUTOMATION_CHAIN_TRIGGERS_M1,
 )
 
 
@@ -1540,6 +1543,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     "sensors",
                     "devices",
                     "automation_behavior",
+                    "automation_chaining",  # v3.10.0
                     "climate",
                     "sleep_protection",
                     "music_following",  # v3.3.1
@@ -4270,4 +4274,56 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             description_placeholders={
                 "name": "Reconfigure notifications. Enable override to use room-specific settings instead of integration defaults."
             },
+        )
+
+    # =========================================================================
+    # v3.10.0: AUTOMATION CHAINING
+    # =========================================================================
+
+    async def async_step_automation_chaining(self, user_input=None):
+        """Bind existing HA automations to room triggers."""
+        if user_input is not None:
+            # Extract bindings from form input
+            bindings = {}
+            for trigger in AUTOMATION_CHAIN_TRIGGERS_M1:
+                key = f"chain_{trigger}"
+                val = user_input.get(key, "")
+                if val:
+                    bindings[trigger] = val
+            return self.async_create_entry(
+                title="",
+                data={**self._config_entry.options, CONF_AUTOMATION_CHAINS: bindings},
+            )
+
+        # Build automation entity dropdown options
+        automation_entities = sorted(
+            eid for eid in self.hass.states.async_entity_ids("automation")
+        )
+        options = [{"value": "", "label": "(none)"}]
+        for eid in automation_entities:
+            state = self.hass.states.get(eid)
+            label = state.attributes.get("friendly_name", eid) if state else eid
+            options.append({"value": eid, "label": label})
+
+        current = self._config_entry.options.get(
+            CONF_AUTOMATION_CHAINS,
+            self._config_entry.data.get(CONF_AUTOMATION_CHAINS, {}),
+        )
+
+        data_schema = vol.Schema({
+            vol.Optional(
+                f"chain_{trigger}",
+                default=current.get(trigger, ""),
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=options,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                )
+            )
+            for trigger in AUTOMATION_CHAIN_TRIGGERS_M1
+        })
+
+        return self.async_show_form(
+            step_id="automation_chaining",
+            data_schema=data_schema,
         )

@@ -1,6 +1,6 @@
 """Data coordinator for Universal Room Automation."""
 #
-# Universal Room Automation v3.9.13
+# Universal Room Automation v3.10.0
 # Build: 2026-01-02
 # File: coordinator.py
 # v3.2.8: Support for active state change listeners in aggregation sensors
@@ -85,6 +85,14 @@ from .const import (
     CONF_NOTIFY_LEVEL,
     CONF_EXIT_LIGHT_ACTION,
     LIGHT_ACTION_TURN_OFF,
+    # v3.10.0: Automation chaining
+    CONF_AUTOMATION_CHAINS,
+    LUX_DARK_THRESHOLD,
+    LUX_BRIGHT_THRESHOLD,
+    TRIGGER_ENTER,
+    TRIGGER_EXIT,
+    TRIGGER_LUX_DARK,
+    TRIGGER_LUX_BRIGHT,
 )
 from .automation import RoomAutomation
 
@@ -164,6 +172,9 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         self._last_action_type = None     # "turn_on", "turn_off", etc.
         self._last_action_time = None     # datetime
         
+        # v3.10.0: Lux trigger zone tracking (dark/mid/bright)
+        self._last_lux_zone: str | None = None
+
         # v3.2.2.0 FIX: Merge entry.options with entry.data
         # entry.data = initial setup
         # entry.options = user changes via Configure button
@@ -196,9 +207,92 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
             key, self.entry.data.get(key, default)
         )
     
+    # =========================================================================
+    # v3.10.0 TRIGGER DETECTION & AUTOMATION CHAINING
+    # =========================================================================
+
+    def _detect_lux_trigger(self, current_lux: float | None) -> str | None:
+        """Detect lux threshold crossing with 3-zone hysteresis.
+
+        Zones: dark (<50), mid (50-200), bright (>200).
+        Returns trigger name on zone transition, None otherwise.
+        """
+        if current_lux is None:
+            return None
+
+        if current_lux < LUX_DARK_THRESHOLD:
+            new_zone = "dark"
+        elif current_lux > LUX_BRIGHT_THRESHOLD:
+            new_zone = "bright"
+        else:
+            new_zone = "mid"
+
+        if new_zone == self._last_lux_zone:
+            return None
+
+        old_zone = self._last_lux_zone
+        self._last_lux_zone = new_zone
+
+        if old_zone is None:
+            return None  # First reading, no transition
+
+        if new_zone == "dark":
+            return TRIGGER_LUX_DARK
+        elif new_zone == "bright":
+            return TRIGGER_LUX_BRIGHT
+        return None
+
+    async def _fire_chained_automations(self, triggers: list[str]) -> None:
+        """Fire chained HA automations for the given trigger types.
+
+        Called after URA built-in automation completes. Fires each
+        bound automation via automation.trigger.
+        """
+        chains = self._get_config(CONF_AUTOMATION_CHAINS, {})
+        if not chains:
+            return
+
+        room_name = self.entry.data.get("room_name", "unknown")
+        tasks = []
+
+        for trigger in triggers:
+            automation_id = chains.get(trigger)
+            if not automation_id:
+                continue
+
+            state = self.hass.states.get(automation_id)
+            if state is None or state.state in ("unavailable", "off"):
+                _LOGGER.warning(
+                    "[%s] Chained automation '%s' for trigger '%s' is %s — skipping",
+                    room_name, automation_id, trigger,
+                    "not found" if state is None else state.state,
+                )
+                continue
+
+            _LOGGER.info(
+                "[%s] Firing chained automation '%s' (trigger=%s)",
+                room_name, automation_id, trigger,
+            )
+            tasks.append(
+                self.hass.services.async_call(
+                    "automation", "trigger",
+                    {"entity_id": automation_id},
+                    blocking=False,
+                )
+            )
+
+        if tasks:
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            for result in results:
+                if isinstance(result, Exception):
+                    _LOGGER.error(
+                        "[%s] Chained automation call failed: %s",
+                        room_name, result,
+                    )
+
     def _get_integration_entry(self):
         """Get the parent integration entry.
-        
+
         Room entries store a reference to their integration entry
         via CONF_INTEGRATION_ENTRY_ID.
         """
@@ -925,6 +1019,29 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                 
             except Exception as e:
                 _LOGGER.error("Error in periodic automation: %s", e)
+
+            # === v3.10.0: Trigger detection + automation chaining ===
+            triggers_fired: list[str] = []
+
+            # Enter/exit (from occupancy transition already detected above)
+            if data[STATE_OCCUPIED] != was_occupied:
+                if data[STATE_OCCUPIED]:
+                    triggers_fired.append(TRIGGER_ENTER)
+                else:
+                    triggers_fired.append(TRIGGER_EXIT)
+
+            # Lux threshold crossing (only if a lux sensor is configured)
+            if self._get_config(CONF_ILLUMINANCE_SENSOR):
+                lux_trigger = self._detect_lux_trigger(data.get(STATE_ILLUMINANCE))
+                if lux_trigger:
+                    triggers_fired.append(lux_trigger)
+
+            # Fire chained automations for all triggers
+            if triggers_fired:
+                try:
+                    await self._fire_chained_automations(triggers_fired)
+                except Exception as e:
+                    _LOGGER.error("Error firing chained automations: %s", e)
         else:
             # Even with automation disabled, track state for DB logging
             self._last_occupied_state = data[STATE_OCCUPIED]

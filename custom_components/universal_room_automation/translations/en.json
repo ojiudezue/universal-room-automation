@@ -367,6 +367,7 @@
           "sensors": "\ud83d\udce1 Sensors",
           "devices": "\ud83d\udca1 Devices",
           "automation_behavior": "\u2699\ufe0f Automation",
+          "automation_chaining": "\ud83d\udd17 Automation Chaining",
           "climate": "\ud83c\udf21\ufe0f Climate & HVAC",
           "sleep_protection": "\ud83d\udecf\ufe0f Sleep Protection",
           "music_following": "\ud83c\udfb5 Music Following",
@@ -867,6 +868,22 @@
           "close_timing_mode": "Close Timing",
           "close_time": "Close Time",
           "sunset_offset": "Sunset Offset (minutes)"
+        }
+      },
+      "automation_chaining": {
+        "title": "\ud83d\udd17 Automation Chaining",
+        "description": "Bind existing HA automations to room triggers. These run after URA's built-in automation.",
+        "data": {
+          "chain_enter": "On room enter",
+          "chain_exit": "On room exit",
+          "chain_lux_dark": "When room gets dark",
+          "chain_lux_bright": "When room gets bright"
+        },
+        "data_description": {
+          "chain_enter": "HA automation to trigger when the room becomes occupied",
+          "chain_exit": "HA automation to trigger when the room becomes vacant",
+          "chain_lux_dark": "HA automation to trigger when lux drops below 50",
+          "chain_lux_bright": "HA automation to trigger when lux rises above 200"
         }
       },
       "climate": {

@@ -1,0 +1,43 @@
+flowchart LR
+    subgraph Publish["Publishers"]
+        P_Pres["Presence Coordinator"]
+        P_Census["Camera Census"]
+        P_Energy["Energy Coordinator"]
+        P_Safety["Safety Coordinator"]
+        P_Security["Security Coordinator"]
+        P_NM["Notification Manager"]
+    end
+
+    subgraph Signals["Signals"]
+        S_HS["HOUSE_STATE_CHANGED"]
+        S_CU["CENSUS_UPDATED"]
+        S_EC["ENERGY_CONSTRAINT"]
+        S_SH["SAFETY_HAZARD"]
+        S_SE["SECURITY_EVENT"]
+        S_NM["NM_ALERT_STATE_CHANGED"]
+    end
+
+    subgraph Subscribe["Subscribers"]
+        C_HVAC["HVAC"]
+        C_Energy["Energy"]
+        C_Security["Security"]
+        C_Presence["Presence"]
+        C_NM["Notification Manager"]
+        C_Safety["Safety"]
+    end
+
+    P_Pres --> S_HS
+    P_Census --> S_CU
+    P_Energy --> S_EC
+    P_Safety --> S_SH
+    P_Security --> S_SE
+    P_NM --> S_NM
+
+    S_HS --> C_HVAC
+    S_HS --> C_Energy
+    S_HS --> C_Security
+    S_CU --> C_Presence
+    S_EC --> C_HVAC
+    S_SH --> C_NM
+    S_SE --> C_NM
+    S_NM --> C_Safety

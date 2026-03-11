@@ -1,0 +1,107 @@
+graph TB
+    subgraph HA["Home Assistant Core"]
+        direction TB
+        Entities["Entity State Machine<br/>(climate, light, lock, person,<br/>media_player, sensor, cover)"]
+        Services["Service Registry<br/>(light.turn_on, climate.set_temperature,<br/>lock.lock, media_player.join)"]
+        Events["Event Bus<br/>(state_changed, call_service)"]
+    end
+
+    subgraph URA["Universal Room Automation Integration"]
+        direction TB
+
+        subgraph ConfigEntries["Config Entries"]
+            IE["INTEGRATION<br/>(house-level config)"]
+            RE["ROOM × N<br/>(per-room sensors,<br/>lights, climate)"]
+            ZME["ZONE_MANAGER<br/>(HVAC zones,<br/>thermostat mapping)"]
+            CME["COORDINATOR_MANAGER<br/>(domain coordinator<br/>system)"]
+        end
+
+        subgraph CM["Coordinator Manager"]
+            direction TB
+            IntentQueue["Intent Queue<br/>(batched every 100ms)"]
+            CR["Conflict Resolver<br/>(priority × severity × confidence)"]
+        end
+
+        subgraph Coordinators["Domain Coordinators (Priority-Ordered)"]
+            direction LR
+            Safety["Safety<br/>P:100<br/>Smoke, CO,<br/>Water, Freeze"]
+            Security["Security<br/>P:80<br/>Locks, Alarms,<br/>Cameras"]
+            Energy["Energy<br/>P:40<br/>TOU, Battery,<br/>Solar, Load Shed"]
+            HVAC["HVAC<br/>P:30<br/>Zones, Presets,<br/>Pre-conditioning"]
+            MF["Music Following<br/>P:30<br/>Speaker Handoff"]
+            Presence["Presence<br/>House State,<br/>Zone Tracking"]
+        end
+
+        subgraph NM["Notification Manager"]
+            direction LR
+            Pushover["Pushover"]
+            Companion["Companion"]
+            WhatsApp["WhatsApp"]
+            iMessage["iMessage<br/>(BlueBubbles)"]
+            TTS["TTS"]
+            Lights["Alert Lights"]
+        end
+
+        subgraph Helpers["Helper Modules"]
+            Auto["Automation Engine<br/>(per-room lights,<br/>climate, covers)"]
+            Census["Camera Census<br/>(Frigate + UniFi)"]
+            PersonCoord["Person Coordinator<br/>(Bermuda BLE)"]
+            HSM["House State Machine<br/>(9 states)"]
+        end
+
+        subgraph Platforms["Entity Platforms"]
+            Sensors["sensor × 80+"]
+            BinSensors["binary_sensor × 30+"]
+            Switches["switch × 11"]
+            Buttons["button × 6"]
+            Numbers["number"]
+            Selects["select × 2"]
+        end
+
+        DB[("SQLite DB<br/>25+ tables<br/>occupancy, energy,<br/>decisions, census")]
+    end
+
+    subgraph External["External Integrations"]
+        Enphase["Enphase<br/>Enpower/IQ"]
+        Frigate["Frigate NVR"]
+        UniFi["UniFi Protect"]
+        Bermuda["Bermuda BLE"]
+        BB["BlueBubbles<br/>Server"]
+        Solcast["Solcast<br/>Solar Forecast"]
+        Weather["Weather<br/>Service"]
+    end
+
+    %% Data flow
+    Entities -->|state changes| Events
+    Events -->|triggers| IntentQueue
+    IntentQueue -->|dispatch by priority| Coordinators
+    Coordinators -->|CoordinatorAction list| CR
+    CR -->|winning actions| Services
+
+    %% Signal flow
+    Presence -->|SIGNAL_HOUSE_STATE_CHANGED| HVAC
+    Presence -->|SIGNAL_HOUSE_STATE_CHANGED| Energy
+    Presence -->|SIGNAL_HOUSE_STATE_CHANGED| Security
+    Census -->|SIGNAL_CENSUS_UPDATED| Presence
+    Energy -->|SIGNAL_ENERGY_CONSTRAINT| HVAC
+    Safety -->|SIGNAL_SAFETY_HAZARD| NM
+    Security -->|SIGNAL_SECURITY_EVENT| NM
+
+    %% External connections
+    Enphase -.->|battery SOC, grid power| Energy
+    Solcast -.->|solar forecast| Energy
+    Weather -.->|temperature forecast| Energy
+    Frigate -.->|person detection| Census
+    UniFi -.->|camera counts| Census
+    Bermuda -.->|BLE distance| PersonCoord
+    BB -.->|webhook inbound| iMessage
+
+    %% DB connections
+    Coordinators -->|decisions, compliance| DB
+    Energy -->|billing, peak import| DB
+    Presence -->|occupancy, transitions| DB
+    Census -->|census snapshots| DB
+
+    %% Platform connections
+    Coordinators --> Platforms
+    Auto --> Platforms

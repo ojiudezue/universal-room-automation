@@ -1,0 +1,34 @@
+graph TB
+    subgraph EC["Energy Coordinator (P:40)"]
+        direction TB
+        Main["EnergyCoordinator<br/>Decision Cycle (5 min)"]
+
+        subgraph SubModules["Sub-Modules"]
+            TOU["TOU Rate Engine<br/>(PEC rates, period detection)"]
+            Battery["Battery Strategy<br/>(reserve SOC, mode selection,<br/>charge-from-grid)"]
+            Billing["Cost Tracker<br/>(daily/cycle totals,<br/>import/export cost)"]
+            Forecast["Energy Predictor<br/>(temp regression,<br/>accuracy tracking)"]
+            Pool["Pool Optimizer<br/>+ EV Controller<br/>+ Smart Plugs"]
+            Circuits["SPAN Monitor<br/>+ Generator Monitor"]
+        end
+
+        subgraph LoadShed["Load Shedding Cascade"]
+            L1["Level 1: Pool"]
+            L2["Level 2: EV"]
+            L3["Level 3: Smart Plugs"]
+            L4["Level 4: HVAC Constraint"]
+        end
+
+        PeakDB[("Peak Import History<br/>DB Persistence<br/>(1500 readings)")]
+    end
+
+    Main --> TOU
+    Main --> Battery
+    Main --> Billing
+    Main --> Forecast
+    Main --> Pool
+    Main --> Circuits
+    TOU -->|period transition| Battery
+    Main -->|sustained import > threshold| LoadShed
+    L1 --> L2 --> L3 --> L4
+    LoadShed -->|hourly save| PeakDB

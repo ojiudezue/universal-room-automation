@@ -1,0 +1,54 @@
+erDiagram
+    OCCUPANCY_EVENTS {
+        string room_id PK
+        string event_type
+        float timestamp
+    }
+    PERSON_VISITS {
+        string person_id
+        string room_id
+        float entry_time
+        float exit_time
+        float confidence
+    }
+    ROOM_TRANSITIONS {
+        string person_id
+        string from_room
+        string to_room
+        float timestamp
+        string validation_method
+    }
+    ENERGY_DAILY {
+        string date PK
+        float import_kwh
+        float export_kwh
+        float net_cost
+        float consumption_kwh
+        float predicted_consumption_kwh
+        float avg_temperature
+    }
+    ENERGY_PEAK_IMPORT {
+        int id PK
+        int seq
+        float import_kw
+    }
+    DECISION_LOG {
+        float timestamp
+        string coordinator_id
+        string situation
+        string actions
+        string scope
+    }
+    CENSUS_SNAPSHOTS {
+        float timestamp
+        string zone_id
+        int frigate_count
+        int unifi_count
+    }
+    NOTIFICATION_INBOUND {
+        int id PK
+        string channel
+        string person_id
+        string message
+        string response_type
+    }
