@@ -1,6 +1,6 @@
 """Binary sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.10.1
+# Universal Room Automation v3.10.2
 # Build: 2026-01-02
 # File: binary_sensor.py
 # v3.2.6: Renamed "Presence" to "Sensor Presence" for clarity
@@ -785,11 +785,15 @@ class CensusMismatchSensor(BinarySensorEntity):
 
 
 class PersonPhoneLeftBehindSensor(BinarySensorEntity):
-    """Diagnostic: BLE says person is home but camera hasn't seen them in hours.
+    """Diagnostic: BLE says person is home but camera hasn't seen them recently.
 
-    This is a best-effort signal. It is most reliable in homes where all
-    interior shared spaces have cameras. It will produce false positives
-    if a person spends extended time in a private room (bedroom/office).
+    Fires when:
+      - BLE places person in a room (not away/unknown)
+      - No camera has seen this person in PHONE_LEFT_BEHIND_HOURS (1h)
+      - Camera census is NOT currently seeing unidentified persons
+        (if census sees people, the phone holder is likely present)
+      - Outside sleep hours (10 PM – 7 AM)
+
     Disabled by default — enable manually if the signal is reliable in your home.
     """
 
@@ -798,7 +802,7 @@ class PersonPhoneLeftBehindSensor(BinarySensorEntity):
     _attr_entity_registry_enabled_default = False
     _attr_has_entity_name = True
 
-    PHONE_LEFT_BEHIND_HOURS: float = 4.0
+    PHONE_LEFT_BEHIND_HOURS: float = 1.0
     SLEEP_START_HOUR: int = 22
     SLEEP_END_HOUR: int = 7
 
@@ -835,7 +839,15 @@ class PersonPhoneLeftBehindSensor(BinarySensorEntity):
         if not ble_location or ble_location in ("unknown", "away"):
             return False
 
-        # 3. Check camera sighting age
+        # 3. If camera census currently sees people, suppress —
+        #    the phone holder is likely present (census is evidence of presence)
+        census = self.hass.data.get(DOMAIN, {}).get("census")
+        if census and census.last_result:
+            house = census.last_result.house
+            if house.total_persons > 0:
+                return False
+
+        # 4. Check camera sighting age — 1 hour threshold
         transit_validator = self.hass.data.get(DOMAIN, {}).get("transit_validator")
         if not transit_validator:
             return None
@@ -853,6 +865,7 @@ class PersonPhoneLeftBehindSensor(BinarySensorEntity):
 
         ble_location = None
         hours_since_sighting = None
+        census_persons = None
 
         if person_coordinator:
             person_data = person_coordinator.data.get(self._person_id, {})
@@ -872,15 +885,16 @@ class PersonPhoneLeftBehindSensor(BinarySensorEntity):
                         delta = dt_util.now() - ts
                         hours_since_sighting = round(delta.total_seconds() / 3600, 2)
 
+        census = self.hass.data.get(DOMAIN, {}).get("census")
+        if census and census.last_result:
+            census_persons = census.last_result.house.total_persons
+
         return {
             "person_id": self._person_id,
             "ble_location": ble_location,
             "hours_since_camera_sighting": hours_since_sighting,
             "phone_left_behind_hours": self.PHONE_LEFT_BEHIND_HOURS,
-            "note": (
-                "Diagnostic sensor — best-effort. May produce false positives "
-                "when person is in a room without cameras."
-            ),
+            "census_persons_in_house": census_persons,
         }
 
 

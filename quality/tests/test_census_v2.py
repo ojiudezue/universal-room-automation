@@ -44,6 +44,11 @@ PHONE_MANUFACTURERS = frozenset({
     "LG Electronics", "Sony Mobile Communications Inc", "OPPO",
     "vivo Mobile Communication Co., Ltd.", "Nothing Technology Limited", "Fairphone",
 })
+PHONE_HOSTNAME_PREFIXES = (
+    "iphone", "ipad", "galaxy", "pixel", "oneplus", "huawei",
+    "xiaomi", "redmi", "poco", "motorola", "nothing", "fairphone",
+    "oppo", "vivo", "realme", "samsung", "lg-", "sony",
+)
 CONF_CAMERA_PERSON_ENTITIES = "camera_person_entities"
 CONF_EGRESS_CAMERAS = "egress_cameras"
 CONF_PERIMETER_CAMERAS = "perimeter_cameras"
@@ -253,7 +258,17 @@ class StubPersonCensusV2:
                 continue
 
             oui = attrs.get("oui", "")
-            if oui in PHONE_MANUFACTURERS:
+            is_phone = oui in PHONE_MANUFACTURERS
+
+            if not is_phone:
+                hostname = attrs.get("host_name", "").lower()
+                if hostname:
+                    is_phone = any(
+                        hostname.startswith(prefix)
+                        for prefix in PHONE_HOSTNAME_PREFIXES
+                    )
+
+            if is_phone:
                 guest_count += 1
 
         return guest_count
@@ -729,13 +744,14 @@ class TestWiFiGuestCount:
 
     def _add_device_tracker(self, hass, entity_id, state="home",
                              source_type="router", essid="", oui="",
-                             is_guest=False):
+                             is_guest=False, host_name=""):
         """Helper to add a device_tracker entity to hass mock."""
         attrs = {
             "source_type": source_type,
             "essid": essid,
             "oui": oui,
             "is_guest": is_guest,
+            "host_name": host_name,
         }
         hass.set_state(entity_id, state, attrs)
 
@@ -874,6 +890,79 @@ class TestWiFiGuestCount:
         ])
         census = StubPersonCensusV2(hass)
         assert census._get_wifi_guest_count() == 1
+
+    def test_hostname_fallback_iphone(self):
+        """iPhone with empty OUI (randomized MAC) detected via hostname."""
+        hass = _make_hass_with_entry({CONF_GUEST_VLAN_SSID: "Revel"})
+        self._add_device_tracker(
+            hass, "device_tracker.iphone_14", "home",
+            essid="Revel", oui="", host_name="iPhone",
+        )
+        self._setup_async_all(hass, ["device_tracker.iphone_14"])
+        census = StubPersonCensusV2(hass)
+        assert census._get_wifi_guest_count() == 1
+
+    def test_hostname_fallback_galaxy(self):
+        """Galaxy phone with empty OUI detected via hostname."""
+        hass = _make_hass_with_entry({CONF_GUEST_VLAN_SSID: "Revel"})
+        self._add_device_tracker(
+            hass, "device_tracker.galaxy_s24", "home",
+            essid="Revel", oui="", host_name="Galaxy-S24",
+        )
+        self._setup_async_all(hass, ["device_tracker.galaxy_s24"])
+        census = StubPersonCensusV2(hass)
+        assert census._get_wifi_guest_count() == 1
+
+    def test_hostname_fallback_pixel(self):
+        """Pixel phone with empty OUI detected via hostname."""
+        hass = _make_hass_with_entry({CONF_GUEST_VLAN_SSID: "Revel"})
+        self._add_device_tracker(
+            hass, "device_tracker.pixel_9", "home",
+            essid="Revel", oui="", host_name="Pixel-9-Pro",
+        )
+        self._setup_async_all(hass, ["device_tracker.pixel_9"])
+        census = StubPersonCensusV2(hass)
+        assert census._get_wifi_guest_count() == 1
+
+    def test_hostname_no_match_iot(self):
+        """IoT device with non-phone hostname not counted."""
+        hass = _make_hass_with_entry({CONF_GUEST_VLAN_SSID: "Revel"})
+        self._add_device_tracker(
+            hass, "device_tracker.smart_plug", "home",
+            essid="Revel", oui="", host_name="ESP-12F",
+        )
+        self._setup_async_all(hass, ["device_tracker.smart_plug"])
+        census = StubPersonCensusV2(hass)
+        assert census._get_wifi_guest_count() == 0
+
+    def test_hostname_empty_not_counted(self):
+        """Device with empty hostname and empty OUI not counted."""
+        hass = _make_hass_with_entry({CONF_GUEST_VLAN_SSID: "Revel"})
+        self._add_device_tracker(
+            hass, "device_tracker.unknown_device", "home",
+            essid="Revel", oui="", host_name="",
+        )
+        self._setup_async_all(hass, ["device_tracker.unknown_device"])
+        census = StubPersonCensusV2(hass)
+        assert census._get_wifi_guest_count() == 0
+
+    def test_two_iphones_randomized_mac(self):
+        """Two guest iPhones with randomized MACs both detected."""
+        hass = _make_hass_with_entry({CONF_GUEST_VLAN_SSID: "Revel"})
+        self._add_device_tracker(
+            hass, "device_tracker.iphone_14", "home",
+            essid="Revel", oui="", host_name="iPhone",
+        )
+        self._add_device_tracker(
+            hass, "device_tracker.iphone_5", "home",
+            essid="Revel", oui="", host_name="iPhone",
+        )
+        self._setup_async_all(hass, [
+            "device_tracker.iphone_14",
+            "device_tracker.iphone_5",
+        ])
+        census = StubPersonCensusV2(hass)
+        assert census._get_wifi_guest_count() == 2
 
 
 # ============================================================================
