@@ -1,6 +1,6 @@
 """Camera integration and person census for Universal Room Automation v3.5.0."""
 #
-# Universal Room Automation v3.10.1
+# Universal Room Automation v3.10.2
 # Build: 2026-02-23
 # File: camera_census.py
 # Cycle 3: Camera Integration & Census Core
@@ -51,6 +51,7 @@ from .const import (
     CONF_GUEST_VLAN_SSID,
     DEFAULT_GUEST_VLAN_SSID,
     PHONE_MANUFACTURERS,
+    PHONE_HOSTNAME_PREFIXES,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -1474,7 +1475,8 @@ class PersonCensus:
         Looks for device_tracker entities from UniFi that are:
           - state = "home"
           - on guest VLAN (essid matches configured guest SSID, or is_guest=True)
-          - OUI matches a phone manufacturer (not IoT)
+          - OUI matches a phone manufacturer, OR hostname matches a phone pattern
+            (modern phones use randomized MACs with empty OUI)
 
         Returns count of guest phone devices currently connected.
         """
@@ -1510,13 +1512,28 @@ class PersonCensus:
             if not is_guest:
                 continue
 
-            # Filter by phone manufacturer
+            # Filter: must be a phone (not IoT)
+            # Try OUI first, then hostname fallback for randomized MACs
             oui = attrs.get("oui", "")
-            if oui in PHONE_MANUFACTURERS:
+            is_phone = oui in PHONE_MANUFACTURERS
+
+            if not is_phone:
+                # Hostname fallback: modern phones use private MACs (empty OUI)
+                # but still report hostname like "iPhone", "Galaxy-S24", etc.
+                hostname = attrs.get("host_name", "").lower()
+                if hostname:
+                    is_phone = any(
+                        hostname.startswith(prefix)
+                        for prefix in PHONE_HOSTNAME_PREFIXES
+                    )
+
+            if is_phone:
                 guest_count += 1
                 _LOGGER.debug(
-                    "WiFi guest device: %s (oui=%s, essid=%s)",
-                    state.entity_id, oui, attrs.get("essid", ""),
+                    "WiFi guest device: %s (oui=%s, hostname=%s, essid=%s)",
+                    state.entity_id, oui,
+                    attrs.get("host_name", ""),
+                    attrs.get("essid", ""),
                 )
 
         return guest_count
