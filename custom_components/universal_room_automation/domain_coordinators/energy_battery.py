@@ -190,12 +190,18 @@ class BatteryStrategy:
         """Whether the Envoy is responding (SOC and storage mode both readable)."""
         return self.battery_soc is not None and self.current_storage_mode is not None
 
-    def determine_mode(self, tou_period: str) -> dict[str, Any]:
+    def determine_mode(
+        self, tou_period: str, season: str = "summer"
+    ) -> dict[str, Any]:
         """Determine optimal battery mode based on TOU period and conditions.
 
         Uses self_consumption mode exclusively with reserve level as primary control.
         See ENPHASE_CONTROL_CODICIL.md for rationale — Enphase does not support
         direct battery-to-grid export; savings mode gives up HA control.
+
+        Season matters: shoulder/winter have no peak period, so mid-peak IS the
+        highest-rate window.  Battery should discharge during mid-peak in those
+        seasons rather than holding for a peak that never comes.
 
         Returns dict with: mode, reason, actions (list of service calls to make)
         """
@@ -218,6 +224,7 @@ class BatteryStrategy:
                 "net_power": self.net_power,
                 "solar_day_class": self.classify_solar_day(),
                 "envoy_available": False,
+                "season": season,
             }
 
         # Grid disconnected — emergency backup
@@ -226,6 +233,7 @@ class BatteryStrategy:
                 BATTERY_MODE_BACKUP,
                 "Grid disconnected — backup mode",
                 current_mode,
+                season=season,
             )
 
         # Storm forecast — pre-charge and prepare for outage
@@ -237,12 +245,14 @@ class BatteryStrategy:
                     current_mode,
                     charge_from_grid=True,
                     reserve_level=self.reserve_soc,
+                    season=season,
                 )
             # Already charged enough — switch to backup to hold charge
             return self._result(
                 BATTERY_MODE_BACKUP,
                 f"Storm forecast — holding charge (SOC {soc}%)",
                 current_mode,
+                season=season,
             )
 
         # Peak period — battery covers home load, solar exports
@@ -254,23 +264,46 @@ class BatteryStrategy:
                     "Peak — battery covers load, solar exports",
                     current_mode,
                     reserve_level=self.reserve_soc,
+                    season=season,
                 )
             return self._result(
                 BATTERY_MODE_SELF_CONSUMPTION,
                 f"Peak but SOC low ({soc}%) — minimal discharge",
                 current_mode,
                 reserve_level=max(int(soc or 0) - 5, self.reserve_soc),
+                season=season,
             )
 
-        # Mid-peak — hold battery charge for peak
-        # Set reserve = current SOC to prevent discharge
+        # Mid-peak strategy depends on season:
+        # - Summer: hold battery for upcoming peak (mid-peak is a bridge)
+        # - Shoulder/Winter: mid-peak IS the highest-rate period (no peak exists).
+        #   Discharge battery to cover load; solar exports at $0.086/kWh.
         if tou_period == "mid_peak":
-            hold_reserve = int(soc) if soc is not None else 100
+            if season == "summer":
+                # Summer mid-peak: hold charge for upcoming peak
+                hold_reserve = int(soc) if soc is not None else 100
+                return self._result(
+                    BATTERY_MODE_SELF_CONSUMPTION,
+                    "Mid-peak (summer) — holding charge for peak",
+                    current_mode,
+                    reserve_level=hold_reserve,
+                    season=season,
+                )
+            # Shoulder/Winter mid-peak: discharge — this is the best rate window
+            if soc is not None and soc > self.reserve_soc:
+                return self._result(
+                    BATTERY_MODE_SELF_CONSUMPTION,
+                    f"Mid-peak ({season}) — discharging, best rate window",
+                    current_mode,
+                    reserve_level=self.reserve_soc,
+                    season=season,
+                )
             return self._result(
                 BATTERY_MODE_SELF_CONSUMPTION,
-                "Mid-peak — holding charge for peak",
+                f"Mid-peak ({season}) but SOC low ({soc}%) — minimal discharge",
                 current_mode,
-                reserve_level=hold_reserve,
+                reserve_level=max(int(soc or 0) - 5, self.reserve_soc),
+                season=season,
             )
 
         # Off-peak — charge from solar, low reserve allows full charging
@@ -279,6 +312,7 @@ class BatteryStrategy:
             "Off-peak — charging from solar",
             current_mode,
             reserve_level=self.reserve_soc,
+            season=season,
         )
 
     def _result(
@@ -288,6 +322,7 @@ class BatteryStrategy:
         current_mode: str | None,
         charge_from_grid: bool = False,
         reserve_level: int | None = None,
+        season: str | None = None,
     ) -> dict[str, Any]:
         """Build battery decision result with actions.
 
@@ -358,6 +393,7 @@ class BatteryStrategy:
             "net_power": self.net_power,
             "solar_day_class": self.classify_solar_day(),
             "envoy_available": True,
+            "season": season,
         }
 
     def get_status(self) -> dict[str, Any]:

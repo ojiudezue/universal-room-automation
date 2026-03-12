@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.10.4
+# Universal Room Automation v3.10.5
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -5197,6 +5197,7 @@ class EnergyTOUPeriodSensor(AggregationEntity, SensorEntity):
             "effective_import_rate": info.get("effective_import_rate"),
             "next_period": next_t.get("next_period"),
             "hours_until_transition": next_t.get("hours_until"),
+            "rate_source": info.get("rate_source"),
         }
 
 

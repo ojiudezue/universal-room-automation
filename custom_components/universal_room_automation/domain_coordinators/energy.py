@@ -594,6 +594,7 @@ class EnergyCoordinator(BaseCoordinator):
         try:
             # Get current TOU state
             period = self._tou.get_current_period()
+            season = self._tou.get_season()
 
             # Check for period transition
             new_period = self._tou.check_period_transition()
@@ -601,7 +602,7 @@ class EnergyCoordinator(BaseCoordinator):
                 self._tou_transition_count += 1
 
             # Battery decision
-            decision = self._battery.determine_mode(period)
+            decision = self._battery.determine_mode(period, season)
             self._last_battery_decision = decision
 
             # Execute actions (skipped in observation mode)
@@ -703,7 +704,8 @@ class EnergyCoordinator(BaseCoordinator):
     async def _evaluate_battery(self) -> list[CoordinatorAction]:
         """Evaluate battery strategy and return actions."""
         period = self._tou.get_current_period()
-        decision = self._battery.determine_mode(period)
+        season = self._tou.get_season()
+        decision = self._battery.determine_mode(period, season)
         self._last_battery_decision = decision
 
         actions: list[CoordinatorAction] = []
