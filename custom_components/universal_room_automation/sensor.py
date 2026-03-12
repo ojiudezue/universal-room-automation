@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.11.1
+# Universal Room Automation v3.11.2
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -2132,12 +2132,16 @@ class LastOccupantSensor(UniversalRoomEntity, SensorEntity):
             attrs["last_seen"] = self._last_occupant_time.isoformat()
             
             # Calculate time ago
-            now = datetime.now()
+            from homeassistant.util import dt as dt_util
+            now = dt_util.utcnow()
             if isinstance(self._last_occupant_time, str):
                 last_time = datetime.fromisoformat(self._last_occupant_time)
             else:
                 last_time = self._last_occupant_time
-            
+            # Ensure timezone-aware
+            if last_time.tzinfo is None:
+                import pytz
+                last_time = last_time.replace(tzinfo=pytz.UTC)
             time_diff = now - last_time
             attrs["time_ago"] = str(time_diff).split('.')[0]  # Remove microseconds
         
@@ -2197,6 +2201,10 @@ class LastOccupantTimeSensor(UniversalRoomEntity, SensorEntity):
                     self._last_time = datetime.fromisoformat(entry_time)
                 else:
                     self._last_time = entry_time
+                # Ensure timezone-aware (DB stores UTC without tzinfo)
+                if self._last_time is not None and self._last_time.tzinfo is None:
+                    import pytz
+                    self._last_time = self._last_time.replace(tzinfo=pytz.UTC)
             else:
                 self._last_time = None
                 
@@ -2742,7 +2750,14 @@ class URACensusValidationAgeSensor(_CensusBaseSensor):
         result = self._get_census()
         if result is None or result.timestamp is None:
             return None
-        delta = datetime.now() - result.timestamp
+        from homeassistant.util import dt as dt_util
+        now = dt_util.utcnow()
+        ts = result.timestamp
+        # Ensure both are timezone-aware for subtraction
+        if ts.tzinfo is None:
+            import pytz
+            ts = ts.replace(tzinfo=pytz.UTC)
+        delta = now - ts
         return int(delta.total_seconds())
 
 
@@ -4198,7 +4213,11 @@ class SecurityLastLockSweepSensor(AggregationEntity, SensorEntity):
             return None
         from datetime import datetime
         try:
-            return datetime.fromisoformat(ts)
+            dt = datetime.fromisoformat(ts)
+            if dt.tzinfo is None:
+                import pytz
+                dt = dt.replace(tzinfo=pytz.UTC)
+            return dt
         except (ValueError, TypeError):
             return None
 
