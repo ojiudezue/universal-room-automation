@@ -1,6 +1,6 @@
 """Config flow for Universal Room Automation v3.6.24."""
 #
-# Universal Room Automation v3.10.5
+# Universal Room Automation v3.11.0
 # Build: 2026-01-05
 # File: config_flow.py
 # v3.3.3: Added manage_zones to integration options menu
@@ -2191,6 +2191,25 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             DEFAULT_CONSTRAINT_PREHEAT_OFFSET,
             DEFAULT_CONSTRAINT_SHED_OFFSET,
             DEFAULT_PREHEAT_TEMP_THRESHOLD,
+            # v3.11.0: Off-peak drain, arbitrage, EVSE management
+            CONF_ENERGY_OFFPEAK_DRAIN_EXCELLENT,
+            CONF_ENERGY_OFFPEAK_DRAIN_GOOD,
+            CONF_ENERGY_OFFPEAK_DRAIN_MODERATE,
+            CONF_ENERGY_OFFPEAK_DRAIN_POOR,
+            DEFAULT_OFFPEAK_DRAIN_EXCELLENT,
+            DEFAULT_OFFPEAK_DRAIN_GOOD,
+            DEFAULT_OFFPEAK_DRAIN_MODERATE,
+            DEFAULT_OFFPEAK_DRAIN_POOR,
+            CONF_ENERGY_ARBITRAGE_ENABLED,
+            CONF_ENERGY_ARBITRAGE_SOC_TRIGGER,
+            CONF_ENERGY_ARBITRAGE_SOC_TARGET,
+            DEFAULT_ARBITRAGE_SOC_TRIGGER,
+            DEFAULT_ARBITRAGE_SOC_TARGET,
+            CONF_ENERGY_EXCESS_SOLAR_ENABLED,
+            CONF_ENERGY_EXCESS_SOLAR_SOC,
+            CONF_ENERGY_EXCESS_SOLAR_KWH,
+            DEFAULT_EXCESS_SOLAR_SOC_THRESHOLD,
+            DEFAULT_EXCESS_SOLAR_KWH_THRESHOLD,
         )
 
         if user_input is not None:
@@ -2398,6 +2417,97 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 selector.NumberSelectorConfig(
                     min=20, max=60, step=1,
                     unit_of_measurement="°F",
+                    mode=selector.NumberSelectorMode.SLIDER,
+                )
+            ),
+            # v3.11.0: Off-peak drain targets
+            vol.Optional(
+                CONF_ENERGY_OFFPEAK_DRAIN_EXCELLENT,
+                default=self._get_current(CONF_ENERGY_OFFPEAK_DRAIN_EXCELLENT, DEFAULT_OFFPEAK_DRAIN_EXCELLENT),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=5, max=50, step=5,
+                    unit_of_measurement="%",
+                    mode=selector.NumberSelectorMode.SLIDER,
+                )
+            ),
+            vol.Optional(
+                CONF_ENERGY_OFFPEAK_DRAIN_GOOD,
+                default=self._get_current(CONF_ENERGY_OFFPEAK_DRAIN_GOOD, DEFAULT_OFFPEAK_DRAIN_GOOD),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=5, max=50, step=5,
+                    unit_of_measurement="%",
+                    mode=selector.NumberSelectorMode.SLIDER,
+                )
+            ),
+            vol.Optional(
+                CONF_ENERGY_OFFPEAK_DRAIN_MODERATE,
+                default=self._get_current(CONF_ENERGY_OFFPEAK_DRAIN_MODERATE, DEFAULT_OFFPEAK_DRAIN_MODERATE),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=10, max=60, step=5,
+                    unit_of_measurement="%",
+                    mode=selector.NumberSelectorMode.SLIDER,
+                )
+            ),
+            vol.Optional(
+                CONF_ENERGY_OFFPEAK_DRAIN_POOR,
+                default=self._get_current(CONF_ENERGY_OFFPEAK_DRAIN_POOR, DEFAULT_OFFPEAK_DRAIN_POOR),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=15, max=80, step=5,
+                    unit_of_measurement="%",
+                    mode=selector.NumberSelectorMode.SLIDER,
+                )
+            ),
+            # v3.11.0: Grid charge arbitrage
+            vol.Optional(
+                CONF_ENERGY_ARBITRAGE_ENABLED,
+                default=self._get_current(CONF_ENERGY_ARBITRAGE_ENABLED, False),
+            ): selector.BooleanSelector(),
+            vol.Optional(
+                CONF_ENERGY_ARBITRAGE_SOC_TRIGGER,
+                default=self._get_current(CONF_ENERGY_ARBITRAGE_SOC_TRIGGER, DEFAULT_ARBITRAGE_SOC_TRIGGER),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=10, max=50, step=5,
+                    unit_of_measurement="%",
+                    mode=selector.NumberSelectorMode.SLIDER,
+                )
+            ),
+            vol.Optional(
+                CONF_ENERGY_ARBITRAGE_SOC_TARGET,
+                default=self._get_current(CONF_ENERGY_ARBITRAGE_SOC_TARGET, DEFAULT_ARBITRAGE_SOC_TARGET),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=50, max=100, step=5,
+                    unit_of_measurement="%",
+                    mode=selector.NumberSelectorMode.SLIDER,
+                )
+            ),
+            # v3.11.0: Advanced EVSE management
+            vol.Optional(
+                CONF_ENERGY_EXCESS_SOLAR_ENABLED,
+                default=self._get_current(CONF_ENERGY_EXCESS_SOLAR_ENABLED, False),
+            ): selector.BooleanSelector(),
+            vol.Optional(
+                CONF_ENERGY_EXCESS_SOLAR_SOC,
+                default=self._get_current(CONF_ENERGY_EXCESS_SOLAR_SOC, DEFAULT_EXCESS_SOLAR_SOC_THRESHOLD),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=80, max=100, step=1,
+                    unit_of_measurement="%",
+                    mode=selector.NumberSelectorMode.SLIDER,
+                )
+            ),
+            vol.Optional(
+                CONF_ENERGY_EXCESS_SOLAR_KWH,
+                default=self._get_current(CONF_ENERGY_EXCESS_SOLAR_KWH, DEFAULT_EXCESS_SOLAR_KWH_THRESHOLD),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=1, max=15, step=0.5,
+                    unit_of_measurement="kWh",
                     mode=selector.NumberSelectorMode.SLIDER,
                 )
             ),

@@ -189,6 +189,7 @@ CONF_ENERGY_GRID_ENABLED_ENTITY: Final = "energy_grid_enabled_entity"
 CONF_ENERGY_CHARGE_FROM_GRID_ENTITY: Final = "energy_charge_from_grid_entity"
 CONF_ENERGY_SOLCAST_TODAY_ENTITY: Final = "energy_solcast_today_entity"
 CONF_ENERGY_SOLCAST_REMAINING_ENTITY: Final = "energy_solcast_remaining_entity"
+CONF_ENERGY_SOLCAST_TOMORROW_ENTITY: Final = "energy_solcast_tomorrow_entity"
 CONF_ENERGY_WEATHER_ENTITY: Final = "energy_weather_entity"
 CONF_ENERGY_SOLAR_CLASSIFICATION_MODE: Final = "energy_solar_classification_mode"
 CONF_ENERGY_SOLAR_THRESHOLD_EXCELLENT: Final = "energy_solar_threshold_excellent"
@@ -219,6 +220,49 @@ CONF_ENERGY_CONSTRAINT_PRECOOL_OFFSET: Final = "energy_constraint_precool_offset
 CONF_ENERGY_CONSTRAINT_PREHEAT_OFFSET: Final = "energy_constraint_preheat_offset"
 CONF_ENERGY_CONSTRAINT_SHED_OFFSET: Final = "energy_constraint_shed_offset"
 CONF_ENERGY_PREHEAT_TEMP_THRESHOLD: Final = "energy_preheat_temp_threshold"
+
+# ============================================================================
+# Off-Peak Drain Targets (% SOC) — based on tomorrow's solar forecast
+# ============================================================================
+# Aggressive drain: off-peak grid at $0.043 is 3.7x cheaper than peak ($0.162).
+# Draining to low SOC overnight maximizes room for tomorrow's solar absorption.
+# Risk is minimal: arbitrage catches poor-forecast + low-SOC scenarios.
+# When SOC > target: drain stored solar (free energy) during cheap off-peak
+# When SOC <= target: hold and import cheap grid at $0.043/kWh
+
+DEFAULT_OFFPEAK_DRAIN_EXCELLENT: Final = 10
+DEFAULT_OFFPEAK_DRAIN_GOOD: Final = 15
+DEFAULT_OFFPEAK_DRAIN_MODERATE: Final = 20
+DEFAULT_OFFPEAK_DRAIN_POOR: Final = 30
+DEFAULT_OFFPEAK_DRAIN_UNKNOWN: Final = 40
+
+CONF_ENERGY_OFFPEAK_DRAIN_EXCELLENT: Final = "energy_offpeak_drain_excellent"
+CONF_ENERGY_OFFPEAK_DRAIN_GOOD: Final = "energy_offpeak_drain_good"
+CONF_ENERGY_OFFPEAK_DRAIN_MODERATE: Final = "energy_offpeak_drain_moderate"
+CONF_ENERGY_OFFPEAK_DRAIN_POOR: Final = "energy_offpeak_drain_poor"
+
+# ============================================================================
+# Grid Charge Arbitrage
+# ============================================================================
+# When tomorrow is poor/very_poor solar and SOC < trigger, charge from grid
+# overnight at off-peak rate ($0.043) to avoid importing at mid-peak/peak later.
+
+DEFAULT_ARBITRAGE_SOC_TRIGGER: Final = 30
+DEFAULT_ARBITRAGE_SOC_TARGET: Final = 80
+CONF_ENERGY_ARBITRAGE_ENABLED: Final = "energy_arbitrage_enabled"
+CONF_ENERGY_ARBITRAGE_SOC_TRIGGER: Final = "energy_arbitrage_soc_trigger"
+CONF_ENERGY_ARBITRAGE_SOC_TARGET: Final = "energy_arbitrage_soc_target"
+
+# ============================================================================
+# EVSE Refinement
+# ============================================================================
+
+DEFAULT_EXCESS_SOLAR_SOC_THRESHOLD: Final = 95
+DEFAULT_EXCESS_SOLAR_KWH_THRESHOLD: Final = 5.0
+EVSE_CHARGING_POWER_THRESHOLD: Final = 100  # watts
+CONF_ENERGY_EXCESS_SOLAR_ENABLED: Final = "energy_excess_solar_enabled"
+CONF_ENERGY_EXCESS_SOLAR_SOC: Final = "energy_excess_solar_soc"
+CONF_ENERGY_EXCESS_SOLAR_KWH: Final = "energy_excess_solar_kwh"
 
 # Load shedding defaults
 DEFAULT_LOAD_SHEDDING_THRESHOLD_KW: Final = 5.0

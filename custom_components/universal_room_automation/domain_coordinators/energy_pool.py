@@ -11,6 +11,8 @@ from typing import Any
 
 from homeassistant.core import HomeAssistant
 
+from .energy_const import EVSE_CHARGING_POWER_THRESHOLD
+
 _LOGGER = logging.getLogger(__name__)
 
 # ============================================================================
@@ -182,6 +184,7 @@ class EVChargerController:
         self.hass = hass
         self._evse = evse_config or DEFAULT_EVSE_ENTITIES
         self._paused_by_us: set[str] = set()
+        self._excess_solar_active: set[str] = set()
 
     def _get_evse_state(self, evse_id: str) -> dict[str, Any]:
         """Get current state of an EVSE."""
@@ -209,7 +212,7 @@ class EVChargerController:
             "is_on": is_on,
             "power": power,
             "status": status,
-            "charging": power > 100,  # >100W = actively charging
+            "charging": power > EVSE_CHARGING_POWER_THRESHOLD,
         }
 
     def determine_actions(self, tou_period: str) -> list[dict[str, Any]]:
@@ -247,13 +250,104 @@ class EVChargerController:
 
         return actions
 
+    def determine_excess_solar_actions(
+        self,
+        soc: float | None,
+        remaining_forecast_kwh: float | None,
+        tou_period: str,
+        soc_threshold: int = 95,
+        kwh_threshold: float = 5.0,
+    ) -> list[dict[str, Any]]:
+        """Determine whether to turn on EVSEs for excess solar charging.
+
+        Only during off-peak or mid-peak (never peak — battery needed).
+        Conditions to activate: SOC >= threshold AND remaining forecast >= kwh threshold.
+        """
+        actions: list[dict[str, Any]] = []
+
+        # Never during peak
+        if tou_period == "peak":
+            # Turn off any we activated
+            for evse_id in list(self._excess_solar_active):
+                config = self._evse.get(evse_id, {})
+                switch_entity = config.get("switch", "")
+                if switch_entity:
+                    state = self._get_evse_state(evse_id)
+                    if state["is_on"]:
+                        actions.append({
+                            "service": "switch.turn_off",
+                            "target": switch_entity,
+                            "data": {},
+                        })
+                        _LOGGER.info("Excess solar: turning off %s (peak period)", evse_id)
+                self._excess_solar_active.discard(evse_id)
+            return actions
+
+        conditions_met = (
+            soc is not None
+            and soc >= soc_threshold
+            and remaining_forecast_kwh is not None
+            and remaining_forecast_kwh >= kwh_threshold
+        )
+
+        if conditions_met:
+            _LOGGER.debug(
+                "Excess solar conditions met: SOC=%.0f%% >= %d, remaining=%.1f kWh >= %.1f",
+                soc or 0, soc_threshold,
+                remaining_forecast_kwh or 0, kwh_threshold,
+            )
+            # Turn on EVSEs that are off and not paused by TOU
+            for evse_id, config in self._evse.items():
+                switch_entity = config.get("switch", "")
+                if not switch_entity:
+                    continue
+                if evse_id in self._paused_by_us:
+                    continue  # TOU pause takes priority
+                if evse_id in self._excess_solar_active:
+                    continue  # Already on by us
+                state = self._get_evse_state(evse_id)
+                if not state["is_on"]:
+                    actions.append({
+                        "service": "switch.turn_on",
+                        "target": switch_entity,
+                        "data": {},
+                    })
+                    self._excess_solar_active.add(evse_id)
+                    _LOGGER.info(
+                        "Excess solar: turning on %s (SOC=%.0f%%, remaining=%.1f kWh)",
+                        evse_id, soc, remaining_forecast_kwh,
+                    )
+        else:
+            # Conditions no longer met — turn off only what we turned on
+            for evse_id in list(self._excess_solar_active):
+                config = self._evse.get(evse_id, {})
+                switch_entity = config.get("switch", "")
+                if switch_entity:
+                    state = self._get_evse_state(evse_id)
+                    if state["is_on"]:
+                        actions.append({
+                            "service": "switch.turn_off",
+                            "target": switch_entity,
+                            "data": {},
+                        })
+                        _LOGGER.info("Excess solar: turning off %s (conditions no longer met)", evse_id)
+                self._excess_solar_active.discard(evse_id)
+
+        return actions
+
     def get_status(self) -> dict[str, Any]:
         """Return EV charging status for sensor."""
-        status: dict[str, Any] = {"paused_by_energy": list(self._paused_by_us)}
+        status: dict[str, Any] = {
+            "paused_by_energy": list(self._paused_by_us),
+            "excess_solar_active": bool(self._excess_solar_active),
+            "excess_solar_evses": list(self._excess_solar_active),
+        }
         for evse_id in self._evse:
             evse_state = self._get_evse_state(evse_id)
             if evse_id in self._paused_by_us:
                 evse_state["energy_status"] = "paused"
+            elif evse_id in self._excess_solar_active:
+                evse_state["energy_status"] = "excess_solar"
             elif evse_state["charging"]:
                 evse_state["energy_status"] = "charging"
             elif evse_state["is_on"]:

@@ -1,6 +1,6 @@
 """Camera integration and person census for Universal Room Automation v3.5.0."""
 #
-# Universal Room Automation v3.10.5
+# Universal Room Automation v3.11.0
 # Build: 2026-02-23
 # File: camera_census.py
 # Cycle 3: Camera Integration & Census Core
@@ -805,6 +805,16 @@ class PersonCensus:
                 "total_on_property": total_on_property,
             },
         )
+
+        # D5: Log census snapshots to database
+        db = self.hass.data.get(DOMAIN, {}).get("database")
+        if db is not None:
+            self.hass.async_create_task(
+                db.log_census(zone="house", result=house_result)
+            )
+            self.hass.async_create_task(
+                db.log_census(zone="property", result=property_result)
+            )
 
         return result
 

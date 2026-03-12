@@ -1,6 +1,6 @@
 """Person tracking coordinator for Universal Room Automation."""
 #
-# Universal Room Automation v3.10.5
+# Universal Room Automation v3.11.0
 # Build: 2026-01-03
 # File: person_coordinator.py
 # v3.2.9: No changes (zone fixes in aggregation.py, fan fixes in automation.py)
@@ -92,6 +92,11 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
             DEFAULT_PERSON_DECAY_TIMEOUT
         )
         
+        # D6+D7: DB visit tracking for person entry/exit/snapshot logging
+        self._active_visit_ids: dict[str, int] = {}  # person_name -> visit_id
+        self._last_snapshot_time: datetime | None = None
+        self._SNAPSHOT_INTERVAL_SECONDS = 900  # 15 minutes
+
         _LOGGER.info(
             "Person tracking coordinator initialized for %d persons: %s (decay timeout: %ds)",
             len(self.tracked_persons),
@@ -166,7 +171,7 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
                                 "Person %s moved: '%s' -> '%s' (previous seen: %s)",
                                 person_name, old_location, resolved_room, previous_location_time
                             )
-                            
+
                             # v3.3.0: Fire location change event for transition detection
                             event_data = {
                                 "person_id": person_name,
@@ -181,6 +186,14 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
                             _LOGGER.debug(
                                 "Fired ura_person_location_change event: %s",
                                 event_data
+                            )
+
+                            # D6: Log person exit (old room) and entry (new room) to database
+                            self.hass.async_create_task(
+                                self._log_person_room_change(
+                                    person_name, old_location, resolved_room,
+                                    confidence, "bermuda",
+                                )
                             )
                         
                         # v3.2.8.1: Track recent path
@@ -282,11 +295,67 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
                         "recent_path": [],
                     }
             
+            # D7: Periodic person snapshot logging (~every 15 minutes)
+            db = self.hass.data.get(DOMAIN, {}).get("database")
+            if db is not None:
+                should_snapshot = (
+                    self._last_snapshot_time is None
+                    or (now - self._last_snapshot_time).total_seconds()
+                    >= self._SNAPSHOT_INTERVAL_SECONDS
+                )
+                if should_snapshot:
+                    self._last_snapshot_time = now
+                    for pname, pdata in person_data.items():
+                        self.hass.async_create_task(
+                            db.log_person_snapshot(
+                                person_id=pname,
+                                room_id=pdata.get("location"),
+                                confidence=pdata.get("confidence", 0.0),
+                                method=pdata.get("method", "unknown"),
+                            )
+                        )
+
             return person_data
-            
+
         except Exception as err:
             _LOGGER.error("Error updating person tracking data: %s", err)
             raise UpdateFailed(f"Error updating person tracking data: {err}") from err
+
+    async def _log_person_room_change(
+        self,
+        person_name: str,
+        old_room: str,
+        new_room: str,
+        confidence: float,
+        method: str,
+    ) -> None:
+        """Log person exit from old room and entry to new room in database.
+
+        Manages active visit IDs for exit/entry pairing.
+        """
+        db = self.hass.data.get(DOMAIN, {}).get("database")
+        if db is None:
+            return
+
+        try:
+            # Close the previous visit (exit old room)
+            old_visit_id = self._active_visit_ids.pop(person_name, None)
+            if old_visit_id is not None and old_visit_id > 0:
+                await db.log_person_exit(visit_id=old_visit_id)
+
+            # Open a new visit (enter new room) — skip for non-room locations
+            if new_room not in ("away", "unknown", "home", ""):
+                visit_id = await db.log_person_entry(
+                    person_id=person_name,
+                    room_id=new_room,
+                    confidence=confidence,
+                    detection_method=method,
+                    transition_from=old_room,
+                )
+                if visit_id > 0:
+                    self._active_visit_ids[person_name] = visit_id
+        except Exception as e:
+            _LOGGER.error("Error logging person room change for %s: %s", person_name, e)
 
     async def _build_scanner_room_map(self) -> None:
         """

@@ -1,6 +1,6 @@
 """Database for Universal Room Automation."""
 #
-# Universal Room Automation v3.10.5
+# Universal Room Automation v3.11.0
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors
@@ -601,6 +601,17 @@ class UniversalRoomDatabase:
                         )
                 await db.commit()
 
+                # v3.11.0: EVSE state persistence
+                await db.execute("""
+                    CREATE TABLE IF NOT EXISTS evse_state (
+                        evse_id TEXT PRIMARY KEY,
+                        paused_by_energy INTEGER NOT NULL DEFAULT 0,
+                        excess_solar_active INTEGER NOT NULL DEFAULT 0,
+                        updated_at DATETIME NOT NULL
+                    )
+                """)
+                await db.commit()
+
                 _LOGGER.info("Database initialized successfully")
                 return True
         except Exception as e:
@@ -864,7 +875,7 @@ class UniversalRoomDatabase:
                 ))
                 await db.commit()
                 _LOGGER.debug(
-                    "Logged energy history: grid=%.2f kWh, solar_export=%.2f kWh",
+                    "Logged energy history: grid=%.2f kW, solar_export=%.2f kW",
                     data.get('grid_import', 0) or 0,
                     data.get('solar_export', 0) or 0
                 )
@@ -2468,3 +2479,93 @@ class UniversalRoomDatabase:
         except Exception as e:
             _LOGGER.error("Error restoring peak import history: %s", e)
             return []
+
+    # =========================================================================
+    # v3.11.0: EVSE STATE PERSISTENCE
+    # =========================================================================
+
+    async def save_evse_state(
+        self,
+        evse_id: str,
+        paused_by_energy: bool,
+        excess_solar_active: bool,
+    ) -> None:
+        """Save EVSE state for restart recovery."""
+        try:
+            async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
+                await db.execute("""
+                    INSERT OR REPLACE INTO evse_state
+                        (evse_id, paused_by_energy, excess_solar_active, updated_at)
+                    VALUES (?, ?, ?, ?)
+                """, (
+                    evse_id,
+                    int(paused_by_energy),
+                    int(excess_solar_active),
+                    dt_util.utcnow().isoformat(),
+                ))
+                await db.commit()
+        except Exception as e:
+            _LOGGER.error("Error saving EVSE state for %s: %s", evse_id, e)
+
+    async def restore_evse_state(self) -> dict[str, dict[str, bool]]:
+        """Restore EVSE states from DB. Returns {evse_id: {paused, excess_solar}}."""
+        try:
+            async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
+                cursor = await db.execute(
+                    "SELECT evse_id, paused_by_energy, excess_solar_active FROM evse_state"
+                )
+                rows = await cursor.fetchall()
+                return {
+                    row[0]: {
+                        "paused_by_energy": bool(row[1]),
+                        "excess_solar_active": bool(row[2]),
+                    }
+                    for row in rows
+                }
+        except Exception as e:
+            _LOGGER.error("Error restoring EVSE state: %s", e)
+            return {}
+
+    # =========================================================================
+    # v3.11.0: CLEANUP METHODS
+    # =========================================================================
+
+    async def cleanup_energy_history(self, retention_days: int = 180) -> int:
+        """Delete energy_history rows older than retention_days."""
+        try:
+            cutoff = (dt_util.utcnow() - timedelta(days=retention_days)).isoformat()
+            async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
+                cursor = await db.execute(
+                    "DELETE FROM energy_history WHERE timestamp < ?", (cutoff,)
+                )
+                await db.commit()
+                deleted = cursor.rowcount
+                if deleted > 0:
+                    _LOGGER.info(
+                        "Energy history cleanup: deleted %d rows older than %d days",
+                        deleted, retention_days,
+                    )
+                return deleted
+        except Exception as e:
+            _LOGGER.error("Error cleaning up energy history: %s", e)
+            return 0
+
+    async def cleanup_external_conditions(self, retention_days: int = 90) -> int:
+        """Delete external_conditions rows older than retention_days."""
+        try:
+            cutoff = (dt_util.utcnow() - timedelta(days=retention_days)).isoformat()
+            async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
+                cursor = await db.execute(
+                    "DELETE FROM external_conditions WHERE timestamp < ?", (cutoff,)
+                )
+                await db.commit()
+                deleted = cursor.rowcount
+                if deleted > 0:
+                    _LOGGER.info(
+                        "External conditions cleanup: deleted %d rows older than %d days",
+                        deleted, retention_days,
+                    )
+                return deleted
+        except Exception as e:
+            _LOGGER.error("Error cleaning up external conditions: %s", e)
+            return 0
