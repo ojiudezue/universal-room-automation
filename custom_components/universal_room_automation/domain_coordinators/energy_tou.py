@@ -24,12 +24,30 @@ class TOURateEngine:
     Supports loading from a JSON file at /config/universal_room_automation/tou_rates.json.
     """
 
-    def __init__(self, rate_table: dict | None = None, fixed_charges: dict | None = None) -> None:
+    # Normalize period names from JSON to internal names used by determine_mode()
+    _PERIOD_ALIASES: dict[str, str] = {
+        "on_peak": "peak",
+        "on-peak": "peak",
+        "onpeak": "peak",
+        "off-peak": "off_peak",
+        "offpeak": "off_peak",
+        "mid-peak": "mid_peak",
+        "midpeak": "mid_peak",
+    }
+    _VALID_PERIODS = {"peak", "mid_peak", "off_peak"}
+
+    def __init__(
+        self,
+        rate_table: dict | None = None,
+        fixed_charges: dict | None = None,
+        rate_source: str = "built-in PEC 2026",
+    ) -> None:
         """Initialize with optional rate table override."""
         self._rates = rate_table or PEC_TOU_RATES
         self._fixed = fixed_charges or PEC_FIXED_CHARGES
         self._last_period: str | None = None
         self._rate_file_loaded: bool = rate_table is not None
+        self._rate_source: str = rate_source
 
     @classmethod
     def from_json_file(cls, config_dir: str, filename: str) -> "TOURateEngine":
@@ -58,13 +76,33 @@ class TOURateEngine:
             for season_name, season_data in data.get("seasons", {}).items():
                 periods = {}
                 for period_name, period_data in season_data.get("periods", {}).items():
+                    # Normalize period names (e.g. "on_peak" → "peak")
+                    internal_name = cls._PERIOD_ALIASES.get(period_name, period_name)
                     hours = [tuple(h) for h in period_data.get("hours", [])]
-                    rate = period_data.get("rate", 0.0)
-                    periods[period_name] = {
+                    # Support separate import/export rates; fall back to
+                    # symmetric "rate" field for backward compat.
+                    symmetric_rate = period_data.get("rate", 0.0)
+                    import_rate = period_data.get("import_rate", symmetric_rate)
+                    export_rate = period_data.get("export_rate", symmetric_rate)
+                    if internal_name not in cls._VALID_PERIODS:
+                        _LOGGER.warning(
+                            "Unknown TOU period '%s' (from '%s') in %s season %s — ignored",
+                            internal_name, period_name, filepath, season_name,
+                        )
+                        continue
+                    periods[internal_name] = {
                         "hours": hours,
-                        "import_rate": rate,
-                        "export_rate": rate,
+                        "import_rate": import_rate,
+                        "export_rate": export_rate,
                     }
+                # off_peak is required — get_current_period() falls back to it
+                if "off_peak" not in periods:
+                    _LOGGER.error(
+                        "TOU rate file %s missing required 'off_peak' period in season '%s' "
+                        "— falling back to PEC defaults",
+                        filepath, season_name,
+                    )
+                    return cls()
                 rate_table[season_name] = {
                     "months": season_data.get("months", []),
                     "periods": periods,
@@ -77,16 +115,27 @@ class TOURateEngine:
                 "transmission_per_kwh": fixed.get("transmission_per_kwh", 0.019930),
             }
 
+            utility = data.get("utility", "unknown")
+            effective = data.get("effective_date", "unknown")
+            rate_source = f"{filename} ({utility}, effective {effective})"
+
             _LOGGER.info(
                 "Loaded TOU rates from %s (utility: %s, effective: %s)",
-                filepath,
-                data.get("utility", "unknown"),
-                data.get("effective_date", "unknown"),
+                filepath, utility, effective,
             )
-            return cls(rate_table=rate_table, fixed_charges=fixed_charges)
+            return cls(
+                rate_table=rate_table,
+                fixed_charges=fixed_charges,
+                rate_source=rate_source,
+            )
         except Exception:
             _LOGGER.exception("Failed to parse TOU rate file %s — using PEC defaults", filepath)
             return cls()
+
+    @property
+    def rate_source(self) -> str:
+        """Return the source of TOU rates (file path or 'built-in PEC 2026')."""
+        return self._rate_source
 
     def get_season(self, now: datetime | None = None) -> str:
         """Return the current TOU season: summer, shoulder, or winter."""
@@ -198,4 +247,5 @@ class TOURateEngine:
             "effective_import_rate": self.get_effective_import_rate(now),
             "fixed_charges": self._fixed,
             "next_transition": self.get_next_transition(now),
+            "rate_source": self._rate_source,
         }
