@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation v3.10.3
+# Universal Room Automation v3.10.4
 # Build: 2026-03-01
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "3.10.3"
+VERSION: Final = "3.10.4"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -1084,3 +1084,32 @@ PHONE_ONLY_MANUFACTURERS: Final = frozenset({
 # Phones present longer than this are treated as residents (family devices).
 # Cameras still catch long-staying guests via camera_unrecognized count.
 WIFI_GUEST_RECENCY_HOURS: Final = 24
+# Infrastructure device hostname prefixes — devices that are definitely NOT
+# guest personal devices on a shared entertainment SSID. Everything that
+# doesn't match these (and isn't a tablet) is a potential guest phone.
+# Case-insensitive prefix match.
+NON_GUEST_HOSTNAME_PREFIXES: Final = (
+    "samsung",          # Samsung TVs (Galaxy phones use "Galaxy-*" or custom names)
+    "homepod",          # Apple HomePods
+    "wiim",             # WiiM speakers
+    "sonos",            # Sonos speakers
+    "trc-",             # URC universal remotes (TRC-1480 etc.)
+    "urc",              # URC remotes (alternative naming)
+    "espressif",        # ESP-based IoT devices
+    "esp-", "esp_",     # ESP hostname variants
+    "shelly",           # Shelly switches/sensors
+    "tasmota",          # Tasmota-flashed devices
+    "tuya",             # Tuya IoT
+    "armcrest", "amcrest",  # Amcrest cameras
+    "reolink",          # Reolink cameras
+    "dahua",            # Dahua cameras
+    "g3-", "g4-", "g5-",   # Ubiquiti cameras (G3/G4/G5 Instant)
+    "envoy",            # Enphase Envoy
+    "enphase",          # Enphase devices
+    "ubiquiti", "unifi",    # Ubiquiti network gear
+)
+# Tablet hostname prefixes — excluded from phone-only guest counting.
+# Guests may bring tablets but we count phones (1 per person) for accuracy.
+TABLET_HOSTNAME_PREFIXES: Final = (
+    "ipad",
+)

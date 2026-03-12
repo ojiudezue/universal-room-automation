@@ -1,6 +1,6 @@
 """Camera integration and person census for Universal Room Automation v3.5.0."""
 #
-# Universal Room Automation v3.10.3
+# Universal Room Automation v3.10.4
 # Build: 2026-02-23
 # File: camera_census.py
 # Cycle 3: Camera Integration & Census Core
@@ -52,6 +52,8 @@ from .const import (
     DEFAULT_GUEST_VLAN_SSID,
     PHONE_HOSTNAME_PREFIXES,
     WIFI_GUEST_RECENCY_HOURS,
+    NON_GUEST_HOSTNAME_PREFIXES,
+    TABLET_HOSTNAME_PREFIXES,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -1473,17 +1475,20 @@ class PersonCensus:
         """Count GUEST phones on WiFi VLAN (shared entertainment network).
 
         The configured SSID (e.g., Revel) is a shared network with TVs,
-        HomePods, WiiMs, family phones, and guest phones. Three filters
-        separate guests from residents:
+        HomePods, WiiMs, family phones, guest phones, and IoT devices.
+        Guests may have custom hostnames (e.g., "Uche-s-S22"), so instead
+        of including known phone hostnames, we EXCLUDE known non-phone
+        device types:
 
-        1. Hostname filter: Only phone hostnames (iPhone, Galaxy, Pixel, etc.)
-           — excludes TVs, HomePods, WiiMs, iPads, IoT devices.
-        2. Person exclusion: Excludes device_trackers associated with tracked
-           person entities (family members' phones).
-        3. Recency filter: Only counts phones whose state last changed within
-           WIFI_GUEST_RECENCY_HOURS (default 24h). Resident devices that have
-           been connected for days are excluded. Cameras still catch
-           long-staying guests via camera_unrecognized count.
+        1. Exclude empty hostnames (can't identify device type).
+        2. Exclude infrastructure (NON_GUEST_HOSTNAME_PREFIXES): TVs,
+           HomePods, WiiMs, cameras, IoT, network gear.
+        3. Exclude tablets (TABLET_HOSTNAME_PREFIXES): iPads — guests
+           may bring tablets but we count phones (1 per guest) for accuracy.
+        4. Person exclusion: Excludes device_trackers associated with
+           tracked person entities (family members' phones).
+        5. Recency filter: Only counts devices whose state last changed
+           within WIFI_GUEST_RECENCY_HOURS (default 24h).
 
         Returns count of guest phone devices currently connected.
         """
@@ -1523,7 +1528,7 @@ class PersonCensus:
             if attrs.get("source_type", "") != "router":
                 continue
 
-            # Check if on guest VLAN
+            # Check if on configured SSID
             is_on_ssid = False
             if guest_ssid:
                 if attrs.get("essid") == guest_ssid:
@@ -1535,15 +1540,26 @@ class PersonCensus:
             if not is_on_ssid:
                 continue
 
-            # Filter 1: must be a phone (hostname match)
+            # Filter 1: exclude empty hostnames (can't identify)
             hostname = attrs.get("host_name", "").lower()
-            if not hostname or not any(
+            if not hostname:
+                continue
+
+            # Filter 2: exclude infrastructure devices
+            if any(
                 hostname.startswith(prefix)
-                for prefix in PHONE_HOSTNAME_PREFIXES
+                for prefix in NON_GUEST_HOSTNAME_PREFIXES
             ):
                 continue
 
-            # Filter 2: exclude tracked persons' devices (family phones)
+            # Filter 3: exclude tablets (count phones only, 1 per guest)
+            if any(
+                hostname.startswith(prefix)
+                for prefix in TABLET_HOSTNAME_PREFIXES
+            ):
+                continue
+
+            # Filter 4: exclude tracked persons' devices (family phones)
             if state.entity_id in family_trackers:
                 _LOGGER.debug(
                     "WiFi guest exclusion (family): %s (hostname=%s)",
@@ -1551,7 +1567,7 @@ class PersonCensus:
                 )
                 continue
 
-            # Filter 3: recency — only count recently-joined phones
+            # Filter 5: recency — only count recently-appeared devices
             last_changed = state.last_changed
             if last_changed is not None:
                 try:
