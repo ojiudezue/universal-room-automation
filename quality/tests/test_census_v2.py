@@ -61,6 +61,19 @@ PHONE_ONLY_MANUFACTURERS = frozenset({
     "Fairphone",
 })
 WIFI_GUEST_RECENCY_HOURS = 24
+NON_GUEST_HOSTNAME_PREFIXES = (
+    "samsung", "homepod", "wiim", "sonos",
+    "trc-", "urc",
+    "espressif", "esp-", "esp_",
+    "shelly", "tasmota", "tuya",
+    "armcrest", "amcrest", "reolink", "dahua",
+    "g3-", "g4-", "g5-",
+    "envoy", "enphase",
+    "ubiquiti", "unifi",
+)
+TABLET_HOSTNAME_PREFIXES = (
+    "ipad",
+)
 CONF_CAMERA_PERSON_ENTITIES = "camera_person_entities"
 CONF_EGRESS_CAMERAS = "egress_cameras"
 CONF_PERIMETER_CAMERAS = "perimeter_cameras"
@@ -286,19 +299,24 @@ class StubPersonCensusV2:
             if not is_on_ssid:
                 continue
 
-            # Filter 1: must be a phone (hostname match)
+            # Filter 1: exclude empty hostnames
             hostname = attrs.get("host_name", "").lower()
-            if not hostname or not any(
-                hostname.startswith(prefix)
-                for prefix in PHONE_HOSTNAME_PREFIXES
-            ):
+            if not hostname:
                 continue
 
-            # Filter 2: exclude tracked persons' devices (family phones)
+            # Filter 2: exclude infrastructure devices
+            if any(hostname.startswith(p) for p in NON_GUEST_HOSTNAME_PREFIXES):
+                continue
+
+            # Filter 3: exclude tablets (count phones only, 1 per guest)
+            if any(hostname.startswith(p) for p in TABLET_HOSTNAME_PREFIXES):
+                continue
+
+            # Filter 4: exclude tracked persons' devices (family phones)
             if state.entity_id in family_trackers:
                 continue
 
-            # Filter 3: recency — only count recently-joined phones
+            # Filter 5: recency — only count recently-appeared devices
             last_changed = state.last_changed
             if last_changed is not None:
                 try:
@@ -1317,6 +1335,142 @@ class TestWiFiGuestCount:
         ])
         census = StubPersonCensusV2(hass)
         assert census._get_wifi_guest_count() == 2
+
+    # --- Custom hostname / exclusion-based tests ---
+
+    def test_custom_named_phone_counted(self):
+        """Guest phone with custom hostname (e.g., 'Uche-s-S22') is counted."""
+        hass = _make_hass_with_entry({CONF_GUEST_VLAN_SSID: "Revel"})
+        self._add_device_tracker(
+            hass, "device_tracker.uche_s_s22", "home",
+            essid="Revel", host_name="Uche-s-S22",
+        )
+        self._setup_async_all(hass, ["device_tracker.uche_s_s22"])
+        census = StubPersonCensusV2(hass)
+        assert census._get_wifi_guest_count() == 1
+
+    def test_oneplus_phone_counted(self):
+        """OnePlus phone with standard hostname is counted."""
+        hass = _make_hass_with_entry({CONF_GUEST_VLAN_SSID: "Revel"})
+        self._add_device_tracker(
+            hass, "device_tracker.oneplus_nord", "home",
+            essid="Revel", host_name="OnePlus-Nord-N30-5G",
+        )
+        self._setup_async_all(hass, ["device_tracker.oneplus_nord"])
+        census = StubPersonCensusV2(hass)
+        assert census._get_wifi_guest_count() == 1
+
+    def test_infrastructure_urc_remote_excluded(self):
+        """URC remote (TRC-1480) excluded by infrastructure filter."""
+        hass = _make_hass_with_entry({CONF_GUEST_VLAN_SSID: "Revel"})
+        self._add_device_tracker(
+            hass, "device_tracker.urc_remote", "home",
+            essid="Revel", host_name="TRC-1480",
+        )
+        self._setup_async_all(hass, ["device_tracker.urc_remote"])
+        census = StubPersonCensusV2(hass)
+        assert census._get_wifi_guest_count() == 0
+
+    def test_infrastructure_envoy_excluded(self):
+        """Enphase envoy excluded by infrastructure filter."""
+        hass = _make_hass_with_entry({CONF_GUEST_VLAN_SSID: "Revel"})
+        self._add_device_tracker(
+            hass, "device_tracker.envoy", "home",
+            essid="Revel", host_name="envoywifi",
+        )
+        self._setup_async_all(hass, ["device_tracker.envoy"])
+        census = StubPersonCensusV2(hass)
+        assert census._get_wifi_guest_count() == 0
+
+    def test_infrastructure_camera_excluded(self):
+        """Amcrest camera excluded by infrastructure filter."""
+        hass = _make_hass_with_entry({CONF_GUEST_VLAN_SSID: "Revel"})
+        self._add_device_tracker(
+            hass, "device_tracker.camera", "home",
+            essid="Revel", host_name="ArmCrestASH41Wifi",
+        )
+        self._setup_async_all(hass, ["device_tracker.camera"])
+        census = StubPersonCensusV2(hass)
+        assert census._get_wifi_guest_count() == 0
+
+    def test_infrastructure_g3_camera_excluded(self):
+        """Ubiquiti G3 camera excluded by infrastructure filter."""
+        hass = _make_hass_with_entry({CONF_GUEST_VLAN_SSID: "Revel"})
+        self._add_device_tracker(
+            hass, "device_tracker.g3_cam", "home",
+            essid="Revel", host_name="g3-instant-study-a",
+        )
+        self._setup_async_all(hass, ["device_tracker.g3_cam"])
+        census = StubPersonCensusV2(hass)
+        assert census._get_wifi_guest_count() == 0
+
+    def test_real_revel_network_scenario(self):
+        """Real Revel network: 2 Android guest phones among 27 devices."""
+        now = datetime.now()
+        hass = _make_hass_with_entry({
+            CONF_GUEST_VLAN_SSID: "Revel",
+            "tracked_persons": ["person.oji_udezue", "person.ezinne"],
+        })
+        hass.set_state("person.oji_udezue", "home", {
+            "device_trackers": ["device_tracker.phalanxiphone15promax"],
+            "source": "device_tracker.phalanxiphone15promax",
+        })
+        hass.set_state("person.ezinne", "home", {
+            "device_trackers": ["device_tracker.ezinne_iphone"],
+            "source": "device_tracker.ezinne_iphone",
+        })
+
+        all_entities = []
+
+        def add(eid, hn, age_days=30):
+            self._add_device_tracker(
+                hass, eid, "home", essid="Revel", host_name=hn,
+                last_changed=now - timedelta(days=age_days),
+            )
+            all_entities.append(eid)
+
+        # Infrastructure (always present)
+        for i in range(5):
+            add(f"device_tracker.samsung_{i}", "Samsung")
+        add("device_tracker.homepod_mini", "HomePod-Mini")
+        add("device_tracker.homepod_max", "HomePod-Max")
+        add("device_tracker.wiim", "WiiM Sub Pro-4D04")
+        for i in range(3):
+            add(f"device_tracker.urc_{i}", "TRC-1480")
+        add("device_tracker.camera", "ArmCrestASH41Wifi")
+        add("device_tracker.envoy", "envoywifi")
+        add("device_tracker.g3_cam", "g3-instant-study-a")
+        add("device_tracker.esp1", "espressif")
+        add("device_tracker.esp2", "espressif")
+
+        # Family iPads (always present, excluded as tablets)
+        for i in range(3):
+            add(f"device_tracker.ipad_{i}", "iPad")
+
+        # Family iPhones (old, excluded by recency)
+        add("device_tracker.iphone_5", "iPhone")
+        add("device_tracker.iphone_14", "iPhone")
+        add("device_tracker.unifi_9c_b8", "iPhone")
+
+        # Guest phones (recently arrived)
+        self._add_device_tracker(
+            hass, "device_tracker.uche_s_s22", "home",
+            essid="Revel", host_name="Uche-s-S22",
+            last_changed=now - timedelta(hours=3),
+        )
+        all_entities.append("device_tracker.uche_s_s22")
+
+        self._add_device_tracker(
+            hass, "device_tracker.oneplus_nord", "home",
+            essid="Revel", host_name="OnePlus-Nord-N30-5G",
+            last_changed=now - timedelta(hours=3),
+        )
+        all_entities.append("device_tracker.oneplus_nord")
+
+        self._setup_async_all(hass, all_entities)
+        census = StubPersonCensusV2(hass)
+        # Only the 2 guest Android phones should be counted
+        assert census._get_wifi_guest_count(now) == 2
 
 
 # ============================================================================
