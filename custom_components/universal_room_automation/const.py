@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation v3.10.2
+# Universal Room Automation v3.10.3
 # Build: 2026-03-01
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "3.10.2"
+VERSION: Final = "3.10.3"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -1062,7 +1062,25 @@ PHONE_MANUFACTURERS: Final = frozenset({
 # Modern phones use private MAC addresses, stripping the OUI.
 # Matching by hostname is the fallback — case-insensitive prefix match.
 PHONE_HOSTNAME_PREFIXES: Final = (
-    "iphone", "ipad", "galaxy", "pixel", "oneplus", "huawei",
+    "iphone", "galaxy", "pixel", "oneplus", "huawei",
     "xiaomi", "redmi", "poco", "motorola", "nothing", "fairphone",
-    "oppo", "vivo", "realme", "samsung", "lg-", "sony",
+    "oppo", "vivo", "realme",
 )
+# OUI manufacturers that make ONLY phones (safe to match by OUI alone).
+# Samsung is excluded because Samsung TVs share the same OUI.
+# For Samsung phones, hostname fallback ("galaxy") is used instead.
+PHONE_ONLY_MANUFACTURERS: Final = frozenset({
+    "Apple, Inc.",
+    "Google, Inc.",
+    "OnePlus Technology (Shenzhen) Co., Ltd",
+    "Huawei Technologies Co.,Ltd",
+    "Xiaomi Communications Co Ltd",
+    "Motorola Mobility LLC, a Lenovo Company",
+    "Sony Mobile Communications Inc",
+    "Nothing Technology Limited",
+    "Fairphone",
+})
+# How recently a phone must have appeared on the SSID to count as a guest.
+# Phones present longer than this are treated as residents (family devices).
+# Cameras still catch long-staying guests via camera_unrecognized count.
+WIFI_GUEST_RECENCY_HOURS: Final = 24
