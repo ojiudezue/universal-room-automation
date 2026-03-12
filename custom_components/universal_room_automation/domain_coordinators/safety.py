@@ -1459,6 +1459,21 @@ class SafetyCoordinator(BaseCoordinator):
         self._active_hazards[key] = hazard
         self._hazards_detected_24h += 1
 
+        # v3.12.0 M2: Dispatch safety hazard signal for automation chaining
+        from homeassistant.helpers.dispatcher import async_dispatcher_send
+        from .signals import SafetyHazard as SafetyHazardPayload
+        async_dispatcher_send(
+            self.hass,
+            SIGNAL_SAFETY_HAZARD,
+            SafetyHazardPayload(
+                hazard_type=hazard.type.value,
+                severity=hazard.severity.name.lower(),
+                source_entity=hazard.sensor_id or "",
+                value=getattr(hazard, "value", None),
+                details=hazard.message or "",
+            ),
+        )
+
         # Generate actions based on severity
         actions: list[CoordinatorAction] = []
 

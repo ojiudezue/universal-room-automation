@@ -1,0 +1,111 @@
+/**
+ * Global CSS styles for URA v3 dashboard.
+ * Uses CSS custom properties derived from design tokens.
+ * Injected once at app root.
+ */
+export function GlobalStyles() {
+  return (
+    <style>{`
+      /* -- CSS Reset + Base -- */
+      *, *::before, *::after {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      html {
+        -webkit-text-size-adjust: 100%;
+        touch-action: manipulation;
+      }
+
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
+        color: rgba(255, 255, 255, 0.95);
+        background: #060612;
+        overflow-x: hidden;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+        font-size: 16px;
+        line-height: 1.5;
+      }
+
+      #root {
+        min-height: 100dvh;
+      }
+
+      /* -- Focus Visible -- */
+      :focus-visible {
+        outline: 2px solid #82B1FF;
+        outline-offset: 2px;
+        border-radius: 4px;
+      }
+
+      :focus:not(:focus-visible) {
+        outline: none;
+      }
+
+      /* -- Reduced Motion -- */
+      @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after {
+          animation-duration: 0.01ms !important;
+          animation-iteration-count: 1 !important;
+          transition-duration: 0.01ms !important;
+        }
+      }
+
+      /* -- Scrollbar -- */
+      ::-webkit-scrollbar {
+        width: 4px;
+        height: 4px;
+      }
+      ::-webkit-scrollbar-track {
+        background: transparent;
+      }
+      ::-webkit-scrollbar-thumb {
+        background: rgba(255, 255, 255, 0.12);
+        border-radius: 2px;
+      }
+      ::-webkit-scrollbar-thumb:hover {
+        background: rgba(255, 255, 255, 0.2);
+      }
+
+      /* -- Tabular Figures for data -- */
+      .tabular {
+        font-variant-numeric: tabular-nums;
+        font-feature-settings: 'tnum';
+      }
+
+      /* -- Keyframe animations -- */
+      @keyframes pulse-glow {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.5; }
+      }
+
+      @keyframes spin {
+        to { transform: rotate(360deg); }
+      }
+
+      @keyframes fade-in {
+        from { opacity: 0; transform: translateY(4px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+
+      @keyframes shimmer {
+        0% { background-position: -200% 0; }
+        100% { background-position: 200% 0; }
+      }
+
+      .animate-pulse-glow {
+        animation: pulse-glow 2s ease-in-out infinite;
+      }
+
+      .animate-spin {
+        animation: spin 1s linear infinite;
+      }
+
+      .animate-fade-in {
+        animation: fade-in 200ms ease-out;
+      }
+    `}</style>
+  );
+}

@@ -62,7 +62,7 @@ from .base import (
     ServiceCallAction,
     Severity,
 )
-from .signals import SIGNAL_SECURITY_ENTITIES_UPDATE
+from .signals import SIGNAL_SECURITY_ENTITIES_UPDATE, SIGNAL_SECURITY_EVENT
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -690,6 +690,18 @@ class SecurityCoordinator(BaseCoordinator):
         }
         self._alerts_today += 1
 
+        # v3.12.0 M2: Dispatch security event signal for automation chaining
+        from .signals import SecurityEvent as SecurityEventPayload
+        async_dispatcher_send(
+            self.hass,
+            SIGNAL_SECURITY_EVENT,
+            SecurityEventPayload(
+                event_type="unknown_person",
+                severity="high",
+                details="Unknown person detected on property",
+            ),
+        )
+
         actions = self._generate_lockdown_actions("Unknown person detected on property")
 
         # Camera trigger if enabled (uses platform-aware dispatcher)
@@ -887,6 +899,20 @@ class SecurityCoordinator(BaseCoordinator):
             "timestamp": dt_util.utcnow().isoformat(),
         }
         self._alerts_today += 1
+
+        sev_str = "critical" if verdict == EntryVerdict.ALERT_HIGH else "high"
+        # v3.12.0 M2: Dispatch security event signal for automation chaining
+        from .signals import SecurityEvent as SecurityEventPayload
+        async_dispatcher_send(
+            self.hass,
+            SIGNAL_SECURITY_EVENT,
+            SecurityEventPayload(
+                event_type="entry_alert",
+                severity=sev_str,
+                source_entity=entity_id,
+                details=f"Security alert at {entity_id} — {verdict.value}",
+            ),
+        )
 
         severity = (
             Severity.CRITICAL if verdict == EntryVerdict.ALERT_HIGH else Severity.HIGH
