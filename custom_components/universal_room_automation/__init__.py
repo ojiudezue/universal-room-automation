@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation v3.12.1
+# Universal Room Automation v3.12.2
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -1227,6 +1227,31 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 _LOGGER.info("URA Dashboard panel registered at /ura-dashboard")
             except Exception as exc:
                 _LOGGER.warning("Failed to register URA Dashboard panel: %s", exc)
+
+        # v3.12.0: Register URA Dashboard v3 panel (separate sidebar entry)
+        frontend_v3_path = os.path.join(os.path.dirname(__file__), "frontend-v3")
+        if os.path.isdir(frontend_v3_path):
+            try:
+                from homeassistant.components.http import StaticPathConfig
+                panel_v3_url = f"/{DOMAIN}_panel_v3"
+                await hass.http.async_register_static_paths(
+                    [StaticPathConfig(panel_v3_url, frontend_v3_path, False)]
+                )
+                from homeassistant.components import panel_custom
+                await panel_custom.async_register_panel(
+                    hass,
+                    webcomponent_name="ura-dashboard-panel-v3",
+                    frontend_url_path="ura-dashboard-v3",
+                    sidebar_title="URA Dashboard",
+                    sidebar_icon="mdi:view-dashboard",
+                    module_url=f"{panel_v3_url}/ura-panel-v3.js",
+                    embed_iframe=False,
+                    require_admin=False,
+                    config={},
+                )
+                _LOGGER.info("URA Dashboard v3 panel registered at /ura-dashboard-v3")
+            except Exception as exc:
+                _LOGGER.warning("Failed to register URA Dashboard v3 panel: %s", exc)
 
         _LOGGER.info("Integration entry setup complete with aggregation sensors")
         return True
