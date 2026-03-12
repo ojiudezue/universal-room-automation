@@ -1147,6 +1147,11 @@ class PresenceCoordinator(BaseCoordinator):
         if manager is None:
             return
 
+        # D4: Capture zone modes before inference for change detection
+        zone_modes_before = {
+            name: tracker.mode for name, tracker in self._zone_trackers.items()
+        }
+
         any_zone_occupied = any(
             t.mode == ZonePresenceMode.OCCUPIED
             for t in self._zone_trackers.values()
@@ -1183,6 +1188,18 @@ class PresenceCoordinator(BaseCoordinator):
                     current_state, new_state, trigger
                 )
 
+                # D3: Log house state change to database
+                db = self.hass.data.get(DOMAIN, {}).get("database")
+                if db is not None:
+                    self.hass.async_create_task(
+                        db.log_house_state_change(
+                            state=new_state.value,
+                            confidence=self._inference_engine.confidence,
+                            trigger=trigger,
+                            previous_state=current_state.value,
+                        )
+                    )
+
                 # Publish signal
                 from homeassistant.helpers.dispatcher import (
                     async_dispatcher_send,
@@ -1216,6 +1233,25 @@ class PresenceCoordinator(BaseCoordinator):
                 remaining = manager.house_state_machine.remaining_hysteresis()
                 if remaining > 0 and trigger != "deferred_retry":
                     self._schedule_deferred_retry(remaining + 1)
+
+        # D4: Log zone mode changes to database
+        db = self.hass.data.get(DOMAIN, {}).get("database")
+        if db is not None:
+            for zone_name, tracker in self._zone_trackers.items():
+                old_mode = zone_modes_before.get(zone_name)
+                new_mode = tracker.mode
+                if old_mode is not None and old_mode != new_mode:
+                    occupied_rooms = [
+                        rn for rn, occ in tracker._room_occupied.items() if occ
+                    ]
+                    self.hass.async_create_task(
+                        db.log_zone_event(
+                            zone=zone_name,
+                            event_type=new_mode,
+                            room_count=len(occupied_rooms),
+                            rooms=occupied_rooms if occupied_rooms else None,
+                        )
+                    )
 
         # Zone-scoped anomaly detection (runs every inference, not just on transition)
         await self._check_zone_anomalies()

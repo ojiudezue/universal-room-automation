@@ -13,18 +13,25 @@ from homeassistant.core import HomeAssistant
 
 from .energy_const import (
     BATTERY_MODE_BACKUP,
-    BATTERY_MODE_SAVINGS,
     BATTERY_MODE_SELF_CONSUMPTION,
+    DEFAULT_ARBITRAGE_SOC_TARGET,
+    DEFAULT_ARBITRAGE_SOC_TRIGGER,
     DEFAULT_BATTERY_POWER_ENTITY,
     DEFAULT_BATTERY_SOC_ENTITY,
     DEFAULT_CHARGE_FROM_GRID_ENTITY,
     DEFAULT_GRID_ENABLED_ENTITY,
     DEFAULT_NET_POWER_ENTITY,
+    DEFAULT_OFFPEAK_DRAIN_EXCELLENT,
+    DEFAULT_OFFPEAK_DRAIN_GOOD,
+    DEFAULT_OFFPEAK_DRAIN_MODERATE,
+    DEFAULT_OFFPEAK_DRAIN_POOR,
+    DEFAULT_OFFPEAK_DRAIN_UNKNOWN,
     DEFAULT_RESERVE_SOC,
     DEFAULT_RESERVE_SOC_ENTITY,
     DEFAULT_SOLAR_PRODUCTION_ENTITY,
     DEFAULT_SOLCAST_REMAINING_ENTITY,
     DEFAULT_SOLCAST_TODAY_ENTITY,
+    DEFAULT_SOLCAST_TOMORROW_ENTITY,
     DEFAULT_STORAGE_MODE_ENTITY,
     DEFAULT_STORM_CHARGE_THRESHOLD,
     DEFAULT_WEATHER_ENTITY,
@@ -45,6 +52,10 @@ class BatteryStrategy:
         entity_config: dict[str, str] | None = None,
         solar_classification_mode: str = "automatic",
         custom_solar_thresholds: dict[str, float] | None = None,
+        offpeak_drain_targets: dict[str, int] | None = None,
+        arbitrage_enabled: bool = False,
+        arbitrage_soc_trigger: int = DEFAULT_ARBITRAGE_SOC_TRIGGER,
+        arbitrage_soc_target: int = DEFAULT_ARBITRAGE_SOC_TARGET,
     ) -> None:
         """Initialize battery strategy."""
         self.hass = hass
@@ -54,6 +65,23 @@ class BatteryStrategy:
         self._last_reason: str = ""
         self._solar_classification_mode = solar_classification_mode
         self._custom_solar_thresholds = custom_solar_thresholds
+
+        # Phase A: Off-peak drain targets by tomorrow's solar class
+        dt = offpeak_drain_targets or {}
+        self._drain_targets: dict[str, int] = {
+            "excellent": dt.get("excellent", DEFAULT_OFFPEAK_DRAIN_EXCELLENT),
+            "good": dt.get("good", DEFAULT_OFFPEAK_DRAIN_GOOD),
+            "moderate": dt.get("moderate", DEFAULT_OFFPEAK_DRAIN_MODERATE),
+            "poor": dt.get("poor", DEFAULT_OFFPEAK_DRAIN_POOR),
+            "very_poor": dt.get("very_poor", dt.get("poor", DEFAULT_OFFPEAK_DRAIN_POOR)),
+            "unknown": dt.get("unknown", DEFAULT_OFFPEAK_DRAIN_UNKNOWN),
+        }
+
+        # Phase B: Grid charge arbitrage
+        self._arbitrage_enabled = arbitrage_enabled
+        self._arbitrage_trigger = arbitrage_soc_trigger
+        self._arbitrage_target = arbitrage_soc_target
+        self._arbitrage_active = False
 
     def _get_entity(self, key: str, default: str) -> str:
         """Get entity ID from config or default."""
@@ -140,6 +168,49 @@ class BatteryStrategy:
             self._get_entity("solcast_remaining", DEFAULT_SOLCAST_REMAINING_ENTITY)
         )
 
+    @property
+    def solcast_tomorrow(self) -> float | None:
+        """Solcast forecast for tomorrow in kWh."""
+        return self._get_state_float(
+            self._get_entity("solcast_tomorrow", DEFAULT_SOLCAST_TOMORROW_ENTITY)
+        )
+
+    def classify_tomorrow_solar(self) -> str:
+        """Classify tomorrow's solar forecast using per-month thresholds.
+
+        Same logic as classify_solar_day() but reads the tomorrow entity
+        and uses tomorrow's month for threshold lookup.
+        """
+        forecast = self.solcast_tomorrow
+        if forecast is None:
+            return "unknown"
+
+        if self._solar_classification_mode == "custom" and self._custom_solar_thresholds:
+            for classification, threshold in sorted(
+                self._custom_solar_thresholds.items(),
+                key=lambda x: x[1],
+                reverse=True,
+            ):
+                if forecast >= threshold:
+                    return classification
+            return "very_poor"
+
+        from homeassistant.util import dt as dt_util
+        from datetime import timedelta
+        tomorrow = (dt_util.now() + timedelta(days=1)).month
+        p25, p50, p75 = SOLAR_MONTHLY_THRESHOLDS.get(tomorrow, (50.0, 80.0, 100.0))
+        if forecast >= p75:
+            return "excellent"
+        if forecast >= p50:
+            return "good"
+        if forecast >= p25:
+            return "moderate"
+        return "poor"
+
+    def _get_offpeak_drain_target(self, tomorrow_class: str) -> int:
+        """Get the SOC drain target for off-peak based on tomorrow's solar class."""
+        return self._drain_targets.get(tomorrow_class, DEFAULT_OFFPEAK_DRAIN_UNKNOWN)
+
     def classify_solar_day(self) -> str:
         """Classify today's solar forecast: excellent/good/moderate/poor/very_poor.
 
@@ -222,9 +293,14 @@ class BatteryStrategy:
                 "soc": soc,
                 "solar_production": self.solar_production,
                 "net_power": self.net_power,
+                "battery_power": self.battery_power,
                 "solar_day_class": self.classify_solar_day(),
+                "tomorrow_solar_class": "unknown",
                 "envoy_available": False,
                 "season": season,
+                "arbitrage_active": False,
+                "arbitrage_enabled": self._arbitrage_enabled,
+                "reserve_soc": self.reserve_soc,
             }
 
         # Grid disconnected — emergency backup
@@ -306,13 +382,73 @@ class BatteryStrategy:
                 season=season,
             )
 
-        # Off-peak — charge from solar, low reserve allows full charging
+        # Off-peak — SOC-conditional drain with optional arbitrage
+        # Guard: only run off-peak logic for recognized off_peak period
+        if tou_period != "off_peak":
+            # Unrecognized period — treat as off-peak with conservative behavior
+            _LOGGER.warning("Unexpected TOU period '%s' — treating as off-peak", tou_period)
+        tomorrow_class = self.classify_tomorrow_solar()
+
+        # Phase B: Grid charge arbitrage check (before drain logic)
+        # If tomorrow is poor and SOC is low, charge from grid at off-peak rate
+        if (
+            self._arbitrage_enabled
+            and soc is not None
+            and soc < self._arbitrage_trigger
+            and tomorrow_class in ("poor", "very_poor")
+        ):
+            self._arbitrage_active = True
+            return self._result(
+                BATTERY_MODE_SELF_CONSUMPTION,
+                f"Off-peak arbitrage — grid charging (SOC {soc}%, tomorrow {tomorrow_class})",
+                current_mode,
+                charge_from_grid=True,
+                reserve_level=self.reserve_soc,
+                season=season,
+                tomorrow_solar_class=tomorrow_class,
+                arbitrage_active=True,
+            )
+
+        # Stop arbitrage when SOC reaches target
+        if self._arbitrage_active:
+            if soc is not None and soc >= self._arbitrage_target:
+                self._arbitrage_active = False
+            else:
+                # Still in arbitrage range — keep charging
+                return self._result(
+                    BATTERY_MODE_SELF_CONSUMPTION,
+                    f"Off-peak arbitrage — continuing (SOC {soc}%, target {self._arbitrage_target}%)",
+                    current_mode,
+                    charge_from_grid=True,
+                    reserve_level=self.reserve_soc,
+                    season=season,
+                    tomorrow_solar_class=tomorrow_class,
+                    arbitrage_active=True,
+                )
+
+        # Phase A: SOC-conditional drain
+        drain_target = self._get_offpeak_drain_target(tomorrow_class)
+
+        if soc is not None and soc > drain_target:
+            # Above target — drain stored solar (free energy)
+            return self._result(
+                BATTERY_MODE_SELF_CONSUMPTION,
+                f"Off-peak drain — SOC {soc}% > target {drain_target}% (tomorrow {tomorrow_class})",
+                current_mode,
+                reserve_level=drain_target,
+                season=season,
+                tomorrow_solar_class=tomorrow_class,
+            )
+
+        # At/below target — hold and import cheap grid
+        hold_reserve = int(soc) if soc is not None else drain_target
         return self._result(
             BATTERY_MODE_SELF_CONSUMPTION,
-            "Off-peak — charging from solar",
+            f"Off-peak hold — SOC {soc}% <= target {drain_target}% (tomorrow {tomorrow_class})",
             current_mode,
-            reserve_level=self.reserve_soc,
+            reserve_level=hold_reserve,
             season=season,
+            tomorrow_solar_class=tomorrow_class,
         )
 
     def _result(
@@ -323,6 +459,8 @@ class BatteryStrategy:
         charge_from_grid: bool = False,
         reserve_level: int | None = None,
         season: str | None = None,
+        tomorrow_solar_class: str | None = None,
+        arbitrage_active: bool = False,
     ) -> dict[str, Any]:
         """Build battery decision result with actions.
 
@@ -392,8 +530,11 @@ class BatteryStrategy:
             "solar_production": self.solar_production,
             "net_power": self.net_power,
             "solar_day_class": self.classify_solar_day(),
+            "tomorrow_solar_class": tomorrow_solar_class,
             "envoy_available": True,
             "season": season,
+            "arbitrage_active": arbitrage_active,
+            "arbitrage_enabled": self._arbitrage_enabled,
         }
 
     def get_status(self) -> dict[str, Any]:
@@ -408,6 +549,9 @@ class BatteryStrategy:
             "grid_connected": self.grid_connected,
             "envoy_available": self.envoy_available,
             "solar_day_class": self.classify_solar_day(),
+            "tomorrow_solar_class": self.classify_tomorrow_solar(),
             "storm_forecast": self.has_storm_forecast(),
             "reserve_soc": self.reserve_soc,
+            "arbitrage_active": self._arbitrage_active,
+            "arbitrage_enabled": self._arbitrage_enabled,
         }

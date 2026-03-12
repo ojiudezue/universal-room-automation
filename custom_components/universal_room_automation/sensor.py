@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.10.5
+# Universal Room Automation v3.11.0
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -6549,7 +6549,9 @@ class EnergyBatteryDecisionSensor(AggregationEntity, SensorEntity):
         energy = manager.coordinators.get("energy")
         if energy is None:
             return {}
-        return energy.battery_decision_status or {}
+        status = energy.battery_decision_status or {}
+        # Filter internal actions list — not useful as sensor attributes
+        return {k: v for k, v in status.items() if k != "actions"}
 
 
 class EnergyLoadSheddingSensor(AggregationEntity, SensorEntity):

@@ -26,6 +26,9 @@ from .energy_circuits import GeneratorMonitor, SPANCircuitMonitor
 from .energy_forecast import AccuracyTracker, DailyEnergyPredictor
 from .energy_pool import EVChargerController, PoolOptimizer, SmartPlugController
 from .energy_const import (
+    CONF_ENERGY_ARBITRAGE_ENABLED,
+    CONF_ENERGY_ARBITRAGE_SOC_TARGET,
+    CONF_ENERGY_ARBITRAGE_SOC_TRIGGER,
     CONF_ENERGY_BATTERY_POWER_ENTITY,
     CONF_ENERGY_BATTERY_SOC_ENTITY,
     CONF_ENERGY_CHARGE_FROM_GRID_ENTITY,
@@ -33,30 +36,47 @@ from .energy_const import (
     CONF_ENERGY_CONSTRAINT_PRECOOL_OFFSET,
     CONF_ENERGY_CONSTRAINT_PREHEAT_OFFSET,
     CONF_ENERGY_CONSTRAINT_SHED_OFFSET,
+    CONF_ENERGY_EXCESS_SOLAR_ENABLED,
+    CONF_ENERGY_EXCESS_SOLAR_KWH,
+    CONF_ENERGY_EXCESS_SOLAR_SOC,
     CONF_ENERGY_GRID_ENABLED_ENTITY,
     CONF_ENERGY_LOAD_SHEDDING_ENABLED,
     CONF_ENERGY_LOAD_SHEDDING_MODE,
     CONF_ENERGY_LOAD_SHEDDING_SUSTAINED_MINUTES,
     CONF_ENERGY_LOAD_SHEDDING_THRESHOLD,
     CONF_ENERGY_NET_POWER_ENTITY,
+    CONF_ENERGY_OFFPEAK_DRAIN_EXCELLENT,
+    CONF_ENERGY_OFFPEAK_DRAIN_GOOD,
+    CONF_ENERGY_OFFPEAK_DRAIN_MODERATE,
+    CONF_ENERGY_OFFPEAK_DRAIN_POOR,
     CONF_ENERGY_PREHEAT_TEMP_THRESHOLD,
     CONF_ENERGY_RESERVE_SOC_ENTITY,
     CONF_ENERGY_SOLAR_ENTITY,
     CONF_ENERGY_SOLCAST_REMAINING_ENTITY,
     CONF_ENERGY_SOLCAST_TODAY_ENTITY,
+    CONF_ENERGY_SOLCAST_TOMORROW_ENTITY,
     CONF_ENERGY_STORAGE_MODE_ENTITY,
     CONF_ENERGY_WEATHER_ENTITY,
+    DEFAULT_ARBITRAGE_SOC_TARGET,
+    DEFAULT_ARBITRAGE_SOC_TRIGGER,
     DEFAULT_CONSTRAINT_COAST_OFFSET,
     DEFAULT_CONSTRAINT_PRECOOL_OFFSET,
     DEFAULT_CONSTRAINT_PREHEAT_OFFSET,
     DEFAULT_CONSTRAINT_SHED_OFFSET,
     DEFAULT_CONSUMPTION_TODAY_ENTITY,
     DEFAULT_DECISION_INTERVAL_MINUTES,
+    DEFAULT_EXCESS_SOLAR_KWH_THRESHOLD,
+    DEFAULT_EXCESS_SOLAR_SOC_THRESHOLD,
     DEFAULT_LIFETIME_CONSUMPTION_ENTITY,
     DEFAULT_LOAD_SHEDDING_SUSTAINED_MINUTES,
     DEFAULT_LOAD_SHEDDING_THRESHOLD_KW,
+    DEFAULT_OFFPEAK_DRAIN_EXCELLENT,
+    DEFAULT_OFFPEAK_DRAIN_GOOD,
+    DEFAULT_OFFPEAK_DRAIN_MODERATE,
+    DEFAULT_OFFPEAK_DRAIN_POOR,
     DEFAULT_PREHEAT_TEMP_THRESHOLD,
     DEFAULT_RESERVE_SOC,
+    EVSE_CHARGING_POWER_THRESHOLD,
     LOAD_SHEDDING_AUTO_MIN_DAYS,
     LOAD_SHEDDING_AUTO_PERCENTILE,
     LOAD_SHEDDING_MODE_AUTO,
@@ -102,17 +122,45 @@ class EnergyCoordinator(BaseCoordinator):
         config_dir = hass.config.path("")
         self._tou = TOURateEngine.from_json_file(config_dir, DEFAULT_TOU_RATE_FILE)
 
+        # Build off-peak drain targets from config
+        ec = entity_config or {}
+        offpeak_drain_targets = {
+            "excellent": ec.get(CONF_ENERGY_OFFPEAK_DRAIN_EXCELLENT, DEFAULT_OFFPEAK_DRAIN_EXCELLENT),
+            "good": ec.get(CONF_ENERGY_OFFPEAK_DRAIN_GOOD, DEFAULT_OFFPEAK_DRAIN_GOOD),
+            "moderate": ec.get(CONF_ENERGY_OFFPEAK_DRAIN_MODERATE, DEFAULT_OFFPEAK_DRAIN_MODERATE),
+            "poor": ec.get(CONF_ENERGY_OFFPEAK_DRAIN_POOR, DEFAULT_OFFPEAK_DRAIN_POOR),
+        }
+
         self._battery = BatteryStrategy(
             hass,
             reserve_soc=reserve_soc,
             entity_config=self._build_entity_map(entity_config),
             solar_classification_mode=solar_classification_mode,
             custom_solar_thresholds=custom_solar_thresholds,
+            offpeak_drain_targets=offpeak_drain_targets,
+            arbitrage_enabled=ec.get(CONF_ENERGY_ARBITRAGE_ENABLED, False),
+            arbitrage_soc_trigger=ec.get(CONF_ENERGY_ARBITRAGE_SOC_TRIGGER, DEFAULT_ARBITRAGE_SOC_TRIGGER),
+            arbitrage_soc_target=ec.get(CONF_ENERGY_ARBITRAGE_SOC_TARGET, DEFAULT_ARBITRAGE_SOC_TARGET),
         )
         # E2: Pool, EV, Smart Plugs
         self._pool = PoolOptimizer(hass, pool_speed_entity=pool_speed_entity)
         self._ev = EVChargerController(hass, evse_config=evse_config)
         self._smart_plugs = SmartPlugController(hass, plug_entities=smart_plug_entities)
+
+        # v3.11.0: Configured weather entity (for DB logging)
+        from .energy_const import DEFAULT_WEATHER_ENTITY
+        self._weather_entity: str = ec.get(CONF_ENERGY_WEATHER_ENTITY, DEFAULT_WEATHER_ENTITY)
+
+        # v3.11.0: Excess solar EVSE config
+        self._excess_solar_enabled: bool = ec.get(CONF_ENERGY_EXCESS_SOLAR_ENABLED, False)
+        self._excess_solar_soc: int = ec.get(
+            CONF_ENERGY_EXCESS_SOLAR_SOC, DEFAULT_EXCESS_SOLAR_SOC_THRESHOLD
+        )
+        self._excess_solar_kwh: float = ec.get(
+            CONF_ENERGY_EXCESS_SOLAR_KWH, DEFAULT_EXCESS_SOLAR_KWH_THRESHOLD
+        )
+        self._evse_battery_hold_active: bool = False
+        self._evse_hold_soc: int | None = None  # Captured SOC at start of EVSE hold
 
         # E3: Circuit monitoring + generator
         self._circuits = SPANCircuitMonitor(hass)
@@ -133,7 +181,7 @@ class EnergyCoordinator(BaseCoordinator):
         self._last_published_constraint: str = ""  # track to avoid duplicate signals
         self._energy_situation: str = "normal"
         # E6 v3.9.0: Load shedding + configurable constraints
-        ec = entity_config or {}
+        # (ec already assigned above)
         self._load_shedding_enabled: bool = ec.get(
             CONF_ENERGY_LOAD_SHEDDING_ENABLED, False
         )
@@ -176,6 +224,7 @@ class EnergyCoordinator(BaseCoordinator):
         self._last_battery_decision: dict[str, Any] = {}
         self._tou_transition_count: int = 0
         self._last_reset_date: str = ""
+        self._cycle_count: int = 0  # v3.11.0: for throttling DB writes
 
         # Envoy lifetime consumption snapshot for accurate daily tracking.
         # At each date change, delta = current - snapshot = true daily consumption.
@@ -210,6 +259,7 @@ class EnergyCoordinator(BaseCoordinator):
             CONF_ENERGY_CHARGE_FROM_GRID_ENTITY: "charge_from_grid",
             CONF_ENERGY_SOLCAST_TODAY_ENTITY: "solcast_today",
             CONF_ENERGY_SOLCAST_REMAINING_ENTITY: "solcast_remaining",
+            CONF_ENERGY_SOLCAST_TOMORROW_ENTITY: "solcast_tomorrow",
             CONF_ENERGY_WEATHER_ENTITY: "weather",
         }
         result = {}
@@ -239,6 +289,9 @@ class EnergyCoordinator(BaseCoordinator):
 
         # Fit temperature regression from historical data
         await self._fit_temp_regression()
+
+        # Restore EVSE state (paused, excess solar) from DB
+        await self._restore_evse_state()
 
         # Start periodic decision cycle
         self._decision_timer_unsub = async_track_time_interval(
@@ -337,6 +390,48 @@ class EnergyCoordinator(BaseCoordinator):
             await db.save_peak_import_history(self._peak_import_history)
         except Exception as e:
             _LOGGER.warning("Could not save peak import history to DB: %s", e)
+
+    async def _restore_evse_state(self) -> None:
+        """Restore EVSE paused/excess-solar state from DB after restart."""
+        db = self.hass.data.get("universal_room_automation", {}).get("database")
+        if db is None:
+            return
+        try:
+            states = await db.restore_evse_state()
+            valid_evse_ids = set(self._ev._evse.keys())
+            for evse_id, state in states.items():
+                if evse_id not in valid_evse_ids:
+                    _LOGGER.debug(
+                        "Skipping stale EVSE ID from DB restore: %s", evse_id
+                    )
+                    continue
+                if state.get("paused_by_energy"):
+                    self._ev._paused_by_us.add(evse_id)
+                if state.get("excess_solar_active"):
+                    self._ev._excess_solar_active.add(evse_id)
+            if states:
+                _LOGGER.info(
+                    "Restored EVSE state: paused=%s, excess_solar=%s",
+                    list(self._ev._paused_by_us),
+                    list(self._ev._excess_solar_active),
+                )
+        except Exception as e:
+            _LOGGER.warning("Could not restore EVSE state from DB: %s", e)
+
+    async def _save_evse_state(self) -> None:
+        """Persist EVSE state to DB for restart recovery."""
+        db = self.hass.data.get("universal_room_automation", {}).get("database")
+        if db is None:
+            return
+        try:
+            for evse_id in self._ev._evse:
+                await db.save_evse_state(
+                    evse_id=evse_id,
+                    paused_by_energy=evse_id in self._ev._paused_by_us,
+                    excess_solar_active=evse_id in self._ev._excess_solar_active,
+                )
+        except Exception as e:
+            _LOGGER.warning("Could not save EVSE state to DB: %s", e)
 
     async def _fit_temp_regression(self) -> None:
         """Fit temperature regression from historical consumption-temperature pairs.
@@ -451,6 +546,9 @@ class EnergyCoordinator(BaseCoordinator):
                         avg_temperature=avg_temp,
                     )
                 )
+
+            # v3.11.0: Daily DB cleanup
+            self.hass.async_create_task(self._daily_db_cleanup())
 
             # Reset snapshot for new day
             self._lifetime_consumption_snapshot = current_lifetime
@@ -584,6 +682,142 @@ class EnergyCoordinator(BaseCoordinator):
                 )
                 self._lifetime_consumption_snapshot = current_lifetime
 
+    # =========================================================================
+    # v3.11.0 D1/D2: Energy History + External Conditions Logging
+    # =========================================================================
+
+    async def _log_energy_history_snapshot(self, decision: dict[str, Any]) -> None:
+        """Log energy history snapshot to DB (every ~15 min).
+
+        Values are instantaneous power in kW (converted from Envoy watts).
+        DB columns are labeled "energy flows" historically but store point-in-time
+        power readings at 15-min intervals.
+        """
+        db = self.hass.data.get("universal_room_automation", {}).get("database")
+        if db is None:
+            return
+        try:
+            # Envoy reports solar_production and net_power in watts — convert to kW
+            solar_prod_w = self._battery.solar_production
+            net_power_w = self._battery.net_power
+            solar_prod_kw = solar_prod_w / 1000.0 if solar_prod_w is not None else None
+            grid_import_kw = max(net_power_w or 0, 0) / 1000.0
+            solar_export_kw = abs(min(net_power_w or 0, 0)) / 1000.0
+
+            outside_temp = None
+            weather_state = self.hass.states.get(self._weather_entity)
+            if weather_state and weather_state.attributes:
+                outside_temp = weather_state.attributes.get("temperature")
+
+            # total_consumption_kw property reads Envoy watts despite the name
+            consumption_w = self.total_consumption_kw
+            consumption_kw = consumption_w / 1000.0 if consumption_w is not None else None
+
+            await db.log_energy_history({
+                "solar_production": solar_prod_kw,
+                "solar_export": solar_export_kw,
+                "grid_import": grid_import_kw,
+                "battery_level": self._battery.battery_soc,
+                "whole_house_energy": consumption_kw,
+                "outside_temp": outside_temp,
+            })
+        except Exception as e:
+            _LOGGER.warning("Failed to log energy history: %s", e)
+
+    async def _log_external_conditions_snapshot(self) -> None:
+        """Log external conditions snapshot to DB (every ~15 min)."""
+        db = self.hass.data.get("universal_room_automation", {}).get("database")
+        if db is None:
+            return
+        try:
+            weather_state = self.hass.states.get(self._weather_entity)
+            outside_temp = None
+            outside_humidity = None
+            weather_condition = None
+            if weather_state:
+                weather_condition = weather_state.state
+                if weather_state.attributes:
+                    outside_temp = weather_state.attributes.get("temperature")
+                    outside_humidity = weather_state.attributes.get("humidity")
+
+            # Solar production is in watts from Envoy — convert to kW for DB
+            solar_prod_w = self._battery.solar_production
+            solar_prod_kw = solar_prod_w / 1000.0 if solar_prod_w is not None else None
+
+            await db.log_external_conditions({
+                "outside_temp": outside_temp,
+                "outside_humidity": outside_humidity,
+                "weather_condition": weather_condition,
+                "solar_production": solar_prod_kw,
+                "forecast_high": self._cached_forecast_high,
+                "forecast_low": self._cached_forecast_low,
+                "occupied_room_count": 0,
+                "occupied_zone_count": 0,
+            })
+        except Exception as e:
+            _LOGGER.warning("Failed to log external conditions: %s", e)
+
+    async def _daily_db_cleanup(self) -> None:
+        """Run daily DB cleanup for energy_history and external_conditions."""
+        db = self.hass.data.get("universal_room_automation", {}).get("database")
+        if db is None:
+            return
+        try:
+            await db.cleanup_energy_history(retention_days=180)
+            await db.cleanup_external_conditions(retention_days=90)
+        except Exception as e:
+            _LOGGER.warning("Failed to run daily DB cleanup: %s", e)
+
+    # =========================================================================
+    # v3.11.0 C1: EVSE Battery Hold
+    # =========================================================================
+
+    def _is_any_evse_charging(self) -> bool:
+        """Check if any EVSE is actively charging (power > threshold)."""
+        for evse_id in self._ev._evse:
+            state = self._ev._get_evse_state(evse_id)
+            if state.get("charging", False):
+                return True
+        return False
+
+    def _apply_evse_battery_hold(self, decision: dict[str, Any]) -> dict[str, Any]:
+        """Override battery reserve to captured SOC when EVSEs are charging.
+
+        Uses the SOC captured at hold start to prevent ratchet-down effect
+        where each cycle locks to progressively lower SOC.
+        """
+        # Use captured SOC from hold start, fall back to current SOC
+        hold_reserve = self._evse_hold_soc
+        if hold_reserve is None:
+            soc = decision.get("soc")
+            if soc is None:
+                return decision
+            hold_reserve = int(soc)
+
+        # Copy decision to avoid mutating BatteryStrategy's internal state
+        decision = {**decision, "actions": list(decision.get("actions", []))}
+        decision["reason"] = decision["reason"] + " + EVSE hold"
+
+        # Use the battery strategy's configured reserve entity for reliable matching
+        from .energy_const import DEFAULT_RESERVE_SOC_ENTITY
+        reserve_entity = self._battery._get_entity(
+            "reserve_soc_number", DEFAULT_RESERVE_SOC_ENTITY
+        )
+
+        # Update existing reserve action or add new one
+        for i, action in enumerate(decision["actions"]):
+            if action.get("target", "") == reserve_entity:
+                decision["actions"][i] = {**action, "data": {"value": hold_reserve}}
+                return decision
+
+        # No reserve action yet — add one using configured entity
+        decision["actions"].append({
+            "service": "number.set_value",
+            "target": reserve_entity,
+            "data": {"value": hold_reserve},
+        })
+        return decision
+
     async def _async_decision_cycle(self, _now=None) -> None:
         """Run the periodic decision cycle (every N minutes)."""
         if not self._enabled:
@@ -603,6 +837,24 @@ class EnergyCoordinator(BaseCoordinator):
 
             # Battery decision
             decision = self._battery.determine_mode(period, season)
+
+            # C1: EVSE battery hold — if any EVSE is charging, override battery
+            # reserve to captured SOC so battery doesn't discharge to cover EV load.
+            # Capture SOC once when hold starts to avoid ratchet-down effect.
+            if self._is_any_evse_charging():
+                if not self._evse_battery_hold_active:
+                    # First cycle detecting EVSE charge — capture SOC
+                    soc = decision.get("soc")
+                    self._evse_hold_soc = int(soc) if soc is not None else None
+                decision = self._apply_evse_battery_hold(decision)
+                self._evse_battery_hold_active = True
+            else:
+                self._evse_battery_hold_active = False
+                self._evse_hold_soc = None
+
+            # Add EVSE hold status to decision for sensor visibility
+            decision["evse_battery_hold"] = self._evse_battery_hold_active
+
             self._last_battery_decision = decision
 
             # Execute actions (skipped in observation mode)
@@ -619,6 +871,18 @@ class EnergyCoordinator(BaseCoordinator):
                 ev_actions = self._ev.determine_actions(period)
                 for action_spec in ev_actions:
                     await self._execute_service_action(action_spec)
+
+                # C2: Excess solar EVSE charging
+                if self._excess_solar_enabled:
+                    soc = self._battery.battery_soc
+                    remaining = self._battery.solcast_remaining
+                    excess_actions = self._ev.determine_excess_solar_actions(
+                        soc, remaining, period,
+                        soc_threshold=self._excess_solar_soc,
+                        kwh_threshold=self._excess_solar_kwh,
+                    )
+                    for action_spec in excess_actions:
+                        await self._execute_service_action(action_spec)
 
                 # E2: Smart plug control
                 plug_actions = self._smart_plugs.determine_actions(period)
@@ -689,6 +953,18 @@ class EnergyCoordinator(BaseCoordinator):
             # Cross-check consumption tracking (hourly, when data available)
             self._crosscheck_consumption()
 
+            # v3.11.0 D1/D2: Log energy history + external conditions every 3rd cycle (~15min)
+            self._cycle_count += 1
+            if self._cycle_count % 3 == 0:
+                self.hass.async_create_task(
+                    self._log_energy_history_snapshot(decision)
+                )
+                self.hass.async_create_task(
+                    self._log_external_conditions_snapshot()
+                )
+                # H2 fix: Persist EVSE state periodically (survives crashes)
+                self.hass.async_create_task(self._save_evse_state())
+
             _LOGGER.debug(
                 "Energy cycle: period=%s, battery=%s (%s), soc=%s%%, pool=%s, envoy=%s",
                 period,
@@ -706,6 +982,19 @@ class EnergyCoordinator(BaseCoordinator):
         period = self._tou.get_current_period()
         season = self._tou.get_season()
         decision = self._battery.determine_mode(period, season)
+
+        # C1 fix: Apply EVSE battery hold in evaluate path too (not just timer path)
+        if self._is_any_evse_charging():
+            if not self._evse_battery_hold_active:
+                soc = decision.get("soc")
+                self._evse_hold_soc = int(soc) if soc is not None else None
+            decision = self._apply_evse_battery_hold(decision)
+            self._evse_battery_hold_active = True
+        else:
+            self._evse_battery_hold_active = False
+            self._evse_hold_soc = None
+        decision["evse_battery_hold"] = self._evse_battery_hold_active
+
         self._last_battery_decision = decision
 
         actions: list[CoordinatorAction] = []
@@ -1138,10 +1427,12 @@ class EnergyCoordinator(BaseCoordinator):
             _LOGGER.debug("Energy: NM alert failed (non-fatal): %s", title)
 
     async def async_teardown(self) -> None:
-        """Tear down — cancel decision timer, persist peak import history."""
+        """Tear down — cancel decision timer, persist state for restart."""
         # Save peak import history so it survives restarts
         if self._peak_import_history:
             await self._save_peak_import_history()
+        # Save EVSE state for restart recovery
+        await self._save_evse_state()
         if self._decision_timer_unsub is not None:
             self._decision_timer_unsub()
             self._decision_timer_unsub = None
@@ -1417,4 +1708,5 @@ class EnergyCoordinator(BaseCoordinator):
             "envoy_unavailable_count": self._envoy_unavailable_count,
             "envoy_last_available": self._envoy_last_available,
             "observation_mode": self._observation_mode,
+            "evse_battery_hold": self._evse_battery_hold_active,
         }
