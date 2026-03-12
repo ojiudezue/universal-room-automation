@@ -1,6 +1,6 @@
 """Config flow for Universal Room Automation v3.6.24."""
 #
-# Universal Room Automation v3.11.0
+# Universal Room Automation v3.11.1
 # Build: 2026-01-05
 # File: config_flow.py
 # v3.3.3: Added manage_zones to integration options menu
@@ -2191,6 +2191,10 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             DEFAULT_CONSTRAINT_PREHEAT_OFFSET,
             DEFAULT_CONSTRAINT_SHED_OFFSET,
             DEFAULT_PREHEAT_TEMP_THRESHOLD,
+            # v3.11.0: Solar forecast entity selectors
+            CONF_ENERGY_SOLCAST_TODAY_ENTITY,
+            CONF_ENERGY_SOLCAST_REMAINING_ENTITY,
+            CONF_ENERGY_SOLCAST_TOMORROW_ENTITY,
             # v3.11.0: Off-peak drain, arbitrage, EVSE management
             CONF_ENERGY_OFFPEAK_DRAIN_EXCELLENT,
             CONF_ENERGY_OFFPEAK_DRAIN_GOOD,
@@ -2267,6 +2271,25 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 description={"suggested_value": weather_default},
             ): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="weather")
+            ),
+            # v3.11.0: Solar forecast entity selectors
+            vol.Optional(
+                CONF_ENERGY_SOLCAST_TODAY_ENTITY,
+                description={"suggested_value": self._get_current(CONF_ENERGY_SOLCAST_TODAY_ENTITY)},
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor")
+            ),
+            vol.Optional(
+                CONF_ENERGY_SOLCAST_TOMORROW_ENTITY,
+                description={"suggested_value": self._get_current(CONF_ENERGY_SOLCAST_TOMORROW_ENTITY)},
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor")
+            ),
+            vol.Optional(
+                CONF_ENERGY_SOLCAST_REMAINING_ENTITY,
+                description={"suggested_value": self._get_current(CONF_ENERGY_SOLCAST_REMAINING_ENTITY)},
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor")
             ),
             vol.Optional(
                 CONF_ENERGY_EVSE_A_ENTITY,
