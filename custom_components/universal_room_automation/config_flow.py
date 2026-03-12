@@ -1,6 +1,6 @@
 """Config flow for Universal Room Automation v3.6.24."""
 #
-# Universal Room Automation v3.12.0
+# Universal Room Automation v3.12.1
 # Build: 2026-01-05
 # File: config_flow.py
 # v3.3.3: Added manage_zones to integration options menu
@@ -4926,6 +4926,9 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         errors = []
         for i, action in enumerate(actions):
             label = f"Action {i + 1}"
+            if not isinstance(action, dict):
+                errors.append(f"{label}: must be an object, got {type(action).__name__}")
+                continue
             for key in ("domain", "service", "target"):
                 if key not in action:
                     errors.append(f"{label}: missing '{key}'")
@@ -4934,6 +4937,9 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             if domain and domain not in self._AI_RULE_ALLOWED_DOMAINS:
                 errors.append(f"{label}: domain '{domain}' is not allowed")
             target = action.get("target", {})
+            if not isinstance(target, dict):
+                errors.append(f"{label}: 'target' must be an object")
+                target = {}
             entity_id = target.get("entity_id")
             if entity_id:
                 eids = entity_id if isinstance(entity_id, list) else [entity_id]

@@ -62,7 +62,7 @@ from .base import (
     ServiceCallAction,
     Severity,
 )
-from .signals import SIGNAL_SECURITY_ENTITIES_UPDATE, SIGNAL_SECURITY_EVENT
+from .signals import SIGNAL_SECURITY_ENTITIES_UPDATE, SIGNAL_SECURITY_EVENT, SecurityEvent as SecurityEventPayload
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -691,7 +691,6 @@ class SecurityCoordinator(BaseCoordinator):
         self._alerts_today += 1
 
         # v3.12.0 M2: Dispatch security event signal for automation chaining
-        from .signals import SecurityEvent as SecurityEventPayload
         async_dispatcher_send(
             self.hass,
             SIGNAL_SECURITY_EVENT,
@@ -902,7 +901,6 @@ class SecurityCoordinator(BaseCoordinator):
 
         sev_str = "critical" if verdict == EntryVerdict.ALERT_HIGH else "high"
         # v3.12.0 M2: Dispatch security event signal for automation chaining
-        from .signals import SecurityEvent as SecurityEventPayload
         async_dispatcher_send(
             self.hass,
             SIGNAL_SECURITY_EVENT,

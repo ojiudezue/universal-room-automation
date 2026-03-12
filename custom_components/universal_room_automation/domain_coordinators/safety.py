@@ -63,7 +63,7 @@ from .base import (
     Severity,
 )
 from .coordinator_diagnostics import MetricBaseline
-from .signals import SIGNAL_SAFETY_HAZARD
+from .signals import SIGNAL_SAFETY_HAZARD, SafetyHazard as SafetyHazardPayload
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -1461,7 +1461,6 @@ class SafetyCoordinator(BaseCoordinator):
 
         # v3.12.0 M2: Dispatch safety hazard signal for automation chaining
         from homeassistant.helpers.dispatcher import async_dispatcher_send
-        from .signals import SafetyHazard as SafetyHazardPayload
         async_dispatcher_send(
             self.hass,
             SIGNAL_SAFETY_HAZARD,
@@ -1469,7 +1468,7 @@ class SafetyCoordinator(BaseCoordinator):
                 hazard_type=hazard.type.value,
                 severity=hazard.severity.name.lower(),
                 source_entity=hazard.sensor_id or "",
-                value=getattr(hazard, "value", None),
+                value=hazard.value,
                 details=hazard.message or "",
             ),
         )
