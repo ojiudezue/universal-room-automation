@@ -1,6 +1,6 @@
 """Data coordinator for Universal Room Automation."""
 #
-# Universal Room Automation v3.12.0
+# Universal Room Automation v3.12.1
 # Build: 2026-01-02
 # File: coordinator.py
 # v3.2.8: Support for active state change listeners in aggregation sensors
@@ -476,10 +476,15 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
 
     async def _execute_rule_action(self, action: dict, room_name: str) -> None:
         """Execute a single parsed service call from an AI rule."""
+        if not isinstance(action, dict):
+            return
         domain = action.get("domain")
         service = action.get("service")
         target = action.get("target", {})
-        data = {**action.get("data", {})}
+        if not isinstance(target, dict):
+            target = {}
+        raw_data = action.get("data", {})
+        data = dict(raw_data) if isinstance(raw_data, dict) else {}
 
         if not domain or not service:
             return
@@ -497,14 +502,7 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
             data["entity_id"] = entity_id
 
         try:
-            await asyncio.wait_for(
-                self.hass.services.async_call(domain, service, data, blocking=False),
-                timeout=5.0,
-            )
-        except asyncio.TimeoutError:
-            _LOGGER.error(
-                "[%s] AI rule action timed out: %s.%s", room_name, domain, service,
-            )
+            await self.hass.services.async_call(domain, service, data, blocking=False)
         except Exception as err:
             _LOGGER.error(
                 "[%s] AI rule action failed: %s.%s — %s", room_name, domain, service, err,
