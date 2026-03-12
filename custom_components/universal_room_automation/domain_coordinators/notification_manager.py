@@ -794,7 +794,7 @@ class NotificationManager:
         try:
             await self.hass.services.async_call(
                 "whatsapp", "send_message",
-                {"phone": phone, "body": f"*{title}*\n{message}"},
+                {"number": phone, "message": f"*{title}*\n{message}"},
                 blocking=True,
             )
             self._update_channel_health("whatsapp", True)
@@ -807,7 +807,7 @@ class NotificationManager:
         try:
             await self.hass.services.async_call(
                 "bluebubbles", "send_message",
-                {"addresses": [handle], "message": f"{title}\n{message}"},
+                {"addresses": handle, "message": f"{title}\n{message}"},
                 blocking=True,
             )
             self._update_channel_health("imessage", True)

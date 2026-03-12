@@ -1314,7 +1314,7 @@ class TestImessageOutbound:
         )
         hass.services.async_call.assert_called_once_with(
             "bluebubbles", "send_message",
-            {"addresses": ["user@icloud.com"], "message": "Alert\nFire detected"},
+            {"addresses": "user@icloud.com", "message": "Alert\nFire detected"},
             blocking=True,
         )
 
