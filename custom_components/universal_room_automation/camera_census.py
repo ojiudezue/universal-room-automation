@@ -1,6 +1,6 @@
 """Camera integration and person census for Universal Room Automation v3.5.0."""
 #
-# Universal Room Automation v3.10.2
+# Universal Room Automation v3.10.3
 # Build: 2026-02-23
 # File: camera_census.py
 # Cycle 3: Camera Integration & Census Core
@@ -50,8 +50,8 @@ from .const import (
     CENSUS_FACE_RECOGNITION_WINDOW_SECONDS,
     CONF_GUEST_VLAN_SSID,
     DEFAULT_GUEST_VLAN_SSID,
-    PHONE_MANUFACTURERS,
     PHONE_HOSTNAME_PREFIXES,
+    WIFI_GUEST_RECENCY_HOURS,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -1469,24 +1469,49 @@ class PersonCensus:
 
         return unrecognized
 
-    def _get_wifi_guest_count(self) -> int:
-        """Count phones on guest WiFi VLAN.
+    def _get_wifi_guest_count(self, now: datetime | None = None) -> int:
+        """Count GUEST phones on WiFi VLAN (shared entertainment network).
 
-        Looks for device_tracker entities from UniFi that are:
-          - state = "home"
-          - on guest VLAN (essid matches configured guest SSID, or is_guest=True)
-          - OUI matches a phone manufacturer, OR hostname matches a phone pattern
-            (modern phones use randomized MACs with empty OUI)
+        The configured SSID (e.g., Revel) is a shared network with TVs,
+        HomePods, WiiMs, family phones, and guest phones. Three filters
+        separate guests from residents:
+
+        1. Hostname filter: Only phone hostnames (iPhone, Galaxy, Pixel, etc.)
+           — excludes TVs, HomePods, WiiMs, iPads, IoT devices.
+        2. Person exclusion: Excludes device_trackers associated with tracked
+           person entities (family members' phones).
+        3. Recency filter: Only counts phones whose state last changed within
+           WIFI_GUEST_RECENCY_HOURS (default 24h). Resident devices that have
+           been connected for days are excluded. Cameras still catch
+           long-staying guests via camera_unrecognized count.
 
         Returns count of guest phone devices currently connected.
         """
+        if now is None:
+            now = dt_util.utcnow()
+
         guest_ssid = ""
+        tracked_persons: list[str] = []
         for entry in self.hass.config_entries.async_entries(DOMAIN):
             if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_INTEGRATION:
                 merged = {**entry.data, **entry.options}
                 guest_ssid = merged.get(CONF_GUEST_VLAN_SSID, DEFAULT_GUEST_VLAN_SSID)
+                raw = merged.get("tracked_persons", [])
+                tracked_persons = [p.strip() for p in raw if p.strip()]
                 break
 
+        # Build set of family device_tracker entity_ids from person entities
+        family_trackers: set[str] = set()
+        for person_entity_id in tracked_persons:
+            person_state = self.hass.states.get(person_entity_id)
+            if person_state is not None:
+                trackers = person_state.attributes.get("device_trackers", [])
+                family_trackers.update(trackers)
+                source = person_state.attributes.get("source")
+                if source:
+                    family_trackers.add(source)
+
+        recency_seconds = WIFI_GUEST_RECENCY_HOURS * 3600
         guest_count = 0
         all_states = self.hass.states.async_all("device_tracker")
 
@@ -1495,46 +1520,64 @@ class PersonCensus:
                 continue
 
             attrs = state.attributes
-            source_type = attrs.get("source_type", "")
-            if source_type != "router":
+            if attrs.get("source_type", "") != "router":
                 continue
 
             # Check if on guest VLAN
-            is_guest = False
+            is_on_ssid = False
             if guest_ssid:
                 if attrs.get("essid") == guest_ssid:
-                    is_guest = True
+                    is_on_ssid = True
             else:
-                # Auto-detect: use is_guest flag from UniFi
                 if attrs.get("is_guest", False):
-                    is_guest = True
+                    is_on_ssid = True
 
-            if not is_guest:
+            if not is_on_ssid:
                 continue
 
-            # Filter: must be a phone (not IoT)
-            # Try OUI first, then hostname fallback for randomized MACs
-            oui = attrs.get("oui", "")
-            is_phone = oui in PHONE_MANUFACTURERS
+            # Filter 1: must be a phone (hostname match)
+            hostname = attrs.get("host_name", "").lower()
+            if not hostname or not any(
+                hostname.startswith(prefix)
+                for prefix in PHONE_HOSTNAME_PREFIXES
+            ):
+                continue
 
-            if not is_phone:
-                # Hostname fallback: modern phones use private MACs (empty OUI)
-                # but still report hostname like "iPhone", "Galaxy-S24", etc.
-                hostname = attrs.get("host_name", "").lower()
-                if hostname:
-                    is_phone = any(
-                        hostname.startswith(prefix)
-                        for prefix in PHONE_HOSTNAME_PREFIXES
-                    )
-
-            if is_phone:
-                guest_count += 1
+            # Filter 2: exclude tracked persons' devices (family phones)
+            if state.entity_id in family_trackers:
                 _LOGGER.debug(
-                    "WiFi guest device: %s (oui=%s, hostname=%s, essid=%s)",
-                    state.entity_id, oui,
-                    attrs.get("host_name", ""),
-                    attrs.get("essid", ""),
+                    "WiFi guest exclusion (family): %s (hostname=%s)",
+                    state.entity_id, attrs.get("host_name", ""),
                 )
+                continue
+
+            # Filter 3: recency — only count recently-joined phones
+            last_changed = state.last_changed
+            if last_changed is not None:
+                try:
+                    if last_changed.tzinfo is not None:
+                        age = (now - last_changed).total_seconds()
+                    else:
+                        age = (now - last_changed.replace(
+                            tzinfo=dt_util.UTC
+                        )).total_seconds()
+
+                    if age > recency_seconds:
+                        _LOGGER.debug(
+                            "WiFi guest exclusion (resident, %dh old): %s",
+                            int(age / 3600), state.entity_id,
+                        )
+                        continue
+                except (TypeError, AttributeError):
+                    pass  # If can't determine age, count it
+
+            guest_count += 1
+            _LOGGER.debug(
+                "WiFi guest device: %s (hostname=%s, essid=%s)",
+                state.entity_id,
+                attrs.get("host_name", ""),
+                attrs.get("essid", ""),
+            )
 
         return guest_count
 
@@ -1608,7 +1651,7 @@ class PersonCensus:
         """
         # Get v2 signals
         camera_unrecognized = self._get_unrecognized_camera_count()
-        wifi_guests = self._get_wifi_guest_count()
+        wifi_guests = self._get_wifi_guest_count(now)
         face_recognized = self._get_face_recognized_person_names(now)
 
         # Recognized persons = BLE home + face recognized (union)
