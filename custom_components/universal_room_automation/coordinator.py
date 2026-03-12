@@ -1,6 +1,6 @@
 """Data coordinator for Universal Room Automation."""
 #
-# Universal Room Automation v3.11.2
+# Universal Room Automation v3.12.0
 # Build: 2026-01-02
 # File: coordinator.py
 # v3.2.8: Support for active state change listeners in aggregation sensors
@@ -15,6 +15,7 @@ from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.event import async_call_later, async_track_state_change_event
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 from homeassistant.util import dt as dt_util
@@ -93,6 +94,25 @@ from .const import (
     TRIGGER_EXIT,
     TRIGGER_LUX_DARK,
     TRIGGER_LUX_BRIGHT,
+    # v3.12.0: M2 coordinator signal triggers
+    TRIGGER_HOUSE_STATE_PREFIX,
+    TRIGGER_ENERGY_CONSTRAINT,
+    TRIGGER_SAFETY_HAZARD,
+    TRIGGER_SECURITY_EVENT,
+    # v3.12.0: M3 AI NL Rules
+    CONF_AI_RULES,
+    CONF_LIGHTS,
+    CONF_FANS,
+    CONF_AUTO_DEVICES,
+    CONF_AUTO_SWITCHES,
+    CONF_CLIMATE_ENTITY,
+    CONF_ROOM_NAME,
+)
+from .domain_coordinators.signals import (
+    SIGNAL_HOUSE_STATE_CHANGED,
+    SIGNAL_ENERGY_CONSTRAINT,
+    SIGNAL_SAFETY_HAZARD,
+    SIGNAL_SECURITY_EVENT,
 )
 from .automation import RoomAutomation
 
@@ -174,6 +194,17 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         
         # v3.10.0: Lux trigger zone tracking (dark/mid/bright)
         self._last_lux_zone: str | None = None
+
+        # v3.12.0: M2 signal listener unsub handles
+        self._unsub_signal_listeners: list = []
+
+        # v3.12.0: M3 AI rule conflict tracking
+        self._conflict_detected: bool = False
+        self._last_conflicts: list = []
+
+        # v3.12.0 M4: Trigger execution tracking
+        self._last_trigger_event: str | None = None
+        self._last_trigger_time_str: str | None = None
 
         # v3.2.2.0 FIX: Merge entry.options with entry.data
         # entry.data = initial setup
@@ -289,6 +320,272 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                         "[%s] Chained automation call failed: %s",
                         room_name, result,
                     )
+
+    # =========================================================================
+    # v3.12.0 M2: COORDINATOR SIGNAL TRIGGER HANDLERS
+    # =========================================================================
+
+    @callback
+    def _on_house_state_changed(self, payload) -> None:
+        """Handle house state change signal → fire house_state_* trigger."""
+        if isinstance(payload, dict):
+            new_state = payload.get("new_state", "")
+        elif hasattr(payload, "new_state"):
+            new_state = payload.new_state
+        else:
+            new_state = str(payload)
+
+        if not new_state:
+            return
+
+        trigger_key = f"{TRIGGER_HOUSE_STATE_PREFIX}{new_state}"
+        chains = self._get_config(CONF_AUTOMATION_CHAINS, {})
+        rules = self._get_config(CONF_AI_RULES, [])
+        has_matching_rule = any(r.get("trigger_type") == trigger_key for r in rules if r.get("enabled", True))
+        if trigger_key in chains or has_matching_rule:
+            room_name = self.entry.data.get("room_name", "unknown")
+            _LOGGER.info(
+                "[%s] House state → %s, firing chained automation + AI rules",
+                room_name, new_state,
+            )
+            async def _fire_house_state():
+                self._last_trigger_event = trigger_key
+                self._last_trigger_time_str = dt_util.utcnow().isoformat()
+                await self._fire_chained_automations([trigger_key])
+                await self._execute_ai_rules([trigger_key])
+            self.hass.async_create_task(_fire_house_state())
+
+    @callback
+    def _on_energy_constraint(self, payload) -> None:
+        """Handle energy constraint signal → fire energy_constraint trigger."""
+        chains = self._get_config(CONF_AUTOMATION_CHAINS, {})
+        rules = self._get_config(CONF_AI_RULES, [])
+        has_matching_rule = any(r.get("trigger_type") == TRIGGER_ENERGY_CONSTRAINT for r in rules if r.get("enabled", True))
+        if TRIGGER_ENERGY_CONSTRAINT in chains or has_matching_rule:
+            room_name = self.entry.data.get("room_name", "unknown")
+            mode = payload.mode if hasattr(payload, "mode") else str(payload)
+            _LOGGER.info(
+                "[%s] Energy constraint '%s', firing chained automation + AI rules",
+                room_name, mode,
+            )
+            async def _fire_energy():
+                self._last_trigger_event = TRIGGER_ENERGY_CONSTRAINT
+                self._last_trigger_time_str = dt_util.utcnow().isoformat()
+                await self._fire_chained_automations([TRIGGER_ENERGY_CONSTRAINT])
+                await self._execute_ai_rules([TRIGGER_ENERGY_CONSTRAINT])
+            self.hass.async_create_task(_fire_energy())
+
+    @callback
+    def _on_safety_hazard(self, payload) -> None:
+        """Handle safety hazard signal → fire safety_hazard trigger."""
+        chains = self._get_config(CONF_AUTOMATION_CHAINS, {})
+        rules = self._get_config(CONF_AI_RULES, [])
+        has_matching_rule = any(r.get("trigger_type") == TRIGGER_SAFETY_HAZARD for r in rules if r.get("enabled", True))
+        if TRIGGER_SAFETY_HAZARD in chains or has_matching_rule:
+            room_name = self.entry.data.get("room_name", "unknown")
+            hazard_type = payload.hazard_type if hasattr(payload, "hazard_type") else str(payload)
+            _LOGGER.info(
+                "[%s] Safety hazard '%s', firing chained automation + AI rules",
+                room_name, hazard_type,
+            )
+            async def _fire_safety():
+                self._last_trigger_event = TRIGGER_SAFETY_HAZARD
+                self._last_trigger_time_str = dt_util.utcnow().isoformat()
+                await self._fire_chained_automations([TRIGGER_SAFETY_HAZARD])
+                await self._execute_ai_rules([TRIGGER_SAFETY_HAZARD])
+            self.hass.async_create_task(_fire_safety())
+
+    @callback
+    def _on_security_event(self, payload) -> None:
+        """Handle security event signal → fire security_event trigger."""
+        chains = self._get_config(CONF_AUTOMATION_CHAINS, {})
+        rules = self._get_config(CONF_AI_RULES, [])
+        has_matching_rule = any(r.get("trigger_type") == TRIGGER_SECURITY_EVENT for r in rules if r.get("enabled", True))
+        if TRIGGER_SECURITY_EVENT in chains or has_matching_rule:
+            room_name = self.entry.data.get("room_name", "unknown")
+            event_type = payload.event_type if hasattr(payload, "event_type") else str(payload)
+            _LOGGER.info(
+                "[%s] Security event '%s', firing chained automation + AI rules",
+                room_name, event_type,
+            )
+            async def _fire_security():
+                self._last_trigger_event = TRIGGER_SECURITY_EVENT
+                self._last_trigger_time_str = dt_util.utcnow().isoformat()
+                await self._fire_chained_automations([TRIGGER_SECURITY_EVENT])
+                await self._execute_ai_rules([TRIGGER_SECURITY_EVENT])
+            self.hass.async_create_task(_fire_security())
+
+    # =========================================================================
+    # v3.12.0 M3: AI NL RULE EXECUTION & CONFLICT DETECTION
+    # =========================================================================
+
+    async def _execute_ai_rules(self, triggers: list[str]) -> None:
+        """Execute AI rules matching fired triggers.
+
+        Called after chained automations. Checks person filter and
+        runs conflict detection before executing each rule's actions.
+        """
+        rules = self._get_config(CONF_AI_RULES, [])
+        if not rules:
+            return
+
+        room_name = self.entry.data.get(CONF_ROOM_NAME, "unknown")
+        identified_persons = self._get_identified_persons_in_room()
+
+        # Only reset conflict state if at least one rule matches the trigger
+        matching = [r for r in rules if r.get("enabled", True) and r.get("trigger_type") in triggers]
+        if not matching:
+            return
+        self._conflict_detected = False
+        self._last_conflicts = []
+
+        for rule in matching:
+
+            # Person filter (case-insensitive)
+            person_filter = rule.get("person", "").strip()
+            if person_filter:
+                match = any(
+                    person_filter.lower() == p.lower()
+                    for p in identified_persons
+                )
+                if not match:
+                    continue
+
+            # Conflict detection (before execution)
+            self._detect_ai_rule_conflicts(rule, rule.get("trigger_type", ""))
+
+            _LOGGER.info(
+                "[%s] Executing AI rule '%s' (trigger=%s, person='%s'): %s",
+                room_name, rule.get("rule_id"), rule.get("trigger_type"),
+                person_filter or "any", rule.get("description", ""),
+            )
+
+            for action in rule.get("actions", []):
+                await self._execute_rule_action(action, room_name)
+
+    # v3.12.0: Domain allowlist for AI rule service calls.
+    # Only safe, device-control domains are permitted. Dangerous domains
+    # (homeassistant, shell_command, recorder, script, etc.) are blocked
+    # to prevent AI hallucination or prompt injection exploits.
+    _AI_RULE_ALLOWED_DOMAINS: set = {
+        "light", "switch", "fan", "cover", "climate", "media_player",
+        "lock", "scene", "automation", "input_boolean", "input_number",
+        "input_select", "input_text", "number", "select", "button",
+        "humidifier", "vacuum", "water_heater", "valve",
+    }
+
+    async def _execute_rule_action(self, action: dict, room_name: str) -> None:
+        """Execute a single parsed service call from an AI rule."""
+        domain = action.get("domain")
+        service = action.get("service")
+        target = action.get("target", {})
+        data = {**action.get("data", {})}
+
+        if not domain or not service:
+            return
+
+        # Security: Only allow safe device-control domains
+        if domain not in self._AI_RULE_ALLOWED_DOMAINS:
+            _LOGGER.warning(
+                "[%s] AI rule blocked: domain '%s' not in allowlist (service=%s.%s)",
+                room_name, domain, domain, service,
+            )
+            return
+
+        entity_id = target.get("entity_id")
+        if entity_id:
+            data["entity_id"] = entity_id
+
+        try:
+            await asyncio.wait_for(
+                self.hass.services.async_call(domain, service, data, blocking=False),
+                timeout=5.0,
+            )
+        except asyncio.TimeoutError:
+            _LOGGER.error(
+                "[%s] AI rule action timed out: %s.%s", room_name, domain, service,
+            )
+        except Exception as err:
+            _LOGGER.error(
+                "[%s] AI rule action failed: %s.%s — %s", room_name, domain, service, err,
+            )
+
+    def _get_identified_persons_in_room(self) -> list[str]:
+        """Get identified persons from census or BLE fallback."""
+        room_name = self.entry.data.get(CONF_ROOM_NAME, "")
+
+        # Census (cameras + BLE fusion)
+        census = self.hass.data.get(DOMAIN, {}).get("census")
+        if census is not None:
+            result = getattr(census, "get_room_identified_persons", lambda r: None)(room_name)
+            if result is not None:
+                return result
+
+        # BLE-only fallback
+        person_coord = self.hass.data.get(DOMAIN, {}).get("person_coordinator")
+        if person_coord is not None:
+            return getattr(person_coord, "get_persons_in_room", lambda r: [])(room_name)
+
+        return []
+
+    def _detect_ai_rule_conflicts(self, rule: dict, trigger: str) -> None:
+        """Detect entity conflicts between AI rule actions and URA built-in automation.
+
+        Compares entity_ids targeted by the AI rule's parsed actions against
+        entities URA's built-in automation acted on for the same trigger.
+        """
+        # Entities URA built-in automation targeted for this trigger
+        ura_entities = set(self._get_builtin_target_entities(trigger))
+        if not ura_entities:
+            return
+
+        # Entities this AI rule will target
+        rule_entities = set()
+        for action in rule.get("actions", []):
+            target = action.get("target", {})
+            entity_id = target.get("entity_id")
+            if entity_id:
+                if isinstance(entity_id, list):
+                    rule_entities.update(entity_id)
+                else:
+                    rule_entities.add(entity_id)
+
+        # Intersection = conflict
+        contested = ura_entities & rule_entities
+        if contested:
+            conflict = {
+                "rule_id": rule.get("rule_id"),
+                "rule_description": rule.get("description", ""),
+                "trigger": trigger,
+                "contested_entities": sorted(contested),
+                "timestamp": dt_util.utcnow().isoformat(),
+            }
+            self._last_conflicts.append(conflict)
+            self._conflict_detected = True
+            room_name = self.entry.data.get(CONF_ROOM_NAME, "unknown")
+            _LOGGER.warning(
+                "[%s] AI rule '%s' conflicts with built-in automation on: %s",
+                room_name, rule.get("rule_id"), ", ".join(contested),
+            )
+
+    def _get_builtin_target_entities(self, trigger: str) -> list[str]:
+        """Return entities that URA built-in automation targets for a trigger.
+
+        Enter/lux_dark: configured lights, fans, climate
+        Exit/lux_bright: configured lights, fans, auto_devices, auto_switches
+        """
+        entities: list[str] = []
+        if trigger in (TRIGGER_ENTER, TRIGGER_LUX_DARK):
+            entities.extend(self._get_config(CONF_LIGHTS, []))
+            entities.extend(self._get_config(CONF_FANS, []))
+            if climate := self._get_config(CONF_CLIMATE_ENTITY):
+                entities.append(climate)
+        elif trigger in (TRIGGER_EXIT, TRIGGER_LUX_BRIGHT):
+            entities.extend(self._get_config(CONF_LIGHTS, []))
+            entities.extend(self._get_config(CONF_FANS, []))
+            entities.extend(self._get_config(CONF_AUTO_DEVICES, []))
+            entities.extend(self._get_config(CONF_AUTO_SWITCHES, []))
+        return entities
 
     def _get_integration_entry(self):
         """Get the parent integration entry.
@@ -441,22 +738,78 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                 "Configure sensors for faster response.",
                 room_name
             )
-    
+
+        # v3.12.0 M2: Subscribe to coordinator signals for trigger/AI-rule detection.
+        self._update_signal_subscriptions()
+
+        # v3.12.0: Re-evaluate signal subscriptions when entry options change
+        # (e.g., user adds chains/AI rules via config flow after startup).
+        @callback
+        def _on_entry_update(hass, entry) -> None:
+            self._update_signal_subscriptions()
+
+        self.entry.async_on_unload(
+            self.entry.add_update_listener(_on_entry_update)
+        )
+
+    @callback
+    def _update_signal_subscriptions(self) -> None:
+        """Subscribe to coordinator signals based on current chains/AI rules config.
+
+        Can be called multiple times — clears old subscriptions first.
+        """
+        # Clear existing signal subscriptions
+        for unsub in self._unsub_signal_listeners:
+            unsub()
+        self._unsub_signal_listeners.clear()
+
+        chains = self._get_config(CONF_AUTOMATION_CHAINS, {})
+        rules = self._get_config(CONF_AI_RULES, [])
+        rule_triggers = {r.get("trigger_type") for r in rules if r.get("enabled", True)}
+        room_name = self.entry.data.get(CONF_ROOM_NAME, "unknown")
+
+        _signal_map = {
+            SIGNAL_HOUSE_STATE_CHANGED: (
+                self._on_house_state_changed,
+                any(k.startswith(TRIGGER_HOUSE_STATE_PREFIX) for k in chains)
+                or any(t.startswith(TRIGGER_HOUSE_STATE_PREFIX) for t in rule_triggers),
+            ),
+            SIGNAL_ENERGY_CONSTRAINT: (
+                self._on_energy_constraint,
+                TRIGGER_ENERGY_CONSTRAINT in chains or TRIGGER_ENERGY_CONSTRAINT in rule_triggers,
+            ),
+            SIGNAL_SAFETY_HAZARD: (
+                self._on_safety_hazard,
+                TRIGGER_SAFETY_HAZARD in chains or TRIGGER_SAFETY_HAZARD in rule_triggers,
+            ),
+            SIGNAL_SECURITY_EVENT: (
+                self._on_security_event,
+                TRIGGER_SECURITY_EVENT in chains or TRIGGER_SECURITY_EVENT in rule_triggers,
+            ),
+        }
+        subscribed = 0
+        for signal, (handler, needed) in _signal_map.items():
+            if needed:
+                self._unsub_signal_listeners.append(
+                    async_dispatcher_connect(self.hass, signal, handler)
+                )
+                subscribed += 1
+        if subscribed:
+            _LOGGER.debug(
+                "Room %s: Subscribed to %d coordinator signals for M2 triggers",
+                room_name, subscribed,
+            )
+
     @callback
     def _debounce_refresh_callback(self, _now=None) -> None:
         """Re-evaluate occupancy after debounce period expires."""
         self._debounce_refresh_unsub = None
         self.hass.async_create_task(self.async_refresh())
 
-    async def async_will_remove_from_hass(self) -> None:
-        """Unsubscribe from state listeners."""
-        if self._debounce_refresh_unsub is not None:
-            self._debounce_refresh_unsub()
-            self._debounce_refresh_unsub = None
-        for unsub in self._unsub_state_listeners:
-            unsub()
-        self._unsub_state_listeners.clear()
-    
+    # NOTE: Listener cleanup is in __init__.py async_unload_entry(), NOT here.
+    # async_will_remove_from_hass is an Entity lifecycle method — never called
+    # on DataUpdateCoordinator subclasses. Removed in v3.12.0.
+
     def _is_sensor_on(self, entity_id: str) -> bool:
         """Check if a binary sensor is on."""
         state = self.hass.states.get(entity_id)
@@ -1036,12 +1389,20 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                 if lux_trigger:
                     triggers_fired.append(lux_trigger)
 
-            # Fire chained automations for all triggers
+            # Fire chained automations for all triggers, then AI rules
             if triggers_fired:
+                # v3.12.0 M4: Track trigger execution
+                self._last_trigger_event = ", ".join(triggers_fired)
+                self._last_trigger_time_str = dt_util.utcnow().isoformat()
+
                 try:
                     await self._fire_chained_automations(triggers_fired)
                 except Exception as e:
                     _LOGGER.error("Error firing chained automations: %s", e)
+                try:
+                    await self._execute_ai_rules(triggers_fired)
+                except Exception as e:
+                    _LOGGER.error("Error executing AI rules: %s", e)
         else:
             # Even with automation disabled, track state for DB logging
             self._last_occupied_state = data[STATE_OCCUPIED]

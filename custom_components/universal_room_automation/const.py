@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation v3.11.2
+# Universal Room Automation v3.12.0
 # Build: 2026-03-12
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "3.11.2"
+VERSION: Final = "3.12.0"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -1017,6 +1017,72 @@ TRIGGER_LUX_BRIGHT: Final = "lux_bright"
 AUTOMATION_CHAIN_TRIGGERS_M1: Final = [
     TRIGGER_ENTER, TRIGGER_EXIT, TRIGGER_LUX_DARK, TRIGGER_LUX_BRIGHT,
 ]
+
+# v3.12.0: M2 Coordinator Signal Triggers
+TRIGGER_HOUSE_STATE_PREFIX: Final = "house_state_"
+TRIGGER_ENERGY_CONSTRAINT: Final = "energy_constraint"
+TRIGGER_SAFETY_HAZARD: Final = "safety_hazard"
+TRIGGER_SECURITY_EVENT: Final = "security_event"
+
+# House state values for trigger generation (matches HouseState enum)
+HOUSE_STATE_TRIGGER_VALUES: Final = [
+    "away", "arriving", "home_day", "home_evening", "home_night",
+    "sleep", "waking", "guest", "vacation",
+]
+
+# Full trigger list (M1 + M2)
+AUTOMATION_CHAIN_TRIGGERS_M2: Final = [
+    TRIGGER_ENTER, TRIGGER_EXIT, TRIGGER_LUX_DARK, TRIGGER_LUX_BRIGHT,
+    *[f"{TRIGGER_HOUSE_STATE_PREFIX}{s}" for s in HOUSE_STATE_TRIGGER_VALUES],
+    TRIGGER_ENERGY_CONSTRAINT,
+    TRIGGER_SAFETY_HAZARD,
+    TRIGGER_SECURITY_EVENT,
+]
+
+# Trigger groups for config flow sub-steps
+CHAIN_GROUP_OCCUPANCY: Final = [TRIGGER_ENTER, TRIGGER_EXIT]
+CHAIN_GROUP_LIGHT: Final = [TRIGGER_LUX_DARK, TRIGGER_LUX_BRIGHT]
+CHAIN_GROUP_HOUSE_STATE: Final = [
+    f"{TRIGGER_HOUSE_STATE_PREFIX}{s}" for s in HOUSE_STATE_TRIGGER_VALUES
+]
+CHAIN_GROUP_COORDINATOR: Final = [
+    TRIGGER_ENERGY_CONSTRAINT, TRIGGER_SAFETY_HAZARD, TRIGGER_SECURITY_EVENT,
+]
+
+# ============================================================================
+# v3.12.0 M3: AI NL Rules
+# ============================================================================
+
+CONF_AI_RULES: Final = "ai_rules"
+CONF_AI_RULE_TRIGGER: Final = "ai_rule_trigger"
+CONF_AI_RULE_PERSON: Final = "ai_rule_person"
+CONF_AI_RULE_DESCRIPTION: Final = "ai_rule_description"
+
+# All available trigger types for AI rules (same as M2 full list)
+AI_RULE_TRIGGER_OPTIONS: Final = AUTOMATION_CHAIN_TRIGGERS_M2
+
+AI_RULE_PARSING_PROMPT: Final = """You are a Home Assistant automation rule parser.
+
+TASK: Convert a natural language rule into a list of Home Assistant service calls.
+
+ROOM: {room_name}
+TRIGGER: When {trigger_label}
+RULE: {description}
+
+AVAILABLE ENTITIES IN THIS ROOM:
+{entities_json}
+
+REQUIREMENTS:
+- Only use entity_ids from the available entities list above.
+- Each service call must have: domain, service, target (with entity_id), data.
+- Use exact entity_ids as shown — do not invent entity IDs.
+- If a device is mentioned but not in the list, omit it.
+- data may be an empty object {{}} if no parameters needed.
+- For lights: use color_temp_kelvin (integer), brightness_pct (0-100).
+- For media_player: use volume_level (0.0-1.0).
+- For climate: use temperature (number).
+
+Output only valid JSON. No explanation text."""
 
 # ============================================================================
 # v3.10.1 Census v2: Event-Driven Sensor Fusion

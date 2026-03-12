@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation v3.11.2
+# Universal Room Automation v3.12.0
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -1492,11 +1492,28 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     
     # Room entry - unload platforms and remove coordinator
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
-    
+
     if unload_ok:
-        if entry.entry_id in hass.data[DOMAIN]:
+        # v3.12.0: Explicitly clean up coordinator listeners.
+        # async_will_remove_from_hass is an Entity lifecycle method — never
+        # called on DataUpdateCoordinator. Without this, state and signal
+        # listener unsub handles leak on every entry reload.
+        coordinator = hass.data[DOMAIN].get(entry.entry_id)
+        if coordinator is not None:
+            state_listeners = getattr(coordinator, "_unsub_state_listeners", [])
+            for unsub in state_listeners:
+                unsub()
+            state_listeners.clear()
+            signal_listeners = getattr(coordinator, "_unsub_signal_listeners", [])
+            for unsub in signal_listeners:
+                unsub()
+            signal_listeners.clear()
+            debounce_unsub = getattr(coordinator, "_debounce_refresh_unsub", None)
+            if debounce_unsub is not None:
+                debounce_unsub()
+                coordinator._debounce_refresh_unsub = None
             del hass.data[DOMAIN][entry.entry_id]
-    
+
     return unload_ok
 
 

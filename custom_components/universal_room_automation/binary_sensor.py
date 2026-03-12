@@ -1,6 +1,6 @@
 """Binary sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.11.2
+# Universal Room Automation v3.12.0
 # Build: 2026-01-02
 # File: binary_sensor.py
 # v3.2.6: Renamed "Presence" to "Sensor Presence" for clarity
@@ -156,6 +156,8 @@ async def async_setup_entry(
         OccupancyAnomalyBinarySensor(coordinator),
         EnergyAnomalyBinarySensor(coordinator),
         RoomAlertBinarySensor(coordinator),
+        # v3.12.0 M2: Automation conflict detection (populated in M3)
+        AutomationConflictBinarySensor(coordinator),
     ])
     
     async_add_entities(entities)
@@ -560,6 +562,43 @@ class RoomAlertBinarySensor(UniversalRoomEntity, BinarySensorEntity):
         last_changed = window_state.last_changed
         duration = (dt_util.now() - last_changed).total_seconds() / 60
         return duration > 30
+
+
+# ============================================================================
+# v3.12.0 M2: AUTOMATION CONFLICT BINARY SENSOR
+# ============================================================================
+
+
+class AutomationConflictBinarySensor(UniversalRoomEntity, BinarySensorEntity):
+    """Detects when AI rules and URA built-in automation target the same entity.
+
+    Reads _conflict_detected and _last_conflicts from the room coordinator.
+    Conflict detection runs in coordinator._detect_ai_rule_conflicts() during
+    AI rule execution (M3). Turns on when an AI rule targets the same entity
+    as URA's built-in automation for the same trigger.
+    """
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_device_class = BinarySensorDeviceClass.PROBLEM
+    _attr_icon = "mdi:alert-decagram"
+
+    def __init__(self, coordinator: UniversalRoomCoordinator) -> None:
+        """Initialize the sensor."""
+        super().__init__(coordinator, "automation_conflict", "Automation Conflict")
+
+    @property
+    def is_on(self) -> bool:
+        """Return true if any conflicts detected."""
+        return getattr(self.coordinator, "_conflict_detected", False)
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return conflict details."""
+        conflicts = getattr(self.coordinator, "_last_conflicts", [])
+        return {
+            "conflict_count": len(conflicts),
+            "last_conflicts": conflicts[-5:] if conflicts else [],
+        }
 
 
 # ============================================================================

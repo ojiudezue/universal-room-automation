@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.11.2
+# Universal Room Automation v3.12.0
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -96,6 +96,8 @@ from .const import (
     DEFAULT_ELECTRICITY_RATE,
     ATTR_CONFIDENCE,
     ATTR_BASED_ON,
+    CONF_AI_RULES,
+    CONF_AUTOMATION_CHAINS,
 )
 from .coordinator import UniversalRoomCoordinator
 from .entity import UniversalRoomEntity
@@ -370,6 +372,7 @@ async def async_setup_entry(
         LastAutomationTimeSensor(coordinator),  # v3.2.6: New sensor
         DatabaseStatusSensor(coordinator),
         AutomationHealthSensor(coordinator),  # v3.6.17: Composite automation health
+        AIAutomationStatusSensor(coordinator),  # v3.12.0 M4: AI rule + chain tracking
     ])
     
     async_add_entities(entities)
@@ -1901,6 +1904,49 @@ class AutomationHealthSensor(UniversalRoomEntity, SensorEntity):
             attrs["last_exit_verify_time"] = None
 
         return attrs
+
+
+# =============================================================================
+# v3.12.0 M4: AI AUTOMATION STATUS SENSOR
+# =============================================================================
+
+
+class AIAutomationStatusSensor(UniversalRoomEntity, SensorEntity):
+    """Tracks AI rule and automation chain execution.
+
+    Reports whether AI rules or chained automations are configured,
+    and exposes execution tracking attributes for diagnostics.
+
+    Entity:  sensor.ura_<room>_ai_automation_status
+    Device:  the room device
+    """
+
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:robot"
+
+    def __init__(self, coordinator) -> None:
+        super().__init__(coordinator, "ai_automation_status", "AI Automation Status")
+
+    @property
+    def native_value(self) -> str:
+        """Return 'active' if any AI rules or chained automations are configured."""
+        rules = self.coordinator._get_config(CONF_AI_RULES, [])
+        chains = self.coordinator._get_config(CONF_AUTOMATION_CHAINS, {})
+        if rules or chains:
+            return "active"
+        return "inactive"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return AI automation diagnostic attributes."""
+        return {
+            "chained_automations": self.coordinator._get_config(CONF_AUTOMATION_CHAINS, {}),
+            "ai_rules_count": len(self.coordinator._get_config(CONF_AI_RULES, [])),
+            "last_trigger": getattr(self.coordinator, '_last_trigger_event', None),
+            "last_trigger_time": getattr(self.coordinator, '_last_trigger_time_str', None),
+            "conflict_detected": getattr(self.coordinator, '_conflict_detected', False),
+            "last_conflicts": getattr(self.coordinator, '_last_conflicts', [])[-5:],
+        }
 
 
 # =============================================================================

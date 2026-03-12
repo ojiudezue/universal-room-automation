@@ -1,6 +1,7 @@
-"""Tests for v3.10.0 Automation Chaining (M1).
+"""Tests for v3.10.0/v3.12.0 Automation Chaining (M1 + M2).
 
-Tests lux trigger detection, chained automation firing, and config flow persistence.
+Tests lux trigger detection, chained automation firing, config flow persistence,
+and M2 coordinator signal triggers.
 """
 
 import asyncio
@@ -20,6 +21,17 @@ from const import (
     TRIGGER_LUX_DARK,
     TRIGGER_LUX_BRIGHT,
     AUTOMATION_CHAIN_TRIGGERS_M1,
+    # v3.12.0 M2
+    TRIGGER_HOUSE_STATE_PREFIX,
+    TRIGGER_ENERGY_CONSTRAINT,
+    TRIGGER_SAFETY_HAZARD,
+    TRIGGER_SECURITY_EVENT,
+    HOUSE_STATE_TRIGGER_VALUES,
+    AUTOMATION_CHAIN_TRIGGERS_M2,
+    CHAIN_GROUP_OCCUPANCY,
+    CHAIN_GROUP_LIGHT,
+    CHAIN_GROUP_HOUSE_STATE,
+    CHAIN_GROUP_COORDINATOR,
 )
 
 
@@ -395,3 +407,398 @@ class TestConstants:
     def test_thresholds_ordered(self):
         """Dark threshold must be less than bright threshold."""
         assert LUX_DARK_THRESHOLD < LUX_BRIGHT_THRESHOLD
+
+
+# =============================================================================
+# v3.12.0 M2: COORDINATOR SIGNAL TRIGGERS
+# =============================================================================
+
+class TestM2Constants:
+    """Validate M2 constants."""
+
+    def test_m2_trigger_list_has_16_entries(self):
+        """M2 list: 4 M1 + 9 house states + 3 coordinator = 16."""
+        assert len(AUTOMATION_CHAIN_TRIGGERS_M2) == 16
+
+    def test_m2_includes_all_m1_triggers(self):
+        """M2 trigger list is a superset of M1."""
+        for t in AUTOMATION_CHAIN_TRIGGERS_M1:
+            assert t in AUTOMATION_CHAIN_TRIGGERS_M2
+
+    def test_house_state_triggers_use_prefix(self):
+        """All house state triggers start with the prefix."""
+        for s in HOUSE_STATE_TRIGGER_VALUES:
+            trigger = f"{TRIGGER_HOUSE_STATE_PREFIX}{s}"
+            assert trigger in AUTOMATION_CHAIN_TRIGGERS_M2
+
+    def test_house_state_values_complete(self):
+        """All 9 house states are listed."""
+        expected = {"away", "arriving", "home_day", "home_evening",
+                    "home_night", "sleep", "waking", "guest", "vacation"}
+        assert set(HOUSE_STATE_TRIGGER_VALUES) == expected
+
+    def test_coordinator_triggers_in_m2(self):
+        """Energy, safety, security triggers are in M2 list."""
+        assert TRIGGER_ENERGY_CONSTRAINT in AUTOMATION_CHAIN_TRIGGERS_M2
+        assert TRIGGER_SAFETY_HAZARD in AUTOMATION_CHAIN_TRIGGERS_M2
+        assert TRIGGER_SECURITY_EVENT in AUTOMATION_CHAIN_TRIGGERS_M2
+
+    def test_trigger_groups_cover_all_m2(self):
+        """The 4 trigger groups together cover all M2 triggers."""
+        all_grouped = (
+            CHAIN_GROUP_OCCUPANCY
+            + CHAIN_GROUP_LIGHT
+            + CHAIN_GROUP_HOUSE_STATE
+            + CHAIN_GROUP_COORDINATOR
+        )
+        assert set(all_grouped) == set(AUTOMATION_CHAIN_TRIGGERS_M2)
+
+    def test_trigger_groups_no_overlap(self):
+        """Trigger groups do not overlap."""
+        groups = [
+            CHAIN_GROUP_OCCUPANCY,
+            CHAIN_GROUP_LIGHT,
+            CHAIN_GROUP_HOUSE_STATE,
+            CHAIN_GROUP_COORDINATOR,
+        ]
+        all_triggers = []
+        for g in groups:
+            all_triggers.extend(g)
+        assert len(all_triggers) == len(set(all_triggers))
+
+
+class TestM2SignalHandlers:
+    """Test coordinator signal trigger handlers.
+
+    Tests the handler logic inline since coordinator.py
+    cannot be imported due to homeassistant dependency.
+    """
+
+    def _make_mock(self, chains=None):
+        """Create mock with signal handler support."""
+        from conftest import MockHass, MockConfigEntry
+
+        hass = MockHass()
+        hass.services = MagicMock()
+        hass.services.async_call = AsyncMock()
+
+        entry = MockConfigEntry(
+            data={"room_name": "Office"},
+            options={CONF_AUTOMATION_CHAINS: chains or {}},
+        )
+        return hass, entry
+
+    def _simulate_on_house_state_changed(self, hass, entry, payload):
+        """Simulate _on_house_state_changed handler logic."""
+        if isinstance(payload, dict):
+            new_state = payload.get("new_state", "")
+        elif hasattr(payload, "new_state"):
+            new_state = payload.new_state
+        else:
+            new_state = str(payload)
+
+        if not new_state:
+            return []
+
+        trigger_key = f"{TRIGGER_HOUSE_STATE_PREFIX}{new_state}"
+        chains = entry.options.get(
+            CONF_AUTOMATION_CHAINS, entry.data.get(CONF_AUTOMATION_CHAINS, {})
+        )
+        if trigger_key in chains:
+            return [trigger_key]
+        return []
+
+    def test_house_state_dict_payload(self):
+        """House state signal with dict payload extracts new_state."""
+        _, entry = self._make_mock(
+            chains={"house_state_home_evening": "automation.evening_scene"}
+        )
+        triggers = self._simulate_on_house_state_changed(
+            None, entry, {"new_state": "home_evening", "previous_state": "home_day"}
+        )
+        assert triggers == ["house_state_home_evening"]
+
+    def test_house_state_dataclass_payload(self):
+        """House state signal with dataclass payload extracts new_state."""
+        _, entry = self._make_mock(
+            chains={"house_state_sleep": "automation.goodnight"}
+        )
+        payload = MagicMock()
+        payload.new_state = "sleep"
+        triggers = self._simulate_on_house_state_changed(None, entry, payload)
+        assert triggers == ["house_state_sleep"]
+
+    def test_house_state_no_binding_no_trigger(self):
+        """House state with no matching binding returns empty."""
+        _, entry = self._make_mock(
+            chains={"house_state_home_evening": "automation.evening"}
+        )
+        triggers = self._simulate_on_house_state_changed(
+            None, entry, {"new_state": "away"}
+        )
+        assert triggers == []
+
+    def test_house_state_empty_state_no_trigger(self):
+        """Empty new_state returns no triggers."""
+        _, entry = self._make_mock(
+            chains={"house_state_away": "automation.away"}
+        )
+        triggers = self._simulate_on_house_state_changed(
+            None, entry, {"new_state": ""}
+        )
+        assert triggers == []
+
+    def _simulate_coordinator_trigger(self, entry, trigger_key):
+        """Simulate coordinator signal handler logic for energy/safety/security."""
+        chains = entry.options.get(
+            CONF_AUTOMATION_CHAINS, entry.data.get(CONF_AUTOMATION_CHAINS, {})
+        )
+        if trigger_key in chains:
+            return [trigger_key]
+        return []
+
+    def test_energy_constraint_trigger_detection(self):
+        """Energy constraint signal produces trigger when bound."""
+        _, entry = self._make_mock(
+            chains={"energy_constraint": "automation.energy_save"}
+        )
+        triggers = self._simulate_coordinator_trigger(entry, TRIGGER_ENERGY_CONSTRAINT)
+        assert triggers == [TRIGGER_ENERGY_CONSTRAINT]
+
+    def test_energy_constraint_no_binding(self):
+        """Energy constraint signal with no binding produces no trigger."""
+        _, entry = self._make_mock(chains={"enter": "automation.welcome"})
+        triggers = self._simulate_coordinator_trigger(entry, TRIGGER_ENERGY_CONSTRAINT)
+        assert triggers == []
+
+    def test_safety_hazard_trigger_detection(self):
+        """Safety hazard signal produces trigger when bound."""
+        _, entry = self._make_mock(
+            chains={"safety_hazard": "automation.evacuate"}
+        )
+        triggers = self._simulate_coordinator_trigger(entry, TRIGGER_SAFETY_HAZARD)
+        assert triggers == [TRIGGER_SAFETY_HAZARD]
+
+    def test_security_event_trigger_detection(self):
+        """Security event signal produces trigger when bound."""
+        _, entry = self._make_mock(
+            chains={"security_event": "automation.lockdown"}
+        )
+        triggers = self._simulate_coordinator_trigger(entry, TRIGGER_SECURITY_EVENT)
+        assert triggers == [TRIGGER_SECURITY_EVENT]
+
+    def test_unknown_house_state_graceful(self):
+        """Unknown house state value produces no trigger."""
+        _, entry = self._make_mock(
+            chains={"house_state_home_evening": "automation.evening"}
+        )
+        triggers = self._simulate_on_house_state_changed(
+            None, entry, {"new_state": "party"}
+        )
+        assert triggers == []
+
+    @pytest.mark.asyncio
+    async def test_house_state_fires_chained_automation(self):
+        """House state trigger fires the bound automation via full chain path."""
+        hass, entry = self._make_mock(
+            chains={"house_state_home_evening": "automation.evening_scene"}
+        )
+        hass.set_state("automation.evening_scene", "on")
+
+        # Step 1: Signal handler detects trigger
+        triggers = self._simulate_on_house_state_changed(
+            hass, entry, {"new_state": "home_evening"}
+        )
+        assert triggers == ["house_state_home_evening"]
+
+        # Step 2: Fire via chaining helper (same as TestAutomationChaining)
+        await self._fire_chained(hass, entry, triggers)
+
+        hass.services.async_call.assert_called_once_with(
+            "automation", "trigger",
+            {"entity_id": "automation.evening_scene"},
+            blocking=False,
+        )
+
+    @pytest.mark.asyncio
+    async def test_energy_constraint_fires_chained_automation(self):
+        """Energy constraint trigger fires the bound automation end-to-end."""
+        hass, entry = self._make_mock(
+            chains={"energy_constraint": "automation.energy_save"}
+        )
+        hass.set_state("automation.energy_save", "on")
+
+        triggers = self._simulate_coordinator_trigger(entry, TRIGGER_ENERGY_CONSTRAINT)
+        assert triggers == [TRIGGER_ENERGY_CONSTRAINT]
+
+        await self._fire_chained(hass, entry, triggers)
+
+        hass.services.async_call.assert_called_once_with(
+            "automation", "trigger",
+            {"entity_id": "automation.energy_save"},
+            blocking=False,
+        )
+
+    @pytest.mark.asyncio
+    async def test_safety_hazard_fires_chained_automation(self):
+        """Safety hazard trigger fires the bound automation end-to-end."""
+        hass, entry = self._make_mock(
+            chains={"safety_hazard": "automation.safety_alert"}
+        )
+        hass.set_state("automation.safety_alert", "on")
+
+        triggers = self._simulate_coordinator_trigger(entry, TRIGGER_SAFETY_HAZARD)
+        await self._fire_chained(hass, entry, triggers)
+
+        hass.services.async_call.assert_called_once_with(
+            "automation", "trigger",
+            {"entity_id": "automation.safety_alert"},
+            blocking=False,
+        )
+
+    @pytest.mark.asyncio
+    async def test_security_event_fires_chained_automation(self):
+        """Security event trigger fires the bound automation end-to-end."""
+        hass, entry = self._make_mock(
+            chains={"security_event": "automation.lockdown"}
+        )
+        hass.set_state("automation.lockdown", "on")
+
+        triggers = self._simulate_coordinator_trigger(entry, TRIGGER_SECURITY_EVENT)
+        await self._fire_chained(hass, entry, triggers)
+
+        hass.services.async_call.assert_called_once_with(
+            "automation", "trigger",
+            {"entity_id": "automation.lockdown"},
+            blocking=False,
+        )
+
+    @pytest.mark.asyncio
+    async def test_multiple_coordinator_triggers_fire(self):
+        """Multiple coordinator triggers fire their respective automations."""
+        hass, entry = self._make_mock(
+            chains={
+                "energy_constraint": "automation.energy_save",
+                "safety_hazard": "automation.safety_alert",
+            }
+        )
+        hass.set_state("automation.energy_save", "on")
+        hass.set_state("automation.safety_alert", "on")
+
+        # Both triggers fire
+        t1 = self._simulate_coordinator_trigger(entry, TRIGGER_ENERGY_CONSTRAINT)
+        t2 = self._simulate_coordinator_trigger(entry, TRIGGER_SAFETY_HAZARD)
+        all_triggers = t1 + t2
+
+        await self._fire_chained(hass, entry, all_triggers)
+        assert hass.services.async_call.call_count == 2
+
+    async def _fire_chained(self, hass, entry, triggers):
+        """Shared helper: fire chained automations using real logic."""
+        chains = entry.options.get(
+            CONF_AUTOMATION_CHAINS, entry.data.get(CONF_AUTOMATION_CHAINS, {})
+        )
+        if not chains:
+            return
+        tasks = []
+        for trigger in triggers:
+            automation_id = chains.get(trigger)
+            if not automation_id:
+                continue
+            state = hass.states.get(automation_id)
+            if state is None or state.state in ("unavailable", "off"):
+                continue
+            tasks.append(
+                hass.services.async_call(
+                    "automation", "trigger",
+                    {"entity_id": automation_id},
+                    blocking=False,
+                )
+            )
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
+
+
+class TestM2ConfigPersistence:
+    """Test that M2 trigger groups preserve cross-group bindings."""
+
+    def test_occupancy_group_preserves_house_state(self):
+        """Saving occupancy triggers preserves existing house state bindings."""
+        existing = {
+            "house_state_home_evening": "automation.evening",
+            "enter": "automation.old_welcome",
+        }
+        user_input = {
+            "chain_enter": "automation.new_welcome",
+            "chain_exit": "",
+        }
+        updated = dict(existing)
+        for trigger in CHAIN_GROUP_OCCUPANCY:
+            key = f"chain_{trigger}"
+            val = user_input.get(key, "")
+            if val:
+                updated[trigger] = val
+            else:
+                updated.pop(trigger, None)
+
+        # House state binding preserved
+        assert updated["house_state_home_evening"] == "automation.evening"
+        # Occupancy updated
+        assert updated["enter"] == "automation.new_welcome"
+        # Exit removed (empty)
+        assert "exit" not in updated
+
+    def test_house_state_group_preserves_occupancy(self):
+        """Saving house state triggers preserves existing occupancy bindings."""
+        existing = {
+            "enter": "automation.welcome",
+            "lux_dark": "automation.dim",
+        }
+        user_input = {
+            "chain_house_state_sleep": "automation.goodnight",
+            "chain_house_state_away": "",
+            "chain_house_state_arriving": "",
+            "chain_house_state_home_day": "",
+            "chain_house_state_home_evening": "",
+            "chain_house_state_home_night": "",
+            "chain_house_state_waking": "",
+            "chain_house_state_guest": "",
+            "chain_house_state_vacation": "",
+        }
+        updated = dict(existing)
+        for trigger in CHAIN_GROUP_HOUSE_STATE:
+            key = f"chain_{trigger}"
+            val = user_input.get(key, "")
+            if val:
+                updated[trigger] = val
+            else:
+                updated.pop(trigger, None)
+
+        assert updated["enter"] == "automation.welcome"
+        assert updated["lux_dark"] == "automation.dim"
+        assert updated["house_state_sleep"] == "automation.goodnight"
+
+    def test_clearing_all_in_group_removes_only_that_group(self):
+        """Clearing all triggers in a group leaves other groups intact."""
+        existing = {
+            "enter": "automation.welcome",
+            "energy_constraint": "automation.energy",
+            "lux_dark": "automation.dim",
+        }
+        user_input = {
+            "chain_energy_constraint": "",
+            "chain_safety_hazard": "",
+            "chain_security_event": "",
+        }
+        updated = dict(existing)
+        for trigger in CHAIN_GROUP_COORDINATOR:
+            key = f"chain_{trigger}"
+            val = user_input.get(key, "")
+            if val:
+                updated[trigger] = val
+            else:
+                updated.pop(trigger, None)
+
+        assert "enter" in updated
+        assert "lux_dark" in updated
+        assert "energy_constraint" not in updated
