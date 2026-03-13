@@ -1,6 +1,6 @@
 """Database for Universal Room Automation."""
 #
-# Universal Room Automation v3.13.3
+# Universal Room Automation v3.14.0
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors

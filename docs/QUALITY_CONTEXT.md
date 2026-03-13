@@ -285,9 +285,48 @@ async def async_added_to_hass(self):
 - [ ] Test with fresh HA instance
 - [ ] Document cache behavior to users
 
-**Discovered:** v3.2.0.9 debugging  
-**Impact:** Deployment confidence  
-**Severity:** LOW (workflow issue)  
+**Discovered:** v3.2.0.9 debugging
+**Impact:** Deployment confidence
+**Severity:** LOW (workflow issue)
+
+---
+
+### Bug Class #7: Stale Data Source Driving Development Decisions ⚠️
+
+**The Mistake:**
+```
+# ❌ WRONG - Acting on diagnostic data without verifying the data source is live/current
+MCP ura-sqlite was configured to read ~/.cache/ura/universal_room_automation.db (a 12-day-old cached copy)
+instead of the live Samba-mounted DB. "Missing table" diagnoses were phantom — tables existed on the live DB.
+This motivated an entire 4-version repair cycle (v3.13.0-v3.13.3) with unnecessary urgency.
+```
+
+**Why it fails:**
+- Cached/stale copies of databases, API responses, or config files diverge from live state
+- Diagnoses based on stale data produce false negatives (missing tables, wrong schemas)
+- Development work driven by phantom problems adds risk (new code paths, complexity) without fixing real issues
+- The code itself may be individually correct, but the motivation was wrong — wasted effort
+
+**The Fix:**
+```
+# ✅ CORRECT - Always verify data source freshness before acting on diagnostics
+1. Check file modification timestamps (ls -la, stat) on the data source
+2. Compare file sizes between cache and live copies
+3. Run a known-good query (SELECT count(*) FROM sqlite_master) and cross-check
+4. If using MCP tools, verify --db-path points to the live/mounted path, not a cache
+5. When diagnosing "missing" resources, verify on the live system FIRST (HA API, SSH, etc.)
+```
+
+**Prevention:**
+- [ ] Before any DB repair work: verify the MCP/tool data source is current (check mtime, file size)
+- [ ] Cross-validate diagnostics against live HA instance (use ha-mcp, not just ura-sqlite)
+- [ ] Never trust cached data for production diagnosis without freshness check
+- [ ] If data source is a mount (Samba/NFS), verify mount is active before querying
+- [ ] Document data source paths in project memory so stale configs are caught early
+
+**Discovered:** v3.13.3 (March 2026)
+**Impact:** 4 unnecessary development cycles, added code complexity with marginal value
+**Severity:** HIGH (process — leads to wasted effort and unnecessary code risk)
 
 ---
 
@@ -755,7 +794,7 @@ Music Following was originally a house-level feature, later promoted to a coordi
 
 ---
 
-**Quality Context v3.0**  
-**Last Updated:** January 4, 2026  
-**Next Update:** After discovering new patterns  
+**Quality Context v3.1**
+**Last Updated:** March 13, 2026
+**Next Update:** After discovering new patterns
 **Status:** Active quality standards

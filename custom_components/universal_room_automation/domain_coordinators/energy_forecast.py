@@ -263,7 +263,12 @@ class DailyEnergyPredictor:
         return BATTERY_TOTAL_CAPACITY_KWH_FALLBACK
 
     def _estimate_battery_full_time(self, now: datetime) -> None:
-        """Estimate when battery will reach 100% SOC today."""
+        """Estimate when battery will reach 100% SOC today.
+
+        v3.14.0: Consumption-aware + taper-aware. Deducts remaining home
+        consumption from available solar, and uses SOC-based charge rate
+        taper (Encharge tapers significantly above 80% SOC).
+        """
         soc = self._get_float(self._battery_soc_entity)
         remaining_forecast = self._get_float(self._solcast_remaining_entity)
 
@@ -279,13 +284,29 @@ class DailyEnergyPredictor:
         total_capacity = self._get_battery_capacity_kwh()
         remaining_capacity_kwh = total_capacity * (100 - soc) / 100.0
 
-        # Can we fill it with remaining solar?
-        if remaining_forecast < remaining_capacity_kwh:
+        # v3.14.0: Deduct remaining home consumption from available solar
+        hours_left = max(0, 20 - now.hour)  # consumption tapers by ~8 PM
+        daily_consumption = self._predicted_consumption_kwh or 30.0
+        remaining_consumption = daily_consumption * (hours_left / 24.0)
+        net_available_solar = remaining_forecast - remaining_consumption
+
+        # Can we fill it with net available solar?
+        if net_available_solar < remaining_capacity_kwh:
             self._battery_full_time = "unlikely_today"
             return
 
-        # Estimate hours to fill at average charge rate
-        hours_to_fill = remaining_capacity_kwh / AVERAGE_CHARGE_RATE_KW
+        # v3.14.0: SOC-based charge rate taper (Encharge behavior)
+        # Calculate piecewise — each band has a different charge rate
+        bands = [(80, AVERAGE_CHARGE_RATE_KW), (90, 2.5), (100, 1.5)]
+        hours_to_fill = 0.0
+        current_soc = soc
+        for threshold, rate in bands:
+            if current_soc >= threshold:
+                continue
+            band_kwh = total_capacity * (min(threshold, 100) - current_soc) / 100.0
+            hours_to_fill += band_kwh / rate
+            current_soc = threshold
+
         estimated_time = now + timedelta(hours=hours_to_fill)
         self._battery_full_time = estimated_time.strftime("%H:%M")
 
