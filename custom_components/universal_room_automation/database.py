@@ -1,6 +1,6 @@
 """Database for Universal Room Automation."""
 #
-# Universal Room Automation v3.13.0
+# Universal Room Automation v3.13.1
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors
@@ -943,8 +943,8 @@ class UniversalRoomDatabase:
                         battery_level, whole_house_energy, rooms_energy_total,
                         outside_temp, outside_humidity, house_avg_temp, house_avg_humidity,
                         temp_delta_outside, humidity_delta_outside, rooms_occupied,
-                        day_of_week, hour_of_day, is_weekend
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        day_of_week, hour_of_day, is_weekend, tou_period
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     now.isoformat(),
                     data.get('solar_production'),
@@ -964,6 +964,7 @@ class UniversalRoomDatabase:
                     now.weekday(),  # 0=Monday, 6=Sunday
                     now.hour,
                     now.weekday() >= 5,  # Saturday=5, Sunday=6
+                    data.get('tou_period'),
                 ))
                 await db.commit()
                 _LOGGER.debug(
@@ -2678,29 +2679,32 @@ class UniversalRoomDatabase:
         try:
             now = dt_util.utcnow().isoformat()
             async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
-                for circuit_id, state in circuits.items():
-                    # Store zero_since as string repr of float for round-trip
-                    zero_since = state.get("zero_since")
-                    zero_since_str = str(zero_since) if zero_since is not None else None
-                    await db.execute("""
-                        INSERT OR REPLACE INTO circuit_state
-                            (circuit_id, was_loaded, zero_since, alerted, updated_at)
-                        VALUES (?, ?, ?, ?, ?)
-                    """, (
-                        circuit_id,
-                        1 if state.get("was_loaded") else 0,
-                        zero_since_str,
-                        1 if state.get("alerted") else 0,
-                        now,
-                    ))
-                await db.commit()
-                _LOGGER.debug("Saved circuit state for %d circuits", len(circuits))
+                try:
+                    for circuit_id, state in circuits.items():
+                        # Store zero_since as string repr of float for round-trip
+                        zero_since = state.get("zero_since")
+                        zero_since_str = str(zero_since) if zero_since is not None else None
+                        await db.execute("""
+                            INSERT OR REPLACE INTO circuit_state
+                                (circuit_id, was_loaded, zero_since, alerted, updated_at)
+                            VALUES (?, ?, ?, ?, ?)
+                        """, (
+                            circuit_id,
+                            1 if state.get("was_loaded") else 0,
+                            zero_since_str,
+                            1 if state.get("alerted") else 0,
+                            now,
+                        ))
+                    await db.commit()
+                    _LOGGER.debug("Saved circuit state for %d circuits", len(circuits))
+                except Exception as e:
+                    _LOGGER.error("Error saving circuit state: %s", e)
+                    try:
+                        await db.rollback()
+                    except Exception:
+                        pass
         except Exception as e:
-            _LOGGER.error("Error saving circuit state: %s", e)
-            try:
-                await db.rollback()
-            except Exception:
-                pass
+            _LOGGER.error("Error connecting to DB for circuit state save: %s", e)
 
     async def restore_circuit_state(self) -> dict[str, dict]:
         """Restore circuit monitor state after restart.

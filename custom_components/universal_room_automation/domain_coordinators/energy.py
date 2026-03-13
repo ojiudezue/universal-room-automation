@@ -293,6 +293,9 @@ class EnergyCoordinator(BaseCoordinator):
         # Restore EVSE state (paused, excess solar) from DB
         await self._restore_evse_state()
 
+        # v3.13.1: Restore circuit monitor state from DB
+        await self._restore_circuit_state()
+
         # Start periodic decision cycle
         self._decision_timer_unsub = async_track_time_interval(
             self.hass,
@@ -692,6 +695,9 @@ class EnergyCoordinator(BaseCoordinator):
         Values are instantaneous power in kW (converted from Envoy watts).
         DB columns are labeled "energy flows" historically but store point-in-time
         power readings at 15-min intervals.
+
+        v3.13.1: Now populates all 19 columns including house_avg_temp,
+        house_avg_humidity, deltas, rooms_occupied, outside_humidity, tou_period.
         """
         db = self.hass.data.get("universal_room_automation", {}).get("database")
         if db is None:
@@ -705,13 +711,36 @@ class EnergyCoordinator(BaseCoordinator):
             solar_export_kw = abs(min(net_power_w or 0, 0)) / 1000.0
 
             outside_temp = None
+            outside_humidity = None
             weather_state = self.hass.states.get(self._weather_entity)
             if weather_state and weather_state.attributes:
                 outside_temp = weather_state.attributes.get("temperature")
+                outside_humidity = weather_state.attributes.get("humidity")
 
             # total_consumption_kw property reads Envoy watts despite the name
             consumption_w = self.total_consumption_kw
             consumption_kw = consumption_w / 1000.0 if consumption_w is not None else None
+
+            # v3.13.1: Indoor averages from room coordinators
+            house_avg_temp, house_avg_humidity = self._get_house_avg_climate()
+
+            # v3.13.1: Compute deltas
+            temp_delta = None
+            if house_avg_temp is not None and outside_temp is not None:
+                temp_delta = house_avg_temp - outside_temp
+            humidity_delta = None
+            if house_avg_humidity is not None and outside_humidity is not None:
+                humidity_delta = house_avg_humidity - outside_humidity
+
+            # v3.13.1: Occupied room count from presence coordinator
+            rooms_occupied = self._get_occupied_room_count()
+
+            # v3.13.1: TOU period
+            tou_period = None
+            try:
+                tou_period = self._tou.get_current_period()
+            except Exception:
+                pass
 
             await db.log_energy_history({
                 "solar_production": solar_prod_kw,
@@ -720,12 +749,23 @@ class EnergyCoordinator(BaseCoordinator):
                 "battery_level": self._battery.battery_soc,
                 "whole_house_energy": consumption_kw,
                 "outside_temp": outside_temp,
+                "outside_humidity": outside_humidity,
+                "house_avg_temp": house_avg_temp,
+                "house_avg_humidity": house_avg_humidity,
+                "temp_delta_outside": temp_delta,
+                "humidity_delta_outside": humidity_delta,
+                "rooms_occupied": rooms_occupied,
+                "tou_period": tou_period,
             })
         except Exception as e:
             _LOGGER.warning("Failed to log energy history: %s", e)
 
     async def _log_external_conditions_snapshot(self) -> None:
-        """Log external conditions snapshot to DB (every ~15 min)."""
+        """Log external conditions snapshot to DB (every ~15 min).
+
+        v3.13.1: occupied_room_count and occupied_zone_count now read from
+        presence coordinator instead of being hardcoded to 0.
+        """
         db = self.hass.data.get("universal_room_automation", {}).get("database")
         if db is None:
             return
@@ -744,6 +784,9 @@ class EnergyCoordinator(BaseCoordinator):
             solar_prod_w = self._battery.solar_production
             solar_prod_kw = solar_prod_w / 1000.0 if solar_prod_w is not None else None
 
+            # v3.13.1: Read real occupancy counts from presence coordinator
+            occupied_rooms, occupied_zones = self._get_occupancy_counts()
+
             await db.log_external_conditions({
                 "outside_temp": outside_temp,
                 "outside_humidity": outside_humidity,
@@ -751,8 +794,8 @@ class EnergyCoordinator(BaseCoordinator):
                 "solar_production": solar_prod_kw,
                 "forecast_high": self._cached_forecast_high,
                 "forecast_low": self._cached_forecast_low,
-                "occupied_room_count": 0,
-                "occupied_zone_count": 0,
+                "occupied_room_count": occupied_rooms,
+                "occupied_zone_count": occupied_zones,
             })
         except Exception as e:
             _LOGGER.warning("Failed to log external conditions: %s", e)
@@ -956,14 +999,10 @@ class EnergyCoordinator(BaseCoordinator):
             # v3.11.0 D1/D2: Log energy history + external conditions every 3rd cycle (~15min)
             self._cycle_count += 1
             if self._cycle_count % 3 == 0:
+                # Serialize DB writes to avoid SQLite contention
                 self.hass.async_create_task(
-                    self._log_energy_history_snapshot(decision)
+                    self._periodic_db_writes(decision)
                 )
-                self.hass.async_create_task(
-                    self._log_external_conditions_snapshot()
-                )
-                # H2 fix: Persist EVSE state periodically (survives crashes)
-                self.hass.async_create_task(self._save_evse_state())
 
             _LOGGER.debug(
                 "Energy cycle: period=%s, battery=%s (%s), soc=%s%%, pool=%s, envoy=%s",
@@ -1426,6 +1465,156 @@ class EnergyCoordinator(BaseCoordinator):
         except Exception:
             _LOGGER.debug("Energy: NM alert failed (non-fatal): %s", title)
 
+    # =========================================================================
+    # v3.13.1: DATA PIPELINE HELPERS
+    # =========================================================================
+
+    def _get_house_avg_climate(self) -> tuple[float | None, float | None]:
+        """Return (house_avg_temp, house_avg_humidity) from room coordinators.
+
+        Iterates room config entries and reads their temperature/humidity
+        sensor states to compute whole-house averages.
+        """
+        from ..const import (
+            DOMAIN, CONF_ENTRY_TYPE, ENTRY_TYPE_ROOM,
+            CONF_TEMPERATURE_SENSOR, CONF_HUMIDITY_SENSOR,
+        )
+        temps: list[float] = []
+        humids: list[float] = []
+        try:
+            for entry in self.hass.config_entries.async_entries(DOMAIN):
+                config = {**entry.data, **entry.options}
+                if config.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ROOM:
+                    continue
+                # Temperature
+                temp_entity = config.get(CONF_TEMPERATURE_SENSOR)
+                if temp_entity:
+                    state = self.hass.states.get(temp_entity)
+                    if state and state.state not in ("unknown", "unavailable"):
+                        try:
+                            temps.append(float(state.state))
+                        except (ValueError, TypeError):
+                            pass
+                # Humidity
+                hum_entity = config.get(CONF_HUMIDITY_SENSOR)
+                if hum_entity:
+                    state = self.hass.states.get(hum_entity)
+                    if state and state.state not in ("unknown", "unavailable"):
+                        try:
+                            humids.append(float(state.state))
+                        except (ValueError, TypeError):
+                            pass
+        except Exception:
+            pass
+
+        avg_temp = sum(temps) / len(temps) if temps else None
+        avg_humidity = sum(humids) / len(humids) if humids else None
+        return avg_temp, avg_humidity
+
+    def _get_occupied_room_count(self) -> int:
+        """Return count of occupied rooms from presence coordinator."""
+        from ..const import DOMAIN
+        try:
+            manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+            if manager is None:
+                return 0
+            presence = manager.coordinators.get("presence")
+            if presence is None:
+                return 0
+            count = 0
+            for tracker in presence.zone_trackers.values():
+                rooms = tracker.to_dict().get("rooms", {})
+                for occ in rooms.values():
+                    if occ:
+                        count += 1
+            return count
+        except Exception:
+            return 0
+
+    def _get_occupancy_counts(self) -> tuple[int, int]:
+        """Return (occupied_room_count, occupied_zone_count) from presence coordinator."""
+        from ..const import DOMAIN
+        try:
+            manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+            if manager is None:
+                return 0, 0
+            presence = manager.coordinators.get("presence")
+            if presence is None:
+                return 0, 0
+            room_count = 0
+            zone_count = 0
+            for tracker in presence.zone_trackers.values():
+                zone_occupied = False
+                rooms = tracker.to_dict().get("rooms", {})
+                for occ in rooms.values():
+                    if occ:
+                        room_count += 1
+                        zone_occupied = True
+                if zone_occupied:
+                    zone_count += 1
+            return room_count, zone_count
+        except Exception:
+            return 0, 0
+
+    async def _periodic_db_writes(self, decision: dict) -> None:
+        """Run periodic DB writes sequentially to avoid SQLite contention."""
+        await self._log_energy_history_snapshot(decision)
+        await self._log_external_conditions_snapshot()
+        await self._save_evse_state()
+        await self._save_circuit_state()
+
+    async def _save_circuit_state(self) -> None:
+        """Persist SPAN circuit monitor state to DB for restart recovery."""
+        db = self.hass.data.get("universal_room_automation", {}).get("database")
+        if db is None:
+            return
+        if not self._circuits._circuits:
+            return
+        try:
+            circuits_dict = {}
+            for entity_id, circuit in self._circuits._circuits.items():
+                circuits_dict[entity_id] = {
+                    "was_loaded": circuit.was_loaded,
+                    "zero_since": circuit.zero_since,
+                    "alerted": circuit.alerted,
+                }
+            await db.save_circuit_state(circuits_dict)
+        except Exception as e:
+            _LOGGER.warning("Could not save circuit state to DB: %s", e)
+
+    async def _restore_circuit_state(self) -> None:
+        """Restore SPAN circuit monitor state from DB after restart."""
+        import time
+        db = self.hass.data.get("universal_room_automation", {}).get("database")
+        if db is None:
+            return
+        try:
+            saved = await db.restore_circuit_state()
+            if not saved:
+                return
+            # Ensure circuits are discovered first
+            if not self._circuits._discovered:
+                self._circuits.discover_circuits()
+            now = time.time()
+            restored_count = 0
+            for entity_id, state in saved.items():
+                if entity_id in self._circuits._circuits:
+                    circuit = self._circuits._circuits[entity_id]
+                    circuit.was_loaded = state.get("was_loaded", False)
+                    # H1 fix: Reset stale zero_since to now to avoid
+                    # false tripped-breaker alerts from pre-restart timestamps
+                    raw_zs = state.get("zero_since")
+                    if raw_zs is not None:
+                        circuit.zero_since = now
+                    else:
+                        circuit.zero_since = None
+                    circuit.alerted = state.get("alerted", False)
+                    restored_count += 1
+            if restored_count:
+                _LOGGER.info("Restored circuit state for %d circuits", restored_count)
+        except Exception as e:
+            _LOGGER.warning("Could not restore circuit state: %s", e)
+
     async def async_teardown(self) -> None:
         """Tear down — cancel decision timer, persist state for restart."""
         # Save peak import history so it survives restarts
@@ -1433,6 +1622,8 @@ class EnergyCoordinator(BaseCoordinator):
             await self._save_peak_import_history()
         # Save EVSE state for restart recovery
         await self._save_evse_state()
+        # v3.13.1: Save circuit monitor state
+        await self._save_circuit_state()
         if self._decision_timer_unsub is not None:
             self._decision_timer_unsub()
             self._decision_timer_unsub = None
