@@ -24,6 +24,7 @@ NORMALLY_LOADED_THRESHOLD_W = 5.0
 CIRCUIT_Z_ADVISORY = 3.0   # Log advisory
 CIRCUIT_Z_ALERT = 4.0      # Generate anomaly alert
 CIRCUIT_MIN_SAMPLES = 60   # ~5 hours at 5min intervals
+CIRCUIT_ZSCORE_COOLDOWN_S = 1800  # 30min cooldown between repeated z-score alerts
 
 # Generator status values
 GEN_RUNNING = "running"
@@ -64,6 +65,8 @@ class SPANCircuitMonitor:
         self._anomalies: list[dict[str, Any]] = []
         # v3.13.2: Per-circuit power baselines for z-score anomaly detection
         self._power_baselines: dict[str, MetricBaseline] = {}
+        # v3.13.3: Dedup z-score alerts — cooldown per circuit (epoch timestamp)
+        self._zscore_alerted: dict[str, float] = {}
 
     def discover_circuits(self) -> int:
         """Auto-discover SPAN circuit power entities from HA state machine."""
@@ -127,23 +130,27 @@ class SPANCircuitMonitor:
             if baseline.sample_count >= CIRCUIT_MIN_SAMPLES and power > 0:
                 z = baseline.z_score(power)
                 if z >= CIRCUIT_Z_ALERT:
-                    anomaly = {
-                        "type": "consumption_anomaly",
-                        "circuit": circuit.friendly_name,
-                        "entity_id": entity_id,
-                        "panel": circuit.panel,
-                        "power": power,
-                        "z_score": round(z, 2),
-                        "baseline_mean": round(baseline.mean, 1),
-                        "baseline_std": round(baseline.std, 1),
-                    }
-                    new_anomalies.append(anomaly)
-                    _LOGGER.warning(
-                        "Circuit anomaly: %s — unusual consumption %.0fW "
-                        "(z=%.1f, mean=%.0fW, std=%.0fW)",
-                        circuit.friendly_name, power, z,
-                        baseline.mean, baseline.std,
-                    )
+                    # v3.13.3: Dedup — only alert if cooldown has elapsed
+                    last_alert = self._zscore_alerted.get(entity_id, 0)
+                    if (now - last_alert) >= CIRCUIT_ZSCORE_COOLDOWN_S:
+                        anomaly = {
+                            "type": "consumption_anomaly",
+                            "circuit": circuit.friendly_name,
+                            "entity_id": entity_id,
+                            "panel": circuit.panel,
+                            "power": power,
+                            "z_score": round(z, 2),
+                            "baseline_mean": round(baseline.mean, 1),
+                            "baseline_std": round(baseline.std, 1),
+                        }
+                        new_anomalies.append(anomaly)
+                        self._zscore_alerted[entity_id] = now
+                        _LOGGER.warning(
+                            "Circuit anomaly: %s — unusual consumption %.0fW "
+                            "(z=%.1f, mean=%.0fW, std=%.0fW)",
+                            circuit.friendly_name, power, z,
+                            baseline.mean, baseline.std,
+                        )
                 elif z >= CIRCUIT_Z_ADVISORY:
                     _LOGGER.debug(
                         "Circuit advisory: %s — elevated consumption %.0fW (z=%.1f)",
