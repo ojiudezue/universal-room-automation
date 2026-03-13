@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.13.3
+# Universal Room Automation v3.14.0
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -219,6 +219,8 @@ async def async_setup_entry(
             EnergyExportTodaySensor(hass, entry),
             # v3.7.0-E5: Forecast sensors
             EnergyForecastTodaySensor(hass, entry),
+            EnergyForecastedImportSensor(hass, entry),
+            EnergyForecastedConsumptionSensor(hass, entry),
             EnergyBatteryFullTimeSensor(hass, entry),
             EnergyForecastAccuracySensor(hass, entry),
             # v3.7.0-E6: Situation + Constraint sensors
@@ -5898,7 +5900,7 @@ class EnergyForecastTodaySensor(AggregationEntity, SensorEntity):
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         super().__init__(hass, entry)
         self._attr_unique_id = f"{DOMAIN}_energy_forecast_today"
-        self._attr_name = "Energy Forecast Today"
+        self._attr_name = "Predicted Net Energy"
         self._attr_device_info = _energy_device_info()
 
     @property
@@ -5920,6 +5922,81 @@ class EnergyForecastTodaySensor(AggregationEntity, SensorEntity):
         if energy is None:
             return {}
         return energy.forecast_today
+
+
+class EnergyForecastedImportSensor(AggregationEntity, SensorEntity):
+    """Predicted net grid import today (positive=import, negative=export).
+
+    Entity: sensor.ura_energy_forecasted_import
+    Device: URA: Energy Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:transmission-tower-import"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = "kWh"
+    _attr_suggested_display_precision = 1
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_energy_forecasted_import"
+        self._attr_name = "Forecasted Energy Import"
+        self._attr_device_info = _energy_device_info()
+
+    @property
+    def native_value(self) -> float | None:
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        energy = manager.coordinators.get("energy")
+        if energy is None:
+            return None
+        return energy.predicted_import_kwh
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return {}
+        energy = manager.coordinators.get("energy")
+        if energy is None:
+            return {}
+        forecast = energy.forecast_today
+        return {
+            "predicted_consumption_kwh": forecast.get("predicted_consumption_kwh"),
+            "predicted_production_kwh": forecast.get("predicted_production_kwh"),
+            "battery_full_time": forecast.get("battery_full_time"),
+        }
+
+
+class EnergyForecastedConsumptionSensor(AggregationEntity, SensorEntity):
+    """Predicted total home consumption today (kWh).
+
+    Entity: sensor.ura_energy_forecasted_consumption
+    Device: URA: Energy Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:home-lightning-bolt"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = "kWh"
+    _attr_suggested_display_precision = 1
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_energy_forecasted_consumption"
+        self._attr_name = "Forecasted Consumption"
+        self._attr_device_info = _energy_device_info()
+
+    @property
+    def native_value(self) -> float | None:
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        energy = manager.coordinators.get("energy")
+        if energy is None:
+            return None
+        return energy.predicted_consumption_kwh
 
 
 class EnergyBatteryFullTimeSensor(AggregationEntity, SensorEntity):

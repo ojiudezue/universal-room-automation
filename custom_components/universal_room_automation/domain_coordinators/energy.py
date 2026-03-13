@@ -67,7 +67,12 @@ from .energy_const import (
     DEFAULT_DECISION_INTERVAL_MINUTES,
     DEFAULT_EXCESS_SOLAR_KWH_THRESHOLD,
     DEFAULT_EXCESS_SOLAR_SOC_THRESHOLD,
+    DEFAULT_LIFETIME_BATTERY_CHARGED_ENTITY,
+    DEFAULT_LIFETIME_BATTERY_DISCHARGED_ENTITY,
     DEFAULT_LIFETIME_CONSUMPTION_ENTITY,
+    DEFAULT_LIFETIME_NET_EXPORT_ENTITY,
+    DEFAULT_LIFETIME_NET_IMPORT_ENTITY,
+    DEFAULT_LIFETIME_PRODUCTION_ENTITY,
     DEFAULT_LOAD_SHEDDING_SUSTAINED_MINUTES,
     DEFAULT_LOAD_SHEDDING_THRESHOLD_KW,
     DEFAULT_OFFPEAK_DRAIN_EXCELLENT,
@@ -230,6 +235,15 @@ class EnergyCoordinator(BaseCoordinator):
         # At each date change, delta = current - snapshot = true daily consumption.
         # Uses Envoy's consumption CT (includes grid + solar self-consumed + battery).
         self._lifetime_consumption_snapshot: float | None = None
+
+        # v3.14.0: Additional lifetime snapshots for derived consumption.
+        # With net-consumption CT, lifetime_energy_consumption = net grid import only.
+        # True consumption = grid_import + solar_self_consumed + net_battery_discharge.
+        self._lifetime_production_snapshot: float | None = None
+        self._lifetime_net_import_snapshot: float | None = None
+        self._lifetime_net_export_snapshot: float | None = None
+        self._lifetime_battery_charged_snapshot: float | None = None
+        self._lifetime_battery_discharged_snapshot: float | None = None
 
         # Cached forecast temps (updated each decision cycle via async service)
         self._cached_forecast_high: float | None = None
@@ -513,39 +527,155 @@ class EnergyCoordinator(BaseCoordinator):
         except (ValueError, TypeError):
             return None
 
+    def _get_lifetime_production(self) -> float | None:
+        """Read Envoy lifetime energy production (MWh, monotonically increasing)."""
+        state = self.hass.states.get(DEFAULT_LIFETIME_PRODUCTION_ENTITY)
+        if state is None or state.state in ("unknown", "unavailable"):
+            return None
+        try:
+            return float(state.state)
+        except (ValueError, TypeError):
+            return None
+
+    def _get_lifetime_net_import(self) -> float | None:
+        """Read Envoy lifetime net energy consumption/import (MWh, monotonically increasing)."""
+        state = self.hass.states.get(DEFAULT_LIFETIME_NET_IMPORT_ENTITY)
+        if state is None or state.state in ("unknown", "unavailable"):
+            return None
+        try:
+            return float(state.state)
+        except (ValueError, TypeError):
+            return None
+
+    def _get_lifetime_net_export(self) -> float | None:
+        """Read Envoy lifetime net energy production/export (MWh, monotonically increasing)."""
+        state = self.hass.states.get(DEFAULT_LIFETIME_NET_EXPORT_ENTITY)
+        if state is None or state.state in ("unknown", "unavailable"):
+            return None
+        try:
+            return float(state.state)
+        except (ValueError, TypeError):
+            return None
+
+    def _get_lifetime_battery_discharged(self) -> float | None:
+        """Read Envoy lifetime battery energy discharged (MWh, monotonically increasing)."""
+        state = self.hass.states.get(DEFAULT_LIFETIME_BATTERY_DISCHARGED_ENTITY)
+        if state is None or state.state in ("unknown", "unavailable"):
+            return None
+        try:
+            return float(state.state)
+        except (ValueError, TypeError):
+            return None
+
+    def _get_lifetime_battery_charged(self) -> float | None:
+        """Read Envoy lifetime battery energy charged (MWh, monotonically increasing)."""
+        state = self.hass.states.get(DEFAULT_LIFETIME_BATTERY_CHARGED_ENTITY)
+        if state is None or state.state in ("unknown", "unavailable"):
+            return None
+        try:
+            return float(state.state)
+        except (ValueError, TypeError):
+            return None
+
     def _maybe_reset_daily(self) -> None:
         """Reset daily counters and feed accuracy tracking if date changed.
 
-        Uses Envoy's lifetime_energy_consumption delta for true daily consumption.
-        This is measured directly by the consumption CT and includes all sources
-        (grid import + solar self-consumed + battery discharged to home).
+        v3.14.0: Derives true daily consumption from 5 independent lifetime sensors:
+        actual = grid_import + (solar_produced - solar_exported) + (battery_discharged - battery_charged)
+        The (solar_produced - solar_exported) term includes solar that charged the battery,
+        so we must subtract battery_charged to avoid double-counting.
+        With net-consumption CT, lifetime_energy_consumption = net grid import only,
+        NOT total home consumption. The derived formula is accurate regardless of CT mode.
         Must run BEFORE billing.accumulate() to capture yesterday's totals.
         """
         from homeassistant.util import dt as dt_util
         today = dt_util.now().date().isoformat()
 
-        # Read current lifetime consumption for snapshot tracking
+        # Read all 6 lifetime values for snapshot tracking
         current_lifetime = self._get_lifetime_consumption()
+        current_production = self._get_lifetime_production()
+        current_net_import = self._get_lifetime_net_import()
+        current_net_export = self._get_lifetime_net_export()
+        current_battery_charged = self._get_lifetime_battery_charged()
+        current_battery_discharged = self._get_lifetime_battery_discharged()
 
         if today != self._last_reset_date:
             # Capture yesterday's billing totals BEFORE they're reset
             yesterday_totals = self._billing.get_yesterday_totals()
 
-            # Calculate yesterday's actual consumption from lifetime delta
+            # Calculate yesterday's actual consumption from lifetime deltas
             actual_kwh = None
+            solar_produced_kwh = None
+
+            # v3.14.0: Primary path — derive from 5 independent lifetime sensors
             if (
+                self._lifetime_production_snapshot is not None
+                and self._lifetime_net_import_snapshot is not None
+                and self._lifetime_net_export_snapshot is not None
+                and self._lifetime_battery_charged_snapshot is not None
+                and self._lifetime_battery_discharged_snapshot is not None
+                and current_production is not None
+                and current_net_import is not None
+                and current_net_export is not None
+                and current_battery_charged is not None
+                and current_battery_discharged is not None
+                and self._last_reset_date
+            ):
+                # Lifetime values are in MWh — convert deltas to kWh
+                grid_import_kwh = (current_net_import - self._lifetime_net_import_snapshot) * 1000.0
+                solar_produced_kwh = (current_production - self._lifetime_production_snapshot) * 1000.0
+                solar_exported_kwh = (current_net_export - self._lifetime_net_export_snapshot) * 1000.0
+                battery_charged_kwh = (current_battery_charged - self._lifetime_battery_charged_snapshot) * 1000.0
+                battery_discharged_kwh = (current_battery_discharged - self._lifetime_battery_discharged_snapshot) * 1000.0
+
+                # Guard: negative delta means Envoy reboot mid-day — skip derived path
+                if (
+                    grid_import_kwh < 0 or solar_produced_kwh < 0
+                    or solar_exported_kwh < 0 or battery_charged_kwh < 0
+                    or battery_discharged_kwh < 0
+                ):
+                    _LOGGER.warning(
+                        "Negative lifetime delta detected (possible Envoy reboot), "
+                        "skipping derived consumption"
+                    )
+                    actual_kwh = None
+                    solar_produced_kwh = None
+                else:
+                    # solar_self_consumed includes solar→battery, so subtract battery_charged
+                    # to avoid double-counting: consumption = grid + solar_self - battery_charged + battery_discharged
+                    solar_self_consumed = solar_produced_kwh - solar_exported_kwh
+                    net_battery_kwh = battery_discharged_kwh - battery_charged_kwh
+                    actual_kwh = grid_import_kwh + solar_self_consumed + net_battery_kwh
+                    _LOGGER.info(
+                        "Derived consumption: grid=%.1f + solar_self=%.1f + net_battery=%.1f = %.1f kWh",
+                        grid_import_kwh, solar_self_consumed, net_battery_kwh, actual_kwh,
+                    )
+            # Fallback: legacy delta (net grid import only, known inaccurate with net-consumption CT)
+            elif (
                 self._lifetime_consumption_snapshot is not None
                 and current_lifetime is not None
                 and self._last_reset_date
             ):
-                # Lifetime values are in MWh — convert delta to kWh
                 delta_mwh = current_lifetime - self._lifetime_consumption_snapshot
                 actual_kwh = delta_mwh * 1000.0
+                _LOGGER.warning(
+                    "Using legacy consumption delta (net import only) = %.1f kWh — "
+                    "derived sensors not yet available",
+                    actual_kwh,
+                )
+
+            # Guard: reject negative or zero actual consumption (e.g., partial Envoy reboot)
+            if actual_kwh is not None and actual_kwh <= 0:
+                _LOGGER.warning(
+                    "Computed consumption %.1f kWh is non-positive, discarding", actual_kwh
+                )
+                actual_kwh = None
+                solar_produced_kwh = None
 
             accuracy_result = None
             predicted_consumption = None
 
-            if actual_kwh is not None and actual_kwh > 0:
+            if actual_kwh is not None:
                 self._predictor.record_actual_consumption(actual_kwh)
 
                 # Evaluate yesterday's forecast accuracy
@@ -587,6 +717,7 @@ class EnergyCoordinator(BaseCoordinator):
                     self._save_daily_snapshot(
                         yesterday_totals,
                         actual_kwh,
+                        solar_production_kwh=solar_produced_kwh,
                         predicted_consumption_kwh=predicted_consumption,
                         prediction_error_pct=error_pct,
                         adjustment_factor=adj_factor,
@@ -597,18 +728,35 @@ class EnergyCoordinator(BaseCoordinator):
             # v3.11.0: Daily DB cleanup
             self.hass.async_create_task(self._daily_db_cleanup())
 
-            # Reset snapshot for new day
+            # Reset ALL 6 snapshots for new day
             self._lifetime_consumption_snapshot = current_lifetime
+            self._lifetime_production_snapshot = current_production
+            self._lifetime_net_import_snapshot = current_net_import
+            self._lifetime_net_export_snapshot = current_net_export
+            self._lifetime_battery_charged_snapshot = current_battery_charged
+            self._lifetime_battery_discharged_snapshot = current_battery_discharged
             self._tou_transition_count = 0
             self._last_reset_date = today
-        elif self._lifetime_consumption_snapshot is None and current_lifetime is not None:
-            # First run or Envoy was unavailable — seed the snapshot
-            self._lifetime_consumption_snapshot = current_lifetime
+        else:
+            # Seed each snapshot independently as entities become available
+            if self._lifetime_consumption_snapshot is None and current_lifetime is not None:
+                self._lifetime_consumption_snapshot = current_lifetime
+            if self._lifetime_production_snapshot is None and current_production is not None:
+                self._lifetime_production_snapshot = current_production
+            if self._lifetime_net_import_snapshot is None and current_net_import is not None:
+                self._lifetime_net_import_snapshot = current_net_import
+            if self._lifetime_net_export_snapshot is None and current_net_export is not None:
+                self._lifetime_net_export_snapshot = current_net_export
+            if self._lifetime_battery_charged_snapshot is None and current_battery_charged is not None:
+                self._lifetime_battery_charged_snapshot = current_battery_charged
+            if self._lifetime_battery_discharged_snapshot is None and current_battery_discharged is not None:
+                self._lifetime_battery_discharged_snapshot = current_battery_discharged
 
     async def _save_daily_snapshot(
         self,
         totals: dict,
         consumption_kwh: float | None,
+        solar_production_kwh: float | None = None,
         predicted_consumption_kwh: float | None = None,
         prediction_error_pct: float | None = None,
         adjustment_factor: float | None = None,
@@ -627,6 +775,7 @@ class EnergyCoordinator(BaseCoordinator):
                 export_credit=totals["export_credit"],
                 net_cost=totals["net_cost"],
                 consumption_kwh=consumption_kwh,
+                solar_production_kwh=solar_production_kwh,
                 predicted_consumption_kwh=predicted_consumption_kwh,
                 avg_temperature=avg_temperature,
                 prediction_error_pct=prediction_error_pct,
@@ -672,11 +821,11 @@ class EnergyCoordinator(BaseCoordinator):
                 )
 
     def _crosscheck_consumption(self) -> None:
-        """Cross-check our lifetime delta against Envoy's energy_consumption_today.
+        """Cross-check our lifetime consumption delta against Envoy's energy_consumption_today.
 
-        Runs once per hour. If the Envoy's daily sensor and our running delta
-        diverge by more than 15%, something is off (Envoy reboot, stale snapshot,
-        CT calibration drift).
+        Runs once per hour. Both sides measure net grid import (with net-consumption CT),
+        so divergence indicates Envoy reboot or stale snapshot rather than CT mode issues.
+        The actual consumption calculation uses the derived formula in _maybe_reset_daily().
         """
         from homeassistant.util import dt as dt_util
         now = dt_util.now()
@@ -722,12 +871,28 @@ class EnergyCoordinator(BaseCoordinator):
                 divergence_pct,
             )
             # If Envoy's daily value is significantly higher, our snapshot may
-            # be stale (Envoy rebooted and lifetime reset). Re-seed it.
+            # be stale (Envoy rebooted and lifetime reset). Re-seed all snapshots.
             if envoy_today_kwh > our_delta_kwh * 2 and our_delta_kwh < 5:
                 _LOGGER.warning(
-                    "Re-seeding lifetime snapshot — likely Envoy reboot detected"
+                    "Re-seeding all lifetime snapshots — likely Envoy reboot detected"
                 )
                 self._lifetime_consumption_snapshot = current_lifetime
+                # v3.14.0: Also re-seed derived formula snapshots
+                cp = self._get_lifetime_production()
+                if cp is not None:
+                    self._lifetime_production_snapshot = cp
+                cni = self._get_lifetime_net_import()
+                if cni is not None:
+                    self._lifetime_net_import_snapshot = cni
+                cne = self._get_lifetime_net_export()
+                if cne is not None:
+                    self._lifetime_net_export_snapshot = cne
+                cbc = self._get_lifetime_battery_charged()
+                if cbc is not None:
+                    self._lifetime_battery_charged_snapshot = cbc
+                cbd = self._get_lifetime_battery_discharged()
+                if cbd is not None:
+                    self._lifetime_battery_discharged_snapshot = cbd
 
     # =========================================================================
     # v3.11.0 D1/D2: Energy History + External Conditions Logging
@@ -792,6 +957,7 @@ class EnergyCoordinator(BaseCoordinator):
                 "grid_import": grid_import_kw,
                 "battery_level": self._battery.battery_soc,
                 "whole_house_energy": consumption_kw,
+                "rooms_energy_total": self._get_rooms_energy_total(),
                 "outside_temp": outside_temp,
                 "outside_humidity": outside_humidity,
                 "house_avg_temp": house_avg_temp,
@@ -1567,6 +1733,22 @@ class EnergyCoordinator(BaseCoordinator):
         avg_humidity = sum(humids) / len(humids) if humids else None
         return avg_temp, avg_humidity
 
+    def _get_rooms_energy_total(self) -> float | None:
+        """Return sum of energy_today from all room coordinators."""
+        from ..const import DOMAIN
+        from ..coordinator import UniversalRoomCoordinator
+        try:
+            rooms_total = 0.0
+            for data in self.hass.data.get(DOMAIN, {}).values():
+                if isinstance(data, UniversalRoomCoordinator):
+                    if hasattr(data, 'data') and isinstance(data.data, dict):
+                        energy = data.data.get("energy_today")
+                        if energy is not None:
+                            rooms_total += energy
+            return round(rooms_total, 2) if rooms_total > 0 else None
+        except Exception:
+            return None
+
     def _get_occupied_room_count(self) -> int:
         """Return count of occupied rooms from presence coordinator."""
         from ..const import DOMAIN
@@ -1919,6 +2101,21 @@ class EnergyCoordinator(BaseCoordinator):
     def forecast_accuracy(self) -> float:
         """Rolling forecast accuracy percentage."""
         return self._accuracy.rolling_accuracy
+
+    @property
+    def predicted_import_kwh(self) -> float | None:
+        """Predicted net grid import today (positive=import, negative=export)."""
+        forecast = self._predictor._get_current_prediction()
+        consumption = forecast.get("predicted_consumption_kwh")
+        production = forecast.get("predicted_production_kwh")
+        if consumption is None or production is None:
+            return None
+        return round(consumption - production, 1)
+
+    @property
+    def predicted_consumption_kwh(self) -> float | None:
+        """Predicted total home consumption today (kWh)."""
+        return self._predictor._get_current_prediction().get("predicted_consumption_kwh")
 
     # E6 accessors
     @property
