@@ -2104,17 +2104,15 @@ class EnergyCoordinator(BaseCoordinator):
 
     @property
     def predicted_import_kwh(self) -> float | None:
-        """Predicted grid draw today, accounting for battery buffering.
+        """Predicted net grid exchange today (positive=import, negative=export).
 
-        On sunny days with a full battery, nighttime consumption is covered
-        by the battery so grid import is near zero.  On cloudy days where
-        the battery can't fill, the shortfall comes from the grid.
-
-        Model:
-        1. Daytime (sunrise→sunset): solar covers consumption.
-           If solar < daytime consumption, battery + grid cover the gap.
-        2. Nighttime (sunset→sunrise): battery discharges, grid covers rest.
+        Accounts for solar timing and battery buffering:
+        1. Daytime: solar covers consumption, surplus charges battery,
+           remainder exports to grid.
+        2. Nighttime: battery discharges, grid covers shortfall.
         3. Battery can't discharge below reserve SOC.
+
+        Result: import - export.  Negative means net grid export.
         """
         forecast = self._predictor._get_current_prediction()
         consumption = forecast.get("predicted_consumption_kwh")
@@ -2136,12 +2134,15 @@ class EnergyCoordinator(BaseCoordinator):
         non_solar_hours = 24.0 - solar_hours
         hourly_consumption = consumption / 24.0
 
-        # Daytime: solar covers consumption, surplus charges battery
+        # Daytime: solar covers consumption, surplus charges battery, rest exports
         daytime_consumption = solar_hours * hourly_consumption
+        daytime_import = 0.0
+        grid_export = 0.0
         if production >= daytime_consumption:
             solar_surplus = production - daytime_consumption
-            battery_at_sunset = min(capacity, battery_stored + solar_surplus)
-            daytime_import = 0.0
+            battery_absorbed = min(solar_surplus, capacity - battery_stored)
+            battery_at_sunset = battery_stored + battery_absorbed
+            grid_export = solar_surplus - battery_absorbed
         else:
             # Not enough solar — battery + grid cover the deficit
             daytime_deficit = daytime_consumption - production
@@ -2154,7 +2155,7 @@ class EnergyCoordinator(BaseCoordinator):
         usable_at_sunset = max(0, battery_at_sunset - usable_floor)
         night_import = max(0, night_consumption - usable_at_sunset)
 
-        return round(daytime_import + night_import, 1)
+        return round(daytime_import + night_import - grid_export, 1)
 
     def _get_solar_window_hours(self) -> float:
         """Estimate today's solar production window in hours from sun entity."""
