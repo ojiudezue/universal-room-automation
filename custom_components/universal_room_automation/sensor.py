@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.14.0
+# Universal Room Automation v3.14.1
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -5925,7 +5925,11 @@ class EnergyForecastTodaySensor(AggregationEntity, SensorEntity):
 
 
 class EnergyForecastedImportSensor(AggregationEntity, SensorEntity):
-    """Predicted net grid import today (positive=import, negative=export).
+    """Predicted grid draw today accounting for battery buffering.
+
+    On sunny days with a full battery, this is near zero because the
+    battery covers nighttime consumption.  On cloudy days the shortfall
+    comes from the grid.
 
     Entity: sensor.ura_energy_forecasted_import
     Device: URA: Energy Coordinator
@@ -5940,7 +5944,7 @@ class EnergyForecastedImportSensor(AggregationEntity, SensorEntity):
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         super().__init__(hass, entry)
         self._attr_unique_id = f"{DOMAIN}_energy_forecasted_import"
-        self._attr_name = "Forecasted Energy Import"
+        self._attr_name = "Predicted Grid Import"
         self._attr_device_info = _energy_device_info()
 
     @property
@@ -5965,6 +5969,10 @@ class EnergyForecastedImportSensor(AggregationEntity, SensorEntity):
         return {
             "predicted_consumption_kwh": forecast.get("predicted_consumption_kwh"),
             "predicted_production_kwh": forecast.get("predicted_production_kwh"),
+            "battery_capacity_kwh": energy._predictor._get_battery_capacity_kwh(),
+            "battery_soc_pct": energy._battery.battery_soc,
+            "reserve_soc_pct": energy._battery.reserve_soc,
+            "solar_window_hours": energy._get_solar_window_hours(),
             "battery_full_time": forecast.get("battery_full_time"),
         }
 

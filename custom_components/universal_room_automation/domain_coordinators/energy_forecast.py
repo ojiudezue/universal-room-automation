@@ -26,7 +26,7 @@ from .energy_const import (
 _LOGGER = logging.getLogger(__name__)
 
 # Fallback battery capacity if Envoy entity unavailable (kWh)
-BATTERY_TOTAL_CAPACITY_KWH_FALLBACK = 15.0
+BATTERY_TOTAL_CAPACITY_KWH_FALLBACK = 40.0
 # Average charge rate from solar in kW
 AVERAGE_CHARGE_RATE_KW = 3.5
 
@@ -67,6 +67,7 @@ class DailyEnergyPredictor:
         self._predicted_production_kwh: float | None = None
         self._predicted_consumption_kwh: float | None = None
         self._predicted_net_kwh: float | None = None
+        self._predicted_grid_import_kwh: float | None = None
         self._battery_full_time: str | None = None
 
         # Historical baselines (day_of_week -> consumption kWh list)
