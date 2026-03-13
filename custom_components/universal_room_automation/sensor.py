@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.14.7
+# Universal Room Automation v3.14.8
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -5798,7 +5798,7 @@ class EnergyDeliveryRateSensor(AggregationEntity, SensorEntity):
 
 
 class EnergyImportTodaySensor(AggregationEntity, SensorEntity):
-    """Import kWh today.
+    """Net grid exchange today (positive=import, negative=export).
 
     Entity: sensor.ura_energy_import_today
     Device: URA: Energy Coordinator
@@ -5807,7 +5807,7 @@ class EnergyImportTodaySensor(AggregationEntity, SensorEntity):
     _attr_has_entity_name = True
     _attr_icon = "mdi:transmission-tower-import"
     _attr_device_class = SensorDeviceClass.ENERGY
-    _attr_state_class = SensorStateClass.TOTAL_INCREASING
+    _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = "kWh"
     _attr_suggested_display_precision = 2
 
@@ -5825,7 +5825,10 @@ class EnergyImportTodaySensor(AggregationEntity, SensorEntity):
         energy = manager.coordinators.get("energy")
         if energy is None:
             return None
-        return energy.billing_status.get("import_kwh_today")
+        status = energy.billing_status
+        import_kwh = status.get("import_kwh_today", 0)
+        export_kwh = status.get("export_kwh_today", 0)
+        return round(import_kwh - export_kwh, 3)
 
     @property
     def extra_state_attributes(self) -> dict:
@@ -5835,7 +5838,14 @@ class EnergyImportTodaySensor(AggregationEntity, SensorEntity):
         energy = manager.coordinators.get("energy")
         if energy is None:
             return {}
-        return {"cost": energy.billing_status.get("import_cost_today")}
+        status = energy.billing_status
+        return {
+            "import_kwh": status.get("import_kwh_today"),
+            "export_kwh": status.get("export_kwh_today"),
+            "import_cost": status.get("import_cost_today"),
+            "export_credit": status.get("export_credit_today"),
+            "net_cost": status.get("cost_today"),
+        }
 
 
 class EnergyExportTodaySensor(AggregationEntity, SensorEntity):
