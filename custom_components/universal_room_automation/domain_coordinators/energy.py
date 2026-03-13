@@ -397,17 +397,32 @@ class EnergyCoordinator(BaseCoordinator):
             _LOGGER.warning("Could not restore billing cycle from DB: %s", e)
 
     async def _restore_accuracy_from_db(self) -> None:
-        """Restore forecast accuracy history from DB on startup."""
+        """Restore forecast accuracy history from DB on startup.
+
+        Filters out rows with implausible consumption (< 10 kWh) which
+        are artifacts of the net-consumption CT bug (pre-v3.14.0).
+        """
         db = self.hass.data.get("universal_room_automation", {}).get("database")
         if db is None:
             return
         try:
             rows = await db.get_energy_daily_recent(days=30)
             if rows:
-                self._accuracy.restore_from_db(rows)
-                self._predictor._adjustment_factor = (
-                    self._accuracy.get_adjustment_factor()
-                )
+                clean_rows = [
+                    r for r in rows
+                    if r.get("consumption_kwh") is not None
+                    and r["consumption_kwh"] >= 10.0
+                ]
+                if clean_rows:
+                    self._accuracy.restore_from_db(clean_rows)
+                    self._predictor._adjustment_factor = (
+                        self._accuracy.get_adjustment_factor()
+                    )
+                if len(clean_rows) < len(rows):
+                    _LOGGER.info(
+                        "Filtered %d implausible energy_daily rows (consumption < 10 kWh)",
+                        len(rows) - len(clean_rows),
+                    )
         except Exception as e:
             _LOGGER.warning("Could not restore accuracy from DB: %s", e)
 
