@@ -2179,11 +2179,16 @@ class EnergyCoordinator(BaseCoordinator):
         if rising is None or setting is None:
             return 12.0
 
+        # Compare dates in local timezone (sun entity times are UTC but
+        # sunset at 7 PM CDT = 00:xx UTC next day — UTC .date() is wrong)
+        today = now.date()
+        setting_local_date = setting.astimezone(now.tzinfo).date()
+        rising_local_date = rising.astimezone(now.tzinfo).date()
+
         # next_rising/setting may point to tomorrow — approximate today's
-        # If next_setting is today, use it. If tomorrow, subtract 24h.
-        if setting.date() != now.date():
+        if setting_local_date != today:
             setting = setting - td(hours=24)
-        if rising.date() != now.date():
+        if rising_local_date != today:
             rising_today = rising - td(hours=24)
         else:
             rising_today = rising
