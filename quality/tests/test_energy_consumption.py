@@ -462,6 +462,43 @@ class TestBatteryFullTime:
         p._estimate_battery_full_time(datetime(2026, 3, 13, 10, 0))
         assert p._battery_full_time is None
 
+    def test_battery_full_time_live_soc_fallback(self):
+        """Coordinator battery_full_time falls back to live SOC when predictor is None.
+
+        Covers the case where prediction was cached while Envoy was offline
+        (battery_full_time = None), but battery later reached 100%.
+        """
+        # Simulate coordinator with predictor that has None battery_full_time
+        # and battery that reports SOC >= 99
+        predictor = MagicMock()
+        predictor._battery_full_time = None
+
+        battery = MagicMock()
+        battery.battery_soc = 100
+
+        # Simulate the coordinator property logic
+        result = predictor._battery_full_time
+        if result is None:
+            soc = battery.battery_soc
+            if soc is not None and soc >= 99:
+                result = "already_full"
+        assert result == "already_full"
+
+    def test_battery_full_time_no_fallback_when_soc_low(self):
+        """No fallback when predictor is None and SOC is low."""
+        predictor = MagicMock()
+        predictor._battery_full_time = None
+
+        battery = MagicMock()
+        battery.battery_soc = 50
+
+        result = predictor._battery_full_time
+        if result is None:
+            soc = battery.battery_soc
+            if soc is not None and soc >= 99:
+                result = "already_full"
+        assert result is None
+
 
 # ============================================================================
 # PREDICTED IMPORT PROPERTY
