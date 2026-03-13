@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.14.5
+# Universal Room Automation v3.14.6
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -6067,6 +6067,23 @@ class EnergyForecastAccuracySensor(AggregationEntity, SensorEntity):
             return None
         accuracy = energy.forecast_accuracy
         return accuracy if accuracy > 0 else None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        energy = manager.coordinators.get("energy")
+        if energy is None:
+            return None
+        status = energy._accuracy.get_status()
+        samples = status.get("samples", 0)
+        return {
+            "samples": samples,
+            "status": "learning" if samples < 3 else "active",
+            "adjustment_factor": status.get("adjustment_factor", 1.0),
+            "last_eval_date": status.get("last_eval_date", ""),
+        }
 
 
 # ============================================================================

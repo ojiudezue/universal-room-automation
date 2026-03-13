@@ -2109,8 +2109,17 @@ class EnergyCoordinator(BaseCoordinator):
 
     @property
     def battery_full_time(self) -> str | None:
-        """Estimated time battery reaches 100%."""
-        return self._predictor._battery_full_time
+        """Estimated time battery reaches 100%.
+
+        Falls back to live SOC check if the cached prediction couldn't
+        evaluate (e.g., Envoy was offline at prediction time).
+        """
+        result = self._predictor._battery_full_time
+        if result is None:
+            soc = self._battery.battery_soc
+            if soc is not None and soc >= 99:
+                return "already_full"
+        return result
 
     @property
     def forecast_accuracy(self) -> float:
