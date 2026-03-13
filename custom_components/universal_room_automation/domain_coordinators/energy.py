@@ -2104,13 +2104,92 @@ class EnergyCoordinator(BaseCoordinator):
 
     @property
     def predicted_import_kwh(self) -> float | None:
-        """Predicted net grid import today (positive=import, negative=export)."""
+        """Predicted grid draw today, accounting for battery buffering.
+
+        On sunny days with a full battery, nighttime consumption is covered
+        by the battery so grid import is near zero.  On cloudy days where
+        the battery can't fill, the shortfall comes from the grid.
+
+        Model:
+        1. Daytime (sunrise→sunset): solar covers consumption.
+           If solar < daytime consumption, battery + grid cover the gap.
+        2. Nighttime (sunset→sunrise): battery discharges, grid covers rest.
+        3. Battery can't discharge below reserve SOC.
+        """
         forecast = self._predictor._get_current_prediction()
         consumption = forecast.get("predicted_consumption_kwh")
         production = forecast.get("predicted_production_kwh")
         if consumption is None or production is None:
             return None
-        return round(consumption - production, 1)
+
+        # Battery parameters
+        capacity = self._predictor._get_battery_capacity_kwh()
+        soc = self._battery.battery_soc
+        reserve = self._battery.reserve_soc
+        if soc is None:
+            soc = 50.0  # conservative default
+        usable_floor = capacity * reserve / 100.0
+        battery_stored = capacity * soc / 100.0
+
+        # Solar window from sun entity (hours)
+        solar_hours = self._get_solar_window_hours()
+        non_solar_hours = 24.0 - solar_hours
+        hourly_consumption = consumption / 24.0
+
+        # Daytime: solar covers consumption, surplus charges battery
+        daytime_consumption = solar_hours * hourly_consumption
+        if production >= daytime_consumption:
+            solar_surplus = production - daytime_consumption
+            battery_at_sunset = min(capacity, battery_stored + solar_surplus)
+            daytime_import = 0.0
+        else:
+            # Not enough solar — battery + grid cover the deficit
+            daytime_deficit = daytime_consumption - production
+            battery_can_give = max(0, battery_stored - usable_floor)
+            daytime_import = max(0, daytime_deficit - battery_can_give)
+            battery_at_sunset = max(usable_floor, battery_stored - daytime_deficit)
+
+        # Nighttime: battery discharges, then grid
+        night_consumption = non_solar_hours * hourly_consumption
+        usable_at_sunset = max(0, battery_at_sunset - usable_floor)
+        night_import = max(0, night_consumption - usable_at_sunset)
+
+        return round(daytime_import + night_import, 1)
+
+    def _get_solar_window_hours(self) -> float:
+        """Estimate today's solar production window in hours from sun entity."""
+        from datetime import timedelta as td
+
+        from homeassistant.util import dt as dt_util
+
+        sun = self.hass.states.get("sun.sun")
+        if sun is None:
+            return 12.0  # fallback
+
+        now = dt_util.now()
+
+        # Parse next_rising and next_setting
+        rising_str = sun.attributes.get("next_rising")
+        setting_str = sun.attributes.get("next_setting")
+        if not rising_str or not setting_str:
+            return 12.0
+
+        rising = dt_util.parse_datetime(rising_str)
+        setting = dt_util.parse_datetime(setting_str)
+        if rising is None or setting is None:
+            return 12.0
+
+        # next_rising/setting may point to tomorrow — approximate today's
+        # If next_setting is today, use it. If tomorrow, subtract 24h.
+        if setting.date() != now.date():
+            setting = setting - td(hours=24)
+        if rising.date() != now.date():
+            rising_today = rising - td(hours=24)
+        else:
+            rising_today = rising
+
+        window = (setting - rising_today).total_seconds() / 3600.0
+        return max(4.0, min(16.0, window))  # clamp to sane range
 
     @property
     def predicted_consumption_kwh(self) -> float | None:

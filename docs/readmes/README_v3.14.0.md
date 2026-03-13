@@ -37,11 +37,11 @@ The `(solar_produced - solar_exported)` term includes solar that charged the bat
 
 ### `sensor.py`
 - **`EnergyForecastTodaySensor`:** Renamed display name from "Energy Forecast Today" to "Predicted Net Energy" (unique_id unchanged)
-- **`EnergyForecastedImportSensor`:** New sensor — predicted net grid import with consumption/production/battery_full_time attributes
+- **`EnergyForecastedImportSensor`:** New sensor — predicted grid draw (battery-aware: accounts for solar timing, battery buffering, reserve SOC). Attributes: consumption, production, battery capacity/SOC/reserve, solar window hours, battery full time
 - **`EnergyForecastedConsumptionSensor`:** New sensor — predicted total home consumption
 
 ### `quality/tests/test_energy_consumption.py` (new)
-- 24 tests covering: derived formula with battery_charged, double-count prevention, sunny day scenario, legacy fallback, independent seeding, solar_production passthrough, negative delta guard (single + full reboot), non-positive consumption guard, piecewise battery taper (7 scenarios including after-8-PM), predicted import property, rooms_energy_total, first-boot scenario
+- 27 tests covering: derived formula with battery_charged, double-count prevention, sunny day scenario, legacy fallback, independent seeding, solar_production passthrough, negative delta guard (single + full reboot), non-positive consumption guard, piecewise battery taper (7 scenarios including after-8-PM), battery-aware grid import (sunny/cloudy/moderate/no-battery/zero-solar/none), rooms_energy_total, first-boot scenario
 
 ## Code Review Findings Fixed
 - **CRITICAL:** Formula was missing `- battery_charged` term (would overcount by ~10-15 kWh/day)

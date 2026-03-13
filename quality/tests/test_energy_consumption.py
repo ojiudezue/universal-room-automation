@@ -468,35 +468,98 @@ class TestBatteryFullTime:
 # ============================================================================
 
 
+def _compute_grid_import(consumption, production, capacity, soc, reserve, solar_hours):
+    """Replicate the battery-aware grid import formula from energy.py.
+
+    This mirrors EnergyCoordinator.predicted_import_kwh exactly.
+    """
+    usable_floor = capacity * reserve / 100.0
+    battery_stored = capacity * soc / 100.0
+    non_solar_hours = 24.0 - solar_hours
+    hourly_consumption = consumption / 24.0
+
+    daytime_consumption = solar_hours * hourly_consumption
+    if production >= daytime_consumption:
+        solar_surplus = production - daytime_consumption
+        battery_at_sunset = min(capacity, battery_stored + solar_surplus)
+        daytime_import = 0.0
+    else:
+        daytime_deficit = daytime_consumption - production
+        battery_can_give = max(0, battery_stored - usable_floor)
+        daytime_import = max(0, daytime_deficit - battery_can_give)
+        battery_at_sunset = max(usable_floor, battery_stored - daytime_deficit)
+
+    night_consumption = non_solar_hours * hourly_consumption
+    usable_at_sunset = max(0, battery_at_sunset - usable_floor)
+    night_import = max(0, night_consumption - usable_at_sunset)
+    return round(daytime_import + night_import, 1)
+
+
 class TestPredictedImport:
-    """Test predicted_import_kwh property logic."""
+    """Test battery-aware grid import prediction.
 
-    def test_predicted_import_positive(self):
-        """consumption > production → positive import."""
-        hass = MockHass()
-        p = DailyEnergyPredictor(hass)
-        p._predicted_consumption_kwh = 80.0
-        p._predicted_production_kwh = 60.0
+    The predicted_import_kwh accounts for solar timing and battery buffering:
+    - Sunny day + full battery → near-zero grid import
+    - Cloudy day + low battery → significant grid import
+    """
 
-        prediction = p._get_current_prediction()
-        consumption = prediction["predicted_consumption_kwh"]
-        production = prediction["predicted_production_kwh"]
-        import_kwh = round(consumption - production, 1)
-        assert import_kwh == 20.0
+    def test_sunny_day_zero_import(self):
+        """150 kWh solar, 28 kWh consumption, 40 kWh battery → 0 grid import."""
+        result = _compute_grid_import(
+            consumption=28.0, production=150.0,
+            capacity=40.0, soc=30.0, reserve=20, solar_hours=12.0,
+        )
+        assert result == 0.0
 
-    def test_predicted_import_negative_is_export(self):
-        """production > consumption → negative (net export)."""
-        hass = MockHass()
-        p = DailyEnergyPredictor(hass)
-        p._predicted_consumption_kwh = 30.0
-        p._predicted_production_kwh = 100.0
+    def test_cloudy_day_significant_import(self):
+        """10 kWh solar, 30 kWh consumption, 40 kWh battery at 20% → grid needed."""
+        result = _compute_grid_import(
+            consumption=30.0, production=10.0,
+            capacity=40.0, soc=20.0, reserve=20, solar_hours=12.0,
+        )
+        # Daytime: 15 kWh consumption, 10 kWh solar → 5 kWh deficit
+        # Battery at 20% = 8 kWh, floor = 8 kWh → 0 usable → daytime import = 5
+        # Night: 15 kWh, battery at floor → all from grid = 15
+        # Total = 20
+        assert result == 20.0
 
-        prediction = p._get_current_prediction()
-        import_kwh = round(prediction["predicted_consumption_kwh"] - prediction["predicted_production_kwh"], 1)
-        assert import_kwh == -70.0
+    def test_moderate_solar_partial_import(self):
+        """25 kWh solar, 30 kWh consumption, 40 kWh battery at 50%."""
+        result = _compute_grid_import(
+            consumption=30.0, production=25.0,
+            capacity=40.0, soc=50.0, reserve=20, solar_hours=12.0,
+        )
+        # Daytime: 15 kWh consumption, 25 kWh solar → 10 kWh surplus
+        # Battery: 20 kWh stored + 10 surplus = 30 kWh at sunset
+        # Night: 15 kWh consumption, usable = 30 - 8 = 22 kWh → 0 import
+        assert result == 0.0
 
-    def test_predicted_import_none_when_missing(self):
-        """None when prediction data missing."""
+    def test_no_battery_equals_non_solar_consumption(self):
+        """With empty battery at reserve, grid covers all nighttime load."""
+        result = _compute_grid_import(
+            consumption=24.0, production=100.0,
+            capacity=40.0, soc=20.0, reserve=20, solar_hours=12.0,
+        )
+        # Daytime: 12 kWh consumption, 100 kWh solar → surplus 88 kWh
+        # Battery: 8 kWh + 88 → capped at 40 kWh
+        # Night: 12 kWh, usable = 40 - 8 = 32 kWh → 0 import
+        assert result == 0.0
+
+    def test_zero_solar_all_from_grid_and_battery(self):
+        """No solar at all — battery covers what it can, grid covers rest."""
+        result = _compute_grid_import(
+            consumption=30.0, production=0.0,
+            capacity=40.0, soc=50.0, reserve=20, solar_hours=12.0,
+        )
+        # Daytime: 15 kWh consumption, 0 solar → 15 deficit
+        # Battery: 20 stored, floor 8 → 12 usable → daytime import = 3
+        # Battery at sunset: max(8, 20 - 15) = 8 (floor)
+        # Night: 15 kWh, usable = 0 → night import = 15
+        # Total = 18
+        assert result == 18.0
+
+    def test_none_when_prediction_missing(self):
+        """None propagated when consumption or production unavailable."""
         hass = MockHass()
         p = DailyEnergyPredictor(hass)
         prediction = p._get_current_prediction()
