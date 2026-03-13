@@ -244,12 +244,33 @@ class EnergyCoordinator(BaseCoordinator):
         self._last_peak_save_hour: int = -1
         self._peak_import_dirty: bool = False
 
-        # v3.13.2: MetricBaseline for load shedding z-score threshold
+        # v3.13.2+: MetricBaselines for learned anomaly detection
         from .coordinator_diagnostics import MetricBaseline
+        # Load shedding: cap at 1500 samples (~30 days of peak data) for recency
         self._peak_import_baseline: MetricBaseline = MetricBaseline(
             metric_name="peak_import_kw",
             coordinator_id="energy",
             scope="load_shedding",
+            max_samples=1500,
+        )
+        # v3.13.3: Additional EC baselines
+        self._soc_at_peak_baseline: MetricBaseline = MetricBaseline(
+            metric_name="soc_at_peak_start",
+            coordinator_id="energy",
+            scope="battery",
+            max_samples=365,  # ~1 year of daily readings
+        )
+        self._daily_import_cost_baseline: MetricBaseline = MetricBaseline(
+            metric_name="daily_import_cost",
+            coordinator_id="energy",
+            scope="billing",
+            max_samples=365,
+        )
+        self._solar_forecast_error_baseline: MetricBaseline = MetricBaseline(
+            metric_name="solar_forecast_error_pct",
+            coordinator_id="energy",
+            scope="forecast",
+            max_samples=365,
         )
 
     def _build_entity_map(self, config: dict[str, str] | None) -> dict[str, str]:
@@ -544,6 +565,18 @@ class EnergyCoordinator(BaseCoordinator):
 
                 # Feed Bayesian adjustment back to predictor
                 self._predictor._adjustment_factor = self._accuracy.get_adjustment_factor()
+
+                # v3.13.3: Feed solar forecast error baseline
+                if accuracy_result:
+                    self._solar_forecast_error_baseline.update(
+                        abs(accuracy_result["pct_error"])
+                    )
+
+            # v3.13.3: Feed daily import cost baseline
+            if yesterday_totals:
+                import_cost = yesterday_totals.get("import_cost", 0)
+                if import_cost > 0:
+                    self._daily_import_cost_baseline.update(import_cost)
 
             # Save daily snapshot to DB (async fire-and-forget)
             if yesterday_totals:
@@ -888,6 +921,11 @@ class EnergyCoordinator(BaseCoordinator):
             new_period = self._tou.check_period_transition()
             if new_period:
                 self._tou_transition_count += 1
+                # v3.13.3: Track SOC at peak start for battery degradation detection
+                if new_period == "peak":
+                    soc = self._battery.battery_soc
+                    if soc is not None:
+                        self._soc_at_peak_baseline.update(float(soc))
 
             # Battery decision
             decision = self._battery.determine_mode(period, season)
@@ -1645,7 +1683,11 @@ class EnergyCoordinator(BaseCoordinator):
             # Collect all baselines: circuit power + peak import
             all_baselines = list(self._circuits.get_baselines_for_save().values())
             all_baselines.append(self._peak_import_baseline)
+            all_baselines.append(self._soc_at_peak_baseline)
+            all_baselines.append(self._daily_import_cost_baseline)
+            all_baselines.append(self._solar_forecast_error_baseline)
             async with aiosqlite.connect(db.db_file, timeout=30.0) as conn:
+                await conn.execute("PRAGMA busy_timeout=30000")
                 for baseline in all_baselines:
                     if baseline.sample_count == 0:
                         continue
@@ -1663,8 +1705,9 @@ class EnergyCoordinator(BaseCoordinator):
                         baseline.sample_count,
                         baseline.last_updated,
                     ))
+                saved_count = sum(1 for b in all_baselines if b.sample_count > 0)
                 await conn.commit()
-                _LOGGER.debug("Saved %d energy baselines", len(all_baselines))
+                _LOGGER.debug("Saved %d energy baselines", saved_count)
         except Exception as e:
             _LOGGER.warning("Could not save energy baselines: %s", e)
 
@@ -1680,6 +1723,7 @@ class EnergyCoordinator(BaseCoordinator):
             self._circuits.discover_circuits()
         try:
             async with aiosqlite.connect(db.db_file, timeout=30.0) as conn:
+                await conn.execute("PRAGMA busy_timeout=30000")
                 conn.row_factory = aiosqlite.Row
                 cursor = await conn.execute("""
                     SELECT metric_name, scope, mean, variance,
@@ -1701,7 +1745,17 @@ class EnergyCoordinator(BaseCoordinator):
                         last_updated=row["last_updated"],
                     )
                     if row["metric_name"] == "peak_import_kw":
+                        baseline.max_samples = 1500
                         self._peak_import_baseline = baseline
+                    elif row["metric_name"] == "soc_at_peak_start":
+                        baseline.max_samples = 365
+                        self._soc_at_peak_baseline = baseline
+                    elif row["metric_name"] == "daily_import_cost":
+                        baseline.max_samples = 365
+                        self._daily_import_cost_baseline = baseline
+                    elif row["metric_name"] == "solar_forecast_error_pct":
+                        baseline.max_samples = 365
+                        self._solar_forecast_error_baseline = baseline
                     elif row["metric_name"] == "circuit_power":
                         # Scope is friendly_name — reverse-map to entity_id
                         matched = False

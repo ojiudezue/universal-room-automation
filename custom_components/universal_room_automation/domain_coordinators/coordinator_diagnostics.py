@@ -130,7 +130,12 @@ class AnomalyRecord:
 
 @dataclass
 class MetricBaseline:
-    """Running statistics for a single metric using Welford's online algorithm."""
+    """Running statistics for a single metric using Welford's online algorithm.
+
+    v3.13.3: Optional max_samples cap for recency weighting. When sample_count
+    exceeds max_samples, the effective weight of new samples increases (older
+    data fades) by capping the denominator in Welford's update.
+    """
 
     metric_name: str
     coordinator_id: str
@@ -139,10 +144,10 @@ class MetricBaseline:
     variance: float = 1.0
     sample_count: int = 0
     last_updated: Optional[str] = None
+    max_samples: int = 0  # 0 = unlimited (classic Welford's)
 
     # Minimum variance floor to prevent division-by-near-zero in z-scores
-    # when all samples are identical or nearly identical
-    _MIN_VARIANCE: float = 0.01
+    _MIN_VARIANCE: float = field(default=0.01, init=False, repr=False)
 
     @property
     def std(self) -> float:
@@ -151,15 +156,24 @@ class MetricBaseline:
         return math.sqrt(effective_variance)
 
     def update(self, value: float) -> None:
-        """Update running statistics with Welford's online algorithm."""
+        """Update running statistics with Welford's online algorithm.
+
+        When max_samples > 0, caps the effective sample count so newer
+        observations carry more weight than ancient ones (sliding-window
+        approximation without storing the full window).
+        """
         self.sample_count += 1
+        # Use effective_n for Welford's math — caps influence of old data
+        effective_n = self.sample_count
+        if self.max_samples > 0 and effective_n > self.max_samples:
+            effective_n = self.max_samples
         delta = value - self.mean
-        self.mean += delta / self.sample_count
+        self.mean += delta / effective_n
         delta2 = value - self.mean
-        self.variance = (
-            (self.variance * (self.sample_count - 1) + delta * delta2)
-            / self.sample_count
-        ) if self.sample_count > 1 else 0.0
+        self.variance = max(0.0, (
+            (self.variance * (effective_n - 1) + delta * delta2)
+            / effective_n
+        )) if effective_n > 1 else 0.0
         self.last_updated = datetime.utcnow().isoformat()
 
     def z_score(self, value: float) -> float:
