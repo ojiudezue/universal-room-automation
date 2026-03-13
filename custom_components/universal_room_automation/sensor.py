@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.14.3
+# Universal Room Automation v3.14.4
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -5970,9 +5970,11 @@ class EnergyForecastedImportSensor(AggregationEntity, SensorEntity):
             "predicted_consumption_kwh": forecast.get("predicted_consumption_kwh"),
             "predicted_production_kwh": forecast.get("predicted_production_kwh"),
             "battery_capacity_kwh": energy._predictor._get_battery_capacity_kwh(),
-            "battery_soc_pct": energy._battery.battery_soc,
             "reserve_soc_pct": energy._battery.reserve_soc,
-            "solar_window_hours": energy._get_solar_window_hours(),
+            "usable_battery_kwh": round(
+                energy._predictor._get_battery_capacity_kwh()
+                * (1.0 - energy._battery.reserve_soc / 100.0), 1
+            ),
             "battery_full_time": forecast.get("battery_full_time"),
         }
 
