@@ -2,6 +2,7 @@
 
 Sub-Cycle E3: Auto-discover SPAN circuits, monitor power per circuit,
 detect tripped breakers (sudden zero), alert via NM.
+v3.13.2: MetricBaseline per-circuit z-score anomaly detection.
 """
 
 from __future__ import annotations
@@ -10,6 +11,7 @@ import logging
 from typing import Any
 
 from homeassistant.core import HomeAssistant
+from .coordinator_diagnostics import MetricBaseline
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -17,6 +19,11 @@ _LOGGER = logging.getLogger(__name__)
 TRIPPED_BREAKER_THRESHOLD_SECONDS = 120
 # Minimum recent power for a circuit to be considered "normally loaded"
 NORMALLY_LOADED_THRESHOLD_W = 5.0
+
+# MetricBaseline thresholds for circuit power z-scores
+CIRCUIT_Z_ADVISORY = 3.0   # Log advisory
+CIRCUIT_Z_ALERT = 4.0      # Generate anomaly alert
+CIRCUIT_MIN_SAMPLES = 60   # ~5 hours at 5min intervals
 
 # Generator status values
 GEN_RUNNING = "running"
@@ -55,6 +62,8 @@ class SPANCircuitMonitor:
         self._circuits: dict[str, CircuitInfo] = {}
         self._discovered = False
         self._anomalies: list[dict[str, Any]] = []
+        # v3.13.2: Per-circuit power baselines for z-score anomaly detection
+        self._power_baselines: dict[str, MetricBaseline] = {}
 
     def discover_circuits(self) -> int:
         """Auto-discover SPAN circuit power entities from HA state machine."""
@@ -81,6 +90,19 @@ class SPANCircuitMonitor:
         _LOGGER.info("SPAN circuit monitor: discovered %d circuits", count)
         return count
 
+    def _get_power_baseline(self, entity_id: str) -> MetricBaseline:
+        """Get or create a power baseline for a circuit."""
+        if entity_id not in self._power_baselines:
+            # Use circuit-friendly name as scope for readability
+            circuit = self._circuits.get(entity_id)
+            scope = circuit.friendly_name if circuit else entity_id
+            self._power_baselines[entity_id] = MetricBaseline(
+                metric_name="circuit_power",
+                coordinator_id="energy",
+                scope=scope,
+            )
+        return self._power_baselines[entity_id]
+
     def check_anomalies(self) -> list[dict[str, Any]]:
         """Check all circuits for anomalies. Returns new anomalies found."""
         if not self._discovered:
@@ -99,6 +121,37 @@ class SPANCircuitMonitor:
                 power = float(state.state)
             except (ValueError, TypeError):
                 continue
+
+            # v3.13.2: Z-score anomaly detection via MetricBaseline
+            baseline = self._get_power_baseline(entity_id)
+            if baseline.sample_count >= CIRCUIT_MIN_SAMPLES and power > 0:
+                z = baseline.z_score(power)
+                if z >= CIRCUIT_Z_ALERT:
+                    anomaly = {
+                        "type": "consumption_anomaly",
+                        "circuit": circuit.friendly_name,
+                        "entity_id": entity_id,
+                        "panel": circuit.panel,
+                        "power": power,
+                        "z_score": round(z, 2),
+                        "baseline_mean": round(baseline.mean, 1),
+                        "baseline_std": round(baseline.std, 1),
+                    }
+                    new_anomalies.append(anomaly)
+                    _LOGGER.warning(
+                        "Circuit anomaly: %s — unusual consumption %.0fW "
+                        "(z=%.1f, mean=%.0fW, std=%.0fW)",
+                        circuit.friendly_name, power, z,
+                        baseline.mean, baseline.std,
+                    )
+                elif z >= CIRCUIT_Z_ADVISORY:
+                    _LOGGER.debug(
+                        "Circuit advisory: %s — elevated consumption %.0fW (z=%.1f)",
+                        circuit.friendly_name, power, z,
+                    )
+            # Update baseline with current reading (after check)
+            if power >= 0:
+                baseline.update(power)
 
             # Track if circuit was recently loaded
             if power > NORMALLY_LOADED_THRESHOLD_W:
@@ -141,17 +194,31 @@ class SPANCircuitMonitor:
             c.friendly_name for c in self._circuits.values()
             if c.alerted
         ]
+        baselines_active = sum(
+            1 for b in self._power_baselines.values()
+            if b.sample_count >= CIRCUIT_MIN_SAMPLES
+        )
         return {
             "circuits_monitored": len(self._circuits),
             "discovered": self._discovered,
             "active_anomalies": active_anomalies,
             "anomaly_count": len(active_anomalies),
+            "baselines_tracked": len(self._power_baselines),
+            "baselines_active": baselines_active,
         }
 
     @property
     def latest_anomalies(self) -> list[dict[str, Any]]:
         """Return the latest anomaly list from the last check."""
         return self._anomalies
+
+    def get_baselines_for_save(self) -> dict[str, MetricBaseline]:
+        """Return power baselines dict for persistence."""
+        return self._power_baselines
+
+    def restore_baselines(self, baselines: dict[str, MetricBaseline]) -> None:
+        """Restore power baselines from persistence (merge, don't replace)."""
+        self._power_baselines.update(baselines)
 
 
 class GeneratorMonitor:

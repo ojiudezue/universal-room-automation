@@ -244,6 +244,14 @@ class EnergyCoordinator(BaseCoordinator):
         self._last_peak_save_hour: int = -1
         self._peak_import_dirty: bool = False
 
+        # v3.13.2: MetricBaseline for load shedding z-score threshold
+        from .coordinator_diagnostics import MetricBaseline
+        self._peak_import_baseline: MetricBaseline = MetricBaseline(
+            metric_name="peak_import_kw",
+            coordinator_id="energy",
+            scope="load_shedding",
+        )
+
     def _build_entity_map(self, config: dict[str, str] | None) -> dict[str, str]:
         """Build entity mapping from config keys to battery strategy keys."""
         if not config:
@@ -295,6 +303,9 @@ class EnergyCoordinator(BaseCoordinator):
 
         # v3.13.1: Restore circuit monitor state from DB
         await self._restore_circuit_state()
+
+        # v3.13.2: Restore MetricBaselines from DB
+        await self._restore_energy_baselines()
 
         # Start periodic decision cycle
         self._decision_timer_unsub = async_track_time_interval(
@@ -1272,6 +1283,8 @@ class EnergyCoordinator(BaseCoordinator):
         if tou_period == "peak" and import_kw > 0:
             self._peak_import_history.append(import_kw)
             self._peak_import_dirty = True
+            # v3.13.2: Feed MetricBaseline for z-score threshold
+            self._peak_import_baseline.update(import_kw)
             # Keep 30 days worth (at 5-min intervals during 4hr peak = ~48/day * 30)
             if len(self._peak_import_history) > 1500:
                 self._peak_import_history = self._peak_import_history[-1500:]
@@ -1423,18 +1436,23 @@ class EnergyCoordinator(BaseCoordinator):
     def _get_effective_shedding_threshold(self) -> float:
         """Return the effective load shedding threshold.
 
-        In 'auto' mode, uses the 90th percentile of historical peak import
-        after 30 days. Falls back to configured fixed threshold.
+        v3.13.2: In 'auto' mode, uses MetricBaseline z-score (mean + 2*std)
+        after 300+ samples (~5 hours of peak data). Falls back to 90th
+        percentile with 30+ days, then fixed threshold.
         """
-        if (
-            self._load_shedding_mode == LOAD_SHEDDING_MODE_AUTO
-            and len(self._peak_import_history) >= LOAD_SHEDDING_AUTO_MIN_DAYS * 10
-        ):
-            # Compute percentile from history
-            sorted_readings = sorted(self._peak_import_history)
-            idx = int(len(sorted_readings) * LOAD_SHEDDING_AUTO_PERCENTILE / 100)
-            self._learned_threshold_kw = sorted_readings[min(idx, len(sorted_readings) - 1)]
-            return self._learned_threshold_kw
+        if self._load_shedding_mode == LOAD_SHEDDING_MODE_AUTO:
+            # Prefer z-score threshold (mean + 2*std) with enough baseline data
+            if self._peak_import_baseline.sample_count >= 300:
+                self._learned_threshold_kw = (
+                    self._peak_import_baseline.mean + 2 * self._peak_import_baseline.std
+                )
+                return self._learned_threshold_kw
+            # Fall back to 90th percentile with 30+ days of history
+            if len(self._peak_import_history) >= LOAD_SHEDDING_AUTO_MIN_DAYS * 10:
+                sorted_readings = sorted(self._peak_import_history)
+                idx = int(len(sorted_readings) * LOAD_SHEDDING_AUTO_PERCENTILE / 100)
+                self._learned_threshold_kw = sorted_readings[min(idx, len(sorted_readings) - 1)]
+                return self._learned_threshold_kw
         return self._load_shedding_threshold_kw
 
     async def _send_nm_alert(
@@ -1562,6 +1580,8 @@ class EnergyCoordinator(BaseCoordinator):
         await self._log_external_conditions_snapshot()
         await self._save_evse_state()
         await self._save_circuit_state()
+        # v3.13.2: Save baselines every 3rd cycle alongside other DB writes
+        await self._save_energy_baselines()
 
     async def _save_circuit_state(self) -> None:
         """Persist SPAN circuit monitor state to DB for restart recovery."""
@@ -1615,8 +1635,107 @@ class EnergyCoordinator(BaseCoordinator):
         except Exception as e:
             _LOGGER.warning("Could not restore circuit state: %s", e)
 
+    async def _save_energy_baselines(self) -> None:
+        """Persist MetricBaselines (circuit power + peak import) to metric_baselines table."""
+        import aiosqlite
+        db = self.hass.data.get("universal_room_automation", {}).get("database")
+        if db is None:
+            return
+        try:
+            # Collect all baselines: circuit power + peak import
+            all_baselines = list(self._circuits.get_baselines_for_save().values())
+            all_baselines.append(self._peak_import_baseline)
+            async with aiosqlite.connect(db.db_file, timeout=30.0) as conn:
+                for baseline in all_baselines:
+                    if baseline.sample_count == 0:
+                        continue
+                    await conn.execute("""
+                        INSERT OR REPLACE INTO metric_baselines
+                        (coordinator_id, metric_name, scope,
+                         mean, variance, sample_count, last_updated)
+                        VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """, (
+                        baseline.coordinator_id,
+                        baseline.metric_name,
+                        baseline.scope,
+                        baseline.mean,
+                        baseline.variance,
+                        baseline.sample_count,
+                        baseline.last_updated,
+                    ))
+                await conn.commit()
+                _LOGGER.debug("Saved %d energy baselines", len(all_baselines))
+        except Exception as e:
+            _LOGGER.warning("Could not save energy baselines: %s", e)
+
+    async def _restore_energy_baselines(self) -> None:
+        """Restore MetricBaselines from metric_baselines table."""
+        import aiosqlite
+        from .coordinator_diagnostics import MetricBaseline
+        db = self.hass.data.get("universal_room_automation", {}).get("database")
+        if db is None:
+            return
+        # Ensure circuits are discovered so we can match baselines to entity_ids
+        if not self._circuits._discovered:
+            self._circuits.discover_circuits()
+        try:
+            async with aiosqlite.connect(db.db_file, timeout=30.0) as conn:
+                conn.row_factory = aiosqlite.Row
+                cursor = await conn.execute("""
+                    SELECT metric_name, scope, mean, variance,
+                           sample_count, last_updated
+                    FROM metric_baselines
+                    WHERE coordinator_id = 'energy'
+                """)
+                rows = await cursor.fetchall()
+                circuit_baselines: dict[str, MetricBaseline] = {}
+                unmatched = 0
+                for row in rows:
+                    baseline = MetricBaseline(
+                        metric_name=row["metric_name"],
+                        coordinator_id="energy",
+                        scope=row["scope"],
+                        mean=row["mean"],
+                        variance=row["variance"],
+                        sample_count=row["sample_count"],
+                        last_updated=row["last_updated"],
+                    )
+                    if row["metric_name"] == "peak_import_kw":
+                        self._peak_import_baseline = baseline
+                    elif row["metric_name"] == "circuit_power":
+                        # Scope is friendly_name — reverse-map to entity_id
+                        matched = False
+                        for eid, circuit in self._circuits._circuits.items():
+                            if circuit.friendly_name == row["scope"]:
+                                circuit_baselines[eid] = baseline
+                                matched = True
+                                break
+                        if not matched:
+                            unmatched += 1
+                            _LOGGER.warning(
+                                "Circuit baseline '%s' has no matching circuit "
+                                "(may have been renamed)", row["scope"],
+                            )
+                if circuit_baselines:
+                    self._circuits.restore_baselines(circuit_baselines)
+                if unmatched:
+                    _LOGGER.warning(
+                        "%d circuit baselines could not be matched", unmatched,
+                    )
+                _LOGGER.info(
+                    "Restored %d energy baselines (peak_import: %d samples)",
+                    len(rows) - unmatched,
+                    self._peak_import_baseline.sample_count,
+                )
+        except Exception as e:
+            _LOGGER.debug("Could not restore energy baselines (may not exist yet): %s", e)
+
     async def async_teardown(self) -> None:
-        """Tear down — cancel decision timer, persist state for restart."""
+        """Tear down — cancel decision timer first to prevent races, then persist."""
+        # Cancel timer FIRST to prevent concurrent _periodic_db_writes
+        if self._decision_timer_unsub is not None:
+            self._decision_timer_unsub()
+            self._decision_timer_unsub = None
         # Save peak import history so it survives restarts
         if self._peak_import_history:
             await self._save_peak_import_history()
@@ -1624,9 +1743,8 @@ class EnergyCoordinator(BaseCoordinator):
         await self._save_evse_state()
         # v3.13.1: Save circuit monitor state
         await self._save_circuit_state()
-        if self._decision_timer_unsub is not None:
-            self._decision_timer_unsub()
-            self._decision_timer_unsub = None
+        # v3.13.2: Save energy baselines
+        await self._save_energy_baselines()
         self._cancel_listeners()
         _LOGGER.info("Energy Coordinator stopped")
 

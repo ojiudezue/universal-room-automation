@@ -40,7 +40,10 @@ _mods = {
     "homeassistant.helpers.device_registry": {"DeviceInfo": dict},
     "homeassistant.helpers.entity": {"DeviceInfo": dict, "EntityCategory": _mock_cls()},
     "homeassistant.helpers.entity_platform": {"AddEntitiesCallback": _mock_cls},
-    "homeassistant.helpers.event": {"async_track_time_interval": MagicMock()},
+    "homeassistant.helpers.event": {
+        "async_track_time_interval": MagicMock(),
+        "async_call_later": MagicMock(),
+    },
     "homeassistant.helpers.dispatcher": {
         "async_dispatcher_connect": MagicMock(),
         "async_dispatcher_send": MagicMock(),
