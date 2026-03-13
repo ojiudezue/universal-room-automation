@@ -1,6 +1,6 @@
 """Database for Universal Room Automation."""
 #
-# Universal Room Automation v3.12.5
+# Universal Room Automation v3.13.0
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors
@@ -36,35 +36,112 @@ class UniversalRoomDatabase:
         db_dir = hass.config.path(DATABASE_DIR)
         os.makedirs(db_dir, exist_ok=True)
         self.db_file = os.path.join(db_dir, DATABASE_NAME)
+        self._last_table_error: Exception | None = None
         _LOGGER.info("Database file: %s", self.db_file)
 
+    # Tables eligible for drop-and-recreate repair on corruption
+    _REPAIRABLE_TABLES: frozenset[str] = frozenset({"energy_snapshots"})
+
+    async def _create_table_safe(
+        self,
+        db: "aiosqlite.Connection",
+        table_name: str,
+        statements: list[str],
+    ) -> bool:
+        """Create a single table and its indexes, isolated from other tables.
+
+        Returns True if all statements succeeded, False if any failed.
+        A failure here does NOT prevent other tables from being created.
+        On failure, the exception is stored in self._last_table_error.
+        """
+        try:
+            for stmt in statements:
+                await db.execute(stmt)
+            await db.commit()
+            self._last_table_error = None
+            return True
+        except Exception as e:
+            _LOGGER.error(
+                "Error creating table %s (non-fatal, other tables unaffected): %s",
+                table_name, e,
+            )
+            self._last_table_error = e
+            # Attempt rollback so the connection stays usable
+            try:
+                await db.rollback()
+            except Exception:
+                pass
+            return False
+
+    async def _repair_corrupt_table(
+        self,
+        db: "aiosqlite.Connection",
+        table_name: str,
+        create_sql: str,
+        index_sqls: list[str],
+    ) -> bool:
+        """Drop and recreate a table whose B-tree is corrupt.
+
+        Only allowed for tables in _REPAIRABLE_TABLES to prevent
+        accidental data loss on transient errors.
+        """
+        if table_name not in self._REPAIRABLE_TABLES:
+            _LOGGER.error(
+                "Table %s is not in repairable list, skipping repair", table_name
+            )
+            return False
+        try:
+            _LOGGER.warning(
+                "Dropping corrupt table %s and recreating it", table_name
+            )
+            # table_name is validated against _REPAIRABLE_TABLES above
+            await db.execute(f"DROP TABLE IF EXISTS {table_name}")  # noqa: S608
+            await db.execute(create_sql)
+            for idx_sql in index_sqls:
+                await db.execute(idx_sql)
+            await db.commit()
+            _LOGGER.info("Successfully recreated table %s", table_name)
+            return True
+        except Exception as e2:
+            _LOGGER.error("Failed to recreate table %s: %s", table_name, e2)
+            try:
+                await db.rollback()
+            except Exception:
+                pass
+            return False
+
     async def initialize(self) -> bool:
-        """Initialize database schema."""
+        """Initialize database schema.
+
+        v3.13.0: Refactored to per-table isolation so that corruption in one
+        table (e.g. energy_snapshots B-tree) does not prevent creation of
+        tables defined after it.
+        """
+        failed_tables: list[str] = []
         try:
             async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
                 # Enable WAL mode for better concurrency (prevents "database is locked")
                 await db.execute("PRAGMA journal_mode=WAL")
                 await db.execute("PRAGMA busy_timeout=30000")
-                
-                # Occupancy events table
-                await db.execute("""
-                    CREATE TABLE IF NOT EXISTS occupancy_events (
+
+                # -- Occupancy events ----------------------------------------
+                if not await self._create_table_safe(db, "occupancy_events", [
+                    """CREATE TABLE IF NOT EXISTS occupancy_events (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         room_id TEXT NOT NULL,
                         timestamp DATETIME NOT NULL,
                         event_type TEXT NOT NULL,
                         trigger_source TEXT,
                         duration INTEGER
-                    )
-                """)
-                await db.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_occupancy_room_time
-                    ON occupancy_events(room_id, timestamp)
-                """)
+                    )""",
+                    """CREATE INDEX IF NOT EXISTS idx_occupancy_room_time
+                    ON occupancy_events(room_id, timestamp)""",
+                ]):
+                    failed_tables.append("occupancy_events")
 
-                # Environmental data table
-                await db.execute("""
-                    CREATE TABLE IF NOT EXISTS environmental_data (
+                # -- Environmental data --------------------------------------
+                if not await self._create_table_safe(db, "environmental_data", [
+                    """CREATE TABLE IF NOT EXISTS environmental_data (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         room_id TEXT NOT NULL,
                         timestamp DATETIME NOT NULL,
@@ -72,16 +149,14 @@ class UniversalRoomDatabase:
                         humidity REAL,
                         illuminance REAL,
                         occupied BOOLEAN
-                    )
-                """)
-                await db.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_env_room_time
-                    ON environmental_data(room_id, timestamp)
-                """)
+                    )""",
+                    """CREATE INDEX IF NOT EXISTS idx_env_room_time
+                    ON environmental_data(room_id, timestamp)""",
+                ]):
+                    failed_tables.append("environmental_data")
 
-                # Energy snapshots table
-                await db.execute("""
-                    CREATE TABLE IF NOT EXISTS energy_snapshots (
+                # -- Energy snapshots (corruption-aware) ---------------------
+                _es_create = """CREATE TABLE IF NOT EXISTS energy_snapshots (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         room_id TEXT NOT NULL,
                         timestamp DATETIME NOT NULL,
@@ -91,16 +166,26 @@ class UniversalRoomDatabase:
                         fans_on INTEGER,
                         switches_on INTEGER,
                         covers_open INTEGER
-                    )
-                """)
-                await db.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_energy_room_time
-                    ON energy_snapshots(room_id, timestamp)
-                """)
+                    )"""
+                _es_index = """CREATE INDEX IF NOT EXISTS idx_energy_room_time
+                    ON energy_snapshots(room_id, timestamp)"""
+                if not await self._create_table_safe(db, "energy_snapshots", [
+                    _es_create, _es_index,
+                ]):
+                    # Only attempt drop+recreate for actual corruption, not
+                    # transient errors like SQLITE_BUSY or disk-full
+                    err_str = str(self._last_table_error).lower()
+                    if "corrupt" in err_str or "malformed" in err_str:
+                        if not await self._repair_corrupt_table(
+                            db, "energy_snapshots", _es_create, [_es_index]
+                        ):
+                            failed_tables.append("energy_snapshots")
+                    else:
+                        failed_tables.append("energy_snapshots")
 
-                # v3.1.0: External conditions table (weather, solar)
-                await db.execute("""
-                    CREATE TABLE IF NOT EXISTS external_conditions (
+                # -- External conditions -------------------------------------
+                if not await self._create_table_safe(db, "external_conditions", [
+                    """CREATE TABLE IF NOT EXISTS external_conditions (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         timestamp DATETIME NOT NULL,
                         outside_temp REAL,
@@ -111,35 +196,32 @@ class UniversalRoomDatabase:
                         forecast_low REAL,
                         occupied_room_count INTEGER,
                         occupied_zone_count INTEGER
-                    )
-                """)
-                await db.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_external_time
-                    ON external_conditions(timestamp)
-                """)
+                    )""",
+                    """CREATE INDEX IF NOT EXISTS idx_external_time
+                    ON external_conditions(timestamp)""",
+                ]):
+                    failed_tables.append("external_conditions")
 
-                # v3.1.0: Zone events table
-                await db.execute("""
-                    CREATE TABLE IF NOT EXISTS zone_events (
+                # -- Zone events ---------------------------------------------
+                if not await self._create_table_safe(db, "zone_events", [
+                    """CREATE TABLE IF NOT EXISTS zone_events (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         zone TEXT NOT NULL,
                         timestamp DATETIME NOT NULL,
                         event_type TEXT NOT NULL,
                         room_count INTEGER,
                         rooms TEXT
-                    )
-                """)
-                await db.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_zone_time
-                    ON zone_events(zone, timestamp)
-                """)
+                    )""",
+                    """CREATE INDEX IF NOT EXISTS idx_zone_time
+                    ON zone_events(zone, timestamp)""",
+                ]):
+                    failed_tables.append("zone_events")
 
-                # v3.1.6: Energy history table for predictions
-                await db.execute("""
-                    CREATE TABLE IF NOT EXISTS energy_history (
+                # -- Energy history ------------------------------------------
+                if not await self._create_table_safe(db, "energy_history", [
+                    """CREATE TABLE IF NOT EXISTS energy_history (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         timestamp DATETIME NOT NULL,
-                        -- Energy flows (kWh)
                         solar_production REAL,
                         solar_export REAL,
                         grid_import REAL,
@@ -147,7 +229,6 @@ class UniversalRoomDatabase:
                         battery_level REAL,
                         whole_house_energy REAL,
                         rooms_energy_total REAL,
-                        -- Context for correlation
                         outside_temp REAL,
                         outside_humidity REAL,
                         house_avg_temp REAL,
@@ -155,25 +236,21 @@ class UniversalRoomDatabase:
                         temp_delta_outside REAL,
                         humidity_delta_outside REAL,
                         rooms_occupied INTEGER,
-                        -- Temporal
                         day_of_week INTEGER,
                         hour_of_day INTEGER,
                         is_weekend BOOLEAN,
                         UNIQUE(timestamp)
-                    )
-                """)
-                await db.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_energy_history_time
-                    ON energy_history(timestamp)
-                """)
-                await db.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_energy_history_dow_hour
-                    ON energy_history(day_of_week, hour_of_day)
-                """)
+                    )""",
+                    """CREATE INDEX IF NOT EXISTS idx_energy_history_time
+                    ON energy_history(timestamp)""",
+                    """CREATE INDEX IF NOT EXISTS idx_energy_history_dow_hour
+                    ON energy_history(day_of_week, hour_of_day)""",
+                ]):
+                    failed_tables.append("energy_history")
 
-                # v3.2.0: Person tracking tables
-                await db.execute("""
-                    CREATE TABLE IF NOT EXISTS person_visits (
+                # -- Person visits -------------------------------------------
+                if not await self._create_table_safe(db, "person_visits", [
+                    """CREATE TABLE IF NOT EXISTS person_visits (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         person_id TEXT NOT NULL,
                         room_id TEXT NOT NULL,
@@ -183,35 +260,32 @@ class UniversalRoomDatabase:
                         confidence REAL,
                         detection_method TEXT,
                         transition_from TEXT
-                    )
-                """)
-                await db.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_person_visits_person_time
-                    ON person_visits(person_id, entry_time)
-                """)
-                await db.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_person_visits_room_time
-                    ON person_visits(room_id, entry_time)
-                """)
+                    )""",
+                    """CREATE INDEX IF NOT EXISTS idx_person_visits_person_time
+                    ON person_visits(person_id, entry_time)""",
+                    """CREATE INDEX IF NOT EXISTS idx_person_visits_room_time
+                    ON person_visits(room_id, entry_time)""",
+                ]):
+                    failed_tables.append("person_visits")
 
-                await db.execute("""
-                    CREATE TABLE IF NOT EXISTS person_presence_snapshots (
+                # -- Person presence snapshots --------------------------------
+                if not await self._create_table_safe(db, "person_presence_snapshots", [
+                    """CREATE TABLE IF NOT EXISTS person_presence_snapshots (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         timestamp DATETIME NOT NULL,
                         person_id TEXT NOT NULL,
                         room_id TEXT,
                         confidence REAL,
                         method TEXT
-                    )
-                """)
-                await db.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_person_snapshots_time
-                    ON person_presence_snapshots(timestamp, person_id)
-                """)
+                    )""",
+                    """CREATE INDEX IF NOT EXISTS idx_person_snapshots_time
+                    ON person_presence_snapshots(timestamp, person_id)""",
+                ]):
+                    failed_tables.append("person_presence_snapshots")
 
-                # v3.3.0: Room transitions table for pattern learning
-                await db.execute("""
-                    CREATE TABLE IF NOT EXISTS room_transitions (
+                # -- Room transitions ----------------------------------------
+                if not await self._create_table_safe(db, "room_transitions", [
+                    """CREATE TABLE IF NOT EXISTS room_transitions (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         person_id TEXT NOT NULL,
                         from_room TEXT NOT NULL,
@@ -221,19 +295,17 @@ class UniversalRoomDatabase:
                         path_type TEXT NOT NULL,
                         confidence REAL,
                         via_room TEXT
-                    )
-                """)
-                await db.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_transitions_person
-                    ON room_transitions(person_id, timestamp DESC)
-                """)
-                await db.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_transitions_rooms
-                    ON room_transitions(from_room, to_room, timestamp DESC)
-                """)
+                    )""",
+                    """CREATE INDEX IF NOT EXISTS idx_transitions_person
+                    ON room_transitions(person_id, timestamp DESC)""",
+                    """CREATE INDEX IF NOT EXISTS idx_transitions_rooms
+                    ON room_transitions(from_room, to_room, timestamp DESC)""",
+                ]):
+                    failed_tables.append("room_transitions")
 
-                await db.execute("""
-                    CREATE TABLE IF NOT EXISTS unknown_devices (
+                # -- Unknown devices -----------------------------------------
+                if not await self._create_table_safe(db, "unknown_devices", [
+                    """CREATE TABLE IF NOT EXISTS unknown_devices (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         device_id TEXT NOT NULL,
                         first_seen DATETIME NOT NULL,
@@ -241,12 +313,13 @@ class UniversalRoomDatabase:
                         room_id TEXT,
                         confidence REAL,
                         UNIQUE(device_id)
-                    )
-                """)
+                    )""",
+                ]):
+                    failed_tables.append("unknown_devices")
 
-                # v3.5.0: Census snapshots table
-                await db.execute("""
-                    CREATE TABLE IF NOT EXISTS census_snapshots (
+                # -- Census snapshots ----------------------------------------
+                if not await self._create_table_safe(db, "census_snapshots", [
+                    """CREATE TABLE IF NOT EXISTS census_snapshots (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         timestamp DATETIME NOT NULL,
                         zone TEXT NOT NULL,
@@ -259,16 +332,15 @@ class UniversalRoomDatabase:
                         frigate_count INTEGER,
                         unifi_count INTEGER,
                         UNIQUE(timestamp, zone)
-                    )
-                """)
-                await db.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_census_timestamp
-                    ON census_snapshots(timestamp)
-                """)
+                    )""",
+                    """CREATE INDEX IF NOT EXISTS idx_census_timestamp
+                    ON census_snapshots(timestamp)""",
+                ]):
+                    failed_tables.append("census_snapshots")
 
-                # v3.5.2: person_entry_exit_events table
-                await db.execute("""
-                    CREATE TABLE IF NOT EXISTS person_entry_exit_events (
+                # -- Person entry/exit events --------------------------------
+                if not await self._create_table_safe(db, "person_entry_exit_events", [
+                    """CREATE TABLE IF NOT EXISTS person_entry_exit_events (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         timestamp DATETIME NOT NULL,
                         person_id TEXT,
@@ -276,21 +348,17 @@ class UniversalRoomDatabase:
                         direction TEXT NOT NULL,
                         egress_camera TEXT NOT NULL,
                         confidence REAL NOT NULL
-                    )
-                """)
-                await db.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_entry_exit_timestamp
-                    ON person_entry_exit_events(timestamp)
-                """)
-                await db.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_entry_exit_person
-                    ON person_entry_exit_events(person_id, timestamp)
-                """)
+                    )""",
+                    """CREATE INDEX IF NOT EXISTS idx_entry_exit_timestamp
+                    ON person_entry_exit_events(timestamp)""",
+                    """CREATE INDEX IF NOT EXISTS idx_entry_exit_person
+                    ON person_entry_exit_events(person_id, timestamp)""",
+                ]):
+                    failed_tables.append("person_entry_exit_events")
 
-                # v3.6.0: Decision logging for domain coordinators
-                # v3.6.0-c0.4: Added scope column
-                await db.execute("""
-                    CREATE TABLE IF NOT EXISTS decision_log (
+                # -- Decision log --------------------------------------------
+                if not await self._create_table_safe(db, "decision_log", [
+                    """CREATE TABLE IF NOT EXISTS decision_log (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         timestamp TEXT NOT NULL,
                         coordinator_id TEXT NOT NULL,
@@ -306,34 +374,34 @@ class UniversalRoomDatabase:
                         expected_comfort_impact INTEGER,
                         constraints_published TEXT,
                         devices_commanded TEXT
-                    )
-                """)
-                # v3.6.0-c2.9.1: Migrate scope column BEFORE creating indexes
-                # For existing DBs created before c0.4, the scope column doesn't exist yet
-                cursor = await db.execute("PRAGMA table_info(decision_log)")
-                dl_columns = {row[1] for row in await cursor.fetchall()}
-                if "scope" not in dl_columns:
-                    await db.execute(
-                        "ALTER TABLE decision_log ADD COLUMN scope TEXT NOT NULL DEFAULT 'house'"
-                    )
+                    )""",
+                ]):
+                    failed_tables.append("decision_log")
+                else:
+                    # Migrate scope column for pre-c0.4 DBs
+                    try:
+                        cursor = await db.execute("PRAGMA table_info(decision_log)")
+                        dl_columns = {row[1] for row in await cursor.fetchall()}
+                        if "scope" not in dl_columns:
+                            await db.execute(
+                                "ALTER TABLE decision_log ADD COLUMN scope TEXT NOT NULL DEFAULT 'house'"
+                            )
+                            await db.commit()
+                    except Exception as e:
+                        _LOGGER.warning("decision_log scope migration failed: %s", e)
 
-                await db.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_decision_timestamp
-                    ON decision_log(timestamp)
-                """)
-                await db.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_decision_coordinator
-                    ON decision_log(coordinator_id)
-                """)
-                await db.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_decision_scope
-                    ON decision_log(scope)
-                """)
+                    await self._create_table_safe(db, "decision_log_indexes", [
+                        """CREATE INDEX IF NOT EXISTS idx_decision_timestamp
+                        ON decision_log(timestamp)""",
+                        """CREATE INDEX IF NOT EXISTS idx_decision_coordinator
+                        ON decision_log(coordinator_id)""",
+                        """CREATE INDEX IF NOT EXISTS idx_decision_scope
+                        ON decision_log(scope)""",
+                    ])
 
-                # v3.6.0: Compliance tracking for domain coordinators
-                # v3.6.0-c0.4: Added scope column
-                await db.execute("""
-                    CREATE TABLE IF NOT EXISTS compliance_log (
+                # -- Compliance log ------------------------------------------
+                if not await self._create_table_safe(db, "compliance_log", [
+                    """CREATE TABLE IF NOT EXISTS compliance_log (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         timestamp TEXT NOT NULL,
                         decision_id INTEGER,
@@ -348,32 +416,34 @@ class UniversalRoomDatabase:
                         override_source TEXT,
                         override_duration_minutes INTEGER,
                         FOREIGN KEY (decision_id) REFERENCES decision_log(id)
-                    )
-                """)
-                # v3.6.0-c2.9.1: Migrate scope column BEFORE creating indexes
-                cursor = await db.execute("PRAGMA table_info(compliance_log)")
-                cl_columns = {row[1] for row in await cursor.fetchall()}
-                if "scope" not in cl_columns:
-                    await db.execute(
-                        "ALTER TABLE compliance_log ADD COLUMN scope TEXT NOT NULL DEFAULT 'house'"
-                    )
+                    )""",
+                ]):
+                    failed_tables.append("compliance_log")
+                else:
+                    # Migrate scope column for pre-c0.4 DBs
+                    try:
+                        cursor = await db.execute("PRAGMA table_info(compliance_log)")
+                        cl_columns = {row[1] for row in await cursor.fetchall()}
+                        if "scope" not in cl_columns:
+                            await db.execute(
+                                "ALTER TABLE compliance_log ADD COLUMN scope TEXT NOT NULL DEFAULT 'house'"
+                            )
+                            await db.commit()
+                    except Exception as e:
+                        _LOGGER.warning("compliance_log scope migration failed: %s", e)
 
-                await db.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_compliance_decision
-                    ON compliance_log(decision_id)
-                """)
-                await db.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_compliance_timestamp
-                    ON compliance_log(timestamp)
-                """)
-                await db.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_compliance_scope
-                    ON compliance_log(scope)
-                """)
+                    await self._create_table_safe(db, "compliance_log_indexes", [
+                        """CREATE INDEX IF NOT EXISTS idx_compliance_decision
+                        ON compliance_log(decision_id)""",
+                        """CREATE INDEX IF NOT EXISTS idx_compliance_timestamp
+                        ON compliance_log(timestamp)""",
+                        """CREATE INDEX IF NOT EXISTS idx_compliance_scope
+                        ON compliance_log(scope)""",
+                    ])
 
-                # v3.6.0-c0.4: Anomaly log for coordinator diagnostics
-                await db.execute("""
-                    CREATE TABLE IF NOT EXISTS anomaly_log (
+                # -- Anomaly log ---------------------------------------------
+                if not await self._create_table_safe(db, "anomaly_log", [
+                    """CREATE TABLE IF NOT EXISTS anomaly_log (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         timestamp TEXT NOT NULL,
                         coordinator_id TEXT NOT NULL,
@@ -389,28 +459,21 @@ class UniversalRoomDatabase:
                         context_json TEXT,
                         resolved BOOLEAN NOT NULL DEFAULT 0,
                         resolution_notes TEXT
-                    )
-                """)
-                await db.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_anomaly_timestamp
-                    ON anomaly_log(timestamp)
-                """)
-                await db.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_anomaly_coordinator
-                    ON anomaly_log(coordinator_id)
-                """)
-                await db.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_anomaly_scope
-                    ON anomaly_log(scope)
-                """)
-                await db.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_anomaly_severity
-                    ON anomaly_log(severity)
-                """)
+                    )""",
+                    """CREATE INDEX IF NOT EXISTS idx_anomaly_timestamp
+                    ON anomaly_log(timestamp)""",
+                    """CREATE INDEX IF NOT EXISTS idx_anomaly_coordinator
+                    ON anomaly_log(coordinator_id)""",
+                    """CREATE INDEX IF NOT EXISTS idx_anomaly_scope
+                    ON anomaly_log(scope)""",
+                    """CREATE INDEX IF NOT EXISTS idx_anomaly_severity
+                    ON anomaly_log(severity)""",
+                ]):
+                    failed_tables.append("anomaly_log")
 
-                # v3.6.0-c0.4: Metric baselines for anomaly detection
-                await db.execute("""
-                    CREATE TABLE IF NOT EXISTS metric_baselines (
+                # -- Metric baselines ----------------------------------------
+                if not await self._create_table_safe(db, "metric_baselines", [
+                    """CREATE TABLE IF NOT EXISTS metric_baselines (
                         coordinator_id TEXT NOT NULL,
                         metric_name TEXT NOT NULL,
                         scope TEXT NOT NULL,
@@ -419,12 +482,13 @@ class UniversalRoomDatabase:
                         sample_count INTEGER NOT NULL,
                         last_updated TEXT,
                         PRIMARY KEY (coordinator_id, metric_name, scope)
-                    )
-                """)
+                    )""",
+                ]):
+                    failed_tables.append("metric_baselines")
 
-                # v3.6.0-c0.4: Outcome log for coordinator effectiveness
-                await db.execute("""
-                    CREATE TABLE IF NOT EXISTS outcome_log (
+                # -- Outcome log ---------------------------------------------
+                if not await self._create_table_safe(db, "outcome_log", [
+                    """CREATE TABLE IF NOT EXISTS outcome_log (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         timestamp TEXT NOT NULL,
                         coordinator_id TEXT NOT NULL,
@@ -435,32 +499,30 @@ class UniversalRoomDatabase:
                         compliance_rate REAL,
                         override_count INTEGER,
                         metrics_json TEXT NOT NULL
-                    )
-                """)
-                await db.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_outcome_coordinator
-                    ON outcome_log(coordinator_id)
-                """)
-                await db.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_outcome_scope
-                    ON outcome_log(scope)
-                """)
+                    )""",
+                    """CREATE INDEX IF NOT EXISTS idx_outcome_coordinator
+                    ON outcome_log(coordinator_id)""",
+                    """CREATE INDEX IF NOT EXISTS idx_outcome_scope
+                    ON outcome_log(scope)""",
+                ]):
+                    failed_tables.append("outcome_log")
 
-                # v3.6.0-c0.4: Bayesian parameter beliefs
-                await db.execute("""
-                    CREATE TABLE IF NOT EXISTS parameter_beliefs (
+                # -- Parameter beliefs ---------------------------------------
+                if not await self._create_table_safe(db, "parameter_beliefs", [
+                    """CREATE TABLE IF NOT EXISTS parameter_beliefs (
                         coordinator_id TEXT NOT NULL,
                         parameter_name TEXT NOT NULL,
                         mean REAL NOT NULL,
                         std REAL NOT NULL,
                         updated_at TEXT NOT NULL,
                         PRIMARY KEY (coordinator_id, parameter_name)
-                    )
-                """)
+                    )""",
+                ]):
+                    failed_tables.append("parameter_beliefs")
 
-                # v3.6.0-c0.4: Parameter change history
-                await db.execute("""
-                    CREATE TABLE IF NOT EXISTS parameter_history (
+                # -- Parameter history ---------------------------------------
+                if not await self._create_table_safe(db, "parameter_history", [
+                    """CREATE TABLE IF NOT EXISTS parameter_history (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         timestamp TEXT NOT NULL,
                         coordinator_id TEXT NOT NULL,
@@ -468,16 +530,15 @@ class UniversalRoomDatabase:
                         old_value REAL,
                         new_value REAL NOT NULL,
                         reason TEXT
-                    )
-                """)
-                await db.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_param_history
-                    ON parameter_history(coordinator_id, parameter_name)
-                """)
+                    )""",
+                    """CREATE INDEX IF NOT EXISTS idx_param_history
+                    ON parameter_history(coordinator_id, parameter_name)""",
+                ]):
+                    failed_tables.append("parameter_history")
 
-                # v3.6.29: Notification Manager log
-                await db.execute("""
-                    CREATE TABLE IF NOT EXISTS notification_log (
+                # -- Notification log ----------------------------------------
+                if not await self._create_table_safe(db, "notification_log", [
+                    """CREATE TABLE IF NOT EXISTS notification_log (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         timestamp TEXT NOT NULL,
                         coordinator_id TEXT NOT NULL,
@@ -492,20 +553,17 @@ class UniversalRoomDatabase:
                         acknowledged INTEGER DEFAULT 0,
                         ack_time TEXT,
                         cooldown_expires TEXT
-                    )
-                """)
-                await db.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_notification_log_date
-                    ON notification_log(timestamp)
-                """)
-                await db.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_notification_log_pending
-                    ON notification_log(person_id, delivered, severity)
-                """)
+                    )""",
+                    """CREATE INDEX IF NOT EXISTS idx_notification_log_date
+                    ON notification_log(timestamp)""",
+                    """CREATE INDEX IF NOT EXISTS idx_notification_log_pending
+                    ON notification_log(person_id, delivered, severity)""",
+                ]):
+                    failed_tables.append("notification_log")
 
-                # v3.9.7 C4b: Notification inbound message log
-                await db.execute("""
-                    CREATE TABLE IF NOT EXISTS notification_inbound (
+                # -- Notification inbound ------------------------------------
+                if not await self._create_table_safe(db, "notification_inbound", [
+                    """CREATE TABLE IF NOT EXISTS notification_inbound (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         timestamp TEXT NOT NULL DEFAULT (datetime('now')),
                         person_id TEXT,
@@ -515,32 +573,30 @@ class UniversalRoomDatabase:
                         response_text TEXT,
                         alert_id INTEGER,
                         success INTEGER NOT NULL DEFAULT 0
-                    )
-                """)
-                await db.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_notification_inbound_date
-                    ON notification_inbound(timestamp)
-                """)
+                    )""",
+                    """CREATE INDEX IF NOT EXISTS idx_notification_inbound_date
+                    ON notification_inbound(timestamp)""",
+                ]):
+                    failed_tables.append("notification_inbound")
 
-                # v3.6.0: House state history
-                await db.execute("""
-                    CREATE TABLE IF NOT EXISTS house_state_log (
+                # -- House state log -----------------------------------------
+                if not await self._create_table_safe(db, "house_state_log", [
+                    """CREATE TABLE IF NOT EXISTS house_state_log (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         timestamp TEXT NOT NULL,
                         state TEXT NOT NULL,
                         confidence REAL NOT NULL,
                         trigger TEXT,
                         previous_state TEXT
-                    )
-                """)
-                await db.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_house_state_timestamp
-                    ON house_state_log(timestamp)
-                """)
+                    )""",
+                    """CREATE INDEX IF NOT EXISTS idx_house_state_timestamp
+                    ON house_state_log(timestamp)""",
+                ]):
+                    failed_tables.append("house_state_log")
 
-                # v3.7.11: Daily energy billing snapshots
-                await db.execute("""
-                    CREATE TABLE IF NOT EXISTS energy_daily (
+                # -- Energy daily --------------------------------------------
+                if not await self._create_table_safe(db, "energy_daily", [
+                    """CREATE TABLE IF NOT EXISTS energy_daily (
                         date TEXT PRIMARY KEY,
                         import_kwh REAL NOT NULL DEFAULT 0,
                         export_kwh REAL NOT NULL DEFAULT 0,
@@ -549,73 +605,109 @@ class UniversalRoomDatabase:
                         net_cost REAL NOT NULL DEFAULT 0,
                         consumption_kwh REAL,
                         solar_production_kwh REAL
-                    )
-                """)
-                await db.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_energy_daily_date
-                    ON energy_daily(date DESC)
-                """)
+                    )""",
+                    """CREATE INDEX IF NOT EXISTS idx_energy_daily_date
+                    ON energy_daily(date DESC)""",
+                ]):
+                    failed_tables.append("energy_daily")
 
-                await db.commit()
-
-                # v3.5.2: PRAGMA-based migration — add columns to room_transitions if absent
-                cursor = await db.execute("PRAGMA table_info(room_transitions)")
-                columns = {row[1] for row in await cursor.fetchall()}
-
-                if "validation_method" not in columns:
-                    await db.execute(
-                        "ALTER TABLE room_transitions ADD COLUMN validation_method TEXT"
-                    )
-                if "checkpoint_rooms" not in columns:
-                    await db.execute(
-                        "ALTER TABLE room_transitions ADD COLUMN checkpoint_rooms TEXT"
-                    )
-                await db.commit()
-
-                # v3.9.12: Peak import history for load shedding auto-learning
-                await db.execute("""
-                    CREATE TABLE IF NOT EXISTS energy_peak_import (
+                # -- Energy peak import --------------------------------------
+                if not await self._create_table_safe(db, "energy_peak_import", [
+                    """CREATE TABLE IF NOT EXISTS energy_peak_import (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         seq INTEGER NOT NULL,
                         import_kw REAL NOT NULL
-                    )
-                """)
-                await db.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_energy_peak_import_seq
-                    ON energy_peak_import(seq ASC)
-                """)
-                await db.commit()
+                    )""",
+                    """CREATE INDEX IF NOT EXISTS idx_energy_peak_import_seq
+                    ON energy_peak_import(seq ASC)""",
+                ]):
+                    failed_tables.append("energy_peak_import")
 
-                # v3.7.12: Add accuracy + temperature columns to energy_daily
-                cursor = await db.execute("PRAGMA table_info(energy_daily)")
-                ed_columns = {row[1] for row in await cursor.fetchall()}
-                for col, col_type in [
-                    ("predicted_consumption_kwh", "REAL"),
-                    ("avg_temperature", "REAL"),
-                    ("prediction_error_pct", "REAL"),
-                    ("adjustment_factor", "REAL"),
-                ]:
-                    if col not in ed_columns:
-                        await db.execute(
-                            f"ALTER TABLE energy_daily ADD COLUMN {col} {col_type}"
-                        )
-                await db.commit()
-
-                # v3.11.0: EVSE state persistence
-                await db.execute("""
-                    CREATE TABLE IF NOT EXISTS evse_state (
+                # -- EVSE state ----------------------------------------------
+                if not await self._create_table_safe(db, "evse_state", [
+                    """CREATE TABLE IF NOT EXISTS evse_state (
                         evse_id TEXT PRIMARY KEY,
                         paused_by_energy INTEGER NOT NULL DEFAULT 0,
                         excess_solar_active INTEGER NOT NULL DEFAULT 0,
                         updated_at DATETIME NOT NULL
-                    )
-                """)
-                await db.commit()
+                    )""",
+                ]):
+                    failed_tables.append("evse_state")
 
-                _LOGGER.info("Database initialized successfully")
+                # -- v3.13.0: Circuit state persistence ----------------------
+                if not await self._create_table_safe(db, "circuit_state", [
+                    """CREATE TABLE IF NOT EXISTS circuit_state (
+                        circuit_id TEXT PRIMARY KEY,
+                        was_loaded INTEGER NOT NULL DEFAULT 0,
+                        zero_since TEXT,
+                        alerted INTEGER NOT NULL DEFAULT 0,
+                        updated_at TEXT NOT NULL
+                    )""",
+                ]):
+                    failed_tables.append("circuit_state")
+
+                # ============================================================
+                # Schema migrations (per-table, safe)
+                # ============================================================
+
+                # v3.5.2: Add columns to room_transitions if absent
+                try:
+                    cursor = await db.execute("PRAGMA table_info(room_transitions)")
+                    columns = {row[1] for row in await cursor.fetchall()}
+                    if "validation_method" not in columns:
+                        await db.execute(
+                            "ALTER TABLE room_transitions ADD COLUMN validation_method TEXT"
+                        )
+                    if "checkpoint_rooms" not in columns:
+                        await db.execute(
+                            "ALTER TABLE room_transitions ADD COLUMN checkpoint_rooms TEXT"
+                        )
+                    await db.commit()
+                except Exception as e:
+                    _LOGGER.warning("room_transitions migration failed: %s", e)
+
+                # v3.7.12: Add accuracy + temperature columns to energy_daily
+                try:
+                    cursor = await db.execute("PRAGMA table_info(energy_daily)")
+                    ed_columns = {row[1] for row in await cursor.fetchall()}
+                    for col, col_type in [
+                        ("predicted_consumption_kwh", "REAL"),
+                        ("avg_temperature", "REAL"),
+                        ("prediction_error_pct", "REAL"),
+                        ("adjustment_factor", "REAL"),
+                    ]:
+                        if col not in ed_columns:
+                            await db.execute(
+                                f"ALTER TABLE energy_daily ADD COLUMN {col} {col_type}"
+                            )
+                    await db.commit()
+                except Exception as e:
+                    _LOGGER.warning("energy_daily migration failed: %s", e)
+
+                # v3.13.0: Add tou_period column to energy_history
+                # Column populated by log_energy_history in M2 (v3.13.1)
+                try:
+                    cursor = await db.execute("PRAGMA table_info(energy_history)")
+                    eh_columns = {row[1] for row in await cursor.fetchall()}
+                    if "tou_period" not in eh_columns:
+                        await db.execute(
+                            "ALTER TABLE energy_history ADD COLUMN tou_period TEXT"
+                        )
+                        await db.commit()
+                        _LOGGER.info("Added tou_period column to energy_history")
+                except Exception as e:
+                    _LOGGER.warning("energy_history tou_period migration failed: %s", e)
+
+                if failed_tables:
+                    _LOGGER.warning(
+                        "Database initialized with %d table failures: %s",
+                        len(failed_tables), ", ".join(failed_tables),
+                    )
+                else:
+                    _LOGGER.info("Database initialized successfully")
                 return True
         except Exception as e:
-            _LOGGER.error("Error initializing database: %s", e)
+            _LOGGER.error("Error initializing database (connection-level): %s", e)
             return False
 
     async def log_occupancy_event(
@@ -2569,3 +2661,74 @@ class UniversalRoomDatabase:
         except Exception as e:
             _LOGGER.error("Error cleaning up external conditions: %s", e)
             return 0
+
+    # =========================================================================
+    # v3.13.0: CIRCUIT STATE PERSISTENCE
+    # =========================================================================
+
+    async def save_circuit_state(self, circuits: dict[str, dict]) -> None:
+        """Save circuit monitor state for restart persistence.
+
+        Args:
+            circuits: dict mapping circuit_id to state dict with keys:
+                was_loaded (bool), zero_since (float|None), alerted (bool)
+        """
+        if not circuits:
+            return
+        try:
+            now = dt_util.utcnow().isoformat()
+            async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
+                for circuit_id, state in circuits.items():
+                    # Store zero_since as string repr of float for round-trip
+                    zero_since = state.get("zero_since")
+                    zero_since_str = str(zero_since) if zero_since is not None else None
+                    await db.execute("""
+                        INSERT OR REPLACE INTO circuit_state
+                            (circuit_id, was_loaded, zero_since, alerted, updated_at)
+                        VALUES (?, ?, ?, ?, ?)
+                    """, (
+                        circuit_id,
+                        1 if state.get("was_loaded") else 0,
+                        zero_since_str,
+                        1 if state.get("alerted") else 0,
+                        now,
+                    ))
+                await db.commit()
+                _LOGGER.debug("Saved circuit state for %d circuits", len(circuits))
+        except Exception as e:
+            _LOGGER.error("Error saving circuit state: %s", e)
+            try:
+                await db.rollback()
+            except Exception:
+                pass
+
+    async def restore_circuit_state(self) -> dict[str, dict]:
+        """Restore circuit monitor state after restart.
+
+        Returns:
+            dict mapping circuit_id to state dict with keys:
+                was_loaded (bool), zero_since (float|None), alerted (bool)
+        """
+        try:
+            async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
+                db.row_factory = aiosqlite.Row
+                cursor = await db.execute(
+                    "SELECT circuit_id, was_loaded, zero_since, alerted FROM circuit_state"
+                )
+                rows = await cursor.fetchall()
+                result = {}
+                for row in rows:
+                    # Convert zero_since back to float (stored as text)
+                    raw_zs = row["zero_since"]
+                    zero_since = float(raw_zs) if raw_zs is not None else None
+                    result[row["circuit_id"]] = {
+                        "was_loaded": bool(row["was_loaded"]),
+                        "zero_since": zero_since,
+                        "alerted": bool(row["alerted"]),
+                    }
+                if result:
+                    _LOGGER.info("Restored circuit state for %d circuits", len(result))
+                return result
+        except Exception as e:
+            _LOGGER.error("Error restoring circuit state: %s", e)
+            return {}
