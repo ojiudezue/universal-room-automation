@@ -221,7 +221,7 @@ class DailyEnergyPredictor:
         if history:
             baseline = sum(history) / len(history)
         else:
-            baseline = 30.0  # Default estimate: 30 kWh/day
+            baseline = 45.0  # Default estimate: 45 kWh/day (large home with AC/pool)
 
         # Temperature adjustment
         if (
