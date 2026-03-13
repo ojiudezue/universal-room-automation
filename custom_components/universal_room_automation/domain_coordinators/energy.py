@@ -179,6 +179,9 @@ class EnergyCoordinator(BaseCoordinator):
         self._predictor = DailyEnergyPredictor(hass, weather_entity=weather_ent)
         self._accuracy = AccuracyTracker()
 
+        # Hold cache for battery_full_time (survives brief Envoy outages)
+        self._last_battery_full_time: str | None = None
+
         # E6: HVAC constraints + covers
         self._hvac_constraint_mode: str = "normal"
         self._hvac_constraint_offset: float = 0.0
@@ -2111,15 +2114,19 @@ class EnergyCoordinator(BaseCoordinator):
     def battery_full_time(self) -> str | None:
         """Estimated time battery reaches 100%.
 
-        Falls back to live SOC check if the cached prediction couldn't
-        evaluate (e.g., Envoy was offline at prediction time).
+        Live SOC takes priority, then predictor cache, then hold cache.
+        The hold cache retains the last known value through Envoy outages.
         """
+        soc = self._battery.battery_soc
+        if soc is not None and soc >= 99:
+            self._last_battery_full_time = "already_full"
+            return "already_full"
         result = self._predictor._battery_full_time
-        if result is None:
-            soc = self._battery.battery_soc
-            if soc is not None and soc >= 99:
-                return "already_full"
-        return result
+        if result is not None:
+            self._last_battery_full_time = result
+            return result
+        # Envoy offline + predictor stale — return last known value
+        return self._last_battery_full_time
 
     @property
     def forecast_accuracy(self) -> float:
