@@ -468,107 +468,86 @@ class TestBatteryFullTime:
 # ============================================================================
 
 
-def _compute_grid_import(consumption, production, capacity, soc, reserve, solar_hours):
-    """Replicate the battery-aware grid import formula from energy.py.
+def _compute_grid_import(consumption, production, capacity, reserve):
+    """Replicate the grid import formula from energy.py.
 
-    This mirrors EnergyCoordinator.predicted_import_kwh exactly.
-    Positive = net grid import, negative = net grid export.
+    Simple energy balance: positive = import, negative = export.
+    Battery is a fixed buffer of usable_capacity kWh.
     """
-    usable_floor = capacity * reserve / 100.0
-    battery_stored = capacity * soc / 100.0
-    non_solar_hours = 24.0 - solar_hours
-    hourly_consumption = consumption / 24.0
+    usable_battery = capacity * (1.0 - reserve / 100.0)
 
-    daytime_consumption = solar_hours * hourly_consumption
-    daytime_import = 0.0
-    grid_export = 0.0
-    if production >= daytime_consumption:
-        solar_surplus = production - daytime_consumption
-        battery_absorbed = min(solar_surplus, capacity - battery_stored)
-        battery_at_sunset = battery_stored + battery_absorbed
-        grid_export = solar_surplus - battery_absorbed
+    if production >= consumption:
+        surplus = production - consumption
+        battery_absorbs = min(usable_battery, surplus)
+        return round(-(surplus - battery_absorbs), 1)
     else:
-        daytime_deficit = daytime_consumption - production
-        battery_can_give = max(0, battery_stored - usable_floor)
-        daytime_import = max(0, daytime_deficit - battery_can_give)
-        battery_at_sunset = max(usable_floor, battery_stored - daytime_deficit)
-
-    night_consumption = non_solar_hours * hourly_consumption
-    usable_at_sunset = max(0, battery_at_sunset - usable_floor)
-    night_import = max(0, night_consumption - usable_at_sunset)
-    return round(daytime_import + night_import - grid_export, 1)
+        deficit = consumption - production
+        battery_provides = min(usable_battery, deficit)
+        return round(deficit - battery_provides, 1)
 
 
 class TestPredictedImport:
-    """Test battery-aware grid import prediction.
+    """Test grid import prediction.
 
     positive = net grid import, negative = net grid export.
+    Battery usable capacity buffers the difference between solar and consumption.
     """
 
     def test_sunny_day_net_export(self):
-        """150 kWh solar, 28 kWh consumption, 40 kWh battery → massive export."""
-        result = _compute_grid_import(
-            consumption=28.0, production=150.0,
-            capacity=40.0, soc=30.0, reserve=20, solar_hours=12.0,
-        )
-        # Daytime consumption = 14, surplus = 136
-        # Battery absorbs: min(136, 40-12) = 28, export = 136-28 = 108
-        # Night: 14 kWh, battery at 40, usable = 36 → 0 import
-        # Net = 0 + 0 - 108 = -108
-        assert result == -108.0
+        """150 kWh solar, 31 kWh consumption, 40 kWh battery (10% reserve).
 
-    def test_cloudy_day_significant_import(self):
-        """10 kWh solar, 30 kWh consumption, 40 kWh battery at 20% → grid needed."""
+        surplus = 119, battery absorbs 36, export = 83.
+        """
+        result = _compute_grid_import(
+            consumption=31.0, production=150.0,
+            capacity=40.0, reserve=10,
+        )
+        assert result == -83.0
+
+    def test_cloudy_day_battery_covers_deficit(self):
+        """10 kWh solar, 30 kWh consumption → deficit 20, battery covers all."""
         result = _compute_grid_import(
             consumption=30.0, production=10.0,
-            capacity=40.0, soc=20.0, reserve=20, solar_hours=12.0,
+            capacity=40.0, reserve=10,
         )
-        # Daytime: 15 kWh consumption, 10 kWh solar → 5 kWh deficit
-        # Battery at 20% = 8 kWh, floor = 8 kWh → 0 usable → daytime import = 5
-        # No export (production < consumption)
-        # Night: 15 kWh, battery at floor → all from grid = 15
-        # Total = 20
-        assert result == 20.0
-
-    def test_moderate_solar_small_export(self):
-        """25 kWh solar, 30 kWh consumption, 40 kWh battery at 50%."""
-        result = _compute_grid_import(
-            consumption=30.0, production=25.0,
-            capacity=40.0, soc=50.0, reserve=20, solar_hours=12.0,
-        )
-        # Daytime: 15 kWh consumption, 25 kWh solar → 10 kWh surplus
-        # Battery absorbs: min(10, 40-20) = 10, export = 0
-        # Battery at sunset = 30
-        # Night: 15 kWh, usable = 30-8 = 22 → 0 import
-        # Net = 0 - 0 = 0
+        # deficit = 20, usable battery = 36 → battery covers all, 0 import
         assert result == 0.0
 
-    def test_big_solar_battery_full_exports_rest(self):
-        """100 kWh solar, 24 kWh consumption, battery nearly full → exports surplus."""
+    def test_very_cloudy_day_grid_import(self):
+        """0 kWh solar, 50 kWh consumption → deficit 50, battery covers 36."""
+        result = _compute_grid_import(
+            consumption=50.0, production=0.0,
+            capacity=40.0, reserve=10,
+        )
+        # deficit = 50, battery provides 36, import = 14
+        assert result == 14.0
+
+    def test_moderate_solar_no_grid_exchange(self):
+        """Solar exactly covers consumption + battery. No grid exchange."""
+        result = _compute_grid_import(
+            consumption=30.0, production=66.0,
+            capacity=40.0, reserve=10,
+        )
+        # surplus = 36, battery absorbs 36, export = 0
+        assert result == 0.0
+
+    def test_surplus_exceeds_battery(self):
+        """100 kWh solar, 24 kWh consumption, 40 kWh battery (10% reserve)."""
         result = _compute_grid_import(
             consumption=24.0, production=100.0,
-            capacity=40.0, soc=90.0, reserve=10, solar_hours=12.0,
+            capacity=40.0, reserve=10,
         )
-        # Daytime: 12 kWh consumption, 100 solar → 88 surplus
-        # Battery absorbs: min(88, 40-36) = 4, export = 84
-        # Battery at sunset = 40 (full)
-        # Night: 12 kWh, usable = 40-4 = 36 → 0 import
-        # Net = 0 - 84 = -84
-        assert result == -84.0
+        # surplus = 76, battery absorbs 36, export = 40
+        assert result == -40.0
 
-    def test_zero_solar_all_from_grid_and_battery(self):
-        """No solar at all — battery covers what it can, grid covers rest."""
+    def test_high_reserve_reduces_buffer(self):
+        """High reserve (30%) means less usable battery."""
         result = _compute_grid_import(
             consumption=30.0, production=0.0,
-            capacity=40.0, soc=50.0, reserve=20, solar_hours=12.0,
+            capacity=40.0, reserve=30,
         )
-        # Daytime: 15 kWh consumption, 0 solar → 15 deficit
-        # Battery: 20 stored, floor 8 → 12 usable → daytime import = 3
-        # Battery at sunset: max(8, 20-15) = 8 (floor)
-        # Night: 15 kWh, usable = 0 → night import = 15
-        # No export
-        # Total = 18
-        assert result == 18.0
+        # deficit = 30, usable = 28, import = 2
+        assert result == 2.0
 
     def test_none_when_prediction_missing(self):
         """None propagated when consumption or production unavailable."""

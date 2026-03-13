@@ -2106,13 +2106,13 @@ class EnergyCoordinator(BaseCoordinator):
     def predicted_import_kwh(self) -> float | None:
         """Predicted net grid exchange today (positive=import, negative=export).
 
-        Accounts for solar timing and battery buffering:
-        1. Daytime: solar covers consumption, surplus charges battery,
-           remainder exports to grid.
-        2. Nighttime: battery discharges, grid covers shortfall.
-        3. Battery can't discharge below reserve SOC.
+        Simple energy balance: solar powers the house and charges the battery.
+        Battery is a buffer — it absorbs surplus solar and covers deficit.
 
-        Result: import - export.  Negative means net grid export.
+        - Net producer (solar > consumption): battery absorbs up to its
+          usable capacity, remainder exports.  Result is negative.
+        - Net consumer (solar < consumption): battery covers the deficit
+          up to its usable capacity, remainder imports.  Result is positive.
         """
         forecast = self._predictor._get_current_prediction()
         consumption = forecast.get("predicted_consumption_kwh")
@@ -2120,82 +2120,20 @@ class EnergyCoordinator(BaseCoordinator):
         if consumption is None or production is None:
             return None
 
-        # Battery parameters
         capacity = self._predictor._get_battery_capacity_kwh()
-        soc = self._battery.battery_soc
         reserve = self._battery.reserve_soc
-        if soc is None:
-            soc = 50.0  # conservative default
-        usable_floor = capacity * reserve / 100.0
-        battery_stored = capacity * soc / 100.0
+        usable_battery = capacity * (1.0 - reserve / 100.0)
 
-        # Solar window from sun entity (hours)
-        solar_hours = self._get_solar_window_hours()
-        non_solar_hours = 24.0 - solar_hours
-        hourly_consumption = consumption / 24.0
-
-        # Daytime: solar covers consumption, surplus charges battery, rest exports
-        daytime_consumption = solar_hours * hourly_consumption
-        daytime_import = 0.0
-        grid_export = 0.0
-        if production >= daytime_consumption:
-            solar_surplus = production - daytime_consumption
-            battery_absorbed = min(solar_surplus, capacity - battery_stored)
-            battery_at_sunset = battery_stored + battery_absorbed
-            grid_export = solar_surplus - battery_absorbed
+        if production >= consumption:
+            # Surplus day — battery absorbs some, rest exports to grid
+            surplus = production - consumption
+            battery_absorbs = min(usable_battery, surplus)
+            return round(-(surplus - battery_absorbs), 1)
         else:
-            # Not enough solar — battery + grid cover the deficit
-            daytime_deficit = daytime_consumption - production
-            battery_can_give = max(0, battery_stored - usable_floor)
-            daytime_import = max(0, daytime_deficit - battery_can_give)
-            battery_at_sunset = max(usable_floor, battery_stored - daytime_deficit)
-
-        # Nighttime: battery discharges, then grid
-        night_consumption = non_solar_hours * hourly_consumption
-        usable_at_sunset = max(0, battery_at_sunset - usable_floor)
-        night_import = max(0, night_consumption - usable_at_sunset)
-
-        return round(daytime_import + night_import - grid_export, 1)
-
-    def _get_solar_window_hours(self) -> float:
-        """Estimate today's solar production window in hours from sun entity."""
-        from datetime import timedelta as td
-
-        from homeassistant.util import dt as dt_util
-
-        sun = self.hass.states.get("sun.sun")
-        if sun is None:
-            return 12.0  # fallback
-
-        now = dt_util.now()
-
-        # Parse next_rising and next_setting
-        rising_str = sun.attributes.get("next_rising")
-        setting_str = sun.attributes.get("next_setting")
-        if not rising_str or not setting_str:
-            return 12.0
-
-        rising = dt_util.parse_datetime(rising_str)
-        setting = dt_util.parse_datetime(setting_str)
-        if rising is None or setting is None:
-            return 12.0
-
-        # Compare dates in local timezone (sun entity times are UTC but
-        # sunset at 7 PM CDT = 00:xx UTC next day — UTC .date() is wrong)
-        today = now.date()
-        setting_local_date = setting.astimezone(now.tzinfo).date()
-        rising_local_date = rising.astimezone(now.tzinfo).date()
-
-        # next_rising/setting may point to tomorrow — approximate today's
-        if setting_local_date != today:
-            setting = setting - td(hours=24)
-        if rising_local_date != today:
-            rising_today = rising - td(hours=24)
-        else:
-            rising_today = rising
-
-        window = (setting - rising_today).total_seconds() / 3600.0
-        return max(4.0, min(16.0, window))  # clamp to sane range
+            # Deficit day — battery covers some, rest imports from grid
+            deficit = consumption - production
+            battery_provides = min(usable_battery, deficit)
+            return round(deficit - battery_provides, 1)
 
     @property
     def predicted_consumption_kwh(self) -> float | None:
