@@ -287,20 +287,39 @@ class NotificationManager:
         return self._messaging_suppressed
 
     async def async_suppress_messaging(self) -> None:
-        """Kill switch — suppress all outbound messaging and stop active alerts."""
+        """Kill switch — suppress all outbound messaging and stop active alerts.
+
+        Cancels all timers (repeat, cooldown, countdown) and alert lights.
+        Preserves _silence_until so it can resume if messaging is re-enabled.
+        """
         self._messaging_suppressed = True
         _LOGGER.warning("Messaging suppressed — all outbound notifications halted")
-        # Auto-acknowledge any active alert to stop repeats
-        if self._alert_state in (AlertState.ALERTING, AlertState.REPEATING):
-            if self._repeat_unsub:
-                self._repeat_unsub()
-                self._repeat_unsub = None
+
+        # Cancel repeat timer
+        if self._repeat_unsub:
+            self._repeat_unsub()
+            self._repeat_unsub = None
+
+        # Cancel cooldown timer + countdown task
+        if self._cooldown_unsub:
+            self._cooldown_unsub()
+            self._cooldown_unsub = None
+        if self._countdown_task and not self._countdown_task.done():
+            self._countdown_task.cancel()
+            self._countdown_task = None
+
+        # Cancel alert light pattern + restore lights
+        if self._light_pattern_task and not self._light_pattern_task.done():
+            self._light_pattern_task.cancel()
+            self._light_pattern_task = None
+        await self._restore_alert_lights()
+
+        # Reset alert state to IDLE regardless of current state
+        if self._alert_state != AlertState.IDLE:
+            _LOGGER.info("Alert state %s cancelled by messaging kill switch", self._alert_state.value)
             self._alert_state = AlertState.IDLE
             self._active_alert_data = None
             self._cooldown_remaining = 0
-            _LOGGER.info("Active alert cancelled by messaging kill switch")
-        # Clear silence timer too
-        self._silence_until = None
 
     async def async_resume_messaging(self) -> None:
         """Resume outbound messaging."""
@@ -1096,6 +1115,10 @@ class NotificationManager:
         if self._channel_qualifies("tts", Severity.CRITICAL):
             await self._send_tts(data["title"], data["message"])
 
+        # Re-check suppression — kill switch may have been toggled between awaits
+        if self._messaging_suppressed or self._alert_state != AlertState.REPEATING:
+            return
+
         # Schedule next repeat
         self._schedule_repeat()
 
@@ -1268,6 +1291,7 @@ class NotificationManager:
             return
         person_id = self._match_person_by_phone(phone)
         if person_id is None:
+            _LOGGER.debug("WhatsApp message from unknown phone %s (ignored)", phone[-4:] if phone else "?")
             return
         self.hass.async_create_task(
             self._process_inbound_reply(person_id, "whatsapp", message)
@@ -1290,6 +1314,7 @@ class NotificationManager:
             return
         person_id = self._match_person_by_pushover_key(user_key)
         if person_id is None:
+            _LOGGER.debug("Pushover reply from unknown user_key: %s (ignored)", user_key[:8] if user_key else "?")
             return
         await self._process_inbound_reply(person_id, "pushover", message)
 
