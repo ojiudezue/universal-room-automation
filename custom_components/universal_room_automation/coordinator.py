@@ -1,6 +1,6 @@
 """Data coordinator for Universal Room Automation."""
 #
-# Universal Room Automation v3.15.4
+# Universal Room Automation v3.16.0
 # Build: 2026-01-02
 # File: coordinator.py
 # v3.2.8: Support for active state change listeners in aggregation sensors
@@ -134,6 +134,8 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         self._last_motion_time: datetime | None = None
         self._last_occupied_time: datetime | None = None  # Track when room was last occupied
         self._last_occupied_state = False
+        self._last_occupancy_source: str = "none"  # Track source for ble→motion re-entry
+        self._last_source_reentry_time: datetime | None = None  # Cooldown for re-entry
         self._became_occupied_time: datetime | None = None  # v3.2.4: When current occupancy session started
         self._unsub_state_listeners = []
 
@@ -1330,6 +1332,7 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
             # Handle occupancy changes
             if data[STATE_OCCUPIED] != self._last_occupied_state:
                 self._last_occupied_state = data[STATE_OCCUPIED]
+                self._last_occupancy_source = data.get(STATE_OCCUPANCY_SOURCE, "none")
                 try:
                     await self.automation.handle_occupancy_change(
                         data[STATE_OCCUPIED],
@@ -1345,6 +1348,33 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                         self.hass.async_create_task(
                             self._delayed_exit_verify(room_name, data)
                         )
+
+            # v3.16: Re-trigger entry when occupancy source transitions from
+            # BLE-only to a real sensor (motion/mmwave/occupancy). BLE may have
+            # been holding the room "occupied" while lights were off or timed out.
+            # Physical entry should ensure lights turn on.
+            # 60s cooldown prevents rapid re-entry thrashing from flaky sensors.
+            elif data[STATE_OCCUPIED] and self._last_occupied_state:
+                current_source = data.get(STATE_OCCUPANCY_SOURCE, "none")
+                prev_source = self._last_occupancy_source
+                if prev_source == "ble" and current_source in (
+                    "motion", "mmwave", "occupancy_sensor",
+                ):
+                    cooldown_ok = (
+                        self._last_source_reentry_time is None
+                        or (now - self._last_source_reentry_time).total_seconds() > 60
+                    )
+                    if cooldown_ok:
+                        self._last_source_reentry_time = now
+                        _LOGGER.info(
+                            "Room %s: Source transition ble→%s — re-triggering entry",
+                            room_name, current_source,
+                        )
+                        try:
+                            await self.automation.handle_occupancy_change(True, data)
+                        except Exception as e:
+                            _LOGGER.error("Error in source-transition entry: %s", e)
+                self._last_occupancy_source = current_source
             
             # Periodic automation tasks (refresh config for options flow changes)
             self.automation._refresh_config()

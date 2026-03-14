@@ -16,9 +16,13 @@ from .coordinator_diagnostics import MetricBaseline
 _LOGGER = logging.getLogger(__name__)
 
 # How long a circuit must be at zero to trigger tripped breaker alert (seconds)
-TRIPPED_BREAKER_THRESHOLD_SECONDS = 120
+TRIPPED_BREAKER_THRESHOLD_SECONDS = 300
 # Minimum recent power for a circuit to be considered "normally loaded"
 NORMALLY_LOADED_THRESHOLD_W = 5.0
+# Minimum cumulative energy (Wh) a circuit must have delivered before tripped alerts fire.
+# Prevents alerts on circuits that briefly spike above NORMALLY_LOADED_THRESHOLD_W
+# but never actually deliver meaningful energy.
+MINIMUM_LOADED_ENERGY_WH = 50.0
 
 # MetricBaseline thresholds for circuit power z-scores
 CIRCUIT_Z_ADVISORY = 3.0   # Log advisory
@@ -48,6 +52,8 @@ class CircuitInfo:
         self.zero_since: float | None = None  # timestamp when went to zero
         self.alerted: bool = False
         self.controllable: bool = True  # discovered from SPAN breaker switch
+        self.cumulative_energy_wh: float = 0.0  # Track energy delivery
+        self._last_check_time: float | None = None  # For energy integration
 
 
 class SPANCircuitMonitor:
@@ -71,6 +77,7 @@ class SPANCircuitMonitor:
     def discover_circuits(self) -> int:
         """Auto-discover SPAN circuit power entities from HA state machine."""
         count = 0
+        skipped_unknown = 0
         for state in self.hass.states.async_all("sensor"):
             entity_id = state.entity_id
             if not entity_id.startswith("sensor.span_panel_") or not entity_id.endswith("_power"):
@@ -85,12 +92,26 @@ class SPANCircuitMonitor:
                 continue
 
             friendly = state.attributes.get("friendly_name", entity_id)
+
+            # v3.16: Skip unfilled/unknown breaker slots — these generate
+            # spurious tripped-breaker alerts because they briefly draw power
+            # during panel resets but never deliver meaningful energy.
+            friendly_lower = friendly.lower()
+            if any(kw in friendly_lower for kw in (
+                "unknown", "unfilled", "unused", "spare", "empty",
+            )):
+                skipped_unknown += 1
+                continue
+
             panel = "left" if "_2" in entity_id or "Span Left" in friendly else "right"
             self._circuits[entity_id] = CircuitInfo(entity_id, friendly, panel)
             count += 1
 
         self._discovered = True
-        _LOGGER.info("SPAN circuit monitor: discovered %d circuits", count)
+        _LOGGER.info(
+            "SPAN circuit monitor: discovered %d circuits (skipped %d unknown/unfilled)",
+            count, skipped_unknown,
+        )
         return count
 
     def _get_power_baseline(self, entity_id: str) -> MetricBaseline:
@@ -160,14 +181,26 @@ class SPANCircuitMonitor:
             if power >= 0:
                 baseline.update(power)
 
+            # Track cumulative energy delivery (trapezoidal integration)
+            if circuit._last_check_time is not None and power > 0:
+                dt_hours = (now - circuit._last_check_time) / 3600.0
+                prev = circuit.last_power if circuit.last_power is not None else power
+                avg_power = (power + prev) / 2.0
+                circuit.cumulative_energy_wh += avg_power * dt_hours
+            circuit._last_check_time = now
+
             # Track if circuit was recently loaded
             if power > NORMALLY_LOADED_THRESHOLD_W:
                 circuit.was_loaded = True
                 circuit.zero_since = None
                 circuit.alerted = False
 
-            # Detect sudden zero on a normally loaded circuit
-            if power <= NORMALLY_LOADED_THRESHOLD_W and circuit.was_loaded:
+            # Detect sudden zero on a circuit that has delivered real energy.
+            # was_loaded + cumulative energy guard prevents false alerts on circuits
+            # that briefly spike but never deliver meaningful energy.
+            if (power <= NORMALLY_LOADED_THRESHOLD_W
+                    and circuit.was_loaded
+                    and circuit.cumulative_energy_wh >= MINIMUM_LOADED_ENERGY_WH):
                 if circuit.zero_since is None:
                     circuit.zero_since = now
                 elif (

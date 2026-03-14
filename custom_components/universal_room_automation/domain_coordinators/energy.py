@@ -1386,12 +1386,31 @@ class EnergyCoordinator(BaseCoordinator):
             # E3: Circuit anomaly checks
             circuit_anomalies = self._circuits.check_anomalies()
             for anomaly in circuit_anomalies:
+                anomaly_type = anomaly.get("type", "tripped_breaker")
+                # v3.16: Tripped breaker alerts are HIGH, not CRITICAL.
+                # CRITICAL bypasses all NM filters including the kill switch.
+                # Only generator alerts (power outage) warrant CRITICAL.
+                if anomaly_type == "tripped_breaker":
+                    sev = "high"
+                    title = f"Tripped Breaker: {anomaly.get('circuit', 'Unknown')}"
+                    msg = (
+                        f"Possible tripped breaker on {anomaly.get('circuit')} "
+                        f"({anomaly.get('panel')} panel) — zero power for "
+                        f"{anomaly.get('zero_duration_seconds', 0)}s"
+                    )
+                else:
+                    sev = "medium"
+                    title = f"Circuit Anomaly: {anomaly.get('circuit', 'Unknown')}"
+                    msg = (
+                        f"Unusual consumption on {anomaly.get('circuit')} "
+                        f"({anomaly.get('panel')} panel) — {anomaly.get('power', 0):.0f}W "
+                        f"(z={anomaly.get('z_score', 0):.1f}, "
+                        f"baseline={anomaly.get('baseline_mean', 0):.0f}W)"
+                    )
                 await self._send_nm_alert(
-                    title=f"Circuit Alert: {anomaly.get('circuit', 'Unknown')}",
-                    message=f"Possible tripped breaker on {anomaly.get('circuit')} "
-                            f"({anomaly.get('panel')} panel) — zero power for "
-                            f"{anomaly.get('zero_duration_seconds', 0)}s",
-                    severity="critical",
+                    title=title,
+                    message=msg,
+                    severity=sev,
                     hazard_type="circuit_anomaly",
                     location=anomaly.get("circuit", ""),
                 )
