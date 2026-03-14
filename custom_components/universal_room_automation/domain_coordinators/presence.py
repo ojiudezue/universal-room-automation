@@ -308,8 +308,9 @@ class StateInferenceEngine:
     Rules (evaluated in priority order):
     1. Census shows 0 people + all zones away → AWAY
     2. Census shows people + sleep hours → SLEEP
-    3. Census shows people + time-based variant → HOME_DAY/EVENING/NIGHT
-    4. Census shows new arrivals from AWAY → ARRIVING
+    3. Unidentified persons detected while home → GUEST
+    4. Census shows people + time-based variant → HOME_DAY/EVENING/NIGHT
+    5. Census shows new arrivals from AWAY → ARRIVING
     """
 
     def __init__(
@@ -336,6 +337,7 @@ class StateInferenceEngine:
         current_state: HouseState,
         any_zone_occupied: bool,
         now: Optional[datetime] = None,
+        unidentified_count: int = 0,
     ) -> Optional[HouseState]:
         """Infer the appropriate house state.
 
@@ -364,7 +366,7 @@ class StateInferenceEngine:
             self._confidence = 0.85
             return HouseState.ARRIVING
 
-        # Sleep hours
+        # Sleep hours (don't enter guest mode during sleep)
         if self._is_sleep_hour(hour):
             if current_state not in (HouseState.SLEEP, HouseState.WAKING):
                 self._confidence = 0.7
@@ -381,7 +383,22 @@ class StateInferenceEngine:
             self._confidence = 0.85
             return HouseState.HOME_DAY
 
-        # Arriving → time-based home
+        # v3.15.0: Guest detection — unidentified persons while home
+        if unidentified_count > 0 and current_state in (
+            HouseState.HOME_DAY,
+            HouseState.HOME_EVENING,
+            HouseState.HOME_NIGHT,
+            HouseState.ARRIVING,
+        ):
+            if current_state != HouseState.GUEST:
+                self._confidence = 0.8
+                return HouseState.GUEST
+        # Guest mode exit — unidentified gone, return to time-based home
+        if current_state == HouseState.GUEST and unidentified_count == 0:
+            self._confidence = 0.75
+            return self._time_based_home(hour)
+
+        # Arriving → time-based home (or guest if unidentified)
         if current_state == HouseState.ARRIVING:
             self._confidence = 0.85
             return self._time_based_home(hour)
@@ -456,6 +473,7 @@ class PresenceCoordinator(BaseCoordinator):
         )
         self._zone_trackers: Dict[str, ZonePresenceTracker] = {}
         self._census_count: int = 0
+        self._unidentified_count: int = 0
         self._transitions_today: int = 0
         self._transition_reset_date: str = ""
         # Room area_id lookup: room_name -> area_id (from config entries)
@@ -990,6 +1008,7 @@ class PresenceCoordinator(BaseCoordinator):
     def _handle_census_update(self, census_data: dict) -> None:
         """Handle Census update signal."""
         old_count = self._census_count
+        old_unidentified = self._unidentified_count
         try:
             self._census_count = int(census_data.get("interior_count", 0))
         except (ValueError, TypeError):
@@ -999,7 +1018,13 @@ class PresenceCoordinator(BaseCoordinator):
             )
             return
 
-        if old_count != self._census_count:
+        # v3.15.0: Track unidentified count for guest mode
+        try:
+            self._unidentified_count = int(census_data.get("unidentified_count", 0))
+        except (ValueError, TypeError):
+            self._unidentified_count = 0
+
+        if old_count != self._census_count or old_unidentified != self._unidentified_count:
             self.hass.async_create_task(self._run_inference("census_update"))
 
     @callback
@@ -1162,6 +1187,7 @@ class PresenceCoordinator(BaseCoordinator):
             census_count=self._census_count,
             current_state=current_state,
             any_zone_occupied=any_zone_occupied,
+            unidentified_count=self._unidentified_count,
         )
 
         if new_state is not None:
@@ -1503,6 +1529,7 @@ class PresenceCoordinator(BaseCoordinator):
         """Return full presence diagnostics."""
         summary = super().get_diagnostics_summary()
         summary["census_count"] = self._census_count
+        summary["unidentified_count"] = self._unidentified_count
         summary["house_state"] = self.house_state
         summary["confidence"] = self.confidence
         summary["transitions_today"] = self._transitions_today
