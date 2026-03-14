@@ -1,6 +1,6 @@
 """Switch platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.15.4
+# Universal Room Automation v3.16.0
 # Build: 2026-01-02
 # File: switch.py
 #
@@ -519,10 +519,15 @@ class NMMessagingSuppressSwitch(SwitchEntity, RestoreEntity):
     _attr_icon = "mdi:bell-cancel"
     _attr_entity_category = EntityCategory.CONFIG
 
+    _MAX_SYNC_RETRIES = 18  # 18 × 10s = 3 minutes max wait for NM
+
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         """Initialize."""
         self.hass = hass
         self._entry = entry
+        self._is_on = False  # Self-contained state — survives NM not yet ready
+        self._sync_retries = 0
+        self._sync_unsub = None  # Cancel handle for deferred sync timer
         self._attr_unique_id = f"{DOMAIN}_nm_messaging_suppressed"
         self._attr_name = "Messaging Suppressed"
         self._attr_device_info = DeviceInfo(
@@ -535,14 +540,53 @@ class NMMessagingSuppressSwitch(SwitchEntity, RestoreEntity):
         )
 
     async def async_added_to_hass(self) -> None:
-        """Restore state on startup."""
+        """Restore state on startup and sync to NM when available."""
         await super().async_added_to_hass()
         last_state = await self.async_get_last_state()
         if last_state and last_state.state == "on":
-            nm = self._get_nm()
-            if nm is not None:
-                await nm.async_suppress_messaging()
-                _LOGGER.info("Restored messaging suppression from previous state")
+            self._is_on = True
+            _LOGGER.info("Restored messaging suppression flag from previous state")
+            # Try to sync to NM immediately (may not exist yet)
+            await self._sync_to_nm()
+
+    async def async_will_remove_from_hass(self) -> None:
+        """Cancel any pending sync timer on teardown."""
+        if self._sync_unsub:
+            self._sync_unsub()
+            self._sync_unsub = None
+
+    async def _sync_to_nm(self) -> None:
+        """Push local state to NM. Retries with bounded attempts."""
+        nm = self._get_nm()
+        if nm is None:
+            self._sync_retries += 1
+            if self._sync_retries > self._MAX_SYNC_RETRIES:
+                _LOGGER.warning(
+                    "NM not available after %d retries — giving up sync "
+                    "(switch state preserved locally, will sync on next toggle)",
+                    self._sync_retries,
+                )
+                return
+            # NM not ready — schedule a deferred sync
+            from homeassistant.helpers.event import async_call_later
+
+            async def _deferred_sync(_now=None):
+                self._sync_unsub = None
+                await self._sync_to_nm()
+
+            self._sync_unsub = async_call_later(self.hass, 10, _deferred_sync)
+            _LOGGER.debug(
+                "NM not ready, deferring sync (attempt %d/%d)",
+                self._sync_retries, self._MAX_SYNC_RETRIES,
+            )
+            return
+        self._sync_retries = 0
+        if self._is_on and not nm.messaging_suppressed:
+            await nm.async_suppress_messaging()
+            _LOGGER.info("Synced messaging suppression to NM")
+        elif not self._is_on and nm.messaging_suppressed:
+            await nm.async_resume_messaging()
+            _LOGGER.info("Synced messaging resume to NM")
 
     def _get_nm(self):
         """Get the notification manager instance."""
@@ -550,30 +594,35 @@ class NMMessagingSuppressSwitch(SwitchEntity, RestoreEntity):
 
     @property
     def is_on(self) -> bool:
-        """Return True if messaging is suppressed."""
-        nm = self._get_nm()
-        if nm is None:
-            return False
-        return nm.messaging_suppressed
+        """Return True if messaging is suppressed (self-contained state)."""
+        return self._is_on
 
     async def async_turn_on(self, **kwargs) -> None:
         """Suppress all outbound messaging."""
+        self._is_on = True
         nm = self._get_nm()
         if nm is not None:
             await nm.async_suppress_messaging()
-            self.async_write_ha_state()
+        else:
+            self._sync_retries = 0
+            await self._sync_to_nm()
+        self.async_write_ha_state()
 
     async def async_turn_off(self, **kwargs) -> None:
         """Resume outbound messaging."""
+        self._is_on = False
         nm = self._get_nm()
         if nm is not None:
             await nm.async_resume_messaging()
-            self.async_write_ha_state()
+        else:
+            self._sync_retries = 0
+            await self._sync_to_nm()
+        self.async_write_ha_state()
 
     @property
     def available(self) -> bool:
-        """Only available when NM is active."""
-        return self._get_nm() is not None
+        """Always available — state is self-contained, NM synced when ready."""
+        return True
 
 
 class SecurityDelegateLightsSwitch(SwitchEntity, RestoreEntity):
