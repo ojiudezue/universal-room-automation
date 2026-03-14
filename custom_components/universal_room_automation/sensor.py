@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.15.1
+# Universal Room Automation v3.15.2
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -2559,7 +2559,7 @@ class _CensusBaseSensor(AggregationEntity, SensorEntity):
 
     def _handle_census_update(self, data: dict) -> None:
         """Handle census update signal — push state immediately."""
-        self.async_write_ha_state()
+        self.async_schedule_update_ha_state()
 
     def _get_census(self):
         """Return last FullCensusResult or None."""
