@@ -1,6 +1,6 @@
 """Switch platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.15.2
+# Universal Room Automation v3.15.3
 # Build: 2026-01-02
 # File: switch.py
 #
@@ -125,6 +125,8 @@ async def async_setup_entry(
                 device_name="URA: Notification Manager",
                 device_model="Notification Manager",
             ),
+            # v3.15.3: NM messaging kill switch
+            NMMessagingSuppressSwitch(hass, entry),
             # v3.6.37: Security → NM light delegation toggle
             SecurityDelegateLightsSwitch(hass),
             # v3.7.6: Energy Observation Mode toggle
@@ -497,6 +499,68 @@ class HVACObservationModeSwitch(SwitchEntity, RestoreEntity):
     def available(self) -> bool:
         """Only available when HVAC coordinator is active."""
         return self._get_hvac() is not None
+
+
+class NMMessagingSuppressSwitch(SwitchEntity):
+    """Kill switch for NM outbound messaging.
+
+    When ON: All outbound notifications are suppressed. Active alerts are
+    cancelled. The NM itself stays running for monitoring/diagnostics.
+    When OFF (default): Normal notification delivery.
+
+    Entity: switch.ura_nm_messaging_suppressed
+    Device: URA: Notification Manager
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:bell-cancel"
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        self.hass = hass
+        self._entry = entry
+        self._attr_unique_id = f"{DOMAIN}_nm_messaging_suppressed"
+        self._attr_name = "Messaging Suppressed"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "notification_manager")},
+            name="URA: Notification Manager",
+            manufacturer="Universal Room Automation",
+            model="Notification Manager",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+
+    def _get_nm(self):
+        """Get the notification manager instance."""
+        return self.hass.data.get(DOMAIN, {}).get("notification_manager")
+
+    @property
+    def is_on(self) -> bool:
+        """Return True if messaging is suppressed."""
+        nm = self._get_nm()
+        if nm is None:
+            return False
+        return nm.messaging_suppressed
+
+    async def async_turn_on(self, **kwargs) -> None:
+        """Suppress all outbound messaging."""
+        nm = self._get_nm()
+        if nm is not None:
+            await nm.async_suppress_messaging()
+            self.async_write_ha_state()
+
+    async def async_turn_off(self, **kwargs) -> None:
+        """Resume outbound messaging."""
+        nm = self._get_nm()
+        if nm is not None:
+            await nm.async_resume_messaging()
+            self.async_write_ha_state()
+
+    @property
+    def available(self) -> bool:
+        """Only available when NM is active."""
+        return self._get_nm() is not None
 
 
 class SecurityDelegateLightsSwitch(SwitchEntity, RestoreEntity):

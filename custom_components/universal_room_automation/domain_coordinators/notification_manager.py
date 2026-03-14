@@ -206,6 +206,7 @@ class NotificationManager:
         self._config = config
 
         # State
+        self._messaging_suppressed = False
         self._alert_state = AlertState.IDLE
         self._active_alert_data: dict[str, Any] | None = None
         self._repeat_unsub: CALLBACK_TYPE | None = None
@@ -281,6 +282,32 @@ class NotificationManager:
         return self._config.get(CONF_NM_ENABLED, False)
 
     @property
+    def messaging_suppressed(self) -> bool:
+        """Return whether outbound messaging is suppressed."""
+        return self._messaging_suppressed
+
+    async def async_suppress_messaging(self) -> None:
+        """Kill switch — suppress all outbound messaging and stop active alerts."""
+        self._messaging_suppressed = True
+        _LOGGER.warning("Messaging suppressed — all outbound notifications halted")
+        # Auto-acknowledge any active alert to stop repeats
+        if self._alert_state in (AlertState.ALERTING, AlertState.REPEATING):
+            if self._repeat_unsub:
+                self._repeat_unsub()
+                self._repeat_unsub = None
+            self._alert_state = AlertState.IDLE
+            self._active_alert_data = None
+            self._cooldown_remaining = 0
+            _LOGGER.info("Active alert cancelled by messaging kill switch")
+        # Clear silence timer too
+        self._silence_until = None
+
+    async def async_resume_messaging(self) -> None:
+        """Resume outbound messaging."""
+        self._messaging_suppressed = False
+        _LOGGER.info("Messaging resumed — outbound notifications re-enabled")
+
+    @property
     def alert_state(self) -> AlertState:
         """Return the current alert state."""
         return self._alert_state
@@ -330,6 +357,7 @@ class NotificationManager:
             "by_severity": dict(self._notifications_by_severity),
             "by_channel": dict(self._notifications_by_channel),
             "inbound_today": self._inbound_today_count,
+            "messaging_suppressed": self._messaging_suppressed,
             "safe_word_configured": self.safe_word_configured,
             "inbound_channels_active": [
                 ch for ch, enabled in [
@@ -530,6 +558,15 @@ class NotificationManager:
         """
         if not self.enabled:
             return
+
+        # v3.15.3: Messaging kill switch — block all outbound
+        if self._messaging_suppressed:
+            _LOGGER.debug("Notification suppressed by messaging kill switch: %s", title)
+            return
+
+        # v3.15.3: Live severity re-check — re-read config from config entry
+        # so OptionsFlow changes take effect without restart
+        self._refresh_config()
 
         # Quiet hours check (CRITICAL bypasses)
         if severity != Severity.CRITICAL and self._is_quiet_hours():
@@ -1018,10 +1055,13 @@ class NotificationManager:
 
     async def _repeat_alert(self, _now: Any = None) -> None:
         """Repeat the active CRITICAL alert."""
-        if not self.enabled:
+        if not self.enabled or self._messaging_suppressed:
             return
         if self._alert_state != AlertState.REPEATING or not self._active_alert_data:
             return
+
+        # v3.15.3: Re-read config so severity changes take effect on repeats
+        self._refresh_config()
 
         data = self._active_alert_data
         _LOGGER.info("Repeating CRITICAL alert: %s", data.get("title"))
@@ -1601,6 +1641,24 @@ class NotificationManager:
             k: v for k, v in self._dedup_cache.items() if v > cutoff
         }
         return False
+
+    # =========================================================================
+    # Live config refresh
+    # =========================================================================
+
+    def _refresh_config(self) -> None:
+        """Re-read config from the coordinator manager config entry.
+
+        v3.15.3: Severity threshold changes in OptionsFlow take effect immediately
+        instead of requiring a full HA restart. This prevents the scenario where
+        raising severity doesn't stop in-flight low-severity alerts.
+        """
+        from ..const import CONF_ENTRY_TYPE, ENTRY_TYPE_COORDINATOR_MANAGER
+        for entry in self.hass.config_entries.async_entries(DOMAIN):
+            if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_COORDINATOR_MANAGER:
+                new_config = {**entry.data, **entry.options}
+                self._config = new_config
+                return
 
     # =========================================================================
     # Channel qualification
