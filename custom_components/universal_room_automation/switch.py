@@ -1,6 +1,6 @@
 """Switch platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.15.3.1
+# Universal Room Automation v3.15.4
 # Build: 2026-01-02
 # File: switch.py
 #
@@ -501,12 +501,15 @@ class HVACObservationModeSwitch(SwitchEntity, RestoreEntity):
         return self._get_hvac() is not None
 
 
-class NMMessagingSuppressSwitch(SwitchEntity):
+class NMMessagingSuppressSwitch(SwitchEntity, RestoreEntity):
     """Kill switch for NM outbound messaging.
 
     When ON: All outbound notifications are suppressed. Active alerts are
     cancelled. The NM itself stays running for monitoring/diagnostics.
     When OFF (default): Normal notification delivery.
+
+    Uses RestoreEntity to persist state across HA restarts — if the user
+    engages the kill switch, it stays engaged after restart.
 
     Entity: switch.ura_nm_messaging_suppressed
     Device: URA: Notification Manager
@@ -530,6 +533,16 @@ class NMMessagingSuppressSwitch(SwitchEntity):
             sw_version=VERSION,
             via_device=(DOMAIN, "coordinator_manager"),
         )
+
+    async def async_added_to_hass(self) -> None:
+        """Restore state on startup."""
+        await super().async_added_to_hass()
+        last_state = await self.async_get_last_state()
+        if last_state and last_state.state == "on":
+            nm = self._get_nm()
+            if nm is not None:
+                await nm.async_suppress_messaging()
+                _LOGGER.info("Restored messaging suppression from previous state")
 
     def _get_nm(self):
         """Get the notification manager instance."""
