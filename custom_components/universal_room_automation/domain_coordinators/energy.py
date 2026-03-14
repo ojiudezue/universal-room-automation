@@ -222,6 +222,7 @@ class EnergyCoordinator(BaseCoordinator):
         self._load_shedding_active_level: int = 0  # 0=none, 1-4=cascade level
         self._learned_threshold_kw: float | None = None  # auto-learned from history
         self._peak_import_history: list[float] = []  # for learning
+        self._load_shedding_grace_cycles: int = 0  # suppress de-escalation after restore
 
         self._decision_timer_unsub = None
 
@@ -344,6 +345,18 @@ class EnergyCoordinator(BaseCoordinator):
 
         # v3.13.2: Restore MetricBaselines from DB
         await self._restore_energy_baselines()
+
+        # v3.15.0: Restore consumption history baselines from energy_daily
+        await self._restore_consumption_history()
+
+        # v3.15.0: Restore midnight snapshot (lifetime snapshots + billing)
+        await self._restore_midnight_snapshot()
+
+        # v3.15.0: Restore envoy cache (last-known values for offline defense)
+        await self._restore_envoy_cache()
+
+        # v3.15.0: Restore load shedding level
+        await self._restore_load_shedding_level()
 
         # Start periodic decision cycle
         self._decision_timer_unsub = async_track_time_interval(
@@ -534,6 +547,208 @@ class EnergyCoordinator(BaseCoordinator):
             self._predictor.set_temp_regression(base, coeff)
         except Exception as e:
             _LOGGER.warning("Could not fit temperature regression: %s", e)
+
+    # =========================================================================
+    # v3.15.0: Restart resilience + Envoy offline defense
+    # =========================================================================
+
+    async def _restore_consumption_history(self) -> None:
+        """Restore per-DOW consumption history from energy_daily on startup."""
+        db = self.hass.data.get("universal_room_automation", {}).get("database")
+        if db is None:
+            return
+        try:
+            rows = await db.get_consumption_history(days=60)
+            if rows:
+                self._predictor.restore_consumption_history(rows)
+        except Exception as e:
+            _LOGGER.warning("Could not restore consumption history: %s", e)
+
+    async def _restore_midnight_snapshot(self) -> None:
+        """Restore midnight snapshots + billing from DB on startup.
+
+        Restores:
+        - 6 lifetime sensor snapshots (if snapshot date = today)
+        - Daily billing accumulators (via CostTracker.restore_daily)
+        - _last_reset_date so daily reset logic works correctly
+        """
+        db = self.hass.data.get("universal_room_automation", {}).get("database")
+        if db is None:
+            return
+        try:
+            snapshot = await db.restore_midnight_snapshot()
+            if snapshot is None:
+                return
+
+            from homeassistant.util import dt as dt_util
+            snapshot_date = snapshot.get("snapshot_date", "")
+            today = dt_util.now().date().isoformat()
+
+            if snapshot_date == today:
+                # Restore lifetime snapshots for today's consumption tracking
+                self._lifetime_consumption_snapshot = snapshot.get("lifetime_consumption")
+                self._lifetime_production_snapshot = snapshot.get("lifetime_production")
+                self._lifetime_net_import_snapshot = snapshot.get("lifetime_net_import")
+                self._lifetime_net_export_snapshot = snapshot.get("lifetime_net_export")
+                self._lifetime_battery_charged_snapshot = snapshot.get("lifetime_battery_charged")
+                self._lifetime_battery_discharged_snapshot = snapshot.get("lifetime_battery_discharged")
+                self._last_reset_date = today
+                _LOGGER.info(
+                    "Restored midnight snapshots for today (%s)", today
+                )
+
+                # Restore daily billing accumulators
+                self._billing.restore_daily(snapshot)
+            else:
+                _LOGGER.debug(
+                    "Midnight snapshot date %s != today %s, snapshots will re-seed",
+                    snapshot_date, today,
+                )
+        except Exception as e:
+            _LOGGER.warning("Could not restore midnight snapshot: %s", e)
+
+    async def _save_midnight_snapshot(self) -> None:
+        """Save snapshot of lifetime sensors + billing accumulators.
+
+        Called at midnight (via _maybe_reset_daily), every 3rd cycle
+        (via _periodic_db_writes), and at teardown.
+        """
+        db = self.hass.data.get("universal_room_automation", {}).get("database")
+        if db is None:
+            return
+        try:
+            from homeassistant.util import dt as dt_util
+            billing = self._billing.get_status()
+            await db.save_midnight_snapshot({
+                "snapshot_date": dt_util.now().date().isoformat(),
+                "lifetime_consumption": self._lifetime_consumption_snapshot,
+                "lifetime_production": self._lifetime_production_snapshot,
+                "lifetime_net_import": self._lifetime_net_import_snapshot,
+                "lifetime_net_export": self._lifetime_net_export_snapshot,
+                "lifetime_battery_charged": self._lifetime_battery_charged_snapshot,
+                "lifetime_battery_discharged": self._lifetime_battery_discharged_snapshot,
+                "import_kwh_today": billing.get("import_kwh_today", 0),
+                "export_kwh_today": billing.get("export_kwh_today", 0),
+                "import_cost_today": billing.get("import_cost_today", 0),
+                "export_credit_today": billing.get("export_credit_today", 0),
+                "net_cost_today": billing.get("cost_today", 0),
+            })
+        except Exception as e:
+            _LOGGER.warning("Could not save midnight snapshot: %s", e)
+
+    async def _save_envoy_cache(self) -> None:
+        """Cache current Envoy sensor values to DB (each decision cycle).
+
+        Used on restart to provide last-known values when Envoy is offline.
+        """
+        db = self.hass.data.get("universal_room_automation", {}).get("database")
+        if db is None:
+            return
+
+        # Only cache if Envoy is currently available
+        soc = self._battery.battery_soc
+        if soc is None:
+            return  # Envoy offline — don't overwrite good cache with None
+
+        try:
+            await db.save_envoy_cache({
+                "soc": soc,
+                "net_power": self._battery.net_power,
+                "solar_production": self._battery.solar_production,
+                "battery_power": self._battery.battery_power,
+                "battery_capacity": self._predictor._get_battery_capacity_kwh(),
+                "lifetime_net_import": self._get_lifetime_net_import(),
+                "lifetime_net_export": self._get_lifetime_net_export(),
+                "lifetime_production": self._get_lifetime_production(),
+                "lifetime_consumption": self._get_lifetime_consumption(),
+                "lifetime_battery_charged": self._get_lifetime_battery_charged(),
+                "lifetime_battery_discharged": self._get_lifetime_battery_discharged(),
+            })
+        except Exception as e:
+            _LOGGER.warning("Could not save envoy cache: %s", e)
+
+    async def _restore_envoy_cache(self) -> None:
+        """Restore last-known Envoy values from DB on startup.
+
+        Used to populate battery_full_time hold cache and provide fallback
+        values when Envoy is slow to come online after HA restart.
+        Skips if cache is older than 4 hours (stale after extended downtime).
+        """
+        db = self.hass.data.get("universal_room_automation", {}).get("database")
+        if db is None:
+            return
+        try:
+            cache = await db.restore_envoy_cache()
+            if cache is None:
+                return
+
+            # Staleness check: skip if cache is older than 4 hours
+            from homeassistant.util import dt as dt_util
+            updated_at = cache.get("updated_at")
+            if updated_at:
+                try:
+                    cache_time = dt_util.parse_datetime(updated_at)
+                    if cache_time is not None:
+                        age_hours = (dt_util.utcnow() - cache_time).total_seconds() / 3600
+                        if age_hours > 4:
+                            _LOGGER.info(
+                                "Envoy cache is %.1f hours old, skipping restore",
+                                age_hours,
+                            )
+                            return
+                except (ValueError, TypeError):
+                    pass
+
+            # Restore battery_full_time hold cache from cached SOC
+            cached_soc = cache.get("soc")
+            if cached_soc is not None and cached_soc >= 99:
+                self._last_battery_full_time = "already_full"
+
+            _LOGGER.info(
+                "Restored envoy cache: SOC=%.0f%%, net_power=%.1f kW",
+                cached_soc or 0, cache.get("net_power") or 0,
+            )
+        except Exception as e:
+            _LOGGER.warning("Could not restore envoy cache: %s", e)
+
+    async def _restore_load_shedding_level(self) -> None:
+        """Restore load shedding active level from DB on startup.
+
+        Sets a grace period to prevent immediate de-escalation before
+        sustained readings buffer refills.
+        """
+        db = self.hass.data.get("universal_room_automation", {}).get("database")
+        if db is None:
+            return
+        try:
+            level_str = await db.restore_energy_state("load_shedding_level")
+            if level_str is not None:
+                self._load_shedding_active_level = int(level_str)
+                if self._load_shedding_active_level > 0:
+                    # Grace period: suppress de-escalation for a few cycles
+                    # so the sustained readings buffer can refill
+                    self._load_shedding_grace_cycles = 3
+                    _LOGGER.info(
+                        "Restored load shedding level: %d (grace period: %d cycles)",
+                        self._load_shedding_active_level,
+                        self._load_shedding_grace_cycles,
+                    )
+        except (ValueError, TypeError):
+            pass
+        except Exception as e:
+            _LOGGER.warning("Could not restore load shedding level: %s", e)
+
+    async def _save_load_shedding_level(self) -> None:
+        """Persist load shedding level to DB."""
+        db = self.hass.data.get("universal_room_automation", {}).get("database")
+        if db is None:
+            return
+        try:
+            await db.save_energy_state(
+                "load_shedding_level", str(self._load_shedding_active_level)
+            )
+        except Exception as e:
+            _LOGGER.warning("Could not save load shedding level: %s", e)
 
     def _get_lifetime_consumption(self) -> float | None:
         """Read Envoy lifetime energy consumption (MWh, monotonically increasing)."""
@@ -755,6 +970,9 @@ class EnergyCoordinator(BaseCoordinator):
             self._lifetime_battery_discharged_snapshot = current_battery_discharged
             self._tou_transition_count = 0
             self._last_reset_date = today
+
+            # v3.15.0: Persist new day's midnight snapshot immediately
+            self.hass.async_create_task(self._save_midnight_snapshot())
         else:
             # Seed each snapshot independently as entities become available
             if self._lifetime_consumption_snapshot is None and current_lifetime is not None:
@@ -1230,6 +1448,7 @@ class EnergyCoordinator(BaseCoordinator):
             self._crosscheck_consumption()
 
             # v3.11.0 D1/D2: Log energy history + external conditions every 3rd cycle (~15min)
+            # v3.15.0: Also saves envoy cache + midnight snapshot (serialized)
             self._cycle_count += 1
             if self._cycle_count % 3 == 0:
                 # Serialize DB writes to avoid SQLite contention
@@ -1556,6 +1775,10 @@ class EnergyCoordinator(BaseCoordinator):
             and self._load_shedding_active_level > 0
             and len(self._sustained_import_readings) >= readings_needed
         ):
+            # v3.15.0: Grace period after restore — let readings buffer refill
+            if self._load_shedding_grace_cycles > 0:
+                self._load_shedding_grace_cycles -= 1
+                return
             # Full window of below-threshold readings — de-escalate one level
             released = LOAD_SHEDDING_PRIORITY[self._load_shedding_active_level - 1]
             self._execute_shed_action(released, activate=False)
@@ -1820,6 +2043,9 @@ class EnergyCoordinator(BaseCoordinator):
         await self._save_circuit_state()
         # v3.13.2: Save baselines every 3rd cycle alongside other DB writes
         await self._save_energy_baselines()
+        # v3.15.0: Envoy cache + midnight snapshot (serialized with other writes)
+        await self._save_envoy_cache()
+        await self._save_midnight_snapshot()
 
     async def _save_circuit_state(self) -> None:
         """Persist SPAN circuit monitor state to DB for restart recovery."""
@@ -1999,6 +2225,10 @@ class EnergyCoordinator(BaseCoordinator):
         await self._save_circuit_state()
         # v3.13.2: Save energy baselines
         await self._save_energy_baselines()
+        # v3.15.0: Save envoy cache, midnight snapshot, load shedding level
+        await self._save_envoy_cache()
+        await self._save_midnight_snapshot()
+        await self._save_load_shedding_level()
         self._cancel_listeners()
         _LOGGER.info("Energy Coordinator stopped")
 
