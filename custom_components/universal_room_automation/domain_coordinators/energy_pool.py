@@ -227,6 +227,9 @@ class EVChargerController:
             state = self._get_evse_state(evse_id)
 
             if tou_period in ("peak", "mid_peak"):
+                # Skip if excess solar is actively charging this EVSE
+                if evse_id in self._excess_solar_active:
+                    continue
                 # Pause charging during peak/mid-peak
                 if state["is_on"] and evse_id not in self._paused_by_us:
                     actions.append({
@@ -296,15 +299,17 @@ class EVChargerController:
                 soc or 0, soc_threshold,
                 remaining_forecast_kwh or 0, kwh_threshold,
             )
-            # Turn on EVSEs that are off and not paused by TOU
+            # Turn on EVSEs — override TOU pause when battery is full + solar surplus
             for evse_id, config in self._evse.items():
                 switch_entity = config.get("switch", "")
                 if not switch_entity:
                     continue
-                if evse_id in self._paused_by_us:
-                    continue  # TOU pause takes priority
                 if evse_id in self._excess_solar_active:
                     continue  # Already on by us
+                # Claim EVSE from TOU pause if needed
+                was_tou_paused = evse_id in self._paused_by_us
+                if was_tou_paused:
+                    self._paused_by_us.discard(evse_id)
                 state = self._get_evse_state(evse_id)
                 if not state["is_on"]:
                     actions.append({
@@ -314,8 +319,15 @@ class EVChargerController:
                     })
                     self._excess_solar_active.add(evse_id)
                     _LOGGER.info(
-                        "Excess solar: turning on %s (SOC=%.0f%%, remaining=%.1f kWh)",
+                        "Excess solar: turning on %s (SOC=%.0f%%, remaining=%.1f kWh%s)",
                         evse_id, soc, remaining_forecast_kwh,
+                        ", overriding TOU pause" if was_tou_paused else "",
+                    )
+                elif was_tou_paused:
+                    # EVSE already on — just claim it
+                    self._excess_solar_active.add(evse_id)
+                    _LOGGER.info(
+                        "Excess solar: claiming %s from TOU pause (already on)", evse_id,
                     )
         else:
             # Conditions no longer met — turn off only what we turned on
