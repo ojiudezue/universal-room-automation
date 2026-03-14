@@ -3001,7 +3001,8 @@ class ZoneLastOccupantSensor(ZoneSensorBase, SensorEntity):
         attrs = {}
         
         if hasattr(self, '_last_occupant_time') and self._last_occupant_time:
-            attrs["last_seen"] = self._last_occupant_time.isoformat()
+            t = self._last_occupant_time
+            attrs["last_seen"] = t if isinstance(t, str) else t.isoformat()
             attrs["room"] = getattr(self, '_last_occupant_room', None)
         
         return attrs
