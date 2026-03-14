@@ -311,18 +311,34 @@ class TestExcessSolarNoneInputs:
 class TestExcessSolarTOUPauseInteraction:
     """Excess solar respects TOU-paused EVSEs."""
 
-    def test_paused_evse_excluded_from_excess_solar(self):
+    def test_excess_solar_overrides_tou_pause(self):
+        """Excess solar should claim EVSE from TOU pause when conditions are met."""
         h = _EVSEHarness(garage_a_on=False, garage_b_on=False)
         # Simulate garage_a paused by TOU
         h.ev._paused_by_us.add("garage_a")
         actions = h.ev.determine_excess_solar_actions(
             soc=96.0, remaining_forecast_kwh=6.0, tou_period="off_peak",
         )
-        # Only garage_b should be turned on
+        # Both should be turned on — excess solar overrides TOU pause
         turned_on = [a["target"] for a in actions]
-        assert "switch.garage_a" not in turned_on
+        assert "switch.garage_a" in turned_on
         assert "switch.garage_b" in turned_on
-        assert "garage_a" not in h.ev._excess_solar_active
+        assert "garage_a" in h.ev._excess_solar_active
+        # garage_a should no longer be TOU-paused
+        assert "garage_a" not in h.ev._paused_by_us
+
+    def test_tou_does_not_repause_excess_solar_evse(self):
+        """TOU control should skip EVSEs claimed by excess solar."""
+        h = _EVSEHarness(garage_a_on=True, garage_b_on=True)
+        # Simulate both claimed by excess solar
+        h.ev._excess_solar_active.add("garage_a")
+        h.ev._excess_solar_active.add("garage_b")
+        # TOU tries to pause during peak
+        actions = h.ev.determine_actions("peak")
+        # No pause actions — excess solar takes priority
+        assert actions == []
+        assert "garage_a" not in h.ev._paused_by_us
+        assert "garage_b" not in h.ev._paused_by_us
 
 
 class TestExcessSolarDeactivation:
