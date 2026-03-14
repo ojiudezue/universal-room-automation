@@ -1267,6 +1267,8 @@ class NotificationManager:
         if not message:
             return
         person_id = self._match_person_by_phone(phone)
+        if person_id is None:
+            return
         self.hass.async_create_task(
             self._process_inbound_reply(person_id, "whatsapp", message)
         )
@@ -1287,6 +1289,8 @@ class NotificationManager:
         if not message:
             return
         person_id = self._match_person_by_pushover_key(user_key)
+        if person_id is None:
+            return
         await self._process_inbound_reply(person_id, "pushover", message)
 
     async def _handle_bb_webhook(
@@ -1318,6 +1322,13 @@ class NotificationManager:
         sender = handle_obj.get("address", "") if isinstance(handle_obj, dict) else ""
 
         person_id = self._match_person_by_imessage_handle(sender)
+
+        # v3.15.3: Only process messages from known persons — BB webhook
+        # fires for ALL incoming iMessages, not just NM reply threads.
+        # Unknown senders are silently ignored to prevent spam loops.
+        if person_id is None:
+            return
+
         await self._process_inbound_reply(person_id, "imessage", text)
 
     def _match_person_by_phone(self, phone: str) -> str | None:
@@ -1363,6 +1374,10 @@ class NotificationManager:
         """Process an inbound text reply. Returns response text."""
         text = raw_text.strip().lower()
         database = self.hass.data.get(DOMAIN, {}).get("database")
+
+        # v3.15.3: Kill switch blocks replies too
+        if self._messaging_suppressed:
+            return ""
 
         # Track inbound
         self._inbound_today_count += 1
@@ -1468,7 +1483,17 @@ class NotificationManager:
             )
             return response
 
-        # Unrecognized
+        # Unrecognized — only reply when there's an active alert or recent
+        # notification context. Otherwise silently ignore to prevent spam from
+        # random texts that happen to come from known persons.
+        has_context = (
+            self._alert_state != AlertState.IDLE
+            or self._notifications_today_count > 0
+        )
+        if not has_context:
+            _LOGGER.debug("Ignoring unrecognized inbound '%s' — no alert context", raw_text)
+            return ""
+
         self._inbound_by_command["unknown"] += 1
         response = f"Unknown command. {RESPONSE_DICT_TEXT}"
         await self._log_and_reply(

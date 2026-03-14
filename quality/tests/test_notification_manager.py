@@ -742,12 +742,23 @@ class TestInboundProcessing:
 
     @pytest.mark.asyncio
     async def test_unknown_command_returns_help(self):
-        """Unknown text returns help text."""
+        """Unknown text returns help text when there's alert context."""
         hass = _make_hass()
         nm = NotificationManager(hass, _make_config())
+        # v3.15.3: unknown commands only reply when there's context
+        nm._notifications_today_count = 1
         response = await nm._process_inbound_reply(None, "companion", "foobar")
         assert "Unknown command" in response
         assert nm._inbound_by_command["unknown"] == 1
+
+    @pytest.mark.asyncio
+    async def test_unknown_command_ignored_without_context(self):
+        """Unknown text silently ignored when no alert context."""
+        hass = _make_hass()
+        nm = NotificationManager(hass, _make_config())
+        response = await nm._process_inbound_reply(None, "companion", "foobar")
+        assert response == ""
+        assert nm._inbound_by_command["unknown"] == 0
 
 
 class TestSafeWordValidation:
@@ -907,6 +918,8 @@ class TestInboundCounters:
         """Command counters track correctly."""
         hass = _make_hass()
         nm = NotificationManager(hass, _make_config())
+        # v3.15.3: Need notification context for unknown commands to register
+        nm._notifications_today_count = 1
         await nm._process_inbound_reply(None, "companion", "status")
         await nm._process_inbound_reply(None, "companion", "help")
         await nm._process_inbound_reply(None, "companion", "xyz")
