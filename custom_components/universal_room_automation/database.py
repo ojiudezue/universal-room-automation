@@ -1,6 +1,6 @@
 """Database for Universal Room Automation."""
 #
-# Universal Room Automation v3.14.9
+# Universal Room Automation v3.15.0
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors
@@ -645,6 +645,57 @@ class UniversalRoomDatabase:
                     )""",
                 ]):
                     failed_tables.append("circuit_state")
+
+                # -- v3.15.0: Envoy cache (last-known sensor values) ----------
+                if not await self._create_table_safe(db, "envoy_cache", [
+                    """CREATE TABLE IF NOT EXISTS envoy_cache (
+                        id INTEGER PRIMARY KEY CHECK (id = 1),
+                        soc REAL,
+                        net_power REAL,
+                        solar_production REAL,
+                        battery_power REAL,
+                        battery_capacity REAL,
+                        lifetime_net_import REAL,
+                        lifetime_net_export REAL,
+                        lifetime_production REAL,
+                        lifetime_consumption REAL,
+                        lifetime_battery_charged REAL,
+                        lifetime_battery_discharged REAL,
+                        updated_at TEXT NOT NULL
+                    )""",
+                ]):
+                    failed_tables.append("envoy_cache")
+
+                # -- v3.15.0: Midnight snapshots (lifetime sensor values) ------
+                if not await self._create_table_safe(db, "energy_midnight_snapshot", [
+                    """CREATE TABLE IF NOT EXISTS energy_midnight_snapshot (
+                        id INTEGER PRIMARY KEY CHECK (id = 1),
+                        snapshot_date TEXT NOT NULL,
+                        lifetime_consumption REAL,
+                        lifetime_production REAL,
+                        lifetime_net_import REAL,
+                        lifetime_net_export REAL,
+                        lifetime_battery_charged REAL,
+                        lifetime_battery_discharged REAL,
+                        import_kwh_today REAL NOT NULL DEFAULT 0,
+                        export_kwh_today REAL NOT NULL DEFAULT 0,
+                        import_cost_today REAL NOT NULL DEFAULT 0,
+                        export_credit_today REAL NOT NULL DEFAULT 0,
+                        net_cost_today REAL NOT NULL DEFAULT 0,
+                        updated_at TEXT NOT NULL
+                    )""",
+                ]):
+                    failed_tables.append("energy_midnight_snapshot")
+
+                # -- v3.15.0: Generic energy state key-value store -------------
+                if not await self._create_table_safe(db, "energy_state", [
+                    """CREATE TABLE IF NOT EXISTS energy_state (
+                        key TEXT PRIMARY KEY,
+                        value TEXT NOT NULL,
+                        updated_at TEXT NOT NULL
+                    )""",
+                ]):
+                    failed_tables.append("energy_state")
 
                 # ============================================================
                 # Schema migrations (per-table, safe)
@@ -2736,3 +2787,196 @@ class UniversalRoomDatabase:
         except Exception as e:
             _LOGGER.error("Error restoring circuit state: %s", e)
             return {}
+
+    # =========================================================================
+    # v3.15.0: ENVOY CACHE PERSISTENCE
+    # =========================================================================
+
+    async def save_envoy_cache(self, data: dict[str, float | None]) -> None:
+        """Save last-known Envoy sensor values (singleton row, upserted each cycle).
+
+        Args:
+            data: dict with keys matching envoy_cache columns (soc, net_power, etc.)
+        """
+        try:
+            now = dt_util.utcnow().isoformat()
+            async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
+                await db.execute("""
+                    INSERT OR REPLACE INTO envoy_cache
+                        (id, soc, net_power, solar_production, battery_power,
+                         battery_capacity, lifetime_net_import, lifetime_net_export,
+                         lifetime_production, lifetime_consumption,
+                         lifetime_battery_charged, lifetime_battery_discharged,
+                         updated_at)
+                    VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    data.get("soc"),
+                    data.get("net_power"),
+                    data.get("solar_production"),
+                    data.get("battery_power"),
+                    data.get("battery_capacity"),
+                    data.get("lifetime_net_import"),
+                    data.get("lifetime_net_export"),
+                    data.get("lifetime_production"),
+                    data.get("lifetime_consumption"),
+                    data.get("lifetime_battery_charged"),
+                    data.get("lifetime_battery_discharged"),
+                    now,
+                ))
+                await db.commit()
+        except Exception as e:
+            _LOGGER.error("Error saving envoy cache: %s", e)
+
+    async def restore_envoy_cache(self) -> dict[str, Any] | None:
+        """Restore last-known Envoy sensor values.
+
+        Returns:
+            dict with cached values + updated_at, or None if no cache.
+        """
+        try:
+            async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
+                db.row_factory = aiosqlite.Row
+                cursor = await db.execute(
+                    "SELECT * FROM envoy_cache WHERE id = 1"
+                )
+                row = await cursor.fetchone()
+                if row is None:
+                    return None
+                result = {k: row[k] for k in row.keys() if k != "id"}
+                _LOGGER.info("Restored envoy cache (updated %s)", result.get("updated_at"))
+                return result
+        except Exception as e:
+            _LOGGER.error("Error restoring envoy cache: %s", e)
+            return None
+
+    # =========================================================================
+    # v3.15.0: MIDNIGHT SNAPSHOT PERSISTENCE
+    # =========================================================================
+
+    async def save_midnight_snapshot(self, data: dict[str, Any]) -> None:
+        """Save midnight lifetime snapshots + billing accumulators.
+
+        Args:
+            data: dict with snapshot_date, lifetime_* values, and billing accumulators
+        """
+        try:
+            now = dt_util.utcnow().isoformat()
+            async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
+                await db.execute("""
+                    INSERT OR REPLACE INTO energy_midnight_snapshot
+                        (id, snapshot_date, lifetime_consumption, lifetime_production,
+                         lifetime_net_import, lifetime_net_export,
+                         lifetime_battery_charged, lifetime_battery_discharged,
+                         import_kwh_today, export_kwh_today,
+                         import_cost_today, export_credit_today, net_cost_today,
+                         updated_at)
+                    VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    data.get("snapshot_date"),
+                    data.get("lifetime_consumption"),
+                    data.get("lifetime_production"),
+                    data.get("lifetime_net_import"),
+                    data.get("lifetime_net_export"),
+                    data.get("lifetime_battery_charged"),
+                    data.get("lifetime_battery_discharged"),
+                    data.get("import_kwh_today", 0),
+                    data.get("export_kwh_today", 0),
+                    data.get("import_cost_today", 0),
+                    data.get("export_credit_today", 0),
+                    data.get("net_cost_today", 0),
+                    now,
+                ))
+                await db.commit()
+                _LOGGER.debug("Saved midnight snapshot for %s", data.get("snapshot_date"))
+        except Exception as e:
+            _LOGGER.error("Error saving midnight snapshot: %s", e)
+
+    async def restore_midnight_snapshot(self) -> dict[str, Any] | None:
+        """Restore midnight snapshot (lifetime values + billing accumulators).
+
+        Returns:
+            dict with snapshot data, or None if no snapshot exists.
+        """
+        try:
+            async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
+                db.row_factory = aiosqlite.Row
+                cursor = await db.execute(
+                    "SELECT * FROM energy_midnight_snapshot WHERE id = 1"
+                )
+                row = await cursor.fetchone()
+                if row is None:
+                    return None
+                result = {k: row[k] for k in row.keys() if k != "id"}
+                _LOGGER.info(
+                    "Restored midnight snapshot for %s", result.get("snapshot_date")
+                )
+                return result
+        except Exception as e:
+            _LOGGER.error("Error restoring midnight snapshot: %s", e)
+            return None
+
+    # =========================================================================
+    # v3.15.0: ENERGY STATE KEY-VALUE STORE
+    # =========================================================================
+
+    async def save_energy_state(self, key: str, value: str) -> None:
+        """Save a key-value pair to the energy state store."""
+        try:
+            now = dt_util.utcnow().isoformat()
+            async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
+                await db.execute("""
+                    INSERT OR REPLACE INTO energy_state (key, value, updated_at)
+                    VALUES (?, ?, ?)
+                """, (key, value, now))
+                await db.commit()
+        except Exception as e:
+            _LOGGER.error("Error saving energy state key '%s': %s", key, e)
+
+    async def restore_energy_state(self, key: str) -> str | None:
+        """Restore a value from the energy state store.
+
+        Returns:
+            The stored value string, or None if not found.
+        """
+        try:
+            async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
+                cursor = await db.execute(
+                    "SELECT value FROM energy_state WHERE key = ?", (key,)
+                )
+                row = await cursor.fetchone()
+                return row[0] if row else None
+        except Exception as e:
+            _LOGGER.error("Error restoring energy state key '%s': %s", key, e)
+            return None
+
+    async def get_consumption_history(self, days: int = 60) -> list[dict]:
+        """Get recent energy_daily rows for consumption history restore.
+
+        Returns list of dicts with date, consumption_kwh, day_of_week.
+        Only returns rows where consumption_kwh is not None.
+        """
+        try:
+            async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
+                db.row_factory = aiosqlite.Row
+                cursor = await db.execute("""
+                    SELECT date, consumption_kwh
+                    FROM energy_daily
+                    WHERE consumption_kwh IS NOT NULL
+                    ORDER BY date DESC
+                    LIMIT ?
+                """, (days,))
+                rows = await cursor.fetchall()
+                result = []
+                for row in rows:
+                    result.append({
+                        "date": row["date"],
+                        "consumption_kwh": row["consumption_kwh"],
+                    })
+                if result:
+                    _LOGGER.info(
+                        "Retrieved %d consumption history rows for restore", len(result)
+                    )
+                return result
+        except Exception as e:
+            _LOGGER.error("Error getting consumption history: %s", e)
+            return []

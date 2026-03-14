@@ -211,6 +211,33 @@ class CostTracker:
                 db_days, self._cost_this_cycle,
             )
 
+    def restore_daily(self, snapshot: dict[str, Any]) -> None:
+        """Restore today's billing accumulators from midnight snapshot.
+
+        Called on startup to recover partial-day billing that would
+        otherwise be lost on HA restart. Only restores if the snapshot
+        date matches today.
+        """
+        snapshot_date = snapshot.get("snapshot_date", "")
+        today = dt_util.now().date().isoformat()
+        if snapshot_date != today:
+            _LOGGER.debug(
+                "Midnight snapshot date %s != today %s, skipping billing restore",
+                snapshot_date, today,
+            )
+            return
+
+        self._import_kwh_today = snapshot.get("import_kwh_today", 0)
+        self._export_kwh_today = snapshot.get("export_kwh_today", 0)
+        self._import_cost_today = snapshot.get("import_cost_today", 0)
+        self._export_credit_today = snapshot.get("export_credit_today", 0)
+        self._cost_today = snapshot.get("net_cost_today", 0)
+        self._last_date = today
+        _LOGGER.info(
+            "Restored daily billing: import=%.3f kWh, export=%.3f kWh, cost=$%.4f",
+            self._import_kwh_today, self._export_kwh_today, self._cost_today,
+        )
+
     def _update_prediction(self, now: datetime) -> None:
         """Update bill prediction.
 

@@ -311,6 +311,36 @@ class DailyEnergyPredictor:
         estimated_time = now + timedelta(hours=hours_to_fill)
         self._battery_full_time = estimated_time.strftime("%H:%M")
 
+    def restore_consumption_history(self, rows: list[dict]) -> None:
+        """Restore per-DOW consumption history from DB rows on startup.
+
+        Args:
+            rows: list of dicts with 'date' (ISO str) and 'consumption_kwh'.
+                  Most recent first (DESC order from DB).
+        """
+        from datetime import date as date_cls
+        restored = 0
+        # Process oldest first so that append() keeps the most recent entries
+        # when deque maxlen=8 is exceeded (drops from left = oldest).
+        for row in reversed(rows):
+            date_str = row.get("date", "")
+            kwh = row.get("consumption_kwh")
+            if not date_str or kwh is None:
+                continue
+            try:
+                d = date_cls.fromisoformat(date_str)
+                dow = d.weekday()
+                self._consumption_history[dow].append(kwh)
+                restored += 1
+            except (ValueError, TypeError):
+                continue
+        if restored:
+            _LOGGER.info(
+                "Restored consumption history: %d days across %d DOWs",
+                restored,
+                sum(1 for d in self._consumption_history.values() if d),
+            )
+
     def record_actual_consumption(self, actual_kwh: float) -> None:
         """Record actual daily consumption for baseline learning.
 
