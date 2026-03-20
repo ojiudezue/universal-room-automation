@@ -384,11 +384,12 @@ class StateInferenceEngine:
             return HouseState.HOME_DAY
 
         # v3.15.0: Guest detection — unidentified persons while home
+        # NOTE: ARRIVING excluded — must transition to HOME_* first (GUEST is
+        # not a valid transition from ARRIVING). Guest detection fires next cycle.
         if unidentified_count > 0 and current_state in (
             HouseState.HOME_DAY,
             HouseState.HOME_EVENING,
             HouseState.HOME_NIGHT,
-            HouseState.ARRIVING,
         ):
             if current_state != HouseState.GUEST:
                 self._confidence = 0.8

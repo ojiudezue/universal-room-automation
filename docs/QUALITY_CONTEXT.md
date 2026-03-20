@@ -1,9 +1,10 @@
-# Quality Context - Post v3.2.9
+# Quality Context
 
-**Version:** 3.0  
-**Last Updated:** January 4, 2026  
-**Current Production:** v3.2.9  
-**Status:** Active quality standards  
+**Version:** 4.0
+**Last Updated:** March 18, 2026
+**Current Production:** v3.16.0
+**Status:** Active quality standards
+**Bug Classes:** 17 documented (7 original + 10 new from Jan–Mar 2026)  
 
 ---
 
@@ -36,7 +37,7 @@
 - **Time:** 10 minutes
 
 ### 3. Current Roadmap
-- **Location:** `ROADMAP_v8.md`
+- **Location:** `ROADMAP_v10.md`
 - **Purpose:** Understand project direction
 - **Key:** Where we've been, where we're going
 - **Time:** 10 minutes (scan), 30 minutes (full read)
@@ -330,6 +331,442 @@ This motivated an entire 4-version repair cycle (v3.13.0-v3.13.3) with unnecessa
 
 ---
 
+### Bug Class #8: Type Safety in Dynamically-Structured Data ⚠️
+
+**The Mistake:**
+```python
+# ❌ WRONG - Assumes AI parser always returns proper dicts
+for action in parsed_actions:
+    target = action["target"]  # KeyError if not dict-like
+    service_call = {**target, **action["data"]}  # TypeError if not dict
+```
+
+**Why it fails:**
+- AI rule parser (or any external/dynamic data) can return non-dict values
+- No defensive type checking before dict unpacking with `{**obj}`
+- Result: TypeError/KeyError crashes rule execution for all rules, not just the bad one
+
+**The Fix:**
+```python
+# ✅ CORRECT - Validate type before unpacking
+for action in parsed_actions:
+    if not isinstance(action, dict):
+        continue
+    target = action.get("target", {})
+    if not isinstance(target, dict):
+        target = {}
+    data = action.get("data", {})
+    if not isinstance(data, dict):
+        data = {}
+    service_call = {**target, **data}
+```
+
+**Prevention:**
+- [ ] Guard `{**obj}` unpacking with `isinstance(obj, dict)` checks
+- [ ] Use `.get()` with default empty dict for nested fields
+- [ ] Never trust external/dynamic data shape (AI, webhooks, DB JSON)
+- [ ] Test with intentionally malformed input
+
+**Discovered:** v3.12.1
+**Impact:** AI automation execution crashes on malformed rules
+**Severity:** HIGH
+
+---
+
+### Bug Class #9: Database Corruption Cascade from Single Table Failure ⚠️
+
+**The Mistake:**
+```python
+# ❌ WRONG - Single try/except wraps all table creations
+def initialize(self):
+    try:
+        conn.execute("CREATE TABLE energy_snapshots ...")
+        conn.execute("CREATE TABLE energy_daily ...")  # Never runs if above fails
+        conn.execute("CREATE TABLE evse_state ...")     # Never runs
+        conn.commit()
+    except:
+        rollback()  # ALL tables rolled back
+```
+
+**Why it fails:**
+- B-tree corruption in one table triggers exception, rolling back ALL subsequent CREATE TABLE statements
+- 22 other tables never created, breaking any code expecting those tables
+- Single transaction scope means one failure = total schema failure
+
+**The Fix:**
+```python
+# ✅ CORRECT - Per-table isolation with independent commit
+for table_def in TABLE_DEFINITIONS:
+    try:
+        conn.execute(table_def.sql)
+        conn.commit()
+    except Exception as e:
+        conn.rollback()
+        if "corrupt" in str(e) and table_def.name in REPAIRABLE_TABLES:
+            conn.execute(f"DROP TABLE IF EXISTS {table_def.name}")
+            conn.execute(table_def.sql)
+            conn.commit()
+        else:
+            _LOGGER.error("Table %s failed: %s", table_def.name, e)
+```
+
+**Prevention:**
+- [ ] Wrap each DB table creation in its own try/except + commit
+- [ ] Use whitelists (frozenset) for destructive auto-repair (DROP TABLE)
+- [ ] Log failures but continue with other operations
+- [ ] Test with intentionally corrupted tables
+
+**Discovered:** v3.13.0
+**Impact:** All coordinator DB operations broken by one corrupt table
+**Severity:** CRITICAL
+
+---
+
+### Bug Class #10: Cross-Restart State Loss (In-Memory Only) ⚠️
+
+**The Mistake:**
+```python
+# ❌ WRONG - Critical state in memory only
+class EnergyCoordinator:
+    def __init__(self):
+        self.daily_consumption_kwh = 0.0  # Resets to 0 on restart
+        self.load_shedding_level = 0      # Protection drops
+        self.battery_full_time = None     # "unknown" until Envoy reconnects
+        self.consumption_history = {}     # Prediction fallback to default
+```
+
+**Why it fails:**
+- HA restart kills process → all in-memory state lost mid-day
+- Midnight billing accumulators reset to zero
+- Load shedding defenses drop instantly
+- Battery timing unknown until next Envoy update
+- Consumption predictions fall back to generic defaults
+
+**The Fix:**
+```python
+# ✅ CORRECT - DB persistence with save/restore
+async def async_setup(self):
+    await self._restore_consumption_history()  # Per-DOW baselines
+    await self._restore_midnight_snapshot()    # Billing + lifetime
+    await self._restore_envoy_cache()          # Battery timing (4h staleness guard)
+    await self._restore_load_shedding_level()  # 3-cycle grace period
+
+async def async_teardown(self):
+    await self._save_all_state()
+
+# Also save periodically (every 15 min) for crash resilience
+```
+
+**Prevention:**
+- [ ] Identify all critical state in each coordinator
+- [ ] Persist to DB at shutdown + periodic intervals
+- [ ] Restore at startup with date/staleness checks
+- [ ] Add grace periods for restored state (e.g., 3-cycle hold on load shedding)
+- [ ] Test: kill HA process, restart, verify state continuity
+
+**Discovered:** v3.14.0, v3.15.0
+**Impact:** Wrong energy calculations, lost load shedding protection, unknown battery timing
+**Severity:** CRITICAL
+
+---
+
+### Bug Class #11: UTC vs Local Timezone Date Comparison ⚠️
+
+**The Mistake:**
+```python
+# ❌ WRONG - Compare UTC date() against local date()
+setting = sun_entity.attributes['setting']  # UTC datetime
+now_local = dt_util.now()                   # Local timezone
+
+if setting.date() == now_local.date():  # FALSE after midnight UTC!
+    window_hours = (setting - rising).total_seconds() / 3600
+else:
+    window_hours = 4.0  # Fallback — wrong
+```
+
+**Why it fails:**
+- Sunset at 7:40 PM CDT = 00:40 UTC **next day**
+- `setting.date()` returns March 14 (UTC), `now_local.date()` returns March 13 (CDT)
+- Date comparison fails → falls through to 4h default instead of correct 12h window
+- All solar-dependent calculations (battery strategy, forecasting) are wrong
+
+**The Fix:**
+```python
+# ✅ CORRECT - Convert to same timezone before comparing dates
+rising_local = rising.astimezone(now_local.tzinfo)
+setting_local = setting.astimezone(now_local.tzinfo)
+
+if rising_local.date() == now_local.date():
+    window_hours = (setting_local - rising_local).total_seconds() / 3600
+```
+
+**Prevention:**
+- [ ] ALWAYS normalize datetimes to same timezone before `.date()` comparison
+- [ ] Use `.astimezone(tz)` to convert UTC → local before date ops
+- [ ] Never compare `.date()` between UTC-aware and local-aware datetimes
+- [ ] Test across timezone boundaries (sunset near midnight UTC)
+
+**Discovered:** v3.14.2
+**Impact:** Solar window 4h instead of 12h, wrong battery strategy
+**Severity:** HIGH
+
+---
+
+### Bug Class #12: Thread-Unsafe State Writes from Signal Handlers ⚠️
+
+**The Mistake:**
+```python
+# ❌ WRONG - Direct state write from dispatcher callback
+def _handle_census_update(self, data):
+    self._attr_native_value = data["count"]
+    self.async_write_ha_state()  # RuntimeError: not from event loop
+```
+
+**Why it fails:**
+- HA 2026+ / Python 3.14 enforce that `async_write_ha_state()` must be called from the event loop thread
+- Dispatcher signal callbacks may run in worker threads
+- Result: RuntimeError, frozen UI, entity updates lost
+
+**The Fix:**
+```python
+# ✅ CORRECT - Use scheduler-safe method
+def _handle_census_update(self, data):
+    self._attr_native_value = data["count"]
+    self.async_schedule_update_ha_state()  # Safe from any thread
+```
+
+**Prevention:**
+- [ ] Never call `async_write_ha_state()` from signal handlers or callbacks
+- [ ] Use `async_schedule_update_ha_state()` for thread-safe state pushes
+- [ ] Audit all `async_dispatcher_connect` handlers for direct state writes
+- [ ] Search for `async_write_ha_state` outside of `async def` methods
+
+**Discovered:** v3.15.2
+**Impact:** RuntimeError, entity not updating, frozen UI
+**Severity:** HIGH
+
+---
+
+### Bug Class #13: DB Returns Strings Where Datetime Expected ⚠️
+
+**The Mistake:**
+```python
+# ❌ WRONG - Assumes DB always returns datetime objects
+last_time = db_result['last_occupant_time']
+attributes = {'time': last_time.isoformat()}  # AttributeError if string
+```
+
+**Why it fails:**
+- SQLite returns timestamps as strings (ISO format), not datetime objects
+- Code assumed datetime, called `.isoformat()` on an already-formatted string
+- Result: AttributeError or double-encoding
+
+**The Fix:**
+```python
+# ✅ CORRECT - Type guard before method call
+last_time = db_result['last_occupant_time']
+if isinstance(last_time, str):
+    time_str = last_time
+else:
+    time_str = last_time.isoformat() if last_time else None
+```
+
+**Prevention:**
+- [ ] Always guard DB values with `isinstance()` before calling type-specific methods
+- [ ] SQLite returns strings for TEXT columns — never assume datetime
+- [ ] Test with raw DB data, not just mocks with datetime objects
+
+**Discovered:** v3.15.2
+**Impact:** AttributeError in sensor attributes
+**Severity:** MEDIUM
+
+---
+
+### Bug Class #14: Config Snapshot Staleness (Read Once at Init) ⚠️
+
+**The Mistake:**
+```python
+# ❌ WRONG - Read config once, cache forever
+class NotificationManager:
+    async def async_setup(self):
+        self._severity_threshold = self.config_entry.options.get('severity', 'LOW')
+
+    async def async_notify(self, alert):
+        if alert.severity >= self._severity_threshold:  # Stale value
+            await self._send(alert)
+```
+
+**Why it fails:**
+- Config read once at setup, cached in instance variable
+- User changes severity via OptionsFlow → `entry.options` updated
+- Coordinator still has old value in memory → changes ignored until restart
+
+**The Fix:**
+```python
+# ✅ CORRECT - Re-read config on each operation
+async def async_notify(self, alert):
+    self._refresh_config()  # Re-read entry.options each time
+    if alert.severity >= self._severity_threshold:
+        await self._send(alert)
+
+def _refresh_config(self):
+    config = {**self._config_entry.data, **self._config_entry.options}
+    self._severity_threshold = config.get('severity', 'LOW')
+```
+
+**Prevention:**
+- [ ] For user-editable config, re-read at operation time (not just init)
+- [ ] Call `_refresh_config()` at top of every public method
+- [ ] Test: Change config in OptionsFlow, verify immediate effect without restart
+- [ ] Don't rely on config_entry_update listener for immediate effect (async race)
+
+**Discovered:** v3.15.3
+**Impact:** Severity/filter changes ignored until HA restart
+**Severity:** HIGH
+
+---
+
+### Bug Class #15: Inbound Message Spam (No Sender/Context Filtering) ⚠️
+
+**The Mistake:**
+```python
+# ❌ WRONG - Process ALL inbound messages indiscriminately
+def _handle_webhook(self, data):
+    sender = data['sender']
+    message = data['message']
+    self._process_inbound_reply(sender, message)  # Fires for everything
+```
+
+**Why it fails:**
+- Webhook fires for every message (group chats, random texts, spam)
+- Unknown senders get "Unknown command" responses → reply loops
+- Known persons' random texts trigger reply bot without alert context
+- Kill switch doesn't block inbound processing
+
+**The Fix:**
+```python
+# ✅ CORRECT - Three-layer inbound filter
+def _handle_webhook(self, data):
+    # Layer 1: Known sender only
+    person_id = self._person_from_sender(data['sender'])
+    if person_id is None:
+        return  # Silently ignore
+
+    # Layer 2: Context required (active alert or recent NM activity)
+    if not self._is_reply_context_active():
+        return
+
+    # Layer 3: Kill switch
+    if self._messaging_suppressed:
+        return
+
+    self._process_inbound_reply(person_id, data['message'])
+```
+
+**Prevention:**
+- [ ] Add unknown sender filter to ALL inbound handlers
+- [ ] Require alert/activity context before auto-replying
+- [ ] Kill switch must block inbound processing too
+- [ ] Test: unknown sender → no reply; known person without context → no reply
+
+**Discovered:** v3.15.3.1
+**Impact:** Unwanted replies to strangers, reply loops, spam
+**Severity:** HIGH
+
+---
+
+### Bug Class #16: CRITICAL Severity Bypasses All Safety Filters ⚠️
+
+**The Mistake:**
+```python
+# ❌ WRONG - Hardcode CRITICAL severity on routine alerts
+async def _notify_circuit_anomaly(self, circuit):
+    await self.nm.async_notify({
+        'severity': 'CRITICAL',  # Bypasses quiet hours, kill switch, threshold
+        'title': f"Breaker alert: {circuit.name}"
+    })
+```
+
+**Why it fails:**
+- CRITICAL is designed to bypass quiet hours, kill switch, and severity threshold
+- Routine breaker alerts hardcoded as CRITICAL → bypass ALL NM protections
+- Every unknown circuit spike → CRITICAL → unblockable notification spam
+
+**The Fix:**
+```python
+# ✅ CORRECT - Severity appropriate to alert type
+severity = 'HIGH'  # Important but not emergency
+if circuit.name == 'unknown':
+    return  # Filter unknown circuits entirely
+if circuit.consumption_wh < 50:
+    return  # Filter low-energy noise
+
+await self.nm.async_notify({'severity': severity, 'title': ...})
+```
+
+**Prevention:**
+- [ ] Reserve CRITICAL for true emergencies only (fire, break-in, generator failure)
+- [ ] Derive severity from alert characteristics, never hardcode CRITICAL
+- [ ] All filtering (kill switch, quiet hours) must apply to EVERY severity level
+- [ ] Add energy/consumption threshold to filter noise alerts
+
+**Discovered:** v3.16.0
+**Impact:** Unblockable alert spam, kill switch ineffective
+**Severity:** HIGH
+
+---
+
+### Bug Class #17: Unbounded Retry Loops on Dependent Initialization ⚠️
+
+**The Mistake:**
+```python
+# ❌ WRONG - Retry forever without limit
+async def async_added_to_hass(self):
+    while True:
+        try:
+            await self._sync_to_nm()
+            break
+        except:
+            await asyncio.sleep(10)  # No max retries!
+```
+
+**Why it fails:**
+- If the dependent service (NM) never initializes, loop retries indefinitely
+- Consumes asyncio task slot forever
+- No logging after timeout → silent resource leak
+- No cleanup on entity removal → orphaned task
+
+**The Fix:**
+```python
+# ✅ CORRECT - Bounded retry with timeout
+MAX_RETRIES = 18  # 18 * 10s = 3 minutes cap
+
+async def async_added_to_hass(self):
+    for attempt in range(MAX_RETRIES):
+        try:
+            await self._sync_to_nm()
+            return
+        except Exception as e:
+            if attempt < MAX_RETRIES - 1:
+                await asyncio.sleep(10)
+            else:
+                _LOGGER.warning("NM sync failed after %d attempts: %s", MAX_RETRIES, e)
+                return  # Give up gracefully
+```
+
+**Prevention:**
+- [ ] Every retry loop must have explicit max count
+- [ ] Total wait time cap: max_retries * delay < 5 minutes
+- [ ] Log warning and give up gracefully on timeout
+- [ ] Store timer/task handle for cancellation on teardown
+- [ ] Test: simulate dependency never initializing, verify cleanup
+
+**Discovered:** v3.16.0
+**Impact:** Resource leak, thread starvation, orphaned tasks
+**Severity:** MEDIUM
+
+---
+
 ## ✅ MANDATORY VALIDATION CHECKLIST
 
 **Before EVERY deployment, complete this checklist:**
@@ -493,7 +930,8 @@ grep -n "VERSION" const.py manifest.json
 
 ### Test Coverage Standards
 
-**Minimum Coverage:** 90% (current: ~92%)
+**Minimum Coverage:** 90%
+**Current Test Count:** 1,126 tests (as of v3.16.0)
 
 **Required Tests:**
 - Unit tests for all sensor types
@@ -501,42 +939,14 @@ grep -n "VERSION" const.py manifest.json
 - Regression tests for known bug classes
 - Config flow tests for all steps
 - Database tests for all operations
+- Energy coordinator restart resilience tests
+- Notification manager inbound/outbound tests
+- AI automation type safety tests
 
-### Test Organization
+### Test Execution
 
-```
-Tests/
-├── conftest.py              # Fixtures
-├── pytest.ini               # Config
-├── test_automation.py       # Automation logic
-├── test_sensors.py          # Sensor entities
-├── test_config_flow.py      # Configuration
-├── test_person_tracking.py  # Person tracking
-├── test_regressions.py      # Known bug prevention
-├── test_aggregation.py      # Whole-house sensors
-└── pre_deployment_test.sh   # Deployment script
-```
-
-### Pre-Deployment Script
-
-**Location:** `Tests/pre_deployment_test.sh`
-
-**Usage:**
 ```bash
-cd Tests
-bash pre_deployment_test.sh "3.2.9"
-```
-
-**Expected Output:**
-```
-🧪 Pre-deployment test for v3.2.9
-✅ ALL TESTS PASSED - Safe to deploy
-```
-
-**If tests fail:**
-```
-❌ TESTS FAILED - DO NOT DEPLOY
-[Details of failures]
+PYTHONPATH=quality python3 -m pytest quality/tests/ -v
 ```
 
 **Mandatory:** Run before every deployment, no exceptions!
@@ -580,7 +990,7 @@ bash pre_deployment_test.sh "3.2.9"
 
 ### Code Quality
 - [x] Zero syntax errors
-- [x] All tests passing (178+)
+- [x] All tests passing (1,126+)
 - [x] Test coverage > 90%
 - [x] No hardcoded values
 - [x] Proper error handling
@@ -756,7 +1166,7 @@ def my_function(param1, param2):
 
 - [ ] All syntax checks pass
 - [ ] All validation checks pass
-- [ ] All tests pass (178+)
+- [ ] All tests pass (1,126+)
 - [ ] Version numbers updated
 - [ ] Documentation updated
 - [ ] Context documents updated
@@ -794,7 +1204,7 @@ Music Following was originally a house-level feature, later promoted to a coordi
 
 ---
 
-**Quality Context v3.1**
-**Last Updated:** March 13, 2026
+**Quality Context v4.0**
+**Last Updated:** March 18, 2026
 **Next Update:** After discovering new patterns
 **Status:** Active quality standards
