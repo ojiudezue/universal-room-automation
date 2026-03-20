@@ -276,6 +276,22 @@ class StubPersonCensusV2:
                 if source:
                     family_trackers.add(source)
 
+        # Layer 1: Device registry expansion — find sibling device_tracker
+        # entities on the same HA device.
+        if hasattr(self, '_device_registry_siblings'):
+            for tracker_eid in list(family_trackers):
+                siblings = self._device_registry_siblings.get(tracker_eid, [])
+                family_trackers.update(siblings)
+
+        # Layer 2: MAC cross-reference
+        family_macs: set = set()
+        for tracker_eid in family_trackers:
+            tracker_state = self.hass.states.get(tracker_eid)
+            if tracker_state:
+                mac = tracker_state.attributes.get("mac", "")
+                if mac:
+                    family_macs.add(mac.lower())
+
         recency_seconds = WIFI_GUEST_RECENCY_HOURS * 3600
         guest_count = 0
         all_states = self.hass.states.async_all("device_tracker")
@@ -314,6 +330,11 @@ class StubPersonCensusV2:
 
             # Filter 4: exclude tracked persons' devices (family phones)
             if state.entity_id in family_trackers:
+                continue
+
+            # Filter 4b: exclude by MAC match against family devices
+            device_mac = attrs.get("mac", "").lower()
+            if device_mac and device_mac in family_macs:
                 continue
 
             # Filter 5: recency — only count recently-appeared devices
@@ -1471,6 +1492,123 @@ class TestWiFiGuestCount:
         census = StubPersonCensusV2(hass)
         # Only the 2 guest Android phones should be counted
         assert census._get_wifi_guest_count(now) == 2
+
+    def test_device_registry_sibling_excludes_unifi_tracker(self):
+        """Regression: UniFi tracker for family phone excluded via device registry.
+
+        A family member's phone creates two device_trackers:
+        - device_tracker.ezinne_iphone (Companion App, linked to person)
+        - device_tracker.unifi_default_9c_b8_b4 (UniFi, NOT linked to person)
+        Layer 1 (device registry expansion) should discover the sibling
+        and exclude it from the guest count.
+        """
+        hass = _make_hass_with_entry({
+            CONF_GUEST_VLAN_SSID: "Revel",
+            "tracked_persons": ["person.ezinne"],
+        })
+        # Person entity with Companion App tracker
+        hass.set_state("person.ezinne", "home", {
+            "device_trackers": ["device_tracker.ezinne_iphone"],
+            "source": "device_tracker.ezinne_iphone",
+        })
+        # UniFi tracker for same phone — on guest SSID, looks like a guest
+        self._add_device_tracker(
+            hass, "device_tracker.unifi_default_9c_b8_b4", "home",
+            essid="Revel", host_name="iPhone",
+        )
+        self._setup_async_all(hass, ["device_tracker.unifi_default_9c_b8_b4"])
+        census = StubPersonCensusV2(hass)
+        # Without device registry: would count as 1 guest
+        assert census._get_wifi_guest_count() == 1
+
+        # WITH device registry sibling mapping: excluded
+        census._device_registry_siblings = {
+            "device_tracker.ezinne_iphone": [
+                "device_tracker.unifi_default_9c_b8_b4",
+            ],
+        }
+        assert census._get_wifi_guest_count() == 0
+
+    def test_mac_cross_reference_excludes_family_phone(self):
+        """Regression: Family phone excluded by MAC match even without
+        device registry merge (e.g., different HA devices).
+
+        Layer 2 collects MACs from family trackers and matches against
+        WiFi candidate devices.
+        """
+        hass = _make_hass_with_entry({
+            CONF_GUEST_VLAN_SSID: "Revel",
+            "tracked_persons": ["person.ezinne"],
+        })
+        # Person entity with Companion App tracker
+        hass.set_state("person.ezinne", "home", {
+            "device_trackers": ["device_tracker.ezinne_iphone"],
+            "source": "device_tracker.ezinne_iphone",
+        })
+        # Companion App tracker has MAC
+        hass.set_state("device_tracker.ezinne_iphone", "home", {
+            "source_type": "gps",
+            "mac": "9C:B8:B4:9C:1C:52",
+        })
+        # UniFi tracker for same phone — same MAC, different entity_id
+        self._add_device_tracker(
+            hass, "device_tracker.unifi_default_9c_b8_b4", "home",
+            essid="Revel", host_name="iPhone",
+        )
+        # Add MAC to UniFi tracker attributes
+        hass._states["device_tracker.unifi_default_9c_b8_b4"].attributes["mac"] = "9c:b8:b4:9c:1c:52"
+        self._setup_async_all(hass, ["device_tracker.unifi_default_9c_b8_b4"])
+        census = StubPersonCensusV2(hass)
+        # MAC match: family tracker has 9C:B8:B4:9C:1C:52, WiFi device has same → excluded
+        assert census._get_wifi_guest_count() == 0
+
+    def test_mac_case_insensitive(self):
+        """MAC matching is case-insensitive."""
+        hass = _make_hass_with_entry({
+            CONF_GUEST_VLAN_SSID: "Revel",
+            "tracked_persons": ["person.oji"],
+        })
+        hass.set_state("person.oji", "home", {
+            "device_trackers": ["device_tracker.oji_phone"],
+            "source": "device_tracker.oji_phone",
+        })
+        hass.set_state("device_tracker.oji_phone", "home", {
+            "source_type": "gps",
+            "mac": "AA:BB:CC:DD:EE:FF",
+        })
+        self._add_device_tracker(
+            hass, "device_tracker.unifi_oji", "home",
+            essid="Revel", host_name="iPhone",
+        )
+        hass._states["device_tracker.unifi_oji"].attributes["mac"] = "aa:bb:cc:dd:ee:ff"
+        self._setup_async_all(hass, ["device_tracker.unifi_oji"])
+        census = StubPersonCensusV2(hass)
+        assert census._get_wifi_guest_count() == 0
+
+    def test_actual_guest_not_excluded_by_mac(self):
+        """Real guest devices are NOT excluded by MAC matching."""
+        hass = _make_hass_with_entry({
+            CONF_GUEST_VLAN_SSID: "Revel",
+            "tracked_persons": ["person.ezinne"],
+        })
+        hass.set_state("person.ezinne", "home", {
+            "device_trackers": ["device_tracker.ezinne_iphone"],
+            "source": "device_tracker.ezinne_iphone",
+        })
+        hass.set_state("device_tracker.ezinne_iphone", "home", {
+            "source_type": "gps",
+            "mac": "AA:BB:CC:11:22:33",
+        })
+        # Guest phone with DIFFERENT MAC
+        self._add_device_tracker(
+            hass, "device_tracker.guest_phone", "home",
+            essid="Revel", host_name="Galaxy-S24",
+        )
+        hass._states["device_tracker.guest_phone"].attributes["mac"] = "ff:ee:dd:cc:bb:aa"
+        self._setup_async_all(hass, ["device_tracker.guest_phone"])
+        census = StubPersonCensusV2(hass)
+        # Different MAC → still counted as guest
+        assert census._get_wifi_guest_count() == 1
 
 
 # ============================================================================
