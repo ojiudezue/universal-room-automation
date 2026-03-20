@@ -1,6 +1,6 @@
 """Camera integration and person census for Universal Room Automation v3.5.0."""
 #
-# Universal Room Automation v3.16.1
+# Universal Room Automation v3.16.2
 # Build: 2026-02-23
 # File: camera_census.py
 # Cycle 3: Camera Integration & Census Core
@@ -1495,8 +1495,12 @@ class PersonCensus:
            HomePods, WiiMs, cameras, IoT, network gear.
         3. Exclude tablets (TABLET_HOSTNAME_PREFIXES): iPads — guests
            may bring tablets but we count phones (1 per guest) for accuracy.
-        4. Person exclusion: Excludes device_trackers associated with
-           tracked person entities (family members' phones).
+        4. Person exclusion (3-layer):
+           a. Direct entity_id match from person.device_trackers
+           b. Device registry sibling expansion — finds UniFi trackers
+              that share an HA device with a person's Companion App tracker
+           c. MAC cross-reference — excludes devices whose MAC matches
+              any family tracker's MAC attribute
         5. Recency filter: Only counts devices whose state last changed
            within WIFI_GUEST_RECENCY_HOURS (default 24h).
 
@@ -1525,6 +1529,33 @@ class PersonCensus:
                 source = person_state.attributes.get("source")
                 if source:
                     family_trackers.add(source)
+
+        # Layer 1: Device registry expansion — find sibling device_tracker
+        # entities on the same HA device. Catches UniFi trackers for phones
+        # whose Companion App tracker is linked to a person entity.
+        try:
+            ent_reg = er.async_get(self.hass)
+            seen_device_ids: set[str] = set()
+            for tracker_eid in list(family_trackers):
+                entry = ent_reg.async_get(tracker_eid)
+                if entry and entry.device_id and entry.device_id not in seen_device_ids:
+                    seen_device_ids.add(entry.device_id)
+                    for sibling in er.async_entries_for_device(ent_reg, entry.device_id):
+                        if sibling.domain == "device_tracker":
+                            family_trackers.add(sibling.entity_id)
+        except Exception:  # noqa: BLE001
+            pass  # Graceful degradation — fall back to direct entity_id matching
+
+        # Layer 2: MAC cross-reference — collect MACs from family trackers
+        # that expose them, for matching against WiFi devices whose entity_id
+        # wasn't discovered by Layer 1 (e.g., Private WiFi Address splits).
+        family_macs: set[str] = set()
+        for tracker_eid in family_trackers:
+            tracker_state = self.hass.states.get(tracker_eid)
+            if tracker_state:
+                mac = tracker_state.attributes.get("mac", "")
+                if mac:
+                    family_macs.add(mac.lower())
 
         recency_seconds = WIFI_GUEST_RECENCY_HOURS * 3600
         guest_count = 0
@@ -1570,10 +1601,20 @@ class PersonCensus:
                 continue
 
             # Filter 4: exclude tracked persons' devices (family phones)
+            # Checks entity_id (direct + device registry siblings)
             if state.entity_id in family_trackers:
                 _LOGGER.debug(
                     "WiFi guest exclusion (family): %s (hostname=%s)",
                     state.entity_id, attrs.get("host_name", ""),
+                )
+                continue
+
+            # Filter 4b: exclude by MAC match against family devices
+            device_mac = attrs.get("mac", "").lower()
+            if device_mac and device_mac in family_macs:
+                _LOGGER.debug(
+                    "WiFi guest exclusion (family MAC): %s (mac=%s, hostname=%s)",
+                    state.entity_id, device_mac, attrs.get("host_name", ""),
                 )
                 continue
 
