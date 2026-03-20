@@ -314,6 +314,38 @@ class TestStateInferenceEngine:
         )
         assert engine.confidence > 0
 
+    def test_arriving_with_unidentified_transitions_to_home_not_guest(self):
+        """Regression: ARRIVING + unidentified must go to HOME_* first, not GUEST.
+
+        v3.15.1 guest detection included ARRIVING in the check, but GUEST is
+        not a valid transition from ARRIVING → state machine deadlock. The fix:
+        ARRIVING always transitions to HOME_*, guest detection fires next cycle.
+        """
+        engine = StateInferenceEngine()
+        result = engine.infer(
+            census_count=6,
+            current_state=HouseState.ARRIVING,
+            any_zone_occupied=True,
+            now=datetime(2026, 3, 1, 14, 0),
+            unidentified_count=2,
+        )
+        # Must NOT return GUEST (invalid transition from ARRIVING)
+        assert result != HouseState.GUEST
+        # Must return a valid HOME variant
+        assert result == HouseState.HOME_DAY
+
+    def test_home_with_unidentified_transitions_to_guest(self):
+        """After ARRIVING→HOME_DAY, unidentified persons trigger GUEST."""
+        engine = StateInferenceEngine()
+        result = engine.infer(
+            census_count=6,
+            current_state=HouseState.HOME_DAY,
+            any_zone_occupied=True,
+            now=datetime(2026, 3, 1, 14, 0),
+            unidentified_count=2,
+        )
+        assert result == HouseState.GUEST
+
 
 # ============================================================================
 # ZonePresenceTracker Tests
