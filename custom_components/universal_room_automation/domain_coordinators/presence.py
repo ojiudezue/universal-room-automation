@@ -44,7 +44,11 @@ from .coordinator_diagnostics import (
     DecisionLog,
 )
 from .house_state import HouseState, HouseStateMachine
-from .signals import SIGNAL_HOUSE_STATE_CHANGED, SIGNAL_CENSUS_UPDATED
+from .signals import (
+    SIGNAL_HOUSE_STATE_CHANGED,
+    SIGNAL_CENSUS_UPDATED,
+    SIGNAL_PERSON_ARRIVING,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -998,6 +1002,15 @@ class PresenceCoordinator(BaseCoordinator):
         # Detect home arrival or departure
         if new_zone == "home" and old_zone != "home":
             self.handle_geofence_event(entity_id, "home")
+            # v3.17.0 D3: Signal person arriving for HVAC zone pre-conditioning
+            from homeassistant.helpers.dispatcher import (
+                async_dispatcher_send as _dispatcher_send,
+            )
+            _dispatcher_send(
+                self.hass,
+                SIGNAL_PERSON_ARRIVING,
+                {"person_entity": entity_id, "source": "geofence"},
+            )
         elif new_zone == "not_home" and old_zone == "home":
             self.handle_geofence_event(entity_id, "not_home")
 

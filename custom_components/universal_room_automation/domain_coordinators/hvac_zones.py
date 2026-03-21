@@ -11,9 +11,11 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
+from datetime import datetime
 from typing import Any
 
 from homeassistant.core import HomeAssistant
+from homeassistant.util import dt as dt_util
 
 from ..const import (
     CONF_ENTRY_TYPE,
@@ -25,6 +27,7 @@ from ..const import (
     ENTRY_TYPE_ZONE,
     ENTRY_TYPE_ZONE_MANAGER,
 )
+from .hvac_const import DUTY_CYCLE_WINDOW_SECONDS
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -66,6 +69,23 @@ class ZoneState:
     ac_reset_count_today: int = 0
     last_override_direction: str = ""  # "cooler" or "warmer" or ""
     last_stuck_detected: str = ""  # ISO timestamp when stuck cycle detected
+
+    # v3.17.0: Zone Intelligence fields
+    # D1: Vacancy management
+    last_occupied_time: datetime | None = None
+    vacancy_sweep_done: bool = False
+    vacancy_sweep_enabled: bool = True
+
+    # D4: Zone presence state machine
+    zone_presence_state: str = "unknown"
+
+    # D5: Duty cycle enforcement
+    runtime_seconds_this_window: float = 0.0
+    window_start: datetime | None = None
+    runtime_exceeded: bool = False
+
+    # D6: Max-occupancy-duration failsafe
+    continuous_occupied_since: datetime | None = None
 
     @property
     def any_room_occupied(self) -> bool:
@@ -132,6 +152,9 @@ class ZoneManager:
 
         Returns count of discovered zones.
         """
+        from datetime import timedelta
+        from .hvac_const import DEFAULT_VACANCY_GRACE_MINUTES
+
         self._zones.clear()
         zone_num = 0
 
@@ -181,16 +204,27 @@ class ZoneManager:
                                 zm_zone_name, r,
                             )
 
-                self._zones[zone_id] = ZoneState(
+                from .hvac_const import CONF_ZONE_VACANCY_SWEEP_ENABLED
+                sweep_enabled = zone_cfg.get(CONF_ZONE_VACANCY_SWEEP_ENABLED, True)
+
+                zone_state = ZoneState(
                     zone_id=zone_id,
                     zone_name=zm_zone_name,
                     climate_entity=thermostat,
                     rooms=room_names,
+                    vacancy_sweep_enabled=sweep_enabled,
                 )
+                # Initialize never-occupied zones as eligible for vacancy
+                zone_state.last_occupied_time = (
+                    dt_util.utcnow()
+                    - timedelta(minutes=DEFAULT_VACANCY_GRACE_MINUTES + 1)
+                )
+                self._zones[zone_id] = zone_state
 
                 _LOGGER.info(
-                    "HVAC: Discovered %s (%s) → %s (%d rooms)",
+                    "HVAC: Discovered %s (%s) → %s (%d rooms, sweep=%s)",
                     zone_id, zm_zone_name, thermostat, len(room_names),
+                    sweep_enabled,
                 )
 
         # 2. Legacy fallback: individual ENTRY_TYPE_ZONE entries
@@ -215,12 +249,17 @@ class ZoneManager:
                 for r in raw_rooms:
                     room_names.append(entry_id_to_room_name.get(r, r))
 
-            self._zones[zone_id] = ZoneState(
+            zone_state = ZoneState(
                 zone_id=zone_id,
                 zone_name=zone_name,
                 climate_entity=thermostat,
                 rooms=room_names,
             )
+            zone_state.last_occupied_time = (
+                dt_util.utcnow()
+                - timedelta(minutes=DEFAULT_VACANCY_GRACE_MINUTES + 1)
+            )
+            self._zones[zone_id] = zone_state
 
             _LOGGER.info(
                 "HVAC: Discovered %s (%s) → %s (%d rooms)",
@@ -273,6 +312,7 @@ class ZoneManager:
             if coordinator is not None:
                 room_coordinators[room_name] = coordinator
 
+        now = dt_util.utcnow()
         for zone in self._zones.values():
             zone.room_conditions.clear()
             for room_name in zone.rooms:
@@ -292,6 +332,16 @@ class ZoneManager:
                     occupied=data.get("occupied", False),
                 )
                 zone.room_conditions.append(condition)
+
+            # v3.17.0 D1: Track last_occupied_time for vacancy management
+            if zone.any_room_occupied:
+                zone.last_occupied_time = now
+                zone.vacancy_sweep_done = False  # Reset sweep flag on re-occupation
+                # D6: Track continuous occupancy
+                if zone.continuous_occupied_since is None:
+                    zone.continuous_occupied_since = now
+            else:
+                zone.continuous_occupied_since = None
 
     def get_zone_status_attrs(self, zone_id: str) -> dict[str, Any]:
         """Return rich attribute dict for a zone status sensor."""
@@ -324,6 +374,33 @@ class ZoneManager:
             "room_count": len(zone.rooms),
             "override_count_today": zone.override_count_today,
             "ac_reset_count_today": zone.ac_reset_count_today,
+            # v3.17.0: Zone Intelligence attributes
+            "zone_presence_state": zone.zone_presence_state,
+            "vacancy_sweep_done": zone.vacancy_sweep_done,
+            "vacancy_sweep_enabled": zone.vacancy_sweep_enabled,
+            "runtime_exceeded": zone.runtime_exceeded,
+            "runtime_duty_cycle_pct": (
+                min(
+                    round(
+                        zone.runtime_seconds_this_window
+                        / DUTY_CYCLE_WINDOW_SECONDS
+                        * 100,
+                        1,
+                    ),
+                    100.0,
+                )
+                if zone.window_start is not None
+                else 0.0
+            ),
+            "continuous_occupied_hours": (
+                round(
+                    (dt_util.utcnow() - zone.continuous_occupied_since).total_seconds()
+                    / 3600,
+                    1,
+                )
+                if zone.continuous_occupied_since is not None
+                else 0.0
+            ),
         }
 
     def reset_daily_counters(self) -> None:
