@@ -1,6 +1,6 @@
 """Switch platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.16.2
+# Universal Room Automation v3.17.0
 # Build: 2026-01-02
 # File: switch.py
 #
@@ -134,6 +134,8 @@ async def async_setup_entry(
             # v3.9.0: HVAC transparency switches
             HVACOverrideArresterSwitch(hass, entry),
             HVACObservationModeSwitch(hass, entry),
+            # v3.17.0: Zone Intelligence toggle
+            HVACZoneIntelligenceSwitch(hass, entry),
         ])
         return
 
@@ -494,6 +496,82 @@ class HVACObservationModeSwitch(SwitchEntity, RestoreEntity):
             hvac = self._get_hvac()
             if hvac is not None:
                 hvac.observation_mode = last_state.state == "on"
+
+    @property
+    def available(self) -> bool:
+        """Only available when HVAC coordinator is active."""
+        return self._get_hvac() is not None
+
+
+class HVACZoneIntelligenceSwitch(SwitchEntity, RestoreEntity):
+    """Toggle HVAC Zone Intelligence features.
+
+    When ON (default): Zone Intelligence active — vacancy management, duty cycle
+    enforcement, stale sensor failsafe, solar banking, pre-arrival routing,
+    zone presence state machine. Finer HVAC control.
+    When OFF: System-managed — thermostats manage their own ramp. URA only sets
+    presets based on house state. No per-zone vacancy/duty/failsafe overrides.
+
+    Entity: switch.ura_hvac_zone_intelligence
+    Device: URA: HVAC Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:brain"
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        self.hass = hass
+        self._entry = entry
+        self._attr_unique_id = f"{DOMAIN}_hvac_zone_intelligence"
+        self._attr_name = "Zone Intelligence"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "hvac_coordinator")},
+            name="URA: HVAC Coordinator",
+            manufacturer="Universal Room Automation",
+            model="HVAC Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+
+    def _get_hvac(self):
+        """Get the HVAC coordinator instance."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        return manager.coordinators.get("hvac")
+
+    @property
+    def is_on(self) -> bool:
+        """Return True if Zone Intelligence is enabled."""
+        hvac = self._get_hvac()
+        if hvac is None:
+            return True  # default on
+        return hvac.zone_intelligence_enabled
+
+    async def async_turn_on(self, **kwargs) -> None:
+        """Enable Zone Intelligence (finer HVAC control)."""
+        hvac = self._get_hvac()
+        if hvac is not None:
+            hvac.zone_intelligence_enabled = True
+            self.async_write_ha_state()
+
+    async def async_turn_off(self, **kwargs) -> None:
+        """Disable Zone Intelligence (system-managed ramp)."""
+        hvac = self._get_hvac()
+        if hvac is not None:
+            hvac.zone_intelligence_enabled = False
+            self.async_write_ha_state()
+
+    async def async_added_to_hass(self) -> None:
+        """Restore previous state on startup."""
+        await super().async_added_to_hass()
+        last_state = await self.async_get_last_state()
+        if last_state is not None:
+            hvac = self._get_hvac()
+            if hvac is not None:
+                hvac.zone_intelligence_enabled = last_state.state == "on"
 
     @property
     def available(self) -> bool:

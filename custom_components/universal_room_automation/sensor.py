@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.16.2
+# Universal Room Automation v3.17.0
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -243,6 +243,8 @@ async def async_setup_entry(
             HVACComfortRiskSensor(hass, entry),
             # v3.9.0: HVAC transparency sensors
             HVACArresterStateSensor(hass, entry),
+            # v3.17.0: Zone Intelligence sensor
+            HVACZoneIntelligenceSensor(hass, entry),
         ]
         # v3.8.0-H1: Add per-zone HVAC sensors dynamically
         # Read zone IDs from Zone Manager config entry (not coordinator)
@@ -6901,10 +6903,88 @@ class HVACZonePresetSensor(AggregationEntity, SensorEntity):
         from .domain_coordinators.hvac_const import SIGNAL_HVAC_ENTITIES_UPDATE
         self.async_on_remove(
             async_dispatcher_connect(
-                self.hass, SIGNAL_HVAC_ENTITIES_UPDATE, self._handle_update
+                self.hass, SIGNAL_HVAC_ENTITIES_UPDATE, self._handle_preset_update
             )
         )
 
     @callback
-    def _handle_update(self) -> None:
+    def _handle_preset_update(self) -> None:
         self.async_write_ha_state()
+
+
+class HVACZoneIntelligenceSensor(AggregationEntity, SensorEntity):
+    """Zone intelligence summary sensor — count of away-override zones.
+
+    v3.17.0 D7: House-level diagnostic showing zone intelligence activity.
+    Entity: sensor.ura_hvac_coordinator_zone_intelligence
+    Device: URA: HVAC Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:home-thermometer-outline"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_hvac_coordinator_zone_intelligence"
+        self._attr_name = "HVAC Zone Intelligence"
+        self._attr_device_info = _hvac_device_info()
+
+    @property
+    def native_value(self) -> int:
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return 0
+        hvac = manager.coordinators.get("hvac")
+        if hvac is None:
+            return 0
+        return sum(
+            1 for z in hvac.zone_manager.zones.values()
+            if z.zone_presence_state == "away"
+        )
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return {}
+        hvac = manager.coordinators.get("hvac")
+        if hvac is None:
+            return {}
+        zones = hvac.zone_manager.zones
+        return {
+            "zones_occupied": sum(
+                1 for z in zones.values()
+                if z.zone_presence_state == "occupied"
+            ),
+            "zones_away_override": [
+                z.zone_id for z in zones.values()
+                if z.zone_presence_state == "away"
+            ],
+            "zones_pre_arrival": [
+                z.zone_id for z in zones.values()
+                if z.zone_presence_state == "pre_arrival"
+            ],
+            "zones_solar_banking": list(
+                getattr(hvac.predictor, "_solar_banking_zones", set())
+            ),
+            "zones_runtime_limited": [
+                z.zone_id for z in zones.values()
+                if z.zone_presence_state == "runtime_limited"
+            ],
+            "total_vacancy_sweeps_today": hvac.vacancy_sweeps_today,
+        }
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.hvac_const import SIGNAL_HVAC_ENTITIES_UPDATE
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_HVAC_ENTITIES_UPDATE, self._handle_zi_update
+            )
+        )
+
+    @callback
+    def _handle_zi_update(self) -> None:
+        self.async_schedule_update_ha_state()

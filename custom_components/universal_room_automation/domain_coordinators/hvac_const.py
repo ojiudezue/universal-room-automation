@@ -29,6 +29,13 @@ CONF_HVAC_FAN_HYSTERESIS: Final = "hvac_fan_hysteresis"
 CONF_HVAC_FAN_MIN_RUNTIME: Final = "hvac_fan_min_runtime"
 CONF_HVAC_ARRESTER_ENABLED: Final = "hvac_arrester_enabled"
 
+# v3.17.0: Zone Intelligence config keys
+CONF_HVAC_VACANCY_GRACE_MINUTES: Final = "hvac_vacancy_grace_minutes"
+CONF_HVAC_VACANCY_GRACE_CONSTRAINED: Final = "hvac_vacancy_grace_constrained"
+CONF_HVAC_MAX_OCCUPANCY_HOURS: Final = "hvac_max_occupancy_hours"
+CONF_ZONE_VACANCY_SWEEP_ENABLED: Final = "zone_vacancy_sweep_enabled"
+CONF_PERSON_PREFERRED_ZONES: Final = "person_preferred_zones"
+
 # ============================================================================
 # Defaults
 # ============================================================================
@@ -40,6 +47,27 @@ DEFAULT_FAN_ACTIVATION_DELTA: Final = 2.0  # F
 DEFAULT_FAN_HYSTERESIS: Final = 1.5  # F
 DEFAULT_FAN_MIN_RUNTIME: Final = 10  # minutes
 DEFAULT_ARRESTER_ENABLED: Final = True
+
+# v3.17.0: Zone Intelligence defaults
+DEFAULT_VACANCY_GRACE_MINUTES: Final = 15  # Normal grace period
+DEFAULT_VACANCY_GRACE_CONSTRAINED: Final = 5  # Grace during energy coast/shed
+DEFAULT_MAX_OCCUPANCY_HOURS: Final = 8  # Stale sensor failsafe threshold
+
+# v3.17.0: Solar banking
+SOLAR_BANK_SOC_MIN: Final = 95  # % — battery must be effectively full
+SOLAR_BANK_TEMP_MIN: Final = 85.0  # °F — forecast must be hot
+SOLAR_BANK_OFFSET: Final = -3.0  # °F from target_temp_high
+SOLAR_BANK_FLOOR: Final = 72.0  # °F — absolute minimum cooling setpoint
+MIN_DEADBAND: Final = 2.0  # °F — Ecobee auto mode minimum
+
+# v3.17.0: Pre-arrival
+PRE_ARRIVAL_FAN_TIMEOUT: Final = 15  # Minutes before auto-off
+PRE_ARRIVAL_TIMEOUT_MINUTES: Final = 30  # Minutes before stale pre-arrival cleared
+
+# v3.17.0: Duty cycle
+DUTY_CYCLE_WINDOW_SECONDS: Final = 20 * 60  # 20-minute rolling window
+DUTY_CYCLE_SHED: Final = 0.50  # 50% max runtime during shed
+DUTY_CYCLE_COAST: Final = 0.75  # 75% max runtime during coast
 
 # Override Arrester thresholds
 OVERRIDE_SEVERE_DELTA: Final = 3.0  # F — severe override threshold

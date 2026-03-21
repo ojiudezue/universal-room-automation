@@ -4,10 +4,13 @@ Manages HVAC zones, presets, fans, covers, and energy constraint response.
 Priority 30 (below Energy at 40).
 
 v3.8.0-H1: Core + Zone Management + Preset + E6 Signal + Diagnostics Skeleton.
+v3.17.0: Zone Intelligence — vacancy management, duty cycle, stale failsafe,
+         person-to-zone pre-arrival, zone presence state machine.
 """
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import timedelta
 from typing import Any
@@ -24,11 +27,18 @@ from .base import BaseCoordinator, CoordinatorAction, Intent
 from .hvac_const import (
     CONF_HVAC_ARRESTER_ENABLED,
     DEFAULT_ARRESTER_ENABLED,
+    DEFAULT_MAX_OCCUPANCY_HOURS,
+    DEFAULT_VACANCY_GRACE_CONSTRAINED,
+    DEFAULT_VACANCY_GRACE_MINUTES,
+    DUTY_CYCLE_COAST,
+    DUTY_CYCLE_SHED,
+    DUTY_CYCLE_WINDOW_SECONDS,
     HVAC_ANOMALY_MIN_SAMPLES,
     HVAC_COORDINATOR_ID,
     HVAC_COORDINATOR_NAME,
     HVAC_COORDINATOR_PRIORITY,
     HVAC_METRICS,
+    PRE_ARRIVAL_TIMEOUT_MINUTES,
     SIGNAL_HVAC_ENTITIES_UPDATE,
 )
 from .hvac_covers import CoverController
@@ -41,6 +51,7 @@ from .signals import (
     EnergyConstraint,
     SIGNAL_ENERGY_CONSTRAINT,
     SIGNAL_HOUSE_STATE_CHANGED,
+    SIGNAL_PERSON_ARRIVING,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -67,6 +78,10 @@ class HVACCoordinator(BaseCoordinator):
         fan_hysteresis: float = 1.5,
         fan_min_runtime: int = 10,
         arrester_enabled: bool = DEFAULT_ARRESTER_ENABLED,
+        vacancy_grace: int = DEFAULT_VACANCY_GRACE_MINUTES,
+        vacancy_grace_constrained: int = DEFAULT_VACANCY_GRACE_CONSTRAINED,
+        max_occupancy_hours: int = DEFAULT_MAX_OCCUPANCY_HOURS,
+        person_zone_map: dict[str, list[str]] | None = None,
     ) -> None:
         """Initialize HVAC Coordinator."""
         super().__init__(
@@ -116,6 +131,20 @@ class HVACCoordinator(BaseCoordinator):
         self._compliance = None
         self._outcome = None
 
+        # v3.17.0: Zone Intelligence
+        self._vacancy_grace = vacancy_grace
+        self._vacancy_grace_constrained = vacancy_grace_constrained
+        self._max_occupancy_hours = max_occupancy_hours
+        self._person_zone_map: dict[str, list[str]] = person_zone_map or {}
+        self._pre_arrival_zones: set[str] = set()
+        self._pre_arrival_persons: dict[str, str] = {}  # zone_id -> person_entity
+        self._pre_arrival_start: dict[str, Any] = {}  # zone_id -> datetime
+        self._vacancy_sweeps_today: int = 0
+        self._zone_intelligence_enabled: bool = True
+        self._decision_cycle_lock = asyncio.Lock()
+        self._pending_tasks: set[asyncio.Task] = set()
+        self._last_runtime_accumulation: Any = None  # UTC datetime
+
     @property
     def zone_manager(self) -> ZoneManager:
         """Return zone manager for sensor access."""
@@ -163,6 +192,22 @@ class HVACCoordinator(BaseCoordinator):
         _LOGGER.info("HVAC Coordinator observation mode: %s", value)
 
     @property
+    def zone_intelligence_enabled(self) -> bool:
+        """Whether Zone Intelligence features are active."""
+        return self._zone_intelligence_enabled
+
+    @zone_intelligence_enabled.setter
+    def zone_intelligence_enabled(self, value: bool) -> None:
+        """Set Zone Intelligence enabled state."""
+        self._zone_intelligence_enabled = value
+        _LOGGER.info("HVAC Zone Intelligence: %s", "enabled" if value else "disabled")
+
+    @property
+    def vacancy_sweeps_today(self) -> int:
+        """Return count of vacancy sweeps executed today."""
+        return self._vacancy_sweeps_today
+
+    @property
     def energy_offset(self) -> float:
         """Return current energy setpoint offset."""
         return self._energy_offset
@@ -203,6 +248,15 @@ class HVACCoordinator(BaseCoordinator):
                 self.hass,
                 SIGNAL_ENERGY_CONSTRAINT,
                 self._handle_energy_constraint,
+            )
+        )
+
+        # v3.17.0 D3: Subscribe to person arriving signals
+        self._unsub_listeners.append(
+            async_dispatcher_connect(
+                self.hass,
+                SIGNAL_PERSON_ARRIVING,
+                self._handle_person_arriving,
             )
         )
 
@@ -284,6 +338,14 @@ class HVACCoordinator(BaseCoordinator):
         if not self._enabled:
             return
 
+        # Re-entrancy guard: skip if already running (e.g. signal + timer overlap)
+        if self._decision_cycle_lock.locked():
+            return
+        async with self._decision_cycle_lock:
+            await self._run_decision_cycle()
+
+    async def _run_decision_cycle(self) -> None:
+        """Inner decision cycle logic (called under lock)."""
         now = dt_util.now()
 
         # Daily reset check
@@ -295,6 +357,7 @@ class HVACCoordinator(BaseCoordinator):
             self._predictor.flush_daily_outcome()
             self._zone_manager.reset_daily_counters()
             self._preset_manager.determine_season()
+            self._vacancy_sweeps_today = 0
 
         # Update zone states
         self._zone_manager.update_all_zones()
@@ -307,8 +370,17 @@ class HVACCoordinator(BaseCoordinator):
                 self._preset_manager, self._house_state or "home_day",
             )
 
+        now_utc = dt_util.utcnow()
+
+        # v3.17.0: Zone Intelligence features (guarded by toggle)
+        if self._zone_intelligence_enabled:
+            # D5: Accumulate zone runtime BEFORE presets (RC3 ordering)
+            self._accumulate_zone_runtime(now_utc)
+            # D3: Clear stale pre-arrival zones
+            self._expire_pre_arrival_zones(now_utc)
+
         if not self._observation_mode:
-            # Apply presets based on house state
+            # Apply presets based on house state (includes D1 vacancy + D6 failsafe)
             await self._apply_house_state_presets()
 
             # Update override arrester energy state and check AC resets
@@ -329,7 +401,17 @@ class HVACCoordinator(BaseCoordinator):
             )
 
         # Predictive sensors and pre-conditioning
-        await self._predictor.update(self._energy_constraint, self._house_state)
+        zi = self._zone_intelligence_enabled
+        await self._predictor.update(
+            self._energy_constraint,
+            self._house_state,
+            pre_arrival_zones=self._pre_arrival_zones if zi else set(),
+            zone_intelligence_enabled=zi,
+        )
+
+        # v3.17.0 D4: Compute zone presence states (after all other logic)
+        if zi:
+            self._compute_zone_presence_states(now_utc)
 
         # Record anomaly observations
         self._record_anomaly_observations()
@@ -354,6 +436,7 @@ class HVACCoordinator(BaseCoordinator):
     async def _apply_house_state_presets(self) -> None:
         """Apply preset changes based on current house state.
 
+        Includes D1 vacancy override, D5 duty cycle enforcement, D6 stale failsafe.
         Directly calls HA services (self-driven, not via CoordinatorManager actions).
         """
         if not self._house_state:
@@ -365,11 +448,73 @@ class HVACCoordinator(BaseCoordinator):
         if target_preset is None:
             return
 
+        now = dt_util.utcnow()
+        energy_constrained = self._energy_constraint_mode in ("coast", "shed")
+        grace_minutes = (
+            self._vacancy_grace_constrained if energy_constrained
+            else self._vacancy_grace
+        )
+
+        zi = self._zone_intelligence_enabled
         for zone_id, zone in self._zone_manager.zones.items():
-            if not self._preset_manager.should_change_preset(
-                zone.preset_mode, target_preset
+            effective_preset = target_preset
+            zone_vacant_past_grace = False
+
+            # --- D1/D5/D6: Zone Intelligence overrides (gated by toggle) ---
+            if zi:
+                # D1: Per-zone vacancy override
+                # Only override "home" preset — sleep/away/vacation are already correct
+                zone_vacant_past_grace = (
+                    not zone.any_room_occupied
+                    and zone.last_occupied_time is not None
+                    and (now - zone.last_occupied_time).total_seconds()
+                    > grace_minutes * 60
+                )
+
+                if zone_vacant_past_grace and target_preset in ("home",):
+                    effective_preset = "away"
+
+                    # Zone sweep: turn off lights + fans (once per vacancy cycle)
+                    if not zone.vacancy_sweep_done and zone.vacancy_sweep_enabled:
+                        await self._execute_vacancy_sweep(zone)
+                        zone.vacancy_sweep_done = True
+                        self._vacancy_sweeps_today += 1
+
+                # D6: Stale occupancy failsafe (skip during sleep — RH4)
+                if (
+                    zone.any_room_occupied
+                    and self._house_state != "sleep"
+                    and zone.continuous_occupied_since is not None
+                    and (now - zone.continuous_occupied_since).total_seconds()
+                    > self._max_occupancy_hours * 3600
+                ):
+                    effective_preset = "away"
+                    if not zone.vacancy_sweep_done and zone.vacancy_sweep_enabled:
+                        await self._execute_vacancy_sweep(zone)
+                        zone.vacancy_sweep_done = True
+                        self._vacancy_sweeps_today += 1
+                    _LOGGER.warning(
+                        "HVAC: Zone %s occupied >%dh — treating as stale sensor",
+                        zone.zone_name, self._max_occupancy_hours,
+                    )
+
+                # D5: Duty cycle enforcement (skip during sleep — RH4)
+                if zone.runtime_exceeded and self._house_state != "sleep":
+                    effective_preset = "away"
+
+            # --- Determine if preset change is needed ---
+            # Bypass should_change_preset() manual guard for vacancy (RH3 fix)
+            if zi and (zone_vacant_past_grace or zone.runtime_exceeded) and effective_preset == "away":
+                if zone.preset_mode == "away":
+                    continue  # Already away
+            elif not self._preset_manager.should_change_preset(
+                zone.preset_mode, effective_preset
             ):
                 continue
+
+            # Suppress arrester for URA-initiated changes
+            if self._override_arrester:
+                self._override_arrester.suppress(zone.climate_entity)
 
             # Execute the service call directly
             try:
@@ -378,14 +523,15 @@ class HVACCoordinator(BaseCoordinator):
                     "set_preset_mode",
                     {
                         "entity_id": zone.climate_entity,
-                        "preset_mode": target_preset,
+                        "preset_mode": effective_preset,
                     },
                     blocking=False,
                 )
                 _LOGGER.info(
-                    "HVAC: Set %s preset %s -> %s (house_state=%s)",
-                    zone.zone_name, zone.preset_mode, target_preset,
+                    "HVAC: Set %s preset %s -> %s (house_state=%s%s)",
+                    zone.zone_name, zone.preset_mode, effective_preset,
                     self._house_state,
+                    " [vacancy]" if zone_vacant_past_grace and effective_preset == "away" else "",
                 )
             except Exception as e:
                 _LOGGER.error(
@@ -411,9 +557,11 @@ class HVACCoordinator(BaseCoordinator):
                         context={
                             "house_state": self._house_state,
                             "old_preset": zone.preset_mode,
-                            "new_preset": target_preset,
+                            "new_preset": effective_preset,
+                            "vacancy_override": zone_vacant_past_grace,
+                            "runtime_exceeded": zone.runtime_exceeded,
                         },
-                        action={"preset_mode": target_preset},
+                        action={"preset_mode": effective_preset},
                         devices_commanded=[zone.climate_entity],
                     )
                 )
@@ -425,7 +573,7 @@ class HVACCoordinator(BaseCoordinator):
                     scope=f"zone:{zone_id}",
                     device_type="climate",
                     device_id=zone.climate_entity,
-                    commanded_state={"preset_mode": target_preset},
+                    commanded_state={"preset_mode": effective_preset},
                 )
 
     @callback
@@ -453,7 +601,9 @@ class HVACCoordinator(BaseCoordinator):
         )
 
         # Trigger immediate decision cycle
-        self.hass.async_create_task(self._async_decision_cycle())
+        task = self.hass.async_create_task(self._async_decision_cycle())
+        self._pending_tasks.add(task)
+        task.add_done_callback(self._pending_tasks.discard)
 
     @callback
     def _handle_energy_constraint(self, constraint: EnergyConstraint) -> None:
@@ -472,6 +622,243 @@ class HVACCoordinator(BaseCoordinator):
                 constraint.setpoint_offset,
                 constraint.fan_assist,
             )
+            # v3.17.0 D5: Reset duty cycle counters only when entering constrained
+            # mode from normal (not on coast↔shed bounces, which would defeat enforcement)
+            _MODE_RANK = {"normal": 0, "coast": 1, "shed": 2}
+            if _MODE_RANK.get(old_mode, 0) == 0 and _MODE_RANK.get(constraint.mode, 0) > 0:
+                for zone in self._zone_manager.zones.values():
+                    zone.runtime_seconds_this_window = 0.0
+                    zone.window_start = None
+                    zone.runtime_exceeded = False
+
+    # ------------------------------------------------------------------
+    # v3.17.0: Zone Intelligence methods
+    # ------------------------------------------------------------------
+
+    async def _execute_vacancy_sweep(self, zone) -> None:
+        """Turn off URA-configured lights and fans in all rooms of a vacant zone.
+
+        D1: Only touches entities explicitly configured in URA room entries.
+        """
+        from ..const import CONF_LIGHTS, CONF_FANS, CONF_ENTRY_TYPE, CONF_ROOM_NAME, DOMAIN, ENTRY_TYPE_ROOM
+
+        for room_name in zone.rooms:
+            coordinator = self._get_room_coordinator(room_name)
+            if coordinator is None:
+                continue
+            config = {
+                **coordinator.config_entry.data,
+                **coordinator.config_entry.options,
+            }
+
+            lights = config.get(CONF_LIGHTS, [])
+            fans = config.get(CONF_FANS, [])
+
+            for entity_id in lights:
+                domain = entity_id.split(".")[0]
+                state = self.hass.states.get(entity_id)
+                if state and state.state == "on":
+                    try:
+                        await self.hass.services.async_call(
+                            domain, "turn_off",
+                            {"entity_id": entity_id}, blocking=False,
+                        )
+                    except Exception:  # noqa: BLE001
+                        pass  # Best effort
+
+            for entity_id in fans:
+                domain = entity_id.split(".")[0]
+                state = self.hass.states.get(entity_id)
+                if state and state.state == "on":
+                    try:
+                        await self.hass.services.async_call(
+                            domain, "turn_off",
+                            {"entity_id": entity_id}, blocking=False,
+                        )
+                    except Exception:  # noqa: BLE001
+                        pass
+
+        _LOGGER.info(
+            "HVAC: Vacancy sweep executed for zone %s — lights and fans off",
+            zone.zone_name,
+        )
+
+    def _get_room_coordinator(self, room_name: str):
+        """Get room coordinator by room name."""
+        from ..const import CONF_ENTRY_TYPE, CONF_ROOM_NAME, DOMAIN, ENTRY_TYPE_ROOM
+
+        for entry in self.hass.config_entries.async_entries(DOMAIN):
+            if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ROOM:
+                continue
+            if entry.data.get(CONF_ROOM_NAME) == room_name:
+                return self.hass.data.get(DOMAIN, {}).get(entry.entry_id)
+        return None
+
+    def _accumulate_zone_runtime(self, now: Any) -> None:
+        """Track per-zone HVAC active runtime in rolling window (D5).
+
+        Uses actual elapsed time since last call (not hardcoded 300s)
+        to correctly handle ad-hoc cycles triggered by signals.
+        """
+        elapsed = 0.0
+        if self._last_runtime_accumulation is not None:
+            elapsed = min(
+                (now - self._last_runtime_accumulation).total_seconds(), 300.0
+            )
+        self._last_runtime_accumulation = now
+
+        for zone in self._zone_manager.zones.values():
+            # Initialize window
+            if zone.window_start is None:
+                zone.window_start = now
+                zone.runtime_seconds_this_window = 0.0
+                zone.runtime_exceeded = False
+
+            # Check window expiry → reset
+            if (now - zone.window_start).total_seconds() >= DUTY_CYCLE_WINDOW_SECONDS:
+                zone.window_start = now
+                zone.runtime_seconds_this_window = 0.0
+                zone.runtime_exceeded = False
+
+            # Accumulate if actively heating/cooling using actual elapsed time
+            if zone.hvac_action in ("heating", "cooling") and elapsed > 0:
+                zone.runtime_seconds_this_window += elapsed
+
+            # Check duty cycle
+            mode = self._energy_constraint_mode
+            if mode == "shed":
+                max_seconds = DUTY_CYCLE_WINDOW_SECONDS * DUTY_CYCLE_SHED
+            elif mode == "coast":
+                max_seconds = DUTY_CYCLE_WINDOW_SECONDS * DUTY_CYCLE_COAST
+            else:
+                continue  # No limit in normal mode
+
+            # Skip enforcement during sleep (RH4 fix)
+            if self._house_state == "sleep":
+                continue
+
+            if zone.runtime_seconds_this_window >= max_seconds:
+                zone.runtime_exceeded = True
+
+    @callback
+    def _handle_person_arriving(self, data: dict) -> None:
+        """Route arriving person to preferred zones for pre-conditioning (D3)."""
+        if not self._zone_intelligence_enabled:
+            return
+        person_entity = data.get("person_entity", "")
+        preferred_zones = self._person_zone_map.get(person_entity, [])
+
+        if not preferred_zones:
+            _LOGGER.debug("HVAC: No preferred zones for %s", person_entity)
+            return
+
+        now = dt_util.utcnow()
+        for zone_id in preferred_zones:
+            if zone_id in self._zone_manager.zones:
+                self._pre_arrival_zones.add(zone_id)
+                self._pre_arrival_persons[zone_id] = person_entity
+                self._pre_arrival_start[zone_id] = now
+
+        _LOGGER.info(
+            "HVAC: Pre-arrival for %s → zones %s",
+            person_entity, preferred_zones,
+        )
+
+        # Trigger immediate decision cycle
+        task = self.hass.async_create_task(self._async_decision_cycle())
+        self._pending_tasks.add(task)
+        task.add_done_callback(self._pending_tasks.discard)
+
+    def _expire_pre_arrival_zones(self, now: Any) -> None:
+        """Clear stale pre-arrival zones (person didn't show up within timeout).
+
+        When a pre-arrival zone is cleared due to timeout (not occupancy),
+        turn off fans that were activated as comfort bridge.
+        """
+        timeout = timedelta(minutes=PRE_ARRIVAL_TIMEOUT_MINUTES)
+        zones_to_defan: list = []
+        for zone_id in list(self._pre_arrival_zones):
+            # Clear if zone is now occupied (person arrived — fans managed by fan controller)
+            zone = self._zone_manager.zones.get(zone_id)
+            if zone and zone.any_room_occupied:
+                self._pre_arrival_zones.discard(zone_id)
+                self._pre_arrival_start.pop(zone_id, None)
+                self._pre_arrival_persons.pop(zone_id, None)
+                _LOGGER.info("HVAC: Pre-arrival cleared for zone %s (occupied)", zone_id)
+                continue
+
+            # Clear if timeout exceeded — also turn off pre-arrival fans
+            start = self._pre_arrival_start.get(zone_id)
+            if start and (now - start) > timeout:
+                self._pre_arrival_zones.discard(zone_id)
+                self._pre_arrival_start.pop(zone_id, None)
+                self._pre_arrival_persons.pop(zone_id, None)
+                if zone:
+                    zones_to_defan.append(zone)
+                _LOGGER.info("HVAC: Pre-arrival timeout for zone %s", zone_id)
+
+        # Turn off fans for timed-out pre-arrival zones (best-effort)
+        for zone in zones_to_defan:
+            self.hass.async_create_task(self._deactivate_zone_fans(zone))
+
+    async def _deactivate_zone_fans(self, zone) -> None:
+        """Turn off fans that were activated for pre-arrival comfort bridge."""
+        from ..const import CONF_FANS, CONF_ENTRY_TYPE, CONF_ROOM_NAME, DOMAIN, ENTRY_TYPE_ROOM
+
+        for room_name in zone.rooms:
+            coordinator = self._get_room_coordinator(room_name)
+            if coordinator is None:
+                continue
+            config = {**coordinator.config_entry.data, **coordinator.config_entry.options}
+            fans = config.get(CONF_FANS, [])
+            for fan_entity in fans:
+                domain = fan_entity.split(".")[0]
+                state = self.hass.states.get(fan_entity)
+                if state and state.state == "on":
+                    try:
+                        await self.hass.services.async_call(
+                            domain, "turn_off",
+                            {"entity_id": fan_entity}, blocking=False,
+                        )
+                    except Exception:  # noqa: BLE001
+                        pass
+        _LOGGER.info("HVAC: Pre-arrival fans deactivated for zone %s (timeout)", zone.zone_name)
+
+    def _compute_zone_presence_states(self, now: Any) -> None:
+        """Compute the 7-state zone presence state machine (D4).
+
+        Priority: sleep > runtime_limited > pre_arrival > pre_conditioning
+                  > occupied > vacant > away.
+        """
+        energy_constrained = self._energy_constraint_mode in ("coast", "shed")
+        grace_minutes = (
+            self._vacancy_grace_constrained if energy_constrained
+            else self._vacancy_grace
+        )
+
+        pre_conditioning_zones = getattr(
+            self._predictor, "_pre_conditioning_zones", set()
+        )
+
+        for zone_id, zone in self._zone_manager.zones.items():
+            if self._house_state == "sleep":
+                zone.zone_presence_state = "sleep"
+            elif zone.runtime_exceeded:
+                zone.zone_presence_state = "runtime_limited"
+            elif zone_id in self._pre_arrival_zones:
+                zone.zone_presence_state = "pre_arrival"
+            elif zone_id in pre_conditioning_zones:
+                zone.zone_presence_state = "pre_conditioning"
+            elif zone.any_room_occupied:
+                zone.zone_presence_state = "occupied"
+            elif (
+                zone.last_occupied_time is not None
+                and (now - zone.last_occupied_time).total_seconds()
+                <= grace_minutes * 60
+            ):
+                zone.zone_presence_state = "vacant"
+            else:
+                zone.zone_presence_state = "away"
 
     def _record_anomaly_observations(self) -> None:
         """Record observations for anomaly detection."""
@@ -548,6 +935,19 @@ class HVACCoordinator(BaseCoordinator):
         attrs["observation_mode"] = self._observation_mode
         attrs["arrester_state"] = self._override_arrester.get_arrester_state()
         attrs["arrester_enabled"] = self._override_arrester.enabled
+        # v3.17.0: Zone Intelligence attributes
+        attrs["pre_arrival_zones"] = list(self._pre_arrival_zones)
+        solar_banking_zones = getattr(
+            self._predictor, "_solar_banking_zones", set()
+        )
+        attrs["solar_banking_zones"] = list(solar_banking_zones)
+        vacancy_overrides = [
+            z.zone_id for z in self._zone_manager.zones.values()
+            if z.zone_presence_state == "away"
+        ]
+        attrs["vacancy_override_zones"] = vacancy_overrides
+        attrs["person_zone_map"] = self._person_zone_map
+        attrs["vacancy_sweeps_today"] = self._vacancy_sweeps_today
         return attrs
 
     async def async_teardown(self) -> None:
@@ -558,6 +958,11 @@ class HVACCoordinator(BaseCoordinator):
         if self._decision_timer_unsub:
             self._decision_timer_unsub()
             self._decision_timer_unsub = None
+
+        # Cancel any in-flight ad-hoc decision cycle tasks
+        for task in list(self._pending_tasks):
+            task.cancel()
+        self._pending_tasks.clear()
 
         # Tear down override arrester and cover controller
         self._override_arrester.teardown()

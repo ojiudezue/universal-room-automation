@@ -16,10 +16,15 @@ from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
 from .hvac_const import (
+    MIN_DEADBAND,
     SEASON_SHOULDER,
     SEASON_SUMMER,
     SEASON_WINTER,
     SEASONAL_DEFAULTS,
+    SOLAR_BANK_FLOOR,
+    SOLAR_BANK_OFFSET,
+    SOLAR_BANK_SOC_MIN,
+    SOLAR_BANK_TEMP_MIN,
 )
 from .hvac_override import OverrideArrester
 from .hvac_preset import PresetManager
@@ -93,6 +98,12 @@ class HVACPredictor:
         # Outdoor temp sensor
         self._outdoor_temp_entity: str = ""
 
+        # v3.17.0: Zone-specific pre-conditioning tracking
+        self._pre_conditioning_zones: set[str] = set()
+        self._solar_banking_zones: set[str] = set()
+        self._solar_bank_triggered_today: bool = False
+        self._net_power_entity: str = "sensor.envoy_202428004328_current_net_power_consumption"
+
     def set_outdoor_temp_entity(self, entity_id: str) -> None:
         """Set outdoor temperature sensor entity."""
         self._outdoor_temp_entity = entity_id
@@ -110,6 +121,8 @@ class HVACPredictor:
         self,
         energy_constraint: EnergyConstraint | None,
         house_state: str,
+        pre_arrival_zones: set[str] | None = None,
+        zone_intelligence_enabled: bool = True,
     ) -> None:
         """Run prediction cycle.
 
@@ -129,6 +142,7 @@ class HVACPredictor:
             self._pre_heat_triggered_today = False
             self._pre_cool_active = False
             self._pre_heat_active = False
+            self._solar_bank_triggered_today = False
 
         # Track energy mode time
         if energy_constraint:
@@ -143,8 +157,12 @@ class HVACPredictor:
         self._update_zone_demand(now)
         self._track_zone_satisfaction()
 
-        # Check pre-conditioning triggers
-        await self._check_pre_conditioning(energy_constraint, house_state, now)
+        # Check pre-conditioning triggers (zone-specific in v3.17.0)
+        await self._check_pre_conditioning(
+            energy_constraint, house_state, now,
+            pre_arrival_zones=pre_arrival_zones or set(),
+            zone_intelligence_enabled=zone_intelligence_enabled,
+        )
 
     def _update_pre_cool_likelihood(
         self,
@@ -268,14 +286,22 @@ class HVACPredictor:
         constraint: EnergyConstraint | None,
         house_state: str,
         now,
+        pre_arrival_zones: set[str] | None = None,
+        zone_intelligence_enabled: bool = True,
     ) -> None:
-        """Trigger pre-cooling or pre-heating based on forecast.
+        """Zone-specific pre-conditioning: weather, solar banking, pre-arrival.
 
-        Pre-cool: forecast high > threshold AND peak approaching AND energy allows.
-        Pre-heat: forecast low < threshold AND off-peak ending.
+        v3.17.0: Refactored to be zone-aware with floor protection on all offsets.
+        When zone_intelligence_enabled is False, only weather pre-cool runs
+        (pre-existing feature). Solar banking and pre-arrival are ZI features.
         """
         hour = now.hour
         season = self._preset_manager.current_season
+        pre_arrival_zones = pre_arrival_zones or set()
+
+        # Reset tracking sets each cycle
+        self._pre_conditioning_zones = set()
+        self._solar_banking_zones = set()
 
         # Skip if away/vacation
         if house_state in ("away", "vacation"):
@@ -284,30 +310,40 @@ class HVACPredictor:
         forecast_high = constraint.forecast_high_temp if constraint else None
         soc = constraint.soc if constraint else None
 
-        # Pre-cool check (summer/shoulder, before peak)
-        if (
-            not self._pre_cool_active
-            and not self._pre_cool_triggered_today
-            and season in (SEASON_SUMMER, SEASON_SHOULDER)
-            and forecast_high is not None
-            and forecast_high >= PRECOOL_FORECAST_HIGH
-            and PEAK_HOUR_START - PRECOOL_LEAD_HOURS <= hour < PEAK_HOUR_START
-            and (soc is None or soc >= PRECOOL_SOC_MIN)
-        ):
-            self._pre_cool_active = True
-            self._pre_cool_triggered_today = True
-            _LOGGER.info(
-                "HVAC Pre-cool triggered: forecast_high=%.0fF, hour=%d, soc=%s",
-                forecast_high, hour, soc,
-            )
-            await self._execute_pre_cool()
+        # --- Weather pre-cool (pre-existing, always active) ---
+        if self._should_weather_pre_cool(constraint, now):
+            for zone_id, zone in self._zone_manager.zones.items():
+                if zone.any_room_occupied:
+                    await self._execute_zone_pre_cool(zone, offset=-2.0, reason="weather")
+                    self._pre_conditioning_zones.add(zone_id)
 
         # End pre-cool when peak starts
         if self._pre_cool_active and hour >= PEAK_HOUR_START:
             self._pre_cool_active = False
             _LOGGER.info("HVAC Pre-cool ended: peak period started")
 
-        # Pre-heat check (winter, before off-peak ends)
+        # --- ZI-only features below (guarded by toggle) ---
+        if not zone_intelligence_enabled:
+            return
+
+        # --- Solar banking (lowest priority — truly excess only) ---
+        if self._should_solar_bank(constraint, now):
+            for zone_id, zone in self._zone_manager.zones.items():
+                # Bank ALL zones including away — energy has nowhere better to go
+                await self._execute_zone_pre_cool(zone, offset=SOLAR_BANK_OFFSET, reason="solar_banking")
+                self._pre_conditioning_zones.add(zone_id)
+                self._solar_banking_zones.add(zone_id)
+
+        # --- Pre-arrival (person-routed) ---
+        for zone_id, zone in self._zone_manager.zones.items():
+            if zone_id in pre_arrival_zones:
+                await self._execute_zone_pre_cool(zone, offset=-2.0, reason="pre_arrival")
+                # Fans as comfort bridge (skip during sleep — Critique 5 fix)
+                if house_state != "sleep":
+                    await self._activate_zone_fans(zone)
+                self._pre_conditioning_zones.add(zone_id)
+
+        # --- Pre-heat (winter, before off-peak ends) ---
         outdoor_temp = self._get_outdoor_temp()
         if (
             not self._pre_heat_active
@@ -330,37 +366,146 @@ class HVACPredictor:
             self._pre_heat_active = False
             _LOGGER.info("HVAC Pre-heat ended: off-peak period ended")
 
-    async def _execute_pre_cool(self) -> None:
-        """Lower cooling setpoints to pre-cool before peak."""
-        for zone in self._zone_manager.zones.values():
-            if not zone.any_room_occupied:
+    def _should_weather_pre_cool(
+        self, constraint: EnergyConstraint | None, now,
+    ) -> bool:
+        """Check if weather pre-cool conditions are met."""
+        season = self._preset_manager.current_season
+        forecast_high = constraint.forecast_high_temp if constraint else None
+        soc = constraint.soc if constraint else None
+        hour = now.hour
+
+        if (
+            not self._pre_cool_active
+            and not self._pre_cool_triggered_today
+            and season in (SEASON_SUMMER, SEASON_SHOULDER)
+            and forecast_high is not None
+            and forecast_high >= PRECOOL_FORECAST_HIGH
+            and PEAK_HOUR_START - PRECOOL_LEAD_HOURS <= hour < PEAK_HOUR_START
+            and (soc is None or soc >= PRECOOL_SOC_MIN)
+        ):
+            self._pre_cool_active = True
+            self._pre_cool_triggered_today = True
+            _LOGGER.info(
+                "HVAC Pre-cool triggered: forecast_high=%.0fF, hour=%d, soc=%s",
+                forecast_high, hour, soc,
+            )
+            return True
+        return self._pre_cool_active and hour < PEAK_HOUR_START
+
+    def _should_solar_bank(
+        self, constraint: EnergyConstraint | None, now,
+    ) -> bool:
+        """Bank thermal mass ONLY when solar is truly excess.
+
+        Priority: battery charging > EV > thermal banking > grid export.
+        Banking is last resort before grid export.
+        """
+        if constraint is None:
+            return False
+
+        season = self._preset_manager.current_season
+        if season not in (SEASON_SUMMER, SEASON_SHOULDER):
+            return False
+
+        soc = constraint.soc or 0
+        forecast_high = constraint.forecast_high_temp or 0
+
+        # Check real-time net export
+        net_power = self._get_net_power()
+
+        return (
+            soc >= SOLAR_BANK_SOC_MIN
+            and net_power < -500  # Actively exporting >500W
+            and forecast_high >= SOLAR_BANK_TEMP_MIN
+            and constraint.mode == "normal"  # Off-peak, no constraint active
+            and now.hour >= 10
+            and now.hour < 14  # Before peak starts
+        )
+
+    def _get_net_power(self) -> float:
+        """Read real-time net power. Negative = exporting to grid."""
+        entity = self.hass.states.get(self._net_power_entity)
+        if entity is None or entity.state in ("unavailable", "unknown"):
+            return 0.0
+        try:
+            return float(entity.state)
+        except (ValueError, TypeError):
+            return 0.0
+
+    async def _execute_zone_pre_cool(
+        self, zone, offset: float, reason: str,
+    ) -> None:
+        """Pre-cool a single zone with offset from target_temp_high.
+
+        Applies floor: never go below SOLAR_BANK_FLOOR or within MIN_DEADBAND
+        of target_temp_low (Ecobee requires >= 2F deadband in auto mode).
+        """
+        if zone.target_temp_high is None or zone.target_temp_low is None:
+            return
+
+        banked_high = zone.target_temp_high + offset  # offset is negative
+        floor = max(SOLAR_BANK_FLOOR, zone.target_temp_low + MIN_DEADBAND)
+        effective_high = max(banked_high, floor)
+
+        if effective_high >= zone.target_temp_high:
+            return  # Floor prevents any meaningful change
+
+        # Suppress arrester
+        if self._override_arrester:
+            self._override_arrester.suppress(zone.climate_entity)
+
+        try:
+            await self.hass.services.async_call(
+                "climate", "set_temperature",
+                {
+                    "entity_id": zone.climate_entity,
+                    "target_temp_high": effective_high,
+                    "target_temp_low": zone.target_temp_low,
+                },
+                blocking=False,
+            )
+            _LOGGER.info(
+                "HVAC: Zone %s pre-cool (%s): %.1f -> %.1f (offset=%.1f, floor=%.1f)",
+                zone.zone_name, reason,
+                zone.target_temp_high, effective_high, offset, floor,
+            )
+        except Exception as e:
+            _LOGGER.error("HVAC: Failed to pre-cool %s: %s", zone.climate_entity, e)
+
+    async def _activate_zone_fans(self, zone) -> None:
+        """Turn on zone fans for comfort bridge during pre-arrival."""
+        from ..const import CONF_FANS, CONF_ENTRY_TYPE, CONF_ROOM_NAME, DOMAIN, ENTRY_TYPE_ROOM
+
+        for room_name in zone.rooms:
+            coordinator = self._get_room_coordinator(room_name)
+            if coordinator is None:
                 continue
-            if zone.target_temp_high is None or zone.target_temp_low is None:
+            config = {**coordinator.config_entry.data, **coordinator.config_entry.options}
+            fans = config.get(CONF_FANS, [])
+            for fan_entity in fans:
+                domain = fan_entity.split(".")[0]
+                state = self.hass.states.get(fan_entity)
+                if state and state.state != "on":
+                    try:
+                        await self.hass.services.async_call(
+                            domain, "turn_on",
+                            {"entity_id": fan_entity}, blocking=False,
+                        )
+                    except Exception:  # noqa: BLE001
+                        pass
+        _LOGGER.info("HVAC: Pre-arrival fans activated for zone %s", zone.zone_name)
+
+    def _get_room_coordinator(self, room_name: str):
+        """Get room coordinator by room name."""
+        from ..const import CONF_ENTRY_TYPE, CONF_ROOM_NAME, DOMAIN, ENTRY_TYPE_ROOM
+
+        for entry in self.hass.config_entries.async_entries(DOMAIN):
+            if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ROOM:
                 continue
-
-            pre_cool_temp = zone.target_temp_high - 2  # Lower by 2F from current
-
-            # Suppress override arrester for this change
-            if self._override_arrester:
-                self._override_arrester.suppress(zone.climate_entity)
-
-            try:
-                await self.hass.services.async_call(
-                    "climate", "set_temperature",
-                    {
-                        "entity_id": zone.climate_entity,
-                        "target_temp_high": pre_cool_temp,
-                        "target_temp_low": zone.target_temp_low,
-                    },
-                    blocking=False,
-                )
-                _LOGGER.info(
-                    "HVAC Pre-cool: %s set to %.0fF (was %.0fF)",
-                    zone.zone_name, pre_cool_temp, zone.target_temp_high,
-                )
-            except Exception as e:
-                _LOGGER.error("HVAC Pre-cool failed on %s: %s",
-                              zone.climate_entity, e)
+            if entry.data.get(CONF_ROOM_NAME) == room_name:
+                return self.hass.data.get(DOMAIN, {}).get(entry.entry_id)
+        return None
 
     async def _execute_pre_heat(self) -> None:
         """Raise heating setpoints to pre-heat before on-peak."""

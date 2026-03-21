@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation v3.16.2
+# Universal Room Automation v3.17.0
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -1121,6 +1121,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         CONF_HVAC_FAN_HYSTERESIS,
                         CONF_HVAC_FAN_MIN_RUNTIME,
                         CONF_HVAC_ARRESTER_ENABLED,
+                        CONF_HVAC_VACANCY_GRACE_MINUTES,
+                        CONF_HVAC_VACANCY_GRACE_CONSTRAINED,
+                        CONF_HVAC_MAX_OCCUPANCY_HOURS,
+                        CONF_PERSON_PREFERRED_ZONES,
                         DEFAULT_MAX_SLEEP_OFFSET,
                         DEFAULT_COMPROMISE_MINUTES,
                         DEFAULT_AC_RESET_TIMEOUT,
@@ -1128,7 +1132,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         DEFAULT_FAN_HYSTERESIS,
                         DEFAULT_FAN_MIN_RUNTIME,
                         DEFAULT_ARRESTER_ENABLED,
+                        DEFAULT_VACANCY_GRACE_MINUTES,
+                        DEFAULT_VACANCY_GRACE_CONSTRAINED,
+                        DEFAULT_MAX_OCCUPANCY_HOURS,
                     )
+                    # v3.17.0: Parse person_preferred_zones JSON dict
+                    import json as _json
+                    _raw_pzm = cm_config.get(CONF_PERSON_PREFERRED_ZONES, "{}")
+                    if isinstance(_raw_pzm, str):
+                        try:
+                            _person_zone_map = _json.loads(_raw_pzm)
+                        except (ValueError, TypeError):
+                            _person_zone_map = {}
+                    elif isinstance(_raw_pzm, dict):
+                        _person_zone_map = _raw_pzm
+                    else:
+                        _person_zone_map = {}
+
                     hvac = HVACCoordinator(
                         hass,
                         max_sleep_offset=float(cm_config.get(
@@ -1152,6 +1172,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         arrester_enabled=bool(cm_config.get(
                             CONF_HVAC_ARRESTER_ENABLED, DEFAULT_ARRESTER_ENABLED
                         )),
+                        vacancy_grace=int(cm_config.get(
+                            CONF_HVAC_VACANCY_GRACE_MINUTES, DEFAULT_VACANCY_GRACE_MINUTES
+                        )),
+                        vacancy_grace_constrained=int(cm_config.get(
+                            CONF_HVAC_VACANCY_GRACE_CONSTRAINED, DEFAULT_VACANCY_GRACE_CONSTRAINED
+                        )),
+                        max_occupancy_hours=int(cm_config.get(
+                            CONF_HVAC_MAX_OCCUPANCY_HOURS, DEFAULT_MAX_OCCUPANCY_HOURS
+                        )),
+                        person_zone_map=_person_zone_map,
                     )
                     coordinator_manager.register_coordinator(hvac)
                 else:
