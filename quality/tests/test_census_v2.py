@@ -1735,7 +1735,7 @@ class TestEnhancedHouseCensus:
 
         assert result.camera_unrecognized == 2
         assert result.wifi_guest_floor == 0
-        assert result.unidentified_count == 2  # max(2, 0)
+        assert result.unidentified_count == 2  # camera_unrecognized
         assert result.identified_count == 3  # BLE persons
         assert result.total_persons == 5
         assert result.enhanced_census is True
