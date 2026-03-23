@@ -151,7 +151,7 @@ class ZoneManager:
         physical thermostat labeling. Otherwise auto-numbers sequentially.
         Guarantees no collisions with already-assigned zone IDs.
         """
-        match = re.search(r"\bzone[_\s]?(\d+)", climate_entity)
+        match = re.search(r"(?:^|[_.\s])zone[_\s]?(\d+)", climate_entity)
         if match:
             candidate = f"zone_{match.group(1)}"
             if candidate not in self._zones:
