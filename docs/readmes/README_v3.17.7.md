@@ -15,6 +15,11 @@
 - Now: ARRIVING→HOME_NIGHT (valid), then next cycle HOME_NIGHT→SLEEP (valid)
 - Previously: ARRIVING→SLEEP (rejected) → stuck on arriving indefinitely during sleep hours
 
+### Fix `_time_based_home()` classifying 0-5 AM as HOME_DAY
+- Hours before `sleep_end_hour` (0-5 AM) were falling through to HOME_DAY
+- This broke the ARRIVING→HOME_DAY→SLEEP chain (HOME_DAY→SLEEP not valid)
+- Now returns HOME_NIGHT for pre-dawn hours, enabling HOME_NIGHT→SLEEP transition
+
 ## Files Changed
 - `domain_coordinators/hvac.py` — off-mode restore moved before arriving skip
-- `domain_coordinators/presence.py` — ARRIVING resolution before sleep check in `infer()`
+- `domain_coordinators/presence.py` — ARRIVING resolution before sleep check, pre-dawn HOME_NIGHT classification

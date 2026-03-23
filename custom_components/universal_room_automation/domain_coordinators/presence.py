@@ -427,12 +427,16 @@ class StateInferenceEngine:
     def _time_based_home(self, hour: int) -> HouseState:
         """Determine HOME variant based on time of day.
 
-        Timeline (with defaults): 0-5 sleep, 6-17 day, 18-20 evening, 21-22 night, 23+ sleep
+        Timeline (with defaults): 0-5 night, 6-17 day, 18-20 evening, 21+ night.
+        Hours before sleep_end (0-5 AM) are HOME_NIGHT so the valid
+        transition HOME_NIGHT → SLEEP can fire on the next cycle.
         """
         if hour >= self.night_start_hour:
             return HouseState.HOME_NIGHT
         if hour >= self.evening_start_hour:
             return HouseState.HOME_EVENING
+        if hour < self.sleep_end_hour:
+            return HouseState.HOME_NIGHT
         return HouseState.HOME_DAY
 
     def _is_sleep_hour(self, hour: int) -> bool:
