@@ -144,21 +144,25 @@ class ZoneManager:
         """Return number of discovered zones."""
         return len(self._zones)
 
-    @staticmethod
-    def _zone_id_from_thermostat(climate_entity: str, fallback_num: int) -> str:
+    def _zone_id_from_thermostat(self, climate_entity: str, fallback_num: int) -> str:
         """Derive zone_id from the thermostat entity name.
 
-        Matches the physical zone number in thermostat names like:
-          climate.thermostat_bryant_wifi_studyb_zone_1 → zone_1
-          climate.up_hallway_zone_2                    → zone_2
-          climate.back_hallway_zone_3                  → zone_3
-
-        Falls back to zone_{fallback_num} if no number is found.
+        If the entity contains "zone_N", uses that number to match
+        physical thermostat labeling. Otherwise auto-numbers sequentially.
+        Guarantees no collisions with already-assigned zone IDs.
         """
         match = re.search(r"zone[_\s]?(\d+)", climate_entity)
         if match:
-            return f"zone_{match.group(1)}"
-        return f"zone_{fallback_num}"
+            candidate = f"zone_{match.group(1)}"
+            if candidate not in self._zones:
+                return candidate
+            # Collision — fall through to auto-number
+
+        # Auto-number: find next unused ID
+        n = fallback_num
+        while f"zone_{n}" in self._zones:
+            n += 1
+        return f"zone_{n}"
 
     async def async_discover_zones(self) -> int:
         """Discover HVAC zones from zone config entries.
