@@ -370,6 +370,13 @@ class StateInferenceEngine:
             self._confidence = 0.85
             return HouseState.ARRIVING
 
+        # Arriving → time-based home (must resolve before sleep/guest checks;
+        # ARRIVING→SLEEP is not a valid state machine transition, so we first
+        # move to HOME_*, then the next inference cycle handles HOME_*→SLEEP).
+        if current_state == HouseState.ARRIVING:
+            self._confidence = 0.85
+            return self._time_based_home(hour)
+
         # Sleep hours (don't enter guest mode during sleep)
         if self._is_sleep_hour(hour):
             if current_state not in (HouseState.SLEEP, HouseState.WAKING):
@@ -401,11 +408,6 @@ class StateInferenceEngine:
         # Guest mode exit — unidentified gone, return to time-based home
         if current_state == HouseState.GUEST and unidentified_count == 0:
             self._confidence = 0.75
-            return self._time_based_home(hour)
-
-        # Arriving → time-based home (or guest if unidentified)
-        if current_state == HouseState.ARRIVING:
-            self._confidence = 0.85
             return self._time_based_home(hour)
 
         # Time-based transitions while home
