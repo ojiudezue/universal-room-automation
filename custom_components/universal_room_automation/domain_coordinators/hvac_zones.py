@@ -10,6 +10,7 @@ v3.8.0-H1: Initial implementation.
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
@@ -143,6 +144,22 @@ class ZoneManager:
         """Return number of discovered zones."""
         return len(self._zones)
 
+    @staticmethod
+    def _zone_id_from_thermostat(climate_entity: str, fallback_num: int) -> str:
+        """Derive zone_id from the thermostat entity name.
+
+        Matches the physical zone number in thermostat names like:
+          climate.thermostat_bryant_wifi_studyb_zone_1 → zone_1
+          climate.up_hallway_zone_2                    → zone_2
+          climate.back_hallway_zone_3                  → zone_3
+
+        Falls back to zone_{fallback_num} if no number is found.
+        """
+        match = re.search(r"zone[_\s]?(\d+)", climate_entity)
+        if match:
+            return f"zone_{match.group(1)}"
+        return f"zone_{fallback_num}"
+
     async def async_discover_zones(self) -> int:
         """Discover HVAC zones from zone config entries.
 
@@ -156,7 +173,7 @@ class ZoneManager:
         from .hvac_const import DEFAULT_VACANCY_GRACE_MINUTES
 
         self._zones.clear()
-        zone_num = 0
+        next_zone_num = 0  # Fallback counter for thermostats without a zone number
 
         # Build entry_id -> room_name mapping for Zone Manager rooms
         entry_id_to_room_name: dict[str, str] = {}
@@ -214,8 +231,11 @@ class ZoneManager:
                     )
                     continue
 
-                zone_num += 1
-                zone_id = f"zone_{zone_num}"
+                zone_id = self._zone_id_from_thermostat(
+                    thermostat, next_zone_num
+                )
+                if zone_id == f"zone_{next_zone_num}":
+                    next_zone_num += 1
                 thermostat_to_zone_id[thermostat] = zone_id
 
                 zone_state = ZoneState(
@@ -267,9 +287,12 @@ class ZoneManager:
                 continue
 
             seen_thermostats.add(thermostat)
-            zone_num += 1
-            zone_name = merged.get("zone_name", f"Zone {zone_num}")
-            zone_id = f"zone_{zone_num}"
+            zone_id = self._zone_id_from_thermostat(
+                thermostat, next_zone_num
+            )
+            if zone_id == f"zone_{next_zone_num}":
+                next_zone_num += 1
+            zone_name = merged.get("zone_name", f"Zone {zone_id.split('_')[-1]}")
             thermostat_to_zone_id[thermostat] = zone_id
 
             zone_state = ZoneState(
