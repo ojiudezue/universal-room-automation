@@ -442,31 +442,11 @@ class HVACCoordinator(BaseCoordinator):
         if not self._house_state:
             return
 
-        # Skip preset changes during "arriving" — transient state after
-        # HA restart or geofence arrival.  Presence sensors haven't settled
-        # yet, so acting now causes unnecessary preset churn.
-        if self._house_state == "arriving":
-            return
-
-        target_preset = self._preset_manager.get_preset_for_house_state(
-            self._house_state
-        )
-        if target_preset is None:
-            return
-
-        now = dt_util.utcnow()
-        energy_constrained = self._energy_constraint_mode in ("coast", "shed")
-        grace_minutes = (
-            self._vacancy_grace_constrained if energy_constrained
-            else self._vacancy_grace
-        )
-
-        zi = self._zone_intelligence_enabled
+        # --- Ensure thermostats are in an active mode (always, even during arriving) ---
+        # Thermostats should never be left in "off" mode by URA.
+        # "Away" uses relaxed setpoints via preset, not hvac_mode=off.
+        # Skip zones mid-AC-reset (intentionally off for a short cycle).
         for zone_id, zone in self._zone_manager.zones.items():
-            # --- Ensure thermostat is in an active mode ---
-            # Thermostats should never be left in "off" mode by URA.
-            # "Away" uses relaxed setpoints via preset, not hvac_mode=off.
-            # Skip zones mid-AC-reset (intentionally off for a short cycle).
             if (
                 zone.hvac_mode == "off"
                 and not self._override_arrester.has_active_ac_reset(zone_id)
@@ -492,6 +472,27 @@ class HVACCoordinator(BaseCoordinator):
                         zone.climate_entity, e,
                     )
 
+        # Skip preset changes during "arriving" — transient state after
+        # HA restart or geofence arrival.  Presence sensors haven't settled
+        # yet, so acting now causes unnecessary preset churn.
+        if self._house_state == "arriving":
+            return
+
+        target_preset = self._preset_manager.get_preset_for_house_state(
+            self._house_state
+        )
+        if target_preset is None:
+            return
+
+        now = dt_util.utcnow()
+        energy_constrained = self._energy_constraint_mode in ("coast", "shed")
+        grace_minutes = (
+            self._vacancy_grace_constrained if energy_constrained
+            else self._vacancy_grace
+        )
+
+        zi = self._zone_intelligence_enabled
+        for zone_id, zone in self._zone_manager.zones.items():
             effective_preset = target_preset
             zone_vacant_past_grace = False
 
