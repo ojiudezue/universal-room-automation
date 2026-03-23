@@ -167,7 +167,11 @@ class ZoneManager:
                     entry_id_to_room_name[entry.entry_id] = room_name
 
         # 1. Read from Zone Manager entry (primary source)
-        seen_thermostats: set[str] = set()
+        # Multiple URA zones can share a thermostat (e.g., Entertainment +
+        # Master Suite both served by StudyB Zone 1). When this happens,
+        # merge their rooms into a single HVAC zone so occupancy in ANY
+        # of the mapped zones keeps the thermostat active.
+        thermostat_to_zone_id: dict[str, str] = {}
         for entry in self.hass.config_entries.async_entries(DOMAIN):
             if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ZONE_MANAGER:
                 continue
@@ -179,20 +183,10 @@ class ZoneManager:
                 thermostat = zone_cfg.get(CONF_ZONE_THERMOSTAT)
                 if not thermostat:
                     continue
-                if thermostat in seen_thermostats:
-                    _LOGGER.debug(
-                        "HVAC: Skipping %s — thermostat %s already assigned",
-                        zm_zone_name, thermostat,
-                    )
-                    continue
-
-                seen_thermostats.add(thermostat)
-                zone_num += 1
-                zone_id = f"zone_{zone_num}"
 
                 # Convert entry IDs to room names
                 raw_rooms = zone_cfg.get(CONF_ZONE_ROOMS, [])
-                room_names = []
+                room_names: list[str] = []
                 if isinstance(raw_rooms, list):
                     for r in raw_rooms:
                         name = entry_id_to_room_name.get(r)
@@ -206,6 +200,23 @@ class ZoneManager:
 
                 from .hvac_const import CONF_ZONE_VACANCY_SWEEP_ENABLED
                 sweep_enabled = zone_cfg.get(CONF_ZONE_VACANCY_SWEEP_ENABLED, True)
+
+                # If thermostat already assigned, merge rooms into existing zone
+                existing_zone_id = thermostat_to_zone_id.get(thermostat)
+                if existing_zone_id is not None:
+                    existing = self._zones[existing_zone_id]
+                    existing.rooms.extend(room_names)
+                    existing.zone_name = f"{existing.zone_name} + {zm_zone_name}"
+                    _LOGGER.info(
+                        "HVAC: Merged %s into %s (%s) — now %d rooms",
+                        zm_zone_name, existing_zone_id,
+                        thermostat, len(existing.rooms),
+                    )
+                    continue
+
+                zone_num += 1
+                zone_id = f"zone_{zone_num}"
+                thermostat_to_zone_id[thermostat] = zone_id
 
                 zone_state = ZoneState(
                     zone_id=zone_id,
@@ -228,19 +239,15 @@ class ZoneManager:
                 )
 
         # 2. Legacy fallback: individual ENTRY_TYPE_ZONE entries
+        seen_thermostats: set[str] = set(thermostat_to_zone_id.keys())
         for entry in self.hass.config_entries.async_entries(DOMAIN):
             if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ZONE:
                 continue
 
             merged = {**entry.data, **entry.options}
             thermostat = merged.get(CONF_ZONE_THERMOSTAT)
-            if not thermostat or thermostat in seen_thermostats:
+            if not thermostat:
                 continue
-
-            seen_thermostats.add(thermostat)
-            zone_num += 1
-            zone_name = merged.get("zone_name", f"Zone {zone_num}")
-            zone_id = f"zone_{zone_num}"
 
             # Convert entry IDs to room names (same as Zone Manager path)
             raw_rooms = merged.get(CONF_ZONE_ROOMS, [])
@@ -248,6 +255,22 @@ class ZoneManager:
             if isinstance(raw_rooms, list):
                 for r in raw_rooms:
                     room_names.append(entry_id_to_room_name.get(r, r))
+
+            # Merge into existing zone if thermostat already assigned
+            existing_zone_id = thermostat_to_zone_id.get(thermostat)
+            if existing_zone_id is not None:
+                existing = self._zones[existing_zone_id]
+                existing.rooms.extend(room_names)
+                continue
+
+            if thermostat in seen_thermostats:
+                continue
+
+            seen_thermostats.add(thermostat)
+            zone_num += 1
+            zone_name = merged.get("zone_name", f"Zone {zone_num}")
+            zone_id = f"zone_{zone_num}"
+            thermostat_to_zone_id[thermostat] = zone_id
 
             zone_state = ZoneState(
                 zone_id=zone_id,

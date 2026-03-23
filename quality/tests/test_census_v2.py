@@ -6,7 +6,7 @@ Covers:
   - Unrecognized camera count (seen vs recognized)
   - WiFi guest VLAN detection (SSID, hostname filtering, person exclusion, recency)
   - Face recognized person names (window, tracked persons)
-  - Enhanced house census (formula: unidentified = max(camera_unrecognized, wifi_guests))
+  - Enhanced house census (formula: unidentified = camera_unrecognized; WiFi disabled)
   - Enhanced property census (hold/decay on exterior)
   - Config toggle (enabled/disabled)
   - Edge cases (no cameras, no WiFi guests, stale face recognition)
@@ -392,7 +392,7 @@ class StubPersonCensusV2:
 
         recognized_set = set(ble_persons) | set(face_recognized)
         identified_count = len(recognized_set)
-        unidentified_raw = max(camera_unrecognized, wifi_guests)
+        unidentified_raw = camera_unrecognized
 
         held_unidentified, peak_held, peak_age = self._apply_hold_decay(
             unidentified_raw, "house", now
@@ -1741,7 +1741,7 @@ class TestEnhancedHouseCensus:
         assert result.enhanced_census is True
 
     def test_guests_via_wifi_only(self):
-        """WiFi guest floor should set unidentified when cameras see nothing."""
+        """WiFi-only guests no longer raise unidentified (WiFi disabled)."""
         hass = _make_hass_with_entry({CONF_GUEST_VLAN_SSID: "Revel"})
         # 2 guest phones on WiFi
         for i in range(2):
@@ -1760,13 +1760,13 @@ class TestEnhancedHouseCensus:
         now = datetime.now()
         result = census._apply_enhanced_house_census(raw, ["oji", "ezinne", "jaya"], now)
 
-        assert result.wifi_guest_floor == 2
+        assert result.wifi_guest_floor == 2  # still counted for diagnostics
         assert result.camera_unrecognized == 0
-        assert result.unidentified_count == 2  # max(0, 2)
-        assert result.total_persons == 5
+        assert result.unidentified_count == 0  # camera-only: 0
+        assert result.total_persons == 3
 
-    def test_max_of_camera_and_wifi(self):
-        """Unidentified = max(camera_unrecognized, wifi_guests)."""
+    def test_wifi_does_not_inflate_unidentified(self):
+        """WiFi guests no longer raise unidentified above camera count."""
         hass = _make_hass_with_entry({CONF_GUEST_VLAN_SSID: "Revel"})
 
         # Camera sees 1 unrecognized
@@ -1795,8 +1795,8 @@ class TestEnhancedHouseCensus:
         result = census._apply_enhanced_house_census(raw, ["oji", "ezinne", "jaya"], now)
 
         assert result.camera_unrecognized == 1
-        assert result.wifi_guest_floor == 3
-        assert result.unidentified_count == 3  # max(1, 3)
+        assert result.wifi_guest_floor == 3  # still tracked for diagnostics
+        assert result.unidentified_count == 1  # camera-only
 
     def test_face_recognized_union_with_ble(self):
         """Face recognized persons should merge with BLE persons."""
@@ -2079,7 +2079,7 @@ class TestCensusV2EdgeCases:
         assert census._get_wifi_guest_count(reconnect_time) == 1
 
     def test_bedroom_guest_overnight(self):
-        """Guest sleeping in bedroom (no cameras) stays counted via WiFi."""
+        """Guest in bedroom (no cameras) — WiFi counted but not in unidentified."""
         hass = _make_hass_with_entry({CONF_GUEST_VLAN_SSID: "Revel"})
         cam_mgr = StubCameraManager()  # No cameras (simulating bedroom)
 
@@ -2095,13 +2095,13 @@ class TestCensusV2EdgeCases:
         census = StubPersonCensusV2(hass, cam_mgr)
         raw = _make_raw_house_result()
 
-        # Check at midnight
+        # Check at midnight — WiFi counted but not in formula
         r1 = census._apply_enhanced_house_census(raw, ["oji", "ezinne"], t0)
         assert r1.wifi_guest_floor == 1
-        assert r1.unidentified_count == 1
+        assert r1.unidentified_count == 0  # camera-only: no cameras = 0
 
-        # Check at 6am — still within 24h recency window
+        # Check at 6am
         t1 = t0 + timedelta(hours=6)
         r2 = census._apply_enhanced_house_census(raw, ["oji", "ezinne"], t1)
         assert r2.wifi_guest_floor == 1
-        assert r2.unidentified_count == 1  # WiFi floor sustains count
+        assert r2.unidentified_count == 0  # camera-only

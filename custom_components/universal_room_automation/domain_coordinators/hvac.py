@@ -500,7 +500,7 @@ class HVACCoordinator(BaseCoordinator):
                     > grace_minutes * 60
                 )
 
-                if zone_vacant_past_grace and target_preset in ("home",):
+                if zone_vacant_past_grace and target_preset in ("home", "sleep"):
                     effective_preset = "away"
 
                     # Zone sweep: turn off lights + fans (once per vacancy cycle)
