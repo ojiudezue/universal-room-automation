@@ -442,6 +442,12 @@ class HVACCoordinator(BaseCoordinator):
         if not self._house_state:
             return
 
+        # Skip preset changes during "arriving" — transient state after
+        # HA restart or geofence arrival.  Presence sensors haven't settled
+        # yet, so acting now causes unnecessary preset churn.
+        if self._house_state == "arriving":
+            return
+
         target_preset = self._preset_manager.get_preset_for_house_state(
             self._house_state
         )
