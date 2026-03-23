@@ -1712,8 +1712,10 @@ class PersonCensus:
     ) -> CensusZoneResult:
         """Apply enhanced census v2 to the house zone result.
 
-        Replaces the original unidentified formula with:
-          unidentified = max(camera_unrecognized, wifi_guests)
+        Uses camera-only for unidentified count:
+          unidentified = camera_unrecognized
+        WiFi guest count is still computed for diagnostics but excluded
+        from the formula (too many false positives from IoT devices).
         Then applies hold/decay to stabilize the count.
         """
         # Get v2 signals

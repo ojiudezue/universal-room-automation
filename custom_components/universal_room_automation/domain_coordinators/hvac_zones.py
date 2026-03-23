@@ -151,7 +151,7 @@ class ZoneManager:
         physical thermostat labeling. Otherwise auto-numbers sequentially.
         Guarantees no collisions with already-assigned zone IDs.
         """
-        match = re.search(r"zone[_\s]?(\d+)", climate_entity)
+        match = re.search(r"\bzone[_\s]?(\d+)", climate_entity)
         if match:
             candidate = f"zone_{match.group(1)}"
             if candidate not in self._zones:
@@ -228,6 +228,10 @@ class ZoneManager:
                     existing = self._zones[existing_zone_id]
                     existing.rooms.extend(room_names)
                     existing.zone_name = f"{existing.zone_name} + {zm_zone_name}"
+                    # Enable sweep if either zone wants it
+                    existing.vacancy_sweep_enabled = (
+                        existing.vacancy_sweep_enabled or sweep_enabled
+                    )
                     _LOGGER.info(
                         "HVAC: Merged %s into %s (%s) — now %d rooms",
                         zm_zone_name, existing_zone_id,
