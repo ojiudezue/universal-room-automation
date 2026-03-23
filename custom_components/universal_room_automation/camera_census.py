@@ -1,6 +1,6 @@
 """Camera integration and person census for Universal Room Automation v3.5.0."""
 #
-# Universal Room Automation v3.17.0
+# Universal Room Automation v3.17.1
 # Build: 2026-02-23
 # File: camera_census.py
 # Cycle 3: Camera Integration & Census Core
@@ -1725,8 +1725,11 @@ class PersonCensus:
         recognized_set = set(ble_persons) | set(face_recognized)
         identified_count = len(recognized_set)
 
-        # Unidentified = max of camera unrecognized and WiFi guest floor
-        unidentified_raw = max(camera_unrecognized, wifi_guests)
+        # Unidentified = camera-only (WiFi VLAN guest detection disabled —
+        # too many false positives from persistent IoT/infrastructure devices
+        # that pass hostname filters but aren't actual guests).
+        # WiFi count is still captured in sensor attributes for diagnostics.
+        unidentified_raw = camera_unrecognized
 
         # Apply hold/decay to unidentified count
         held_unidentified, peak_held, peak_age = self._apply_hold_decay(

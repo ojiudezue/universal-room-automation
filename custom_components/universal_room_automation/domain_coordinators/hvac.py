@@ -457,6 +457,35 @@ class HVACCoordinator(BaseCoordinator):
 
         zi = self._zone_intelligence_enabled
         for zone_id, zone in self._zone_manager.zones.items():
+            # --- Ensure thermostat is in an active mode ---
+            # Thermostats should never be left in "off" mode by URA.
+            # "Away" uses relaxed setpoints via preset, not hvac_mode=off.
+            # Skip zones mid-AC-reset (intentionally off for a short cycle).
+            if (
+                zone.hvac_mode == "off"
+                and not self._override_arrester.has_active_ac_reset(zone_id)
+            ):
+                self._override_arrester.suppress(zone.climate_entity)
+                try:
+                    await self.hass.services.async_call(
+                        "climate",
+                        "set_hvac_mode",
+                        {
+                            "entity_id": zone.climate_entity,
+                            "hvac_mode": "heat_cool",
+                        },
+                        blocking=False,
+                    )
+                    _LOGGER.info(
+                        "HVAC: Restored %s to heat_cool (was off)",
+                        zone.zone_name,
+                    )
+                except Exception as e:
+                    _LOGGER.error(
+                        "HVAC: Failed to restore mode on %s: %s",
+                        zone.climate_entity, e,
+                    )
+
             effective_preset = target_preset
             zone_vacant_past_grace = False
 
@@ -471,7 +500,7 @@ class HVACCoordinator(BaseCoordinator):
                     > grace_minutes * 60
                 )
 
-                if zone_vacant_past_grace and target_preset in ("home",):
+                if zone_vacant_past_grace and target_preset in ("home", "sleep"):
                     effective_preset = "away"
 
                     # Zone sweep: turn off lights + fans (once per vacancy cycle)

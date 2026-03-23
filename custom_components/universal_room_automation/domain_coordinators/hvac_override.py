@@ -81,6 +81,10 @@ class OverrideArrester:
         # Suppression: entity_ids to ignore overrides on (during URA-initiated changes)
         self._suppressed_entities: set[str] = set()
 
+    def has_active_ac_reset(self, zone_id: str) -> bool:
+        """Check if a zone is mid-AC-reset (intentionally off)."""
+        return zone_id in self._reset_timers
+
     def setup(self) -> None:
         """Subscribe to climate entity state changes."""
         entity_ids = [
@@ -515,7 +519,26 @@ class OverrideArrester:
             zone.zone_name, original_preset,
         )
 
+        # Suppress arrester for our own revert
+        self._suppressed_entities.add(zone.climate_entity)
+
         try:
+            # Ensure thermostat is in an active mode before setting preset
+            if zone.hvac_mode == "off":
+                await self.hass.services.async_call(
+                    "climate",
+                    "set_hvac_mode",
+                    {
+                        "entity_id": zone.climate_entity,
+                        "hvac_mode": "heat_cool",
+                    },
+                    blocking=False,
+                )
+                _LOGGER.info(
+                    "Override revert: restored %s to heat_cool (was off)",
+                    zone.zone_name,
+                )
+
             await self.hass.services.async_call(
                 "climate",
                 "set_preset_mode",
