@@ -1,6 +1,6 @@
 """Config flow for Universal Room Automation v3.6.24."""
 #
-# Universal Room Automation v3.17.8
+# Universal Room Automation v3.17.9
 # Build: 2026-01-05
 # File: config_flow.py
 # v3.3.3: Added manage_zones to integration options menu
@@ -2564,6 +2564,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         """Configure HVAC Coordinator settings.
 
         v3.8.6: Sleep offset, override compromise, fan tuning, cover entities.
+        v3.17.8: Person-to-zone mapping for pre-arrival pre-conditioning.
         """
         from .domain_coordinators.hvac_const import (
             CONF_HVAC_MAX_SLEEP_OFFSET,
@@ -2581,15 +2582,55 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             DEFAULT_FAN_MIN_RUNTIME,
             CONF_HVAC_ARRESTER_ENABLED,
             DEFAULT_ARRESTER_ENABLED,
+            CONF_HVAC_AC_RESET_ENABLED,
+            DEFAULT_AC_RESET_ENABLED,
+            CONF_PERSON_PREFERRED_ZONES,
         )
+        import json as _json
 
+        # Load existing person-zone map
+        raw_pzm = self._get_current(CONF_PERSON_PREFERRED_ZONES, {})
+        if isinstance(raw_pzm, str):
+            try:
+                existing_pzm = _json.loads(raw_pzm)
+            except (ValueError, TypeError):
+                existing_pzm = {}
+        elif isinstance(raw_pzm, dict):
+            existing_pzm = raw_pzm
+        else:
+            existing_pzm = {}
+
+        errors: dict[str, str] = {}
         if user_input is not None:
-            return self.async_create_entry(
-                title="",
-                data={**self._config_entry.options, **user_input},
-            )
+            # Parse person_preferred_zones JSON text field
+            raw_pzm_input = user_input.get(CONF_PERSON_PREFERRED_ZONES, "")
+            if isinstance(raw_pzm_input, str) and raw_pzm_input.strip():
+                try:
+                    parsed_pzm = _json.loads(raw_pzm_input)
+                    if not isinstance(parsed_pzm, dict):
+                        errors["person_preferred_zones"] = "invalid_json"
+                    else:
+                        # Validate values are list[str]; drop malformed entries
+                        parsed_pzm = {
+                            k: v for k, v in parsed_pzm.items()
+                            if isinstance(v, list)
+                            and all(isinstance(i, str) for i in v)
+                        }
+                except (ValueError, TypeError):
+                    errors["person_preferred_zones"] = "invalid_json"
+            else:
+                # Empty input: preserve existing mapping
+                parsed_pzm = existing_pzm
 
-        data_schema = vol.Schema({
+            if not errors:
+                user_input[CONF_PERSON_PREFERRED_ZONES] = parsed_pzm
+                return self.async_create_entry(
+                    title="",
+                    data={**self._config_entry.options, **user_input},
+                )
+
+        # Build schema with per-person zone selectors
+        schema_dict = {
             vol.Optional(
                 CONF_HVAC_MAX_SLEEP_OFFSET,
                 default=self._get_current(CONF_HVAC_MAX_SLEEP_OFFSET, DEFAULT_MAX_SLEEP_OFFSET),
@@ -2661,11 +2702,32 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 CONF_HVAC_ARRESTER_ENABLED,
                 default=self._get_current(CONF_HVAC_ARRESTER_ENABLED, DEFAULT_ARRESTER_ENABLED),
             ): selector.BooleanSelector(),
-        })
+            # v3.17.9: AC Reset toggle
+            vol.Optional(
+                CONF_HVAC_AC_RESET_ENABLED,
+                default=self._get_current(CONF_HVAC_AC_RESET_ENABLED, DEFAULT_AC_RESET_ENABLED),
+            ): selector.BooleanSelector(),
+        }
+
+        # v3.17.8: Person-to-zone mapping for pre-arrival pre-conditioning
+        # Stored as JSON dict: {"person.name": ["zone_1", "zone_2"], ...}
+        current_pzm_str = _json.dumps(existing_pzm, indent=2) if existing_pzm else ""
+        schema_dict[vol.Optional(
+            CONF_PERSON_PREFERRED_ZONES,
+            description={"suggested_value": current_pzm_str},
+        )] = selector.TextSelector(
+            selector.TextSelectorConfig(
+                multiline=True,
+                type=selector.TextSelectorType.TEXT,
+            )
+        )
+
+        data_schema = vol.Schema(schema_dict)
 
         return self.async_show_form(
             step_id="coordinator_hvac",
             data_schema=data_schema,
+            errors=errors,
         )
 
     async def async_step_coordinator_security(self, user_input=None):

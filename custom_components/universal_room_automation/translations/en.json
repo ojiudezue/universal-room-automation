@@ -50,21 +50,21 @@
         }
       },
       "post_integration_setup": {
-        "title": "\u2705 Home Setup Complete",
+        "title": "✅ Home Setup Complete",
         "description": "Your home defaults are configured. Would you like to set up zones to group rooms, or skip and add rooms directly?",
         "menu_options": {
           "setup_zone": "Set Up a Zone First",
-          "skip_to_room": "\ud83d\udeaa Skip to Add a Room",
-          "finish": "\u2713 Finish Setup"
+          "skip_to_room": "🚪 Skip to Add a Room",
+          "finish": "✓ Finish Setup"
         }
       },
       "entry_type_select": {
         "title": "Add New Entry",
         "description": "What would you like to add to your home automation?",
         "menu_options": {
-          "add_room": "\ud83d\udeaa Add a Room",
+          "add_room": "🚪 Add a Room",
           "add_zone": "Add a Zone",
-          "add_coordinator": "\u2699\ufe0f Add a Coordinator (Coming Soon)"
+          "add_coordinator": "⚙️ Add a Coordinator (Coming Soon)"
         }
       },
       "zone_setup": {
@@ -82,7 +82,7 @@
         }
       },
       "room_setup": {
-        "title": "\ud83d\udeaa Room Setup",
+        "title": "🚪 Room Setup",
         "description": "Configure the basic information for this room. The room type affects default timeout settings.",
         "data": {
           "room_name": "Room Name",
@@ -106,7 +106,7 @@
         }
       },
       "sensors": {
-        "title": "\ud83d\udce1 Presence & Environmental Sensors",
+        "title": "📡 Presence & Environmental Sensors",
         "description": "Select sensors for occupancy detection and environmental monitoring. At least one occupancy sensor (motion, presence, or combined) is required.",
         "data": {
           "motion_sensors": "Motion Sensors (PIR)",
@@ -334,6 +334,7 @@
       "migration_failed": "Migration failed. Please check logs.",
       "reconfigure_use_options": "Use 'Configure' from the three-dot menu to modify settings.",
       "coordinator_not_ready": "Coordinator setup is coming in a future update.",
+      "coordinator_use_options": "Domain coordinators are configured via the Coordinator Manager device. Click Configure on the Coordinator Manager entry.",
       "no_zones_configured": "No zones have been configured yet. Add a zone from the integration setup first.",
       "zone_not_found": "The selected zone could not be found. It may have been deleted.",
       "zone_added": "Zone added successfully. The Zone Manager will reload to apply changes."
@@ -345,47 +346,48 @@
         "title": "Configure Settings",
         "description": "Select a category to modify.",
         "menu_options": {
-          "global_sensors": "\ud83c\udf21\ufe0f Global Sensors",
-          "energy_sensors": "\u26a1 Energy Sensors",
-          "person_tracking": "\ud83d\udc65 Person Tracking",
-          "default_notifications": "\ud83d\udd14 Default Notifications",
-          "manage_zones": "\ud83d\uddc2\ufe0f Manage Zones",
-          "camera_census": "\ud83d\udcf7 Camera Census",
-          "perimeter_alerting": "\ud83d\udea8 Perimeter Alerting",
-          "domain_coordinators": "\ud83e\udd16 Domain Coordinators",
-          "coordinator_presence": "\ud83d\udc65 Presence Settings",
-          "coordinator_safety": "\ud83d\udee1\ufe0f Safety Monitoring",
-          "coordinator_security": "\ud83d\udd12 Security",
-          "coordinator_music_following": "\ud83c\udfb5 Music Following",
-          "coordinator_energy": "\u26a1 Energy",
-          "coordinator_notifications": "\ud83d\udd14 Notifications",
-          "coordinator_notifications_persons": "\ud83d\udc64 Notification Persons",
-          "coordinator_notifications_quiet": "\ud83c\udf19 Quiet Hours",
-          "coordinator_notifications_cooldowns": "\u23f1\ufe0f Cooldowns",
-          "coordinator_toggles": "\u2699\ufe0f Enable/Disable Coordinators",
-          "basic_setup": "\ud83d\udeaa Basic Setup",
-          "sensors": "\ud83d\udce1 Sensors",
-          "devices": "\ud83d\udca1 Devices",
-          "automation_behavior": "\u2699\ufe0f Automation",
-          "automation_chaining": "\ud83d\udd17 Automation Chaining",
-          "ai_rules": "\ud83e\udde0 AI Rules",
-          "ai_rule_add": "\u2795 Add Rule",
-          "ai_rule_list": "\ud83d\udcdd View Rules",
-          "chain_occupancy": "\ud83d\udeaa Occupancy Triggers",
-          "chain_light": "\ud83d\udca1 Light Level Triggers",
-          "chain_house_state": "\ud83c\udfe0 House State Triggers",
-          "chain_coordinator": "\ud83e\udd16 Coordinator Triggers",
-          "climate": "\ud83c\udf21\ufe0f Climate & HVAC",
-          "sleep_protection": "\ud83d\udecf\ufe0f Sleep Protection",
-          "music_following": "\ud83c\udfb5 Music Following",
-          "energy": "\u26a1 Energy",
-          "notifications": "\ud83d\udd14 Notifications",
-          "zone_rooms": "\ud83c\udfe0 Zone Rooms",
-          "zone_media": "\ud83c\udfb5 Zone Media"
+          "global_sensors": "🌡️ Global Sensors",
+          "energy_sensors": "⚡ Energy Sensors",
+          "person_tracking": "👥 Person Tracking",
+          "default_notifications": "🔔 Default Notifications",
+          "manage_zones": "🗂️ Manage Zones",
+          "camera_census": "📷 Camera Census",
+          "perimeter_alerting": "🚨 Perimeter Alerting",
+          "domain_coordinators": "🤖 Domain Coordinators",
+          "coordinator_presence": "👥 Presence Settings",
+          "coordinator_safety": "🛡️ Safety Monitoring",
+          "coordinator_security": "🔒 Security",
+          "coordinator_music_following": "🎵 Music Following",
+          "coordinator_energy": "⚡ Energy",
+          "coordinator_hvac": "🌡️ HVAC",
+          "coordinator_notifications": "🔔 Notifications",
+          "coordinator_notifications_persons": "👤 Notification Persons",
+          "coordinator_notifications_quiet": "🌙 Quiet Hours",
+          "coordinator_notifications_cooldowns": "⏱️ Cooldowns",
+          "coordinator_toggles": "⚙️ Enable/Disable Coordinators",
+          "basic_setup": "🚪 Basic Setup",
+          "sensors": "📡 Sensors",
+          "devices": "💡 Devices",
+          "automation_behavior": "⚙️ Automation",
+          "automation_chaining": "🔗 Automation Chaining",
+          "ai_rules": "🧠 AI Rules",
+          "ai_rule_add": "➕ Add Rule",
+          "ai_rule_list": "📝 View Rules",
+          "chain_occupancy": "🚪 Occupancy Triggers",
+          "chain_light": "💡 Light Level Triggers",
+          "chain_house_state": "🏠 House State Triggers",
+          "chain_coordinator": "🤖 Coordinator Triggers",
+          "climate": "🌡️ Climate & HVAC",
+          "sleep_protection": "🛏️ Sleep Protection",
+          "music_following": "🎵 Music Following",
+          "energy": "⚡ Energy",
+          "notifications": "🔔 Notifications",
+          "zone_rooms": "🏠 Zone Rooms",
+          "zone_media": "🎵 Zone Media"
         }
       },
       "manage_zones": {
-        "title": "\ud83d\uddc2\ufe0f Manage Zones",
+        "title": "🗂️ Manage Zones",
         "description": "Select a zone to configure its settings.",
         "data": {
           "zone_entry": "Zone"
@@ -398,13 +400,13 @@
         "title": "Zone Configuration",
         "description": "What would you like to configure for this zone?",
         "menu_options": {
-          "zone_rooms": "\ud83c\udfe0 Zone Rooms",
-          "zone_media": "\ud83c\udfb5 Zone Media",
-          "zone_hvac": "\ud83c\udf21\ufe0f Zone HVAC"
+          "zone_rooms": "🏠 Zone Rooms",
+          "zone_media": "🎵 Zone Media",
+          "zone_hvac": "🌡️ Zone HVAC"
         }
       },
       "zone_hvac": {
-        "title": "\ud83c\udf21\ufe0f Zone HVAC",
+        "title": "🌡️ Zone HVAC",
         "description": "Select the thermostat that controls this zone. If not set, falls back to the first room's thermostat.",
         "data": {
           "zone_thermostat": "Zone Thermostat"
@@ -470,7 +472,7 @@
         }
       },
       "person_tracking": {
-        "title": "\ud83d\udc65 Person Tracking",
+        "title": "👥 Person Tracking",
         "description": "Configure which people to track and how transitions are detected.",
         "data": {
           "tracked_persons": "Tracked People",
@@ -484,7 +486,7 @@
         }
       },
       "camera_census": {
-        "title": "\ud83d\udcf7 Camera Census",
+        "title": "📷 Camera Census",
         "description": "Set up cameras for person counting. Pick any camera entity — person detection sensors are found automatically. Works with UniFi Protect, Frigate, Reolink, and Dahua.",
         "data": {
           "census_cross_validation": "Cross-Check Between Camera Platforms",
@@ -510,23 +512,23 @@
         }
       },
       "perimeter_alerting": {
-        "title": "\ud83d\udea8 Perimeter Alerting",
+        "title": "🚨 Perimeter Alerting",
         "description": "Send notifications when a person is detected on your perimeter cameras during quiet hours. Requires at least one perimeter camera to be configured in Camera Census.",
         "data": {
-          "perimeter_alert_hours_start": "Alert Start Hour (0\u201323)",
-          "perimeter_alert_hours_end": "Alert End Hour (0\u201323)",
+          "perimeter_alert_hours_start": "Alert Start Hour (0–23)",
+          "perimeter_alert_hours_end": "Alert End Hour (0–23)",
           "perimeter_alert_notify_service": "Notification Service",
           "perimeter_alert_notify_target": "Notification Target (optional)"
         },
         "data_description": {
-          "perimeter_alert_hours_start": "Alert monitoring starts at this hour (0\u201323). Default: 11 PM (23). Overnight ranges are supported \u2014 e.g. start 23, end 5 alerts from 11 PM to 5 AM.",
-          "perimeter_alert_hours_end": "Alert monitoring ends at this hour (0\u201323). Wraps overnight when end is before start. Default: 5 AM.",
+          "perimeter_alert_hours_start": "Alert monitoring starts at this hour (0–23). Default: 11 PM (23). Overnight ranges are supported — e.g. start 23, end 5 alerts from 11 PM to 5 AM.",
+          "perimeter_alert_hours_end": "Alert monitoring ends at this hour (0–23). Wraps overnight when end is before start. Default: 5 AM.",
           "perimeter_alert_notify_service": "Notification service to call when a person is detected on your perimeter (e.g., notify.mobile_app_john). Leave blank to disable notifications.",
-          "perimeter_alert_notify_target": "Notification target (optional \u2014 leave blank to use the service default)."
+          "perimeter_alert_notify_target": "Notification target (optional — leave blank to use the service default)."
         }
       },
       "domain_coordinators": {
-        "title": "\ud83e\udd16 Domain Coordinators",
+        "title": "🤖 Domain Coordinators",
         "description": "Enable the domain coordinator system for whole-house intelligence. When enabled, a Coordinator Manager device is created and house-level coordination becomes available. Individual coordinators (Presence, Safety, Security, Energy, HVAC, Comfort) are configured in later updates.",
         "data": {
           "domain_coordinators_enabled": "Enable Domain Coordinators"
@@ -536,7 +538,7 @@
         }
       },
       "coordinator_presence": {
-        "title": "\ud83d\udc65 Presence Settings",
+        "title": "👥 Presence Settings",
         "description": "Configure the Presence Coordinator. Sleep hours determine when the house transitions to sleep/waking states. Geofence trackers detect arrivals and departures.",
         "data": {
           "sleep_start_hour": "Sleep Start Hour",
@@ -544,36 +546,36 @@
           "geofence_entities": "Geofence Device Trackers"
         },
         "data_description": {
-          "sleep_start_hour": "Hour (0\u201323) when the house enters sleep mode. Default: 23 (11 PM).",
-          "sleep_end_hour": "Hour (0\u201323) when the house exits sleep mode. Default: 6 (6 AM).",
+          "sleep_start_hour": "Hour (0–23) when the house enters sleep mode. Default: 23 (11 PM).",
+          "sleep_end_hour": "Hour (0–23) when the house exits sleep mode. Default: 6 (6 AM).",
           "geofence_entities": "Device tracker entities used for geofence-based arrival/departure detection. Select person device trackers that report home/not_home zones."
         }
       },
       "coordinator_safety": {
-        "title": "\ud83d\udee1\ufe0f Safety Monitoring",
+        "title": "🛡️ Safety Monitoring",
         "description": "Configure the Safety Coordinator. The water shutoff valve is activated automatically on water leak detection. Emergency lights are set to 100% brightness during evacuations.",
         "data": {
           "water_shutoff_valve": "Water Shutoff Valve",
           "emergency_light_entities": "Emergency Light Entities",
           "global_smoke_sensors": "Global Smoke/Gas Detectors",
           "global_leak_sensors": "Global Water Leak Sensors",
-          "global_aq_sensors": "Global Air Quality Sensors (CO, CO\u2082, VOC)",
+          "global_aq_sensors": "Global Air Quality Sensors (CO, CO₂, VOC)",
           "global_temp_sensors": "Global Temperature Sensors",
           "global_humidity_sensors": "Global Humidity Sensors"
         },
         "data_description": {
-          "water_shutoff_valve": "Optional valve entity to close automatically on water leak detection (HIGH severity or above). Leave empty if no shutoff valve is installed \u2014 you can add one later.",
+          "water_shutoff_valve": "Optional valve entity to close automatically on water leak detection (HIGH severity or above). Leave empty if no shutoff valve is installed — you can add one later.",
           "emergency_light_entities": "Lights to set to 100% brightness during fire/CO evacuations. Select lights along evacuation routes (hallways, stairways, exits).",
           "global_smoke_sensors": "Smoke/gas detectors not assigned to any URA room. These are monitored globally by the Safety Coordinator.",
           "global_leak_sensors": "Water leak sensors not assigned to any URA room (e.g., utility chase, water main).",
-          "global_aq_sensors": "Air quality sensors (CO, CO\u2082, VOC) not assigned to any URA room.",
+          "global_aq_sensors": "Air quality sensors (CO, CO₂, VOC) not assigned to any URA room.",
           "global_temp_sensors": "Temperature sensors not assigned to any URA room (e.g., attic, crawl space).",
           "global_humidity_sensors": "Humidity sensors not assigned to any URA room."
         }
       },
       "coordinator_security": {
-        "title": "\ud83d\udd12 Security",
-        "description": "Configure the Security Coordinator. Manages armed states, entry monitoring, lock control, and security camera triggers. All devices are manually configured \u2014 no auto-discovery.",
+        "title": "🔒 Security",
+        "description": "Configure the Security Coordinator. Manages armed states, entry monitoring, lock control, and security camera triggers. All devices are manually configured — no auto-discovery.",
         "data": {
           "security_lock_entities": "Lock Entities",
           "security_garage_entities": "Garage Door Entities",
@@ -592,15 +594,15 @@
           "security_entry_sensors": "Door/window binary sensors to monitor for entry events.",
           "security_light_entities": "Lights to activate at full brightness during security alerts. Must be manually selected.",
           "security_camera_entities": "Cameras for recording triggers during security events. Only used when recording is enabled.",
-          "security_camera_recording": "Enable camera recording triggers during alerts. Disabled by default \u2014 cameras are assumed to be on continuous recording.",
+          "security_camera_recording": "Enable camera recording triggers during alerts. Disabled by default — cameras are assumed to be on continuous recording.",
           "security_camera_record_duration": "Duration in seconds for camera recording triggers.",
           "security_alarm_panel": "Optional alarm panel entity for bidirectional armed state sync. Leave empty to manage armed state independently.",
-          "security_auto_follow": "Automatically set armed state based on house state (away \u2192 armed_away, home \u2192 armed_home). Off by default.",
+          "security_auto_follow": "Automatically set armed state based on house state (away → armed_away, home → armed_home). Off by default.",
           "security_lock_check_interval": "Minutes between periodic lock compliance checks. Runs regardless of armed state."
         }
       },
       "coordinator_energy": {
-        "title": "\u26a1 Energy Coordinator",
+        "title": "⚡ Energy Coordinator",
         "description": "Configure the Energy Coordinator. Manages battery strategy, pool/EV optimization, TOU-aware cost tracking, and daily forecasting via Enphase Envoy and Solcast.",
         "data": {
           "energy_reserve_soc": "Battery Reserve SOC (%)",
@@ -675,8 +677,36 @@
           "energy_excess_solar_kwh": "Remaining solar forecast (kWh) above which excess solar triggers EV charging. Default: 5.0 kWh."
         }
       },
+      "coordinator_hvac": {
+        "title": "🌡️ HVAC Coordinator",
+        "description": "Manages zone presets, override detection, fan control, cover management, and pre-conditioning.",
+        "data": {
+          "hvac_max_sleep_offset": "Sleep Temperature Offset",
+          "hvac_compromise_minutes": "Override Compromise Duration",
+          "hvac_ac_reset_timeout": "Stuck Cycle Timeout",
+          "hvac_fan_activation_delta": "Fan Activation Threshold",
+          "hvac_fan_hysteresis": "Fan Deactivation Threshold",
+          "hvac_fan_min_runtime": "Minimum Fan Runtime",
+          "hvac_cover_entities": "Cover Entities",
+          "hvac_arrester_enabled": "Override Arrester",
+          "hvac_ac_reset_enabled": "AC Reset",
+          "person_preferred_zones": "Person-to-Zone Mapping"
+        },
+        "data_description": {
+          "hvac_max_sleep_offset": "How much to relax the cooling setpoint during sleep. Higher = more energy savings, less cooling at night.",
+          "hvac_compromise_minutes": "After detecting a manual thermostat change, how long to hold a compromise temperature before reverting.",
+          "hvac_ac_reset_timeout": "Minutes a zone must be stuck cooling/heating past its setpoint before cycling the thermostat off to reset.",
+          "hvac_fan_activation_delta": "How far above the cooling setpoint the temperature must rise before turning on fans.",
+          "hvac_fan_hysteresis": "How far the temperature must drop below the fan activation threshold before turning fans off.",
+          "hvac_fan_min_runtime": "Minimum time fans stay on once activated, to prevent short cycling.",
+          "hvac_cover_entities": "Cover entities for solar gain management. If empty, covers are auto-discovered from room entries.",
+          "hvac_arrester_enabled": "Detect and revert manual thermostat overrides that conflict with URA presets.",
+          "hvac_ac_reset_enabled": "Cycle the thermostat off briefly when a stuck cooling/heating cycle is detected. Disable if AC reset is causing issues. The thermostat has its own compressor protection.",
+          "person_preferred_zones": "Map people to their preferred HVAC zones for pre-arrival conditioning. When a person arrives home, their zones are pre-cooled/heated. JSON format: {\"person.name\": [\"zone_1\", \"zone_2\"]}. Leave empty to skip."
+        }
+      },
       "coordinator_music_following": {
-        "title": "\ud83c\udfb5 Music Following",
+        "title": "🎵 Music Following",
         "description": "Configure the Music Following Coordinator. Controls how music transfers when a person moves between rooms. Adjust timing parameters to tune transfer behavior for your speaker setup.",
         "data": {
           "mf_cooldown_seconds": "Transfer Cooldown (seconds)",
@@ -698,7 +728,7 @@
         }
       },
       "coordinator_notifications": {
-        "title": "\ud83d\udd14 Notification Channels",
+        "title": "🔔 Notification Channels",
         "description": "Configure notification channels. Enable channels and set minimum severity thresholds for each. CRITICAL alerts always bypass quiet hours and severity filters.",
         "data": {
           "nm_pushover_enabled": "Pushover Enabled",
@@ -736,7 +766,7 @@
         }
       },
       "coordinator_notifications_persons": {
-        "title": "\ud83d\udc64 Notification Persons",
+        "title": "👤 Notification Persons",
         "description": "Configure per-person notification settings. Each person can have their own channel credentials and delivery preferences. Submit once per person.",
         "data": {
           "nm_person_entity": "Person Entity",
@@ -764,7 +794,7 @@
         }
       },
       "coordinator_notifications_quiet": {
-        "title": "\ud83c\udf19 Quiet Hours & Safe Word",
+        "title": "🌙 Quiet Hours & Safe Word",
         "description": "Configure quiet hours and the safe word for acknowledging CRITICAL alerts via text reply.",
         "data": {
           "nm_quiet_use_house_state": "Use House State (SLEEP + HOME_NIGHT = quiet)",
@@ -782,7 +812,7 @@
         }
       },
       "coordinator_notifications_cooldowns": {
-        "title": "\u23f1\ufe0f Post-Acknowledge Cooldowns",
+        "title": "⏱️ Post-Acknowledge Cooldowns",
         "description": "Configure how long to wait after acknowledging a CRITICAL alert before re-evaluating whether the hazard is still active. If still active, the alert re-fires.",
         "data": {
           "nm_cooldown_smoke": "Smoke / Fire Cooldown",
@@ -804,7 +834,7 @@
         }
       },
       "coordinator_toggles": {
-        "title": "\u2699\ufe0f Enable/Disable Coordinators",
+        "title": "⚙️ Enable/Disable Coordinators",
         "description": "Toggle individual coordinators on or off. Disabled coordinators stop processing but retain their configuration and entities. Re-enabling takes effect on next reload.",
         "data": {
           "presence_coordinator_enabled": "Presence Coordinator",
@@ -832,7 +862,7 @@
         }
       },
       "zone_media": {
-        "title": "\ud83c\udfb5 Zone Media",
+        "title": "🎵 Zone Media",
         "description": "Configure how music follows people within this zone.",
         "data": {
           "zone_player_entity": "Zone Media Player",
@@ -844,7 +874,7 @@
         }
       },
       "basic_setup": {
-        "title": "\ud83d\udeaa Room Setup",
+        "title": "🚪 Room Setup",
         "description": "Update room name, type, and basic settings.",
         "data": {
           "room_name": "Room Name",
@@ -868,7 +898,7 @@
         }
       },
       "sensors": {
-        "title": "\ud83d\udce1 Sensors",
+        "title": "📡 Sensors",
         "description": "Update presence and environmental sensors.",
         "data": {
           "motion_sensors": "Motion Sensors (PIR)",
@@ -948,17 +978,17 @@
         }
       },
       "automation_chaining": {
-        "title": "\ud83d\udd17 Automation Chaining",
+        "title": "🔗 Automation Chaining",
         "description": "Choose a trigger group to configure. Bindings are preserved across groups.",
         "menu_options": {
-          "chain_occupancy": "\ud83d\udeaa Occupancy Triggers",
-          "chain_light": "\ud83d\udca1 Light Level Triggers",
-          "chain_house_state": "\ud83c\udfe0 House State Triggers",
-          "chain_coordinator": "\ud83e\udd16 Coordinator Triggers"
+          "chain_occupancy": "🚪 Occupancy Triggers",
+          "chain_light": "💡 Light Level Triggers",
+          "chain_house_state": "🏠 House State Triggers",
+          "chain_coordinator": "🤖 Coordinator Triggers"
         }
       },
       "chain_occupancy": {
-        "title": "\ud83d\udeaa Occupancy Triggers",
+        "title": "🚪 Occupancy Triggers",
         "description": "Bind HA automations to room enter/exit events. These run after URA's built-in automation.",
         "data": {
           "chain_enter": "On room enter",
@@ -970,7 +1000,7 @@
         }
       },
       "chain_light": {
-        "title": "\ud83d\udca1 Light Level Triggers",
+        "title": "💡 Light Level Triggers",
         "description": "Bind HA automations to lux threshold crossings.",
         "data": {
           "chain_lux_dark": "When room gets dark",
@@ -982,7 +1012,7 @@
         }
       },
       "chain_house_state": {
-        "title": "\ud83c\udfe0 House State Triggers",
+        "title": "🏠 House State Triggers",
         "description": "Bind HA automations to house state transitions.",
         "data": {
           "chain_house_state_away": "On Away",
@@ -1008,7 +1038,7 @@
         }
       },
       "chain_coordinator": {
-        "title": "\ud83e\udd16 Coordinator Triggers",
+        "title": "🤖 Coordinator Triggers",
         "description": "Bind HA automations to coordinator signals (energy, safety, security).",
         "data": {
           "chain_energy_constraint": "On Energy Constraint",
@@ -1022,11 +1052,11 @@
         }
       },
       "ai_rules": {
-        "title": "\ud83e\udde0 AI Rules",
+        "title": "🧠 AI Rules",
         "description": "Manage AI-powered natural language automation rules for this room.",
         "menu_options": {
-          "ai_rule_add": "\u2795 Add Rule",
-          "ai_rule_list": "\ud83d\udcdd View Rules"
+          "ai_rule_add": "➕ Add Rule",
+          "ai_rule_list": "📝 View Rules"
         }
       },
       "ai_rule_add": {
@@ -1087,7 +1117,7 @@
         }
       },
       "music_following": {
-        "title": "\ud83c\udfb5 Music Following",
+        "title": "🎵 Music Following",
         "description": "Configure how music follows you into this room.",
         "data": {
           "music_following_enabled": "Enable Music Following",
@@ -1124,7 +1154,8 @@
     "error": {
       "ai_parse_failed": "AI parsing failed. Ensure ai_task integration is configured (Settings > AI Task). If the problem persists, check logs for details.",
       "ai_rule_validation_failed": "The AI-generated actions failed validation. Some entities may not exist or the output was malformed. Try simplifying your rule description.",
-      "ai_rule_empty_description": "Please enter a rule description."
+      "ai_rule_empty_description": "Please enter a rule description.",
+      "invalid_json": "Invalid JSON format. Use: {\"person.name\": [\"zone_1\", \"zone_2\"]}"
     },
     "abort": {
       "no_zones_configured": "No zones have been configured yet. Add a zone from the integration setup first.",

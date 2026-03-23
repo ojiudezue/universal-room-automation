@@ -28,6 +28,7 @@ CONF_HVAC_FAN_ACTIVATION_DELTA: Final = "hvac_fan_activation_delta"
 CONF_HVAC_FAN_HYSTERESIS: Final = "hvac_fan_hysteresis"
 CONF_HVAC_FAN_MIN_RUNTIME: Final = "hvac_fan_min_runtime"
 CONF_HVAC_ARRESTER_ENABLED: Final = "hvac_arrester_enabled"
+CONF_HVAC_AC_RESET_ENABLED: Final = "hvac_ac_reset_enabled"
 
 # v3.17.0: Zone Intelligence config keys
 CONF_HVAC_VACANCY_GRACE_MINUTES: Final = "hvac_vacancy_grace_minutes"
@@ -47,6 +48,7 @@ DEFAULT_FAN_ACTIVATION_DELTA: Final = 2.0  # F
 DEFAULT_FAN_HYSTERESIS: Final = 1.5  # F
 DEFAULT_FAN_MIN_RUNTIME: Final = 10  # minutes
 DEFAULT_ARRESTER_ENABLED: Final = True
+DEFAULT_AC_RESET_ENABLED: Final = True
 
 # v3.17.0: Zone Intelligence defaults
 DEFAULT_VACANCY_GRACE_MINUTES: Final = 15  # Normal grace period
