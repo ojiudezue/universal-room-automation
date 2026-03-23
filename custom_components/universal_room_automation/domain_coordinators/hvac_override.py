@@ -61,6 +61,7 @@ class OverrideArrester:
         self._compromise_minutes = compromise_minutes
         self._ac_reset_timeout = ac_reset_timeout
         self._enabled = enabled
+        self._ac_reset_enabled = True
 
         # Listener unsubscribes
         self._state_unsubs: list[CALLBACK_TYPE] = []
@@ -231,6 +232,35 @@ class OverrideArrester:
     def enabled(self) -> bool:
         """Return whether the arrester is actively reverting overrides."""
         return self._enabled
+
+    @property
+    def ac_reset_enabled(self) -> bool:
+        """Return whether AC reset is active."""
+        return self._ac_reset_enabled
+
+    @ac_reset_enabled.setter
+    def ac_reset_enabled(self, value: bool) -> None:
+        """Set AC reset enabled state. Cancels pending reset timers on disable.
+
+        If a zone is mid-reset (intentionally off), cancelling the timer
+        would leave it off. Restore those zones to heat_cool immediately.
+        """
+        self._ac_reset_enabled = value
+        if not value:
+            mid_reset_zones = []
+            for zone_id in list(self._reset_timers):
+                cancel = self._reset_timers.pop(zone_id, None)
+                if cancel:
+                    cancel()
+                zone = self._zone_manager.zones.get(zone_id)
+                if zone is not None:
+                    mid_reset_zones.append(zone)
+            # Restore any zones that were mid-AC-reset
+            for zone in mid_reset_zones:
+                self.hass.async_create_task(
+                    self._restore_after_reset(zone, "heat_cool")
+                )
+        _LOGGER.info("AC Reset %s", "enabled" if value else "disabled")
 
     @enabled.setter
     def enabled(self, value: bool) -> None:
@@ -565,6 +595,9 @@ class OverrideArrester:
         A zone is "stuck" if actively heating/cooling for ac_reset_timeout minutes
         and current temp hasn't moved toward setpoint.
         """
+        if not self._ac_reset_enabled:
+            return
+
         now = dt_util.now()
 
         for zone_id, zone in self._zone_manager.zones.items():
@@ -676,7 +709,7 @@ class OverrideArrester:
                 "climate",
                 "set_hvac_mode",
                 {"entity_id": zone.climate_entity, "hvac_mode": original_mode},
-                blocking=False,
+                blocking=True,
             )
         except Exception as e:
             _LOGGER.error(
@@ -824,6 +857,7 @@ class OverrideArrester:
         return {
             "state": self.get_arrester_state(),
             "enabled": self._enabled,
+            "ac_reset_enabled": self._ac_reset_enabled,
             "zones": zones_detail,
             "energy_coast": self._energy_coast,
             "energy_offset": self._energy_offset,

@@ -78,6 +78,7 @@ class HVACCoordinator(BaseCoordinator):
         fan_hysteresis: float = 1.5,
         fan_min_runtime: int = 10,
         arrester_enabled: bool = DEFAULT_ARRESTER_ENABLED,
+        ac_reset_enabled: bool = True,
         vacancy_grace: int = DEFAULT_VACANCY_GRACE_MINUTES,
         vacancy_grace_constrained: int = DEFAULT_VACANCY_GRACE_CONSTRAINED,
         max_occupancy_hours: int = DEFAULT_MAX_OCCUPANCY_HOURS,
@@ -98,6 +99,7 @@ class HVACCoordinator(BaseCoordinator):
             ac_reset_timeout=ac_reset_timeout,
             enabled=arrester_enabled,
         )
+        self._override_arrester.ac_reset_enabled = ac_reset_enabled
         self._fan_controller = FanController(
             hass, self._zone_manager,
             activation_delta=fan_activation_delta,
@@ -460,13 +462,14 @@ class HVACCoordinator(BaseCoordinator):
                             "entity_id": zone.climate_entity,
                             "hvac_mode": "heat_cool",
                         },
-                        blocking=False,
+                        blocking=True,
                     )
                     _LOGGER.info(
                         "HVAC: Restored %s to heat_cool (was off)",
                         zone.zone_name,
                     )
                 except Exception as e:
+                    self._override_arrester.unsuppress(zone.climate_entity)
                     _LOGGER.error(
                         "HVAC: Failed to restore mode on %s: %s",
                         zone.climate_entity, e,
@@ -971,6 +974,7 @@ class HVACCoordinator(BaseCoordinator):
         attrs["observation_mode"] = self._observation_mode
         attrs["arrester_state"] = self._override_arrester.get_arrester_state()
         attrs["arrester_enabled"] = self._override_arrester.enabled
+        attrs["ac_reset_enabled"] = self._override_arrester.ac_reset_enabled
         # v3.17.0: Zone Intelligence attributes
         attrs["pre_arrival_zones"] = list(self._pre_arrival_zones)
         solar_banking_zones = getattr(
