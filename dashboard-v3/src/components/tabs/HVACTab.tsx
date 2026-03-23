@@ -13,26 +13,26 @@ import { color, space, radius, type as typography } from "../../design/tokens";
 import { Brain, Thermometer } from "lucide-react";
 
 /**
- * Zone display order matches physical thermostat zone numbers:
- *   Zone 1 = climate.thermostat_bryant_wifi_studyb_zone_1 → URA zone_2
- *   Zone 2 = climate.up_hallway_zone_2                    → URA zone_3
- *   Zone 3 = climate.back_hallway_zone_3                  → URA zone_1
+ * HVAC zone IDs now match thermostat physical zone numbers:
+ *   zone_1 = climate.thermostat_bryant_wifi_studyb_zone_1 (Entertainment + Master Suite)
+ *   zone_2 = climate.up_hallway_zone_2 (Upstairs)
+ *   zone_3 = climate.back_hallway_zone_3 (Back Hallway)
  */
 const ZONES = [
   {
-    name: "Zone 1 (Entertainment)",
+    name: "Zone 1 (Entertainment + Master Suite)",
+    statusId: "sensor.ura_hvac_coordinator_zone_1_status",
+    presetId: "sensor.ura_hvac_coordinator_hvac_zone_preset_zone_1",
+  },
+  {
+    name: "Zone 2 (Upstairs)",
     statusId: "sensor.ura_hvac_coordinator_zone_2_status",
     presetId: "sensor.ura_hvac_coordinator_hvac_zone_preset_zone_2",
   },
   {
-    name: "Zone 2 (Upstairs)",
+    name: "Zone 3 (Back Hallway)",
     statusId: "sensor.ura_hvac_coordinator_zone_3_status",
     presetId: "sensor.ura_hvac_coordinator_hvac_zone_preset_zone_3",
-  },
-  {
-    name: "Zone 3 (Back Hallway)",
-    statusId: "sensor.ura_hvac_coordinator_zone_1_status",
-    presetId: "sensor.ura_hvac_coordinator_hvac_zone_preset_zone_1",
   },
 ];
 
