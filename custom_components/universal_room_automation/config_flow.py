@@ -1,6 +1,6 @@
 """Config flow for Universal Room Automation v3.6.24."""
 #
-# Universal Room Automation v3.18.2
+# Universal Room Automation v3.18.3
 # Build: 2026-01-05
 # File: config_flow.py
 # v3.3.3: Added manage_zones to integration options menu
@@ -3799,10 +3799,22 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         """Reconfigure basic setup."""
         if user_input is not None:
             # FIX v3.2.3.1: Pass merged options directly to async_create_entry
-            return self.async_create_entry(
-                title="",
-                data={**self._config_entry.options, **user_input}
-            )
+            try:
+                merged = {**self._config_entry.options, **user_input}
+                _LOGGER.debug(
+                    "basic_setup save: entry_id=%s, options_keys=%d, input_keys=%d, merged_keys=%d",
+                    self._config_entry.entry_id,
+                    len(self._config_entry.options),
+                    len(user_input),
+                    len(merged),
+                )
+                return self.async_create_entry(
+                    title="",
+                    data=merged,
+                )
+            except Exception:
+                _LOGGER.exception("basic_setup save FAILED")
+                raise
 
         room_types = [
             {"label": "Bedroom", "value": ROOM_TYPE_BEDROOM},
@@ -4109,10 +4121,22 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         """Reconfigure automation behavior."""
         if user_input is not None:
             # FIX v3.2.3.1: Pass merged options directly to async_create_entry
-            return self.async_create_entry(
-                title="",
-                data={**self._config_entry.options, **user_input}
-            )
+            try:
+                merged = {**self._config_entry.options, **user_input}
+                _LOGGER.debug(
+                    "automation_behavior save: entry_id=%s, options_keys=%d, input_keys=%d, merged_keys=%d",
+                    self._config_entry.entry_id,
+                    len(self._config_entry.options),
+                    len(user_input),
+                    len(merged),
+                )
+                return self.async_create_entry(
+                    title="",
+                    data=merged,
+                )
+            except Exception:
+                _LOGGER.exception("automation_behavior save FAILED")
+                raise
 
         light_entry_actions = [
             {"label": "None (Manual Control)", "value": LIGHT_ACTION_NONE},
