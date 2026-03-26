@@ -1460,7 +1460,8 @@ class OccupantCountSensor(AggregationEntity, SensorEntity):
         if self._unsub_person_coordinator:
             self._unsub_person_coordinator()
             self._unsub_person_coordinator = None
-    
+
+    @callback
     def _handle_person_update(self) -> None:
         """Handle person_coordinator update - trigger state update."""
         self.async_schedule_update_ha_state()
@@ -1468,7 +1469,7 @@ class OccupantCountSensor(AggregationEntity, SensorEntity):
     @property
     def native_value(self) -> int:
         """Return count of tracked people who are home.
-        
+
         v3.2.6: Now uses person_coordinator.get_tracked_person_count()
         instead of counting occupied rooms.
         """
@@ -2761,6 +2762,7 @@ class ZoneCurrentOccupantsSensor(ZoneSensorBase, SensorEntity):
             self._unsub_person_coordinator()
             self._unsub_person_coordinator = None
 
+    @callback
     def _handle_person_update(self) -> None:
         """Handle person_coordinator update - trigger state update."""
         self.async_schedule_update_ha_state()
@@ -2900,6 +2902,7 @@ class ZoneOccupantCountSensor(ZoneSensorBase, SensorEntity):
             self._unsub_person_coordinator()
             self._unsub_person_coordinator = None
 
+    @callback
     def _handle_person_update(self) -> None:
         """Handle person_coordinator update - trigger state update."""
         self.async_schedule_update_ha_state()
@@ -3568,7 +3571,8 @@ class PersonPreviousLocationSensor(AggregationEntity, SensorEntity):
         if self._unsub_person_coordinator:
             self._unsub_person_coordinator()
             self._unsub_person_coordinator = None
-    
+
+    @callback
     def _handle_person_update(self) -> None:
         """Handle person_coordinator update - trigger state update."""
         self.async_schedule_update_ha_state()
@@ -3626,7 +3630,8 @@ class PersonPreviousSeenSensor(AggregationEntity, SensorEntity):
         if self._unsub_person_coordinator:
             self._unsub_person_coordinator()
             self._unsub_person_coordinator = None
-    
+
+    @callback
     def _handle_person_update(self) -> None:
         """Handle person_coordinator update - trigger state update."""
         self.async_schedule_update_ha_state()
@@ -3682,6 +3687,7 @@ class ZoneIdentifiedPersonsSensor(ZoneSensorBase, SensorEntity):
             self._unsub_person_coordinator()
             self._unsub_person_coordinator = None
 
+    @callback
     def _handle_person_update(self) -> None:
         """Handle person_coordinator update — trigger state refresh."""
         self.async_schedule_update_ha_state()
