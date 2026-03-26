@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.17.9
+# Universal Room Automation v3.18.0
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -88,6 +88,7 @@ from .const import (
     STATE_OCCUPANCY_CONFIDENCE,
     STATE_COMFORT_SCORE,
     STATE_ENERGY_EFFICIENCY_SCORE,
+    STATE_OCCUPIED,
     STATE_TIME_SINCE_MOTION,
     STATE_TIME_SINCE_OCCUPIED,
     STATE_OCCUPANCY_PCT_TODAY,
@@ -1041,7 +1042,13 @@ class PreheatLeadMinutesSensor(UniversalRoomEntity, SensorEntity):
 # ===================================================================
 
 class ComfortScoreSensor(UniversalRoomEntity, SensorEntity):
-    """Comfort score based on temperature and humidity."""
+    """Comfort score based on temperature, humidity, and occupancy.
+
+    Formula: temp_score * 0.4 + humidity_score * 0.3 + occupancy_score * 0.3
+    - Temperature: 100 at setpoint, decreases 10 pts per degree F deviation
+    - Humidity: 100 at 45%, decreases 2 pts per % deviation
+    - Occupancy: 100 when occupied, 50 when unoccupied
+    """
 
     _attr_native_unit_of_measurement = "%"
     _attr_icon = ICON_COMFORT
@@ -1052,15 +1059,86 @@ class ComfortScoreSensor(UniversalRoomEntity, SensorEntity):
         """Initialize the sensor."""
         super().__init__(coordinator, "comfort_score", "Comfort Score")
 
+    def _get_setpoint(self) -> float:
+        """Get target temp from room config (default 76 F)."""
+        from .const import CONF_TARGET_TEMP_COOL, DEFAULT_TARGET_TEMP_COOL
+        config = {**self.coordinator.entry.data, **self.coordinator.entry.options}
+        return config.get(CONF_TARGET_TEMP_COOL, DEFAULT_TARGET_TEMP_COOL)
+
     @property
     def native_value(self) -> int | None:
         """Return comfort score 0-100."""
-        # TODO: Implement comfort scoring algorithm
-        return None
+        if not self.coordinator.data:
+            return None
+
+        temp = self.coordinator.data.get(STATE_TEMPERATURE)
+        humidity = self.coordinator.data.get(STATE_HUMIDITY)
+
+        # Need at least temperature to compute a meaningful score
+        if temp is None:
+            return None
+
+        setpoint = self._get_setpoint()
+
+        # Temperature component: 100 at setpoint, -10 per degree F deviation
+        temp_score = max(0, 100 - abs(temp - setpoint) * 10)
+
+        # Humidity component: 100 at 45%, -2 per % deviation
+        if humidity is not None:
+            humidity_score = max(0, 100 - abs(humidity - 45) * 2)
+        else:
+            # No humidity data — use neutral score so it doesn't drag down
+            humidity_score = 70
+
+        # Occupancy component: 100 when occupied, 50 when not
+        occupied = self.coordinator.data.get(STATE_OCCUPIED, False)
+        occupancy_score = 100 if occupied else 50
+
+        score = temp_score * 0.4 + humidity_score * 0.3 + occupancy_score * 0.3
+        return round(score)
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return scoring breakdown for transparency."""
+        if not self.coordinator.data:
+            return {}
+
+        temp = self.coordinator.data.get(STATE_TEMPERATURE)
+        humidity = self.coordinator.data.get(STATE_HUMIDITY)
+        occupied = self.coordinator.data.get(STATE_OCCUPIED, False)
+
+        if temp is None:
+            return {}
+
+        setpoint = self._get_setpoint()
+        temp_score = max(0, 100 - abs(temp - setpoint) * 10)
+        humidity_score = (
+            max(0, 100 - abs(humidity - 45) * 2) if humidity is not None else 70
+        )
+        occupancy_score = 100 if occupied else 50
+
+        return {
+            "temperature": temp,
+            "setpoint": setpoint,
+            "humidity": humidity,
+            "occupied": occupied,
+            "temp_score": round(temp_score, 1),
+            "humidity_score": round(humidity_score, 1),
+            "occupancy_score": occupancy_score,
+            "weight_temp": 0.4,
+            "weight_humidity": 0.3,
+            "weight_occupancy": 0.3,
+        }
 
 
 class EnergyEfficiencyScoreSensor(UniversalRoomEntity, SensorEntity):
-    """Energy efficiency score."""
+    """Energy efficiency score based on HVAC zone performance.
+
+    When HVAC zone data is available:
+      Score = 100 - (duty_cycle_pct * 0.5) - (override_count_today * 5)
+    Fallback (no HVAC data):
+      Within 2 F of target = 90, within 5 F = 70, else 50
+    """
 
     _attr_native_unit_of_measurement = "%"
     _attr_icon = ICON_EFFICIENCY
@@ -1071,11 +1149,104 @@ class EnergyEfficiencyScoreSensor(UniversalRoomEntity, SensorEntity):
         """Initialize the sensor."""
         super().__init__(coordinator, "energy_efficiency_score", "Energy Efficiency Score")
 
+    def _get_zone_for_room(self) -> tuple[Any, Any] | tuple[None, None]:
+        """Find the HVAC zone containing this room, if any.
+
+        Returns (hvac_coordinator, zone_state) or (None, None).
+        """
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None, None
+        hvac = manager.coordinators.get("hvac")
+        if hvac is None or not hasattr(hvac, "zone_manager"):
+            return None, None
+
+        room_name = self.coordinator.entry.data.get("room_name", "")
+        for zone in hvac.zone_manager.zones.values():
+            if room_name in zone.rooms:
+                return hvac, zone
+        return hvac, None
+
+    def _get_setpoint(self) -> float:
+        """Get target temp from room config (default 76 F)."""
+        from .const import CONF_TARGET_TEMP_COOL, DEFAULT_TARGET_TEMP_COOL
+        config = {**self.coordinator.entry.data, **self.coordinator.entry.options}
+        return config.get(CONF_TARGET_TEMP_COOL, DEFAULT_TARGET_TEMP_COOL)
+
     @property
     def native_value(self) -> int | None:
         """Return efficiency score 0-100."""
-        # TODO: Implement efficiency scoring
-        return None
+        if not self.coordinator.data:
+            return None
+
+        hvac, zone = self._get_zone_for_room()
+
+        if zone is not None:
+            # HVAC zone data available — use duty cycle and override count
+            from .domain_coordinators.hvac_const import DUTY_CYCLE_WINDOW_SECONDS
+            if zone.window_start is not None:
+                duty_pct = min(
+                    zone.runtime_seconds_this_window
+                    / DUTY_CYCLE_WINDOW_SECONDS
+                    * 100,
+                    100.0,
+                )
+            else:
+                duty_pct = 0.0
+            override_penalty = zone.override_count_today * 5
+            score = 100 - (duty_pct * 0.5) - override_penalty
+            return max(0, min(100, round(score)))
+
+        # Fallback: simple temperature proximity scoring
+        temp = self.coordinator.data.get(STATE_TEMPERATURE)
+        if temp is None:
+            return None
+
+        setpoint = self._get_setpoint()
+        deviation = abs(temp - setpoint)
+        if deviation <= 2:
+            return 90
+        elif deviation <= 5:
+            return 70
+        else:
+            return 50
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return scoring breakdown for transparency."""
+        if not self.coordinator.data:
+            return {}
+
+        attrs: dict[str, Any] = {}
+        hvac, zone = self._get_zone_for_room()
+
+        if zone is not None:
+            from .domain_coordinators.hvac_const import DUTY_CYCLE_WINDOW_SECONDS
+            if zone.window_start is not None:
+                duty_pct = min(
+                    zone.runtime_seconds_this_window
+                    / DUTY_CYCLE_WINDOW_SECONDS
+                    * 100,
+                    100.0,
+                )
+            else:
+                duty_pct = 0.0
+            attrs["scoring_method"] = "hvac_zone"
+            attrs["zone_name"] = zone.zone_name
+            attrs["duty_cycle_pct"] = round(duty_pct, 1)
+            attrs["override_count_today"] = zone.override_count_today
+            attrs["duty_penalty"] = round(duty_pct * 0.5, 1)
+            attrs["override_penalty"] = zone.override_count_today * 5
+        else:
+            temp = self.coordinator.data.get(STATE_TEMPERATURE)
+            setpoint = self._get_setpoint()
+            attrs["scoring_method"] = "temperature_proximity"
+            attrs["temperature"] = temp
+            attrs["setpoint"] = setpoint
+            if temp is not None:
+                attrs["deviation_f"] = round(abs(temp - setpoint), 1)
+
+        return attrs
 
 
 class TimeSinceMotionSensor(UniversalRoomEntity, SensorEntity):
@@ -1996,11 +2167,11 @@ class CurrentOccupantsSensor(UniversalRoomEntity, SensorEntity):
     
     def _handle_person_update(self) -> None:
         """Handle person_coordinator update - trigger state update.
-        
+
         v3.2.8.3: Called when person tracking data changes
         """
-        self.async_write_ha_state()
-    
+        self.async_schedule_update_ha_state()
+
     @property
     def native_value(self) -> str:
         """Return comma-separated list of occupants."""
@@ -2093,11 +2264,11 @@ class OccupantCountSensor(UniversalRoomEntity, SensorEntity):
     
     def _handle_person_update(self) -> None:
         """Handle person_coordinator update - trigger state update.
-        
+
         v3.2.8.3: Called when person tracking data changes
         """
-        self.async_write_ha_state()
-    
+        self.async_schedule_update_ha_state()
+
     @property
     def native_value(self) -> int:
         """Return count of occupants."""
@@ -2924,14 +3095,14 @@ class PersonsEnteredTodaySensor(AggregationEntity, SensorEntity):
             "time": event.data.get("timestamp"),
             "egress_camera": event.data.get("egress_camera"),
         })
-        self.async_write_ha_state()
+        self.async_schedule_update_ha_state()
 
     def _midnight_reset(self, now) -> None:
         """Reset count at midnight."""
         self._count = 0
         self._entries = []
         self._last_reset = now
-        self.async_write_ha_state()
+        self.async_schedule_update_ha_state()
 
     @property
     def native_value(self) -> int:
@@ -3000,14 +3171,14 @@ class PersonsExitedTodaySensor(AggregationEntity, SensorEntity):
             "time": event.data.get("timestamp"),
             "egress_camera": event.data.get("egress_camera"),
         })
-        self.async_write_ha_state()
+        self.async_schedule_update_ha_state()
 
     def _midnight_reset(self, now) -> None:
         """Reset count at midnight."""
         self._count = 0
         self._entries = []
         self._last_reset = now
-        self.async_write_ha_state()
+        self.async_schedule_update_ha_state()
 
     @property
     def native_value(self) -> int:
@@ -3054,7 +3225,7 @@ class LastPersonEntrySensor(AggregationEntity, SensorEntity):
             self._last_entry = dt_util.now()
         self._last_person_id = event.data.get("person_id") or "unidentified"
         self._last_egress_camera = event.data.get("egress_camera")
-        self.async_write_ha_state()
+        self.async_schedule_update_ha_state()
 
     @property
     def native_value(self) -> datetime | None:
@@ -3101,7 +3272,7 @@ class LastPersonExitSensor(AggregationEntity, SensorEntity):
             self._last_exit = dt_util.now()
         self._last_person_id = event.data.get("person_id") or "unidentified"
         self._last_egress_camera = event.data.get("egress_camera")
-        self.async_write_ha_state()
+        self.async_schedule_update_ha_state()
 
     @property
     def native_value(self) -> datetime | None:
@@ -3654,7 +3825,7 @@ class SafetyStatusSensor(AggregationEntity, SensorEntity):
     @callback
     def _handle_update(self) -> None:
         """Handle safety entity update signal."""
-        self.async_write_ha_state()
+        self.async_schedule_update_ha_state()
 
 
 class SafetyDiagnosticsSensor(AggregationEntity, SensorEntity):
@@ -3766,7 +3937,7 @@ class SafetyActiveHazardsSensor(AggregationEntity, SensorEntity):
     @callback
     def _handle_update(self) -> None:
         """Handle safety entity update signal."""
-        self.async_write_ha_state()
+        self.async_schedule_update_ha_state()
 
 
 class SafetyAffectedRoomsSensor(AggregationEntity, SensorEntity):
@@ -3835,7 +4006,7 @@ class SafetyAffectedRoomsSensor(AggregationEntity, SensorEntity):
     @callback
     def _handle_update(self) -> None:
         """Handle safety entity update signal."""
-        self.async_write_ha_state()
+        self.async_schedule_update_ha_state()
 
 
 class SafetyAnomalySensor(AggregationEntity, SensorEntity):
@@ -3996,7 +4167,7 @@ class SecurityArmedStateSensor(AggregationEntity, SensorEntity):
     @callback
     def _handle_update(self) -> None:
         """Handle security entity update signal."""
-        self.async_write_ha_state()
+        self.async_schedule_update_ha_state()
 
 
 class SecurityLastEntrySensor(AggregationEntity, SensorEntity):
@@ -4053,7 +4224,7 @@ class SecurityLastEntrySensor(AggregationEntity, SensorEntity):
     @callback
     def _handle_update(self) -> None:
         """Handle security entity update signal."""
-        self.async_write_ha_state()
+        self.async_schedule_update_ha_state()
 
 
 class SecurityAnomalySensor(AggregationEntity, SensorEntity):
@@ -4099,7 +4270,7 @@ class SecurityAnomalySensor(AggregationEntity, SensorEntity):
     @callback
     def _handle_update(self) -> None:
         """Handle security entity update signal."""
-        self.async_write_ha_state()
+        self.async_schedule_update_ha_state()
 
 
 class SecurityComplianceSensor(AggregationEntity, SensorEntity):
@@ -4158,7 +4329,7 @@ class SecurityComplianceSensor(AggregationEntity, SensorEntity):
     @callback
     def _handle_update(self) -> None:
         """Handle security entity update signal."""
-        self.async_write_ha_state()
+        self.async_schedule_update_ha_state()
 
 
 class SecurityOpenEntriesSensor(AggregationEntity, SensorEntity):
@@ -4224,7 +4395,7 @@ class SecurityOpenEntriesSensor(AggregationEntity, SensorEntity):
     @callback
     def _handle_update(self) -> None:
         """Handle security entity update signal."""
-        self.async_write_ha_state()
+        self.async_schedule_update_ha_state()
 
 
 class SecurityLastLockSweepSensor(AggregationEntity, SensorEntity):
@@ -4304,7 +4475,7 @@ class SecurityLastLockSweepSensor(AggregationEntity, SensorEntity):
     @callback
     def _handle_update(self) -> None:
         """Handle security entity update signal."""
-        self.async_write_ha_state()
+        self.async_schedule_update_ha_state()
 
 
 class SecurityExpectedArrivalsSensor(AggregationEntity, SensorEntity):
@@ -4371,7 +4542,7 @@ class SecurityExpectedArrivalsSensor(AggregationEntity, SensorEntity):
     @callback
     def _handle_update(self) -> None:
         """Handle security entity update signal."""
-        self.async_write_ha_state()
+        self.async_schedule_update_ha_state()
 
 
 # ============================================================================
@@ -4427,7 +4598,7 @@ class MusicFollowingHealthSensor(AggregationEntity, SensorEntity):
     @callback
     def _on_diagnostic_update(self) -> None:
         """Handle push update from MusicFollowing."""
-        self.async_write_ha_state()
+        self.async_schedule_update_ha_state()
 
     @property
     def native_value(self) -> str:
@@ -4522,7 +4693,7 @@ class MusicFollowingTransfersTodaySensor(AggregationEntity, SensorEntity):
     @callback
     def _on_diagnostic_update(self) -> None:
         """Handle push update from MusicFollowing."""
-        self.async_write_ha_state()
+        self.async_schedule_update_ha_state()
 
     # Stats that indicate actual music-involved transfer attempts
     _TRANSFER_STATS = ("success", "failed", "unverified", "active_playback_blocked")
@@ -4593,7 +4764,7 @@ class MusicFollowingActiveRoomsSensor(AggregationEntity, SensorEntity):
     @callback
     def _on_diagnostic_update(self) -> None:
         """Handle push update from MusicFollowing."""
-        self.async_write_ha_state()
+        self.async_schedule_update_ha_state()
 
     @property
     def native_value(self) -> str:
@@ -4673,7 +4844,7 @@ class MusicFollowingLastTransferSensor(AggregationEntity, SensorEntity):
     @callback
     def _on_diagnostic_update(self) -> None:
         """Handle push update from MusicFollowing."""
-        self.async_write_ha_state()
+        self.async_schedule_update_ha_state()
 
     @property
     def native_value(self) -> str:
@@ -4746,7 +4917,7 @@ class NMLastNotificationSensor(AggregationEntity, SensorEntity):
     @callback
     def _handle_update(self) -> None:
         """Handle NM entities update signal."""
-        self.async_write_ha_state()
+        self.async_schedule_update_ha_state()
 
     @property
     def native_value(self) -> str:
@@ -4803,7 +4974,7 @@ class NMNotificationsTodaySensor(AggregationEntity, SensorEntity):
     @callback
     def _handle_update(self) -> None:
         """Handle NM entities update signal."""
-        self.async_write_ha_state()
+        self.async_schedule_update_ha_state()
 
     @property
     def native_value(self) -> int:
@@ -4845,7 +5016,7 @@ class NMCooldownRemainingSensor(AggregationEntity, SensorEntity):
     @callback
     def _handle_update(self) -> None:
         """Handle NM entities update signal."""
-        self.async_write_ha_state()
+        self.async_schedule_update_ha_state()
 
     @property
     def native_value(self) -> int:
@@ -4898,7 +5069,7 @@ class NMChannelStatusSensor(AggregationEntity, SensorEntity):
     @callback
     def _handle_update(self) -> None:
         """Handle NM entities update signal."""
-        self.async_write_ha_state()
+        self.async_schedule_update_ha_state()
 
     @property
     def native_value(self) -> str:
@@ -4949,7 +5120,7 @@ class NMTriggerSensor(AggregationEntity, SensorEntity):
     @callback
     def _handle_update(self) -> None:
         """Handle NM entities update signal."""
-        self.async_write_ha_state()
+        self.async_schedule_update_ha_state()
 
     @property
     def native_value(self) -> str:
@@ -5010,7 +5181,7 @@ class NMAnomalySensor(AggregationEntity, SensorEntity):
     @callback
     def _handle_update(self) -> None:
         """Handle NM entities update signal."""
-        self.async_write_ha_state()
+        self.async_schedule_update_ha_state()
 
     @property
     def native_value(self) -> str:
@@ -5067,7 +5238,7 @@ class NMDeliveryRateSensor(AggregationEntity, SensorEntity):
     @callback
     def _handle_update(self) -> None:
         """Handle NM entities update signal."""
-        self.async_write_ha_state()
+        self.async_schedule_update_ha_state()
 
     @property
     def native_value(self) -> float:
@@ -5120,7 +5291,7 @@ class NMDiagnosticsSensor(AggregationEntity, SensorEntity):
     @callback
     def _handle_update(self) -> None:
         """Handle NM entities update signal."""
-        self.async_write_ha_state()
+        self.async_schedule_update_ha_state()
 
     @property
     def native_value(self) -> str:
@@ -5178,7 +5349,7 @@ class NMInboundTodaySensor(AggregationEntity, SensorEntity):
     @callback
     def _handle_update(self) -> None:
         """Handle NM entities update signal."""
-        self.async_write_ha_state()
+        self.async_schedule_update_ha_state()
 
     @property
     def native_value(self) -> int:
@@ -6364,7 +6535,7 @@ class HVACModeSensor(AggregationEntity, SensorEntity):
 
     @callback
     def _handle_update(self) -> None:
-        self.async_write_ha_state()
+        self.async_schedule_update_ha_state()
 
 
 class HVACZoneStatusSensor(AggregationEntity, SensorEntity):
@@ -6423,7 +6594,7 @@ class HVACZoneStatusSensor(AggregationEntity, SensorEntity):
 
     @callback
     def _handle_update(self) -> None:
-        self.async_write_ha_state()
+        self.async_schedule_update_ha_state()
 
 
 class HVACAnomalySensor(AggregationEntity, SensorEntity):
@@ -6477,7 +6648,7 @@ class HVACAnomalySensor(AggregationEntity, SensorEntity):
 
     @callback
     def _handle_update(self) -> None:
-        self.async_write_ha_state()
+        self.async_schedule_update_ha_state()
 
 
 class HVACComplianceSensor(AggregationEntity, SensorEntity):
@@ -6530,7 +6701,7 @@ class HVACComplianceSensor(AggregationEntity, SensorEntity):
 
     @callback
     def _handle_update(self) -> None:
-        self.async_write_ha_state()
+        self.async_schedule_update_ha_state()
 
 
 class HVACOverrideFrequencySensor(AggregationEntity, SensorEntity):
@@ -6583,7 +6754,7 @@ class HVACOverrideFrequencySensor(AggregationEntity, SensorEntity):
 
     @callback
     def _handle_update(self) -> None:
-        self.async_write_ha_state()
+        self.async_schedule_update_ha_state()
 
 
 class HVACPreCoolLikelihoodSensor(AggregationEntity, SensorEntity):
@@ -6635,7 +6806,7 @@ class HVACPreCoolLikelihoodSensor(AggregationEntity, SensorEntity):
 
     @callback
     def _handle_update(self) -> None:
-        self.async_write_ha_state()
+        self.async_schedule_update_ha_state()
 
 
 class HVACComfortRiskSensor(AggregationEntity, SensorEntity):
@@ -6686,7 +6857,7 @@ class HVACComfortRiskSensor(AggregationEntity, SensorEntity):
 
     @callback
     def _handle_update(self) -> None:
-        self.async_write_ha_state()
+        self.async_schedule_update_ha_state()
 
 
 # ============================================================================
@@ -6832,7 +7003,7 @@ class HVACArresterStateSensor(AggregationEntity, SensorEntity):
 
     @callback
     def _handle_update(self) -> None:
-        self.async_write_ha_state()
+        self.async_schedule_update_ha_state()
 
 
 class HVACZonePresetSensor(AggregationEntity, SensorEntity):
@@ -6909,7 +7080,7 @@ class HVACZonePresetSensor(AggregationEntity, SensorEntity):
 
     @callback
     def _handle_preset_update(self) -> None:
-        self.async_write_ha_state()
+        self.async_schedule_update_ha_state()
 
 
 class HVACZoneIntelligenceSensor(AggregationEntity, SensorEntity):

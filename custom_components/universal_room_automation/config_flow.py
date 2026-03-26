@@ -1,6 +1,6 @@
 """Config flow for Universal Room Automation v3.6.24."""
 #
-# Universal Room Automation v3.17.9
+# Universal Room Automation v3.18.0
 # Build: 2026-01-05
 # File: config_flow.py
 # v3.3.3: Added manage_zones to integration options menu
@@ -10,6 +10,7 @@
 # v3.2.4: CONF_SCANNER_AREAS replaces CONF_PHONE_TRACKER for person tracking
 #
 
+import asyncio
 import json
 import logging
 import uuid
@@ -177,6 +178,8 @@ from .const import (
     CONF_SLEEP_END_HOUR,
     CONF_SLEEP_BYPASS_MOTION,
     CONF_SLEEP_BLOCK_COVERS,
+    CONF_FAN_SLEEP_POLICY,
+    DEFAULT_FAN_SLEEP_POLICY,
     DEFAULT_SLEEP_START,
     DEFAULT_SLEEP_END,
     DEFAULT_SLEEP_BYPASS_COUNT,
@@ -1227,6 +1230,19 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
                 selector.NumberSelectorConfig(min=1, max=10, mode=selector.NumberSelectorMode.BOX)
             ),
             vol.Optional(CONF_SLEEP_BLOCK_COVERS, default=True): selector.BooleanSelector(),
+            vol.Optional(
+                CONF_FAN_SLEEP_POLICY,
+                default=DEFAULT_FAN_SLEEP_POLICY
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=[
+                        {"label": "Turn off fans during sleep", "value": "off"},
+                        {"label": "Reduce fan speed (low only)", "value": "reduce"},
+                        {"label": "Normal fan operation", "value": "normal"},
+                    ],
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                )
+            ),
         })
 
         return self.async_show_form(
@@ -2585,6 +2601,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             CONF_HVAC_AC_RESET_ENABLED,
             DEFAULT_AC_RESET_ENABLED,
             CONF_PERSON_PREFERRED_ZONES,
+            CONF_ZONE_VACANCY_SWEEP_ENABLED,
         )
         import json as _json
 
@@ -2706,6 +2723,11 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             vol.Optional(
                 CONF_HVAC_AC_RESET_ENABLED,
                 default=self._get_current(CONF_HVAC_AC_RESET_ENABLED, DEFAULT_AC_RESET_ENABLED),
+            ): selector.BooleanSelector(),
+            # v3.18.2: Zone sweep toggle
+            vol.Optional(
+                CONF_ZONE_VACANCY_SWEEP_ENABLED,
+                default=self._get_current(CONF_ZONE_VACANCY_SWEEP_ENABLED, True),
             ): selector.BooleanSelector(),
         }
 
@@ -4221,6 +4243,8 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         """Reconfigure climate."""
         if user_input is not None:
             # v3.6.23: Auto-populate zone thermostat if room is in a zone
+            # v3.18.0: Deferred ZM update to avoid reload race condition
+            pending_zm_update = None
             climate_entity = user_input.get(CONF_CLIMATE_ENTITY)
             if climate_entity:
                 room_zone = self._get_current(CONF_ZONE) or ""
@@ -4236,16 +4260,32 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                         if not zone_cfg.get(CONF_ZONE_THERMOSTAT):
                             zone_cfg[CONF_ZONE_THERMOSTAT] = climate_entity
                             zones[room_zone] = zone_cfg
-                            self.hass.config_entries.async_update_entry(
+                            pending_zm_update = (
                                 zm_entry,
-                                options={**zm_entry.options, "zones": zones},
+                                {**zm_entry.options, "zones": zones},
                             )
 
             # FIX v3.2.3.1: Pass merged options directly to async_create_entry
-            return self.async_create_entry(
+            result = self.async_create_entry(
                 title="",
                 data={**self._config_entry.options, **user_input}
             )
+
+            # v3.18.0: Fire ZM update after room entry is saved to avoid
+            # concurrent reload race between room and ZM entries
+            if pending_zm_update:
+                zm_entry_ref, zm_options = pending_zm_update
+
+                async def _deferred_zm_update():
+                    await asyncio.sleep(2)
+                    self.hass.config_entries.async_update_entry(
+                        zm_entry_ref,
+                        options=zm_options,
+                    )
+
+                self.hass.async_create_task(_deferred_zm_update())
+
+            return result
 
         data_schema = vol.Schema({
             vol.Optional(
@@ -4358,6 +4398,19 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 CONF_SLEEP_BLOCK_COVERS,
                 default=self._get_current(CONF_SLEEP_BLOCK_COVERS, True)
             ): selector.BooleanSelector(),
+            vol.Optional(
+                CONF_FAN_SLEEP_POLICY,
+                default=self._get_current(CONF_FAN_SLEEP_POLICY, DEFAULT_FAN_SLEEP_POLICY)
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=[
+                        {"label": "Turn off fans during sleep", "value": "off"},
+                        {"label": "Reduce fan speed (low only)", "value": "reduce"},
+                        {"label": "Normal fan operation", "value": "normal"},
+                    ],
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                )
+            ),
         })
 
         return self.async_show_form(

@@ -599,7 +599,7 @@ class AggregationEntity:
             self._agg_retry_count += 1
             if _get_room_coordinators(self.hass):
                 self._rooms_ready = True
-                self.async_write_ha_state()
+                self.async_schedule_update_ha_state()
                 if self._agg_retry_unsub:
                     self._agg_retry_unsub()
                     self._agg_retry_unsub = None
@@ -1463,8 +1463,8 @@ class OccupantCountSensor(AggregationEntity, SensorEntity):
     
     def _handle_person_update(self) -> None:
         """Handle person_coordinator update - trigger state update."""
-        self.async_write_ha_state()
-    
+        self.async_schedule_update_ha_state()
+
     @property
     def native_value(self) -> int:
         """Return count of tracked people who are home.
@@ -2180,7 +2180,7 @@ class ZoneSensorBase(AggregationEntity):
                     "Zone '%s': Room coordinators now ready (%d found, attempt %d)",
                     self.zone, len(coords), self._retry_count,
                 )
-                self.async_write_ha_state()
+                self.async_schedule_update_ha_state()
                 # Cancel further retries
                 if self._retry_unsub:
                     self._retry_unsub()
@@ -2763,7 +2763,7 @@ class ZoneCurrentOccupantsSensor(ZoneSensorBase, SensorEntity):
 
     def _handle_person_update(self) -> None:
         """Handle person_coordinator update - trigger state update."""
-        self.async_write_ha_state()
+        self.async_schedule_update_ha_state()
 
     @property
     def available(self) -> bool:
@@ -2902,7 +2902,7 @@ class ZoneOccupantCountSensor(ZoneSensorBase, SensorEntity):
 
     def _handle_person_update(self) -> None:
         """Handle person_coordinator update - trigger state update."""
-        self.async_write_ha_state()
+        self.async_schedule_update_ha_state()
 
     @property
     def available(self) -> bool:
@@ -3335,14 +3335,14 @@ class PersonLocationSensor(AggregationEntity, SensorEntity):
             self.hass.async_create_task(self._update_from_coordinator())
             
             # Trigger HA state update
-            self.async_write_ha_state()
-            
+            self.async_schedule_update_ha_state()
+
         except Exception as e:
             _LOGGER.error(
                 "Error handling coordinator update for %s: %s",
                 self.person_id, e
             )
-    
+
     @callback
     def _handle_bermuda_state_change(self, event: Event) -> None:
         """Handle Bermuda sensor state change - instant update.
@@ -3359,8 +3359,8 @@ class PersonLocationSensor(AggregationEntity, SensorEntity):
             self.hass.async_create_task(self._update_from_coordinator())
             
             # Trigger HA state update
-            self.async_write_ha_state()
-            
+            self.async_schedule_update_ha_state()
+
         except Exception as e:
             _LOGGER.error(
                 "Error handling Bermuda state change for %s: %s",
@@ -3444,7 +3444,7 @@ class PersonLocationSensor(AggregationEntity, SensorEntity):
                 self._tracking_status = TRACKING_STATUS_LOST
                 self._cached_location = None
                 self._cached_confidence = 0.0
-                self.async_write_ha_state()
+                self.async_schedule_update_ha_state()
         elif time_since_update > STALE_THRESHOLD_SECONDS:
             # Location is stale but still valid
             if self._tracking_status != TRACKING_STATUS_STALE:
@@ -3453,12 +3453,12 @@ class PersonLocationSensor(AggregationEntity, SensorEntity):
                     self.person_id, time_since_update
                 )
                 self._tracking_status = TRACKING_STATUS_STALE
-                self.async_write_ha_state()
+                self.async_schedule_update_ha_state()
         else:
             # Location is active
             if self._tracking_status != TRACKING_STATUS_ACTIVE:
                 self._tracking_status = TRACKING_STATUS_ACTIVE
-                self.async_write_ha_state()
+                self.async_schedule_update_ha_state()
     
     @property
     def native_value(self) -> str:
@@ -3571,8 +3571,8 @@ class PersonPreviousLocationSensor(AggregationEntity, SensorEntity):
     
     def _handle_person_update(self) -> None:
         """Handle person_coordinator update - trigger state update."""
-        self.async_write_ha_state()
-    
+        self.async_schedule_update_ha_state()
+
     @property
     def native_value(self) -> str:
         """Return person's previous location."""
@@ -3629,8 +3629,8 @@ class PersonPreviousSeenSensor(AggregationEntity, SensorEntity):
     
     def _handle_person_update(self) -> None:
         """Handle person_coordinator update - trigger state update."""
-        self.async_write_ha_state()
-    
+        self.async_schedule_update_ha_state()
+
     @property
     def native_value(self) -> datetime | None:
         """Return when person was last seen in previous location."""
@@ -3684,7 +3684,7 @@ class ZoneIdentifiedPersonsSensor(ZoneSensorBase, SensorEntity):
 
     def _handle_person_update(self) -> None:
         """Handle person_coordinator update — trigger state refresh."""
-        self.async_write_ha_state()
+        self.async_schedule_update_ha_state()
 
     @property
     def available(self) -> bool:

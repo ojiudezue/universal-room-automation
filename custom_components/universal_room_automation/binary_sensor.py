@@ -1,6 +1,6 @@
 """Binary sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.17.9
+# Universal Room Automation v3.18.0
 # Build: 2026-01-02
 # File: binary_sensor.py
 # v3.2.6: Renamed "Presence" to "Sensor Presence" for clarity
@@ -1148,7 +1148,7 @@ class SafetyAlertBinarySensor(BinarySensorEntity):
     @callback
     def _handle_update(self) -> None:
         """Handle safety entity update signal."""
-        self.async_write_ha_state()
+        self.async_schedule_update_ha_state()
 
 
 class SafetyWaterLeakBinarySensor(AggregationEntity, BinarySensorEntity):
@@ -1218,7 +1218,7 @@ class SafetyWaterLeakBinarySensor(AggregationEntity, BinarySensorEntity):
     @callback
     def _handle_update(self) -> None:
         """Handle safety entity update signal."""
-        self.async_write_ha_state()
+        self.async_schedule_update_ha_state()
 
 
 class SafetyAirQualityBinarySensor(AggregationEntity, BinarySensorEntity):
@@ -1287,7 +1287,7 @@ class SafetyAirQualityBinarySensor(AggregationEntity, BinarySensorEntity):
     @callback
     def _handle_update(self) -> None:
         """Handle safety entity update signal."""
-        self.async_write_ha_state()
+        self.async_schedule_update_ha_state()
 
 
 # ============================================================================
@@ -1367,7 +1367,7 @@ class SecurityAlertBinarySensor(BinarySensorEntity):
     @callback
     def _handle_update(self) -> None:
         """Handle security entity update signal."""
-        self.async_write_ha_state()
+        self.async_schedule_update_ha_state()
 
 
 # ============================================================================
@@ -1435,7 +1435,7 @@ class NMActiveAlertBinarySensor(BinarySensorEntity):
     @callback
     def _handle_update(self) -> None:
         """Handle NM alert state change signal."""
-        self.async_write_ha_state()
+        self.async_schedule_update_ha_state()
 
 
 # ============================================================================

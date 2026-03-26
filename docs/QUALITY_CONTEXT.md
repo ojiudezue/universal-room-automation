@@ -4,7 +4,7 @@
 **Last Updated:** March 18, 2026
 **Current Production:** v3.16.0
 **Status:** Active quality standards
-**Bug Classes:** 17 documented (7 original + 10 new from Jan–Mar 2026)  
+**Bug Classes:** 20 documented (7 original + 13 new from Jan–Mar 2026)
 
 ---
 
@@ -764,6 +764,65 @@ async def async_added_to_hass(self):
 **Discovered:** v3.16.0
 **Impact:** Resource leak, thread starvation, orphaned tasks
 **Severity:** MEDIUM
+
+---
+
+### Bug Class #19: Untracked Background Tasks ⚠️
+
+**Pattern:** `hass.async_create_task()` calls that create long-running background tasks (with `asyncio.sleep`) that are never tracked or cancelled on teardown.
+
+**Impact:** Tasks survive coordinator teardown, wake up after delays, and call services against torn-down state — causing exceptions, incorrect hardware commands, or silent data corruption.
+
+**Prevention:**
+- [ ] Every `hass.async_create_task()` that includes an `asyncio.sleep` or delay MUST be tracked in a collection (e.g., `self._pending_tasks: set[asyncio.Task]`)
+- [ ] All tracked tasks MUST be cancelled in `teardown()` / `async_stop()`
+- [ ] Recursive task scheduling (task that creates another task) must have a bounded retry limit
+- [ ] After an exception in a retry, do NOT schedule the next retry — return immediately
+
+**Historical Example:** v3.18.0 — AC reset verify/retry tasks were fire-and-forget, surviving HVAC coordinator teardown and issuing thermostat commands against torn-down state.
+
+**Discovered:** v3.18.0
+**Impact:** Stale tasks issuing hardware commands after teardown
+**Severity:** HIGH
+
+---
+
+### Bug Class #20: Concurrent Config Entry Reload Race ⚠️
+
+**Pattern:** An OptionsFlow step modifies another config entry's options (via `async_update_entry`), triggering its reload concurrently with the current entry's reload. Shared state in `hass.data[DOMAIN]` is deleted during one entry's unload while another entry's setup reads it.
+
+**Impact:** `KeyError`, `None` attribute access, or silently missing data during entry setup. The UI shows a save error on first attempt, succeeds on retry.
+
+**Prevention:**
+- [ ] NEVER call `async_update_entry()` on another config entry from within an OptionsFlow step
+- [ ] If cross-entry updates are needed, defer them with `hass.async_create_task()` after the current entry's save completes
+- [ ] In `async_unload_entry()`, set shared keys to `None` instead of deleting them
+- [ ] In `async_setup_entry()`, guard all reads from shared `hass.data` with `is not None` checks
+
+**Historical Example:** v3.18.0 — Room climate step updated the Zone Manager entry's zone thermostat, triggering ZM reload concurrent with room reload. The ZM unload deleted `zone_manager_entry`, crashing the room reload.
+
+**Discovered:** v3.18.0
+**Impact:** Config save errors, crashes on entry reload
+**Severity:** HIGH
+
+---
+
+### Bug Class #21: Timezone Naive/Aware Datetime Mix ⚠️
+
+**Pattern:** `datetime.fromisoformat()` may produce timezone-naive datetimes when parsing serialized timestamps that lack timezone info. Subtracting a tz-naive datetime from a tz-aware one (from `dt_util.now()`) raises `TypeError`.
+
+**Impact:** Crash on any code path that compares persisted timestamps against current time — typically restore-from-storage paths that only trigger on HA restart.
+
+**Prevention:**
+- [ ] ALWAYS use `dt_util.parse_datetime()` (not `datetime.fromisoformat()`) when deserializing datetime strings that will be compared against `dt_util.now()` or `dt_util.utcnow()`
+- [ ] `dt_util.parse_datetime()` handles both naive and aware datetimes safely
+- [ ] When serializing datetimes for storage, always use `dt_util.now().isoformat()` (which includes timezone info)
+
+**Historical Example:** v3.18.2 — Zone state restore used `datetime.fromisoformat()` for staleness check. Would crash if the stored timestamp lacked timezone info.
+
+**Discovered:** v3.18.2
+**Impact:** Crash on restart when restoring persisted timestamps
+**Severity:** HIGH
 
 ---
 

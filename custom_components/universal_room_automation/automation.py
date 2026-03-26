@@ -1,6 +1,6 @@
 """Automation logic for Universal Room Automation."""
 #
-# Universal Room Automation v3.17.9
+# Universal Room Automation v3.18.0
 # Build: 2026-01-04
 # File: automation.py
 # v3.3.1.1: Added int() cast to get_auto_off_hour to handle NumberSelector float values
@@ -84,12 +84,18 @@ from .const import (
     CONF_FAN_SPEED_HIGH_TEMP,
     CONF_HUMIDITY_FAN_THRESHOLD,
     CONF_HUMIDITY_FAN_TIMEOUT,
+    CONF_FAN_VACANCY_HOLD,
+    DEFAULT_FAN_VACANCY_HOLD,
     # Sleep protection
     CONF_SLEEP_PROTECTION_ENABLED,
     CONF_SLEEP_START_HOUR,
     CONF_SLEEP_END_HOUR,
     CONF_SLEEP_BYPASS_MOTION,
     CONF_SLEEP_BLOCK_COVERS,
+    CONF_FAN_SLEEP_POLICY,
+    FAN_SLEEP_OFF,
+    FAN_SLEEP_REDUCE,
+    DEFAULT_FAN_SLEEP_POLICY,
     # Devices
     CONF_LIGHTS,
     CONF_LIGHT_CAPABILITIES,
@@ -129,6 +135,9 @@ from .const import (
     ALERT_COLOR_RGB,
     ALERT_COLOR_AMBER,
     DEFAULT_SHARED_SPACE_AUTO_OFF_HOUR,
+    # v3.18.1: HVAC deconfliction
+    CONF_ROOM_NAME,
+    DOMAIN,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -163,6 +172,8 @@ class RoomAutomation:
         self._service_calls_today: int = 0
         self._service_failures_today: int = 0
         self._service_call_reset_date: str = dt_util.now().strftime("%Y-%m-%d")
+        # v3.18.0: Fan vacancy hold tracking
+        self._fan_vacancy_start: datetime | None = None
 
     async def _safe_service_call(
         self,
@@ -939,6 +950,34 @@ class RoomAutomation:
         if not fans or temperature is None:
             return
 
+        # v3.18.1: Defer to HVAC coordinator if it's managing this room's fans
+        if self._is_hvac_managing_fans():
+            return
+
+        # v3.18.1: Fan sleep policy — reduce speed or turn off during sleep
+        sleep_speed_cap = None
+        if self.is_sleep_mode_active():
+            policy = self.config.get(CONF_FAN_SLEEP_POLICY, DEFAULT_FAN_SLEEP_POLICY)
+            if policy == FAN_SLEEP_OFF:
+                await self._safe_service_call(
+                    "homeassistant", SERVICE_TURN_OFF, {"entity_id": fans},
+                    blocking=False,
+                )
+                return
+            elif policy == FAN_SLEEP_REDUCE:
+                sleep_speed_cap = 33  # Cap at low speed during sleep
+
+        # v3.18.0: Fan vacancy hold — don't turn off fans immediately on occupancy timeout
+        fan_vacancy_hold = self.config.get(CONF_FAN_VACANCY_HOLD, DEFAULT_FAN_VACANCY_HOLD)
+        if not occupied:
+            if self._fan_vacancy_start is None:
+                self._fan_vacancy_start = dt_util.now()
+            vacancy_elapsed = (dt_util.now() - self._fan_vacancy_start).total_seconds()
+            if vacancy_elapsed < fan_vacancy_hold:
+                occupied = True  # Override: hold fans during grace period
+        else:
+            self._fan_vacancy_start = None  # Reset on re-occupation
+
         threshold = self.config.get(CONF_FAN_TEMP_THRESHOLD, 80)
         hysteresis = 2.0  # degrees dead band to prevent rapid cycling
         # Check if fans are currently on
@@ -972,6 +1011,10 @@ class RoomAutomation:
             speed_pct = 33
         else:
             speed_pct = 0
+
+        # v3.18.1: Apply sleep speed cap if active
+        if sleep_speed_cap is not None:
+            speed_pct = min(speed_pct, sleep_speed_cap)
 
         if speed_pct > 0:
             try:
@@ -1008,6 +1051,21 @@ class RoomAutomation:
         humidity_fans = self.config.get(CONF_HUMIDITY_FANS, [])
         if not humidity_fans or humidity is None:
             return
+
+        # v3.18.1: Defer to HVAC coordinator if managing
+        if self._is_hvac_managing_fans():
+            return
+
+        # v3.18.1: Fan sleep policy — turn off humidity fans during sleep if policy=off
+        if self.is_sleep_mode_active():
+            policy = self.config.get(CONF_FAN_SLEEP_POLICY, DEFAULT_FAN_SLEEP_POLICY)
+            if policy == FAN_SLEEP_OFF:
+                await self._safe_service_call(
+                    "homeassistant", SERVICE_TURN_OFF, {"entity_id": humidity_fans},
+                    blocking=False,
+                )
+                self._humidity_fan_triggered_time = None
+                return
 
         threshold = self.config.get(CONF_HUMIDITY_FAN_THRESHOLD, 60)
         timeout = self.config.get(CONF_HUMIDITY_FAN_TIMEOUT, 600)
@@ -1056,6 +1114,26 @@ class RoomAutomation:
         # Check if HVAC is actively heating or cooling
         hvac_action = state.attributes.get("hvac_action")
         return hvac_action in ["heating", "cooling"]
+
+    def _is_hvac_managing_fans(self) -> bool:
+        """Check if HVAC coordinator is managing this room's fans.
+
+        v3.18.1: When HVAC coordinator has discovered this room's fans,
+        room-level fan control defers to avoid dual-control fighting.
+        """
+        if not self.config.get(CONF_HVAC_COORDINATION_ENABLED, False):
+            return False
+        mgr = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if not mgr:
+            return False
+        hvac = getattr(mgr, 'coordinators', {}).get("hvac")
+        if not hvac or not getattr(hvac, 'enabled', False):
+            return False
+        fan_ctrl = getattr(hvac, 'fan_controller', None)
+        if not fan_ctrl:
+            return False
+        room = self.config.get(CONF_ROOM_NAME, "")
+        return room in getattr(fan_ctrl, '_room_fans', {})
 
     # =========================================================================
     # v3.1.0: SHARED SPACE SCHEDULED AUTO-OFF

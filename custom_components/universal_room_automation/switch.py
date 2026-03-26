@@ -1,6 +1,6 @@
 """Switch platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.17.9
+# Universal Room Automation v3.18.0
 # Build: 2026-01-02
 # File: switch.py
 #
@@ -137,6 +137,8 @@ async def async_setup_entry(
             HVACObservationModeSwitch(hass, entry),
             # v3.17.0: Zone Intelligence toggle
             HVACZoneIntelligenceSwitch(hass, entry),
+            # v3.18.2: Zone Sweep toggle
+            HVACZoneSweepSwitch(hass, entry),
         ])
         return
 
@@ -648,6 +650,98 @@ class HVACZoneIntelligenceSwitch(SwitchEntity, RestoreEntity):
             hvac = self._get_hvac()
             if hvac is not None:
                 hvac.zone_intelligence_enabled = last_state.state == "on"
+
+    @property
+    def available(self) -> bool:
+        """Only available when HVAC coordinator is active."""
+        return self._get_hvac() is not None
+
+
+class HVACZoneSweepSwitch(SwitchEntity, RestoreEntity):
+    """Toggle HVAC zone vacancy sweep.
+
+    When ON (default): HVAC coordinator turns off lights and fans in zones
+    after they become vacant (after grace period expires).
+    When OFF: Vacancy sweeps are skipped — lights/fans remain as-is.
+
+    v3.18.2: Provides UI visibility and runtime control over vacancy sweeps.
+
+    Entity: switch.ura_hvac_zone_sweep
+    Device: URA: HVAC Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:broom"
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        self.hass = hass
+        self._entry = entry
+        self._is_on = True  # Default on
+        self._attr_unique_id = f"{DOMAIN}_hvac_zone_sweep"
+        self._attr_name = "Zone Sweep"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "hvac_coordinator")},
+            name="URA: HVAC Coordinator",
+            manufacturer="Universal Room Automation",
+            model="HVAC Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+
+    def _get_hvac(self):
+        """Get the HVAC coordinator instance."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        return manager.coordinators.get("hvac")
+
+    def _update_zones(self) -> None:
+        """Push sweep enabled/disabled to all zone states."""
+        hvac = self._get_hvac()
+        if hvac is None:
+            return
+        zm = hvac.zone_manager
+        if zm is None:
+            return
+        for zone in zm.zones.values():
+            zone.vacancy_sweep_enabled = self._is_on
+
+    @property
+    def is_on(self) -> bool:
+        """Return True if zone vacancy sweep is enabled."""
+        return self._is_on
+
+    async def async_turn_on(self, **kwargs) -> None:
+        """Enable zone vacancy sweeps."""
+        self._is_on = True
+        self._update_zones()
+        self.async_write_ha_state()
+
+    async def async_turn_off(self, **kwargs) -> None:
+        """Disable zone vacancy sweeps."""
+        self._is_on = False
+        self._update_zones()
+        self.async_write_ha_state()
+
+    async def async_added_to_hass(self) -> None:
+        """Restore previous state on startup."""
+        await super().async_added_to_hass()
+        last_state = await self.async_get_last_state()
+        if last_state is not None:
+            self._is_on = last_state.state == "on"
+        self._update_zones()
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Expose sweep count as an attribute."""
+        hvac = self._get_hvac()
+        if hvac is None:
+            return {}
+        return {
+            "sweeps_today": hvac.vacancy_sweeps_today,
+        }
 
     @property
     def available(self) -> bool:

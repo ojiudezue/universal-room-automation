@@ -1,7 +1,13 @@
 """Test fixtures for Universal Room Automation tests."""
+import sys
 import pytest
 from unittest.mock import MagicMock, Mock
 from datetime import datetime, time, timedelta
+
+# Ensure aiosqlite is always available as a mock — several URA modules
+# import it at module level, and test files that use heavy HA module mocking
+# depend on this being present regardless of collection order.
+sys.modules.setdefault("aiosqlite", MagicMock())
 
 
 class MockState:

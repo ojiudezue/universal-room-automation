@@ -81,6 +81,7 @@ class FanController:
         self._min_runtime = min_runtime
         self._room_fans: dict[str, RoomFanState] = {}
         self._fan_assist_active: bool = False
+        self._house_state: str = ""
 
     def discover_fans(self) -> int:
         """Discover fan entities from room config entries in HVAC zones.
@@ -137,7 +138,7 @@ class FanController:
         _LOGGER.info("HVAC Fans: Discovered fans in %d rooms", len(self._room_fans))
         return len(self._room_fans)
 
-    async def update(self, energy_constraint: EnergyConstraint | None) -> None:
+    async def update(self, energy_constraint: EnergyConstraint | None, house_state: str = "") -> None:
         """Run fan control logic for all managed rooms.
 
         Called from the HVAC decision cycle every 5 minutes.
@@ -145,6 +146,7 @@ class FanController:
         if not self._room_fans:
             return
 
+        self._house_state = house_state
         self._fan_assist_active = (
             energy_constraint is not None and energy_constraint.fan_assist
         )
@@ -172,6 +174,9 @@ class FanController:
                 should_on, trigger, speed = self._evaluate_temp_fan(
                     room_fan, room_temp, setpoint_high, occupied, now
                 )
+                # v3.18.1: Cap fan speed during sleep
+                if should_on and self._house_state == "sleep":
+                    speed = min(speed, FAN_SPEED_LOW_PCT)
                 if should_on != room_fan.is_on or (should_on and speed != room_fan.speed_pct):
                     await self._set_fan_state(
                         room_fan.fan_entities, should_on, speed
@@ -244,7 +249,7 @@ class FanController:
             room_fan.vacancy_detected_time = ""
 
         # Min runtime check (vacancy overrides min runtime)
-        if room_fan.is_on and room_fan.last_on_time and occupied:
+        if room_fan.is_on and room_fan.last_on_time:
             on_since = datetime.fromisoformat(room_fan.last_on_time)
             runtime_minutes = (now - on_since).total_seconds() / 60
             if runtime_minutes < self._min_runtime:

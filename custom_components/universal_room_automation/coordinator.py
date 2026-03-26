@@ -1,6 +1,6 @@
 """Data coordinator for Universal Room Automation."""
 #
-# Universal Room Automation v3.17.9
+# Universal Room Automation v3.18.0
 # Build: 2026-01-02
 # File: coordinator.py
 # v3.2.8: Support for active state change listeners in aggregation sensors
@@ -1113,8 +1113,8 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
             # Calculate timeout
             if self._last_motion_time:
                 elapsed = (now - self._last_motion_time).total_seconds()
-                remaining = max(0, self._occupancy_timeout - int(elapsed))
-                data[STATE_TIMEOUT_REMAINING] = remaining
+                remaining = max(0.0, self._occupancy_timeout - elapsed)
+                data[STATE_TIMEOUT_REMAINING] = int(remaining)
                 data[STATE_OCCUPIED] = remaining > 0
 
                 # Keep last_occupied_time updated while still occupied

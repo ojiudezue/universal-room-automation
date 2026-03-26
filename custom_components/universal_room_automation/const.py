@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation v3.17.9
+# Universal Room Automation v3.18.0
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "3.17.9"
+VERSION: Final = "3.18.0"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -429,6 +429,7 @@ CONF_FAN_SPEED_HIGH_TEMP: Final = "fan_speed_high_temp"
 CONF_HUMIDITY_FAN_THRESHOLD: Final = "humidity_fan_threshold"
 CONF_HUMIDITY_FAN_TIMEOUT: Final = "humidity_fan_timeout"
 CONF_HVAC_EFFICIENCY_ALERTS: Final = "hvac_efficiency_alerts"
+CONF_FAN_VACANCY_HOLD: Final = "fan_vacancy_hold"
 
 # --- Step 6: Sleep Protection ---
 CONF_SLEEP_PROTECTION_ENABLED: Final = "sleep_protection_enabled"
@@ -436,6 +437,11 @@ CONF_SLEEP_START_HOUR: Final = "sleep_start_hour"
 CONF_SLEEP_END_HOUR: Final = "sleep_end_hour"
 CONF_SLEEP_BYPASS_MOTION: Final = "sleep_bypass_motion_count"
 CONF_SLEEP_BLOCK_COVERS: Final = "sleep_block_covers"
+CONF_FAN_SLEEP_POLICY: Final = "fan_sleep_policy"
+FAN_SLEEP_OFF: Final = "off"
+FAN_SLEEP_REDUCE: Final = "reduce"
+FAN_SLEEP_NORMAL: Final = "normal"
+DEFAULT_FAN_SLEEP_POLICY: Final = "reduce"
 
 # --- Step 7: Energy Monitoring ---
 CONF_POWER_SENSORS: Final = "power_sensors"
@@ -484,6 +490,7 @@ DEFAULT_FAN_SPEED_MED: Final = 72  # °F
 DEFAULT_FAN_SPEED_HIGH: Final = 75  # °F
 DEFAULT_HUMIDITY_THRESHOLD: Final = 60  # %
 DEFAULT_HUMIDITY_FAN_TIMEOUT: Final = 600  # 10 minutes
+DEFAULT_FAN_VACANCY_HOLD: Final = 300  # 5 minutes extra after occupancy timeout
 
 # Cover defaults
 DEFAULT_OPEN_TIME_START: Final = 7  # 7 AM
