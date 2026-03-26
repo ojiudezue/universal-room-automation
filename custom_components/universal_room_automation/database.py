@@ -1,7 +1,7 @@
 """Database for Universal Room Automation."""
 from __future__ import annotations
 #
-# Universal Room Automation v3.18.3
+# Universal Room Automation v3.18.4
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors
@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 import os
 import statistics
+from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from typing import Any, Optional
 
@@ -42,6 +43,17 @@ class UniversalRoomDatabase:
 
     # Tables eligible for drop-and-recreate repair on corruption
     _REPAIRABLE_TABLES: frozenset[str] = frozenset({"energy_snapshots"})
+
+    @asynccontextmanager
+    async def _db(self):
+        """Get a configured database connection.
+
+        v3.18.3: All connections use timeout=30s + WAL + busy_timeout to
+        prevent 'database is locked' during concurrent startup writes.
+        """
+        async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
+            await db.execute("PRAGMA busy_timeout=30000")
+            yield db
 
     async def _create_table_safe(
         self,
@@ -771,7 +783,7 @@ class UniversalRoomDatabase:
     ) -> None:
         """Log occupancy event."""
         try:
-            async with aiosqlite.connect(self.db_file) as db:
+            async with self._db() as db:
                 await db.execute("""
                     INSERT INTO occupancy_events (room_id, timestamp, event_type, trigger_source, duration)
                     VALUES (?, ?, ?, ?, ?)
@@ -784,7 +796,7 @@ class UniversalRoomDatabase:
     async def log_environmental_data(self, room_id: str, data: dict[str, Any]) -> None:
         """Log environmental snapshot."""
         try:
-            async with aiosqlite.connect(self.db_file) as db:
+            async with self._db() as db:
                 await db.execute("""
                     INSERT INTO environmental_data (room_id, timestamp, temperature, humidity, illuminance, occupied)
                     VALUES (?, ?, ?, ?, ?, ?)
@@ -805,7 +817,7 @@ class UniversalRoomDatabase:
     async def log_energy_snapshot(self, room_id: str, data: dict[str, Any]) -> None:
         """Log energy snapshot."""
         try:
-            async with aiosqlite.connect(self.db_file) as db:
+            async with self._db() as db:
                 await db.execute("""
                     INSERT INTO energy_snapshots (
                         room_id, timestamp, power_watts, occupied,
@@ -829,7 +841,7 @@ class UniversalRoomDatabase:
     async def log_external_conditions(self, data: dict[str, Any]) -> None:
         """Log external conditions snapshot (weather, solar, occupancy counts)."""
         try:
-            async with aiosqlite.connect(self.db_file) as db:
+            async with self._db() as db:
                 await db.execute("""
                     INSERT INTO external_conditions (
                         timestamp, outside_temp, outside_humidity, weather_condition,
@@ -867,7 +879,7 @@ class UniversalRoomDatabase:
         """Log zone occupancy event."""
         try:
             rooms_str = ",".join(rooms) if rooms else None
-            async with aiosqlite.connect(self.db_file) as db:
+            async with self._db() as db:
                 await db.execute("""
                     INSERT INTO zone_events (zone, timestamp, event_type, room_count, rooms)
                     VALUES (?, ?, ?, ?, ?)
@@ -898,7 +910,7 @@ class UniversalRoomDatabase:
     ) -> int | None:
         """Log a coordinator decision. Returns the decision_log row id."""
         try:
-            async with aiosqlite.connect(self.db_file) as db:
+            async with self._db() as db:
                 cursor = await db.execute("""
                     INSERT INTO decision_log (
                         timestamp, coordinator_id, decision_type,
@@ -939,7 +951,7 @@ class UniversalRoomDatabase:
     ) -> None:
         """Log a compliance check result."""
         try:
-            async with aiosqlite.connect(self.db_file) as db:
+            async with self._db() as db:
                 await db.execute("""
                     INSERT INTO compliance_log (
                         timestamp, decision_id, scope, device_type, device_id,
@@ -967,7 +979,7 @@ class UniversalRoomDatabase:
     ) -> None:
         """Log a house state transition."""
         try:
-            async with aiosqlite.connect(self.db_file) as db:
+            async with self._db() as db:
                 await db.execute("""
                     INSERT INTO house_state_log (
                         timestamp, state, confidence, trigger, previous_state
@@ -988,7 +1000,7 @@ class UniversalRoomDatabase:
         """Log energy history snapshot for predictions (every 15 minutes)."""
         try:
             now = datetime.utcnow()
-            async with aiosqlite.connect(self.db_file) as db:
+            async with self._db() as db:
                 await db.execute("""
                     INSERT OR REPLACE INTO energy_history (
                         timestamp, solar_production, solar_export, grid_import, grid_import_2,
@@ -1030,7 +1042,7 @@ class UniversalRoomDatabase:
     async def get_days_of_energy_data(self) -> int:
         """Get number of days of energy history data available."""
         try:
-            async with aiosqlite.connect(self.db_file) as db:
+            async with self._db() as db:
                 cursor = await db.execute("""
                     SELECT MIN(timestamp), MAX(timestamp)
                     FROM energy_history
@@ -1054,7 +1066,7 @@ class UniversalRoomDatabase:
     ) -> list[dict]:
         """Get energy data for similar days (same weekday, similar temperature)."""
         try:
-            async with aiosqlite.connect(self.db_file) as db:
+            async with self._db() as db:
                 cursor = await db.execute("""
                     SELECT 
                         DATE(timestamp) as date,
@@ -1093,7 +1105,7 @@ class UniversalRoomDatabase:
     ) -> dict[str, float]:
         """Get total energy values for a date range."""
         try:
-            async with aiosqlite.connect(self.db_file) as db:
+            async with self._db() as db:
                 cursor = await db.execute("""
                     SELECT 
                         SUM(CASE WHEN grid_import IS NOT NULL THEN grid_import ELSE 0 END) as total_grid_import,
@@ -1267,7 +1279,7 @@ class UniversalRoomDatabase:
         """Get external conditions history for predictions."""
         try:
             cutoff = (datetime.utcnow() - timedelta(hours=hours)).isoformat()
-            async with aiosqlite.connect(self.db_file) as db:
+            async with self._db() as db:
                 cursor = await db.execute("""
                     SELECT timestamp, outside_temp, outside_humidity, weather_condition,
                            solar_production, forecast_high, forecast_low,
@@ -1298,7 +1310,7 @@ class UniversalRoomDatabase:
     async def get_recent_data(self, room_id: str, limit: int = 100) -> dict[str, list]:
         """Get recent data for export."""
         try:
-            async with aiosqlite.connect(self.db_file) as db:
+            async with self._db() as db:
                 # Get occupancy events
                 cursor = await db.execute("""
                     SELECT timestamp, event_type, trigger_source, duration
@@ -1341,7 +1353,7 @@ class UniversalRoomDatabase:
     async def get_table_counts(self, room_id: str) -> dict[str, int]:
         """Get row counts for each table for a specific room."""
         try:
-            async with aiosqlite.connect(self.db_file) as db:
+            async with self._db() as db:
                 counts = {}
                 
                 cursor = await db.execute("SELECT COUNT(*) FROM occupancy_events WHERE room_id = ?", (room_id,))
@@ -1378,7 +1390,7 @@ class UniversalRoomDatabase:
         Returns kWh.
         """
         try:
-            async with aiosqlite.connect(self.db_file) as db:
+            async with self._db() as db:
                 cursor = await db.execute("""
                     SELECT timestamp, power_watts
                     FROM energy_snapshots
@@ -1426,7 +1438,7 @@ class UniversalRoomDatabase:
         try:
             cutoff = dt_util.now() - timedelta(days=days)
             
-            async with aiosqlite.connect(self.db_file) as db:
+            async with self._db() as db:
                 # Get all entry/exit events in period
                 cursor = await db.execute("""
                     SELECT timestamp, event_type, duration
@@ -1473,7 +1485,7 @@ class UniversalRoomDatabase:
         try:
             cutoff = dt_util.now() - timedelta(days=days)
             
-            async with aiosqlite.connect(self.db_file) as db:
+            async with self._db() as db:
                 cursor = await db.execute("""
                     SELECT timestamp
                     FROM occupancy_events
@@ -1512,7 +1524,7 @@ class UniversalRoomDatabase:
             # Get entry events for last 7 days
             cutoff = dt_util.now() - timedelta(days=7)
             
-            async with aiosqlite.connect(self.db_file) as db:
+            async with self._db() as db:
                 cursor = await db.execute("""
                     SELECT timestamp
                     FROM occupancy_events
@@ -1586,7 +1598,7 @@ class UniversalRoomDatabase:
         try:
             cutoff = dt_util.now() - timedelta(days=days)
             
-            async with aiosqlite.connect(self.db_file) as db:
+            async with self._db() as db:
                 # Get occupancy events
                 cursor = await db.execute("""
                     SELECT timestamp
@@ -1662,7 +1674,7 @@ class UniversalRoomDatabase:
     ) -> int:
         """Log person entering a room."""
         try:
-            async with aiosqlite.connect(self.db_file) as db:
+            async with self._db() as db:
                 cursor = await db.execute("""
                     INSERT INTO person_visits 
                     (person_id, room_id, entry_time, confidence, detection_method, transition_from)
@@ -1691,7 +1703,7 @@ class UniversalRoomDatabase:
             if exit_time is None:
                 exit_time = datetime.now()
 
-            async with aiosqlite.connect(self.db_file) as db:
+            async with self._db() as db:
                 # Update exit time and calculate duration
                 await db.execute("""
                     UPDATE person_visits 
@@ -1714,7 +1726,7 @@ class UniversalRoomDatabase:
     ) -> None:
         """Log periodic person presence snapshot."""
         try:
-            async with aiosqlite.connect(self.db_file) as db:
+            async with self._db() as db:
                 await db.execute("""
                     INSERT INTO person_presence_snapshots 
                     (timestamp, person_id, room_id, confidence, method)
@@ -1733,7 +1745,7 @@ class UniversalRoomDatabase:
     async def get_person_last_location(self, person_id: str) -> dict[str, Any] | None:
         """Get person's last known location."""
         try:
-            async with aiosqlite.connect(self.db_file) as db:
+            async with self._db() as db:
                 db.row_factory = aiosqlite.Row
                 cursor = await db.execute("""
                     SELECT room_id, entry_time, confidence, detection_method
@@ -1763,7 +1775,7 @@ class UniversalRoomDatabase:
     async def get_active_visit_id(self, person_id: str, room_id: str) -> int | None:
         """Get ID of person's active visit in room."""
         try:
-            async with aiosqlite.connect(self.db_file) as db:
+            async with self._db() as db:
                 db.row_factory = aiosqlite.Row
                 cursor = await db.execute("""
                     SELECT id
@@ -1789,7 +1801,7 @@ class UniversalRoomDatabase:
     async def get_room_occupants(self, room_id: str) -> list[dict[str, Any]]:
         """Get list of people currently in room."""
         try:
-            async with aiosqlite.connect(self.db_file) as db:
+            async with self._db() as db:
                 db.row_factory = aiosqlite.Row
                 cursor = await db.execute("""
                     SELECT person_id, entry_time, confidence, detection_method
@@ -1825,7 +1837,7 @@ class UniversalRoomDatabase:
         try:
             now = datetime.now()
 
-            async with aiosqlite.connect(self.db_file) as db:
+            async with self._db() as db:
                 # Insert or update
                 await db.execute("""
                     INSERT INTO unknown_devices (device_id, first_seen, last_seen, room_id, confidence)
@@ -1848,7 +1860,7 @@ class UniversalRoomDatabase:
         try:
             cutoff_date = datetime.now() - timedelta(days=retention_days)
 
-            async with aiosqlite.connect(self.db_file) as db:
+            async with self._db() as db:
                 # Clean person visits
                 await db.execute("""
                     DELETE FROM person_visits WHERE entry_time < ?
@@ -1887,7 +1899,7 @@ class UniversalRoomDatabase:
             return None
             
         try:
-            async with aiosqlite.connect(self.db_file) as db:
+            async with self._db() as db:
                 db.row_factory = aiosqlite.Row
                 
                 # Build query with parameterized placeholders
@@ -1930,7 +1942,7 @@ class UniversalRoomDatabase:
     ) -> None:
         """Log a room-to-room transition."""
         try:
-            async with aiosqlite.connect(self.db_file) as db:
+            async with self._db() as db:
                 await db.execute("""
                     INSERT INTO room_transitions 
                     (person_id, from_room, to_room, timestamp, 
@@ -1980,7 +1992,7 @@ class UniversalRoomDatabase:
             else:
                 cutoff = datetime.now() - timedelta(days=days)
             
-            async with aiosqlite.connect(self.db_file) as db:
+            async with self._db() as db:
                 db.row_factory = aiosqlite.Row
                 cursor = await db.execute("""
                     SELECT 
@@ -2019,7 +2031,7 @@ class UniversalRoomDatabase:
         try:
             cutoff = datetime.now() - timedelta(days=days)
             
-            async with aiosqlite.connect(self.db_file) as db:
+            async with self._db() as db:
                 db.row_factory = aiosqlite.Row
                 cursor = await db.execute("""
                     SELECT 
@@ -2062,7 +2074,7 @@ class UniversalRoomDatabase:
             )
             timestamp = result.timestamp.isoformat() if result.timestamp else datetime.now().isoformat()
 
-            async with aiosqlite.connect(self.db_file) as db:
+            async with self._db() as db:
                 await db.execute("""
                     INSERT OR REPLACE INTO census_snapshots (
                         timestamp, zone, identified_count, identified_persons,
@@ -2100,7 +2112,7 @@ class UniversalRoomDatabase:
         """
         try:
             cutoff = (datetime.now() - timedelta(hours=hours)).isoformat()
-            async with aiosqlite.connect(self.db_file) as db:
+            async with self._db() as db:
                 db.row_factory = aiosqlite.Row
                 cursor = await db.execute("""
                     SELECT
@@ -2125,7 +2137,7 @@ class UniversalRoomDatabase:
         """
         try:
             cutoff = (datetime.now() - timedelta(days=retention_days)).isoformat()
-            async with aiosqlite.connect(self.db_file) as db:
+            async with self._db() as db:
                 cursor = await db.execute("""
                     DELETE FROM census_snapshots WHERE timestamp < ?
                 """, (cutoff,))
@@ -2154,7 +2166,7 @@ class UniversalRoomDatabase:
         import json
         try:
             ts_str = timestamp.isoformat() if hasattr(timestamp, "isoformat") else str(timestamp)
-            async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
+            async with self._db() as db:
                 await db.execute("""
                     UPDATE room_transitions
                     SET confidence = ?,
@@ -2183,7 +2195,7 @@ class UniversalRoomDatabase:
     ) -> None:
         """Log a confirmed entry or exit event."""
         try:
-            async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
+            async with self._db() as db:
                 await db.execute("""
                     INSERT INTO person_entry_exit_events
                         (timestamp, person_id, event_type, direction, egress_camera, confidence)
@@ -2212,7 +2224,7 @@ class UniversalRoomDatabase:
         """
         try:
             since_str = since.isoformat() if hasattr(since, "isoformat") else str(since)
-            async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
+            async with self._db() as db:
                 db.row_factory = aiosqlite.Row
                 cursor = await db.execute("""
                     SELECT person_id, timestamp, egress_camera
@@ -2245,7 +2257,7 @@ class UniversalRoomDatabase:
     ) -> int | None:
         """Log a notification to the database. Returns the row ID."""
         try:
-            async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
+            async with self._db() as db:
                 cursor = await db.execute("""
                     INSERT INTO notification_log
                     (timestamp, coordinator_id, severity, title, message,
@@ -2266,7 +2278,7 @@ class UniversalRoomDatabase:
         """Get all delivered notifications from today."""
         try:
             today_start = dt_util.start_of_local_day().isoformat()
-            async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
+            async with self._db() as db:
                 db.row_factory = aiosqlite.Row
                 cursor = await db.execute("""
                     SELECT * FROM notification_log
@@ -2282,7 +2294,7 @@ class UniversalRoomDatabase:
     async def get_last_notification(self) -> dict | None:
         """Get the most recent delivered notification."""
         try:
-            async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
+            async with self._db() as db:
                 db.row_factory = aiosqlite.Row
                 cursor = await db.execute("""
                     SELECT * FROM notification_log
@@ -2298,7 +2310,7 @@ class UniversalRoomDatabase:
     async def get_pending_digest(self, person_id: str) -> list[dict]:
         """Get pending digest notifications for a person."""
         try:
-            async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
+            async with self._db() as db:
                 db.row_factory = aiosqlite.Row
                 cursor = await db.execute("""
                     SELECT * FROM notification_log
@@ -2315,7 +2327,7 @@ class UniversalRoomDatabase:
     async def mark_digest_delivered(self, person_id: str) -> None:
         """Mark all pending digest items as delivered for a person."""
         try:
-            async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
+            async with self._db() as db:
                 await db.execute("""
                     UPDATE notification_log SET delivered = 2
                     WHERE person_id = ? AND delivered = 0
@@ -2328,7 +2340,7 @@ class UniversalRoomDatabase:
     async def acknowledge_notification(self) -> None:
         """Acknowledge the most recent unacknowledged CRITICAL notification."""
         try:
-            async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
+            async with self._db() as db:
                 await db.execute("""
                     UPDATE notification_log
                     SET acknowledged = 1, ack_time = ?
@@ -2345,7 +2357,7 @@ class UniversalRoomDatabase:
     async def get_active_critical(self) -> dict | None:
         """Get the most recent unacknowledged CRITICAL notification."""
         try:
-            async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
+            async with self._db() as db:
                 db.row_factory = aiosqlite.Row
                 cursor = await db.execute("""
                     SELECT * FROM notification_log
@@ -2362,7 +2374,7 @@ class UniversalRoomDatabase:
         """Get the active cooldown notification (acked but cooldown not expired)."""
         try:
             now = dt_util.utcnow().isoformat()
-            async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
+            async with self._db() as db:
                 db.row_factory = aiosqlite.Row
                 cursor = await db.execute("""
                     SELECT * FROM notification_log
@@ -2379,7 +2391,7 @@ class UniversalRoomDatabase:
     async def set_cooldown(self, notification_id: int, cooldown_expires: str) -> None:
         """Set the cooldown expiry for a notification."""
         try:
-            async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
+            async with self._db() as db:
                 await db.execute("""
                     UPDATE notification_log SET cooldown_expires = ?
                     WHERE id = ?
@@ -2392,7 +2404,7 @@ class UniversalRoomDatabase:
         """Prune notifications older than retention_days. Returns rows deleted."""
         try:
             cutoff = (dt_util.utcnow() - timedelta(days=retention_days)).isoformat()
-            async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
+            async with self._db() as db:
                 cursor = await db.execute("""
                     DELETE FROM notification_log WHERE timestamp < ?
                 """, (cutoff,))
@@ -2419,7 +2431,7 @@ class UniversalRoomDatabase:
         """Log an inbound message. Returns row ID."""
         try:
             now = dt_util.utcnow().isoformat()
-            async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
+            async with self._db() as db:
                 cursor = await db.execute("""
                     INSERT INTO notification_inbound
                     (timestamp, person_id, channel, raw_text, parsed_command,
@@ -2437,7 +2449,7 @@ class UniversalRoomDatabase:
         """Prune inbound messages older than retention_days. Returns rows deleted."""
         try:
             cutoff = (dt_util.utcnow() - timedelta(days=retention_days)).isoformat()
-            async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
+            async with self._db() as db:
                 cursor = await db.execute("""
                     DELETE FROM notification_inbound WHERE timestamp < ?
                 """, (cutoff,))
@@ -2451,7 +2463,7 @@ class UniversalRoomDatabase:
         """Get all inbound messages from today."""
         try:
             today_start = dt_util.start_of_local_day().isoformat()
-            async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
+            async with self._db() as db:
                 db.row_factory = aiosqlite.Row
                 cursor = await db.execute("""
                     SELECT * FROM notification_inbound
@@ -2485,7 +2497,7 @@ class UniversalRoomDatabase:
     ) -> None:
         """Save daily energy snapshot. Uses INSERT OR REPLACE for idempotency."""
         try:
-            async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
+            async with self._db() as db:
                 await db.execute("""
                     INSERT OR REPLACE INTO energy_daily
                     (date, import_kwh, export_kwh, import_cost, export_credit,
@@ -2511,7 +2523,7 @@ class UniversalRoomDatabase:
         Returns dict with total import/export/cost and day count.
         """
         try:
-            async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
+            async with self._db() as db:
                 cursor = await db.execute("""
                     SELECT
                         COUNT(*) as days,
@@ -2546,7 +2558,7 @@ class UniversalRoomDatabase:
         Returns list of dicts with all columns, ordered by date ascending.
         """
         try:
-            async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
+            async with self._db() as db:
                 db.row_factory = aiosqlite.Row
                 cursor = await db.execute("""
                     SELECT date, consumption_kwh, predicted_consumption_kwh,
@@ -2570,7 +2582,7 @@ class UniversalRoomDatabase:
         Only includes rows where both values are non-null.
         """
         try:
-            async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
+            async with self._db() as db:
                 cursor = await db.execute("""
                     SELECT consumption_kwh, avg_temperature
                     FROM energy_daily
@@ -2598,7 +2610,7 @@ class UniversalRoomDatabase:
         so only the raw readings need persistence.
         """
         try:
-            async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
+            async with self._db() as db:
                 await db.execute("DELETE FROM energy_peak_import")
                 if readings:
                     await db.executemany(
@@ -2615,7 +2627,7 @@ class UniversalRoomDatabase:
         Returns list of import_kw readings in original order.
         """
         try:
-            async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
+            async with self._db() as db:
                 cursor = await db.execute(
                     "SELECT import_kw FROM energy_peak_import ORDER BY seq ASC"
                 )
@@ -2637,7 +2649,7 @@ class UniversalRoomDatabase:
     ) -> None:
         """Save EVSE state for restart recovery."""
         try:
-            async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
+            async with self._db() as db:
                 await db.execute("""
                     INSERT OR REPLACE INTO evse_state
                         (evse_id, paused_by_energy, excess_solar_active, updated_at)
@@ -2655,7 +2667,7 @@ class UniversalRoomDatabase:
     async def restore_evse_state(self) -> dict[str, dict[str, bool]]:
         """Restore EVSE states from DB. Returns {evse_id: {paused, excess_solar}}."""
         try:
-            async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
+            async with self._db() as db:
                 cursor = await db.execute(
                     "SELECT evse_id, paused_by_energy, excess_solar_active FROM evse_state"
                 )
@@ -2679,7 +2691,7 @@ class UniversalRoomDatabase:
         """Delete energy_history rows older than retention_days."""
         try:
             cutoff = (dt_util.utcnow() - timedelta(days=retention_days)).isoformat()
-            async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
+            async with self._db() as db:
                 cursor = await db.execute(
                     "DELETE FROM energy_history WHERE timestamp < ?", (cutoff,)
                 )
@@ -2699,7 +2711,7 @@ class UniversalRoomDatabase:
         """Delete external_conditions rows older than retention_days."""
         try:
             cutoff = (dt_util.utcnow() - timedelta(days=retention_days)).isoformat()
-            async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
+            async with self._db() as db:
                 cursor = await db.execute(
                     "DELETE FROM external_conditions WHERE timestamp < ?", (cutoff,)
                 )
@@ -2730,7 +2742,7 @@ class UniversalRoomDatabase:
             return
         try:
             now = dt_util.utcnow().isoformat()
-            async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
+            async with self._db() as db:
                 try:
                     for circuit_id, state in circuits.items():
                         # Store zero_since as string repr of float for round-trip
@@ -2766,7 +2778,7 @@ class UniversalRoomDatabase:
                 was_loaded (bool), zero_since (float|None), alerted (bool)
         """
         try:
-            async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
+            async with self._db() as db:
                 db.row_factory = aiosqlite.Row
                 cursor = await db.execute(
                     "SELECT circuit_id, was_loaded, zero_since, alerted FROM circuit_state"
@@ -2801,7 +2813,7 @@ class UniversalRoomDatabase:
         """
         try:
             now = dt_util.utcnow().isoformat()
-            async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
+            async with self._db() as db:
                 await db.execute("""
                     INSERT OR REPLACE INTO envoy_cache
                         (id, soc, net_power, solar_production, battery_power,
@@ -2835,7 +2847,7 @@ class UniversalRoomDatabase:
             dict with cached values + updated_at, or None if no cache.
         """
         try:
-            async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
+            async with self._db() as db:
                 db.row_factory = aiosqlite.Row
                 cursor = await db.execute(
                     "SELECT * FROM envoy_cache WHERE id = 1"
@@ -2862,7 +2874,7 @@ class UniversalRoomDatabase:
         """
         try:
             now = dt_util.utcnow().isoformat()
-            async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
+            async with self._db() as db:
                 await db.execute("""
                     INSERT OR REPLACE INTO energy_midnight_snapshot
                         (id, snapshot_date, lifetime_consumption, lifetime_production,
@@ -2899,7 +2911,7 @@ class UniversalRoomDatabase:
             dict with snapshot data, or None if no snapshot exists.
         """
         try:
-            async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
+            async with self._db() as db:
                 db.row_factory = aiosqlite.Row
                 cursor = await db.execute(
                     "SELECT * FROM energy_midnight_snapshot WHERE id = 1"
@@ -2924,7 +2936,7 @@ class UniversalRoomDatabase:
         """Save a key-value pair to the energy state store."""
         try:
             now = dt_util.utcnow().isoformat()
-            async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
+            async with self._db() as db:
                 await db.execute("""
                     INSERT OR REPLACE INTO energy_state (key, value, updated_at)
                     VALUES (?, ?, ?)
@@ -2940,7 +2952,7 @@ class UniversalRoomDatabase:
             The stored value string, or None if not found.
         """
         try:
-            async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
+            async with self._db() as db:
                 cursor = await db.execute(
                     "SELECT value FROM energy_state WHERE key = ?", (key,)
                 )
@@ -2957,7 +2969,7 @@ class UniversalRoomDatabase:
         Only returns rows where consumption_kwh is not None.
         """
         try:
-            async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
+            async with self._db() as db:
                 db.row_factory = aiosqlite.Row
                 cursor = await db.execute("""
                     SELECT date, consumption_kwh

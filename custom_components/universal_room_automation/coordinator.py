@@ -1,6 +1,6 @@
 """Data coordinator for Universal Room Automation."""
 #
-# Universal Room Automation v3.18.3
+# Universal Room Automation v3.18.4
 # Build: 2026-01-02
 # File: coordinator.py
 # v3.2.8: Support for active state change listeners in aggregation sensors
@@ -816,7 +816,7 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         if state is None:
             return False
         if state.state in ("unavailable", "unknown"):
-            _LOGGER.warning(
+            _LOGGER.debug(
                 "Sensor %s is %s - treating as off for room %s",
                 entity_id, state.state,
                 self.entry.data.get("room_name", "unknown"),
@@ -946,7 +946,7 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                 if sensor:
                     s = self.hass.states.get(sensor)
                     if s and s.state in ("unavailable", "unknown"):
-                        _LOGGER.warning(
+                        _LOGGER.debug(
                             "Room %s: %s sensor %s is %s",
                             room_name, sensor_list_name, sensor, s.state,
                         )
