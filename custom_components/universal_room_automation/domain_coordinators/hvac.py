@@ -21,8 +21,10 @@ from homeassistant.helpers.dispatcher import (
     async_dispatcher_send,
 )
 from homeassistant.helpers.event import async_track_time_interval
+from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
+from ..const import DOMAIN
 from .base import BaseCoordinator, CoordinatorAction, Intent
 from .hvac_const import (
     CONF_HVAC_ARRESTER_ENABLED,
@@ -147,6 +149,10 @@ class HVACCoordinator(BaseCoordinator):
         self._pending_tasks: set[asyncio.Task] = set()
         self._last_runtime_accumulation: Any = None  # UTC datetime
 
+        # v3.18.2: Zone state persistence
+        self._zone_state_store = Store(hass, 1, f"{DOMAIN}.hvac_zone_state")
+        self._zone_state_save_counter: int = 0
+
     @property
     def zone_manager(self) -> ZoneManager:
         """Return zone manager for sensor access."""
@@ -230,6 +236,15 @@ class HVACCoordinator(BaseCoordinator):
                 "HVAC: No zones with thermostats found. "
                 "Configure CONF_ZONE_THERMOSTAT on zone entries."
             )
+
+        # v3.18.2: Restore zone state from persistent storage
+        try:
+            stored = await self._zone_state_store.async_load()
+            if stored and isinstance(stored, dict):
+                count = self._zone_manager.restore_state_snapshot(stored)
+                _LOGGER.info("HVAC: Restored zone state for %d zones", count)
+        except Exception as e:
+            _LOGGER.warning("HVAC: Failed to restore zone state: %s", e)
 
         # Determine season and log
         season = self._preset_manager.determine_season()
@@ -393,7 +408,7 @@ class HVACCoordinator(BaseCoordinator):
             await self._override_arrester.check_ac_reset()
 
             # Fan and cover control
-            await self._fan_controller.update(self._energy_constraint)
+            await self._fan_controller.update(self._energy_constraint, self._house_state)
             await self._cover_controller.update(self._energy_constraint)
         else:
             # Still update arrester state for diagnostics (no actions)
@@ -422,6 +437,17 @@ class HVACCoordinator(BaseCoordinator):
         async_dispatcher_send(self.hass, SIGNAL_HVAC_ENTITIES_UPDATE)
 
         self._last_evaluate = now.isoformat()
+
+        # v3.18.2: Periodic zone state save (every 5 cycles = ~25 min)
+        self._zone_state_save_counter += 1
+        if self._zone_state_save_counter >= 5:
+            self._zone_state_save_counter = 0
+            try:
+                await self._zone_state_store.async_save(
+                    self._zone_manager.get_state_snapshot()
+                )
+            except Exception as e:
+                _LOGGER.warning("HVAC: Failed to save zone state: %s", e)
 
     async def evaluate(
         self,
@@ -1009,6 +1035,16 @@ class HVACCoordinator(BaseCoordinator):
         self._cover_controller.teardown()
 
         self._cancel_listeners()
+
+        # v3.18.2: Save zone state on shutdown
+        try:
+            if self._zone_manager:
+                await self._zone_state_store.async_save(
+                    self._zone_manager.get_state_snapshot()
+                )
+                _LOGGER.info("HVAC: Zone state saved on shutdown")
+        except Exception as e:
+            _LOGGER.warning("HVAC: Failed to save zone state on shutdown: %s", e)
 
         # Save anomaly baselines
         if self.anomaly_detector:

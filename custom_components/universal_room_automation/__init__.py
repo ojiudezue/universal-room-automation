@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation v3.17.9
+# Universal Room Automation v3.18.0
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -1538,7 +1538,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if entry_type == ENTRY_TYPE_ZONE_MANAGER:
         unload_ok = await hass.config_entries.async_unload_platforms(entry, INTEGRATION_PLATFORMS)
         if "zone_manager_entry" in hass.data.get(DOMAIN, {}):
-            del hass.data[DOMAIN]["zone_manager_entry"]
+            hass.data[DOMAIN]["zone_manager_entry"] = None
         return unload_ok
 
     # v3.6.0: Handle Coordinator Manager entry unload
@@ -1863,5 +1863,14 @@ async def _async_register_notification_services(hass: HomeAssistant) -> None:
 
 
 async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Handle options update - reload the entry."""
+    """Handle options update.
+
+    v3.18.x review fix: Room entries skip reload — _refresh_config() picks up
+    option changes on next coordinator update cycle (~30s). Non-room entries
+    (Integration, Zone Manager, Coordinator Manager) require full reload for
+    platform changes.
+    """
+    entry_type = entry.data.get(CONF_ENTRY_TYPE, ENTRY_TYPE_ROOM)
+    if entry_type == ENTRY_TYPE_ROOM:
+        return  # Room coordinator picks up options via _refresh_config()
     await hass.config_entries.async_reload(entry.entry_id)

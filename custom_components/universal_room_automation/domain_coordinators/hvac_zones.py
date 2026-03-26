@@ -457,6 +457,79 @@ class ZoneManager:
             ),
         }
 
+    def get_state_snapshot(self) -> dict[str, dict]:
+        """Serialize zone state for persistence.
+
+        v3.18.2: Returns a dict of zone_id -> state dict for storage.
+        """
+        snapshot = {}
+        for zone_id, zone in self.zones.items():
+            snapshot[zone_id] = {
+                "last_occupied_time": zone.last_occupied_time.isoformat() if zone.last_occupied_time else None,
+                "vacancy_sweep_done": zone.vacancy_sweep_done,
+                "zone_presence_state": zone.zone_presence_state,
+                "continuous_occupied_since": zone.continuous_occupied_since.isoformat() if zone.continuous_occupied_since else None,
+                "runtime_seconds_this_window": zone.runtime_seconds_this_window,
+                "window_start": zone.window_start.isoformat() if zone.window_start else None,
+                "saved_at": dt_util.now().isoformat(),
+            }
+        return snapshot
+
+    def restore_state_snapshot(self, snapshot: dict[str, dict]) -> int:
+        """Restore zone state from persisted snapshot.
+
+        v3.18.2: Applies persisted state to matching zones.
+        Skips stale data (>4h old). Returns count of restored zones.
+        """
+        restored = 0
+        now = dt_util.now()
+        for zone_id, state in snapshot.items():
+            zone = self.zones.get(zone_id)
+            if zone is None:
+                continue
+
+            # Skip stale data (>4h old)
+            # v3.18.x review fix: Use dt_util.parse_datetime for TZ safety
+            saved_at_str = state.get("saved_at")
+            if saved_at_str:
+                try:
+                    saved_at = dt_util.parse_datetime(saved_at_str) or dt_util.now()
+                    if (now - saved_at).total_seconds() > 4 * 3600:
+                        _LOGGER.info("HVAC Zones: Skipping stale state for zone %s (saved %s)", zone_id, saved_at_str)
+                        continue
+                except (ValueError, TypeError):
+                    continue
+
+            # Restore fields
+            # v3.18.x review fix: Use dt_util.parse_datetime for TZ-safe parsing
+            lot = state.get("last_occupied_time")
+            if lot:
+                parsed = dt_util.parse_datetime(lot)
+                if parsed is not None:
+                    zone.last_occupied_time = parsed
+
+            zone.vacancy_sweep_done = state.get("vacancy_sweep_done", False)
+            zone.zone_presence_state = state.get("zone_presence_state", "unknown")
+
+            cos = state.get("continuous_occupied_since")
+            if cos:
+                parsed = dt_util.parse_datetime(cos)
+                if parsed is not None:
+                    zone.continuous_occupied_since = parsed
+
+            zone.runtime_seconds_this_window = state.get("runtime_seconds_this_window", 0.0)
+
+            ws = state.get("window_start")
+            if ws:
+                parsed = dt_util.parse_datetime(ws)
+                if parsed is not None:
+                    zone.window_start = parsed
+
+            restored += 1
+            _LOGGER.info("HVAC Zones: Restored state for zone %s (presence=%s)", zone_id, zone.zone_presence_state)
+
+        return restored
+
     def reset_daily_counters(self) -> None:
         """Reset daily counters for all zones (call at midnight)."""
         for zone in self._zones.values():

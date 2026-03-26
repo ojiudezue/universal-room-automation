@@ -9,6 +9,7 @@ v3.8.3-H2: Initial implementation.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime
 from typing import Any
@@ -81,6 +82,9 @@ class OverrideArrester:
 
         # Suppression: entity_ids to ignore overrides on (during URA-initiated changes)
         self._suppressed_entities: set[str] = set()
+
+        # v3.18.x review fix: Track verify/retry tasks for AC reset restore
+        self._verify_tasks: dict[str, asyncio.Task] = {}
 
     def has_active_ac_reset(self, zone_id: str) -> bool:
         """Check if a zone is mid-AC-reset (intentionally off)."""
@@ -214,6 +218,11 @@ class OverrideArrester:
         for cancel in self._reset_timers.values():
             cancel()
         self._reset_timers.clear()
+
+        # v3.18.x review fix: Cancel all verify/retry tasks
+        for task in self._verify_tasks.values():
+            task.cancel()
+        self._verify_tasks.clear()
 
     def update_energy_state(self, offset: float, coast: bool) -> None:
         """Update energy constraint state for tolerance adjustment."""
@@ -695,27 +704,106 @@ class OverrideArrester:
     async def _restore_after_reset(
         self, zone: ZoneState, original_mode: str,
     ) -> None:
-        """Restore HVAC mode after AC reset off period."""
+        """Restore HVAC mode after AC reset off period.
+
+        v3.18.2: Added pre-restore telemetry logging and post-restore
+        verification with retry (max 2 retries at 30s intervals).
+        """
         zone_id = zone.zone_id
+        zone_name = zone.zone_name
+        climate_entity = zone.climate_entity
+        target_mode = original_mode
+
         self._reset_timers.pop(zone_id, None)
 
+        # v3.18.2: Log pre-restore state for telemetry
+        pre_state = self.hass.states.get(climate_entity)
         _LOGGER.info(
-            "AC Reset restore on %s: setting mode back to %s",
-            zone.zone_name, original_mode,
+            "HVAC AC Reset: Restoring zone %s — pre-restore state=%s, target=%s",
+            zone_name,
+            pre_state.state if pre_state else "unknown",
+            target_mode,
         )
 
         try:
             await self.hass.services.async_call(
                 "climate",
                 "set_hvac_mode",
-                {"entity_id": zone.climate_entity, "hvac_mode": original_mode},
+                {"entity_id": climate_entity, "hvac_mode": target_mode},
                 blocking=True,
             )
         except Exception as e:
             _LOGGER.error(
                 "AC Reset: failed to restore %s to %s: %s",
-                zone.climate_entity, original_mode, e,
+                climate_entity, target_mode, e,
             )
+            return
+
+        # v3.18.2: Schedule verification after restore
+        # v3.18.x review fix: Track verify tasks, cancel duplicates, return on retry failure
+        async def _verify_restore(attempt: int = 1) -> None:
+            # Bail out if task was cancelled/removed
+            if zone_id not in self._verify_tasks:
+                return
+
+            await asyncio.sleep(30)
+            state = self.hass.states.get(climate_entity)
+            actual_mode = state.state if state else "unknown"
+
+            if actual_mode == "off" and attempt <= 2:
+                _LOGGER.warning(
+                    "HVAC AC Reset: Zone %s still off after restore (attempt %d/2) — retrying",
+                    zone_name, attempt,
+                )
+                try:
+                    await self.hass.services.async_call(
+                        "climate",
+                        "set_hvac_mode",
+                        {"entity_id": climate_entity, "hvac_mode": target_mode},
+                        blocking=True,
+                    )
+                except Exception as exc:
+                    _LOGGER.error(
+                        "HVAC AC Reset: Retry failed for zone %s: %s",
+                        zone_name, exc,
+                    )
+                    # Don't schedule next retry after a failed service call
+                    self._verify_tasks.pop(zone_id, None)
+                    return
+                # Schedule next verification
+                next_task = self.hass.async_create_task(_verify_restore(attempt + 1))
+                self._verify_tasks[zone_id] = next_task
+            elif actual_mode == "off":
+                _LOGGER.error(
+                    "HVAC AC Reset: Zone %s FAILED to restore after 2 retries "
+                    "— manual intervention needed",
+                    zone_name,
+                )
+                self._verify_tasks.pop(zone_id, None)
+                # Send NM critical alert for failed restore
+                await self._send_nm_alert(
+                    title=f"AC Reset FAILED: {zone_name}",
+                    message=(
+                        f"AC reset failed to restore Zone {zone_name} — "
+                        f"thermostat stuck on OFF after 2 retries. "
+                        f"Manual intervention needed."
+                    ),
+                    severity="critical",
+                )
+            else:
+                _LOGGER.info(
+                    "HVAC AC Reset: Zone %s verified — restored to %s",
+                    zone_name, actual_mode,
+                )
+                self._verify_tasks.pop(zone_id, None)
+
+        # Cancel any existing verify task for this zone before starting a new one
+        existing_task = self._verify_tasks.get(zone_id)
+        if existing_task is not None:
+            existing_task.cancel()
+
+        task = self.hass.async_create_task(_verify_restore())
+        self._verify_tasks[zone_id] = task
 
     # =========================================================================
     # Helpers

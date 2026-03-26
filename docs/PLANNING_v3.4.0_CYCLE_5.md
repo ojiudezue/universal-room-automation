@@ -12,7 +12,7 @@
 
 Cycle 5 adds natural language automation rules that can be scoped to specific people. When John enters the office, set the lights to 4000K and turn on the desk lamp. When the last person leaves the kitchen, turn off the coffee maker.
 
-This is the key differentiator from basic HA automations: rules know WHO entered or left, because the census from v3.5.1 provides `identified_persons` per room. Person-specific rules consume that data. Rules without a person filter work for any occupancy change, which makes the feature useful even without cameras or on BLE-only setups.
+This is the key differentiator from basic HA automations: rules know WHO entered or left, because the census from v3.5.1 provides `identified_persons` per room. Person-specific rules consume that data. Rules without a person filter work for any occupancy change, which makes the feature useful even without cameras or on BLE-only setups.   
 
 **Scope boundary:** Two trigger types only — room-enter and room-exit. The AI parses natural language into structured service calls at rule creation time. At execution time, URA checks the census and calls the pre-parsed service calls directly. No AI inference at runtime.
 
