@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.18.0
+# Universal Room Automation v3.18.1
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -2164,7 +2164,8 @@ class CurrentOccupantsSensor(UniversalRoomEntity, SensorEntity):
         if self._unsub_person_coordinator:
             self._unsub_person_coordinator()
             self._unsub_person_coordinator = None
-    
+
+    @callback
     def _handle_person_update(self) -> None:
         """Handle person_coordinator update - trigger state update.
 
@@ -2261,7 +2262,8 @@ class OccupantCountSensor(UniversalRoomEntity, SensorEntity):
         if self._unsub_person_coordinator:
             self._unsub_person_coordinator()
             self._unsub_person_coordinator = None
-    
+
+    @callback
     def _handle_person_update(self) -> None:
         """Handle person_coordinator update - trigger state update.
 
@@ -2730,6 +2732,7 @@ class _CensusBaseSensor(AggregationEntity, SensorEntity):
             )
         )
 
+    @callback
     def _handle_census_update(self, data: dict) -> None:
         """Handle census update signal — push state immediately."""
         self.async_schedule_update_ha_state()
@@ -3083,6 +3086,7 @@ class PersonsEnteredTodaySensor(AggregationEntity, SensorEntity):
         self._restoring = False
         self.async_write_ha_state()
 
+    @callback
     def _handle_egress_event(self, event) -> None:
         """Handle an egress event from the bus."""
         if self._restoring:
@@ -3097,6 +3101,7 @@ class PersonsEnteredTodaySensor(AggregationEntity, SensorEntity):
         })
         self.async_schedule_update_ha_state()
 
+    @callback
     def _midnight_reset(self, now) -> None:
         """Reset count at midnight."""
         self._count = 0
@@ -3159,6 +3164,7 @@ class PersonsExitedTodaySensor(AggregationEntity, SensorEntity):
         self._restoring = False
         self.async_write_ha_state()
 
+    @callback
     def _handle_egress_event(self, event) -> None:
         """Handle an egress event from the bus."""
         if self._restoring:
@@ -3173,6 +3179,7 @@ class PersonsExitedTodaySensor(AggregationEntity, SensorEntity):
         })
         self.async_schedule_update_ha_state()
 
+    @callback
     def _midnight_reset(self, now) -> None:
         """Reset count at midnight."""
         self._count = 0
@@ -3214,6 +3221,7 @@ class LastPersonEntrySensor(AggregationEntity, SensorEntity):
         await super().async_added_to_hass()
         self.hass.bus.async_listen("ura_person_egress_event", self._handle_egress_event)
 
+    @callback
     def _handle_egress_event(self, event) -> None:
         """Handle an egress event from the bus."""
         if event.data.get("direction") != "entry":
@@ -3261,6 +3269,7 @@ class LastPersonExitSensor(AggregationEntity, SensorEntity):
         await super().async_added_to_hass()
         self.hass.bus.async_listen("ura_person_egress_event", self._handle_egress_event)
 
+    @callback
     def _handle_egress_event(self, event) -> None:
         """Handle an egress event from the bus."""
         if event.data.get("direction") != "exit":
