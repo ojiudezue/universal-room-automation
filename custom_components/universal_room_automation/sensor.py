@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.18.3
+# Universal Room Automation v3.18.4
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -531,24 +531,29 @@ class EnergyTodaySensor(UniversalRoomEntity, SensorEntity):
         """Return energy consumed today with monotonic increasing enforcement."""
         if not self.coordinator.data:
             return 0
-        
+
         current = self.coordinator.data.get(STATE_ENERGY_TODAY, 0)
-        
+
+        # v3.18.3: Round to 4 decimal places (0.1 Wh) to eliminate float jitter
+        # that causes HA "entity not strictly increasing" warnings
+        if current is not None:
+            current = round(current, 4)
+
         # Handle reset (new day, very small value)
         if current is not None and current < 0.1:
             self._last_valid_value = current
             return current
-        
+
         # Enforce monotonic increasing - reject decreases
         if current is not None and self._last_valid_value is not None:
             if current < self._last_valid_value:
                 # Value decreased - return last known good value
                 return self._last_valid_value
-        
+
         # Valid value - update and return
         if current is not None:
             self._last_valid_value = current
-        
+
         return current
 
 
