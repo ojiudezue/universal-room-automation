@@ -1,6 +1,6 @@
 """Config flow for Universal Room Automation v3.6.24."""
 #
-# Universal Room Automation v3.18.1
+# Universal Room Automation v3.18.2
 # Build: 2026-01-05
 # File: config_flow.py
 # v3.3.3: Added manage_zones to integration options menu
@@ -1497,6 +1497,17 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             return self.hass.config_entries.async_get_entry(self._selected_zone_entry_id)
         if self._config_entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_ZONE:
             return self._config_entry
+        return None
+
+    def _find_zone_manager_entry(self):
+        """Find the Zone Manager entry if one exists.
+
+        v3.18.2: Added to OptionsFlow (was only on ConfigFlow).
+        Needed by async_step_climate for zone thermostat auto-populate.
+        """
+        for entry in self.hass.config_entries.async_entries(DOMAIN):
+            if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_ZONE_MANAGER:
+                return entry
         return None
 
     def _get_zm_zone_data(self) -> tuple | None:
