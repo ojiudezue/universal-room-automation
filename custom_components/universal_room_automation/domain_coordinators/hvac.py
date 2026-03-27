@@ -84,7 +84,7 @@ class HVACCoordinator(BaseCoordinator):
         vacancy_grace: int = DEFAULT_VACANCY_GRACE_MINUTES,
         vacancy_grace_constrained: int = DEFAULT_VACANCY_GRACE_CONSTRAINED,
         max_occupancy_hours: int = DEFAULT_MAX_OCCUPANCY_HOURS,
-        person_zone_map: dict[str, list[str]] | None = None,
+        person_zone_map: dict[str, list[str]] | None = None,  # Deprecated: map now built internally from zone_persons config
     ) -> None:
         """Initialize HVAC Coordinator."""
         super().__init__(
@@ -140,6 +140,7 @@ class HVACCoordinator(BaseCoordinator):
         self._vacancy_grace_constrained = vacancy_grace_constrained
         self._max_occupancy_hours = max_occupancy_hours
         self._person_zone_map: dict[str, list[str]] = person_zone_map or {}
+        self._last_good_person_zone_map: dict[str, list[str]] = {}
         self._pre_arrival_zones: set[str] = set()
         self._pre_arrival_persons: dict[str, str] = {}  # zone_id -> person_entity
         self._pre_arrival_start: dict[str, Any] = {}  # zone_id -> datetime
@@ -238,6 +239,7 @@ class HVACCoordinator(BaseCoordinator):
             )
 
         # v3.18.2: Restore zone state from persistent storage
+        stored = None
         try:
             stored = await self._zone_state_store.async_load()
             if stored and isinstance(stored, dict):
@@ -245,6 +247,29 @@ class HVACCoordinator(BaseCoordinator):
                 _LOGGER.info("HVAC: Restored zone state for %d zones", count)
         except Exception as e:
             _LOGGER.warning("HVAC: Failed to restore zone state: %s", e)
+
+        # v3.18.5: Build person-zone map from zone configs
+        new_map = self._build_person_zone_map()
+        if new_map:
+            self._person_zone_map = new_map
+            self._last_good_person_zone_map = dict(new_map)
+            _LOGGER.info("HVAC: Person-zone map built: %s", new_map)
+        else:
+            # Fallback chain: cache -> DB
+            if self._last_good_person_zone_map:
+                self._person_zone_map = self._last_good_person_zone_map
+                _LOGGER.warning("HVAC: Zone person config empty — using cached map")
+            elif stored and isinstance(stored, dict):
+                db_map = stored.get("__person_zone_map", {})
+                if db_map and isinstance(db_map, dict):
+                    self._person_zone_map = db_map
+                    self._last_good_person_zone_map = dict(db_map)
+                    _LOGGER.warning("HVAC: Using DB-persisted person-zone map")
+                else:
+                    self._person_zone_map = {}
+                    _LOGGER.info("HVAC: No person-zone mapping configured")
+            else:
+                self._person_zone_map = {}
 
         # Determine season and log
         season = self._preset_manager.determine_season()
@@ -443,9 +468,9 @@ class HVACCoordinator(BaseCoordinator):
         if self._zone_state_save_counter >= 5:
             self._zone_state_save_counter = 0
             try:
-                await self._zone_state_store.async_save(
-                    self._zone_manager.get_state_snapshot()
-                )
+                snapshot = self._zone_manager.get_state_snapshot()
+                snapshot["__person_zone_map"] = self._person_zone_map
+                await self._zone_state_store.async_save(snapshot)
             except Exception as e:
                 _LOGGER.warning("HVAC: Failed to save zone state: %s", e)
 
@@ -805,6 +830,18 @@ class HVACCoordinator(BaseCoordinator):
             if zone.runtime_seconds_this_window >= max_seconds:
                 zone.runtime_exceeded = True
 
+    def _build_person_zone_map(self) -> dict[str, list[str]]:
+        """Build person->zones reverse map from zone configs.
+
+        v3.18.5: Each zone has zone_persons: ["person.oji", "person.nkem"].
+        Builds reverse: {"person.oji": ["zone_1", "zone_3"], ...}
+        """
+        pzm: dict[str, list[str]] = {}
+        for zone_id, zone in self._zone_manager.zones.items():
+            for person in zone.zone_persons:
+                pzm.setdefault(person, []).append(zone_id)
+        return pzm
+
     @callback
     def _handle_person_arriving(self, data: dict) -> None:
         """Route arriving person to preferred zones for pre-conditioning (D3)."""
@@ -1039,9 +1076,9 @@ class HVACCoordinator(BaseCoordinator):
         # v3.18.2: Save zone state on shutdown
         try:
             if self._zone_manager:
-                await self._zone_state_store.async_save(
-                    self._zone_manager.get_state_snapshot()
-                )
+                snapshot = self._zone_manager.get_state_snapshot()
+                snapshot["__person_zone_map"] = self._person_zone_map
+                await self._zone_state_store.async_save(snapshot)
                 _LOGGER.info("HVAC: Zone state saved on shutdown")
         except Exception as e:
             _LOGGER.warning("HVAC: Failed to save zone state on shutdown: %s", e)

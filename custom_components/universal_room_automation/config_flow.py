@@ -1,6 +1,6 @@
 """Config flow for Universal Room Automation v3.6.24."""
 #
-# Universal Room Automation v3.18.4
+# Universal Room Automation v3.18.5
 # Build: 2026-01-05
 # File: config_flow.py
 # v3.3.3: Added manage_zones to integration options menu
@@ -2591,7 +2591,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         """Configure HVAC Coordinator settings.
 
         v3.8.6: Sleep offset, override compromise, fan tuning, cover entities.
-        v3.17.8: Person-to-zone mapping for pre-arrival pre-conditioning.
+        v3.18.5: Person-to-zone mapping moved to per-zone zone_persons step.
         """
         from .domain_coordinators.hvac_const import (
             CONF_HVAC_MAX_SLEEP_OFFSET,
@@ -2611,53 +2611,16 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             DEFAULT_ARRESTER_ENABLED,
             CONF_HVAC_AC_RESET_ENABLED,
             DEFAULT_AC_RESET_ENABLED,
-            CONF_PERSON_PREFERRED_ZONES,
             CONF_ZONE_VACANCY_SWEEP_ENABLED,
         )
-        import json as _json
 
-        # Load existing person-zone map
-        raw_pzm = self._get_current(CONF_PERSON_PREFERRED_ZONES, {})
-        if isinstance(raw_pzm, str):
-            try:
-                existing_pzm = _json.loads(raw_pzm)
-            except (ValueError, TypeError):
-                existing_pzm = {}
-        elif isinstance(raw_pzm, dict):
-            existing_pzm = raw_pzm
-        else:
-            existing_pzm = {}
-
-        errors: dict[str, str] = {}
         if user_input is not None:
-            # Parse person_preferred_zones JSON text field
-            raw_pzm_input = user_input.get(CONF_PERSON_PREFERRED_ZONES, "")
-            if isinstance(raw_pzm_input, str) and raw_pzm_input.strip():
-                try:
-                    parsed_pzm = _json.loads(raw_pzm_input)
-                    if not isinstance(parsed_pzm, dict):
-                        errors["person_preferred_zones"] = "invalid_json"
-                    else:
-                        # Validate values are list[str]; drop malformed entries
-                        parsed_pzm = {
-                            k: v for k, v in parsed_pzm.items()
-                            if isinstance(v, list)
-                            and all(isinstance(i, str) for i in v)
-                        }
-                except (ValueError, TypeError):
-                    errors["person_preferred_zones"] = "invalid_json"
-            else:
-                # Empty input: preserve existing mapping
-                parsed_pzm = existing_pzm
+            return self.async_create_entry(
+                title="",
+                data={**self._config_entry.options, **user_input},
+            )
 
-            if not errors:
-                user_input[CONF_PERSON_PREFERRED_ZONES] = parsed_pzm
-                return self.async_create_entry(
-                    title="",
-                    data={**self._config_entry.options, **user_input},
-                )
-
-        # Build schema with per-person zone selectors
+        # Build HVAC tuning schema
         schema_dict = {
             vol.Optional(
                 CONF_HVAC_MAX_SLEEP_OFFSET,
@@ -2742,25 +2705,11 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             ): selector.BooleanSelector(),
         }
 
-        # v3.17.8: Person-to-zone mapping for pre-arrival pre-conditioning
-        # Stored as JSON dict: {"person.name": ["zone_1", "zone_2"], ...}
-        current_pzm_str = _json.dumps(existing_pzm, indent=2) if existing_pzm else ""
-        schema_dict[vol.Optional(
-            CONF_PERSON_PREFERRED_ZONES,
-            description={"suggested_value": current_pzm_str},
-        )] = selector.TextSelector(
-            selector.TextSelectorConfig(
-                multiline=True,
-                type=selector.TextSelectorType.TEXT,
-            )
-        )
-
         data_schema = vol.Schema(schema_dict)
 
         return self.async_show_form(
             step_id="coordinator_hvac",
             data_schema=data_schema,
-            errors=errors,
         )
 
     async def async_step_coordinator_security(self, user_input=None):
@@ -3481,6 +3430,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 "zone_rooms",
                 "zone_media",
                 "zone_hvac",
+                "zone_persons",  # v3.18.5
             ],
         )
 
@@ -3790,6 +3740,59 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             step_id="zone_hvac",
             data_schema=data_schema,
         )
+
+    async def async_step_zone_persons(self, user_input=None):
+        """Configure primary persons for a zone.
+
+        v3.18.5: Select person entities who primarily live in this zone.
+        Used for pre-arrival HVAC pre-conditioning on geofence arrival.
+        """
+        from .domain_coordinators.hvac_const import CONF_ZONE_PERSONS
+
+        # v3.6.0-c2.3: Try ZM flow first
+        zm_result = self._get_zm_zone_data()
+        zone_entry = None if zm_result else self._get_zone_entry()
+        if not zm_result and not zone_entry:
+            return self.async_abort(reason="zone_not_found")
+
+        if zm_result:
+            zm_entry, zone_name, zone_data = zm_result
+            current_persons = zone_data.get(CONF_ZONE_PERSONS, [])
+
+            if user_input is not None:
+                merged = {**zm_entry.data, **zm_entry.options}
+                zones = {
+                    k: dict(v) for k, v in merged.get("zones", {}).items()
+                }
+                zones[zone_name][CONF_ZONE_PERSONS] = user_input.get(
+                    CONF_ZONE_PERSONS, []
+                )
+                self.hass.config_entries.async_update_entry(
+                    zm_entry,
+                    options={**zm_entry.options, "zones": zones},
+                )
+                return await self.async_step_zone_config_menu()
+
+            data_schema = vol.Schema({
+                vol.Optional(
+                    CONF_ZONE_PERSONS,
+                    default=current_persons,
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(
+                        domain="person",
+                        multiple=True,
+                    )
+                ),
+            })
+
+            return self.async_show_form(
+                step_id="zone_persons",
+                data_schema=data_schema,
+                description_placeholders={"zone_name": zone_name},
+            )
+
+        # Legacy zone entry fallback (shouldn't normally reach here)
+        return self.async_abort(reason="zone_not_found")
 
     # =========================================================================
     # ROOM OPTIONS (for room entries)
