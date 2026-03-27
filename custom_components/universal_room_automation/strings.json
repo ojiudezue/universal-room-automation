@@ -404,7 +404,8 @@
         "menu_options": {
           "zone_rooms": "🏠 Zone Rooms",
           "zone_media": "🎵 Zone Media",
-          "zone_hvac": "🌡️ Zone HVAC"
+          "zone_hvac": "🌡️ Zone HVAC",
+          "zone_persons": "👤 Primary Persons"
         }
       },
       "zone_hvac": {
@@ -415,6 +416,16 @@
         },
         "data_description": {
           "zone_thermostat": "Climate entity to control for this zone"
+        }
+      },
+      "zone_persons": {
+        "title": "Primary Persons",
+        "description": "Select people who primarily live in zone '{zone_name}'. When they arrive home, HVAC will pre-condition this zone before they reach it.",
+        "data": {
+          "zone_persons": "People in this Zone"
+        },
+        "data_description": {
+          "zone_persons": "Select one or more person entities. Their zone will start pre-cooling or pre-heating when their phone crosses the geofence on arrival."
         }
       },
       "global_sensors": {
@@ -692,8 +703,7 @@
           "hvac_cover_entities": "Cover Entities",
           "hvac_arrester_enabled": "Override Arrester",
           "hvac_ac_reset_enabled": "AC Reset",
-          "zone_vacancy_sweep_enabled": "Zone Vacancy Sweep",
-          "person_preferred_zones": "Person-to-Zone Mapping"
+          "zone_vacancy_sweep_enabled": "Zone Vacancy Sweep"
         },
         "data_description": {
           "hvac_max_sleep_offset": "How much to relax the cooling setpoint during sleep. Higher = more energy savings, less cooling at night.",
@@ -705,8 +715,7 @@
           "hvac_cover_entities": "Cover entities for solar gain management. If empty, covers are auto-discovered from room entries.",
           "hvac_arrester_enabled": "Detect and revert manual thermostat overrides that conflict with URA presets.",
           "hvac_ac_reset_enabled": "Cycle the thermostat off briefly when a stuck cooling/heating cycle is detected. Disable if AC reset is causing issues. The thermostat has its own compressor protection.",
-          "zone_vacancy_sweep_enabled": "Turn off lights and fans in zones after they become vacant. Runs after the vacancy grace period expires. Disable to keep lights/fans running when zones empty.",
-          "person_preferred_zones": "Map people to their preferred HVAC zones for pre-arrival conditioning. When a person arrives home, their zones are pre-cooled/heated. JSON format: {\"person.name\": [\"zone_1\", \"zone_2\"]}. Leave empty to skip."
+          "zone_vacancy_sweep_enabled": "Turn off lights and fans in zones after they become vacant. Runs after the vacancy grace period expires. Disable to keep lights/fans running when zones empty."
         }
       },
       "coordinator_music_following": {
@@ -1119,6 +1128,14 @@
           "sleep_bypass_motion_count": "Motion Bypass Count",
           "sleep_block_covers": "Block Cover Automation",
           "fan_sleep_policy": "Fan Sleep Policy"
+        },
+        "data_description": {
+          "sleep_protection_enabled": "Block most automation during sleep hours",
+          "sleep_start_hour": "Hour when sleep mode starts (0-23, e.g., 22 = 10 PM)",
+          "sleep_end_hour": "Hour when sleep mode ends (0-23, e.g., 7 = 7 AM)",
+          "sleep_bypass_motion_count": "Motion events needed to override sleep mode",
+          "sleep_block_covers": "Prevent covers from opening during sleep hours",
+          "fan_sleep_policy": "How fans behave during sleep hours: off, reduced speed, or normal"
         }
       },
       "music_following": {

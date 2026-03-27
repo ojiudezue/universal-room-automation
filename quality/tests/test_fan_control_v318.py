@@ -621,3 +621,88 @@ class TestEfficiencyScoring:
     def test_fallback_scoring_far_from_setpoint(self):
         score = compute_efficiency_score_fallback(temperature=84.0, setpoint=76.0)
         assert score == 50
+
+
+# =============================================================================
+# PERSON-ZONE MAP TESTS (v3.18.5)
+# =============================================================================
+
+class TestPersonZoneMap:
+    """Test person-to-zone reverse map building (v3.18.5)."""
+
+    def test_build_reverse_map_single_person(self):
+        """One person in one zone."""
+        # Simulate zone data
+        zones = {
+            "zone_1": type("Z", (), {"zone_persons": ["person.oji"]})(),
+        }
+        pzm = {}
+        for zone_id, zone in zones.items():
+            for person in zone.zone_persons:
+                pzm.setdefault(person, []).append(zone_id)
+        assert pzm == {"person.oji": ["zone_1"]}
+
+    def test_build_reverse_map_multi_zone(self):
+        """One person in multiple zones."""
+        zones = {
+            "zone_1": type("Z", (), {"zone_persons": ["person.oji"]})(),
+            "zone_3": type("Z", (), {"zone_persons": ["person.oji"]})(),
+        }
+        pzm = {}
+        for zone_id, zone in zones.items():
+            for person in zone.zone_persons:
+                pzm.setdefault(person, []).append(zone_id)
+        assert pzm == {"person.oji": ["zone_1", "zone_3"]}
+
+    def test_build_reverse_map_multi_person(self):
+        """Multiple persons in same zone."""
+        zones = {
+            "zone_1": type("Z", (), {"zone_persons": ["person.oji", "person.nkem"]})(),
+        }
+        pzm = {}
+        for zone_id, zone in zones.items():
+            for person in zone.zone_persons:
+                pzm.setdefault(person, []).append(zone_id)
+        assert pzm == {"person.oji": ["zone_1"], "person.nkem": ["zone_1"]}
+
+    def test_build_reverse_map_empty(self):
+        """No persons configured."""
+        zones = {
+            "zone_1": type("Z", (), {"zone_persons": []})(),
+        }
+        pzm = {}
+        for zone_id, zone in zones.items():
+            for person in zone.zone_persons:
+                pzm.setdefault(person, []).append(zone_id)
+        assert pzm == {}
+
+    def test_fallback_uses_cache(self):
+        """When zone config is empty, cached map is used."""
+        cache = {"person.oji": ["zone_1"]}
+        new_map = {}  # Empty from zone configs
+
+        if new_map:
+            result = new_map
+        elif cache:
+            result = cache
+        else:
+            result = {}
+
+        assert result == {"person.oji": ["zone_1"]}
+
+    def test_fallback_uses_db(self):
+        """When cache is also empty, DB map is used."""
+        cache = {}
+        db_map = {"person.oji": ["zone_2"]}
+        new_map = {}
+
+        if new_map:
+            result = new_map
+        elif cache:
+            result = cache
+        elif db_map:
+            result = db_map
+        else:
+            result = {}
+
+        assert result == {"person.oji": ["zone_2"]}

@@ -76,6 +76,7 @@ class ZoneState:
     last_occupied_time: datetime | None = None
     vacancy_sweep_done: bool = False
     vacancy_sweep_enabled: bool = True
+    zone_persons: list[str] = field(default_factory=list)
 
     # D4: Zone presence state machine
     zone_presence_state: str = "unknown"
@@ -219,8 +220,9 @@ class ZoneManager:
                                 zm_zone_name, r,
                             )
 
-                from .hvac_const import CONF_ZONE_VACANCY_SWEEP_ENABLED
+                from .hvac_const import CONF_ZONE_VACANCY_SWEEP_ENABLED, CONF_ZONE_PERSONS
                 sweep_enabled = zone_cfg.get(CONF_ZONE_VACANCY_SWEEP_ENABLED, True)
+                zone_persons = zone_cfg.get(CONF_ZONE_PERSONS, [])
 
                 # If thermostat already assigned, merge rooms into existing zone
                 existing_zone_id = thermostat_to_zone_id.get(thermostat)
@@ -232,6 +234,10 @@ class ZoneManager:
                     existing.vacancy_sweep_enabled = (
                         existing.vacancy_sweep_enabled or sweep_enabled
                     )
+                    # Merge zone_persons (deduplicated)
+                    for p in zone_persons:
+                        if p not in existing.zone_persons:
+                            existing.zone_persons.append(p)
                     _LOGGER.info(
                         "HVAC: Merged %s into %s (%s) — now %d rooms",
                         zm_zone_name, existing_zone_id,
@@ -252,6 +258,7 @@ class ZoneManager:
                     climate_entity=thermostat,
                     rooms=room_names,
                     vacancy_sweep_enabled=sweep_enabled,
+                    zone_persons=zone_persons,
                 )
                 # Initialize never-occupied zones as eligible for vacancy
                 zone_state.last_occupied_time = (
@@ -428,6 +435,7 @@ class ZoneManager:
             "room_count": len(zone.rooms),
             "override_count_today": zone.override_count_today,
             "ac_reset_count_today": zone.ac_reset_count_today,
+            "zone_persons": zone.zone_persons,
             # v3.17.0: Zone Intelligence attributes
             "zone_presence_state": zone.zone_presence_state,
             "vacancy_sweep_done": zone.vacancy_sweep_done,
@@ -471,6 +479,7 @@ class ZoneManager:
                 "continuous_occupied_since": zone.continuous_occupied_since.isoformat() if zone.continuous_occupied_since else None,
                 "runtime_seconds_this_window": zone.runtime_seconds_this_window,
                 "window_start": zone.window_start.isoformat() if zone.window_start else None,
+                "zone_persons": zone.zone_persons,
                 "saved_at": dt_util.now().isoformat(),
             }
         return snapshot
@@ -518,6 +527,9 @@ class ZoneManager:
                     zone.continuous_occupied_since = parsed
 
             zone.runtime_seconds_this_window = state.get("runtime_seconds_this_window", 0.0)
+            # Note: zone_persons is NOT restored from snapshot — config entry is
+            # the source of truth for person assignments (set via config flow).
+            # Restoring from snapshot would overwrite fresh config data on restart.
 
             ws = state.get("window_start")
             if ws:

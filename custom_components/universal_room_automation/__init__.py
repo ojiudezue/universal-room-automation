@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation v3.18.4
+# Universal Room Automation v3.18.5
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -1125,7 +1125,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         CONF_HVAC_VACANCY_GRACE_MINUTES,
                         CONF_HVAC_VACANCY_GRACE_CONSTRAINED,
                         CONF_HVAC_MAX_OCCUPANCY_HOURS,
-                        CONF_PERSON_PREFERRED_ZONES,
                         DEFAULT_MAX_SLEEP_OFFSET,
                         DEFAULT_COMPROMISE_MINUTES,
                         DEFAULT_AC_RESET_TIMEOUT,
@@ -1138,18 +1137,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         DEFAULT_VACANCY_GRACE_CONSTRAINED,
                         DEFAULT_MAX_OCCUPANCY_HOURS,
                     )
-                    # v3.17.0: Parse person_preferred_zones JSON dict
-                    import json as _json
-                    _raw_pzm = cm_config.get(CONF_PERSON_PREFERRED_ZONES, "{}")
-                    if isinstance(_raw_pzm, str):
-                        try:
-                            _person_zone_map = _json.loads(_raw_pzm)
-                        except (ValueError, TypeError):
-                            _person_zone_map = {}
-                    elif isinstance(_raw_pzm, dict):
-                        _person_zone_map = _raw_pzm
-                    else:
-                        _person_zone_map = {}
 
                     hvac = HVACCoordinator(
                         hass,
@@ -1186,7 +1173,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         max_occupancy_hours=int(cm_config.get(
                             CONF_HVAC_MAX_OCCUPANCY_HOURS, DEFAULT_MAX_OCCUPANCY_HOURS
                         )),
-                        person_zone_map=_person_zone_map,
+                        person_zone_map=None,
                     )
                     coordinator_manager.register_coordinator(hvac)
                 else:
