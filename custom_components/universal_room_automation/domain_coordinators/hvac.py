@@ -150,6 +150,14 @@ class HVACCoordinator(BaseCoordinator):
         self._pending_tasks: set[asyncio.Task] = set()
         self._last_runtime_accumulation: Any = None  # UTC datetime
 
+        # v3.18.6: Pre-arrival source filter and tracking
+        self._pre_arrival_enabled: bool = True
+        self._pre_arrival_sources: list[str] = ["geofence", "ble"]
+        self._last_pre_arrival_time: Any = None
+        self._last_pre_arrival_source: str = ""
+        self._last_pre_arrival_person: str = ""
+        self._pre_arrival_triggers_today: int = 0
+
         # v3.18.2: Zone state persistence
         self._zone_state_store = Store(hass, 1, f"{DOMAIN}.hvac_zone_state")
         self._zone_state_save_counter: int = 0
@@ -212,6 +220,25 @@ class HVACCoordinator(BaseCoordinator):
         _LOGGER.info("HVAC Zone Intelligence: %s", "enabled" if value else "disabled")
 
     @property
+    def pre_arrival_enabled(self) -> bool:
+        """Whether HVAC pre-arrival is active."""
+        return self._pre_arrival_enabled
+
+    @pre_arrival_enabled.setter
+    def pre_arrival_enabled(self, value: bool) -> None:
+        """Set HVAC pre-arrival enabled state.
+
+        v3.18.6: Also syncs to person_coordinator so BLE detection
+        respects the same toggle.
+        """
+        self._pre_arrival_enabled = value
+        _LOGGER.info("HVAC pre-arrival: %s", "enabled" if value else "disabled")
+        # Sync to person_coordinator
+        pc = self.hass.data.get(DOMAIN, {}).get("person_coordinator")
+        if pc:
+            pc._pre_arrival_enabled = value
+
+    @property
     def vacancy_sweeps_today(self) -> int:
         """Return count of vacancy sweeps executed today."""
         return self._vacancy_sweeps_today
@@ -270,6 +297,18 @@ class HVACCoordinator(BaseCoordinator):
                     _LOGGER.info("HVAC: No person-zone mapping configured")
             else:
                 self._person_zone_map = {}
+
+        # v3.18.6: Read pre-arrival source filter from CM config
+        from .hvac_const import CONF_PRE_ARRIVAL_SOURCES, DEFAULT_PRE_ARRIVAL_SOURCES
+        from ..const import CONF_ENTRY_TYPE, ENTRY_TYPE_COORDINATOR_MANAGER
+        for ce in self.hass.config_entries.async_entries(DOMAIN):
+            if ce.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_COORDINATOR_MANAGER:
+                cm_config = {**ce.data, **ce.options}
+                self._pre_arrival_sources = cm_config.get(
+                    CONF_PRE_ARRIVAL_SOURCES, DEFAULT_PRE_ARRIVAL_SOURCES
+                )
+                break
+        _LOGGER.info("HVAC: Pre-arrival sources=%s", self._pre_arrival_sources)
 
         # Determine season and log
         season = self._preset_manager.determine_season()
@@ -400,6 +439,7 @@ class HVACCoordinator(BaseCoordinator):
             self._zone_manager.reset_daily_counters()
             self._preset_manager.determine_season()
             self._vacancy_sweeps_today = 0
+            self._pre_arrival_triggers_today = 0
 
         # Update zone states
         self._zone_manager.update_all_zones()
@@ -847,6 +887,15 @@ class HVACCoordinator(BaseCoordinator):
         """Route arriving person to preferred zones for pre-conditioning (D3)."""
         if not self._zone_intelligence_enabled:
             return
+
+        # v3.18.6: Check pre-arrival enabled and source filter
+        if not self._pre_arrival_enabled:
+            return
+        source = data.get("source", "")
+        if source and source not in self._pre_arrival_sources:
+            _LOGGER.debug("HVAC: Ignoring pre-arrival from source %s (not enabled)", source)
+            return
+
         person_entity = data.get("person_entity", "")
         preferred_zones = self._person_zone_map.get(person_entity, [])
 
@@ -862,9 +911,15 @@ class HVACCoordinator(BaseCoordinator):
                 self._pre_arrival_start[zone_id] = now
 
         _LOGGER.info(
-            "HVAC: Pre-arrival for %s → zones %s",
-            person_entity, preferred_zones,
+            "HVAC: Pre-arrival for %s → zones %s (source=%s)",
+            person_entity, preferred_zones, source or "unknown",
         )
+
+        # v3.18.6: Track last trigger for diagnostics
+        self._last_pre_arrival_time = dt_util.utcnow()
+        self._last_pre_arrival_source = data.get("source", "unknown")
+        self._last_pre_arrival_person = person_entity
+        self._pre_arrival_triggers_today += 1
 
         # Trigger immediate decision cycle
         task = self.hass.async_create_task(self._async_decision_cycle())
@@ -1051,6 +1106,14 @@ class HVACCoordinator(BaseCoordinator):
         attrs["vacancy_override_zones"] = vacancy_overrides
         attrs["person_zone_map"] = self._person_zone_map
         attrs["vacancy_sweeps_today"] = self._vacancy_sweeps_today
+        # v3.18.6: Pre-arrival diagnostics
+        attrs["pre_arrival_enabled"] = self._pre_arrival_enabled
+        attrs["pre_arrival_sources"] = self._pre_arrival_sources
+        attrs["pre_arrival_active_zones"] = list(self._pre_arrival_zones)
+        attrs["pre_arrival_triggers_today"] = self._pre_arrival_triggers_today
+        attrs["last_pre_arrival_time"] = self._last_pre_arrival_time.isoformat() if self._last_pre_arrival_time else None
+        attrs["last_pre_arrival_source"] = self._last_pre_arrival_source
+        attrs["last_pre_arrival_person"] = self._last_pre_arrival_person
         return attrs
 
     async def async_teardown(self) -> None:

@@ -1,6 +1,6 @@
 """Config flow for Universal Room Automation v3.6.24."""
 #
-# Universal Room Automation v3.18.5
+# Universal Room Automation v3.18.6
 # Build: 2026-01-05
 # File: config_flow.py
 # v3.3.3: Added manage_zones to integration options menu
@@ -2612,6 +2612,8 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             CONF_HVAC_AC_RESET_ENABLED,
             DEFAULT_AC_RESET_ENABLED,
             CONF_ZONE_VACANCY_SWEEP_ENABLED,
+            CONF_PRE_ARRIVAL_SOURCES,
+            DEFAULT_PRE_ARRIVAL_SOURCES,
         )
 
         if user_input is not None:
@@ -2703,6 +2705,20 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 CONF_ZONE_VACANCY_SWEEP_ENABLED,
                 default=self._get_current(CONF_ZONE_VACANCY_SWEEP_ENABLED, True),
             ): selector.BooleanSelector(),
+            # v3.18.6: Pre-arrival trigger sources
+            vol.Optional(
+                CONF_PRE_ARRIVAL_SOURCES,
+                default=self._get_current(CONF_PRE_ARRIVAL_SOURCES, DEFAULT_PRE_ARRIVAL_SOURCES),
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=[
+                        {"label": "Geofence (Phone GPS)", "value": "geofence"},
+                        {"label": "BLE (Bluetooth Proximity)", "value": "ble"},
+                    ],
+                    multiple=True,
+                    mode=selector.SelectSelectorMode.LIST,
+                )
+            ),
         }
 
         data_schema = vol.Schema(schema_dict)

@@ -1,6 +1,6 @@
 """Person tracking coordinator for Universal Room Automation."""
 #
-# Universal Room Automation v3.18.5
+# Universal Room Automation v3.18.6
 # Build: 2026-01-03
 # File: person_coordinator.py
 # v3.2.9: No changes (zone fixes in aggregation.py, fan fixes in automation.py)
@@ -96,6 +96,12 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
         self._active_visit_ids: dict[str, int] = {}  # person_name -> visit_id
         self._last_snapshot_time: datetime | None = None
         self._SNAPSHOT_INTERVAL_SECONDS = 900  # 15 minutes
+
+        # v3.18.6: BLE pre-arrival detection state
+        self._person_was_away: dict[str, bool] = {}
+        self._person_lost_since: dict[str, datetime] = {}  # When person went LOST
+        self._pre_arrival_enabled: bool = True
+        self._min_away_minutes: int = 15  # Minimum LOST time before BLE re-detection triggers pre-arrival
 
         _LOGGER.info(
             "Person tracking coordinator initialized for %d persons: %s (decay timeout: %ds)",
@@ -220,6 +226,41 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
                             "Person %s: Bermuda area '%s' resolved to room '%s' (confidence: %.2f, status: %s)",
                             person_name, bermuda_area, resolved_room, confidence, tracking_status
                         )
+
+                        # v3.18.6: Detect BLE away→present transition for pre-arrival
+                        # Guard: only trigger if person was LOST for >= min_away_minutes
+                        # This prevents false triggers from quick trips (gardening, mailbox, etc.)
+                        was_away = self._person_was_away.get(person_name, False)
+                        if resolved_room and was_away:
+                            # Person just appeared via BLE after being genuinely away
+                            self._person_was_away[person_name] = False
+                            self._person_lost_since.pop(person_name, None)
+                            if self._pre_arrival_enabled:
+                                from homeassistant.helpers.dispatcher import async_dispatcher_send
+                                from .domain_coordinators.signals import SIGNAL_PERSON_ARRIVING
+                                person_entity = self._find_person_entity(person_name)
+                                if person_entity:
+                                    async_dispatcher_send(
+                                        self.hass,
+                                        SIGNAL_PERSON_ARRIVING,
+                                        {"person_entity": person_entity, "source": "ble"},
+                                    )
+                                    _LOGGER.info(
+                                        "BLE pre-arrival: %s detected in %s (was away >%dm)",
+                                        person_name, resolved_room, self._min_away_minutes,
+                                    )
+                        elif resolved_room:
+                            # Present — clear away state
+                            self._person_was_away[person_name] = False
+                            self._person_lost_since.pop(person_name, None)
+                        else:
+                            # No room detected — track LOST duration
+                            if tracking_status == TRACKING_STATUS_LOST:
+                                if person_name not in self._person_lost_since:
+                                    self._person_lost_since[person_name] = now
+                                lost_duration = (now - self._person_lost_since[person_name]).total_seconds()
+                                if lost_duration >= self._min_away_minutes * 60:
+                                    self._person_was_away[person_name] = True
                     else:
                         # Bermuda sensor exists but no room detected
                         # v3.2.8.1: Check if we have recent Bermuda data to decay
@@ -274,6 +315,8 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
                                 "method": "person_state",
                                 "recent_path": [],  # Clear path when away
                             }
+                            # v3.18.6: Mark person as away for BLE pre-arrival detection
+                            self._person_was_away[person_name] = True
                 else:
                     # No Bermuda sensor - fall back to person entity state
                     if person_state.state == "home":
@@ -294,7 +337,10 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
                         "method": "person_state",
                         "recent_path": [],
                     }
-            
+                    # v3.18.6: Track away state for BLE pre-arrival detection
+                    if location == "away":
+                        self._person_was_away[person_name] = True
+
             # D7: Periodic person snapshot logging (~every 15 minutes)
             db = self.hass.data.get(DOMAIN, {}).get("database")
             if db is not None:
@@ -586,6 +632,22 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
         coordinator = self._room_coordinators.get(room_name)
         if coordinator and hasattr(coordinator, 'get_became_occupied_time'):
             return coordinator.get_became_occupied_time()
+        return None
+
+    def _find_person_entity(self, person_name: str) -> str | None:
+        """Find person.* entity matching a tracked person name.
+
+        v3.18.6: Maps BLE person name (from Bermuda sensor) to HA person entity.
+        Uses the same logic as _async_update_data (line 133 pattern).
+        """
+        # Try direct match (same pattern as person_entity_id construction)
+        candidate = f"person.{person_name.lower().replace(' ', '_')}"
+        if self.hass.states.get(candidate):
+            return candidate
+        # Try without transformation
+        candidate = f"person.{person_name}"
+        if self.hass.states.get(candidate):
+            return candidate
         return None
 
     # ==========================================================================

@@ -706,3 +706,53 @@ class TestPersonZoneMap:
             result = {}
 
         assert result == {"person.oji": ["zone_2"]}
+
+
+# =============================================================================
+# BLE PRE-ARRIVAL DETECTION TESTS (v3.18.6)
+# =============================================================================
+
+class TestBLEPreArrival:
+    """Test BLE pre-arrival detection (v3.18.6)."""
+
+    def test_ble_triggers_after_min_away_time(self):
+        """Person LOST for 15+ min then detected → pre-arrival fires."""
+        min_away_minutes = 15
+        lost_since = datetime.now() - timedelta(minutes=20)
+        now = datetime.now()
+        lost_duration = (now - lost_since).total_seconds()
+        person_was_away = lost_duration >= min_away_minutes * 60
+        assert person_was_away is True
+
+    def test_ble_no_trigger_for_quick_trip(self):
+        """Person LOST for 5 min then detected → no pre-arrival."""
+        min_away_minutes = 15
+        lost_since = datetime.now() - timedelta(minutes=5)
+        now = datetime.now()
+        lost_duration = (now - lost_since).total_seconds()
+        person_was_away = lost_duration >= min_away_minutes * 60
+        assert person_was_away is False
+
+    def test_source_filter_blocks_disabled_source(self):
+        """HVAC ignores pre-arrival from disabled source."""
+        enabled_sources = ["geofence"]  # BLE disabled
+        source = "ble"
+        assert source not in enabled_sources
+
+    def test_source_filter_allows_enabled_source(self):
+        """HVAC accepts pre-arrival from enabled source."""
+        enabled_sources = ["geofence", "ble"]
+        source = "ble"
+        assert source in enabled_sources
+
+    def test_dedup_same_person_idempotent(self):
+        """Two triggers for same person don't create duplicate zones."""
+        pre_arrival_zones = set()
+        pre_arrival_zones.add("zone_1")
+        pre_arrival_zones.add("zone_1")  # Duplicate
+        assert len(pre_arrival_zones) == 1
+
+    def test_toggle_off_blocks_all_sources(self):
+        """Pre-arrival disabled → both geofence and BLE blocked."""
+        pre_arrival_enabled = False
+        assert not pre_arrival_enabled

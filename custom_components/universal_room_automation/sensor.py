@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.18.5
+# Universal Room Automation v3.18.6
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -246,6 +246,8 @@ async def async_setup_entry(
             HVACArresterStateSensor(hass, entry),
             # v3.17.0: Zone Intelligence sensor
             HVACZoneIntelligenceSensor(hass, entry),
+            # v3.18.6: Pre-Arrival diagnostic sensor
+            HVACPreArrivalDiagnosticSensor(hass, entry),
         ]
         # v3.8.0-H1: Add per-zone HVAC sensors dynamically
         # Read zone IDs from Zone Manager config entry (not coordinator)
@@ -7172,4 +7174,77 @@ class HVACZoneIntelligenceSensor(AggregationEntity, SensorEntity):
 
     @callback
     def _handle_zi_update(self) -> None:
+        self.async_schedule_update_ha_state()
+
+
+class HVACPreArrivalDiagnosticSensor(AggregationEntity, SensorEntity):
+    """Pre-arrival conditioning status and diagnostics.
+
+    v3.18.6: Shows current pre-arrival state, active zones, trigger history.
+
+    Entity: sensor.ura_hvac_pre_arrival_status
+    Device: URA: HVAC Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:home-clock"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_hvac_pre_arrival_status"
+        self._attr_name = "HVAC Pre-Arrival Status"
+        self._attr_device_info = _hvac_device_info()
+
+    def _get_hvac(self):
+        """Get the HVAC coordinator instance."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        return manager.coordinators.get("hvac")
+
+    @property
+    def native_value(self) -> str:
+        hvac = self._get_hvac()
+        if hvac is None:
+            return "unavailable"
+        if not hvac.pre_arrival_enabled:
+            return "disabled"
+        if getattr(hvac, '_pre_arrival_zones', None):
+            return "active"
+        return "idle"
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        hvac = self._get_hvac()
+        if hvac is None:
+            return {}
+        return {
+            "enabled": hvac.pre_arrival_enabled,
+            "sources": getattr(hvac, '_pre_arrival_sources', []),
+            "active_zones": list(getattr(hvac, '_pre_arrival_zones', set())),
+            "active_persons": dict(getattr(hvac, '_pre_arrival_persons', {})),
+            "last_trigger_time": t.isoformat() if (t := getattr(hvac, '_last_pre_arrival_time', None)) else None,
+            "last_trigger_source": getattr(hvac, '_last_pre_arrival_source', ""),
+            "last_trigger_person": getattr(hvac, '_last_pre_arrival_person', ""),
+            "triggers_today": getattr(hvac, '_pre_arrival_triggers_today', 0),
+            "person_zone_map": getattr(hvac, '_person_zone_map', {}),
+        }
+
+    @property
+    def available(self) -> bool:
+        return self._get_hvac() is not None
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.hvac_const import SIGNAL_HVAC_ENTITIES_UPDATE
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_HVAC_ENTITIES_UPDATE, self._handle_update
+            )
+        )
+
+    @callback
+    def _handle_update(self) -> None:
         self.async_schedule_update_ha_state()

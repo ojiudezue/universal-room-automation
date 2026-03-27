@@ -1,6 +1,6 @@
 """Switch platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.18.5
+# Universal Room Automation v3.18.6
 # Build: 2026-01-02
 # File: switch.py
 #
@@ -139,6 +139,8 @@ async def async_setup_entry(
             HVACZoneIntelligenceSwitch(hass, entry),
             # v3.18.2: Zone Sweep toggle
             HVACZoneSweepSwitch(hass, entry),
+            # v3.18.6: Pre-Arrival Conditioning toggle
+            HVACPreArrivalSwitch(hass, entry),
         ])
         return
 
@@ -742,6 +744,82 @@ class HVACZoneSweepSwitch(SwitchEntity, RestoreEntity):
         return {
             "sweeps_today": hvac.vacancy_sweeps_today,
         }
+
+    @property
+    def available(self) -> bool:
+        """Only available when HVAC coordinator is active."""
+        return self._get_hvac() is not None
+
+
+class HVACPreArrivalSwitch(SwitchEntity, RestoreEntity):
+    """Toggle HVAC pre-arrival conditioning.
+
+    When ON (default): HVAC pre-conditions zones when a person arrives
+    home (via geofence or BLE detection).
+    When OFF: Pre-arrival signals are ignored — no zone pre-conditioning.
+
+    v3.18.6: Provides runtime control over pre-arrival feature.
+
+    Entity: switch.ura_hvac_pre_arrival
+    Device: URA: HVAC Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:home-clock"
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        self.hass = hass
+        self._entry = entry
+        self._attr_unique_id = f"{DOMAIN}_hvac_pre_arrival"
+        self._attr_name = "Pre-Arrival Conditioning"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "hvac_coordinator")},
+            name="URA: HVAC Coordinator",
+            manufacturer="Universal Room Automation",
+            model="HVAC Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+
+    def _get_hvac(self):
+        """Get the HVAC coordinator instance."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        return manager.coordinators.get("hvac")
+
+    @property
+    def is_on(self) -> bool:
+        """Return True if pre-arrival conditioning is enabled."""
+        hvac = self._get_hvac()
+        if hvac is None:
+            return True  # default on
+        return hvac.pre_arrival_enabled
+
+    async def async_turn_on(self, **kwargs) -> None:
+        """Enable pre-arrival conditioning."""
+        hvac = self._get_hvac()
+        if hvac is not None:
+            hvac.pre_arrival_enabled = True
+            self.async_write_ha_state()
+
+    async def async_turn_off(self, **kwargs) -> None:
+        """Disable pre-arrival conditioning."""
+        hvac = self._get_hvac()
+        if hvac is not None:
+            hvac.pre_arrival_enabled = False
+            self.async_write_ha_state()
+
+    async def async_added_to_hass(self) -> None:
+        """Restore previous state on startup."""
+        await super().async_added_to_hass()
+        last_state = await self.async_get_last_state()
+        if last_state is not None:
+            hvac = self._get_hvac()
+            if hvac is not None:
+                hvac.pre_arrival_enabled = last_state.state == "on"
 
     @property
     def available(self) -> bool:
