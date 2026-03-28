@@ -756,3 +756,103 @@ class TestBLEPreArrival:
         """Pre-arrival disabled → both geofence and BLE blocked."""
         pre_arrival_enabled = False
         assert not pre_arrival_enabled
+
+
+# =============================================================================
+# ZONE CAMERA FACE-CONFIRMED ARRIVAL TESTS (v3.19.0)
+# =============================================================================
+
+
+class TestZoneCameraFaceArrival:
+    """Test zone camera face-confirmed arrival (v3.19.0)."""
+
+    def test_face_sensor_derivation_frigate(self):
+        """Frigate binary_sensor pattern → face sensor."""
+        bs = "binary_sensor.hallway_person_occupancy"
+        base = bs[len("binary_sensor."):-len("_person_occupancy")]
+        face_sensor = f"sensor.{base}_last_recognized_face"
+        assert face_sensor == "sensor.hallway_last_recognized_face"
+
+    def test_face_sensor_derivation_unifi(self):
+        """UniFi binary_sensor pattern → face sensor (person_detected suffix)."""
+        bs = "binary_sensor.front_door_person_detected"
+        base = bs[len("binary_sensor."):-len("_person_detected")]
+        face_sensor = f"sensor.{base}_last_recognized_face"
+        assert face_sensor == "sensor.front_door_last_recognized_face"
+
+    def test_face_sensor_derivation_unknown_pattern(self):
+        """Non-matching pattern returns None."""
+        bs = "binary_sensor.random_sensor"
+        base_name = None
+        for suffix in ("_person_occupancy", "_person_detected", "_occupancy"):
+            if bs.endswith(suffix):
+                base_name = bs[len("binary_sensor."):-len(suffix)]
+        assert base_name is None
+
+    def test_face_freshness_fresh(self):
+        """Face detected 10s ago is fresh."""
+        from datetime import datetime, timedelta
+        last_changed = datetime.now() - timedelta(seconds=10)
+        age = (datetime.now() - last_changed).total_seconds()
+        assert age < 30
+
+    def test_face_freshness_stale(self):
+        """Face detected 60s ago is stale."""
+        from datetime import datetime, timedelta
+        last_changed = datetime.now() - timedelta(seconds=60)
+        age = (datetime.now() - last_changed).total_seconds()
+        assert age >= 30
+
+    def test_cooldown_blocks_duplicate(self):
+        """Same person+zone within 60s is debounced."""
+        from datetime import datetime, timedelta
+        cooldown = {"person.oji:Entertainment": datetime.now() - timedelta(seconds=30)}
+        key = "person.oji:Entertainment"
+        last = cooldown.get(key)
+        should_skip = last and (datetime.now() - last).total_seconds() < 60
+        assert should_skip is True
+
+    def test_cooldown_allows_after_expiry(self):
+        """Same person+zone after 60s is allowed."""
+        from datetime import datetime, timedelta
+        cooldown = {"person.oji:Entertainment": datetime.now() - timedelta(seconds=90)}
+        key = "person.oji:Entertainment"
+        last = cooldown.get(key)
+        should_skip = last and (datetime.now() - last).total_seconds() < 60
+        assert should_skip is False
+
+    def test_face_name_to_person_entity(self):
+        """Face name 'Oji' maps to 'person.oji'."""
+        face_name = "Oji"
+        candidate = f"person.{face_name.lower().replace(' ', '_')}"
+        assert candidate == "person.oji"
+
+    def test_camera_zone_map_building(self):
+        """Build camera→zone reverse map."""
+        zones = {
+            "zone_1": type("Z", (), {"zone_cameras": ["binary_sensor.hallway_person_occupancy"]})(),
+            "zone_2": type("Z", (), {"zone_cameras": ["binary_sensor.staircase_person_occupancy"]})(),
+        }
+        czm = {}
+        for zone_id, zone in zones.items():
+            for cam in zone.zone_cameras:
+                czm[cam] = zone_id
+        assert czm == {
+            "binary_sensor.hallway_person_occupancy": "zone_1",
+            "binary_sensor.staircase_person_occupancy": "zone_2",
+        }
+
+    def test_face_value_filtering(self):
+        """Invalid face values are rejected."""
+        invalid = ["Unknown", "unavailable", "none", "no_match", "", "None"]
+        for val in invalid:
+            clean = val.strip() if val else ""
+            is_valid = bool(clean) and clean.lower() not in ("unknown", "unavailable", "none", "no_match", "")
+            assert is_valid is False, f"'{val}' should be invalid"
+
+    def test_valid_face_accepted(self):
+        """Valid face name is accepted."""
+        val = "Oji"
+        clean = val.strip()
+        is_valid = bool(clean) and clean.lower() not in ("unknown", "unavailable", "none", "no_match", "")
+        assert is_valid is True

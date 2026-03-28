@@ -77,6 +77,8 @@ class ZoneState:
     vacancy_sweep_done: bool = False
     vacancy_sweep_enabled: bool = True
     zone_persons: list[str] = field(default_factory=list)
+    zone_cameras: list[str] = field(default_factory=list)
+    camera_face_arrivals_today: int = 0
 
     # D4: Zone presence state machine
     zone_presence_state: str = "unknown"
@@ -220,9 +222,10 @@ class ZoneManager:
                                 zm_zone_name, r,
                             )
 
-                from .hvac_const import CONF_ZONE_VACANCY_SWEEP_ENABLED, CONF_ZONE_PERSONS
+                from .hvac_const import CONF_ZONE_VACANCY_SWEEP_ENABLED, CONF_ZONE_PERSONS, CONF_ZONE_CAMERAS
                 sweep_enabled = zone_cfg.get(CONF_ZONE_VACANCY_SWEEP_ENABLED, True)
                 zone_persons = zone_cfg.get(CONF_ZONE_PERSONS, [])
+                zone_cameras = zone_cfg.get(CONF_ZONE_CAMERAS, [])
 
                 # If thermostat already assigned, merge rooms into existing zone
                 existing_zone_id = thermostat_to_zone_id.get(thermostat)
@@ -238,6 +241,10 @@ class ZoneManager:
                     for p in zone_persons:
                         if p not in existing.zone_persons:
                             existing.zone_persons.append(p)
+                    # Merge zone_cameras (deduplicated)
+                    for c in zone_cameras:
+                        if c not in existing.zone_cameras:
+                            existing.zone_cameras.append(c)
                     _LOGGER.info(
                         "HVAC: Merged %s into %s (%s) — now %d rooms",
                         zm_zone_name, existing_zone_id,
@@ -259,6 +266,7 @@ class ZoneManager:
                     rooms=room_names,
                     vacancy_sweep_enabled=sweep_enabled,
                     zone_persons=zone_persons,
+                    zone_cameras=zone_cameras,
                 )
                 # Initialize never-occupied zones as eligible for vacancy
                 zone_state.last_occupied_time = (
@@ -436,6 +444,8 @@ class ZoneManager:
             "override_count_today": zone.override_count_today,
             "ac_reset_count_today": zone.ac_reset_count_today,
             "zone_persons": zone.zone_persons,
+            "zone_cameras": zone.zone_cameras,
+            "camera_face_arrivals_today": zone.camera_face_arrivals_today,
             # v3.17.0: Zone Intelligence attributes
             "zone_presence_state": zone.zone_presence_state,
             "vacancy_sweep_done": zone.vacancy_sweep_done,
@@ -547,3 +557,4 @@ class ZoneManager:
         for zone in self._zones.values():
             zone.override_count_today = 0
             zone.ac_reset_count_today = 0
+            zone.camera_face_arrivals_today = 0

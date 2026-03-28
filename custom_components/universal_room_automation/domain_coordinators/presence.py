@@ -115,6 +115,10 @@ class ZonePresenceTracker:
         self._entity_to_room: Dict[str, str] = {}
         # Track camera entity_ids belonging to this zone
         self._camera_entity_ids: Set[str] = set()
+        # v3.19.0: Face-confirmed arrival tracking
+        self._last_face_recognized: str = ""
+        self._last_face_time: Optional[datetime] = None
+        self._face_arrivals_today: int = 0
 
     @property
     def mode(self) -> str:
@@ -298,6 +302,10 @@ class ZonePresenceTracker:
             "last_activity": (
                 self._last_activity.isoformat() if self._last_activity else None
             ),
+            # v3.19.0: Face-confirmed arrival state
+            "last_face_recognized": self._last_face_recognized,
+            "last_face_time": self._last_face_time.isoformat() if self._last_face_time else None,
+            "face_arrivals_today": self._face_arrivals_today,
         }
 
 
@@ -496,6 +504,9 @@ class PresenceCoordinator(BaseCoordinator):
         self._outcome_false_positives: int = 0
         self._last_transition_state: Optional[HouseState] = None
         self._last_transition_time: Optional[datetime] = None
+        # v3.19.0: Face-confirmed arrival state
+        self._face_arrival_cooldown: Dict[str, datetime] = {}
+        self._face_recognition_enabled: bool = False
 
     @property
     def inference_engine(self) -> StateInferenceEngine:
@@ -548,6 +559,17 @@ class PresenceCoordinator(BaseCoordinator):
             await self.anomaly_detector.load_baselines()
         except Exception:
             _LOGGER.debug("Could not load presence anomaly baselines (non-fatal)", exc_info=True)
+
+        # v3.19.0: Read face recognition toggle from integration config
+        try:
+            from ..const import CONF_FACE_RECOGNITION_ENABLED, ENTRY_TYPE_INTEGRATION, CONF_ENTRY_TYPE
+            for config_entry in self.hass.config_entries.async_entries(DOMAIN):
+                if config_entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_INTEGRATION:
+                    merged = {**config_entry.data, **config_entry.options}
+                    self._face_recognition_enabled = merged.get(CONF_FACE_RECOGNITION_ENABLED, False)
+                    break
+        except Exception:
+            self._face_recognition_enabled = False
 
         # v3.6.0.3: Wrap discovery/subscription in try/except so partial
         # failures don't prevent the coordinator from functioning.
@@ -1115,13 +1137,141 @@ class PresenceCoordinator(BaseCoordinator):
         else:
             detected = new_state.state == "on"
 
-        # Route to the correct zone tracker
+        # Route to the correct zone tracker (EXISTING — unchanged)
+        matched_zone_name = None
         for _zone_name, tracker in self._zone_trackers.items():
             if entity_id in tracker._camera_entity_ids:
                 tracker.update_camera_detection(entity_id, detected)
+                matched_zone_name = _zone_name
                 break
 
+        # v3.19.0: Face-confirmed arrival (ADDITIVE — all failures return gracefully)
+        if detected and matched_zone_name and self._face_recognition_enabled:
+            face_name = self._get_face_for_camera(entity_id)
+            if face_name:
+                self._handle_face_arrival(entity_id, face_name, matched_zone_name)
+
         self.hass.async_create_task(self._run_inference("camera_detection"))
+
+    # ------------------------------------------------------------------
+    # v3.19.0: Face-confirmed arrival helpers (additive — never modify
+    # existing camera detection behavior, all failures return gracefully)
+    # ------------------------------------------------------------------
+
+    def _get_face_for_camera(self, camera_entity: str) -> Optional[str]:
+        """Get recognized face from Frigate face sensor for this camera.
+
+        v3.19.0: Uses confirmed Frigate naming pattern:
+        binary_sensor.{name}_person_occupancy → sensor.{name}_last_recognized_face
+
+        Returns face name if fresh (<30s), None on any failure.
+        All failures are graceful — face rec is an accelerator, not a requirement.
+        """
+        try:
+            # Derive face sensor from camera entity using Frigate naming convention
+            bs_id = camera_entity
+            base_name = None
+            for suffix in ("_person_occupancy", "_person_detected", "_occupancy"):
+                if bs_id.startswith("binary_sensor.") and bs_id.endswith(suffix):
+                    base_name = bs_id[len("binary_sensor."):-len(suffix)]
+                    break
+
+            if not base_name:
+                return None  # Not a recognized camera pattern
+
+            face_sensor_id = f"sensor.{base_name}_last_recognized_face"
+            state = self.hass.states.get(face_sensor_id)
+            if not state:
+                return None  # Face sensor doesn't exist
+
+            # Check for valid face name
+            face_value = state.state.strip() if state.state else ""
+            if not face_value or face_value.lower() in ("unknown", "unavailable", "none", "no_match", ""):
+                return None  # No face recognized
+
+            # Freshness check: face rec must be recent (<30s)
+            if state.last_changed:
+                age = (dt_util.utcnow() - state.last_changed).total_seconds()
+                if age > 30:  # FACE_FRESHNESS_SECONDS
+                    return None  # Stale face data
+
+            return face_value
+        except Exception:  # noqa: BLE001
+            return None  # Face rec is an accelerator — never fail
+
+    @callback
+    def _handle_face_arrival(self, camera_entity: str, face_name: str, zone_name: str) -> None:
+        """Fire pre-arrival signal for face-recognized person in a zone.
+
+        v3.19.0: Debounced (60s per person+zone). All failures graceful.
+        """
+        try:
+            from homeassistant.helpers.dispatcher import async_dispatcher_send
+
+            # Map face name to person entity
+            person_entity = self._find_person_entity_from_face(face_name)
+            if not person_entity:
+                _LOGGER.debug("Face '%s' has no matching person entity — skipping", face_name)
+                return
+
+            # Debounce: 60s cooldown per person+zone
+            key = f"{person_entity}:{zone_name}"
+            now = dt_util.utcnow()
+            last = self._face_arrival_cooldown.get(key)
+            if last and (now - last).total_seconds() < 60:
+                return
+            self._face_arrival_cooldown[key] = now
+
+            # Update zone tracker face state
+            tracker = self._zone_trackers.get(zone_name)
+            if tracker:
+                tracker._last_face_recognized = face_name
+                tracker._last_face_time = now
+                tracker._face_arrivals_today += 1
+
+            # Update HVAC zone counter if available
+            try:
+                manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+                if manager:
+                    hvac = manager.coordinators.get("hvac")
+                    if hvac and hvac.zone_manager:
+                        for _zid, zstate in hvac.zone_manager.zones.items():
+                            if zstate.zone_name == zone_name:
+                                zstate.camera_face_arrivals_today += 1
+                                break
+            except Exception:  # noqa: BLE001
+                pass  # Best effort — don't fail face arrival on HVAC counter update
+
+            # Fire the signal
+            async_dispatcher_send(
+                self.hass,
+                SIGNAL_PERSON_ARRIVING,
+                {"person_entity": person_entity, "source": "camera_face"},
+            )
+            _LOGGER.info(
+                "Camera face arrival: %s recognized in zone %s via %s",
+                face_name, zone_name, camera_entity,
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("Face arrival handling failed (non-fatal)", exc_info=True)
+
+    def _find_person_entity_from_face(self, face_name: str) -> Optional[str]:
+        """Map Frigate face name to HA person entity.
+
+        v3.19.0: Frigate face names are configured names (e.g., "Oji", "Jaya").
+        Try matching to person.{lowercase_name}.
+        """
+        try:
+            candidate = f"person.{face_name.lower().replace(' ', '_')}"
+            if self.hass.states.get(candidate):
+                return candidate
+            # Try without modification
+            candidate2 = f"person.{face_name}"
+            if self.hass.states.get(candidate2):
+                return candidate2
+            return None
+        except Exception:  # noqa: BLE001
+            return None  # Face rec is an accelerator — never fail
 
     async def _periodic_inference(self, _now: Any = None) -> None:
         """Run periodic inference for time-based transitions and camera timeouts.
@@ -1365,6 +1515,10 @@ class PresenceCoordinator(BaseCoordinator):
         if today != self._transition_reset_date:
             self._transitions_today = 0
             self._transition_reset_date = today
+            # v3.19.0: Reset face arrival counters at midnight
+            for tracker in self._zone_trackers.values():
+                tracker._face_arrivals_today = 0
+            self._face_arrival_cooldown.clear()
         self._transitions_today += 1
 
     # ------------------------------------------------------------------

@@ -1,6 +1,6 @@
 """Config flow for Universal Room Automation v3.6.24."""
 #
-# Universal Room Automation v3.18.7
+# Universal Room Automation v3.19.0
 # Build: 2026-01-05
 # File: config_flow.py
 # v3.3.3: Added manage_zones to integration options menu
@@ -2714,6 +2714,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     options=[
                         {"label": "Geofence (Phone GPS)", "value": "geofence"},
                         {"label": "BLE (Bluetooth Proximity)", "value": "ble"},
+                        {"label": "Camera Face Recognition", "value": "camera_face"},
                     ],
                     multiple=True,
                     mode=selector.SelectSelectorMode.LIST,
@@ -3447,6 +3448,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 "zone_media",
                 "zone_hvac",
                 "zone_persons",  # v3.18.5
+                "zone_cameras",  # v3.19.0
             ],
         )
 
@@ -3808,6 +3810,58 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             )
 
         # Legacy zone entry fallback (shouldn't normally reach here)
+        return self.async_abort(reason="zone_not_found")
+
+    async def async_step_zone_cameras(self, user_input=None):
+        """Configure zone cameras for face-confirmed arrivals.
+
+        v3.19.0: Select person detection cameras in this zone's shared spaces.
+        Face recognition from these cameras enables instant pre-arrival.
+        """
+        from .domain_coordinators.hvac_const import CONF_ZONE_CAMERAS
+
+        zm_result = self._get_zm_zone_data()
+        zone_entry = None if zm_result else self._get_zone_entry()
+        if not zm_result and not zone_entry:
+            return self.async_abort(reason="zone_not_found")
+
+        if zm_result:
+            zm_entry, zone_name, zone_data = zm_result
+            current_cameras = zone_data.get(CONF_ZONE_CAMERAS, [])
+
+            if user_input is not None:
+                merged = {**zm_entry.data, **zm_entry.options}
+                zones = {
+                    k: dict(v) for k, v in merged.get("zones", {}).items()
+                }
+                zones[zone_name][CONF_ZONE_CAMERAS] = user_input.get(
+                    CONF_ZONE_CAMERAS, []
+                )
+                self.hass.config_entries.async_update_entry(
+                    zm_entry,
+                    options={**zm_entry.options, "zones": zones},
+                )
+                return await self.async_step_zone_config_menu()
+
+            data_schema = vol.Schema({
+                vol.Optional(
+                    CONF_ZONE_CAMERAS,
+                    default=current_cameras,
+                ): selector.EntitySelector(
+                    selector.EntitySelectorConfig(
+                        domain="binary_sensor",
+                        device_class=["occupancy", "motion"],
+                        multiple=True,
+                    )
+                ),
+            })
+
+            return self.async_show_form(
+                step_id="zone_cameras",
+                data_schema=data_schema,
+                description_placeholders={"zone_name": zone_name},
+            )
+
         return self.async_abort(reason="zone_not_found")
 
     # =========================================================================
