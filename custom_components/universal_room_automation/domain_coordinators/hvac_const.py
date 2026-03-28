@@ -37,8 +37,13 @@ CONF_HVAC_MAX_OCCUPANCY_HOURS: Final = "hvac_max_occupancy_hours"
 CONF_ZONE_VACANCY_SWEEP_ENABLED: Final = "zone_vacancy_sweep_enabled"
 CONF_PERSON_PREFERRED_ZONES: Final = "person_preferred_zones"
 CONF_ZONE_PERSONS: Final = "zone_persons"
+CONF_ZONE_CAMERAS: Final = "zone_cameras"
 CONF_PRE_ARRIVAL_SOURCES: Final = "pre_arrival_sources"
 DEFAULT_PRE_ARRIVAL_SOURCES: Final = ["geofence", "ble"]
+
+# v3.19.0: Face-confirmed arrivals
+FACE_FRESHNESS_SECONDS: Final = 30
+FACE_ARRIVAL_COOLDOWN_SECONDS: Final = 60
 
 # ============================================================================
 # Defaults

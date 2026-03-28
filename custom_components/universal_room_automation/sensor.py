@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.18.7
+# Universal Room Automation v3.19.0
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -3567,7 +3567,21 @@ class PresenceHouseStateSensor(AggregationEntity, SensorEntity):
             attrs["confidence"] = round(presence.confidence, 2)
             attrs["census_count"] = presence.census_count
             attrs["zones"] = {
-                name: tracker.mode
+                name: {
+                    "mode": tracker.mode,
+                    "signal_tiers": {
+                        "room_sensors": getattr(tracker, '_has_room_sensors', False),
+                        "camera_sensors": getattr(tracker, '_has_camera_sensors', False),
+                        "ble_sensors": getattr(tracker, '_has_ble_sensors', False),
+                    },
+                    "cameras_active": sum(
+                        1 for v in getattr(tracker, '_camera_occupied', {}).values() if v
+                    ),
+                    "last_face_recognized": getattr(tracker, '_last_face_recognized', ""),
+                    "last_face_time": (
+                        t.isoformat() if (t := getattr(tracker, '_last_face_time', None)) else None
+                    ),
+                }
                 for name, tracker in presence.zone_trackers.items()
             }
         return attrs

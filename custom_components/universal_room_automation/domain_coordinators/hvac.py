@@ -158,6 +158,9 @@ class HVACCoordinator(BaseCoordinator):
         self._last_pre_arrival_person: str = ""
         self._pre_arrival_triggers_today: int = 0
 
+        # v3.19.0: Camera zone map (diagnostic)
+        self._camera_zone_map: dict[str, str] = {}
+
         # v3.18.2: Zone state persistence
         self._zone_state_store = Store(hass, 1, f"{DOMAIN}.hvac_zone_state")
         self._zone_state_save_counter: int = 0
@@ -309,6 +312,11 @@ class HVACCoordinator(BaseCoordinator):
                 )
                 break
         _LOGGER.info("HVAC: Pre-arrival sources=%s", self._pre_arrival_sources)
+
+        # v3.19.0: Build camera zone map
+        self._camera_zone_map = self._build_camera_zone_map()
+        if self._camera_zone_map:
+            _LOGGER.info("HVAC: Camera-zone map built: %s", self._camera_zone_map)
 
         # Determine season and log
         season = self._preset_manager.determine_season()
@@ -882,6 +890,17 @@ class HVACCoordinator(BaseCoordinator):
                 pzm.setdefault(person, []).append(zone_id)
         return pzm
 
+    def _build_camera_zone_map(self) -> dict[str, str]:
+        """Build camera->zone reverse map from zone configs (diagnostic).
+
+        v3.19.0: Used for diagnostics — shows which cameras map to which zones.
+        """
+        czm: dict[str, str] = {}
+        for zone_id, zone in self._zone_manager.zones.items():
+            for cam in zone.zone_cameras:
+                czm[cam] = zone_id
+        return czm
+
     @callback
     def _handle_person_arriving(self, data: dict) -> None:
         """Route arriving person to preferred zones for pre-conditioning (D3)."""
@@ -1105,6 +1124,7 @@ class HVACCoordinator(BaseCoordinator):
         ]
         attrs["vacancy_override_zones"] = vacancy_overrides
         attrs["person_zone_map"] = self._person_zone_map
+        attrs["camera_zone_map"] = self._camera_zone_map
         attrs["vacancy_sweeps_today"] = self._vacancy_sweeps_today
         # v3.18.6: Pre-arrival diagnostics
         attrs["pre_arrival_enabled"] = self._pre_arrival_enabled

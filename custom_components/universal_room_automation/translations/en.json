@@ -403,7 +403,8 @@
           "zone_rooms": "🏠 Zone Rooms",
           "zone_media": "🎵 Zone Media",
           "zone_hvac": "🌡️ Zone HVAC",
-          "zone_persons": "👤 Primary Persons"
+          "zone_persons": "👤 Primary Persons",
+          "zone_cameras": "📷 Zone Cameras"
         }
       },
       "zone_hvac": {
@@ -424,6 +425,16 @@
         },
         "data_description": {
           "zone_persons": "Select one or more person entities. Their zone will start pre-cooling or pre-heating when their phone crosses the geofence on arrival."
+        }
+      },
+      "zone_cameras": {
+        "title": "Zone Cameras",
+        "description": "Select person detection cameras in zone '{zone_name}'. Face recognition from these cameras enables instant pre-arrival conditioning — no 15-minute BLE wait required.",
+        "data": {
+          "zone_cameras": "Person Detection Cameras"
+        },
+        "data_description": {
+          "zone_cameras": "Camera person-detection sensors (Frigate person_occupancy, UniFi person_detected). Cameras are also auto-discovered from room area assignments."
         }
       },
       "global_sensors": {
@@ -715,7 +726,7 @@
           "hvac_arrester_enabled": "Detect and revert manual thermostat overrides that conflict with URA presets.",
           "hvac_ac_reset_enabled": "Cycle the thermostat off briefly when a stuck cooling/heating cycle is detected. Disable if AC reset is causing issues. The thermostat has its own compressor protection.",
           "zone_vacancy_sweep_enabled": "Turn off lights and fans in zones after they become vacant. Runs after the vacancy grace period expires. Disable to keep lights/fans running when zones empty.",
-          "pre_arrival_sources": "Which detection methods trigger zone pre-conditioning when a person arrives home. Geofence uses phone GPS; BLE uses Bluetooth proximity beacons."
+          "pre_arrival_sources": "Which detection methods trigger zone pre-conditioning when a person arrives home. Geofence uses phone GPS; BLE uses Bluetooth proximity beacons; Camera Face uses Frigate/UniFi face recognition for instant confirmation."
         }
       },
       "coordinator_music_following": {
