@@ -221,7 +221,7 @@ class DecisionLogger:
             return None
 
         try:
-            async with aiosqlite.connect(database.db_file) as db:
+            async with database._db() as db:
                 cursor = await db.execute("""
                     INSERT INTO decision_log
                     (timestamp, coordinator_id, decision_type, scope,
@@ -267,7 +267,7 @@ class DecisionLogger:
             return []
 
         try:
-            async with aiosqlite.connect(database.db_file) as db:
+            async with database._db() as db:
                 db.row_factory = aiosqlite.Row
                 query = "SELECT * FROM decision_log WHERE 1=1"
                 params: list = []
@@ -308,7 +308,7 @@ class DecisionLogger:
         cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
 
         try:
-            async with aiosqlite.connect(database.db_file) as db:
+            async with database._db() as db:
                 query = "SELECT COUNT(*) FROM decision_log WHERE timestamp >= ?"
                 params: list = [cutoff]
 
@@ -528,7 +528,7 @@ class ComplianceTracker:
         cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
 
         try:
-            async with aiosqlite.connect(database.db_file) as db:
+            async with database._db() as db:
                 query = """
                     SELECT
                         COUNT(*) as total,
@@ -569,7 +569,7 @@ class ComplianceTracker:
         cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
 
         try:
-            async with aiosqlite.connect(database.db_file) as db:
+            async with database._db() as db:
                 query = """
                     SELECT COUNT(*) FROM compliance_log c
                     JOIN decision_log d ON c.decision_id = d.id
@@ -601,7 +601,7 @@ class ComplianceTracker:
         cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
 
         try:
-            async with aiosqlite.connect(database.db_file) as db:
+            async with database._db() as db:
                 query = """
                     SELECT DISTINCT c.override_source FROM compliance_log c
                     JOIN decision_log d ON c.decision_id = d.id
@@ -801,7 +801,7 @@ class AnomalyDetector:
             return None
 
         try:
-            async with aiosqlite.connect(database.db_file) as db:
+            async with database._db() as db:
                 cursor = await db.execute("""
                     INSERT INTO anomaly_log
                     (timestamp, coordinator_id, scope,
@@ -841,7 +841,7 @@ class AnomalyDetector:
         cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
 
         try:
-            async with aiosqlite.connect(database.db_file) as db:
+            async with database._db() as db:
                 cursor = await db.execute(
                     "SELECT COUNT(*) FROM anomaly_log "
                     "WHERE coordinator_id = ? AND timestamp >= ?",
@@ -860,7 +860,7 @@ class AnomalyDetector:
             return
 
         try:
-            async with aiosqlite.connect(database.db_file) as db:
+            async with database._db() as db:
                 db.row_factory = aiosqlite.Row
                 cursor = await db.execute("""
                     SELECT metric_name, scope, mean, variance,
@@ -898,7 +898,7 @@ class AnomalyDetector:
             return
 
         try:
-            async with aiosqlite.connect(database.db_file) as db:
+            async with database._db() as db:
                 for _key, baseline in self._baselines.items():
                     await db.execute("""
                         INSERT OR REPLACE INTO metric_baselines
@@ -950,7 +950,7 @@ class OutcomeMeasurer:
             return None
 
         try:
-            async with aiosqlite.connect(database.db_file) as db:
+            async with database._db() as db:
                 cursor = await db.execute("""
                     INSERT INTO outcome_log
                     (timestamp, coordinator_id, scope,
