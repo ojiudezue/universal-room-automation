@@ -181,12 +181,20 @@ class OverrideArrester:
             # through a restart — user has already had their grace period
             self._cancel_zone_timers(zone.zone_id)
             grace_seconds = OVERRIDE_SEVERE_GRACE_MINUTES * 60
+
+            _zone = zone
+            _preset = target_preset
+
+            @callback
+            def _on_startup_grace_fire(_now, z=_zone, p=_preset):
+                self.hass.async_create_task(
+                    self._revert_override(z, p)
+                )
+
             self._grace_timers[zone.zone_id] = async_call_later(
                 self.hass,
                 grace_seconds,
-                lambda _now, z=zone, p=target_preset: self.hass.async_create_task(
-                    self._revert_override(z, p)
-                ),
+                _on_startup_grace_fire,
             )
 
             self.hass.async_create_task(
@@ -419,12 +427,16 @@ class OverrideArrester:
             zone.last_override_direction, grace_seconds,
         )
 
+        @callback
+        def _on_severe_grace_fire(_now):
+            self.hass.async_create_task(
+                self._revert_override(zone, original_preset)
+            )
+
         self._grace_timers[zone_id] = async_call_later(
             self.hass,
             grace_seconds,
-            lambda _now: self.hass.async_create_task(
-                self._revert_override(zone, original_preset)
-            ),
+            _on_severe_grace_fire,
         )
 
         # NM alert
@@ -472,16 +484,20 @@ class OverrideArrester:
             zone.last_override_direction, grace_seconds,
         )
 
-        self._grace_timers[zone_id] = async_call_later(
-            self.hass,
-            grace_seconds,
-            lambda _now: self.hass.async_create_task(
+        @callback
+        def _on_normal_grace_fire(_now):
+            self.hass.async_create_task(
                 self._apply_compromise(
                     zone, original_preset,
                     compromise_cool, compromise_heat,
                     expected_cool, expected_heat,
                 )
-            ),
+            )
+
+        self._grace_timers[zone_id] = async_call_later(
+            self.hass,
+            grace_seconds,
+            _on_normal_grace_fire,
         )
 
         # NM alert
@@ -533,12 +549,17 @@ class OverrideArrester:
 
         # Schedule full revert after compromise period
         compromise_seconds = self._compromise_minutes * 60
+
+        @callback
+        def _on_compromise_fire(_now):
+            self.hass.async_create_task(
+                self._revert_override(zone, original_preset)
+            )
+
         self._compromise_timers[zone_id] = async_call_later(
             self.hass,
             compromise_seconds,
-            lambda _now: self.hass.async_create_task(
-                self._revert_override(zone, original_preset)
-            ),
+            _on_compromise_fire,
         )
 
     async def _revert_override(
@@ -682,12 +703,16 @@ class OverrideArrester:
             return
 
         # Schedule restore after off duration
+        @callback
+        def _on_reset_fire(_now):
+            self.hass.async_create_task(
+                self._restore_after_reset(zone, original_mode)
+            )
+
         self._reset_timers[zone_id] = async_call_later(
             self.hass,
             AC_RESET_OFF_DURATION_SECONDS,
-            lambda _now: self.hass.async_create_task(
-                self._restore_after_reset(zone, original_mode)
-            ),
+            _on_reset_fire,
         )
 
         # NM alert
