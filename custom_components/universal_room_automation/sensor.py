@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.20.0
+# Universal Room Automation v3.20.2
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -91,7 +91,6 @@ from .const import (
     STATE_OCCUPIED,
     STATE_TIME_SINCE_MOTION,
     STATE_TIME_SINCE_OCCUPIED,
-    STATE_OCCUPANCY_PCT_TODAY,
     CONF_TEMPERATURE_SENSOR,
     CONF_ELECTRICITY_RATE,
     DEFAULT_ELECTRICITY_RATE,
@@ -336,7 +335,6 @@ async def async_setup_entry(
         NextOccupancyInSensor(coordinator),
         OccupancyPercentage7dSensor(coordinator),
         PeakOccupancyTimeSensor(coordinator),
-        OccupancyPatternDetectedSensor(coordinator),
     ])
     
     # === HVAC PREDICTIONS (Optional) ===
@@ -357,21 +355,11 @@ async def async_setup_entry(
     entities.extend([
         TimeSinceMotionSensor(coordinator),
         TimeSinceOccupiedSensor(coordinator),
-        OccupancyPercentageTodaySensor(coordinator),
-        TimeOccupiedTodaySensor(coordinator),
         DaysSinceOccupiedSensor(coordinator),
     ])
     
     # === ADVANCED DIAGNOSTICS (Optional) ===
     entities.extend([
-        EnergyWasteIdleSensor(coordinator),
-        MostExpensiveDeviceSensor(coordinator),
-        OptimizationPotentialSensor(coordinator),
-        EnergyCostPerOccupiedHourSensor(coordinator),
-        TimeUncomfortableTodaySensor(coordinator),
-        AvgTimeToComfortSensor(coordinator),
-        WeekdayMorningOccupancyProbSensor(coordinator),
-        WeekendEveningOccupancyProbSensor(coordinator),
         ConfigStatusSensor(coordinator),
         UnavailableEntitiesSensor(coordinator),
         LastAutomationTriggerSensor(coordinator),
@@ -1297,181 +1285,6 @@ class TimeSinceOccupiedSensor(UniversalRoomEntity, SensorEntity):
         return None
 
 
-class OccupancyPercentageTodaySensor(UniversalRoomEntity, SensorEntity):
-    """Today's occupancy percentage."""
-
-    _attr_native_unit_of_measurement = PERCENTAGE
-    _attr_icon = ICON_PATTERN
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
-    _attr_entity_registry_enabled_default = False
-
-    def __init__(self, coordinator: UniversalRoomCoordinator) -> None:
-        """Initialize the sensor."""
-        super().__init__(coordinator, "occupancy_percentage_today", "Occupancy % Today")
-
-    @property
-    def native_value(self) -> float | None:
-        """Return today's occupancy percentage."""
-        # TODO: Calculate from today's data
-        return None
-
-
-class EnergyWasteIdleSensor(UniversalRoomEntity, SensorEntity):
-    """Sensor for energy wasted when room is idle/vacant."""
-
-    _attr_device_class = SensorDeviceClass.ENERGY
-    _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
-    _attr_icon = "mdi:alert-circle"
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
-    _attr_entity_registry_enabled_default = False
-
-    def __init__(self, coordinator: UniversalRoomCoordinator) -> None:
-        """Initialize the sensor."""
-        super().__init__(coordinator, "energy_waste_idle", "Energy Waste Idle")
-
-    @property
-    def native_value(self) -> float | None:
-        """Return energy wasted when vacant."""
-        # TODO: Calculate from database
-        return 0.0
-
-
-class MostExpensiveDeviceSensor(UniversalRoomEntity, SensorEntity):
-    """Sensor for identifying most expensive device."""
-
-    _attr_icon = "mdi:currency-usd"
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
-    _attr_entity_registry_enabled_default = False
-
-    def __init__(self, coordinator: UniversalRoomCoordinator) -> None:
-        """Initialize the sensor."""
-        super().__init__(coordinator, "most_expensive_device", "Most Expensive Device")
-
-    @property
-    def native_value(self) -> str | None:
-        """Return name of most expensive device."""
-        # TODO: Analyze power consumption by device
-        return "Unknown"
-
-
-class OptimizationPotentialSensor(UniversalRoomEntity, SensorEntity):
-    """Sensor for potential energy savings."""
-
-    _attr_device_class = SensorDeviceClass.MONETARY
-    _attr_native_unit_of_measurement = "USD"
-    _attr_icon = "mdi:cash-multiple"
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
-    _attr_entity_registry_enabled_default = False
-
-    def __init__(self, coordinator: UniversalRoomCoordinator) -> None:
-        """Initialize the sensor."""
-        super().__init__(coordinator, "optimization_potential", "Optimization Potential")
-
-    @property
-    def native_value(self) -> float | None:
-        """Return potential monthly savings."""
-        # TODO: Calculate optimization potential
-        return 0.0
-
-
-class EnergyCostPerOccupiedHourSensor(UniversalRoomEntity, SensorEntity):
-    """Sensor for energy cost per occupied hour."""
-
-    _attr_device_class = SensorDeviceClass.MONETARY
-    _attr_native_unit_of_measurement = "USD/h"
-    _attr_icon = "mdi:clock-time-eight"
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
-    _attr_entity_registry_enabled_default = False
-
-    def __init__(self, coordinator: UniversalRoomCoordinator) -> None:
-        """Initialize the sensor."""
-        super().__init__(coordinator, "energy_cost_per_occupied_hour", "Energy Cost per Occupied Hour")
-
-    @property
-    def native_value(self) -> float | None:
-        """Return cost per occupied hour."""
-        # TODO: Calculate from database
-        return 0.0
-
-
-class TimeUncomfortableTodaySensor(UniversalRoomEntity, SensorEntity):
-    """Sensor for time outside comfort zone today."""
-
-    _attr_device_class = SensorDeviceClass.DURATION
-    _attr_native_unit_of_measurement = UnitOfTime.MINUTES
-    _attr_icon = "mdi:thermometer-alert"
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
-    _attr_entity_registry_enabled_default = False
-
-    def __init__(self, coordinator: UniversalRoomCoordinator) -> None:
-        """Initialize the sensor."""
-        super().__init__(coordinator, "time_uncomfortable_today", "Time Uncomfortable Today")
-
-    @property
-    def native_value(self) -> int | None:
-        """Return minutes outside comfort zone."""
-        # TODO: Calculate from database
-        return 0
-
-
-class AvgTimeToComfortSensor(UniversalRoomEntity, SensorEntity):
-    """Sensor for average time to reach comfort zone."""
-
-    _attr_device_class = SensorDeviceClass.DURATION
-    _attr_native_unit_of_measurement = UnitOfTime.MINUTES
-    _attr_icon = "mdi:clock-fast"
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
-    _attr_entity_registry_enabled_default = False
-
-    def __init__(self, coordinator: UniversalRoomCoordinator) -> None:
-        """Initialize the sensor."""
-        super().__init__(coordinator, "avg_time_to_comfort", "Average Time to Comfort")
-
-    @property
-    def native_value(self) -> int | None:
-        """Return average minutes to reach comfort."""
-        # TODO: Calculate from database
-        return 0
-
-
-class WeekdayMorningOccupancyProbSensor(UniversalRoomEntity, SensorEntity):
-    """Sensor for weekday morning occupancy probability."""
-
-    _attr_native_unit_of_measurement = PERCENTAGE
-    _attr_icon = "mdi:calendar-clock"
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
-    _attr_entity_registry_enabled_default = False
-
-    def __init__(self, coordinator: UniversalRoomCoordinator) -> None:
-        """Initialize the sensor."""
-        super().__init__(coordinator, "weekday_morning_occupancy_prob", "Weekday Morning Occupancy Probability")
-
-    @property
-    def native_value(self) -> int | None:
-        """Return probability percentage."""
-        # TODO: Calculate from database
-        return 0
-
-
-class WeekendEveningOccupancyProbSensor(UniversalRoomEntity, SensorEntity):
-    """Sensor for weekend evening occupancy probability."""
-
-    _attr_native_unit_of_measurement = PERCENTAGE
-    _attr_icon = "mdi:calendar-weekend"
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
-    _attr_entity_registry_enabled_default = False
-
-    def __init__(self, coordinator: UniversalRoomCoordinator) -> None:
-        """Initialize the sensor."""
-        super().__init__(coordinator, "weekend_evening_occupancy_prob", "Weekend Evening Occupancy Probability")
-
-    @property
-    def native_value(self) -> int | None:
-        """Return probability percentage."""
-        # TODO: Calculate from database
-        return 0
-
-
 class ConfigStatusSensor(UniversalRoomEntity, SensorEntity):
     """Sensor for configuration health status."""
 
@@ -1849,44 +1662,6 @@ class DaysSinceOccupiedSensor(UniversalRoomEntity, SensorEntity):
             elapsed = (dt_util.now() - self.coordinator._last_occupied_time).total_seconds()
             return int(elapsed / 86400)  # Convert seconds to days
         return None
-
-
-class TimeOccupiedTodaySensor(UniversalRoomEntity, SensorEntity):
-    """Sensor for total time occupied today."""
-
-    _attr_device_class = SensorDeviceClass.DURATION
-    _attr_native_unit_of_measurement = UnitOfTime.HOURS
-    _attr_icon = "mdi:clock-check"
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
-    _attr_entity_registry_enabled_default = False
-
-    def __init__(self, coordinator: UniversalRoomCoordinator) -> None:
-        """Initialize the sensor."""
-        super().__init__(coordinator, "time_occupied_today", "Time Occupied Today")
-
-    @property
-    def native_value(self) -> float | None:
-        """Return hours occupied today."""
-        # TODO: Calculate from database
-        return 0.0
-
-
-class OccupancyPatternDetectedSensor(UniversalRoomEntity, SensorEntity):
-    """Sensor for detected occupancy pattern."""
-
-    _attr_icon = ICON_PATTERN
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
-    _attr_entity_registry_enabled_default = False
-
-    def __init__(self, coordinator: UniversalRoomCoordinator) -> None:
-        """Initialize the sensor."""
-        super().__init__(coordinator, "occupancy_pattern_detected", "Occupancy Pattern Detected")
-
-    @property
-    def native_value(self) -> str:
-        """Return detected pattern description."""
-        # TODO: Implement pattern detection
-        return "No Pattern Detected"
 
 
 class DatabaseStatusSensor(UniversalRoomEntity, SensorEntity):

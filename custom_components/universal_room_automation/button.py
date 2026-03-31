@@ -1,6 +1,6 @@
 """Button platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.20.0
+# Universal Room Automation v3.20.2
 # Build: 2026-01-04
 # File: button.py
 #
@@ -49,9 +49,7 @@ async def async_setup_entry(
     entities = [
         ReloadRoomButton(coordinator),
         ExportDataButton(coordinator),
-        ClearDatabaseButton(coordinator),
         RefreshPredictionsButton(coordinator),
-        OptimizeNowButton(coordinator),
         ConfigDumpButton(coordinator),
     ]
     
@@ -387,34 +385,6 @@ class ExportDataButton(UniversalRoomEntity, ButtonEntity):
             _LOGGER.error("Error exporting data: %s", e)
 
 
-class ClearDatabaseButton(UniversalRoomEntity, ButtonEntity):
-    """Button to clear old database entries."""
-
-    _attr_icon = "mdi:database-remove"
-    _attr_entity_category = EntityCategory.CONFIG
-    _attr_entity_registry_enabled_default = False
-
-    def __init__(self, coordinator: UniversalRoomCoordinator) -> None:
-        """Initialize the button."""
-        super().__init__(coordinator, "clear_database", "Clear Database")
-
-    @property
-    def available(self) -> bool:
-        """Button is always available."""
-        return True
-
-    async def async_press(self) -> None:
-        """Handle button press - clear old database entries."""
-        _LOGGER.info(
-            "Clear database button pressed for room: %s",
-            self.coordinator.entry.data.get("room_name")
-        )
-        
-        # TODO: Implement database cleanup
-        # For now, just log
-        _LOGGER.warning("Database cleanup not yet implemented")
-
-
 class RefreshPredictionsButton(UniversalRoomEntity, ButtonEntity):
     """Button to refresh prediction calculations."""
 
@@ -440,34 +410,6 @@ class RefreshPredictionsButton(UniversalRoomEntity, ButtonEntity):
         
         # Force coordinator refresh
         await self.coordinator.async_request_refresh()
-
-
-class OptimizeNowButton(UniversalRoomEntity, ButtonEntity):
-    """Button to generate optimization report."""
-
-    _attr_icon = "mdi:chart-line"
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
-    _attr_entity_registry_enabled_default = False
-
-    def __init__(self, coordinator: UniversalRoomCoordinator) -> None:
-        """Initialize the button."""
-        super().__init__(coordinator, "optimize_now", "Optimize Now")
-
-    @property
-    def available(self) -> bool:
-        """Button is always available."""
-        return True
-
-    async def async_press(self) -> None:
-        """Handle button press - generate optimization recommendations."""
-        _LOGGER.info(
-            "Optimize now button pressed for room: %s",
-            self.coordinator.entry.data.get("room_name")
-        )
-        
-        # TODO: Implement optimization analysis
-        # For now, just log
-        _LOGGER.warning("Optimization analysis not yet implemented")
 
 
 # ============================================================================

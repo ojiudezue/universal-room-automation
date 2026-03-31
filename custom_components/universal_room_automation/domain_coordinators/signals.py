@@ -11,7 +11,6 @@ from typing import Any, Final
 
 SIGNAL_HOUSE_STATE_CHANGED: Final = "ura_house_state_changed"
 SIGNAL_ENERGY_CONSTRAINT: Final = "ura_energy_constraint"
-SIGNAL_COMFORT_REQUEST: Final = "ura_comfort_request"
 SIGNAL_CENSUS_UPDATED: Final = "ura_census_updated"
 SIGNAL_SAFETY_HAZARD: Final = "ura_safety_hazard"
 SIGNAL_SAFETY_ENTITIES_UPDATE: Final = "ura_safety_entities_update"
@@ -49,17 +48,6 @@ class EnergyConstraint:
     solar_class: str = ""
     forecast_high_temp: float | None = None
     soc: int | None = None
-
-
-@dataclass
-class ComfortRequest:
-    """Payload for SIGNAL_COMFORT_REQUEST."""
-
-    room_id: str
-    zone: str
-    request_type: str  # zone_adjustment | fan_assist
-    target_temp: float | None = None
-    reason: str = ""
 
 
 @dataclass

@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation v3.20.0
+# Universal Room Automation v3.20.2
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "3.20.0"
+VERSION: Final = "3.20.2"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -564,7 +564,6 @@ STATE_ENERGY_WASTE_IDLE: Final = "energy_waste_idle"
 STATE_TIME_SINCE_MOTION: Final = "time_since_motion"
 STATE_TIME_SINCE_OCCUPIED: Final = "time_since_last_occupied"
 STATE_DAYS_SINCE_OCCUPIED: Final = "days_since_occupied"
-STATE_OCCUPANCY_PCT_TODAY: Final = "occupancy_percentage_today"
 STATE_TIME_IN_COMFORT: Final = "time_in_comfort_zone_today"
 STATE_TIME_UNCOMFORTABLE: Final = "time_uncomfortable_today"
 STATE_OCCUPANCY_PATTERN: Final = "occupancy_pattern_detected"

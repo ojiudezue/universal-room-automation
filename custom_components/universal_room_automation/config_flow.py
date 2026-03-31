@@ -1,6 +1,6 @@
 """Config flow for Universal Room Automation v3.6.24."""
 #
-# Universal Room Automation v3.20.0
+# Universal Room Automation v3.20.2
 # Build: 2026-01-05
 # File: config_flow.py
 # v3.3.3: Added manage_zones to integration options menu
@@ -1095,10 +1095,11 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
 
         v3.6.24: Cover fields moved to cover_behavior sub-step.
         This step now only contains lighting automation fields.
+        v3.20.1: Routes to init_automation_chaining instead of climate.
         """
         if user_input is not None:
             self._data.update(user_input)
-            return await self.async_step_climate()
+            return await self.async_step_init_automation_chaining()
 
         light_entry_actions = [
             {"label": "None (Manual Control)", "value": LIGHT_ACTION_NONE},
@@ -1137,6 +1138,394 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
             data_schema=data_schema,
             description_placeholders={"name": "Configure lighting automation behavior"},
         )
+
+    # =========================================================================
+    # v3.20.1 D1: AUTOMATION CHAINING IN INITIAL ROOM SETUP
+    # =========================================================================
+
+    async def async_step_init_automation_chaining(self, user_input=None):
+        """Automation chaining during initial room setup: choose trigger group."""
+        return self.async_show_menu(
+            step_id="init_automation_chaining",
+            menu_options=[
+                "init_chain_occupancy",
+                "init_chain_light",
+                "init_chain_house_state",
+                "init_chain_coordinator",
+                "init_chain_skip",
+            ],
+        )
+
+    async def async_step_init_chain_skip(self, user_input=None):
+        """Skip automation chaining and proceed to AI rules."""
+        return await self.async_step_init_ai_rules()
+
+    async def async_step_init_chain_occupancy(self, user_input=None):
+        """Configure occupancy trigger automations during initial setup."""
+        return await self._init_chain_trigger_step(
+            "init_chain_occupancy", CHAIN_GROUP_OCCUPANCY, user_input,
+        )
+
+    async def async_step_init_chain_light(self, user_input=None):
+        """Configure light level trigger automations during initial setup."""
+        return await self._init_chain_trigger_step(
+            "init_chain_light", CHAIN_GROUP_LIGHT, user_input,
+        )
+
+    async def async_step_init_chain_house_state(self, user_input=None):
+        """Configure house state trigger automations during initial setup."""
+        return await self._init_chain_trigger_step(
+            "init_chain_house_state", CHAIN_GROUP_HOUSE_STATE, user_input,
+        )
+
+    async def async_step_init_chain_coordinator(self, user_input=None):
+        """Configure coordinator signal trigger automations during initial setup."""
+        return await self._init_chain_trigger_step(
+            "init_chain_coordinator", CHAIN_GROUP_COORDINATOR, user_input,
+        )
+
+    async def _init_chain_trigger_step(
+        self, step_id: str, triggers: list[str], user_input,
+    ):
+        """Shared handler for chain trigger sub-steps during initial setup.
+
+        v3.20.1: Mirrors options flow _chain_trigger_step but stores in self._data.
+        """
+        if user_input is not None:
+            # Merge with existing chains already set during this flow
+            existing = self._data.get(CONF_AUTOMATION_CHAINS, {})
+            updated = dict(existing)
+            for trigger in triggers:
+                key = f"chain_{trigger}"
+                val = user_input.get(key, "")
+                if val:
+                    updated[trigger] = val
+                else:
+                    updated.pop(trigger, None)
+            self._data[CONF_AUTOMATION_CHAINS] = updated
+            # Return to chaining menu for more groups or skip
+            return await self.async_step_init_automation_chaining()
+
+        # Build automation entity dropdown options
+        automation_entities = sorted(
+            eid for eid in self.hass.states.async_entity_ids("automation")
+        )
+        options = [{"value": "", "label": "(none)"}]
+        for eid in automation_entities:
+            state = self.hass.states.get(eid)
+            label = state.attributes.get("friendly_name", eid) if state else eid
+            options.append({"value": eid, "label": label})
+
+        current = self._data.get(CONF_AUTOMATION_CHAINS, {})
+
+        data_schema = vol.Schema({
+            vol.Optional(
+                f"chain_{trigger}",
+                default=current.get(trigger, ""),
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=options,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                )
+            )
+            for trigger in triggers
+        })
+
+        return self.async_show_form(
+            step_id=step_id,
+            data_schema=data_schema,
+        )
+
+    # =========================================================================
+    # v3.20.1 D2: AI RULES IN INITIAL ROOM SETUP
+    # =========================================================================
+
+    async def async_step_init_ai_rules(self, user_input=None):
+        """AI Rules menu during initial room setup: Add Rule / Skip."""
+        return self.async_show_menu(
+            step_id="init_ai_rules",
+            menu_options=[
+                "init_ai_rule_add",
+                "init_ai_rules_skip",
+            ],
+        )
+
+    async def async_step_init_ai_rules_skip(self, user_input=None):
+        """Skip AI rules and proceed to climate."""
+        return await self.async_step_climate()
+
+    async def async_step_init_ai_rule_add(self, user_input=None):
+        """Add a new AI rule during initial room setup.
+
+        v3.20.1 D2 REVIEW FIX: Calls _parse_rule_with_ai() inline
+        instead of using needs_parsing flag. If ai_task is unavailable,
+        the rule is stored with empty actions and needs_parsing=True as fallback.
+        """
+        errors = {}
+
+        if user_input is not None:
+            trigger_type = user_input.get(CONF_AI_RULE_TRIGGER, "enter")
+            person = user_input.get(CONF_AI_RULE_PERSON, "").strip()
+            description = user_input.get(CONF_AI_RULE_DESCRIPTION, "").strip()
+
+            if not description:
+                errors["base"] = "ai_rule_empty_description"
+            else:
+                # v3.20.1 D2 REVIEW FIX: Try inline AI parsing first
+                actions = None
+                needs_parsing = False
+                try:
+                    actions = await self._parse_rule_with_ai_init(
+                        description, trigger_type, person,
+                    )
+                except Exception:
+                    _LOGGER.warning(
+                        "ai_task unavailable during initial setup, deferring parse"
+                    )
+
+                if actions is not None:
+                    # Validate parsed actions
+                    valid, validation_errors = self._validate_parsed_actions_init(actions)
+                    if not valid:
+                        _LOGGER.warning(
+                            "AI rule validation errors: %s", validation_errors,
+                        )
+                        errors["base"] = "ai_rule_validation_failed"
+                    else:
+                        from homeassistant.util import dt as dt_util
+                        rule = {
+                            "rule_id": uuid.uuid4().hex[:8],
+                            "trigger_type": trigger_type,
+                            "person": person,
+                            "description": description,
+                            "actions": actions,
+                            "enabled": True,
+                            "created_at": dt_util.utcnow().isoformat(),
+                        }
+                        existing_rules = list(self._data.get(CONF_AI_RULES, []))
+                        existing_rules.append(rule)
+                        self._data[CONF_AI_RULES] = existing_rules
+                        return await self.async_step_init_ai_rules()
+                elif "base" not in errors:
+                    # ai_task not available — store with deferred parsing as fallback
+                    rule = {
+                        "rule_id": uuid.uuid4().hex[:8],
+                        "trigger_type": trigger_type,
+                        "person": person,
+                        "description": description,
+                        "actions": [],
+                        "enabled": True,
+                        "needs_parsing": True,
+                    }
+                    existing_rules = list(self._data.get(CONF_AI_RULES, []))
+                    existing_rules.append(rule)
+                    self._data[CONF_AI_RULES] = existing_rules
+                    return await self.async_step_init_ai_rules()
+
+        # Build trigger dropdown options with human-readable labels
+        trigger_labels = {
+            "enter": "Room Enter",
+            "exit": "Room Exit",
+            "lux_dark": "Room Gets Dark",
+            "lux_bright": "Room Gets Bright",
+            "house_state_away": "House Away",
+            "house_state_arriving": "House Arriving",
+            "house_state_home_day": "House Home Day",
+            "house_state_home_evening": "House Home Evening",
+            "house_state_home_night": "House Home Night",
+            "house_state_sleep": "House Sleep",
+            "house_state_waking": "House Waking",
+            "house_state_guest": "House Guest",
+            "house_state_vacation": "House Vacation",
+            "energy_constraint": "Energy Constraint Change",
+            "safety_hazard": "Safety Hazard Detected",
+            "security_event": "Security Event",
+        }
+        trigger_options = [
+            {"value": t, "label": trigger_labels.get(t, t)}
+            for t in AI_RULE_TRIGGER_OPTIONS
+        ]
+
+        data_schema = vol.Schema({
+            vol.Required(CONF_AI_RULE_TRIGGER, default="enter"): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=trigger_options,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                )
+            ),
+            # v3.20.1 D5: EntitySelector for person domain
+            vol.Optional(CONF_AI_RULE_PERSON, default=vol.UNDEFINED): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="person")
+            ),
+            vol.Required(CONF_AI_RULE_DESCRIPTION, default=""): selector.TextSelector(
+                selector.TextSelectorConfig(
+                    type=selector.TextSelectorType.TEXT,
+                    multiline=True,
+                )
+            ),
+        })
+
+        return self.async_show_form(
+            step_id="init_ai_rule_add",
+            data_schema=data_schema,
+            errors=errors,
+        )
+
+    async def _parse_rule_with_ai_init(
+        self,
+        description: str,
+        trigger_type: str,
+        person: str,
+    ) -> list[dict] | None:
+        """Parse NL description via ai_task during initial setup.
+
+        v3.20.1: Adapted from OptionsFlow._parse_rule_with_ai.
+        Uses self._data instead of self._config_entry.
+        """
+        room_name = self._data.get(CONF_ROOM_NAME, "this room")
+        room_entities = self._get_room_entities_for_prompt_init()
+
+        trigger_label = {
+            "enter": f"{person or 'someone'} enters the room",
+            "exit": f"{person or 'someone'} leaves the room",
+            "lux_dark": "the room gets dark",
+            "lux_bright": "the room gets bright",
+            "house_state_away": "the house transitions to Away",
+            "house_state_arriving": "someone is arriving home",
+            "house_state_home_day": "the house enters Home Day mode",
+            "house_state_home_evening": "the house enters Home Evening mode",
+            "house_state_home_night": "the house enters Home Night mode",
+            "house_state_sleep": "the house enters Sleep mode",
+            "house_state_waking": "the house enters Waking mode",
+            "house_state_guest": "the house enters Guest mode",
+            "house_state_vacation": "the house enters Vacation mode",
+            "energy_constraint": "the energy constraint changes (peak, shed, coast)",
+            "safety_hazard": "a safety hazard is detected (smoke, CO, water leak)",
+            "security_event": "a security event occurs (entry alert, unknown person)",
+        }.get(trigger_type, trigger_type)
+
+        prompt = AI_RULE_PARSING_PROMPT.format(
+            room_name=room_name,
+            trigger_label=trigger_label,
+            description=description,
+            entities_json=json.dumps(room_entities, indent=2),
+        )
+
+        structure = {
+            "actions": {
+                "selector": {"object": {"multiple": True}},
+                "description": (
+                    "List of HA service calls. Each must have: "
+                    "domain (string), service (string), "
+                    "target (object with entity_id string or list), "
+                    "data (object, may be empty {}). "
+                    "Use color_temp_kelvin not color_temp. "
+                    "Use brightness_pct (0-100) not brightness."
+                ),
+            }
+        }
+
+        result = await self.hass.services.async_call(
+            "ai_task", "generate_data",
+            {
+                "task_name": "ura_parse_room_rule",
+                "instructions": prompt,
+                "structure": structure,
+            },
+            blocking=True,
+            return_response=True,
+        )
+
+        if not result or not isinstance(result, dict):
+            return None
+
+        actions = result.get("data", {}).get("actions") if isinstance(result.get("data"), dict) else None
+        if actions is None:
+            actions = result.get("actions")
+        if not isinstance(actions, list) or not actions:
+            return None
+
+        return actions
+
+    def _get_room_entities_for_prompt_init(self) -> list[dict]:
+        """Build entity list for AI context from initial setup data.
+
+        v3.20.1: Adapted from OptionsFlow._get_room_entities_for_prompt.
+        Uses self._data instead of self._config_entry.
+        """
+        entities = []
+        seen = set()
+
+        def add(entity_id: str) -> None:
+            if entity_id in seen:
+                return
+            state = self.hass.states.get(entity_id)
+            if not state:
+                return
+            seen.add(entity_id)
+            entities.append({
+                "entity_id": entity_id,
+                "name": state.attributes.get("friendly_name", entity_id),
+                "domain": entity_id.split(".")[0],
+            })
+
+        # Explicitly configured devices from self._data
+        for key in (CONF_LIGHTS, CONF_FANS, CONF_AUTO_DEVICES, CONF_MANUAL_DEVICES,
+                    CONF_COVERS, CONF_AUTO_SWITCHES, CONF_MANUAL_SWITCHES):
+            for eid in self._data.get(key, []) or []:
+                add(eid)
+
+        if climate := self._data.get(CONF_CLIMATE_ENTITY):
+            add(climate)
+
+        # All entities in the room's HA area
+        area_id = self._data.get(CONF_AREA_ID)
+        if area_id:
+            ent_reg = er.async_get(self.hass)
+            for entity in ent_reg.entities.values():
+                if entity.area_id == area_id and not entity.disabled:
+                    add(entity.entity_id)
+
+        return entities
+
+    # v3.20.1: Domain allowlist for AI rule service calls (shared with OptionsFlow).
+    _AI_RULE_ALLOWED_DOMAINS: set = {
+        "light", "switch", "fan", "cover", "climate", "media_player",
+        "lock", "scene", "automation", "input_boolean", "input_number",
+        "input_select", "input_text", "number", "select", "button",
+        "humidifier", "vacuum", "water_heater", "valve",
+    }
+
+    def _validate_parsed_actions_init(self, actions: list[dict]) -> tuple[bool, list[str]]:
+        """Validate AI-parsed actions during initial setup.
+
+        v3.20.1: Adapted from OptionsFlow._validate_parsed_actions.
+        """
+        errors = []
+        for i, action in enumerate(actions):
+            label = f"Action {i + 1}"
+            if not isinstance(action, dict):
+                errors.append(f"{label}: must be an object, got {type(action).__name__}")
+                continue
+            for key in ("domain", "service", "target"):
+                if key not in action:
+                    errors.append(f"{label}: missing '{key}'")
+            domain = action.get("domain", "")
+            if domain and domain not in self._AI_RULE_ALLOWED_DOMAINS:
+                errors.append(f"{label}: domain '{domain}' is not allowed")
+            target = action.get("target", {})
+            if not isinstance(target, dict):
+                errors.append(f"{label}: 'target' must be an object")
+                target = {}
+            entity_id = target.get("entity_id")
+            if entity_id:
+                eids = entity_id if isinstance(entity_id, list) else [entity_id]
+                for eid in eids:
+                    if not self.hass.states.get(eid):
+                        errors.append(f"{label}: entity '{eid}' not found")
+            if "data" in action and not isinstance(action["data"], dict):
+                errors.append(f"{label}: 'data' must be an object")
+        return len(errors) == 0, errors
 
     async def async_step_climate(self, user_input=None):
         """Handle climate and HVAC configuration.
@@ -1595,7 +1984,8 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     "basic_setup",
                     "sensors",
                     "devices",
-                    "automation_behavior",
+                    "options_lighting",   # v3.20.1 D3: split from automation_behavior
+                    "options_covers",     # v3.20.1 D3: split from automation_behavior
                     "automation_chaining",  # v3.10.0
                     "ai_rules",  # v3.12.0: M3 AI NL Rules
                     "climate",
@@ -3942,33 +4332,35 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             )] = selector.TextSelector()
         
         # Shared space settings
-        schema_fields.update({
-            vol.Optional(
-                CONF_SHARED_SPACE,
-                default=self._get_current(CONF_SHARED_SPACE, False)
-            ): selector.BooleanSelector(),
-            vol.Optional(
+        # v3.20.1 D4: Conditional fields — detail fields only shown when toggle is on
+        schema_fields[vol.Optional(
+            CONF_SHARED_SPACE,
+            default=self._get_current(CONF_SHARED_SPACE, False)
+        )] = selector.BooleanSelector()
+
+        if self._get_current(CONF_SHARED_SPACE, False):
+            schema_fields[vol.Optional(
                 CONF_SHARED_SPACE_AUTO_OFF_HOUR,
                 default=self._get_current(CONF_SHARED_SPACE_AUTO_OFF_HOUR, DEFAULT_SHARED_SPACE_AUTO_OFF_HOUR)
-            ): selector.NumberSelector(
+            )] = selector.NumberSelector(
                 selector.NumberSelectorConfig(
                     min=0, max=23, step=1,
                     unit_of_measurement="hour (0-23)",
                     mode=selector.NumberSelectorMode.BOX,
                 )
-            ),
-            vol.Optional(
+            )
+            schema_fields[vol.Optional(
                 CONF_SHARED_SPACE_WARNING,
                 default=self._get_current(CONF_SHARED_SPACE_WARNING, True)
-            ): selector.BooleanSelector(),
-            vol.Required(
-                CONF_OCCUPANCY_TIMEOUT,
-                default=self._get_current(CONF_OCCUPANCY_TIMEOUT, DEFAULT_OCCUPANCY_TIMEOUT)
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(min=60, max=3600, unit_of_measurement="seconds", mode=selector.NumberSelectorMode.BOX)
-            ),
-        })
-        
+            )] = selector.BooleanSelector()
+
+        schema_fields[vol.Required(
+            CONF_OCCUPANCY_TIMEOUT,
+            default=self._get_current(CONF_OCCUPANCY_TIMEOUT, DEFAULT_OCCUPANCY_TIMEOUT)
+        )] = selector.NumberSelector(
+            selector.NumberSelectorConfig(min=60, max=3600, unit_of_measurement="seconds", mode=selector.NumberSelectorMode.BOX)
+        )
+
         data_schema = vol.Schema(schema_fields)
 
         return self.async_show_form(
@@ -4190,14 +4582,20 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             description_placeholders={"name": "Reconfigure devices"},
         )
 
-    async def async_step_automation_behavior(self, user_input=None):
-        """Reconfigure automation behavior."""
+    # =========================================================================
+    # v3.20.1 D3: SPLIT OPTIONS — options_lighting + options_covers
+    # =========================================================================
+
+    async def async_step_options_lighting(self, user_input=None):
+        """Reconfigure lighting automation behavior (v3.20.1 D3: split from automation_behavior).
+
+        6 fields -- lighting only.
+        """
         if user_input is not None:
-            # FIX v3.2.3.1: Pass merged options directly to async_create_entry
             try:
                 merged = {**self._config_entry.options, **user_input}
                 _LOGGER.debug(
-                    "automation_behavior save: entry_id=%s, options_keys=%d, input_keys=%d, merged_keys=%d",
+                    "options_lighting save: entry_id=%s, options_keys=%d, input_keys=%d, merged_keys=%d",
                     self._config_entry.entry_id,
                     len(self._config_entry.options),
                     len(user_input),
@@ -4208,7 +4606,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     data=merged,
                 )
             except Exception:
-                _LOGGER.exception("automation_behavior save FAILED")
+                _LOGGER.exception("options_lighting save FAILED")
                 raise
 
         light_entry_actions = [
@@ -4222,33 +4620,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             {"label": "Leave On", "value": LIGHT_ACTION_LEAVE_ON},
         ]
 
-        # v3.6.39: New 5-mode cover open system
-        cover_open_modes = [
-            {"label": "None (Manual Only)", "value": COVER_OPEN_NONE},
-            {"label": "On Entry (Any Time)", "value": COVER_OPEN_ON_ENTRY},
-            {"label": "At Time (Scheduled)", "value": COVER_OPEN_AT_TIME},
-            {"label": "On Entry After Time", "value": COVER_OPEN_ON_ENTRY_AFTER_TIME},
-            {"label": "At Time or On Entry", "value": COVER_OPEN_AT_TIME_OR_ON_ENTRY},
-        ]
-
-        open_time_sources = [
-            {"label": "Sunrise", "value": TIME_SOURCE_SUNRISE},
-            {"label": "Specific Hour", "value": TIME_SOURCE_SPECIFIC_HOUR},
-        ]
-
-        cover_exit_actions = [
-            {"label": "None (Leave As-Is)", "value": COVER_ACTION_NONE},
-            {"label": "Always", "value": COVER_ACTION_ALWAYS},
-            {"label": "After Sunset Only", "value": COVER_ACTION_AFTER_SUNSET},
-        ]
-
-        close_time_sources = [
-            {"label": "Sunset", "value": TIME_SOURCE_SUNSET},
-            {"label": "Specific Hour", "value": TIME_SOURCE_SPECIFIC_HOUR},
-        ]
-
         data_schema = vol.Schema({
-            # Lighting
             vol.Optional(
                 CONF_ENTRY_LIGHT_ACTION,
                 default=self._get_current(CONF_ENTRY_LIGHT_ACTION, LIGHT_ACTION_NONE)
@@ -4285,7 +4657,75 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=0, max=10, unit_of_measurement="s", mode=selector.NumberSelectorMode.BOX)
             ),
-            # --- Covers: Open ---
+        })
+
+        return self.async_show_form(
+            step_id="options_lighting",
+            data_schema=data_schema,
+            description_placeholders={"name": "Reconfigure lighting automation"},
+        )
+
+    async def async_step_options_covers(self, user_input=None):
+        """Reconfigure cover automation behavior (v3.20.1 D3: split from automation_behavior).
+
+        10 fields -- covers only.
+        """
+        if user_input is not None:
+            try:
+                merged = {**self._config_entry.options, **user_input}
+                _LOGGER.debug(
+                    "options_covers save: entry_id=%s, options_keys=%d, input_keys=%d, merged_keys=%d",
+                    self._config_entry.entry_id,
+                    len(self._config_entry.options),
+                    len(user_input),
+                    len(merged),
+                )
+                return self.async_create_entry(
+                    title="",
+                    data=merged,
+                )
+            except Exception:
+                _LOGGER.exception("options_covers save FAILED")
+                raise
+
+        cover_types = [
+            {"label": "Shades/Roller Blinds (Open/Close)", "value": COVER_TYPE_SHADE},
+            {"label": "Venetian Blinds (Tilt)", "value": COVER_TYPE_TILT},
+        ]
+
+        # v3.6.39: New 5-mode cover open system
+        cover_open_modes = [
+            {"label": "None (Manual Only)", "value": COVER_OPEN_NONE},
+            {"label": "On Entry (Any Time)", "value": COVER_OPEN_ON_ENTRY},
+            {"label": "At Time (Scheduled)", "value": COVER_OPEN_AT_TIME},
+            {"label": "On Entry After Time", "value": COVER_OPEN_ON_ENTRY_AFTER_TIME},
+            {"label": "At Time or On Entry", "value": COVER_OPEN_AT_TIME_OR_ON_ENTRY},
+        ]
+
+        open_time_sources = [
+            {"label": "Sunrise", "value": TIME_SOURCE_SUNRISE},
+            {"label": "Specific Hour", "value": TIME_SOURCE_SPECIFIC_HOUR},
+        ]
+
+        cover_exit_actions = [
+            {"label": "None (Leave As-Is)", "value": COVER_ACTION_NONE},
+            {"label": "Always", "value": COVER_ACTION_ALWAYS},
+            {"label": "After Sunset Only", "value": COVER_ACTION_AFTER_SUNSET},
+        ]
+
+        close_time_sources = [
+            {"label": "Sunset", "value": TIME_SOURCE_SUNSET},
+            {"label": "Specific Hour", "value": TIME_SOURCE_SPECIFIC_HOUR},
+        ]
+
+        data_schema = vol.Schema({
+            vol.Optional(
+                CONF_COVER_TYPE,
+                default=self._get_current(CONF_COVER_TYPE, COVER_TYPE_SHADE)
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(options=cover_types, mode=selector.SelectSelectorMode.DROPDOWN)
+            ),
+            # --- Open ---
             vol.Optional(
                 CONF_COVER_OPEN_MODE,
                 default=self._get_current(CONF_COVER_OPEN_MODE, COVER_OPEN_NONE)
@@ -4310,7 +4750,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=-60, max=120, step=15, unit_of_measurement="min", mode=selector.NumberSelectorMode.BOX)
             ),
-            # --- Covers: Close ---
+            # --- Close ---
             vol.Optional(
                 CONF_EXIT_COVER_ACTION,
                 default=self._get_current(CONF_EXIT_COVER_ACTION, COVER_ACTION_NONE)
@@ -4342,9 +4782,9 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         })
 
         return self.async_show_form(
-            step_id="automation_behavior",
+            step_id="options_covers",
             data_schema=data_schema,
-            description_placeholders={"name": "Reconfigure automation behavior"},
+            description_placeholders={"name": "Reconfigure cover automation"},
         )
 
     async def async_step_climate(self, user_input=None):
@@ -4652,37 +5092,43 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             {"label": "White (Neutral)", "value": ALERT_COLOR_WHITE},
         ]
 
-        data_schema = vol.Schema({
+        # v3.20.1 D4: Conditional fields — override detail fields only when toggle is on
+        schema_fields = {
             vol.Optional(
                 CONF_OVERRIDE_NOTIFICATIONS,
                 default=self._get_current(CONF_OVERRIDE_NOTIFICATIONS, False)
             ): selector.BooleanSelector(),
-            vol.Optional(CONF_NOTIFY_SERVICE): selector.SelectSelector(
+        }
+
+        if self._get_current(CONF_OVERRIDE_NOTIFICATIONS, False):
+            schema_fields[vol.Optional(CONF_NOTIFY_SERVICE)] = selector.SelectSelector(
                 selector.SelectSelectorConfig(options=notify_services, mode=selector.SelectSelectorMode.DROPDOWN)
-            ),
-            vol.Optional(CONF_NOTIFY_TARGET): selector.SelectSelector(
+            )
+            schema_fields[vol.Optional(CONF_NOTIFY_TARGET)] = selector.SelectSelector(
                 selector.SelectSelectorConfig(options=notify_targets, mode=selector.SelectSelectorMode.DROPDOWN)
-            ),
-            vol.Optional(
-                CONF_NOTIFY_LEVEL, 
+            )
+            schema_fields[vol.Optional(
+                CONF_NOTIFY_LEVEL,
                 default=self._get_current(CONF_NOTIFY_LEVEL, NOTIFY_LEVEL_ERRORS)
-            ): selector.SelectSelector(
+            )] = selector.SelectSelector(
                 selector.SelectSelectorConfig(options=notify_levels, mode=selector.SelectSelectorMode.DROPDOWN)
-            ),
-            # v3.1.0: Alert lights
-            vol.Optional(
-                CONF_ALERT_LIGHTS,
-                default=self._get_current(CONF_ALERT_LIGHTS, [])
-            ): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain="light", multiple=True)
-            ),
-            vol.Optional(
-                CONF_ALERT_LIGHT_COLOR,
-                default=self._get_current(CONF_ALERT_LIGHT_COLOR, ALERT_COLOR_AMBER)
-            ): selector.SelectSelector(
-                selector.SelectSelectorConfig(options=alert_colors, mode=selector.SelectSelectorMode.DROPDOWN)
-            ),
-        })
+            )
+
+        # v3.1.0: Alert lights (always visible — not part of override)
+        schema_fields[vol.Optional(
+            CONF_ALERT_LIGHTS,
+            default=self._get_current(CONF_ALERT_LIGHTS, [])
+        )] = selector.EntitySelector(
+            selector.EntitySelectorConfig(domain="light", multiple=True)
+        )
+        schema_fields[vol.Optional(
+            CONF_ALERT_LIGHT_COLOR,
+            default=self._get_current(CONF_ALERT_LIGHT_COLOR, ALERT_COLOR_AMBER)
+        )] = selector.SelectSelector(
+            selector.SelectSelectorConfig(options=alert_colors, mode=selector.SelectSelectorMode.DROPDOWN)
+        )
+
+        data_schema = vol.Schema(schema_fields)
 
         return self.async_show_form(
             step_id="notifications",
@@ -4890,8 +5336,9 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     mode=selector.SelectSelectorMode.DROPDOWN,
                 )
             ),
-            vol.Optional(CONF_AI_RULE_PERSON, default=""): selector.TextSelector(
-                selector.TextSelectorConfig(type=selector.TextSelectorType.TEXT)
+            # v3.20.1 D5: EntitySelector for person domain
+            vol.Optional(CONF_AI_RULE_PERSON, default=vol.UNDEFINED): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="person")
             ),
             vol.Required(CONF_AI_RULE_DESCRIPTION, default=""): selector.TextSelector(
                 selector.TextSelectorConfig(
