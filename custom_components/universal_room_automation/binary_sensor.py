@@ -1,6 +1,6 @@
 """Binary sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.19.1
+# Universal Room Automation v3.20.0
 # Build: 2026-01-02
 # File: binary_sensor.py
 # v3.2.6: Renamed "Presence" to "Sensor Presence" for clarity
@@ -15,6 +15,7 @@ from homeassistant.components.binary_sensor import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.util import dt as dt_util
 
 from homeassistant.helpers.entity import DeviceInfo, EntityCategory
@@ -168,14 +169,138 @@ async def async_setup_entry(
     )
 
 
-class OccupiedBinarySensor(UniversalRoomEntity, BinarySensorEntity):
-    """Binary sensor for room occupancy."""
+class OccupiedBinarySensor(UniversalRoomEntity, BinarySensorEntity, RestoreEntity):
+    """Binary sensor for room occupancy.
+
+    v3.20.0: Inherits RestoreEntity to persist critical coordinator state
+    across HA restarts (became_occupied_time, failsafe_fired, etc.).
+    """
 
     _attr_device_class = BinarySensorDeviceClass.OCCUPANCY
 
     def __init__(self, coordinator: UniversalRoomCoordinator) -> None:
         """Initialize the sensor."""
         super().__init__(coordinator, "occupied", "Occupied")
+
+    async def async_added_to_hass(self) -> None:
+        """Restore critical coordinator state on startup."""
+        await super().async_added_to_hass()
+        last_state = await self.async_get_last_state()
+
+        # Review fix: fall back to DB if RestoreEntity state unavailable
+        if last_state is None or last_state.attributes is None:
+            await self._restore_from_db_fallback()
+            return
+
+        attrs = last_state.attributes
+
+        # Restore critical coordinator state
+        if became_time := attrs.get("became_occupied_time"):
+            try:
+                self.coordinator._became_occupied_time = dt_util.parse_datetime(
+                    became_time
+                )
+            except (ValueError, TypeError):
+                pass
+
+        if attrs.get("last_occupied_state") is not None:
+            self.coordinator._last_occupied_state = bool(
+                attrs["last_occupied_state"]
+            )
+
+        if first_detected := attrs.get("occupancy_first_detected"):
+            try:
+                self.coordinator._occupancy_first_detected = dt_util.parse_datetime(
+                    first_detected
+                )
+            except (ValueError, TypeError):
+                pass
+
+        if attrs.get("failsafe_fired") is not None:
+            self.coordinator._failsafe_fired = bool(attrs["failsafe_fired"])
+
+        # Nice-to-have restores
+        if trigger_source := attrs.get("last_trigger_source"):
+            self.coordinator._last_trigger_source = trigger_source
+
+        if lux_zone := attrs.get("last_lux_zone"):
+            self.coordinator._last_lux_zone = lux_zone
+
+        # Cover daily dedup
+        if hasattr(self.coordinator, "automation") and self.coordinator.automation:
+            if open_date := attrs.get("last_timed_open_date"):
+                self.coordinator.automation._last_timed_open_date = open_date
+            if close_date := attrs.get("last_timed_close_date"):
+                self.coordinator.automation._last_timed_close_date = close_date
+
+        room_name = self.coordinator.entry.data.get("room_name", "Unknown")
+        _LOGGER.info(
+            "Room %s: Restored occupancy state "
+            "(was_occupied=%s, session_start=%s, failsafe=%s)",
+            room_name,
+            self.coordinator._last_occupied_state,
+            self.coordinator._became_occupied_time,
+            self.coordinator._failsafe_fired,
+        )
+
+    async def _restore_from_db_fallback(self) -> None:
+        """Restore coordinator state from room_state DB table.
+
+        Called when RestoreEntity state is unavailable (fresh install,
+        corrupted storage, etc.). This is the crash-resilience path.
+        """
+        from .const import DOMAIN
+        db = self.hass.data.get(DOMAIN, {}).get("database")
+        if not db:
+            return
+        room_id = self.coordinator.entry.entry_id
+        row = await db.get_room_state(room_id)
+        if row is None:
+            return
+
+        room_name = self.coordinator.entry.data.get("room_name", "Unknown")
+
+        if became_time := row.get("became_occupied_time"):
+            try:
+                self.coordinator._became_occupied_time = dt_util.parse_datetime(
+                    became_time
+                )
+            except (ValueError, TypeError):
+                pass
+
+        if row.get("last_occupied_state") is not None:
+            self.coordinator._last_occupied_state = bool(row["last_occupied_state"])
+
+        if first_detected := row.get("occupancy_first_detected"):
+            try:
+                self.coordinator._occupancy_first_detected = dt_util.parse_datetime(
+                    first_detected
+                )
+            except (ValueError, TypeError):
+                pass
+
+        if row.get("failsafe_fired") is not None:
+            self.coordinator._failsafe_fired = bool(row["failsafe_fired"])
+
+        if trigger_source := row.get("last_trigger_source"):
+            self.coordinator._last_trigger_source = trigger_source
+
+        if lux_zone := row.get("last_lux_zone"):
+            self.coordinator._last_lux_zone = lux_zone
+
+        if hasattr(self.coordinator, "automation") and self.coordinator.automation:
+            if open_date := row.get("last_timed_open_date"):
+                self.coordinator.automation._last_timed_open_date = open_date
+            if close_date := row.get("last_timed_close_date"):
+                self.coordinator.automation._last_timed_close_date = close_date
+
+        _LOGGER.info(
+            "Room %s: Restored from DB fallback "
+            "(was_occupied=%s, session_start=%s)",
+            room_name,
+            self.coordinator._last_occupied_state,
+            self.coordinator._became_occupied_time,
+        )
 
     @property
     def is_on(self) -> bool:
@@ -194,6 +319,15 @@ class OccupiedBinarySensor(UniversalRoomEntity, BinarySensorEntity):
             ATTR_LAST_MOTION: self.coordinator._last_motion_time.isoformat()
             if self.coordinator._last_motion_time else None,
             ATTR_TIMEOUT: self.coordinator.data.get("timeout_remaining", 0) if self.coordinator.data else 0,
+            # Persisted state for restart resilience
+            "became_occupied_time": self.coordinator._became_occupied_time.isoformat()
+            if self.coordinator._became_occupied_time else None,
+            "last_occupied_state": self.coordinator._last_occupied_state,
+            "occupancy_first_detected": self.coordinator._occupancy_first_detected.isoformat()
+            if self.coordinator._occupancy_first_detected else None,
+            "failsafe_fired": self.coordinator._failsafe_fired,
+            "last_trigger_source": self.coordinator._last_trigger_source,
+            "last_lux_zone": self.coordinator._last_lux_zone,
         }
         if self.coordinator.data:
             attrs["occupancy_source"] = self.coordinator.data.get(
@@ -201,6 +335,14 @@ class OccupiedBinarySensor(UniversalRoomEntity, BinarySensorEntity):
             )
             attrs["ble_persons"] = self.coordinator.data.get(
                 STATE_BLE_PERSONS, []
+            )
+        # Cover daily dedup from automation
+        if hasattr(self.coordinator, "automation") and self.coordinator.automation:
+            attrs["last_timed_open_date"] = (
+                self.coordinator.automation._last_timed_open_date
+            )
+            attrs["last_timed_close_date"] = (
+                self.coordinator.automation._last_timed_close_date
             )
         return attrs
 
