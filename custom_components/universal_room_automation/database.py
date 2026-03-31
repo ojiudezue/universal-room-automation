@@ -1,7 +1,7 @@
 """Database for Universal Room Automation."""
 from __future__ import annotations
 #
-# Universal Room Automation v3.19.1
+# Universal Room Automation v3.20.0
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors
@@ -709,6 +709,23 @@ class UniversalRoomDatabase:
                     )""",
                 ]):
                     failed_tables.append("energy_state")
+
+                # -- v3.20.0: Room automation state persistence -------------
+                if not await self._create_table_safe(db, "room_state", [
+                    """CREATE TABLE IF NOT EXISTS room_state (
+                        room_id TEXT PRIMARY KEY,
+                        became_occupied_time TEXT,
+                        last_occupied_state INTEGER NOT NULL DEFAULT 0,
+                        occupancy_first_detected TEXT,
+                        failsafe_fired INTEGER NOT NULL DEFAULT 0,
+                        last_trigger_source TEXT,
+                        last_lux_zone TEXT,
+                        last_timed_open_date TEXT,
+                        last_timed_close_date TEXT,
+                        updated_at TEXT NOT NULL
+                    )""",
+                ]):
+                    failed_tables.append("room_state")
 
                 # ============================================================
                 # Schema migrations (per-table, safe)
@@ -2993,3 +3010,60 @@ class UniversalRoomDatabase:
         except Exception as e:
             _LOGGER.error("Error getting consumption history: %s", e)
             return []
+
+    # =========================================================================
+    # v3.20.0: ROOM STATE PERSISTENCE
+    # =========================================================================
+
+    async def save_room_state(self, room_id: str, state: dict) -> None:
+        """Save room automation state for restart resilience.
+
+        Called periodically (every 5 minutes) by the room coordinator
+        as a DB backup alongside RestoreEntity state persistence.
+        """
+        try:
+            async with self._db() as db:
+                await db.execute(
+                    """INSERT OR REPLACE INTO room_state
+                    (room_id, became_occupied_time, last_occupied_state,
+                     occupancy_first_detected, failsafe_fired,
+                     last_trigger_source, last_lux_zone,
+                     last_timed_open_date, last_timed_close_date, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        room_id,
+                        state.get("became_occupied_time"),
+                        1 if state.get("last_occupied_state") else 0,
+                        state.get("occupancy_first_detected"),
+                        1 if state.get("failsafe_fired") else 0,
+                        state.get("last_trigger_source"),
+                        state.get("last_lux_zone"),
+                        state.get("last_timed_open_date"),
+                        state.get("last_timed_close_date"),
+                        dt_util.utcnow().isoformat(),
+                    ),
+                )
+                await db.commit()
+        except Exception as err:
+            _LOGGER.warning("Failed to save room state for %s: %s", room_id, err)
+
+    async def get_room_state(self, room_id: str) -> dict | None:
+        """Get saved room automation state.
+
+        Returns a dict of column names to values, or None if not found.
+        Used as fallback when RestoreEntity state is unavailable.
+        """
+        try:
+            async with self._db() as db:
+                cursor = await db.execute(
+                    "SELECT * FROM room_state WHERE room_id = ?",
+                    (room_id,),
+                )
+                row = await cursor.fetchone()
+                if row is None:
+                    return None
+                columns = [desc[0] for desc in cursor.description]
+                return dict(zip(columns, row))
+        except Exception as err:
+            _LOGGER.warning("Failed to get room state for %s: %s", room_id, err)
+            return None

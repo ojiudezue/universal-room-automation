@@ -1,6 +1,6 @@
 """Switch platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.19.1
+# Universal Room Automation v3.20.0
 # Build: 2026-01-02
 # File: switch.py
 #
@@ -1043,7 +1043,7 @@ class AutomationSwitch(UniversalRoomEntity, SwitchEntity, RestoreEntity):
         _LOGGER.info("Automation disabled for room: %s", self.coordinator.entry.data.get("room_name"))
 
 
-class OverrideOccupiedSwitch(UniversalRoomEntity, SwitchEntity):
+class OverrideOccupiedSwitch(UniversalRoomEntity, SwitchEntity, RestoreEntity):
     """Switch to override room as occupied."""
 
     _attr_icon = "mdi:account-check"
@@ -1053,10 +1053,24 @@ class OverrideOccupiedSwitch(UniversalRoomEntity, SwitchEntity):
         super().__init__(coordinator, "override_occupied", "Override Occupied")
         self._attr_is_on = False
 
+    async def async_added_to_hass(self) -> None:
+        """Restore state on startup."""
+        await super().async_added_to_hass()
+        last_state = await self.async_get_last_state()
+        if last_state is not None:
+            self._attr_is_on = last_state.state == "on"
+
     async def async_turn_on(self, **kwargs) -> None:
         """Force room to occupied state."""
         self._attr_is_on = True
+        # Review fix: publish state BEFORE mutual exclusion service call
+        # so coordinator sees correct state if refresh interleaves
         self.async_write_ha_state()
+        # Mutually exclusive: turn off vacant override
+        vacant_slug = f"switch.{self.coordinator.entry.data.get('room_name', 'unknown').lower().replace(' ', '_')}_override_vacant"
+        vacant_state = self.hass.states.get(vacant_slug)
+        if vacant_state and vacant_state.state == "on":
+            await self.hass.services.async_call("switch", "turn_off", {"entity_id": vacant_slug})
         _LOGGER.info("Override occupied enabled for room: %s", self.coordinator.entry.data.get("room_name"))
 
     async def async_turn_off(self, **kwargs) -> None:
@@ -1066,20 +1080,33 @@ class OverrideOccupiedSwitch(UniversalRoomEntity, SwitchEntity):
         _LOGGER.info("Override occupied disabled for room: %s", self.coordinator.entry.data.get("room_name"))
 
 
-class OverrideVacantSwitch(UniversalRoomEntity, SwitchEntity):
+class OverrideVacantSwitch(UniversalRoomEntity, SwitchEntity, RestoreEntity):
     """Switch to override room as vacant."""
 
     _attr_icon = "mdi:account-off"
 
     def __init__(self, coordinator: UniversalRoomCoordinator) -> None:
-        """Initialize the sensor."""
+        """Initialize the switch."""
         super().__init__(coordinator, "override_vacant", "Override Vacant")
         self._attr_is_on = False
+
+    async def async_added_to_hass(self) -> None:
+        """Restore state on startup."""
+        await super().async_added_to_hass()
+        last_state = await self.async_get_last_state()
+        if last_state is not None:
+            self._attr_is_on = last_state.state == "on"
 
     async def async_turn_on(self, **kwargs) -> None:
         """Force room to vacant state."""
         self._attr_is_on = True
+        # Review fix: publish state BEFORE mutual exclusion service call
         self.async_write_ha_state()
+        # Mutually exclusive: turn off occupied override
+        occ_slug = f"switch.{self.coordinator.entry.data.get('room_name', 'unknown').lower().replace(' ', '_')}_override_occupied"
+        occ_state = self.hass.states.get(occ_slug)
+        if occ_state and occ_state.state == "on":
+            await self.hass.services.async_call("switch", "turn_off", {"entity_id": occ_slug})
         _LOGGER.info("Override vacant enabled for room: %s", self.coordinator.entry.data.get("room_name"))
 
     async def async_turn_off(self, **kwargs) -> None:

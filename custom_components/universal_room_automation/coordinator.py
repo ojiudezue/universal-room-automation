@@ -1,6 +1,6 @@
 """Data coordinator for Universal Room Automation."""
 #
-# Universal Room Automation v3.19.1
+# Universal Room Automation v3.20.0
 # Build: 2026-01-02
 # File: coordinator.py
 # v3.2.8: Support for active state change listeners in aggregation sensors
@@ -157,6 +157,9 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
 
         # Failsafe tracking
         self._failsafe_fired: bool = False
+
+        # v3.20.0: Room state DB backup throttle
+        self._last_room_state_save: datetime | None = None
 
         # Exit verify tracking (for automation health sensor)
         self._last_exit_verify_result: str | None = None  # "skipped_reoccupied" / "retried" / "confirmed" / "retry_failed"
@@ -656,7 +659,16 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         """
         room_name = self.entry.data.get("room_name", "Unknown")
         _LOGGER.debug("async_config_entry_first_refresh called for room: %s", room_name)
-        
+
+        # v3.20.0 D4: Clear stale listeners from any previous reload attempt
+        # Prevents listener accumulation on rapid reloads
+        for unsub in self._unsub_state_listeners:
+            unsub()
+        self._unsub_state_listeners.clear()
+        for unsub in self._unsub_signal_listeners:
+            unsub()
+        self._unsub_signal_listeners.clear()
+
         # Call parent first_refresh to fetch initial data
         await super().async_config_entry_first_refresh()
         
@@ -915,14 +927,48 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         
         return counts
     
+    def _get_room_switch_state(self, suffix: str) -> bool | None:
+        """Check a room-level switch state. Returns None if switch not found."""
+        room_slug = self.entry.data.get('room_name', 'unknown').lower().replace(' ', '_')
+        entity_id = f"switch.{room_slug}_{suffix}"
+        state = self.hass.states.get(entity_id)
+        if state is None:
+            return None
+        return state.state == "on"
+
     def _is_automation_enabled(self) -> bool:
         """Check if automation switch is enabled."""
-        # Look for the automation switch entity
-        automation_switch = f"switch.{self.entry.data.get('room_name', 'unknown').lower().replace(' ', '_')}_automation"
-        state = self.hass.states.get(automation_switch)
+        # v3.20.0: ManualModeSwitch ON disables ALL automation
+        manual = self._get_room_switch_state("manual_mode")
+        if manual is True:
+            return False
+        # Original automation switch check
+        auto = self._get_room_switch_state("automation")
+        if auto is None:
+            return True  # Default to enabled if switch not found
+        return auto
+
+    def _is_climate_automation_enabled(self) -> bool:
+        """Check if climate automation switch is enabled."""
+        state = self._get_room_switch_state("climate_automation")
         if state is None:
             return True  # Default to enabled if switch not found
-        return state.state == "on"
+        return state
+
+    def _is_cover_automation_enabled(self) -> bool:
+        """Check if cover automation switch is enabled."""
+        state = self._get_room_switch_state("cover_automation")
+        if state is None:
+            return True  # Default to enabled if switch not found
+        return state
+
+    def _is_override_occupied(self) -> bool:
+        """Check if OverrideOccupied switch forces room occupied."""
+        return self._get_room_switch_state("override_occupied") is True
+
+    def _is_override_vacant(self) -> bool:
+        """Check if OverrideVacant switch forces room vacant."""
+        return self._get_room_switch_state("override_vacant") is True
     
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch data from sensors."""
@@ -1327,6 +1373,21 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         # Track occupancy transition for DB logging (must be before _last_occupied_state update)
         was_occupied = self._last_occupied_state
 
+        # v3.20.0: Override switches — force occupancy state regardless of sensors
+        # Review fix: also update _last_occupied_state so transitions are
+        # detected correctly when override is toggled off
+        if self._is_override_occupied():
+            data[STATE_OCCUPIED] = True
+            data[STATE_OCCUPANCY_SOURCE] = "override"
+            self._last_occupied_state = True
+            if not self._became_occupied_time:
+                self._became_occupied_time = now
+        elif self._is_override_vacant():
+            data[STATE_OCCUPIED] = False
+            data[STATE_OCCUPANCY_SOURCE] = "override"
+            self._last_occupied_state = False
+            self._became_occupied_time = None
+
         # === Automation Logic ===
         if self._is_automation_enabled():
             # Handle occupancy changes
@@ -1380,23 +1441,27 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
             self.automation._refresh_config()
             try:
                 # Temperature-based fan control
-                await self.automation.handle_temperature_based_fan_control(
-                    data.get(STATE_TEMPERATURE),
-                    data.get(STATE_OCCUPIED, False)
-                )
-                
-                # Humidity-based fan control
-                await self.automation.handle_humidity_based_fan_control(
-                    data.get(STATE_HUMIDITY)
-                )
+                # v3.20.0: Gated by ClimateAutomationSwitch
+                if self._is_climate_automation_enabled():
+                    await self.automation.handle_temperature_based_fan_control(
+                        data.get(STATE_TEMPERATURE),
+                        data.get(STATE_OCCUPIED, False)
+                    )
+
+                    # Humidity-based fan control
+                    await self.automation.handle_humidity_based_fan_control(
+                        data.get(STATE_HUMIDITY)
+                    )
                 
                 # v3.1.0: Shared space scheduled auto-off check
                 await self.automation.check_scheduled_auto_off()
                 await self.automation.check_auto_off_warning()
 
                 # v3.6.38: Timed cover open/close (sunrise/sunset/time-based)
-                await self.automation.check_timed_cover_open()
-                await self.automation.check_timed_cover_close()
+                # v3.20.0: Gated by CoverAutomationSwitch
+                if self._is_cover_automation_enabled():
+                    await self.automation.check_timed_cover_open()
+                    await self.automation.check_timed_cover_close()
                 
             except Exception as e:
                 _LOGGER.error("Error in periodic automation: %s", e)
@@ -1555,7 +1620,46 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                 from datetime import time
                 t = time(hour=peak_hour)
                 data[STATE_PEAK_OCCUPANCY_TIME] = t.strftime("%I:00 %p")
-        
+
+        # v3.20.0: Throttled room state DB backup (every 5 minutes)
+        if (
+            self._last_room_state_save is None
+            or (now - self._last_room_state_save).total_seconds() > 300
+        ):
+            self._last_room_state_save = now
+            db = self.hass.data.get(DOMAIN, {}).get("database")
+            if db:
+                room_id = self.entry.entry_id
+                state = {
+                    "became_occupied_time": (
+                        self._became_occupied_time.isoformat()
+                        if self._became_occupied_time
+                        else None
+                    ),
+                    "last_occupied_state": self._last_occupied_state,
+                    "occupancy_first_detected": (
+                        self._occupancy_first_detected.isoformat()
+                        if self._occupancy_first_detected
+                        else None
+                    ),
+                    "failsafe_fired": self._failsafe_fired,
+                    "last_trigger_source": self._last_trigger_source,
+                    "last_lux_zone": self._last_lux_zone,
+                    "last_timed_open_date": (
+                        self.automation._last_timed_open_date
+                        if hasattr(self, "automation") and self.automation
+                        else None
+                    ),
+                    "last_timed_close_date": (
+                        self.automation._last_timed_close_date
+                        if hasattr(self, "automation") and self.automation
+                        else None
+                    ),
+                }
+                # v3.20.0 review fix: await directly instead of fire-and-forget
+                # (Bug Class #19 — aiosqlite INSERT is sub-ms, won't block refresh)
+                await db.save_room_state(room_id, state)
+
         return data
     
     async def _delayed_exit_verify(self, room_name: str, data: dict[str, Any]) -> None:

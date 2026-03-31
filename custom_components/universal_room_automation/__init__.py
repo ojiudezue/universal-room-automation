@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation v3.19.1
+# Universal Room Automation v3.20.0
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -1541,11 +1541,49 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
     if unload_ok:
+        # v3.20.0: Save room state to DB on unload/shutdown so the
+        # DB backup is fresh for crash recovery (not up to 5min stale)
+        coordinator = hass.data[DOMAIN].get(entry.entry_id)
+        if coordinator is not None:
+            db = hass.data.get(DOMAIN, {}).get("database")
+            if db:
+                try:
+                    from homeassistant.util import dt as dt_util
+                    room_id = entry.entry_id
+                    state = {
+                        "became_occupied_time": (
+                            coordinator._became_occupied_time.isoformat()
+                            if getattr(coordinator, "_became_occupied_time", None)
+                            else None
+                        ),
+                        "last_occupied_state": getattr(coordinator, "_last_occupied_state", False),
+                        "occupancy_first_detected": (
+                            coordinator._occupancy_first_detected.isoformat()
+                            if getattr(coordinator, "_occupancy_first_detected", None)
+                            else None
+                        ),
+                        "failsafe_fired": getattr(coordinator, "_failsafe_fired", False),
+                        "last_trigger_source": getattr(coordinator, "_last_trigger_source", None),
+                        "last_lux_zone": getattr(coordinator, "_last_lux_zone", None),
+                        "last_timed_open_date": (
+                            coordinator.automation._last_timed_open_date
+                            if hasattr(coordinator, "automation") and coordinator.automation
+                            else None
+                        ),
+                        "last_timed_close_date": (
+                            coordinator.automation._last_timed_close_date
+                            if hasattr(coordinator, "automation") and coordinator.automation
+                            else None
+                        ),
+                    }
+                    await db.save_room_state(room_id, state)
+                except Exception as err:
+                    _LOGGER.warning("Failed to save room state on unload for %s: %s", entry.entry_id, err)
+
         # v3.12.0: Explicitly clean up coordinator listeners.
         # async_will_remove_from_hass is an Entity lifecycle method — never
         # called on DataUpdateCoordinator. Without this, state and signal
         # listener unsub handles leak on every entry reload.
-        coordinator = hass.data[DOMAIN].get(entry.entry_id)
         if coordinator is not None:
             state_listeners = getattr(coordinator, "_unsub_state_listeners", [])
             for unsub in state_listeners:

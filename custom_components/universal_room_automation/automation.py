@@ -1,6 +1,6 @@
 """Automation logic for Universal Room Automation."""
 #
-# Universal Room Automation v3.19.1
+# Universal Room Automation v3.20.0
 # Build: 2026-01-04
 # File: automation.py
 # v3.3.1.1: Added int() cast to get_auto_off_hour to handle NumberSelector float values
@@ -308,8 +308,9 @@ class RoomAutomation:
         # Auto switches - turn on
         await self._control_auto_switches(True)
 
-        # Covers - open if configured
-        await self._control_covers_entry(state_data)
+        # Covers - open if configured (v3.20.0: gated by CoverAutomationSwitch)
+        if self.coordinator._is_cover_automation_enabled():
+            await self._control_covers_entry(state_data)
 
     async def _handle_exit(self, state_data: dict[str, Any]) -> None:
         """Handle room exit automation."""
@@ -322,8 +323,9 @@ class RoomAutomation:
         # Manual switches - turn off
         await self._control_manual_switches_off()
 
-        # Covers - close if configured
-        await self._control_covers_exit(state_data)
+        # Covers - close if configured (v3.20.0: gated by CoverAutomationSwitch)
+        if self.coordinator._is_cover_automation_enabled():
+            await self._control_covers_exit(state_data)
 
     async def _control_lights_entry(self, state_data: dict[str, Any]) -> None:
         """Control lights on entry with night light support."""
@@ -657,11 +659,24 @@ class RoomAutomation:
     # v3.6.39: Cover open/close helpers
     # =========================================================================
 
+    # v3.20.0: Valid cover open modes for validation
+    _VALID_OPEN_MODES = {
+        COVER_OPEN_NONE, COVER_OPEN_ON_ENTRY, COVER_OPEN_AT_TIME,
+        COVER_OPEN_ON_ENTRY_AFTER_TIME, COVER_OPEN_AT_TIME_OR_ON_ENTRY,
+    }
+
     def _get_cover_open_mode(self) -> str:
         """Resolve cover open mode (new config with legacy fallback)."""
         mode = self.config.get(CONF_COVER_OPEN_MODE)
         if mode is not None:
-            return mode
+            # v3.20.0 Fix 3: Validate against known modes
+            if mode in self._VALID_OPEN_MODES:
+                return mode
+            room_name = self.config.get("room_name", "Unknown")
+            _LOGGER.error(
+                "Room %s: Invalid cover open mode '%s' — falling back to legacy",
+                room_name, mode,
+            )
         # Legacy fallback
         action = self.config.get(CONF_ENTRY_COVER_ACTION, COVER_ACTION_NONE)
         if action == COVER_ACTION_NONE:
@@ -707,7 +722,13 @@ class RoomAutomation:
             self.hass, "sunrise", dt_util.start_of_local_day()
         )
         if sunrise_time is None:
-            return True  # Can't determine — allow
+            # v3.20.0 Fix 4: Default to NOT opening when location unknown (safer)
+            room_name = self.config.get("room_name", "Unknown")
+            _LOGGER.warning(
+                "Room %s: Cannot determine sunrise (location not configured) — deferring cover open",
+                room_name,
+            )
+            return False
         adjusted = sunrise_time + timedelta(minutes=sunrise_offset)
         return now >= adjusted
 
@@ -718,26 +739,55 @@ class RoomAutomation:
         return start_hour <= now.hour < end_hour
 
     def _are_covers_already_open(self) -> bool:
-        """Check if all configured covers are already open."""
-        covers = self.config.get(CONF_COVERS, [])
-        if not covers:
+        """Check if all available covers are already open.
+
+        Review fix: filter unavailable covers so they don't cause
+        false negatives (unavailable != "open" would block the check).
+        """
+        available = self._get_available_covers()
+        if not available:
             return True
-        for cover_id in covers:
+        for cover_id in available:
             state = self.hass.states.get(cover_id)
             if state is None or state.state != "open":
                 return False
         return True
 
     def _are_covers_already_closed(self) -> bool:
-        """Check if all configured covers are already closed."""
-        covers = self.config.get(CONF_COVERS, [])
-        if not covers:
+        """Check if all available covers are already closed.
+
+        Review fix: filter unavailable covers so they don't cause
+        repeated close commands to already-closed available covers.
+        """
+        available = self._get_available_covers()
+        if not available:
             return True
-        for cover_id in covers:
+        for cover_id in available:
             state = self.hass.states.get(cover_id)
             if state is None or state.state != "closed":
                 return False
         return True
+
+    def _get_available_covers(self) -> list[str]:
+        """v3.20.0 Fix 1: Filter covers to only available entities."""
+        covers = self.config.get(CONF_COVERS, [])
+        if not covers:
+            return []
+        available = []
+        unavailable = []
+        for cover_id in covers:
+            state = self.hass.states.get(cover_id)
+            if state is None or state.state in ("unavailable", "unknown"):
+                unavailable.append(cover_id)
+            else:
+                available.append(cover_id)
+        if unavailable:
+            room_name = self.config.get("room_name", "Unknown")
+            _LOGGER.warning(
+                "Room %s: Skipping %d unavailable cover(s): %s",
+                room_name, len(unavailable), unavailable,
+            )
+        return available
 
     async def _control_covers_entry(self, state_data: dict[str, Any]) -> None:
         """Control covers on occupancy entry.
@@ -771,15 +821,20 @@ class RoomAutomation:
         if self._are_covers_already_open():
             return
 
+        # v3.20.0 Fix 1: Validate cover entities before command
+        available = self._get_available_covers()
+        if not available:
+            return
+
         room_name = self.config.get("room_name", "Unknown")
         await self._safe_service_call(
             "cover",
             "open_cover",
-            {"entity_id": covers},
+            {"entity_id": available},
             blocking=False,
         )
         _LOGGER.info("Cover open [%s]: mode=%s, opened %d cover(s)",
-                      room_name, mode, len(covers))
+                      room_name, mode, len(available))
 
     async def check_timed_cover_open(self) -> None:
         """Open covers at sunrise/configured time regardless of occupancy.
@@ -811,18 +866,31 @@ class RoomAutomation:
             self._last_timed_open_date = today
             return
 
+        # v3.20.0 Fix 1: Validate cover entities
+        available = self._get_available_covers()
+        if not available:
+            return
+
         room_name = self.config.get("room_name", "Unknown")
         _LOGGER.info(
             "Timed cover open [%s]: opening %d cover(s) (mode=%s)",
-            room_name, len(covers), mode,
+            room_name, len(available), mode,
         )
-        await self._safe_service_call(
+        # v3.20.0 Fix 2: Only set dedup date on success (allows retry on failure)
+        # Review fix: use blocking=True so _safe_service_call returns actual success/fail
+        success = await self._safe_service_call(
             "cover",
             "open_cover",
-            {"entity_id": covers},
-            blocking=False,
+            {"entity_id": available},
+            blocking=True,
         )
-        self._last_timed_open_date = today
+        if success:
+            self._last_timed_open_date = today
+        else:
+            _LOGGER.warning(
+                "Timed cover open [%s]: service call failed — will retry next cycle",
+                room_name,
+            )
 
     async def _control_covers_exit(self, state_data: dict[str, Any]) -> None:
         """Control covers on exit (vacancy)."""
@@ -843,14 +911,19 @@ class RoomAutomation:
         if self._are_covers_already_closed():
             return
 
+        # v3.20.0 Fix 1: Validate cover entities
+        available = self._get_available_covers()
+        if not available:
+            return
+
         room_name = self.config.get("room_name", "Unknown")
         await self._safe_service_call(
             "cover",
             "close_cover",
-            {"entity_id": covers},
+            {"entity_id": available},
             blocking=False,
         )
-        _LOGGER.info("Cover close on exit [%s]: closed %d cover(s)", room_name, len(covers))
+        _LOGGER.info("Cover close on exit [%s]: closed %d cover(s)", room_name, len(available))
 
     async def check_timed_cover_close(self) -> None:
         """Close covers at sunset/configured time.
@@ -879,18 +952,31 @@ class RoomAutomation:
             self._last_timed_close_date = today
             return
 
+        # v3.20.0 Fix 1: Validate cover entities
+        available = self._get_available_covers()
+        if not available:
+            return
+
         room_name = self.config.get("room_name", "Unknown")
         _LOGGER.info(
             "Timed cover close [%s]: closing %d cover(s)",
-            room_name, len(covers),
+            room_name, len(available),
         )
-        await self._safe_service_call(
+        # v3.20.0 Fix 2: Only set dedup date on success
+        # Review fix: use blocking=True so _safe_service_call returns actual success/fail
+        success = await self._safe_service_call(
             "cover",
             "close_cover",
-            {"entity_id": covers},
-            blocking=False,
+            {"entity_id": available},
+            blocking=True,
         )
-        self._last_timed_close_date = today
+        if success:
+            self._last_timed_close_date = today
+        else:
+            _LOGGER.warning(
+                "Timed cover close [%s]: service call failed — will retry next cycle",
+                room_name,
+            )
 
     def _is_cover_close_time(self, now: datetime) -> bool:
         """Check if the configured close time has been reached.
