@@ -229,6 +229,103 @@
           "light_transition_seconds_off": "Fade-out time when turning lights off"
         }
       },
+      "init_automation_chaining": {
+        "title": "Automation Chaining",
+        "description": "Optionally bind HA automations to room triggers. These run after URA's built-in automation. Choose a trigger group or skip.",
+        "menu_options": {
+          "init_chain_occupancy": "Occupancy Triggers",
+          "init_chain_light": "Light Level Triggers",
+          "init_chain_house_state": "House State Triggers",
+          "init_chain_coordinator": "Coordinator Triggers",
+          "init_chain_skip": "Skip"
+        }
+      },
+      "init_chain_occupancy": {
+        "title": "Occupancy Triggers",
+        "description": "Bind HA automations to room enter/exit events.",
+        "data": {
+          "chain_enter": "On room enter",
+          "chain_exit": "On room exit"
+        },
+        "data_description": {
+          "chain_enter": "HA automation to trigger when the room becomes occupied",
+          "chain_exit": "HA automation to trigger when the room becomes vacant"
+        }
+      },
+      "init_chain_light": {
+        "title": "Light Level Triggers",
+        "description": "Bind HA automations to lux threshold crossings.",
+        "data": {
+          "chain_lux_dark": "When room gets dark",
+          "chain_lux_bright": "When room gets bright"
+        },
+        "data_description": {
+          "chain_lux_dark": "HA automation to trigger when lux drops below threshold",
+          "chain_lux_bright": "HA automation to trigger when lux rises above threshold"
+        }
+      },
+      "init_chain_house_state": {
+        "title": "House State Triggers",
+        "description": "Bind HA automations to house state transitions.",
+        "data": {
+          "chain_house_state_away": "On Away",
+          "chain_house_state_arriving": "On Arriving",
+          "chain_house_state_home_day": "On Home Day",
+          "chain_house_state_home_evening": "On Home Evening",
+          "chain_house_state_home_night": "On Home Night",
+          "chain_house_state_sleep": "On Sleep",
+          "chain_house_state_waking": "On Waking",
+          "chain_house_state_guest": "On Guest",
+          "chain_house_state_vacation": "On Vacation"
+        },
+        "data_description": {
+          "chain_house_state_away": "HA automation to trigger when house transitions to Away",
+          "chain_house_state_arriving": "HA automation to trigger when someone is arriving",
+          "chain_house_state_home_day": "HA automation to trigger when house enters Home Day",
+          "chain_house_state_home_evening": "HA automation to trigger when house enters Home Evening",
+          "chain_house_state_home_night": "HA automation to trigger when house enters Home Night",
+          "chain_house_state_sleep": "HA automation to trigger when house enters Sleep mode",
+          "chain_house_state_waking": "HA automation to trigger when house enters Waking mode",
+          "chain_house_state_guest": "HA automation to trigger when house enters Guest mode",
+          "chain_house_state_vacation": "HA automation to trigger when house enters Vacation mode"
+        }
+      },
+      "init_chain_coordinator": {
+        "title": "Coordinator Triggers",
+        "description": "Bind HA automations to coordinator signals (energy, safety, security).",
+        "data": {
+          "chain_energy_constraint": "On Energy Constraint",
+          "chain_safety_hazard": "On Safety Hazard",
+          "chain_security_event": "On Security Event"
+        },
+        "data_description": {
+          "chain_energy_constraint": "HA automation to trigger when energy constraint changes",
+          "chain_safety_hazard": "HA automation to trigger when a safety hazard is detected",
+          "chain_security_event": "HA automation to trigger when a security event fires"
+        }
+      },
+      "init_ai_rules": {
+        "title": "AI Rules",
+        "description": "Optionally add AI-powered natural language automation rules for this room.",
+        "menu_options": {
+          "init_ai_rule_add": "Add Rule",
+          "init_ai_rules_skip": "Skip"
+        }
+      },
+      "init_ai_rule_add": {
+        "title": "Add AI Rule",
+        "description": "Describe what should happen using natural language. The AI will parse your description into structured actions.\n\nExample: \"Turn on the overhead light at 80% brightness and set color to warm white\"",
+        "data": {
+          "ai_rule_trigger": "Trigger",
+          "ai_rule_person": "Person (optional)",
+          "ai_rule_description": "Rule Description"
+        },
+        "data_description": {
+          "ai_rule_trigger": "When this event occurs, the rule actions will execute",
+          "ai_rule_person": "Leave blank for any person, or select a person entity for person-specific rules",
+          "ai_rule_description": "Describe the automation in plain English"
+        }
+      },
       "climate": {
         "title": "Climate & HVAC",
         "description": "Configure temperature-based fan control and HVAC coordination. Fan speed thresholds will be configured in a follow-up step if fan control is enabled.",
@@ -370,7 +467,8 @@
           "basic_setup": "🚪 Basic Setup",
           "sensors": "📡 Sensors",
           "devices": "💡 Devices",
-          "automation_behavior": "⚙️ Automation",
+          "options_lighting": "💡 Lighting Automation",
+          "options_covers": "🪟 Cover Automation",
           "automation_chaining": "🔗 Automation Chaining",
           "ai_rules": "🧠 AI Rules",
           "ai_rule_add": "➕ Add Rule",
@@ -1001,6 +1099,54 @@
           "close_timing_mode": "Close Timing",
           "close_time": "Close Time",
           "sunset_offset": "Sunset Offset (minutes)"
+        }
+      },
+      "options_lighting": {
+        "title": "Lighting Automation",
+        "description": "Configure how lights respond to occupancy changes.",
+        "data": {
+          "entry_light_action": "Lights on Entry",
+          "exit_light_action": "Lights on Exit",
+          "illuminance_dark_threshold": "Dark Threshold (lux)",
+          "light_brightness_pct": "Light Brightness %",
+          "light_transition_seconds_on": "Turn On Transition (s)",
+          "light_transition_seconds_off": "Turn Off Transition (s)"
+        },
+        "data_description": {
+          "entry_light_action": "What to do with lights when someone enters the room",
+          "exit_light_action": "What to do with lights when the room becomes vacant",
+          "illuminance_dark_threshold": "Lux level below which the room is considered 'dark'",
+          "light_brightness_pct": "Brightness level when turning lights on (1-100%)",
+          "light_transition_seconds_on": "Fade-in time when turning lights on",
+          "light_transition_seconds_off": "Fade-out time when turning lights off"
+        }
+      },
+      "options_covers": {
+        "title": "Cover Automation",
+        "description": "Configure how motorized blinds and shades respond to events.",
+        "data": {
+          "cover_type": "Cover Type",
+          "cover_open_mode": "Open Mode",
+          "cover_open_time_source": "Open Time Source",
+          "cover_open_hour": "Open Hour",
+          "sunrise_offset": "Sunrise Offset (minutes)",
+          "exit_cover_action": "Close on Exit",
+          "timed_close_enabled": "Enable Timed Close",
+          "cover_close_time_source": "Close Time Source",
+          "cover_close_hour": "Close Hour",
+          "sunset_offset": "Sunset Offset (minutes)"
+        },
+        "data_description": {
+          "cover_type": "Roller/shade style or venetian tilt style",
+          "cover_open_mode": "When to open covers: manual, on entry, at time, or combo",
+          "cover_open_time_source": "Use sunrise or a specific hour for time-based opening",
+          "cover_open_hour": "Hour (0-23) for specific-time opening",
+          "sunrise_offset": "Minutes before/after sunrise for sun-based timing",
+          "exit_cover_action": "When to close covers on room exit",
+          "timed_close_enabled": "Automatically close covers at a specific time",
+          "cover_close_time_source": "Use sunset or a specific hour for timed close",
+          "cover_close_hour": "Hour (0-23) for timed auto-close",
+          "sunset_offset": "Minutes before/after sunset for sun-based timing"
         }
       },
       "automation_chaining": {

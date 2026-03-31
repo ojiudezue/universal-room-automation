@@ -177,12 +177,10 @@ from custom_components.universal_room_automation.domain_coordinators.manager imp
 from custom_components.universal_room_automation.domain_coordinators.signals import (
     SIGNAL_HOUSE_STATE_CHANGED,
     SIGNAL_ENERGY_CONSTRAINT,
-    SIGNAL_COMFORT_REQUEST,
     SIGNAL_CENSUS_UPDATED,
     SIGNAL_SAFETY_HAZARD,
     HouseStateChange,
     EnergyConstraint,
-    ComfortRequest,
     SafetyHazard,
 )
 from custom_components.universal_room_automation.const import (
@@ -478,7 +476,6 @@ class TestSignalConstants:
     def test_signal_strings(self):
         assert SIGNAL_HOUSE_STATE_CHANGED == "ura_house_state_changed"
         assert SIGNAL_ENERGY_CONSTRAINT == "ura_energy_constraint"
-        assert SIGNAL_COMFORT_REQUEST == "ura_comfort_request"
         assert SIGNAL_CENSUS_UPDATED == "ura_census_updated"
         assert SIGNAL_SAFETY_HAZARD == "ura_safety_hazard"
 
@@ -494,10 +491,6 @@ class TestSignalDataClasses:
         assert p.occupied_only is True
         assert p.fan_assist is False
         assert p.max_runtime_minutes is None
-
-    def test_comfort_request(self):
-        p = ComfortRequest("kitchen", "main_floor", "zone_adjustment", 74.0)
-        assert p.zone == "main_floor"
 
     def test_safety_hazard(self):
         p = SafetyHazard("smoke", "critical", "binary_sensor.kitchen_smoke")

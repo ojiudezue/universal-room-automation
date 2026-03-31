@@ -1,6 +1,6 @@
 """Binary sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.20.0
+# Universal Room Automation v3.20.2
 # Build: 2026-01-02
 # File: binary_sensor.py
 # v3.2.6: Renamed "Presence" to "Sensor Presence" for clarity
@@ -154,8 +154,6 @@ async def async_setup_entry(
         FanShouldRunBinarySensor(coordinator),
         HVACCoolingBinarySensor(coordinator),
         HVACHeatingBinarySensor(coordinator),
-        OccupancyAnomalyBinarySensor(coordinator),
-        EnergyAnomalyBinarySensor(coordinator),
         RoomAlertBinarySensor(coordinator),
         # v3.12.0 M2: Automation conflict detection (populated in M3)
         AutomationConflictBinarySensor(coordinator),
@@ -537,54 +535,6 @@ class HVACHeatingBinarySensor(UniversalRoomEntity, BinarySensorEntity):
         
         hvac_action = state.attributes.get("hvac_action")
         return hvac_action == "heating"
-
-
-class OccupancyAnomalyBinarySensor(UniversalRoomEntity, BinarySensorEntity):
-    """Binary sensor for occupancy anomaly detection."""
-
-    _attr_device_class = BinarySensorDeviceClass.PROBLEM
-    _attr_icon = "mdi:alert-circle"
-    _attr_entity_registry_enabled_default = False
-
-    def __init__(self, coordinator: UniversalRoomCoordinator) -> None:
-        """Initialize the sensor."""
-        super().__init__(coordinator, "occupancy_anomaly", "Occupancy Anomaly")
-
-    @property
-    def available(self) -> bool:
-        """Sensor is always available."""
-        return True
-
-    @property
-    def is_on(self) -> bool:
-        """Return true if unusual occupancy pattern detected."""
-        # TODO: Implement anomaly detection algorithm
-        # For now, return False
-        return False
-
-
-class EnergyAnomalyBinarySensor(UniversalRoomEntity, BinarySensorEntity):
-    """Binary sensor for energy anomaly detection."""
-
-    _attr_device_class = BinarySensorDeviceClass.PROBLEM
-    _attr_icon = "mdi:alert-circle"
-    _attr_entity_registry_enabled_default = False
-
-    def __init__(self, coordinator: UniversalRoomCoordinator) -> None:
-        """Initialize the sensor."""
-        super().__init__(coordinator, "energy_anomaly", "Energy Anomaly")
-
-    @property
-    def available(self) -> bool:
-        """Sensor is always available."""
-        return True
-
-    @property
-    def is_on(self) -> bool:
-        """Return true if unusual energy usage detected."""
-        # TODO: Implement anomaly detection algorithm
-        # For now, return False
-        return False
 
 
 class RoomAlertBinarySensor(UniversalRoomEntity, BinarySensorEntity):
