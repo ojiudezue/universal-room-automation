@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.20.2
+# Universal Room Automation v3.21.0
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -38,6 +38,7 @@ from homeassistant.const import (
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.util import dt as dt_util
 
 from .const import (
@@ -5066,11 +5067,13 @@ class NMDeliveryRateSensor(AggregationEntity, SensorEntity):
         }
 
 
-class NMDiagnosticsSensor(AggregationEntity, SensorEntity):
+class NMDiagnosticsSensor(AggregationEntity, SensorEntity, RestoreEntity):
     """Composite NM health and diagnostics.
 
     Entity: sensor.ura_notification_diagnostics
     Device: URA: Notification Manager
+
+    v3.21.0 D4: RestoreEntity persists NM alert/cooldown/dedup state across restarts.
     """
 
     _attr_has_entity_name = True
@@ -5085,13 +5088,35 @@ class NMDiagnosticsSensor(AggregationEntity, SensorEntity):
         self._attr_device_info = _nm_device_info()
 
     async def async_added_to_hass(self) -> None:
-        """Register signal listener."""
+        """Register signal listener and restore NM state from attributes."""
         await super().async_added_to_hass()
         from homeassistant.helpers.dispatcher import async_dispatcher_connect
         from .domain_coordinators.signals import SIGNAL_NM_ENTITIES_UPDATE
         self.async_on_remove(
             async_dispatcher_connect(self.hass, SIGNAL_NM_ENTITIES_UPDATE, self._handle_update)
         )
+
+        # v3.21.0 D4: Restore NM alert state from persisted attributes
+        # Review fix R2-F8: Only restore if NM is still in IDLE state.
+        # NM's async_setup() may have already recovered from DB — don't overwrite.
+        last_state = await self.async_get_last_state()
+        if last_state is not None and last_state.attributes:
+            attrs = last_state.attributes
+            persist_data = attrs.get("nm_persistence_state")
+            if isinstance(persist_data, dict):
+                nm = self.hass.data.get(DOMAIN, {}).get("notification_manager")
+                if nm is not None and nm._alert_state.value == "idle":
+                    nm.restore_persistence_state(persist_data)
+                    _LOGGER.debug(
+                        "Restored NM persistence state: alert=%s cooldown=%s",
+                        persist_data.get("alert_state"),
+                        persist_data.get("cooldown_remaining"),
+                    )
+                elif nm is not None:
+                    _LOGGER.debug(
+                        "Skipping NM RestoreEntity — already in state %s from DB recovery",
+                        nm._alert_state.value,
+                    )
 
     @callback
     def _handle_update(self) -> None:
@@ -5116,11 +5141,14 @@ class NMDiagnosticsSensor(AggregationEntity, SensorEntity):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        """Return full diagnostic breakdown."""
+        """Return full diagnostic breakdown including persistence state."""
         nm = self.hass.data.get(DOMAIN, {}).get("notification_manager")
         if nm is None:
             return {}
-        return nm.diagnostics_summary
+        attrs = nm.diagnostics_summary
+        # v3.21.0 D4: Include persistence state for RestoreEntity
+        attrs["nm_persistence_state"] = nm.get_persistence_state()
+        return attrs
 
 
 class NMInboundTodaySensor(AggregationEntity, SensorEntity):

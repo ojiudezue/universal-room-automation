@@ -427,6 +427,54 @@ class NotificationManager:
         """Return inbound message breakdown by parsed command."""
         return dict(self._inbound_by_command)
 
+    # =========================================================================
+    # v3.21.0 D4: Alert state persistence
+    # =========================================================================
+
+    def get_persistence_state(self) -> dict[str, Any]:
+        """Return serializable alert/cooldown/dedup state for RestoreEntity persistence."""
+        return {
+            "alert_state": self._alert_state.value,
+            "cooldown_remaining": self._cooldown_remaining,
+            "cooldown_hazard_type": self._cooldown_hazard_type,
+            "cooldown_location": self._cooldown_location,
+            "dedup_cache": {k: v for k, v in self._dedup_cache.items()},
+            "active_alert_severity": self._active_alert_data.get("severity") if self._active_alert_data else None,
+        }
+
+    def restore_persistence_state(self, state: dict[str, Any]) -> None:
+        """Restore alert/cooldown/dedup state from persisted attributes.
+
+        Review fix F8: COOLDOWN state is reset to IDLE on restore because
+        the tick task that decrements the countdown is not restarted.
+        A restart naturally interrupts the alert flow; live sensors will
+        re-trigger alerts if hazards persist.
+        """
+        if not state:
+            return
+        if alert_state := state.get("alert_state"):
+            try:
+                restored = AlertState(alert_state)
+                # F8: Don't restore COOLDOWN — tick task won't be running
+                if restored == AlertState.COOLDOWN:
+                    self._alert_state = AlertState.IDLE
+                    self._cooldown_remaining = 0
+                    self._cooldown_hazard_type = None
+                    self._cooldown_location = None
+                    _LOGGER.info("NM: Reset COOLDOWN to IDLE on restart (tick task not restarted)")
+                else:
+                    self._alert_state = restored
+            except ValueError:
+                pass
+        if self._alert_state != AlertState.IDLE:
+            # Only restore cooldown fields if we didn't reset to IDLE above
+            self._cooldown_remaining = state.get("cooldown_remaining", 0)
+            self._cooldown_hazard_type = state.get("cooldown_hazard_type")
+            self._cooldown_location = state.get("cooldown_location")
+        dedup = state.get("dedup_cache")
+        if isinstance(dedup, dict):
+            self._dedup_cache = {k: float(v) for k, v in dedup.items() if isinstance(v, (int, float))}
+
     @property
     def safe_word_configured(self) -> bool:
         """Return whether a safe word is configured."""

@@ -507,6 +507,10 @@ class PresenceCoordinator(BaseCoordinator):
         # v3.19.0: Face-confirmed arrival state
         self._face_arrival_cooldown: Dict[str, datetime] = {}
         self._face_recognition_enabled: bool = False
+        # v3.21.0 D2: Ready event for downstream coordinators (e.g., HVAC).
+        # Initialized as None here; created in async_setup() to ensure it
+        # binds to the correct event loop (review fix F3).
+        self._ready_event: asyncio.Event | None = None
 
     @property
     def inference_engine(self) -> StateInferenceEngine:
@@ -543,6 +547,10 @@ class PresenceCoordinator(BaseCoordinator):
         Discovers zones and their rooms, sets up zone trackers,
         subscribes to Census and occupancy signals, discovers zone cameras.
         """
+        import asyncio
+        # v3.21.0 D2: Create ready event on the event loop (not in __init__)
+        self._ready_event = asyncio.Event()
+
         _LOGGER.info("Setting up Presence Coordinator")
 
         # v3.6.0.3: Instantiate anomaly detector FIRST so it's always available
@@ -645,6 +653,10 @@ class PresenceCoordinator(BaseCoordinator):
 
         # Run initial inference with seeded census count
         await self._run_inference("startup")
+
+        # v3.21.0 D2: Signal readiness so downstream coordinators (HVAC) can
+        # safely read house state without racing startup ordering.
+        self._ready_event.set()
 
         _LOGGER.info(
             "Presence Coordinator ready: %d zones tracked",

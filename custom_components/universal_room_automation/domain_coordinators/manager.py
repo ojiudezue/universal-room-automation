@@ -231,7 +231,10 @@ class CoordinatorManager:
         self._running = True
         self._last_reset_date = dt_util.now().date().isoformat()
 
-        # Set up all registered coordinators
+        # Set up all registered coordinators.
+        # v3.21.0 D2: Startup ordering dependency — HVAC waits on Presence
+        # _ready_event (set after initial inference). Dict insertion order
+        # already puts Presence before HVAC, but the event makes it explicit.
         for coord_id, coordinator in self._coordinators.items():
             try:
                 await coordinator.async_setup()

@@ -1,6 +1,6 @@
 """Data coordinator for Universal Room Automation."""
 #
-# Universal Room Automation v3.20.2
+# Universal Room Automation v3.21.0
 # Build: 2026-01-02
 # File: coordinator.py
 # v3.2.8: Support for active state change listeners in aggregation sensors
@@ -347,7 +347,7 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         chains = self._get_config(CONF_AUTOMATION_CHAINS, {})
         rules = self._get_config(CONF_AI_RULES, [])
         has_matching_rule = any(r.get("trigger_type") == trigger_key for r in rules if r.get("enabled", True))
-        if trigger_key in chains or has_matching_rule:
+        if (trigger_key in chains or has_matching_rule) and self._is_ai_automation_enabled():
             room_name = self.entry.data.get("room_name", "unknown")
             _LOGGER.info(
                 "[%s] House state → %s, firing chained automation + AI rules",
@@ -366,7 +366,7 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         chains = self._get_config(CONF_AUTOMATION_CHAINS, {})
         rules = self._get_config(CONF_AI_RULES, [])
         has_matching_rule = any(r.get("trigger_type") == TRIGGER_ENERGY_CONSTRAINT for r in rules if r.get("enabled", True))
-        if TRIGGER_ENERGY_CONSTRAINT in chains or has_matching_rule:
+        if (TRIGGER_ENERGY_CONSTRAINT in chains or has_matching_rule) and self._is_ai_automation_enabled():
             room_name = self.entry.data.get("room_name", "unknown")
             mode = payload.mode if hasattr(payload, "mode") else str(payload)
             _LOGGER.info(
@@ -386,6 +386,7 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         chains = self._get_config(CONF_AUTOMATION_CHAINS, {})
         rules = self._get_config(CONF_AI_RULES, [])
         has_matching_rule = any(r.get("trigger_type") == TRIGGER_SAFETY_HAZARD for r in rules if r.get("enabled", True))
+        # Review fix F11: safety automations always fire regardless of AI toggle
         if TRIGGER_SAFETY_HAZARD in chains or has_matching_rule:
             room_name = self.entry.data.get("room_name", "unknown")
             hazard_type = payload.hazard_type if hasattr(payload, "hazard_type") else str(payload)
@@ -406,6 +407,7 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         chains = self._get_config(CONF_AUTOMATION_CHAINS, {})
         rules = self._get_config(CONF_AI_RULES, [])
         has_matching_rule = any(r.get("trigger_type") == TRIGGER_SECURITY_EVENT for r in rules if r.get("enabled", True))
+        # Review fix F11: security automations always fire regardless of AI toggle
         if TRIGGER_SECURITY_EVENT in chains or has_matching_rule:
             room_name = self.entry.data.get("room_name", "unknown")
             event_type = payload.event_type if hasattr(payload, "event_type") else str(payload)
@@ -962,6 +964,22 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
             return True  # Default to enabled if switch not found
         return state
 
+    def _is_ai_automation_enabled(self) -> bool:
+        """Check if AI automation switch is enabled for this room.
+
+        v3.21.0 D7: Per-room toggle for AI rules and automation chaining.
+        Review fix R2-F11: Also respect ManualMode — if manual mode is ON,
+        AI automation is disabled regardless of the AI toggle.
+        """
+        # ManualMode overrides everything
+        manual = self._get_room_switch_state("manual_mode")
+        if manual is True:
+            return False
+        state = self._get_room_switch_state("ai_automation")
+        if state is None:
+            return True  # Default to enabled if switch not found
+        return state
+
     def _is_override_occupied(self) -> bool:
         """Check if OverrideOccupied switch forces room occupied."""
         return self._get_room_switch_state("override_occupied") is True
@@ -1483,7 +1501,8 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                     triggers_fired.append(lux_trigger)
 
             # Fire chained automations for all triggers, then AI rules
-            if triggers_fired:
+            # v3.21.0 D7: Gated by AI automation per-room toggle
+            if triggers_fired and self._is_ai_automation_enabled():
                 # v3.12.0 M4: Track trigger execution
                 self._last_trigger_event = ", ".join(triggers_fired)
                 self._last_trigger_time_str = dt_util.utcnow().isoformat()

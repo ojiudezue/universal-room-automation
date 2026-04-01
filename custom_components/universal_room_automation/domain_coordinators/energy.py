@@ -7,6 +7,7 @@ Priority 40 (higher than HVAC at 30, lower than Safety at 100).
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -325,38 +326,18 @@ class EnergyCoordinator(BaseCoordinator):
             self._decision_timer_unsub()
             self._decision_timer_unsub = None
 
-        # Restore billing cycle totals from DB (survives restarts)
-        await self._restore_cycle_from_db(dt_util.now())
-
-        # Restore forecast accuracy history from DB
-        await self._restore_accuracy_from_db()
-
-        # Restore peak import history for load shedding auto-learning
-        await self._restore_peak_import_history()
-
-        # Fit temperature regression from historical data
-        await self._fit_temp_regression()
-
-        # Restore EVSE state (paused, excess solar) from DB
-        await self._restore_evse_state()
-
-        # v3.13.1: Restore circuit monitor state from DB
-        await self._restore_circuit_state()
-
-        # v3.13.2: Restore MetricBaselines from DB
-        await self._restore_energy_baselines()
-
-        # v3.15.0: Restore consumption history baselines from energy_daily
-        await self._restore_consumption_history()
-
-        # v3.15.0: Restore midnight snapshot (lifetime snapshots + billing)
-        await self._restore_midnight_snapshot()
-
-        # v3.15.0: Restore envoy cache (last-known values for offline defense)
-        await self._restore_envoy_cache()
-
-        # v3.15.0: Restore load shedding level
-        await self._restore_load_shedding_level()
+        # v3.21.0 D1: Sequential DB restore with 15s timeout
+        # Review fix: keep sequential (avoids concurrent DB/shared-state contention)
+        # but add timeout so locked DB doesn't hang coordinator startup
+        now = dt_util.now()
+        try:
+            await asyncio.wait_for(
+                self._restore_all_sequential(now), timeout=15.0
+            )
+        except asyncio.TimeoutError:
+            _LOGGER.error(
+                "Energy DB restore timed out after 15s — starting with defaults"
+            )
 
         # Start periodic decision cycle
         self._decision_timer_unsub = async_track_time_interval(
@@ -398,6 +379,25 @@ class EnergyCoordinator(BaseCoordinator):
             actions.extend(battery_actions)
 
         return actions
+
+    async def _restore_all_sequential(self, now) -> None:
+        """Run all DB restore methods sequentially.
+
+        v3.21.0: Wrapped by asyncio.wait_for(timeout=15) in async_setup().
+        Sequential to avoid concurrent DB access and shared-state contention.
+        Each method has its own try/except so one failure doesn't block others.
+        """
+        await self._restore_cycle_from_db(now)
+        await self._restore_accuracy_from_db()
+        await self._restore_peak_import_history()
+        await self._fit_temp_regression()
+        await self._restore_evse_state()
+        await self._restore_circuit_state()
+        await self._restore_energy_baselines()
+        await self._restore_consumption_history()
+        await self._restore_midnight_snapshot()
+        await self._restore_envoy_cache()
+        await self._restore_load_shedding_level()
 
     async def _restore_cycle_from_db(self, now) -> None:
         """Restore billing cycle totals from DB on startup."""
