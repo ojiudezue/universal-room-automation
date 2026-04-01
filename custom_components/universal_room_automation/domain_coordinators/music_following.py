@@ -19,7 +19,8 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 
 from ..const import (
     DEFAULT_MF_COOLDOWN_SECONDS,
@@ -33,6 +34,7 @@ from ..const import (
 )
 from .base import BaseCoordinator, CoordinatorAction, Intent
 from .coordinator_diagnostics import AnomalyDetector
+from .signals import SIGNAL_PERSON_ARRIVING, SIGNAL_SAFETY_HAZARD, SIGNAL_SECURITY_EVENT
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -134,6 +136,33 @@ class MusicFollowingCoordinator(BaseCoordinator):
                 self._on_transfer_outcome
             )
 
+        # v3.22.0 D2: Subscribe to safety hazard signals
+        self._unsub_listeners.append(
+            async_dispatcher_connect(
+                self.hass,
+                SIGNAL_SAFETY_HAZARD,
+                self._handle_safety_hazard,
+            )
+        )
+
+        # v3.22.0 D3: Subscribe to person arriving signals
+        self._unsub_listeners.append(
+            async_dispatcher_connect(
+                self.hass,
+                SIGNAL_PERSON_ARRIVING,
+                self._handle_person_arriving,
+            )
+        )
+
+        # v3.22.0 D4: Subscribe to security event signals
+        self._unsub_listeners.append(
+            async_dispatcher_connect(
+                self.hass,
+                SIGNAL_SECURITY_EVENT,
+                self._handle_security_event,
+            )
+        )
+
     def _on_transfer_outcome(self) -> None:
         """Diagnostic listener callback — feed transfer stats to anomaly detector.
 
@@ -177,6 +206,152 @@ class MusicFollowingCoordinator(BaseCoordinator):
         actions through the intent pipeline.
         """
         return []
+
+    # ------------------------------------------------------------------
+    # v3.22.0 D2/D3/D4: Cross-coordinator signal handlers
+    # ------------------------------------------------------------------
+
+    @callback
+    def _handle_safety_hazard(self, hazard: Any) -> None:
+        """Handle safety hazard signal — stop all playback on critical.
+
+        v3.22.0 D2: Cross-coordinator response to SIGNAL_SAFETY_HAZARD.
+        Gated by CONF_MUSIC_ON_HAZARD_STOP config toggle.
+        """
+        # Review fix F6: observation mode guard
+        if getattr(self, "observation_mode", False):
+            return
+        if hazard is None:
+            return
+        if isinstance(hazard, dict):
+            severity = hazard.get("severity", "")
+            hazard_type = hazard.get("hazard_type", "")
+        elif hasattr(hazard, "severity"):
+            severity = getattr(hazard, "severity", "")
+            hazard_type = getattr(hazard, "hazard_type", "")
+        else:
+            return
+
+        if severity != "critical":
+            return
+
+        from ..const import CONF_MUSIC_ON_HAZARD_STOP
+
+        if self._get_signal_config(CONF_MUSIC_ON_HAZARD_STOP):
+            _LOGGER.warning(
+                "MusicFollowing: Safety hazard %s/%s — stopping all playback",
+                hazard_type, severity,
+            )
+            self.hass.async_create_task(self._stop_all_playback())
+        else:
+            _LOGGER.info(
+                "MusicFollowing: Safety hazard %s/%s — would stop playback "
+                "(disabled by config)",
+                hazard_type, severity,
+            )
+
+    @callback
+    def _handle_person_arriving(self, payload: Any) -> None:
+        """Handle person arriving signal — start music in person's zone.
+
+        v3.22.0 D3: Cross-coordinator response to SIGNAL_PERSON_ARRIVING.
+        Gated by CONF_MUSIC_ON_ARRIVAL_START config toggle (OFF by default).
+        """
+        if getattr(self, "observation_mode", False):
+            return
+        if payload is None:
+            return
+        if isinstance(payload, dict):
+            person_entity = payload.get("person_entity", "")
+            zone = payload.get("zone", "")
+        elif hasattr(payload, "person_entity"):
+            person_entity = getattr(payload, "person_entity", "")
+            zone = getattr(payload, "zone", "")
+        else:
+            return
+
+        if not person_entity:
+            return
+
+        from ..const import CONF_MUSIC_ON_ARRIVAL_START
+
+        if self._get_signal_config(CONF_MUSIC_ON_ARRIVAL_START):
+            _LOGGER.info(
+                "MusicFollowing: Person arriving %s — would start music in zone %s "
+                "(arrival music start is a convenience stub)",
+                person_entity, zone or "unknown",
+            )
+            # Note: Actual playback start requires knowing the person's preferred
+            # media and zone speaker. The MusicFollowing class is event-driven via
+            # TransitionDetector and doesn't expose a "start playing" API.
+            # This handler logs the intent; full implementation deferred to a
+            # future cycle when person-preferred-media config exists.
+        else:
+            _LOGGER.info(
+                "MusicFollowing: Person arriving %s — would start music "
+                "(disabled by config)",
+                person_entity,
+            )
+
+    @callback
+    def _handle_security_event(self, payload: Any) -> None:
+        """Handle security event signal — stop all playback on critical.
+
+        v3.22.0 D4: Cross-coordinator response to SIGNAL_SECURITY_EVENT.
+        Gated by CONF_MUSIC_ON_SECURITY_STOP config toggle.
+        """
+        if getattr(self, "observation_mode", False):
+            return
+        if payload is None:
+            return
+        if isinstance(payload, dict):
+            severity = payload.get("severity", "")
+            event_type = payload.get("event_type", "")
+        elif hasattr(payload, "severity"):
+            severity = getattr(payload, "severity", "")
+            event_type = getattr(payload, "event_type", "")
+        else:
+            return
+
+        if severity != "critical":
+            return
+
+        from ..const import CONF_MUSIC_ON_SECURITY_STOP
+
+        if self._get_signal_config(CONF_MUSIC_ON_SECURITY_STOP):
+            _LOGGER.warning(
+                "MusicFollowing: Security event %s/%s — stopping all playback",
+                event_type, severity,
+            )
+            self.hass.async_create_task(self._stop_all_playback())
+        else:
+            _LOGGER.info(
+                "MusicFollowing: Security event %s/%s — would stop playback "
+                "(disabled by config)",
+                event_type, severity,
+            )
+
+    async def _stop_all_playback(self) -> None:
+        """Stop all active media players (safety/security response).
+
+        Iterates all media_player entities in the playing state and
+        sends media_stop. Best-effort: failures logged but do not propagate.
+        """
+        stopped = 0
+        for state in self.hass.states.async_all("media_player"):
+            if state.state in ("playing", "paused"):
+                try:
+                    await self.hass.services.async_call(
+                        "media_player", "media_stop",
+                        {"entity_id": state.entity_id}, blocking=False,
+                    )
+                    stopped += 1
+                except Exception:  # noqa: BLE001
+                    _LOGGER.warning(
+                        "MusicFollowing: Failed to stop %s", state.entity_id
+                    )
+        if stopped > 0:
+            _LOGGER.info("MusicFollowing: Stopped %d media player(s)", stopped)
 
     async def async_teardown(self) -> None:
         """Tear down the coordinator."""

@@ -11,7 +11,8 @@ import asyncio
 import logging
 from typing import Any
 
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.dispatcher import async_dispatcher_connect
 from homeassistant.helpers.event import async_track_time_interval
 
 from .base import (
@@ -90,6 +91,7 @@ from .energy_const import (
     LOAD_SHEDDING_PRIORITY,
 )
 from .energy_tou import TOURateEngine
+from .signals import SIGNAL_SAFETY_HAZARD
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -348,6 +350,15 @@ class EnergyCoordinator(BaseCoordinator):
         # Timer managed separately via _decision_timer_unsub — do NOT add to
         # _unsub_listeners to avoid double-unsubscribe in async_teardown
 
+        # v3.22.0 D2: Subscribe to safety hazard signals
+        self._unsub_listeners.append(
+            async_dispatcher_connect(
+                self.hass,
+                SIGNAL_SAFETY_HAZARD,
+                self._handle_safety_hazard,
+            )
+        )
+
         # Run initial evaluation
         await self._async_decision_cycle()
 
@@ -379,6 +390,58 @@ class EnergyCoordinator(BaseCoordinator):
             actions.extend(battery_actions)
 
         return actions
+
+    # ------------------------------------------------------------------
+    # v3.22.0 D2: Safety hazard signal handler
+    # ------------------------------------------------------------------
+
+    @callback
+    def _handle_safety_hazard(self, hazard: Any) -> None:
+        """Handle safety hazard signal — trigger emergency load shed on critical.
+
+        v3.22.0 D2: Cross-coordinator response to SIGNAL_SAFETY_HAZARD.
+        Gated by CONF_ENERGY_ON_HAZARD_SHED_LOADS config toggle.
+        Sets _load_shedding_active_level to max (all tiers shed).
+        """
+        if self._observation_mode:
+            return
+
+        # Extract hazard fields with safe defaults
+        if hazard is None:
+            return
+        if isinstance(hazard, dict):
+            severity = hazard.get("severity", "")
+            hazard_type = hazard.get("hazard_type", "")
+        elif hasattr(hazard, "severity"):
+            severity = getattr(hazard, "severity", "")
+            hazard_type = getattr(hazard, "hazard_type", "")
+        else:
+            return
+
+        if severity != "critical":
+            return
+
+        from ..const import CONF_ENERGY_ON_HAZARD_SHED_LOADS
+
+        if self._get_signal_config(CONF_ENERGY_ON_HAZARD_SHED_LOADS):
+            max_level = len(LOAD_SHEDDING_PRIORITY)
+            _LOGGER.warning(
+                "Energy: Safety hazard %s/%s — emergency load shed to level %d",
+                hazard_type, severity, max_level,
+            )
+            # Set to max level — all load categories shed
+            old_level = self._load_shedding_active_level
+            self._load_shedding_active_level = max_level
+            # Execute shed actions for any levels not already active
+            for level_idx in range(old_level, max_level):
+                target = LOAD_SHEDDING_PRIORITY[level_idx]
+                self._execute_shed_action(target, activate=True)
+        else:
+            _LOGGER.info(
+                "Energy: Safety hazard %s/%s — would trigger emergency load shed "
+                "(disabled by config)",
+                hazard_type, severity,
+            )
 
     async def _restore_all_sequential(self, now) -> None:
         """Run all DB restore methods sequentially.

@@ -33,7 +33,10 @@ except ImportError:
         pass
 
 from homeassistant.core import Event, HomeAssistant, callback
-from homeassistant.helpers.dispatcher import async_dispatcher_send
+from homeassistant.helpers.dispatcher import (
+    async_dispatcher_connect,
+    async_dispatcher_send,
+)
 from homeassistant.helpers.event import (
     async_track_state_change_event,
     async_track_time_interval,
@@ -62,7 +65,13 @@ from .base import (
     ServiceCallAction,
     Severity,
 )
-from .signals import SIGNAL_SECURITY_ENTITIES_UPDATE, SIGNAL_SECURITY_EVENT, SecurityEvent as SecurityEventPayload
+from .signals import (
+    SIGNAL_PERSON_ARRIVING,
+    SIGNAL_SAFETY_HAZARD,
+    SIGNAL_SECURITY_ENTITIES_UPDATE,
+    SIGNAL_SECURITY_EVENT,
+    SecurityEvent as SecurityEventPayload,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -560,6 +569,24 @@ class SecurityCoordinator(BaseCoordinator):
         # Camera platform detection
         if self._camera_recording_enabled and self._camera_entities:
             await self._camera_dispatcher.async_setup(self._camera_entities)
+
+        # v3.22.0 D2: Subscribe to safety hazard signals
+        self._unsub_listeners.append(
+            async_dispatcher_connect(
+                self.hass,
+                SIGNAL_SAFETY_HAZARD,
+                self._handle_safety_hazard,
+            )
+        )
+
+        # v3.22.0 D3: Subscribe to person arriving signals
+        self._unsub_listeners.append(
+            async_dispatcher_connect(
+                self.hass,
+                SIGNAL_PERSON_ARRIVING,
+                self._handle_person_arriving_signal,
+            )
+        )
 
         # Anomaly detection setup
         from .coordinator_diagnostics import AnomalyDetector
@@ -1294,6 +1321,103 @@ class SecurityCoordinator(BaseCoordinator):
             )
             self._sanction_checker.add_expected_arrival(entity_id, window_minutes=30)
             async_dispatcher_send(self.hass, SIGNAL_SECURITY_ENTITIES_UPDATE)
+
+    # =========================================================================
+    # v3.22.0 D2/D3: Cross-coordinator signal handlers
+    # =========================================================================
+
+    @callback
+    def _handle_safety_hazard(self, hazard: Any) -> None:
+        """Handle safety hazard signal — unlock egress doors on smoke/fire.
+
+        v3.22.0 D2: Cross-coordinator response to SIGNAL_SAFETY_HAZARD.
+        Gated by CONF_SECURITY_ON_HAZARD_UNLOCK_EGRESS config toggle.
+        """
+        if self.observation_mode:
+            return
+
+        # Extract hazard fields with safe defaults
+        if hazard is None:
+            return
+        if isinstance(hazard, dict):
+            hazard_type = hazard.get("hazard_type", "")
+            severity = hazard.get("severity", "")
+        elif hasattr(hazard, "hazard_type"):
+            hazard_type = getattr(hazard, "hazard_type", "")
+            severity = getattr(hazard, "severity", "")
+        else:
+            return
+
+        from ..const import CONF_SECURITY_ON_HAZARD_UNLOCK_EGRESS
+
+        # Unlock all entry doors on smoke/fire critical
+        if hazard_type in ("smoke", "fire") and severity == "critical":
+            if self._get_signal_config(CONF_SECURITY_ON_HAZARD_UNLOCK_EGRESS):
+                _LOGGER.warning(
+                    "Security: Safety hazard %s/%s — unlocking all egress doors",
+                    hazard_type, severity,
+                )
+                for lock_id in self._lock_entities:
+                    try:
+                        self.hass.async_create_task(
+                            self.hass.services.async_call(
+                                "lock", "unlock",
+                                {"entity_id": lock_id}, blocking=False,
+                            )
+                        )
+                        # Review fix F5: log "requested" not "unlocked" (async task, not confirmed)
+                        _LOGGER.info("Security: Requested unlock %s (safety egress)", lock_id)
+                    except Exception:  # noqa: BLE001
+                        _LOGGER.warning(
+                            "Security: Failed to unlock %s (safety egress)", lock_id
+                        )
+                async_dispatcher_send(self.hass, SIGNAL_SECURITY_ENTITIES_UPDATE)
+            else:
+                _LOGGER.info(
+                    "Security: Safety hazard %s/%s — would unlock egress doors "
+                    "(disabled by config)",
+                    hazard_type, severity,
+                )
+
+    @callback
+    def _handle_person_arriving_signal(self, payload: Any) -> None:
+        """Handle person arriving signal — add to expected arrivals.
+
+        v3.22.0 D3: Cross-coordinator response to SIGNAL_PERSON_ARRIVING.
+        Gated by CONF_SECURITY_ON_ARRIVAL_ADD_EXPECTED config toggle.
+        """
+        if self.observation_mode:
+            return
+
+        if payload is None:
+            return
+        if isinstance(payload, dict):
+            person_entity = payload.get("person_entity", "")
+        elif hasattr(payload, "person_entity"):
+            person_entity = getattr(payload, "person_entity", "")
+        else:
+            return
+
+        if not person_entity:
+            return
+
+        from ..const import CONF_SECURITY_ON_ARRIVAL_ADD_EXPECTED
+
+        if self._get_signal_config(CONF_SECURITY_ON_ARRIVAL_ADD_EXPECTED):
+            _LOGGER.info(
+                "Security: Person arriving %s — adding to expected arrivals",
+                person_entity,
+            )
+            self._sanction_checker.add_expected_arrival(
+                person_entity, window_minutes=5
+            )
+            async_dispatcher_send(self.hass, SIGNAL_SECURITY_ENTITIES_UPDATE)
+        else:
+            _LOGGER.info(
+                "Security: Person arriving %s — would add to expected arrivals "
+                "(disabled by config)",
+                person_entity,
+            )
 
     # =========================================================================
     # Service handlers

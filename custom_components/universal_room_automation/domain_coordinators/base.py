@@ -20,7 +20,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.util import dt as dt_util
 
-from ..const import DOMAIN, VERSION
+from ..const import DOMAIN, VERSION, CONF_ENTRY_TYPE, ENTRY_TYPE_COORDINATOR_MANAGER
 
 if TYPE_CHECKING:
     from .coordinator_diagnostics import (
@@ -260,6 +260,23 @@ class BaseCoordinator(ABC):
             summary["anomaly"] = {"learning_status": "not_configured"}
 
         return summary
+
+    def _get_signal_config(self, key: str, default: bool = False) -> bool:
+        """Read a signal response config from the Coordinator Manager entry.
+
+        v3.22.0: Cross-coordinator signal response toggles are stored in the
+        CM entry options. All default to False (OFF) so no cross-coordinator
+        behavior fires unless explicitly enabled by the user.
+        """
+        cm_entry = None
+        for entry in self.hass.config_entries.async_entries(DOMAIN):
+            if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_COORDINATOR_MANAGER:
+                cm_entry = entry
+                break
+        if cm_entry is None:
+            return default
+        config = {**cm_entry.data, **cm_entry.options}
+        return config.get(key, default)
 
     def _cancel_listeners(self) -> None:
         """Cancel all registered state listeners."""

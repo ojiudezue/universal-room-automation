@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation v3.21.2
+# Universal Room Automation v3.22.0
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "3.21.2"
+VERSION: Final = "3.22.0"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -1185,3 +1185,18 @@ NON_GUEST_HOSTNAME_PREFIXES: Final = (
 TABLET_HOSTNAME_PREFIXES: Final = (
     "ipad",
 )
+
+# ============================================================================
+# v3.22.0: CROSS-COORDINATOR SIGNAL RESPONSE CONFIG KEYS (all default OFF)
+# ============================================================================
+# These toggles control whether coordinators react to cross-system signals.
+# Stored in Coordinator Manager entry options, read via BaseCoordinator._get_signal_config().
+
+CONF_HVAC_ON_HAZARD_STOP_FANS: Final = "hvac_on_hazard_stop_fans"
+CONF_HVAC_ON_HAZARD_EMERGENCY_HEAT: Final = "hvac_on_hazard_emergency_heat"
+CONF_SECURITY_ON_HAZARD_UNLOCK_EGRESS: Final = "security_on_hazard_unlock_egress"
+CONF_SECURITY_ON_ARRIVAL_ADD_EXPECTED: Final = "security_on_arrival_add_expected"
+CONF_ENERGY_ON_HAZARD_SHED_LOADS: Final = "energy_on_hazard_shed_loads"
+CONF_MUSIC_ON_HAZARD_STOP: Final = "music_on_hazard_stop"
+CONF_MUSIC_ON_ARRIVAL_START: Final = "music_on_arrival_start"
+CONF_MUSIC_ON_SECURITY_STOP: Final = "music_on_security_stop"

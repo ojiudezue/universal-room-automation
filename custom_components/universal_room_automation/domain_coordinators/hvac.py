@@ -54,6 +54,7 @@ from .signals import (
     SIGNAL_ENERGY_CONSTRAINT,
     SIGNAL_HOUSE_STATE_CHANGED,
     SIGNAL_PERSON_ARRIVING,
+    SIGNAL_SAFETY_HAZARD,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -346,6 +347,15 @@ class HVACCoordinator(BaseCoordinator):
                 self.hass,
                 SIGNAL_PERSON_ARRIVING,
                 self._handle_person_arriving,
+            )
+        )
+
+        # v3.22.0 D2: Subscribe to safety hazard signals
+        self._unsub_listeners.append(
+            async_dispatcher_connect(
+                self.hass,
+                SIGNAL_SAFETY_HAZARD,
+                self._handle_safety_hazard,
             )
         )
 
@@ -777,6 +787,137 @@ class HVACCoordinator(BaseCoordinator):
                     zone.runtime_seconds_this_window = 0.0
                     zone.window_start = None
                     zone.runtime_exceeded = False
+
+    # ------------------------------------------------------------------
+    # v3.22.0 D2: Safety hazard signal handler
+    # ------------------------------------------------------------------
+
+    @callback
+    def _handle_safety_hazard(self, hazard: Any) -> None:
+        """Handle safety hazard signal — stop fans on smoke/CO, emergency heat on freeze.
+
+        v3.22.0 D2: Cross-coordinator response to SIGNAL_SAFETY_HAZARD.
+        Gated by per-action config toggles via _get_signal_config().
+        """
+        if self._observation_mode:
+            return
+
+        # Extract hazard fields with safe defaults
+        if hazard is None:
+            return
+        if isinstance(hazard, dict):
+            hazard_type = hazard.get("hazard_type", "")
+            severity = hazard.get("severity", "")
+        elif hasattr(hazard, "hazard_type"):
+            hazard_type = getattr(hazard, "hazard_type", "")
+            severity = getattr(hazard, "severity", "")
+        else:
+            return
+
+        from ..const import (
+            CONF_HVAC_ON_HAZARD_STOP_FANS,
+            CONF_HVAC_ON_HAZARD_EMERGENCY_HEAT,
+        )
+
+        # Action 1: Stop all managed fans on smoke/CO critical
+        # Review fix F1: match HazardType enum values (carbon_monoxide, not co)
+        if hazard_type in ("smoke", "carbon_monoxide") and severity == "critical":
+            if self._get_signal_config(CONF_HVAC_ON_HAZARD_STOP_FANS):
+                _LOGGER.warning(
+                    "HVAC: Safety hazard %s/%s — stopping all managed fans",
+                    hazard_type, severity,
+                )
+                task = self.hass.async_create_task(
+                    self._stop_all_fans_safety()
+                )
+                self._pending_tasks.add(task)
+                task.add_done_callback(self._pending_tasks.discard)
+            else:
+                _LOGGER.info(
+                    "HVAC: Safety hazard %s/%s — would stop fans (disabled by config)",
+                    hazard_type, severity,
+                )
+
+        # Action 2: Emergency heat on freeze
+        # Review fix F2: match HazardType.FREEZE_RISK.value (freeze_risk, not freeze)
+        if hazard_type == "freeze_risk" and severity in ("critical", "high"):
+            if self._get_signal_config(CONF_HVAC_ON_HAZARD_EMERGENCY_HEAT):
+                _LOGGER.warning(
+                    "HVAC: Freeze hazard — setting emergency heat on all zones",
+                )
+                task = self.hass.async_create_task(
+                    self._set_emergency_heat()
+                )
+                self._pending_tasks.add(task)
+                task.add_done_callback(self._pending_tasks.discard)
+            else:
+                _LOGGER.info(
+                    "HVAC: Freeze hazard — would set emergency heat (disabled by config)",
+                )
+
+    async def _stop_all_fans_safety(self) -> None:
+        """Stop all fans managed by the fan controller (safety response).
+
+        Best-effort: failures logged but do not propagate.
+        """
+        from ..const import CONF_FANS, CONF_ENTRY_TYPE, CONF_ROOM_NAME, ENTRY_TYPE_ROOM
+
+        for zone_id, zone in self._zone_manager.zones.items():
+            for room_name in zone.rooms:
+                coordinator = self._get_room_coordinator(room_name)
+                if coordinator is None:
+                    continue
+                config = {**coordinator.config_entry.data, **coordinator.config_entry.options}
+                fans = config.get(CONF_FANS, [])
+                if not isinstance(fans, list):
+                    fans = [fans]
+                for fan_entity in fans:
+                    if not fan_entity:
+                        continue
+                    state = self.hass.states.get(fan_entity)
+                    if state and state.state == "on":
+                        try:
+                            domain = fan_entity.split(".")[0]
+                            await self.hass.services.async_call(
+                                domain, "turn_off",
+                                {"entity_id": fan_entity}, blocking=False,
+                            )
+                            _LOGGER.info("HVAC: Safety stop fan %s", fan_entity)
+                        except Exception:  # noqa: BLE001
+                            _LOGGER.warning(
+                                "HVAC: Failed to stop fan %s (safety)", fan_entity
+                            )
+
+    async def _set_emergency_heat(self) -> None:
+        """Set emergency heat mode on all zone thermostats (freeze response).
+
+        Best-effort: failures logged but do not propagate.
+        """
+        for zone_id, zone in self._zone_manager.zones.items():
+            if not zone.climate_entity:
+                continue
+            try:
+                self._override_arrester.suppress(zone.climate_entity)
+                await self.hass.services.async_call(
+                    "climate", "set_hvac_mode",
+                    {
+                        "entity_id": zone.climate_entity,
+                        "hvac_mode": "heat",
+                    },
+                    blocking=True,
+                )
+                _LOGGER.info(
+                    "HVAC: Emergency heat set on %s (freeze hazard)",
+                    zone.zone_name,
+                )
+            except Exception as e:  # noqa: BLE001
+                _LOGGER.warning(
+                    "HVAC: Failed to set emergency heat on %s: %s",
+                    zone.climate_entity, e,
+                )
+            finally:
+                # Review fix F3: always unsuppress arrester (success or failure)
+                self._override_arrester.unsuppress(zone.climate_entity)
 
     # ------------------------------------------------------------------
     # v3.17.0: Zone Intelligence methods

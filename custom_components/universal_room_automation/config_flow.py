@@ -1,6 +1,6 @@
 """Config flow for Universal Room Automation v3.6.24."""
 #
-# Universal Room Automation v3.21.2
+# Universal Room Automation v3.22.0
 # Build: 2026-01-05
 # File: config_flow.py
 # v3.3.3: Added manage_zones to integration options menu
@@ -1955,6 +1955,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         elif entry_type == ENTRY_TYPE_COORDINATOR_MANAGER:
             # v3.6.0-c2.1: Coordinator Manager options menu
             # v3.6.0-c2.4: coordinator_toggles moved to switch entities
+            # v3.22.0: signal_responses added for cross-coordinator signal config
             return self.async_show_menu(
                 step_id="init",
                 menu_options=[
@@ -1965,6 +1966,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     "coordinator_hvac",
                     "coordinator_music_following",
                     "coordinator_notifications",
+                    "signal_responses",
                 ],
             )
         elif entry_type == ENTRY_TYPE_ZONE:
@@ -3699,6 +3701,74 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
 
         return self.async_show_form(
             step_id="coordinator_toggles",
+            data_schema=data_schema,
+        )
+
+    # =========================================================================
+    # v3.22.0: SIGNAL RESPONSE CONFIGURATION
+    # =========================================================================
+
+    async def async_step_signal_responses(self, user_input=None):
+        """Configure cross-coordinator signal response toggles.
+
+        v3.22.0: All toggles default OFF. Each controls whether a coordinator
+        reacts to a specific cross-system signal (e.g., HVAC stopping fans
+        on hazard, security unlocking doors on fire).
+        """
+        from .const import (
+            CONF_HVAC_ON_HAZARD_STOP_FANS,
+            CONF_HVAC_ON_HAZARD_EMERGENCY_HEAT,
+            CONF_SECURITY_ON_HAZARD_UNLOCK_EGRESS,
+            CONF_SECURITY_ON_ARRIVAL_ADD_EXPECTED,
+            CONF_ENERGY_ON_HAZARD_SHED_LOADS,
+            CONF_MUSIC_ON_HAZARD_STOP,
+            CONF_MUSIC_ON_ARRIVAL_START,
+            CONF_MUSIC_ON_SECURITY_STOP,
+        )
+
+        if user_input is not None:
+            return self.async_create_entry(
+                title="",
+                data={**self._config_entry.options, **user_input},
+            )
+
+        data_schema = vol.Schema({
+            vol.Optional(
+                CONF_HVAC_ON_HAZARD_STOP_FANS,
+                default=self._get_current(CONF_HVAC_ON_HAZARD_STOP_FANS, False),
+            ): selector.BooleanSelector(),
+            vol.Optional(
+                CONF_HVAC_ON_HAZARD_EMERGENCY_HEAT,
+                default=self._get_current(CONF_HVAC_ON_HAZARD_EMERGENCY_HEAT, False),
+            ): selector.BooleanSelector(),
+            vol.Optional(
+                CONF_SECURITY_ON_HAZARD_UNLOCK_EGRESS,
+                default=self._get_current(CONF_SECURITY_ON_HAZARD_UNLOCK_EGRESS, False),
+            ): selector.BooleanSelector(),
+            vol.Optional(
+                CONF_SECURITY_ON_ARRIVAL_ADD_EXPECTED,
+                default=self._get_current(CONF_SECURITY_ON_ARRIVAL_ADD_EXPECTED, False),
+            ): selector.BooleanSelector(),
+            vol.Optional(
+                CONF_ENERGY_ON_HAZARD_SHED_LOADS,
+                default=self._get_current(CONF_ENERGY_ON_HAZARD_SHED_LOADS, False),
+            ): selector.BooleanSelector(),
+            vol.Optional(
+                CONF_MUSIC_ON_HAZARD_STOP,
+                default=self._get_current(CONF_MUSIC_ON_HAZARD_STOP, False),
+            ): selector.BooleanSelector(),
+            vol.Optional(
+                CONF_MUSIC_ON_ARRIVAL_START,
+                default=self._get_current(CONF_MUSIC_ON_ARRIVAL_START, False),
+            ): selector.BooleanSelector(),
+            vol.Optional(
+                CONF_MUSIC_ON_SECURITY_STOP,
+                default=self._get_current(CONF_MUSIC_ON_SECURITY_STOP, False),
+            ): selector.BooleanSelector(),
+        })
+
+        return self.async_show_form(
+            step_id="signal_responses",
             data_schema=data_schema,
         )
 
