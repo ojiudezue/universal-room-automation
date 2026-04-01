@@ -356,11 +356,20 @@ class HVACCoordinator(BaseCoordinator):
             _LOGGER.warning("HVAC: Diagnostics setup failed (non-fatal): %s", e)
 
         # Read initial house state from presence coordinator
+        # v3.21.0 D2: Wait for Presence ready event to avoid reading stale
+        # default state during startup race.
         manager = self.hass.data.get("universal_room_automation", {}).get(
             "coordinator_manager"
         )
         if manager:
             presence = manager.coordinators.get("presence")
+            if presence and hasattr(presence, "_ready_event"):
+                try:
+                    await asyncio.wait_for(presence._ready_event.wait(), timeout=10.0)
+                except asyncio.TimeoutError:
+                    _LOGGER.warning(
+                        "HVAC: Timed out waiting for Presence — using default state"
+                    )
             if presence and hasattr(presence, "_house_state"):
                 self._house_state = str(presence._house_state)
                 _LOGGER.info("HVAC: Initial house state = %s", self._house_state)

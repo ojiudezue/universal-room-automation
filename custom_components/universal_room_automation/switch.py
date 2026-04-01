@@ -1,6 +1,6 @@
 """Switch platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.20.2
+# Universal Room Automation v3.21.0
 # Build: 2026-01-02
 # File: switch.py
 #
@@ -156,6 +156,7 @@ async def async_setup_entry(
         ClimateAutomationSwitch(coordinator),
         CoverAutomationSwitch(coordinator),
         ManualModeSwitch(coordinator),
+        AiAutomationSwitch(coordinator),
     ]
 
     async_add_entities(entities)
@@ -297,7 +298,7 @@ class CoordinatorEnabledSwitch(SwitchEntity):
                 break
 
 
-class EnergyObservationModeSwitch(SwitchEntity):
+class EnergyObservationModeSwitch(SwitchEntity, RestoreEntity):
     """Toggle Energy Coordinator observation mode.
 
     When ON: All sensors compute normally, but no control actions are executed.
@@ -305,6 +306,8 @@ class EnergyObservationModeSwitch(SwitchEntity):
 
     Entity: switch.ura_energy_observation_mode
     Device: URA: Energy Coordinator
+
+    v3.21.0 D6: Added RestoreEntity to persist observation mode across restarts.
     """
 
     _attr_has_entity_name = True
@@ -354,6 +357,15 @@ class EnergyObservationModeSwitch(SwitchEntity):
         if energy is not None:
             energy.observation_mode = False
             self.async_write_ha_state()
+
+    async def async_added_to_hass(self) -> None:
+        """Restore observation mode state on startup."""
+        await super().async_added_to_hass()
+        last_state = await self.async_get_last_state()
+        if last_state is not None and last_state.state == "on":
+            energy = self._get_energy()
+            if energy is not None:
+                energy.observation_mode = True
 
     @property
     def available(self) -> bool:
@@ -1219,3 +1231,45 @@ class ManualModeSwitch(UniversalRoomEntity, SwitchEntity, RestoreEntity):
         self._attr_is_on = False
         self.async_write_ha_state()
         _LOGGER.info("Manual mode disabled for room: %s", self.coordinator.entry.data.get("room_name"))
+
+
+# ============================================================================
+# v3.21.0 D7: AI Automation Per-Room Toggle
+# ============================================================================
+
+
+class AiAutomationSwitch(UniversalRoomEntity, SwitchEntity, RestoreEntity):
+    """Switch to enable/disable AI automation for a room.
+
+    When ON (default): AI rules and automation chaining execute normally.
+    When OFF: AI rules and chained automations are skipped for this room.
+
+    Entity: switch.{room_slug}_ai_automation
+    """
+
+    _attr_icon = "mdi:robot"
+    _attr_entity_registry_enabled_default = True
+
+    def __init__(self, coordinator: UniversalRoomCoordinator) -> None:
+        """Initialize the switch."""
+        super().__init__(coordinator, "ai_automation", "AI Automation")
+        self._attr_is_on = True  # Default: enabled
+
+    async def async_added_to_hass(self) -> None:
+        """Restore last state."""
+        await super().async_added_to_hass()
+        last_state = await self.async_get_last_state()
+        if last_state is not None:
+            self._attr_is_on = last_state.state == "on"
+
+    async def async_turn_on(self, **kwargs) -> None:
+        """Enable AI automation for this room."""
+        self._attr_is_on = True
+        self.async_write_ha_state()
+        _LOGGER.info("AI automation enabled for room: %s", self.coordinator.entry.data.get("room_name"))
+
+    async def async_turn_off(self, **kwargs) -> None:
+        """Disable AI automation for this room."""
+        self._attr_is_on = False
+        self.async_write_ha_state()
+        _LOGGER.info("AI automation disabled for room: %s", self.coordinator.entry.data.get("room_name"))

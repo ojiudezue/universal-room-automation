@@ -932,6 +932,12 @@ class SafetyCoordinator(BaseCoordinator):
         old_state = event.data.get("old_state")
         if old_state is not None and old_state.state in _UNAVAILABLE_STATES:
             self._rate_detector.clear(entity_id)
+            # v3.21.0 D3: Re-evaluate hazard state on recovery transition.
+            # If the sensor was in a hazard state before going unavailable,
+            # the hazard stays in _active_hazards. Check current reading
+            # immediately (synchronous) to clear stale hazards or confirm
+            # the hazard persists.
+            self._evaluate_sensor_on_recovery(entity_id, state_value)
 
         # Queue an intent for this sensor change
         from .base import Intent
@@ -952,6 +958,52 @@ class SafetyCoordinator(BaseCoordinator):
         manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
         if manager is not None:
             manager.queue_intent(intent)
+
+    def _evaluate_sensor_on_recovery(
+        self, entity_id: str, state_value: str
+    ) -> None:
+        """Re-evaluate a sensor immediately on unavailable→available transition.
+
+        v3.21.0 D3: Synchronous hazard state check so stale hazards are cleared
+        (or confirmed) without waiting for the async intent pipeline.
+
+        Binary sensors: call _handle_binary_hazard to clear or re-raise.
+        Numeric sensors: call _handle_numeric_hazard / _handle_temperature /
+        _handle_humidity to update _active_hazards.
+        """
+        if entity_id in self._binary_sensors:
+            hazard_type = self._binary_sensors[entity_id]
+            self._handle_binary_hazard(entity_id, state_value, hazard_type)
+            return
+
+        if entity_id in self._numeric_sensors:
+            try:
+                value = float(state_value)
+            except (ValueError, TypeError):
+                return
+
+            sensor_type = self._numeric_sensors[entity_id]
+
+            # Normalize temperature if needed
+            if sensor_type == "temperature":
+                value = self._normalize_temperature(entity_id, value)
+
+            if sensor_type == "co":
+                self._handle_numeric_hazard(
+                    entity_id, value, HazardType.CARBON_MONOXIDE
+                )
+            elif sensor_type == "co2":
+                self._handle_numeric_hazard(
+                    entity_id, value, HazardType.HIGH_CO2
+                )
+            elif sensor_type == "tvoc":
+                self._handle_numeric_hazard(
+                    entity_id, value, HazardType.HIGH_TVOC
+                )
+            elif sensor_type == "temperature":
+                self._handle_temperature(entity_id, value, dt_util.utcnow())
+            elif sensor_type == "humidity":
+                self._handle_humidity(entity_id, value, dt_util.utcnow())
 
     # =========================================================================
     # Evaluate
