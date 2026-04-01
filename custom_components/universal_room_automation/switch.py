@@ -1,6 +1,6 @@
 """Switch platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.21.0
+# Universal Room Automation v3.21.1
 # Build: 2026-01-02
 # File: switch.py
 #
@@ -141,6 +141,10 @@ async def async_setup_entry(
             HVACZoneSweepSwitch(hass, entry),
             # v3.18.6: Pre-Arrival Conditioning toggle
             HVACPreArrivalSwitch(hass, entry),
+            # v3.21.1 D1: Observation mode toggles for Safety, Security, Presence
+            SafetyObservationModeSwitch(hass, entry),
+            SecurityObservationModeSwitch(hass, entry),
+            PresenceObservationModeSwitch(hass, entry),
         ])
         return
 
@@ -593,6 +597,234 @@ class HVACObservationModeSwitch(SwitchEntity, RestoreEntity):
     def available(self) -> bool:
         """Only available when HVAC coordinator is active."""
         return self._get_hvac() is not None
+
+
+# ============================================================================
+# v3.21.1 D1: Observation mode toggles for Safety, Security, Presence
+# ============================================================================
+
+
+class SafetyObservationModeSwitch(SwitchEntity, RestoreEntity):
+    """Toggle Safety Coordinator observation mode.
+
+    When ON: Hazard detection continues but no actions are executed
+    (no NM alerts, no service calls, no emergency lights).
+    When OFF (default): Normal operation.
+
+    Entity: switch.ura_safety_observation_mode
+    Device: URA: Safety Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:eye-outline"
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        self.hass = hass
+        self._entry = entry
+        self._attr_unique_id = f"{DOMAIN}_safety_observation_mode"
+        self._attr_name = "Safety Observation Mode"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "safety_coordinator")},
+            name="URA: Safety Coordinator",
+            manufacturer="Universal Room Automation",
+            model="Safety Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+
+    def _get_safety(self):
+        """Get the Safety coordinator instance."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        return manager.coordinators.get("safety")
+
+    @property
+    def is_on(self) -> bool:
+        """Return True if Safety observation mode is active."""
+        safety = self._get_safety()
+        if safety is None:
+            return False
+        return safety.observation_mode
+
+    async def async_turn_on(self, **kwargs) -> None:
+        """Enable Safety observation mode."""
+        safety = self._get_safety()
+        if safety is not None:
+            safety.observation_mode = True
+            self.async_write_ha_state()
+
+    async def async_turn_off(self, **kwargs) -> None:
+        """Disable Safety observation mode."""
+        safety = self._get_safety()
+        if safety is not None:
+            safety.observation_mode = False
+            self.async_write_ha_state()
+
+    async def async_added_to_hass(self) -> None:
+        """Restore previous state on startup."""
+        await super().async_added_to_hass()
+        last_state = await self.async_get_last_state()
+        if last_state is not None:
+            safety = self._get_safety()
+            if safety is not None:
+                safety.observation_mode = last_state.state == "on"
+
+    @property
+    def available(self) -> bool:
+        """Only available when Safety coordinator is active."""
+        return self._get_safety() is not None
+
+
+class SecurityObservationModeSwitch(SwitchEntity, RestoreEntity):
+    """Toggle Security Coordinator observation mode.
+
+    When ON: Entry evaluation and armed state tracking continue but no
+    lock commands, NM alerts, or camera triggers are executed.
+    When OFF (default): Normal operation.
+
+    Entity: switch.ura_security_observation_mode
+    Device: URA: Security Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:eye-outline"
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        self.hass = hass
+        self._entry = entry
+        self._attr_unique_id = f"{DOMAIN}_security_observation_mode"
+        self._attr_name = "Security Observation Mode"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "security_coordinator")},
+            name="URA: Security Coordinator",
+            manufacturer="Universal Room Automation",
+            model="Security Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+
+    def _get_security(self):
+        """Get the Security coordinator instance."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        return manager.coordinators.get("security")
+
+    @property
+    def is_on(self) -> bool:
+        """Return True if Security observation mode is active."""
+        security = self._get_security()
+        if security is None:
+            return False
+        return security.observation_mode
+
+    async def async_turn_on(self, **kwargs) -> None:
+        """Enable Security observation mode."""
+        security = self._get_security()
+        if security is not None:
+            security.observation_mode = True
+            self.async_write_ha_state()
+
+    async def async_turn_off(self, **kwargs) -> None:
+        """Disable Security observation mode."""
+        security = self._get_security()
+        if security is not None:
+            security.observation_mode = False
+            self.async_write_ha_state()
+
+    async def async_added_to_hass(self) -> None:
+        """Restore previous state on startup."""
+        await super().async_added_to_hass()
+        last_state = await self.async_get_last_state()
+        if last_state is not None:
+            security = self._get_security()
+            if security is not None:
+                security.observation_mode = last_state.state == "on"
+
+    @property
+    def available(self) -> bool:
+        """Only available when Security coordinator is active."""
+        return self._get_security() is not None
+
+
+class PresenceObservationModeSwitch(SwitchEntity, RestoreEntity):
+    """Toggle Presence Coordinator observation mode.
+
+    When ON: Inference and zone tracking continue but
+    SIGNAL_HOUSE_STATE_CHANGED and SIGNAL_PERSON_ARRIVING are not
+    dispatched.
+    When OFF (default): Normal operation.
+
+    Entity: switch.ura_presence_observation_mode
+    Device: URA: Presence Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:eye-outline"
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        self.hass = hass
+        self._entry = entry
+        self._attr_unique_id = f"{DOMAIN}_presence_observation_mode"
+        self._attr_name = "Presence Observation Mode"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "presence_coordinator")},
+            name="URA: Presence Coordinator",
+            manufacturer="Universal Room Automation",
+            model="Presence Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+
+    def _get_presence(self):
+        """Get the Presence coordinator instance."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        return manager.coordinators.get("presence")
+
+    @property
+    def is_on(self) -> bool:
+        """Return True if Presence observation mode is active."""
+        presence = self._get_presence()
+        if presence is None:
+            return False
+        return presence.observation_mode
+
+    async def async_turn_on(self, **kwargs) -> None:
+        """Enable Presence observation mode."""
+        presence = self._get_presence()
+        if presence is not None:
+            presence.observation_mode = True
+            self.async_write_ha_state()
+
+    async def async_turn_off(self, **kwargs) -> None:
+        """Disable Presence observation mode."""
+        presence = self._get_presence()
+        if presence is not None:
+            presence.observation_mode = False
+            self.async_write_ha_state()
+
+    async def async_added_to_hass(self) -> None:
+        """Restore previous state on startup."""
+        await super().async_added_to_hass()
+        last_state = await self.async_get_last_state()
+        if last_state is not None:
+            presence = self._get_presence()
+            if presence is not None:
+                presence.observation_mode = last_state.state == "on"
+
+    @property
+    def available(self) -> bool:
+        """Only available when Presence coordinator is active."""
+        return self._get_presence() is not None
 
 
 class HVACZoneIntelligenceSwitch(SwitchEntity, RestoreEntity):

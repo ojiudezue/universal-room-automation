@@ -1,6 +1,6 @@
 """Person tracking coordinator for Universal Room Automation."""
 #
-# Universal Room Automation v3.21.0
+# Universal Room Automation v3.21.1
 # Build: 2026-01-03
 # File: person_coordinator.py
 # v3.2.9: No changes (zone fixes in aggregation.py, fan fixes in automation.py)
@@ -236,15 +236,29 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
                             self._person_was_away[person_name] = False
                             self._person_lost_since.pop(person_name, None)
                             if self._pre_arrival_enabled:
-                                from homeassistant.helpers.dispatcher import async_dispatcher_send
-                                from .domain_coordinators.signals import SIGNAL_PERSON_ARRIVING
-                                person_entity = self._find_person_entity(person_name)
-                                if person_entity:
-                                    async_dispatcher_send(
-                                        self.hass,
-                                        SIGNAL_PERSON_ARRIVING,
-                                        {"person_entity": person_entity, "source": "ble"},
+                                # v3.21.1: Check Presence observation mode before dispatching
+                                from .const import DOMAIN
+                                mgr = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+                                presence_obs = False
+                                if mgr:
+                                    pres = getattr(mgr, "coordinators", {}).get("presence")
+                                    if pres:
+                                        presence_obs = getattr(pres, "observation_mode", False)
+                                if presence_obs:
+                                    _LOGGER.info(
+                                        "BLE pre-arrival: %s [observation mode] would dispatch SIGNAL_PERSON_ARRIVING",
+                                        person_name,
                                     )
+                                else:
+                                    from homeassistant.helpers.dispatcher import async_dispatcher_send
+                                    from .domain_coordinators.signals import SIGNAL_PERSON_ARRIVING
+                                    person_entity = self._find_person_entity(person_name)
+                                    if person_entity:
+                                        async_dispatcher_send(
+                                            self.hass,
+                                            SIGNAL_PERSON_ARRIVING,
+                                            {"person_entity": person_entity, "source": "ble"},
+                                        )
                                     _LOGGER.info(
                                         "BLE pre-arrival: %s detected in %s (was away >%dm)",
                                         person_name, resolved_room, self._min_away_minutes,

@@ -465,6 +465,12 @@ class SecurityCoordinator(BaseCoordinator):
         self._lock_check_interval = lock_check_interval
         self._delegate_lights_to_nm = delegate_lights_to_nm
 
+        # Observation mode: when True, entry evaluation and armed state
+        # tracking continue, but no lock commands, NM alerts, or camera
+        # triggers are executed.  Controlled via
+        # switch.ura_security_observation_mode.
+        self.observation_mode: bool = False
+
         # Runtime state
         self._active_alert = False
         self._alert_details: dict[str, Any] = {}
@@ -588,6 +594,17 @@ class SecurityCoordinator(BaseCoordinator):
                 self._handle_alarm_sync(intent)
             elif intent.source == "periodic_lock_check":
                 actions.extend(await self._evaluate_lock_check())
+
+        # v3.21.1 D1: Observation mode — entry evaluation and armed state
+        # tracking run normally, but no actions are executed (lock commands,
+        # NM alerts, camera triggers).
+        if self.observation_mode and actions:
+            _LOGGER.info(
+                "[observation mode] Security would execute %d action(s) — suppressed: %s",
+                len(actions),
+                ", ".join(a.description for a in actions[:5]),
+            )
+            return []
 
         return actions
 
