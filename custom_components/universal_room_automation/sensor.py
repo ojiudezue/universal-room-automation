@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.21.0
+# Universal Room Automation v3.21.1
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -248,6 +248,12 @@ async def async_setup_entry(
             HVACZoneIntelligenceSensor(hass, entry),
             # v3.18.6: Pre-Arrival diagnostic sensor
             HVACPreArrivalDiagnosticSensor(hass, entry),
+            # v3.21.1 Cycle E D2-D6: New diagnostic sensors
+            HVACArresterStatusSensor(hass, entry),
+            NMAlertStateSensor(hass, entry),
+            EnergyEnvoyStatusSensor(hass, entry),
+            SafetyActiveCooldownsSensor(hass, entry),
+            SecurityAuthorizedGuestsSensor(hass, entry),
         ]
         # v3.8.0-H1: Add per-zone HVAC sensors dynamically
         # Read zone IDs from Zone Manager config entry (not coordinator)
@@ -7064,4 +7070,440 @@ class HVACPreArrivalDiagnosticSensor(AggregationEntity, SensorEntity):
 
     @callback
     def _handle_update(self) -> None:
+        self.async_schedule_update_ha_state()
+
+
+# ============================================================================
+# v3.21.1 Cycle E: D2-D6 DIAGNOSTIC SENSORS
+# ============================================================================
+
+
+class HVACArresterStatusSensor(AggregationEntity, SensorEntity):
+    """HVAC Override Arrester detailed status with per-zone breakdown.
+
+    Entity: sensor.ura_hvac_arrester_status
+    Device: URA: HVAC Coordinator
+
+    Exposes the arrester state machine (monitoring/detected/grace/acting/cooldown)
+    plus per-zone override tracking, compromise state, and AC reset status.
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:shield-lock"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_hvac_arrester_status"
+        self._attr_name = "HVAC Arrester Status"
+        self._attr_device_info = _hvac_device_info()
+
+    def _get_arrester(self):
+        """Get the OverrideArrester instance from HVAC coordinator."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        hvac = manager.coordinators.get("hvac")
+        if hvac is None:
+            return None
+        return getattr(hvac, "override_arrester", None)
+
+    @property
+    def native_value(self) -> str:
+        arrester = self._get_arrester()
+        if arrester is None:
+            return "not_initialized"
+        # Map internal states to spec states
+        state = arrester.get_arrester_state()
+        state_map = {
+            "idle": "monitoring",
+            "grace_period": "grace",
+            "compromise": "acting",
+            "active": "detected",
+            "disabled": "monitoring",
+        }
+        return state_map.get(state, state)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        arrester = self._get_arrester()
+        if arrester is None:
+            return {}
+
+        detail = arrester.get_arrester_detail()
+        zones = detail.get("zones", {})
+
+        # Aggregate override/compromise counts from zones
+        overrides_today = 0
+        overrides_compromised_today = 0
+        planned_action = None
+
+        for zone_name, zone_detail in zones.items():
+            overrides_today += zone_detail.get("overrides_today", 0)
+            zone_state = zone_detail.get("state", "idle")
+            if zone_state == "compromise":
+                overrides_compromised_today += 1
+                planned_action = "compromise"
+            elif zone_state in ("override_active", "grace_period"):
+                if zone_state == "grace_period":
+                    planned_action = "revert"
+
+        # AC reset status from arrester
+        ac_reset_active = bool(getattr(arrester, "_reset_timers", {}))
+        ac_reset_timeout_minutes = getattr(arrester, "_ac_reset_timeout", 0)
+
+        attrs: dict[str, Any] = {
+            "overrides_today": overrides_today,
+            "overrides_compromised_today": overrides_compromised_today,
+            "planned_action": planned_action,
+            "ac_reset_active": ac_reset_active,
+            "ac_reset_timeout_minutes": ac_reset_timeout_minutes,
+            "enabled": detail.get("enabled", False),
+            "ac_reset_enabled": detail.get("ac_reset_enabled", False),
+            "energy_coast": detail.get("energy_coast", False),
+            "zones": zones,
+        }
+        return attrs
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.hvac_const import SIGNAL_HVAC_ENTITIES_UPDATE
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_HVAC_ENTITIES_UPDATE, self._handle_update_d2
+            )
+        )
+
+    @callback
+    def _handle_update_d2(self) -> None:
+        self.async_schedule_update_ha_state()
+
+
+class NMAlertStateSensor(AggregationEntity, SensorEntity):
+    """Notification Manager alert state machine status.
+
+    Entity: sensor.ura_nm_alert_state
+    Device: URA: Notification Manager
+
+    Exposes the NM alert lifecycle: idle -> alerting -> repeating -> cooldown.
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:bell-alert"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_nm_alert_state"
+        self._attr_name = "NM Alert State"
+        self._attr_device_info = _nm_device_info()
+
+    @property
+    def native_value(self) -> str:
+        nm = self.hass.data.get(DOMAIN, {}).get("notification_manager")
+        if nm is None:
+            return "not_initialized"
+        alert_state = getattr(nm, "_alert_state", None)
+        if alert_state is None:
+            return "idle"
+        # AlertState is a StrEnum — .value gives the string
+        return getattr(alert_state, "value", str(alert_state))
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        nm = self.hass.data.get(DOMAIN, {}).get("notification_manager")
+        if nm is None:
+            return {}
+
+        alert_data = getattr(nm, "_active_alert_data", None)
+        attrs: dict[str, Any] = {
+            "active_alert_severity": alert_data.get("severity") if isinstance(alert_data, dict) else None,
+            "active_alert_hazard_type": alert_data.get("hazard_type") if isinstance(alert_data, dict) else None,
+            "cooldown_remaining_seconds": getattr(nm, "_cooldown_remaining", 0),
+            "repeat_timer_active": getattr(nm, "_repeat_unsub", None) is not None,
+            "messaging_suppressed": getattr(nm, "_messaging_suppressed", False),
+        }
+        return attrs
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import (
+            SIGNAL_NM_ENTITIES_UPDATE,
+            SIGNAL_NM_ALERT_STATE_CHANGED,
+        )
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_NM_ENTITIES_UPDATE, self._handle_update_d3
+            )
+        )
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_NM_ALERT_STATE_CHANGED, self._handle_update_d3
+            )
+        )
+
+    @callback
+    def _handle_update_d3(self) -> None:
+        self.async_schedule_update_ha_state()
+
+
+class EnergyEnvoyStatusSensor(AggregationEntity, SensorEntity):
+    """Envoy gateway availability status.
+
+    Entity: sensor.ura_energy_envoy_status
+    Device: URA: Energy Coordinator
+
+    Tracks Envoy online/offline/stale state plus offline counts and last reading age.
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:solar-panel"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_energy_envoy_status"
+        self._attr_name = "Envoy Status"
+        self._attr_device_info = _energy_device_info()
+
+    def _get_energy(self):
+        """Get the Energy Coordinator instance."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        return manager.coordinators.get("energy")
+
+    @property
+    def native_value(self) -> str:
+        energy = self._get_energy()
+        if energy is None:
+            return "not_initialized"
+
+        unavail_count = getattr(energy, "_envoy_unavailable_count", 0)
+        last_available = getattr(energy, "_envoy_last_available", None)
+
+        if unavail_count > 0:
+            return "offline"
+
+        # Check staleness: if last available is > 30 min ago, consider stale
+        if last_available:
+            try:
+                last_ts = datetime.fromisoformat(last_available)
+                age = (dt_util.now() - last_ts).total_seconds()
+                if age > 1800:  # 30 minutes
+                    return "stale"
+            except (ValueError, TypeError):
+                pass
+
+        return "online"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        energy = self._get_energy()
+        if energy is None:
+            return {}
+
+        unavail_count = getattr(energy, "_envoy_unavailable_count", 0)
+        last_available = getattr(energy, "_envoy_last_available", None)
+        decision_interval = getattr(energy, "_decision_interval", 5)
+
+        # Compute last reading age
+        last_reading_age_seconds: float | None = None
+        if last_available:
+            try:
+                last_ts = datetime.fromisoformat(last_available)
+                last_reading_age_seconds = round(
+                    (dt_util.now() - last_ts).total_seconds(), 1
+                )
+            except (ValueError, TypeError):
+                pass
+
+        attrs: dict[str, Any] = {
+            "offline_count_today": unavail_count,
+            "last_reading_time": last_available,
+            "last_reading_age_seconds": last_reading_age_seconds,
+            "decision_interval_minutes": decision_interval,
+        }
+        return attrs
+
+
+class SafetyActiveCooldownsSensor(AggregationEntity, SensorEntity):
+    """Safety alert deduplicator active cooldowns.
+
+    Entity: sensor.ura_safety_active_cooldowns
+    Device: URA: Safety Coordinator
+
+    Shows how many hazard types are in their suppression window.
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:timer-sand"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_safety_active_cooldowns"
+        self._attr_name = "Safety Active Cooldowns"
+        self._attr_device_info = _safety_device_info()
+
+    def _get_safety(self):
+        """Get the Safety Coordinator instance."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        return manager.coordinators.get("safety")
+
+    @property
+    def native_value(self) -> str:
+        safety = self._get_safety()
+        if safety is None:
+            return "not_initialized"
+
+        dedup = getattr(safety, "_deduplicator", None)
+        if dedup is None:
+            return "none"
+
+        last_alerts = getattr(dedup, "_last_alert", {})
+        if not last_alerts:
+            return "none"
+
+        # Count active cooldowns (within their suppression window)
+        now = dt_util.utcnow()
+        active_count = 0
+        for key, last_time in last_alerts.items():
+            # Keys are "hazard_type:location"
+            # Use the maximum window (1 hour) as a generous bound for counting
+            if isinstance(last_time, datetime):
+                age = (now - last_time).total_seconds()
+                if age < 3600:  # within max suppression window (1 hour)
+                    active_count += 1
+
+        if active_count == 0:
+            return "none"
+        return f"{active_count} active"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        safety = self._get_safety()
+        if safety is None:
+            return {}
+
+        dedup = getattr(safety, "_deduplicator", None)
+        if dedup is None:
+            return {}
+
+        last_alerts = getattr(dedup, "_last_alert", {})
+        if not last_alerts:
+            return {"cooldowns": {}}
+
+        now = dt_util.utcnow()
+        cooldowns: dict[str, Any] = {}
+        for key, last_time in last_alerts.items():
+            if not isinstance(last_time, datetime):
+                continue
+            age = (now - last_time).total_seconds()
+            # Report all entries that are within the maximum window
+            if age < 3600:
+                remaining = max(0, 3600 - age)
+                cooldowns[key] = {
+                    "last_alert": last_time.isoformat(),
+                    "age_seconds": round(age, 1),
+                    "remaining_seconds": round(remaining, 1),
+                }
+
+        return {"cooldowns": cooldowns}
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_SAFETY_ENTITIES_UPDATE
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_SAFETY_ENTITIES_UPDATE, self._handle_update_d5
+            )
+        )
+
+    @callback
+    def _handle_update_d5(self) -> None:
+        self.async_schedule_update_ha_state()
+
+
+class SecurityAuthorizedGuestsSensor(AggregationEntity, SensorEntity):
+    """Security authorized guests and expected arrivals.
+
+    Entity: sensor.ura_security_authorized_guests
+    Device: URA: Security Coordinator
+
+    Shows how many authorized guests / expected arrivals are active.
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:account-check"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_security_authorized_guests"
+        self._attr_name = "Security Authorized Guests"
+        self._attr_device_info = _security_device_info()
+
+    def _get_security(self):
+        """Get the Security Coordinator instance."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        return manager.coordinators.get("security")
+
+    @property
+    def native_value(self) -> str:
+        security = self._get_security()
+        if security is None:
+            return "not_initialized"
+
+        checker = getattr(security, "_sanction_checker", None)
+        if checker is None:
+            return "none"
+
+        guests = checker.get_authorized_guests_snapshot()
+        arrivals = checker.get_expected_arrivals_snapshot()
+        total = len(guests) + len(arrivals)
+
+        if total == 0:
+            return "none"
+        return f"{total} guests"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        security = self._get_security()
+        if security is None:
+            return {}
+
+        checker = getattr(security, "_sanction_checker", None)
+        if checker is None:
+            return {}
+
+        guests = checker.get_authorized_guests_snapshot()
+        arrivals = checker.get_expected_arrivals_snapshot()
+
+        return {
+            "guests": guests,
+            "expected_arrivals": arrivals,
+            "guest_count": len(guests),
+            "arrival_count": len(arrivals),
+        }
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_SECURITY_ENTITIES_UPDATE
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_SECURITY_ENTITIES_UPDATE, self._handle_update_d6
+            )
+        )
+
+    @callback
+    def _handle_update_d6(self) -> None:
         self.async_schedule_update_ha_state()

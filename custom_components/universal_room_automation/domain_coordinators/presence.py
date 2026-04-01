@@ -504,6 +504,11 @@ class PresenceCoordinator(BaseCoordinator):
         self._outcome_false_positives: int = 0
         self._last_transition_state: Optional[HouseState] = None
         self._last_transition_time: Optional[datetime] = None
+        # Observation mode: when True, inference and zone tracking continue
+        # but SIGNAL_HOUSE_STATE_CHANGED and SIGNAL_PERSON_ARRIVING are not
+        # dispatched.  Controlled via switch.ura_presence_observation_mode.
+        self.observation_mode: bool = False
+
         # v3.19.0: Face-confirmed arrival state
         self._face_arrival_cooldown: Dict[str, datetime] = {}
         self._face_recognition_enabled: bool = False
@@ -1043,14 +1048,22 @@ class PresenceCoordinator(BaseCoordinator):
         if new_zone == "home" and old_zone != "home":
             self.handle_geofence_event(entity_id, "home")
             # v3.17.0 D3: Signal person arriving for HVAC zone pre-conditioning
-            from homeassistant.helpers.dispatcher import (
-                async_dispatcher_send as _dispatcher_send,
-            )
-            _dispatcher_send(
-                self.hass,
-                SIGNAL_PERSON_ARRIVING,
-                {"person_entity": entity_id, "source": "geofence"},
-            )
+            # v3.21.1 D1: Gate signal dispatch on observation mode
+            if self.observation_mode:
+                _LOGGER.info(
+                    "[observation mode] Presence would dispatch "
+                    "SIGNAL_PERSON_ARRIVING for %s (geofence) — suppressed",
+                    entity_id,
+                )
+            else:
+                from homeassistant.helpers.dispatcher import (
+                    async_dispatcher_send as _dispatcher_send,
+                )
+                _dispatcher_send(
+                    self.hass,
+                    SIGNAL_PERSON_ARRIVING,
+                    {"person_entity": entity_id, "source": "geofence"},
+                )
         elif new_zone == "not_home" and old_zone == "home":
             self.handle_geofence_event(entity_id, "not_home")
 
@@ -1255,15 +1268,23 @@ class PresenceCoordinator(BaseCoordinator):
                 pass  # Best effort — don't fail face arrival on HVAC counter update
 
             # Fire the signal
-            async_dispatcher_send(
-                self.hass,
-                SIGNAL_PERSON_ARRIVING,
-                {"person_entity": person_entity, "source": "camera_face"},
-            )
-            _LOGGER.info(
-                "Camera face arrival: %s recognized in zone %s via %s",
-                face_name, zone_name, camera_entity,
-            )
+            # v3.21.1 D1: Gate signal dispatch on observation mode
+            if self.observation_mode:
+                _LOGGER.info(
+                    "[observation mode] Presence would dispatch "
+                    "SIGNAL_PERSON_ARRIVING for %s (camera_face) in zone %s — suppressed",
+                    face_name, zone_name,
+                )
+            else:
+                async_dispatcher_send(
+                    self.hass,
+                    SIGNAL_PERSON_ARRIVING,
+                    {"person_entity": person_entity, "source": "camera_face"},
+                )
+                _LOGGER.info(
+                    "Camera face arrival: %s recognized in zone %s via %s",
+                    face_name, zone_name, camera_entity,
+                )
         except Exception:  # noqa: BLE001
             _LOGGER.debug("Face arrival handling failed (non-fatal)", exc_info=True)
 
@@ -1412,16 +1433,27 @@ class PresenceCoordinator(BaseCoordinator):
                 from homeassistant.helpers.dispatcher import (
                     async_dispatcher_send,
                 )
-                async_dispatcher_send(
-                    self.hass,
-                    SIGNAL_HOUSE_STATE_CHANGED,
-                    {
-                        "old_state": current_state.value,
-                        "new_state": new_state.value,
-                        "trigger": trigger,
-                        "confidence": self._inference_engine.confidence,
-                    },
-                )
+                # v3.21.1 D1: Observation mode — inference runs but signal
+                # dispatch is suppressed so downstream coordinators don't react.
+                if self.observation_mode:
+                    _LOGGER.info(
+                        "[observation mode] Presence would dispatch "
+                        "SIGNAL_HOUSE_STATE_CHANGED %s → %s (trigger=%s) — suppressed",
+                        current_state.value,
+                        new_state.value,
+                        trigger,
+                    )
+                else:
+                    async_dispatcher_send(
+                        self.hass,
+                        SIGNAL_HOUSE_STATE_CHANGED,
+                        {
+                            "old_state": current_state.value,
+                            "new_state": new_state.value,
+                            "trigger": trigger,
+                            "confidence": self._inference_engine.confidence,
+                        },
+                    )
 
                 # House-level anomaly detection
                 if self.anomaly_detector is not None:

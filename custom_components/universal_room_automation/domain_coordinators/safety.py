@@ -603,6 +603,11 @@ class SafetyCoordinator(BaseCoordinator):
         # v3.6.0.8: Unit cache for temperature normalization
         self._sensor_units: dict[str, str] = {}  # entity_id -> unit_of_measurement
 
+        # Observation mode: when True, hazard detection continues but no
+        # actions are executed (NM alerts, service calls).  Controlled via
+        # switch.ura_safety_observation_mode.
+        self.observation_mode: bool = False
+
         # Diagnostics counters
         self._hazards_detected_24h: int = 0
         self._alerts_sent_24h: int = 0
@@ -1511,45 +1516,57 @@ class SafetyCoordinator(BaseCoordinator):
         self._active_hazards[key] = hazard
         self._hazards_detected_24h += 1
 
-        # v3.12.0 M2: Dispatch safety hazard signal for automation chaining
-        from homeassistant.helpers.dispatcher import async_dispatcher_send
-        async_dispatcher_send(
-            self.hass,
-            SIGNAL_SAFETY_HAZARD,
-            SafetyHazardPayload(
-                hazard_type=hazard.type.value,
-                severity=hazard.severity.name.lower(),
-                source_entity=hazard.sensor_id or "",
-                value=hazard.value,
-                details=hazard.message or "",
-            ),
-        )
-
         # Generate actions based on severity
         actions: list[CoordinatorAction] = []
 
-        if hazard.severity == Severity.CRITICAL:
-            actions.extend(self._critical_response(hazard))
-        elif hazard.severity == Severity.HIGH:
-            actions.extend(self._high_response(hazard))
-        elif hazard.severity == Severity.MEDIUM:
-            actions.extend(self._medium_response(hazard))
-        else:
-            actions.extend(self._low_response(hazard))
-
-        # Send notification if not deduplicated
-        if self._deduplicator.should_alert(hazard):
-            self._alerts_sent_24h += 1
-            actions.append(
-                NotificationAction(
-                    coordinator_id=self.COORDINATOR_ID,
-                    severity=hazard.severity,
-                    confidence=hazard.confidence,
-                    description=f"Safety alert: {hazard.message}",
-                    message=hazard.message,
-                    channels=self._get_notification_channels(hazard.severity),
-                )
+        # v3.21.1 D1: Observation mode — log what WOULD happen, skip actions + signals
+        # Review fix R2-F2: Signal dispatch moved inside non-observation block
+        # so AI automations chained to safety hazards are also suppressed
+        if self.observation_mode:
+            _LOGGER.info(
+                "[observation mode] Safety would respond to %s hazard "
+                "(%s) at %s — suppressed",
+                hazard.severity.name,
+                hazard.type.value,
+                hazard.location,
             )
+        else:
+            # v3.12.0 M2: Dispatch safety hazard signal for automation chaining
+            from homeassistant.helpers.dispatcher import async_dispatcher_send
+            async_dispatcher_send(
+                self.hass,
+                SIGNAL_SAFETY_HAZARD,
+                SafetyHazardPayload(
+                    hazard_type=hazard.type.value,
+                    severity=hazard.severity.name.lower(),
+                    source_entity=hazard.sensor_id or "",
+                    value=hazard.value,
+                    details=hazard.message or "",
+                ),
+            )
+
+            if hazard.severity == Severity.CRITICAL:
+                actions.extend(self._critical_response(hazard))
+            elif hazard.severity == Severity.HIGH:
+                actions.extend(self._high_response(hazard))
+            elif hazard.severity == Severity.MEDIUM:
+                actions.extend(self._medium_response(hazard))
+            else:
+                actions.extend(self._low_response(hazard))
+
+            # Send notification if not deduplicated
+            if self._deduplicator.should_alert(hazard):
+                self._alerts_sent_24h += 1
+                actions.append(
+                    NotificationAction(
+                        coordinator_id=self.COORDINATOR_ID,
+                        severity=hazard.severity,
+                        confidence=hazard.confidence,
+                        description=f"Safety alert: {hazard.message}",
+                        message=hazard.message,
+                        channels=self._get_notification_channels(hazard.severity),
+                    )
+                )
 
         # Log decision
         if self.decision_logger is not None:
