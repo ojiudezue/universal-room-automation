@@ -1,9 +1,9 @@
 # Universal Room Automation — Roadmap v11
 
-**Version:** 11.0
-**Current Production:** v3.19.1
-**Last Updated:** March 30, 2026
-**Status:** All domain coordinators complete. AI automation shipped. Bayesian intelligence next.
+**Version:** 11.1
+**Current Production:** v3.22.0
+**Last Updated:** April 1, 2026
+**Status:** All domain coordinators complete. AI automation shipped. Tech debt hardened. Bayesian intelligence next.
 
 ---
 
@@ -14,21 +14,24 @@ whole-house intelligence platform (v3.19.1) with seven active domain
 coordinators, AI-powered natural language automation, zone camera intelligence,
 and 1243 tests across 48 Python files (~54,600 LOC).
 
-Since Roadmap v10 (written at v3.8.9), the project has shipped 38 releases
+Since Roadmap v10 (written at v3.8.9), the project has shipped 44 releases
 covering: Energy E6 completion, Dashboard v2+v3, Notification Manager
 inbound messaging + BlueBubbles/iMessage, AI Custom Automation (all 4
 milestones), DB infrastructure repair, energy consumption model rewrite,
-restart resilience, HVAC Zone Intelligence, BLE pre-arrival, and zone
-camera face-confirmed arrivals.
+restart resilience, HVAC Zone Intelligence, BLE pre-arrival, zone
+camera face-confirmed arrivals, and a comprehensive 6-cycle tech debt
+hardening pass (v3.20.0–v3.22.0).
 
-**Current State (v3.19.1):**
-- Entities: 90+ per room
-- Tests: 1,243 passing
+**Current State (v3.22.0):**
+- Entities: ~76 per room (down from 90+ after stub cleanup)
+- Tests: ~1,550 passing (+307 from hardening)
 - Python files: 48 (21 main + 27 domain coordinators)
-- LOC: ~54,600
+- LOC: ~57,000
 - Response: 2-5 seconds (event-driven)
 - Domain coordinators: 7 active (Presence, Safety, Security, NM, Energy, HVAC, Music Following)
-- Toggle switches: 23 (1 master + 8 coordinator + 6 feature + 8 per-room)
+- Toggle switches: 27 (1 master + 11 coordinator + 6 feature + 9 per-room)
+- Observation mode: 4 coordinators (HVAC, Safety, Security, Presence)
+- Signal wiring: 8 configurable cross-coordinator responses (all default OFF)
 - Architecture: Tri-level entries (Integration → Zones → Rooms) + Coordinator Manager
 
 **Permanently Cut:**
@@ -234,6 +237,25 @@ SOC), solar window timezone fix (UTC vs local date comparison).
   reset. Fires SIGNAL_PERSON_ARRIVING with source="camera_face" → triggers
   HVAC pre-arrival conditioning. Zone camera config, face freshness (30s).
 - v3.19.1: Override thread-safety fix, diagnostics DB lock fix.
+
+#### Tech Debt & Hardening (v3.20.0–v3.22.0) — COMPLETE
+6-cycle hardening effort addressing 53 findings from full codebase review.
+- v3.20.0: Room Resilience — RestoreEntity state persistence, 5 orphaned
+  switches wired, cover hardening, listener cleanup, shutdown save.
+- v3.20.2: Config Flow UX + Stub Cleanup — split oversized options step,
+  chaining/AI in initial setup, conditional fields, person EntitySelector.
+  Removed 15 stub entities, documented in DEFERRED_TO_BAYESIAN.md.
+- v3.21.0: Coordinator Hardening — energy DB restore timeout, Presence→HVAC
+  startup ordering, safety sensor recovery, NM alert persistence,
+  AI automation per-room toggle.
+- v3.21.1–v3.21.2: Observability — 3 observation mode toggles (Safety,
+  Security, Presence), 5 diagnostic sensors (arrester, NM alert, Envoy,
+  cooldowns, guests). Hotfix for observation mode gating completeness.
+- v3.22.0: Signal Wiring — 8 configurable cross-coordinator signal responses
+  (all default OFF), SIGNAL_SAFETY_HAZARD/PERSON_ARRIVING/SECURITY_EVENT
+  consumers on HVAC, Security, Energy, Music Following.
+307 new tests. 2 new bug classes added to QUALITY_CONTEXT.md (#22, #23).
+Full report: `docs/readmes/README_v3.20-v3.22_TECH_DEBT_HARDENING.md`
 
 #### Comfort Features (absorbed into HVAC, v3.18.4) — COMPLETE
 Comfort Coordinator was planned as C7 but deemed unnecessary as standalone
@@ -493,6 +515,7 @@ domain_coordinators/                    (27 files, ~29,000 LOC)
 | v3.17.0–v3.17.9 | Mar 2026 | HVAC Zone Intelligence (7 deliverables) + hotfixes |
 | v3.18.0–v3.18.7 | Mar 2026 | Hardening cycle (thread safety, config flow, BLE pre-arrival) |
 | v3.19.0–v3.19.1 | Mar 2026 | Zone Camera Intelligence (face-confirmed arrivals) |
+| v3.20.0–v3.22.0 | Mar–Apr 2026 | Tech Debt & Hardening (6 cycles, 307 tests, 53 findings addressed) |
 
 ---
 

@@ -1,6 +1,6 @@
 """Switch platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.22.0
+# Universal Room Automation v3.22.1
 # Build: 2026-01-02
 # File: switch.py
 #
@@ -13,6 +13,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.event import async_call_later
 from homeassistant.helpers.restore_state import RestoreEntity
 
 from .const import (
@@ -34,6 +35,12 @@ from .coordinator import UniversalRoomCoordinator
 from .entity import UniversalRoomEntity
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _room_switch_entity_id(coordinator: "UniversalRoomCoordinator", suffix: str) -> str:
+    """Build entity_id for a room-level switch."""
+    slug = coordinator.entry.data.get("room_name", "unknown").lower().replace(" ", "_")
+    return f"switch.{slug}_{suffix}"
 
 
 async def async_setup_entry(
@@ -332,6 +339,7 @@ class EnergyObservationModeSwitch(SwitchEntity, RestoreEntity):
             sw_version=VERSION,
             via_device=(DOMAIN, "coordinator_manager"),
         )
+        self._deferred_restore = False
 
     def _get_energy(self):
         """Get the energy coordinator instance."""
@@ -370,6 +378,22 @@ class EnergyObservationModeSwitch(SwitchEntity, RestoreEntity):
             energy = self._get_energy()
             if energy is not None:
                 energy.observation_mode = True
+            else:
+                # Deferred retry: coordinator may not be initialized yet
+                self._deferred_restore = True
+                self.async_on_remove(async_call_later(self.hass, 5, self._retry_restore))
+
+    def _retry_restore(self, _now=None) -> None:
+        """Retry setting observation mode after coordinator initializes."""
+        if not self._deferred_restore:
+            return
+        energy = self._get_energy()
+        if energy is not None:
+            energy.observation_mode = True
+            self._deferred_restore = False
+            _LOGGER.info("Energy observation mode restored (deferred)")
+        else:
+            _LOGGER.warning("Energy observation mode restore failed — coordinator still unavailable after 5s")
 
     @property
     def available(self) -> bool:
@@ -554,6 +578,7 @@ class HVACObservationModeSwitch(SwitchEntity, RestoreEntity):
             sw_version=VERSION,
             via_device=(DOMAIN, "coordinator_manager"),
         )
+        self._deferred_restore = False
 
     def _get_hvac(self):
         """Get the HVAC coordinator instance."""
@@ -588,10 +613,26 @@ class HVACObservationModeSwitch(SwitchEntity, RestoreEntity):
         """Restore previous state on startup."""
         await super().async_added_to_hass()
         last_state = await self.async_get_last_state()
-        if last_state is not None:
+        if last_state is not None and last_state.state == "on":
             hvac = self._get_hvac()
             if hvac is not None:
-                hvac.observation_mode = last_state.state == "on"
+                hvac.observation_mode = True
+            else:
+                # Deferred retry: coordinator may not be initialized yet
+                self._deferred_restore = True
+                self.async_on_remove(async_call_later(self.hass, 5, self._retry_restore))
+
+    def _retry_restore(self, _now=None) -> None:
+        """Retry setting observation mode after coordinator initializes."""
+        if not self._deferred_restore:
+            return
+        hvac = self._get_hvac()
+        if hvac is not None:
+            hvac.observation_mode = True
+            self._deferred_restore = False
+            _LOGGER.info("HVAC observation mode restored (deferred)")
+        else:
+            _LOGGER.warning("HVAC observation mode restore failed — coordinator still unavailable after 5s")
 
     @property
     def available(self) -> bool:
@@ -633,6 +674,7 @@ class SafetyObservationModeSwitch(SwitchEntity, RestoreEntity):
             sw_version=VERSION,
             via_device=(DOMAIN, "coordinator_manager"),
         )
+        self._deferred_restore = False
 
     def _get_safety(self):
         """Get the Safety coordinator instance."""
@@ -667,10 +709,26 @@ class SafetyObservationModeSwitch(SwitchEntity, RestoreEntity):
         """Restore previous state on startup."""
         await super().async_added_to_hass()
         last_state = await self.async_get_last_state()
-        if last_state is not None:
+        if last_state is not None and last_state.state == "on":
             safety = self._get_safety()
             if safety is not None:
-                safety.observation_mode = last_state.state == "on"
+                safety.observation_mode = True
+            else:
+                # Deferred retry: coordinator may not be initialized yet
+                self._deferred_restore = True
+                self.async_on_remove(async_call_later(self.hass, 5, self._retry_restore))
+
+    def _retry_restore(self, _now=None) -> None:
+        """Retry setting observation mode after coordinator initializes."""
+        if not self._deferred_restore:
+            return
+        safety = self._get_safety()
+        if safety is not None:
+            safety.observation_mode = True
+            self._deferred_restore = False
+            _LOGGER.info("Safety observation mode restored (deferred)")
+        else:
+            _LOGGER.warning("Safety observation mode restore failed — coordinator still unavailable after 5s")
 
     @property
     def available(self) -> bool:
@@ -707,6 +765,7 @@ class SecurityObservationModeSwitch(SwitchEntity, RestoreEntity):
             sw_version=VERSION,
             via_device=(DOMAIN, "coordinator_manager"),
         )
+        self._deferred_restore = False
 
     def _get_security(self):
         """Get the Security coordinator instance."""
@@ -741,10 +800,26 @@ class SecurityObservationModeSwitch(SwitchEntity, RestoreEntity):
         """Restore previous state on startup."""
         await super().async_added_to_hass()
         last_state = await self.async_get_last_state()
-        if last_state is not None:
+        if last_state is not None and last_state.state == "on":
             security = self._get_security()
             if security is not None:
-                security.observation_mode = last_state.state == "on"
+                security.observation_mode = True
+            else:
+                # Deferred retry: coordinator may not be initialized yet
+                self._deferred_restore = True
+                self.async_on_remove(async_call_later(self.hass, 5, self._retry_restore))
+
+    def _retry_restore(self, _now=None) -> None:
+        """Retry setting observation mode after coordinator initializes."""
+        if not self._deferred_restore:
+            return
+        security = self._get_security()
+        if security is not None:
+            security.observation_mode = True
+            self._deferred_restore = False
+            _LOGGER.info("Security observation mode restored (deferred)")
+        else:
+            _LOGGER.warning("Security observation mode restore failed — coordinator still unavailable after 5s")
 
     @property
     def available(self) -> bool:
@@ -782,6 +857,7 @@ class PresenceObservationModeSwitch(SwitchEntity, RestoreEntity):
             sw_version=VERSION,
             via_device=(DOMAIN, "coordinator_manager"),
         )
+        self._deferred_restore = False
 
     def _get_presence(self):
         """Get the Presence coordinator instance."""
@@ -816,10 +892,26 @@ class PresenceObservationModeSwitch(SwitchEntity, RestoreEntity):
         """Restore previous state on startup."""
         await super().async_added_to_hass()
         last_state = await self.async_get_last_state()
-        if last_state is not None:
+        if last_state is not None and last_state.state == "on":
             presence = self._get_presence()
             if presence is not None:
-                presence.observation_mode = last_state.state == "on"
+                presence.observation_mode = True
+            else:
+                # Deferred retry: coordinator may not be initialized yet
+                self._deferred_restore = True
+                self.async_on_remove(async_call_later(self.hass, 5, self._retry_restore))
+
+    def _retry_restore(self, _now=None) -> None:
+        """Retry setting observation mode after coordinator initializes."""
+        if not self._deferred_restore:
+            return
+        presence = self._get_presence()
+        if presence is not None:
+            presence.observation_mode = True
+            self._deferred_restore = False
+            _LOGGER.info("Presence observation mode restored (deferred)")
+        else:
+            _LOGGER.warning("Presence observation mode restore failed — coordinator still unavailable after 5s")
 
     @property
     def available(self) -> bool:
@@ -1311,7 +1403,7 @@ class OverrideOccupiedSwitch(UniversalRoomEntity, SwitchEntity, RestoreEntity):
         # so coordinator sees correct state if refresh interleaves
         self.async_write_ha_state()
         # Mutually exclusive: turn off vacant override
-        vacant_slug = f"switch.{self.coordinator.entry.data.get('room_name', 'unknown').lower().replace(' ', '_')}_override_vacant"
+        vacant_slug = _room_switch_entity_id(self.coordinator, "override_vacant")
         vacant_state = self.hass.states.get(vacant_slug)
         if vacant_state and vacant_state.state == "on":
             await self.hass.services.async_call("switch", "turn_off", {"entity_id": vacant_slug})
@@ -1347,7 +1439,7 @@ class OverrideVacantSwitch(UniversalRoomEntity, SwitchEntity, RestoreEntity):
         # Review fix: publish state BEFORE mutual exclusion service call
         self.async_write_ha_state()
         # Mutually exclusive: turn off occupied override
-        occ_slug = f"switch.{self.coordinator.entry.data.get('room_name', 'unknown').lower().replace(' ', '_')}_override_occupied"
+        occ_slug = _room_switch_entity_id(self.coordinator, "override_occupied")
         occ_state = self.hass.states.get(occ_slug)
         if occ_state and occ_state.state == "on":
             await self.hass.services.async_call("switch", "turn_off", {"entity_id": occ_slug})

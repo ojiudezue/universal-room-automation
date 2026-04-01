@@ -1,10 +1,10 @@
 # Quality Context
 
-**Version:** 4.0
-**Last Updated:** March 18, 2026
-**Current Production:** v3.16.0
+**Version:** 5.0
+**Last Updated:** April 1, 2026
+**Current Production:** v3.22.0
 **Status:** Active quality standards
-**Bug Classes:** 20 documented (7 original + 13 new from Jan–Mar 2026)
+**Bug Classes:** 22 documented (7 original + 13 from Jan–Mar 2026 + 2 from v3.20–v3.22 hardening)
 
 ---
 
@@ -37,7 +37,7 @@
 - **Time:** 10 minutes
 
 ### 3. Current Roadmap
-- **Location:** `ROADMAP_v10.md`
+- **Location:** `ROADMAP_v11.md`
 - **Purpose:** Understand project direction
 - **Key:** Where we've been, where we're going
 - **Time:** 10 minutes (scan), 30 minutes (full read)
@@ -822,6 +822,58 @@ async def async_added_to_hass(self):
 
 **Discovered:** v3.18.2
 **Impact:** Crash on restart when restoring persisted timestamps
+**Severity:** HIGH
+
+### Bug Class #22: Enum Value Mismatch in Signal Handlers ⚠️
+
+**Pattern:** Signal handlers compare payload fields against informal string names
+("co", "freeze") instead of the actual enum `.value` strings ("carbon_monoxide",
+"freeze_risk"). The handler compiles and runs without error, but the comparison
+NEVER matches, making the safety-critical response completely dead code.
+
+**Impact:** Safety-critical paths silently fail. In v3.22.0, CO fan-stop and
+freeze emergency heat were both dead code until review caught the mismatch.
+
+**Prevention:**
+- [ ] When writing signal handlers, ALWAYS cross-reference the source enum's `.value` strings
+- [ ] Grep for the `HazardType`, `SecurityEvent`, etc. enum definitions before hardcoding strings
+- [ ] Prefer importing and using the enum directly: `if hazard_type == HazardType.CARBON_MONOXIDE.value:`
+- [ ] Add a test for each hazard type string that verifies it matches an actual enum value
+
+**Historical Example:** v3.22.0 Cycle F — HVAC `_handle_safety_hazard` checked
+`"co"` (never matches `"carbon_monoxide"`) and `"freeze"` (never matches `"freeze_risk"`).
+Both CRITICALs caught by adversarial review.
+
+**Discovered:** v3.22.0
+**Impact:** Safety-critical responses completely non-functional
+**Severity:** CRITICAL
+
+---
+
+### Bug Class #23: Incomplete Observation Mode Gating ⚠️
+
+**Pattern:** Observation mode is checked at the handler/response level but missed at
+signal dispatch sites in other files, or checked AFTER side effects (state mutation,
+signal dispatch, counter increments) have already fired. This makes observation mode
+"leaky" — downstream coordinators still see signals and react.
+
+**Impact:** Users enable observation mode expecting complete suppression of downstream
+effects, but AI automations, NM alerts, or other coordinators still fire because
+signals were dispatched before the gate.
+
+**Prevention:**
+- [ ] Gate observation mode at the DISPATCH site, not just the handler
+- [ ] Grep for ALL dispatch sites of a signal across the entire codebase (signals may be dispatched from multiple files)
+- [ ] Check observation mode BEFORE any side effects (state mutation, counter increments, signal dispatch)
+- [ ] When adding observation mode to a coordinator, audit every `async_dispatcher_send` call in that coordinator's file AND any files that dispatch signals on its behalf
+
+**Historical Examples:**
+- v3.21.1: Safety `SIGNAL_SAFETY_HAZARD` dispatched before observation mode check — AI automations still fired
+- v3.21.1: Security `_active_alert` set and `SIGNAL_SECURITY_EVENT` dispatched before observation mode dropped actions
+- v3.21.1: BLE `SIGNAL_PERSON_ARRIVING` dispatched from `person_coordinator.py` bypassing Presence observation mode
+
+**Discovered:** v3.21.1–v3.21.2
+**Impact:** Observation mode doesn't fully suppress cross-coordinator effects
 **Severity:** HIGH
 
 ---

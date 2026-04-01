@@ -403,7 +403,10 @@ class EnergyCoordinator(BaseCoordinator):
         Gated by CONF_ENERGY_ON_HAZARD_SHED_LOADS config toggle.
         Sets _load_shedding_active_level to max (all tiers shed).
         """
+        if not self._enabled:
+            return
         if self._observation_mode:
+            _LOGGER.debug("Energy: Safety hazard received — suppressed by observation mode")
             return
 
         # Extract hazard fields with safe defaults
@@ -1537,6 +1540,11 @@ class EnergyCoordinator(BaseCoordinator):
                 self.hass.async_create_task(
                     self._periodic_db_writes(decision)
                 )
+
+            # Notify energy sensors to refresh
+            from homeassistant.helpers.dispatcher import async_dispatcher_send as _send
+            from .signals import SIGNAL_ENERGY_ENTITIES_UPDATE
+            _send(self.hass, SIGNAL_ENERGY_ENTITIES_UPDATE)
 
             _LOGGER.debug(
                 "Energy cycle: period=%s, battery=%s (%s), soc=%s%%, pool=%s, envoy=%s",

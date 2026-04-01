@@ -16,6 +16,7 @@ v3.6.26: Fix anomaly detector integration — create detector, wire listener.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -86,6 +87,7 @@ class MusicFollowingCoordinator(BaseCoordinator):
         self._min_confidence = min_confidence
         self._high_confidence_distance = high_confidence_distance
         self._music_following = None
+        self._pending_tasks: set[asyncio.Task] = set()
 
     async def async_setup(self) -> None:
         """Set up the coordinator.
@@ -218,8 +220,11 @@ class MusicFollowingCoordinator(BaseCoordinator):
         v3.22.0 D2: Cross-coordinator response to SIGNAL_SAFETY_HAZARD.
         Gated by CONF_MUSIC_ON_HAZARD_STOP config toggle.
         """
+        if not self._enabled:
+            return
         # Review fix F6: observation mode guard
         if getattr(self, "observation_mode", False):
+            _LOGGER.debug("MusicFollowing: Safety hazard received — suppressed by observation mode")
             return
         if hazard is None:
             return
@@ -242,7 +247,9 @@ class MusicFollowingCoordinator(BaseCoordinator):
                 "MusicFollowing: Safety hazard %s/%s — stopping all playback",
                 hazard_type, severity,
             )
-            self.hass.async_create_task(self._stop_all_playback())
+            task = self.hass.async_create_task(self._stop_all_playback())
+            self._pending_tasks.add(task)
+            task.add_done_callback(self._pending_tasks.discard)
         else:
             _LOGGER.info(
                 "MusicFollowing: Safety hazard %s/%s — would stop playback "
@@ -257,6 +264,8 @@ class MusicFollowingCoordinator(BaseCoordinator):
         v3.22.0 D3: Cross-coordinator response to SIGNAL_PERSON_ARRIVING.
         Gated by CONF_MUSIC_ON_ARRIVAL_START config toggle (OFF by default).
         """
+        if not self._enabled:
+            return
         if getattr(self, "observation_mode", False):
             return
         if payload is None:
@@ -300,6 +309,8 @@ class MusicFollowingCoordinator(BaseCoordinator):
         v3.22.0 D4: Cross-coordinator response to SIGNAL_SECURITY_EVENT.
         Gated by CONF_MUSIC_ON_SECURITY_STOP config toggle.
         """
+        if not self._enabled:
+            return
         if getattr(self, "observation_mode", False):
             return
         if payload is None:
@@ -323,7 +334,9 @@ class MusicFollowingCoordinator(BaseCoordinator):
                 "MusicFollowing: Security event %s/%s — stopping all playback",
                 event_type, severity,
             )
-            self.hass.async_create_task(self._stop_all_playback())
+            task = self.hass.async_create_task(self._stop_all_playback())
+            self._pending_tasks.add(task)
+            task.add_done_callback(self._pending_tasks.discard)
         else:
             _LOGGER.info(
                 "MusicFollowing: Security event %s/%s — would stop playback "
@@ -355,6 +368,10 @@ class MusicFollowingCoordinator(BaseCoordinator):
 
     async def async_teardown(self) -> None:
         """Tear down the coordinator."""
+        # Cancel any in-flight tasks before other cleanup
+        for task in list(self._pending_tasks):
+            task.cancel()
+        self._pending_tasks.clear()
         self._cancel_listeners()
         if self.anomaly_detector is not None:
             try:
