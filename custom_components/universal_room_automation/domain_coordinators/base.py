@@ -179,6 +179,7 @@ class BaseCoordinator(ABC):
         self.priority = priority
         self._enabled = True
         self._unsub_listeners: list = []
+        self._cm_entry_cache = None  # Cached ConfigEntry for Coordinator Manager
 
         # v3.6.0-c0.4: Diagnostics — injected by CoordinatorManager
         self.decision_logger: DecisionLogger | None = None
@@ -268,14 +269,14 @@ class BaseCoordinator(ABC):
         CM entry options. All default to False (OFF) so no cross-coordinator
         behavior fires unless explicitly enabled by the user.
         """
-        cm_entry = None
-        for entry in self.hass.config_entries.async_entries(DOMAIN):
-            if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_COORDINATOR_MANAGER:
-                cm_entry = entry
-                break
-        if cm_entry is None:
+        if self._cm_entry_cache is None:
+            for entry in self.hass.config_entries.async_entries(DOMAIN):
+                if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_COORDINATOR_MANAGER:
+                    self._cm_entry_cache = entry
+                    break
+        if self._cm_entry_cache is None:
             return default
-        config = {**cm_entry.data, **cm_entry.options}
+        config = {**self._cm_entry_cache.data, **self._cm_entry_cache.options}
         return config.get(key, default)
 
     def _cancel_listeners(self) -> None:

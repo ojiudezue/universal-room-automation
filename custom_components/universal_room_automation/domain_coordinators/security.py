@@ -1328,12 +1328,15 @@ class SecurityCoordinator(BaseCoordinator):
 
     @callback
     def _handle_safety_hazard(self, hazard: Any) -> None:
-        """Handle safety hazard signal — unlock egress doors on smoke/fire.
+        """Handle safety hazard signal — unlock egress doors on smoke/fire/CO.
 
         v3.22.0 D2: Cross-coordinator response to SIGNAL_SAFETY_HAZARD.
         Gated by CONF_SECURITY_ON_HAZARD_UNLOCK_EGRESS config toggle.
         """
+        if not self._enabled:
+            return
         if self.observation_mode:
+            _LOGGER.debug("Security: Safety hazard received — suppressed by observation mode")
             return
 
         # Extract hazard fields with safe defaults
@@ -1350,8 +1353,8 @@ class SecurityCoordinator(BaseCoordinator):
 
         from ..const import CONF_SECURITY_ON_HAZARD_UNLOCK_EGRESS
 
-        # Unlock all entry doors on smoke/fire critical
-        if hazard_type in ("smoke", "fire") and severity == "critical":
+        # Unlock all entry doors on smoke/fire/CO critical
+        if hazard_type in ("smoke", "fire", "carbon_monoxide") and severity == "critical":
             if self._get_signal_config(CONF_SECURITY_ON_HAZARD_UNLOCK_EGRESS):
                 _LOGGER.warning(
                     "Security: Safety hazard %s/%s — unlocking all egress doors",
@@ -1386,7 +1389,10 @@ class SecurityCoordinator(BaseCoordinator):
         v3.22.0 D3: Cross-coordinator response to SIGNAL_PERSON_ARRIVING.
         Gated by CONF_SECURITY_ON_ARRIVAL_ADD_EXPECTED config toggle.
         """
+        if not self._enabled:
+            return
         if self.observation_mode:
+            _LOGGER.debug("Security: Person arriving received — suppressed by observation mode")
             return
 
         if payload is None:

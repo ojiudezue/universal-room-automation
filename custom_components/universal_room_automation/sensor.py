@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.22.0
+# Universal Room Automation v3.22.1
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -7334,14 +7334,33 @@ class EnergyEnvoyStatusSensor(AggregationEntity, SensorEntity):
         }
         return attrs
 
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to energy entity update signal."""
+        await super().async_added_to_hass()
+        from .domain_coordinators.signals import SIGNAL_ENERGY_ENTITIES_UPDATE
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_ENERGY_ENTITIES_UPDATE, self._handle_update
+            )
+        )
+
+    @callback
+    def _handle_update(self) -> None:
+        """Refresh state when energy decision cycle completes."""
+        self.async_schedule_update_ha_state()
+
 
 class SafetyActiveCooldownsSensor(AggregationEntity, SensorEntity):
-    """Safety alert deduplicator active cooldowns.
+    """Safety alert deduplicator recent alerts.
 
     Entity: sensor.ura_safety_active_cooldowns
     Device: URA: Safety Coordinator
 
-    Shows how many hazard types are in their suppression window.
+    Shows how many hazard types have fired within the maximum suppression
+    window (3600s).  Actual per-severity windows are shorter (CRITICAL: 60s,
+    HIGH: 300s, MEDIUM: 900s, LOW: 3600s) but the dedup cache keys do not
+    include severity, so 3600s is used as an upper bound.
     """
 
     _attr_has_entity_name = True
@@ -7351,7 +7370,7 @@ class SafetyActiveCooldownsSensor(AggregationEntity, SensorEntity):
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         super().__init__(hass, entry)
         self._attr_unique_id = f"{DOMAIN}_safety_active_cooldowns"
-        self._attr_name = "Safety Active Cooldowns"
+        self._attr_name = "Safety Recent Alerts"
         self._attr_device_info = _safety_device_info()
 
     def _get_safety(self):
@@ -7388,7 +7407,7 @@ class SafetyActiveCooldownsSensor(AggregationEntity, SensorEntity):
 
         if active_count == 0:
             return "none"
-        return f"{active_count} active"
+        return f"{active_count} recent"
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
@@ -7410,13 +7429,14 @@ class SafetyActiveCooldownsSensor(AggregationEntity, SensorEntity):
             if not isinstance(last_time, datetime):
                 continue
             age = (now - last_time).total_seconds()
-            # Report all entries that are within the maximum window
+            # Report all entries within the maximum suppression window (upper bound;
+            # actual window depends on severity: CRITICAL=60s, HIGH=300s, MEDIUM=900s, LOW=3600s)
             if age < 3600:
                 remaining = max(0, 3600 - age)
                 cooldowns[key] = {
                     "last_alert": last_time.isoformat(),
                     "age_seconds": round(age, 1),
-                    "remaining_seconds": round(remaining, 1),
+                    "max_remaining_seconds": round(remaining, 1),
                 }
 
         return {"cooldowns": cooldowns}

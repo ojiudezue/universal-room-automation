@@ -19,6 +19,7 @@ SIGNAL_SECURITY_ENTITIES_UPDATE: Final = "ura_security_entities_update"
 SIGNAL_NM_ENTITIES_UPDATE: Final = "ura_nm_entities_update"
 SIGNAL_NM_ALERT_STATE_CHANGED: Final = "ura_nm_alert_state_changed"
 SIGNAL_PERSON_ARRIVING: Final = "ura_person_arriving"
+SIGNAL_ENERGY_ENTITIES_UPDATE: Final = "ura_energy_entities_update"
 
 
 # ============================================================================

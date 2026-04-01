@@ -1,7 +1,7 @@
 """Database for Universal Room Automation."""
 from __future__ import annotations
 #
-# Universal Room Automation v3.22.0
+# Universal Room Automation v3.22.1
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors
@@ -3040,7 +3040,7 @@ class UniversalRoomDatabase:
                         state.get("last_lux_zone"),
                         state.get("last_timed_open_date"),
                         state.get("last_timed_close_date"),
-                        dt_util.utcnow().isoformat(),
+                        dt_util.now().isoformat(),
                     ),
                 )
                 await db.commit()

@@ -799,7 +799,10 @@ class HVACCoordinator(BaseCoordinator):
         v3.22.0 D2: Cross-coordinator response to SIGNAL_SAFETY_HAZARD.
         Gated by per-action config toggles via _get_signal_config().
         """
+        if not self._enabled:
+            return
         if self._observation_mode:
+            _LOGGER.debug("HVAC: Safety hazard received — suppressed by observation mode")
             return
 
         # Extract hazard fields with safe defaults
@@ -860,7 +863,7 @@ class HVACCoordinator(BaseCoordinator):
 
         Best-effort: failures logged but do not propagate.
         """
-        from ..const import CONF_FANS, CONF_ENTRY_TYPE, CONF_ROOM_NAME, ENTRY_TYPE_ROOM
+        from ..const import CONF_FANS
 
         for zone_id, zone in self._zone_manager.zones.items():
             for room_name in zone.rooms:
