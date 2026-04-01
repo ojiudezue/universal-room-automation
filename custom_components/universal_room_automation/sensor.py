@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.21.1
+# Universal Room Automation v3.21.2
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -7287,15 +7287,20 @@ class EnergyEnvoyStatusSensor(AggregationEntity, SensorEntity):
         if unavail_count > 0:
             return "offline"
 
+        # Review fix R1-F6: if never checked, return "initializing" not "online"
+        if not last_available:
+            return "initializing"
+
         # Check staleness: if last available is > 30 min ago, consider stale
-        if last_available:
-            try:
-                last_ts = datetime.fromisoformat(last_available)
-                age = (dt_util.now() - last_ts).total_seconds()
-                if age > 1800:  # 30 minutes
-                    return "stale"
-            except (ValueError, TypeError):
-                pass
+        try:
+            last_ts = dt_util.parse_datetime(last_available)
+            if last_ts is None:
+                return "online"
+            age = (dt_util.now() - last_ts).total_seconds()
+            if age > 1800:  # 30 minutes
+                return "stale"
+        except (ValueError, TypeError):
+            pass
 
         return "online"
 
@@ -7309,14 +7314,15 @@ class EnergyEnvoyStatusSensor(AggregationEntity, SensorEntity):
         last_available = getattr(energy, "_envoy_last_available", None)
         decision_interval = getattr(energy, "_decision_interval", 5)
 
-        # Compute last reading age
+        # Compute last reading age (review fix: use dt_util.parse_datetime)
         last_reading_age_seconds: float | None = None
         if last_available:
             try:
-                last_ts = datetime.fromisoformat(last_available)
-                last_reading_age_seconds = round(
-                    (dt_util.now() - last_ts).total_seconds(), 1
-                )
+                last_ts = dt_util.parse_datetime(last_available)
+                if last_ts is not None:
+                    last_reading_age_seconds = round(
+                        (dt_util.now() - last_ts).total_seconds(), 1
+                    )
             except (ValueError, TypeError):
                 pass
 
