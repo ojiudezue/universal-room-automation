@@ -699,6 +699,13 @@ class SecurityCoordinator(BaseCoordinator):
         if not self._sanction_checker.has_unknown_persons(context):
             return []
 
+        # v3.21.2: Gate side effects by observation mode (review fix R1-F2)
+        if self.observation_mode:
+            _LOGGER.info(
+                "[observation mode] Security would alert on unknown person — suppressed"
+            )
+            return []
+
         _LOGGER.warning("Unknown person detected — locking all doors")
         self._active_alert = True
         self._alert_details = {
@@ -907,6 +914,14 @@ class SecurityCoordinator(BaseCoordinator):
             return actions
 
         # ALERT or ALERT_HIGH
+        # v3.21.2: Gate side effects by observation mode (review fix R1-F2)
+        if self.observation_mode:
+            _LOGGER.info(
+                "[observation mode] Security would alert on entry at %s (%s) — suppressed",
+                entity_id, verdict.value,
+            )
+            return []
+
         self._active_alert = True
         self._alert_details = {
             "type": "entry_alert",
