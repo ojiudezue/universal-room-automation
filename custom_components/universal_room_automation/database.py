@@ -1,16 +1,18 @@
 """Database for Universal Room Automation."""
 from __future__ import annotations
 #
-# Universal Room Automation v3.22.5
+# Universal Room Automation v3.22.6
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors
 # v3.3.1: Added Optional import
 #
 
+import asyncio
 import logging
 import os
 import statistics
+import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta
 from typing import Any, Optional
@@ -34,7 +36,6 @@ class UniversalRoomDatabase:
 
     def __init__(self, hass: HomeAssistant) -> None:
         """Initialize the database."""
-        import asyncio
         self.hass = hass
         db_dir = hass.config.path(DATABASE_DIR)
         os.makedirs(db_dir, exist_ok=True)
@@ -63,7 +64,11 @@ class UniversalRoomDatabase:
 
         Use _db_read() for read-only queries that don't need the lock.
         """
+        t0 = time.monotonic()
         async with self._write_lock:
+            waited = time.monotonic() - t0
+            if waited > 2.0:
+                _LOGGER.warning("DB write lock waited %.1fs", waited)
             async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
                 await db.execute("PRAGMA busy_timeout=30000")
                 yield db
@@ -149,6 +154,11 @@ class UniversalRoomDatabase:
 
     async def initialize(self) -> bool:
         """Initialize database schema.
+
+        Ordering invariant: this method is called from __init__.py BEFORE
+        the database instance is stored in hass.data[DOMAIN]["database"].
+        No other code can access the DB until initialize() returns True,
+        so table creation is safe from concurrent access.
 
         v3.13.0: Refactored to per-table isolation so that corruption in one
         table (e.g. energy_snapshots B-tree) does not prevent creation of
@@ -1083,7 +1093,7 @@ class UniversalRoomDatabase:
     async def get_days_of_energy_data(self) -> int:
         """Get number of days of energy history data available."""
         try:
-            async with self._db() as db:
+            async with self._db_read() as db:
                 cursor = await db.execute("""
                     SELECT MIN(timestamp), MAX(timestamp)
                     FROM energy_history
@@ -1107,9 +1117,9 @@ class UniversalRoomDatabase:
     ) -> list[dict]:
         """Get energy data for similar days (same weekday, similar temperature)."""
         try:
-            async with self._db() as db:
+            async with self._db_read() as db:
                 cursor = await db.execute("""
-                    SELECT 
+                    SELECT
                         DATE(timestamp) as date,
                         SUM(CASE WHEN grid_import IS NOT NULL THEN grid_import ELSE 0 END) as total_grid_import,
                         SUM(CASE WHEN solar_export IS NOT NULL THEN solar_export ELSE 0 END) as total_solar_export,
@@ -1146,9 +1156,9 @@ class UniversalRoomDatabase:
     ) -> dict[str, float]:
         """Get total energy values for a date range."""
         try:
-            async with self._db() as db:
+            async with self._db_read() as db:
                 cursor = await db.execute("""
-                    SELECT 
+                    SELECT
                         SUM(CASE WHEN grid_import IS NOT NULL THEN grid_import ELSE 0 END) as total_grid_import,
                         SUM(CASE WHEN solar_export IS NOT NULL THEN solar_export ELSE 0 END) as total_solar_export,
                         SUM(CASE WHEN solar_production IS NOT NULL THEN solar_production ELSE 0 END) as total_solar_production,
@@ -1320,7 +1330,7 @@ class UniversalRoomDatabase:
         """Get external conditions history for predictions."""
         try:
             cutoff = (datetime.utcnow() - timedelta(hours=hours)).isoformat()
-            async with self._db() as db:
+            async with self._db_read() as db:
                 cursor = await db.execute("""
                     SELECT timestamp, outside_temp, outside_humidity, weather_condition,
                            solar_production, forecast_high, forecast_low,
@@ -1351,7 +1361,7 @@ class UniversalRoomDatabase:
     async def get_recent_data(self, room_id: str, limit: int = 100) -> dict[str, list]:
         """Get recent data for export."""
         try:
-            async with self._db() as db:
+            async with self._db_read() as db:
                 # Get occupancy events
                 cursor = await db.execute("""
                     SELECT timestamp, event_type, trigger_source, duration
@@ -1394,7 +1404,7 @@ class UniversalRoomDatabase:
     async def get_table_counts(self, room_id: str) -> dict[str, int]:
         """Get row counts for each table for a specific room."""
         try:
-            async with self._db() as db:
+            async with self._db_read() as db:
                 counts = {}
                 
                 cursor = await db.execute("SELECT COUNT(*) FROM occupancy_events WHERE room_id = ?", (room_id,))
@@ -1431,12 +1441,12 @@ class UniversalRoomDatabase:
         Returns kWh.
         """
         try:
-            async with self._db() as db:
+            async with self._db_read() as db:
                 cursor = await db.execute("""
                     SELECT timestamp, power_watts
                     FROM energy_snapshots
-                    WHERE room_id = ? 
-                    AND timestamp >= ? 
+                    WHERE room_id = ?
+                    AND timestamp >= ?
                     AND timestamp <= ?
                     ORDER BY timestamp ASC
                 """, (room_id, start_time.isoformat(), end_time.isoformat()))
@@ -1478,8 +1488,8 @@ class UniversalRoomDatabase:
         """
         try:
             cutoff = dt_util.now() - timedelta(days=days)
-            
-            async with self._db() as db:
+
+            async with self._db_read() as db:
                 # Get all entry/exit events in period
                 cursor = await db.execute("""
                     SELECT timestamp, event_type, duration
@@ -1525,8 +1535,8 @@ class UniversalRoomDatabase:
         """
         try:
             cutoff = dt_util.now() - timedelta(days=days)
-            
-            async with self._db() as db:
+
+            async with self._db_read() as db:
                 cursor = await db.execute("""
                     SELECT timestamp
                     FROM occupancy_events
@@ -1564,8 +1574,8 @@ class UniversalRoomDatabase:
         try:
             # Get entry events for last 7 days
             cutoff = dt_util.now() - timedelta(days=7)
-            
-            async with self._db() as db:
+
+            async with self._db_read() as db:
                 cursor = await db.execute("""
                     SELECT timestamp
                     FROM occupancy_events
@@ -1638,8 +1648,8 @@ class UniversalRoomDatabase:
         """
         try:
             cutoff = dt_util.now() - timedelta(days=days)
-            
-            async with self._db() as db:
+
+            async with self._db_read() as db:
                 # Get occupancy events
                 cursor = await db.execute("""
                     SELECT timestamp
@@ -1786,7 +1796,7 @@ class UniversalRoomDatabase:
     async def get_person_last_location(self, person_id: str) -> dict[str, Any] | None:
         """Get person's last known location."""
         try:
-            async with self._db() as db:
+            async with self._db_read() as db:
                 db.row_factory = aiosqlite.Row
                 cursor = await db.execute("""
                     SELECT room_id, entry_time, confidence, detection_method
@@ -1816,7 +1826,7 @@ class UniversalRoomDatabase:
     async def get_active_visit_id(self, person_id: str, room_id: str) -> int | None:
         """Get ID of person's active visit in room."""
         try:
-            async with self._db() as db:
+            async with self._db_read() as db:
                 db.row_factory = aiosqlite.Row
                 cursor = await db.execute("""
                     SELECT id
@@ -1842,7 +1852,7 @@ class UniversalRoomDatabase:
     async def get_room_occupants(self, room_id: str) -> list[dict[str, Any]]:
         """Get list of people currently in room."""
         try:
-            async with self._db() as db:
+            async with self._db_read() as db:
                 db.row_factory = aiosqlite.Row
                 cursor = await db.execute("""
                     SELECT person_id, entry_time, confidence, detection_method
@@ -1938,9 +1948,9 @@ class UniversalRoomDatabase:
         """
         if not zone_rooms:
             return None
-            
+
         try:
-            async with self._db() as db:
+            async with self._db_read() as db:
                 db.row_factory = aiosqlite.Row
                 
                 # Build query with parameterized placeholders
@@ -2032,8 +2042,8 @@ class UniversalRoomDatabase:
                 cutoff = datetime.now() - timedelta(hours=hours)
             else:
                 cutoff = datetime.now() - timedelta(days=days)
-            
-            async with self._db() as db:
+
+            async with self._db_read() as db:
                 db.row_factory = aiosqlite.Row
                 cursor = await db.execute("""
                     SELECT 
@@ -2071,8 +2081,8 @@ class UniversalRoomDatabase:
         """
         try:
             cutoff = datetime.now() - timedelta(days=days)
-            
-            async with self._db() as db:
+
+            async with self._db_read() as db:
                 db.row_factory = aiosqlite.Row
                 cursor = await db.execute("""
                     SELECT 
@@ -2153,7 +2163,7 @@ class UniversalRoomDatabase:
         """
         try:
             cutoff = (datetime.now() - timedelta(hours=hours)).isoformat()
-            async with self._db() as db:
+            async with self._db_read() as db:
                 db.row_factory = aiosqlite.Row
                 cursor = await db.execute("""
                     SELECT
@@ -2265,7 +2275,7 @@ class UniversalRoomDatabase:
         """
         try:
             since_str = since.isoformat() if hasattr(since, "isoformat") else str(since)
-            async with self._db() as db:
+            async with self._db_read() as db:
                 db.row_factory = aiosqlite.Row
                 cursor = await db.execute("""
                     SELECT person_id, timestamp, egress_camera
@@ -2319,7 +2329,7 @@ class UniversalRoomDatabase:
         """Get all delivered notifications from today."""
         try:
             today_start = dt_util.start_of_local_day().isoformat()
-            async with self._db() as db:
+            async with self._db_read() as db:
                 db.row_factory = aiosqlite.Row
                 cursor = await db.execute("""
                     SELECT * FROM notification_log
@@ -2335,7 +2345,7 @@ class UniversalRoomDatabase:
     async def get_last_notification(self) -> dict | None:
         """Get the most recent delivered notification."""
         try:
-            async with self._db() as db:
+            async with self._db_read() as db:
                 db.row_factory = aiosqlite.Row
                 cursor = await db.execute("""
                     SELECT * FROM notification_log
@@ -2351,7 +2361,7 @@ class UniversalRoomDatabase:
     async def get_pending_digest(self, person_id: str) -> list[dict]:
         """Get pending digest notifications for a person."""
         try:
-            async with self._db() as db:
+            async with self._db_read() as db:
                 db.row_factory = aiosqlite.Row
                 cursor = await db.execute("""
                     SELECT * FROM notification_log
@@ -2398,7 +2408,7 @@ class UniversalRoomDatabase:
     async def get_active_critical(self) -> dict | None:
         """Get the most recent unacknowledged CRITICAL notification."""
         try:
-            async with self._db() as db:
+            async with self._db_read() as db:
                 db.row_factory = aiosqlite.Row
                 cursor = await db.execute("""
                     SELECT * FROM notification_log
@@ -2415,7 +2425,7 @@ class UniversalRoomDatabase:
         """Get the active cooldown notification (acked but cooldown not expired)."""
         try:
             now = dt_util.utcnow().isoformat()
-            async with self._db() as db:
+            async with self._db_read() as db:
                 db.row_factory = aiosqlite.Row
                 cursor = await db.execute("""
                     SELECT * FROM notification_log
@@ -2504,7 +2514,7 @@ class UniversalRoomDatabase:
         """Get all inbound messages from today."""
         try:
             today_start = dt_util.start_of_local_day().isoformat()
-            async with self._db() as db:
+            async with self._db_read() as db:
                 db.row_factory = aiosqlite.Row
                 cursor = await db.execute("""
                     SELECT * FROM notification_inbound
@@ -2564,7 +2574,7 @@ class UniversalRoomDatabase:
         Returns dict with total import/export/cost and day count.
         """
         try:
-            async with self._db() as db:
+            async with self._db_read() as db:
                 cursor = await db.execute("""
                     SELECT
                         COUNT(*) as days,
@@ -2599,7 +2609,7 @@ class UniversalRoomDatabase:
         Returns list of dicts with all columns, ordered by date ascending.
         """
         try:
-            async with self._db() as db:
+            async with self._db_read() as db:
                 db.row_factory = aiosqlite.Row
                 cursor = await db.execute("""
                     SELECT date, consumption_kwh, predicted_consumption_kwh,
@@ -2623,7 +2633,7 @@ class UniversalRoomDatabase:
         Only includes rows where both values are non-null.
         """
         try:
-            async with self._db() as db:
+            async with self._db_read() as db:
                 cursor = await db.execute("""
                     SELECT consumption_kwh, avg_temperature
                     FROM energy_daily
@@ -2668,7 +2678,7 @@ class UniversalRoomDatabase:
         Returns list of import_kw readings in original order.
         """
         try:
-            async with self._db() as db:
+            async with self._db_read() as db:
                 cursor = await db.execute(
                     "SELECT import_kw FROM energy_peak_import ORDER BY seq ASC"
                 )
@@ -2708,7 +2718,7 @@ class UniversalRoomDatabase:
     async def restore_evse_state(self) -> dict[str, dict[str, bool]]:
         """Restore EVSE states from DB. Returns {evse_id: {paused, excess_solar}}."""
         try:
-            async with self._db() as db:
+            async with self._db_read() as db:
                 cursor = await db.execute(
                     "SELECT evse_id, paused_by_energy, excess_solar_active FROM evse_state"
                 )
@@ -2819,7 +2829,7 @@ class UniversalRoomDatabase:
                 was_loaded (bool), zero_since (float|None), alerted (bool)
         """
         try:
-            async with self._db() as db:
+            async with self._db_read() as db:
                 db.row_factory = aiosqlite.Row
                 cursor = await db.execute(
                     "SELECT circuit_id, was_loaded, zero_since, alerted FROM circuit_state"
@@ -2888,7 +2898,7 @@ class UniversalRoomDatabase:
             dict with cached values + updated_at, or None if no cache.
         """
         try:
-            async with self._db() as db:
+            async with self._db_read() as db:
                 db.row_factory = aiosqlite.Row
                 cursor = await db.execute(
                     "SELECT * FROM envoy_cache WHERE id = 1"
@@ -2952,7 +2962,7 @@ class UniversalRoomDatabase:
             dict with snapshot data, or None if no snapshot exists.
         """
         try:
-            async with self._db() as db:
+            async with self._db_read() as db:
                 db.row_factory = aiosqlite.Row
                 cursor = await db.execute(
                     "SELECT * FROM energy_midnight_snapshot WHERE id = 1"
@@ -2993,7 +3003,7 @@ class UniversalRoomDatabase:
             The stored value string, or None if not found.
         """
         try:
-            async with self._db() as db:
+            async with self._db_read() as db:
                 cursor = await db.execute(
                     "SELECT value FROM energy_state WHERE key = ?", (key,)
                 )
@@ -3010,7 +3020,7 @@ class UniversalRoomDatabase:
         Only returns rows where consumption_kwh is not None.
         """
         try:
-            async with self._db() as db:
+            async with self._db_read() as db:
                 db.row_factory = aiosqlite.Row
                 cursor = await db.execute("""
                     SELECT date, consumption_kwh
@@ -3078,7 +3088,7 @@ class UniversalRoomDatabase:
         Used as fallback when RestoreEntity state is unavailable.
         """
         try:
-            async with self._db() as db:
+            async with self._db_read() as db:
                 cursor = await db.execute(
                     "SELECT * FROM room_state WHERE room_id = ?",
                     (room_id,),
