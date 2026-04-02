@@ -638,6 +638,10 @@ class HVACCoordinator(BaseCoordinator):
                         self._vacancy_sweeps_today += 1
 
                 # D6: Stale occupancy failsafe (skip during sleep — RH4)
+                # v3.22.2: Multi-source confidence check before declaring stale.
+                # If 2+ independent sources confirm presence, reset the timer
+                # instead of forcing away. Only treat as stale if a single
+                # stuck sensor is the sole evidence.
                 if (
                     zone.any_room_occupied
                     and self._house_state != "sleep"
@@ -645,15 +649,31 @@ class HVACCoordinator(BaseCoordinator):
                     and (now - zone.continuous_occupied_since).total_seconds()
                     > self._max_occupancy_hours * 3600
                 ):
-                    effective_preset = "away"
-                    if not zone.vacancy_sweep_done and zone.vacancy_sweep_enabled:
-                        await self._execute_vacancy_sweep(zone)
-                        zone.vacancy_sweep_done = True
-                        self._vacancy_sweeps_today += 1
-                    _LOGGER.warning(
-                        "HVAC: Zone %s occupied >%dh — treating as stale sensor",
-                        zone.zone_name, self._max_occupancy_hours,
-                    )
+                    confirmed, possible = self._check_zone_occupancy_confidence(zone)
+                    # Adaptive threshold: require 2 of N if N >= 2, else 1 of 1
+                    threshold = min(2, possible) if possible > 0 else 1
+                    if confirmed >= threshold:
+                        # Sufficient confirmation — occupancy is real, reset timer
+                        zone.continuous_occupied_since = now
+                        _LOGGER.info(
+                            "HVAC: Zone %s occupied >%dh but %d/%d sources confirm "
+                            "presence (threshold %d) — resetting timer (not stale)",
+                            zone.zone_name, self._max_occupancy_hours,
+                            confirmed, possible, threshold,
+                        )
+                    else:
+                        # Insufficient confirmation — likely stuck sensor
+                        effective_preset = "away"
+                        if not zone.vacancy_sweep_done and zone.vacancy_sweep_enabled:
+                            await self._execute_vacancy_sweep(zone)
+                            zone.vacancy_sweep_done = True
+                            self._vacancy_sweeps_today += 1
+                        _LOGGER.warning(
+                            "HVAC: Zone %s occupied >%dh with only %d/%d source(s) "
+                            "(threshold %d) — treating as stale sensor",
+                            zone.zone_name, self._max_occupancy_hours,
+                            confirmed, possible, threshold,
+                        )
 
                 # D5: Duty cycle enforcement (skip during sleep — RH4)
                 if zone.runtime_exceeded and self._house_state != "sleep":
@@ -925,6 +945,79 @@ class HVACCoordinator(BaseCoordinator):
     # ------------------------------------------------------------------
     # v3.17.0: Zone Intelligence methods
     # ------------------------------------------------------------------
+
+    def _check_zone_occupancy_confidence(self, zone) -> tuple[int, int]:
+        """Count independent occupancy sources confirming zone presence.
+
+        v3.22.2: Multi-source confidence check for D6 stale occupancy failsafe.
+        Returns (confirmed, possible) where:
+        - confirmed: number of source types actively confirming presence (0-4)
+        - possible: number of source types available for this zone (0-4)
+
+        Source types:
+        1. Motion/mmWave sensors (recent activity within 30 min)
+        2. BLE person detection (phone detected in zone)
+        3. Camera person detection (Frigate person entity "on")
+        4. Multiple occupied rooms (2+ rooms occupied = unlikely all stuck)
+
+        The caller uses adaptive threshold: require min(2, possible) sources.
+        This means a zone with only motion sensors (no BLE, no cameras, 1 room)
+        can still confirm presence with just recent motion — but a well-instrumented
+        zone needs 2+ independent confirmations.
+        """
+        from ..const import (
+            DOMAIN, CONF_ENTRY_TYPE, ENTRY_TYPE_ROOM, CONF_ROOM_NAME,
+        )
+        confirmed = 0
+        possible = 0
+
+        # Source 1: Motion/mmWave — always available (every room has sensors)
+        possible += 1
+        has_recent_motion = False
+        now = dt_util.utcnow()
+        for room_name in zone.rooms:
+            for entry in self.hass.config_entries.async_entries(DOMAIN):
+                if (
+                    entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_ROOM
+                    and entry.data.get(CONF_ROOM_NAME) == room_name
+                ):
+                    coord = self.hass.data.get(DOMAIN, {}).get(entry.entry_id)
+                    if coord and hasattr(coord, "_last_motion_time") and coord._last_motion_time:
+                        age = (now - coord._last_motion_time).total_seconds()
+                        if age < 1800:  # Motion in last 30 min
+                            has_recent_motion = True
+                    break
+        if has_recent_motion:
+            confirmed += 1
+
+        # Source 2: BLE person detection
+        person_coord = self.hass.data.get(DOMAIN, {}).get("person_coordinator")
+        if person_coord:
+            possible += 1
+            try:
+                ble_persons = person_coord.get_persons_in_zone(zone.rooms)
+                if ble_persons:
+                    confirmed += 1
+            except Exception:
+                pass
+
+        # Source 3: Camera person detection
+        if zone.zone_cameras:
+            possible += 1
+            for camera_entity in zone.zone_cameras:
+                state = self.hass.states.get(camera_entity)
+                if state and state.state == "on":
+                    confirmed += 1
+                    break  # One camera confirmation is enough
+
+        # Source 4: Multiple occupied rooms (only possible if zone has 2+ rooms)
+        if len(zone.rooms) >= 2:
+            possible += 1
+            occupied_count = sum(1 for rc in zone.room_conditions if rc.occupied)
+            if occupied_count >= 2:
+                confirmed += 1
+
+        return confirmed, possible
 
     async def _execute_vacancy_sweep(self, zone) -> None:
         """Turn off URA-configured lights and fans in all rooms of a vacant zone.
