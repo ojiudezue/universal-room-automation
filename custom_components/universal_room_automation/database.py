@@ -1,7 +1,7 @@
 """Database for Universal Room Automation."""
 from __future__ import annotations
 #
-# Universal Room Automation v3.22.8
+# Universal Room Automation v3.22.9
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors
@@ -62,39 +62,66 @@ class UniversalRoomDatabase:
     async def _write_worker(self) -> None:
         """Background task that processes write queue sequentially.
 
-        Opens ONE connection at startup, processes writes forever.
-        Each queued item is (coroutine_factory, future) where:
-        - coroutine_factory(db) returns the write coroutine
-        - future receives the result or exception
+        Opens ONE connection, processes writes forever. Auto-reconnects
+        on connection failure with 5s backoff. On permanent failure,
+        drains pending futures with errors so callers don't hang.
         """
-        try:
-            async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
-                await db.execute("PRAGMA busy_timeout=30000")
-                await db.execute("PRAGMA journal_mode=WAL")
-                _LOGGER.info("DB write worker connection established")
-                while True:
-                    factory, future = await self._write_queue.get()
-                    try:
-                        result = await factory(db)
-                        if not future.done():
-                            future.set_result(result)
-                    except Exception as exc:
-                        if not future.done():
-                            future.set_exception(exc)
-                    finally:
-                        self._write_queue.task_done()
-                        self._db_stats["writes"] += 1
-                        qsize = self._write_queue.qsize()
-                        if qsize > self._db_stats["queue_peak"]:
-                            self._db_stats["queue_peak"] = qsize
-                            if qsize > 10:
-                                _LOGGER.warning(
-                                    "DB write queue peak: %d items", qsize
-                                )
-        except asyncio.CancelledError:
-            _LOGGER.info("DB write worker cancelled")
-        except Exception as exc:
-            _LOGGER.error("DB write worker crashed: %s", exc)
+        while True:
+            try:
+                async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
+                    await db.execute("PRAGMA busy_timeout=30000")
+                    await db.execute("PRAGMA journal_mode=WAL")
+                    _LOGGER.info("DB write worker connection established")
+                    while True:
+                        factory, future = await self._write_queue.get()
+                        try:
+                            result = await factory(db)
+                            if not future.done():
+                                future.set_result(result)
+                        except Exception as exc:
+                            if not future.done():
+                                future.set_exception(exc)
+                        finally:
+                            self._write_queue.task_done()
+                            self._db_stats["writes"] += 1
+                            qsize = self._write_queue.qsize()
+                            if qsize > self._db_stats["queue_peak"]:
+                                self._db_stats["queue_peak"] = qsize
+                                if qsize > 10:
+                                    _LOGGER.warning(
+                                        "DB write queue peak: %d items", qsize
+                                    )
+            except asyncio.CancelledError:
+                _LOGGER.info("DB write worker cancelled — draining queue")
+                self._drain_pending_futures("worker cancelled")
+                return
+            except Exception as exc:
+                _LOGGER.error(
+                    "DB write worker connection lost: %s — retrying in 5s", exc
+                )
+                self._drain_pending_futures(str(exc))
+                try:
+                    await asyncio.sleep(5)
+                except asyncio.CancelledError:
+                    _LOGGER.info("DB write worker cancelled during reconnect")
+                    return
+
+    def _drain_pending_futures(self, reason: str) -> None:
+        """Fail all pending write futures so callers don't hang."""
+        drained = 0
+        while not self._write_queue.empty():
+            try:
+                _factory, future = self._write_queue.get_nowait()
+                if not future.done():
+                    future.set_exception(
+                        RuntimeError(f"DB write failed: {reason}")
+                    )
+                self._write_queue.task_done()
+                drained += 1
+            except asyncio.QueueEmpty:
+                break
+        if drained:
+            _LOGGER.warning("DB write worker drained %d pending writes", drained)
 
     async def async_close(self) -> None:
         """Stop write worker and close connections on shutdown."""
@@ -118,9 +145,12 @@ class UniversalRoomDatabase:
 
         v3.22.8: Writes go through a single-worker queue. The worker
         holds one persistent connection and processes writes sequentially.
-        No lock contention — callers just await their turn in the queue.
-        Queue wait is O(1) enqueue vs O(n) lock contention.
+        v3.22.9: Fail fast if worker is not running (review fix F4).
         """
+        if self._write_task is None or self._write_task.done():
+            raise RuntimeError(
+                "DB write worker not running — call start_write_worker() first"
+            )
         loop = asyncio.get_running_loop()
         future: asyncio.Future = loop.create_future()
         # We need to yield a db connection to the caller inside the
@@ -159,6 +189,7 @@ class UniversalRoomDatabase:
         self._db_stats["reads"] += 1
         async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
             await db.execute("PRAGMA busy_timeout=30000")
+            await db.execute("PRAGMA query_only=ON")
             yield db
 
     async def _create_table_safe(
