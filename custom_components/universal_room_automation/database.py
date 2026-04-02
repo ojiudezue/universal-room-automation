@@ -1,7 +1,7 @@
 """Database for Universal Room Automation."""
 from __future__ import annotations
 #
-# Universal Room Automation v3.22.10
+# Universal Room Automation v3.22.11
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors
@@ -169,13 +169,24 @@ class UniversalRoomDatabase:
         async def _execute(db):
             db_holder.append(db)
             ready.set()
-            # Wait for caller to finish using db
-            await done.wait()
+            # Wait for caller to finish using db (timeout prevents stuck caller
+            # from blocking the entire write queue — review fix F6)
+            try:
+                await asyncio.wait_for(done.wait(), timeout=120.0)
+            except asyncio.TimeoutError:
+                _LOGGER.error("DB write caller held connection >120s — releasing")
             return None
 
         await self._write_queue.put((_execute, future))
-        # Wait for worker to give us the connection
-        await ready.wait()
+        # Wait for worker to give us the connection.
+        # Timeout prevents hanging if worker dies after enqueue (review fix F1).
+        try:
+            await asyncio.wait_for(ready.wait(), timeout=35.0)
+        except asyncio.TimeoutError:
+            done.set()  # Unblock worker if it somehow ran _execute late
+            raise RuntimeError(
+                "DB write worker did not process request within 35s"
+            )
         try:
             yield db_holder[0]
         finally:
