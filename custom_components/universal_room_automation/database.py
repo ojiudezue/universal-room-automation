@@ -1,7 +1,7 @@
 """Database for Universal Room Automation."""
 from __future__ import annotations
 #
-# Universal Room Automation v3.22.4
+# Universal Room Automation v3.22.5
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors
@@ -34,11 +34,18 @@ class UniversalRoomDatabase:
 
     def __init__(self, hass: HomeAssistant) -> None:
         """Initialize the database."""
+        import asyncio
         self.hass = hass
         db_dir = hass.config.path(DATABASE_DIR)
         os.makedirs(db_dir, exist_ok=True)
         self.db_file = os.path.join(db_dir, DATABASE_NAME)
         self._last_table_error: Exception | None = None
+        # v3.22.5: Single write lock to serialize all DB writes.
+        # Eliminates "database is locked" errors from concurrent
+        # fire-and-forget tasks (energy, person, census) that
+        # previously each opened their own connection and contended
+        # for the SQLite write lock.
+        self._write_lock = asyncio.Lock()
         _LOGGER.info("Database file: %s", self.db_file)
 
     # Tables eligible for drop-and-recreate repair on corruption
@@ -46,10 +53,27 @@ class UniversalRoomDatabase:
 
     @asynccontextmanager
     async def _db(self):
-        """Get a configured database connection.
+        """Get a database connection with serialized write access.
 
-        v3.18.3: All connections use timeout=30s + WAL + busy_timeout to
-        prevent 'database is locked' during concurrent startup writes.
+        v3.22.5: All callers share a single asyncio.Lock to prevent
+        concurrent writes from causing 'database is locked' errors.
+        WAL mode allows concurrent reads, but SQLite only supports one
+        writer at a time. The lock serializes writers at the application
+        level instead of relying on SQLite's busy_timeout retry loop.
+
+        Use _db_read() for read-only queries that don't need the lock.
+        """
+        async with self._write_lock:
+            async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
+                await db.execute("PRAGMA busy_timeout=30000")
+                yield db
+
+    @asynccontextmanager
+    async def _db_read(self):
+        """Get a database connection for read-only queries (no write lock).
+
+        WAL mode allows concurrent reads without contention. Use this
+        for SELECT queries that don't modify data.
         """
         async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
             await db.execute("PRAGMA busy_timeout=30000")
