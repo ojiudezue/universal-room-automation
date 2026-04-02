@@ -1,7 +1,7 @@
 """Database for Universal Room Automation."""
 from __future__ import annotations
 #
-# Universal Room Automation v3.22.7
+# Universal Room Automation v3.22.8
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors
@@ -41,101 +41,125 @@ class UniversalRoomDatabase:
         os.makedirs(db_dir, exist_ok=True)
         self.db_file = os.path.join(db_dir, DATABASE_NAME)
         self._last_table_error: Exception | None = None
-        # v3.22.7: Persistent connections + write lock.
-        # One persistent write connection (serialized via asyncio.Lock)
-        # One persistent read connection (lock-free, WAL concurrent reads)
-        # Eliminates connection open/close overhead (~5-15ms per call)
-        # that was causing 2-3s lock wait times with transient connections.
-        self._write_lock = asyncio.Lock()
-        self._write_conn: aiosqlite.Connection | None = None
-        self._read_conn: aiosqlite.Connection | None = None
+        # v3.22.8: Write queue serializes all DB writes through a single
+        # asyncio task, eliminating contention entirely. Writes are queued
+        # as coroutines and executed one at a time. Reads use independent
+        # transient connections (WAL allows concurrent reads).
+        self._write_queue: asyncio.Queue = asyncio.Queue()
+        self._write_task: asyncio.Task | None = None
+        self._db_stats = {"writes": 0, "reads": 0, "queue_peak": 0}
         _LOGGER.info("Database file: %s", self.db_file)
 
     # Tables eligible for drop-and-recreate repair on corruption
     _REPAIRABLE_TABLES: frozenset[str] = frozenset({"energy_snapshots"})
 
-    async def _ensure_write_conn(self) -> aiosqlite.Connection:
-        """Get or create the persistent write connection."""
-        if self._write_conn is None:
-            self._write_conn = await aiosqlite.connect(
-                self.db_file, timeout=30.0
-            )
-            await self._write_conn.execute("PRAGMA busy_timeout=30000")
-            await self._write_conn.execute("PRAGMA journal_mode=WAL")
-        return self._write_conn
+    async def start_write_worker(self) -> None:
+        """Start the background write worker task."""
+        if self._write_task is None or self._write_task.done():
+            self._write_task = asyncio.ensure_future(self._write_worker())
+            _LOGGER.info("DB write worker started")
 
-    async def _ensure_read_conn(self) -> aiosqlite.Connection:
-        """Get or create the persistent read connection."""
-        if self._read_conn is None:
-            self._read_conn = await aiosqlite.connect(
-                self.db_file, timeout=30.0
-            )
-            await self._read_conn.execute("PRAGMA busy_timeout=30000")
-            await self._read_conn.execute("PRAGMA journal_mode=WAL")
-            # Read connection: query_only prevents accidental writes
-            await self._read_conn.execute("PRAGMA query_only=ON")
-        return self._read_conn
+    async def _write_worker(self) -> None:
+        """Background task that processes write queue sequentially.
+
+        Opens ONE connection at startup, processes writes forever.
+        Each queued item is (coroutine_factory, future) where:
+        - coroutine_factory(db) returns the write coroutine
+        - future receives the result or exception
+        """
+        try:
+            async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
+                await db.execute("PRAGMA busy_timeout=30000")
+                await db.execute("PRAGMA journal_mode=WAL")
+                _LOGGER.info("DB write worker connection established")
+                while True:
+                    factory, future = await self._write_queue.get()
+                    try:
+                        result = await factory(db)
+                        if not future.done():
+                            future.set_result(result)
+                    except Exception as exc:
+                        if not future.done():
+                            future.set_exception(exc)
+                    finally:
+                        self._write_queue.task_done()
+                        self._db_stats["writes"] += 1
+                        qsize = self._write_queue.qsize()
+                        if qsize > self._db_stats["queue_peak"]:
+                            self._db_stats["queue_peak"] = qsize
+                            if qsize > 10:
+                                _LOGGER.warning(
+                                    "DB write queue peak: %d items", qsize
+                                )
+        except asyncio.CancelledError:
+            _LOGGER.info("DB write worker cancelled")
+        except Exception as exc:
+            _LOGGER.error("DB write worker crashed: %s", exc)
 
     async def async_close(self) -> None:
-        """Close persistent connections on shutdown."""
-        if self._write_conn is not None:
+        """Stop write worker and close connections on shutdown."""
+        if self._write_task is not None and not self._write_task.done():
+            self._write_task.cancel()
             try:
-                await self._write_conn.close()
-            except Exception:
+                await self._write_task
+            except (asyncio.CancelledError, Exception):
                 pass
-            self._write_conn = None
-        if self._read_conn is not None:
-            try:
-                await self._read_conn.close()
-            except Exception:
-                pass
-            self._read_conn = None
+            self._write_task = None
+        _LOGGER.info(
+            "DB stats: %d writes, %d reads, queue peak %d",
+            self._db_stats["writes"],
+            self._db_stats["reads"],
+            self._db_stats["queue_peak"],
+        )
 
     @asynccontextmanager
     async def _db(self):
-        """Get the persistent write connection with serialized access.
+        """Submit a write operation to the write queue.
 
-        v3.22.7: Uses a single persistent connection instead of opening
-        a new one per call. The asyncio.Lock serializes writes. Lock wait
-        time is now just query duration (~1ms), not connection overhead.
+        v3.22.8: Writes go through a single-worker queue. The worker
+        holds one persistent connection and processes writes sequentially.
+        No lock contention — callers just await their turn in the queue.
+        Queue wait is O(1) enqueue vs O(n) lock contention.
         """
-        t0 = time.monotonic()
-        async with self._write_lock:
-            waited = time.monotonic() - t0
-            if waited > 2.0:
-                _LOGGER.warning("DB write lock waited %.1fs", waited)
+        loop = asyncio.get_running_loop()
+        future: asyncio.Future = loop.create_future()
+        # We need to yield a db connection to the caller inside the
+        # context manager. Use an Event to synchronize.
+        db_holder: list = []
+        ready = asyncio.Event()
+        done = asyncio.Event()
+
+        async def _execute(db):
+            db_holder.append(db)
+            ready.set()
+            # Wait for caller to finish using db
+            await done.wait()
+            return None
+
+        await self._write_queue.put((_execute, future))
+        # Wait for worker to give us the connection
+        await ready.wait()
+        try:
+            yield db_holder[0]
+        finally:
+            done.set()
+            # Wait for worker to complete our item
             try:
-                db = await self._ensure_write_conn()
-                yield db
+                await future
             except Exception:
-                # Connection may be corrupt — reset it
-                if self._write_conn is not None:
-                    try:
-                        await self._write_conn.close()
-                    except Exception:
-                        pass
-                    self._write_conn = None
-                raise
+                pass
 
     @asynccontextmanager
     async def _db_read(self):
-        """Get the persistent read connection (no write lock).
+        """Get a transient connection for read-only queries.
 
-        WAL mode allows concurrent reads. The read connection has
-        PRAGMA query_only=ON to prevent accidental writes.
+        WAL mode allows concurrent reads without contention.
+        Each read gets its own short-lived connection.
         """
-        try:
-            db = await self._ensure_read_conn()
+        self._db_stats["reads"] += 1
+        async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
+            await db.execute("PRAGMA busy_timeout=30000")
             yield db
-        except Exception:
-            # Connection may be corrupt — reset it
-            if self._read_conn is not None:
-                try:
-                    await self._read_conn.close()
-                except Exception:
-                    pass
-                self._read_conn = None
-            raise
 
     async def _create_table_safe(
         self,
