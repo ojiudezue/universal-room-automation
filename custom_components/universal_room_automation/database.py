@@ -1,7 +1,7 @@
 """Database for Universal Room Automation."""
 from __future__ import annotations
 #
-# Universal Room Automation v3.22.6
+# Universal Room Automation v3.22.7
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors
@@ -41,48 +41,101 @@ class UniversalRoomDatabase:
         os.makedirs(db_dir, exist_ok=True)
         self.db_file = os.path.join(db_dir, DATABASE_NAME)
         self._last_table_error: Exception | None = None
-        # v3.22.5: Single write lock to serialize all DB writes.
-        # Eliminates "database is locked" errors from concurrent
-        # fire-and-forget tasks (energy, person, census) that
-        # previously each opened their own connection and contended
-        # for the SQLite write lock.
+        # v3.22.7: Persistent connections + write lock.
+        # One persistent write connection (serialized via asyncio.Lock)
+        # One persistent read connection (lock-free, WAL concurrent reads)
+        # Eliminates connection open/close overhead (~5-15ms per call)
+        # that was causing 2-3s lock wait times with transient connections.
         self._write_lock = asyncio.Lock()
+        self._write_conn: aiosqlite.Connection | None = None
+        self._read_conn: aiosqlite.Connection | None = None
         _LOGGER.info("Database file: %s", self.db_file)
 
     # Tables eligible for drop-and-recreate repair on corruption
     _REPAIRABLE_TABLES: frozenset[str] = frozenset({"energy_snapshots"})
 
+    async def _ensure_write_conn(self) -> aiosqlite.Connection:
+        """Get or create the persistent write connection."""
+        if self._write_conn is None:
+            self._write_conn = await aiosqlite.connect(
+                self.db_file, timeout=30.0
+            )
+            await self._write_conn.execute("PRAGMA busy_timeout=30000")
+            await self._write_conn.execute("PRAGMA journal_mode=WAL")
+        return self._write_conn
+
+    async def _ensure_read_conn(self) -> aiosqlite.Connection:
+        """Get or create the persistent read connection."""
+        if self._read_conn is None:
+            self._read_conn = await aiosqlite.connect(
+                self.db_file, timeout=30.0
+            )
+            await self._read_conn.execute("PRAGMA busy_timeout=30000")
+            await self._read_conn.execute("PRAGMA journal_mode=WAL")
+            # Read connection: query_only prevents accidental writes
+            await self._read_conn.execute("PRAGMA query_only=ON")
+        return self._read_conn
+
+    async def async_close(self) -> None:
+        """Close persistent connections on shutdown."""
+        if self._write_conn is not None:
+            try:
+                await self._write_conn.close()
+            except Exception:
+                pass
+            self._write_conn = None
+        if self._read_conn is not None:
+            try:
+                await self._read_conn.close()
+            except Exception:
+                pass
+            self._read_conn = None
+
     @asynccontextmanager
     async def _db(self):
-        """Get a database connection with serialized write access.
+        """Get the persistent write connection with serialized access.
 
-        v3.22.5: All callers share a single asyncio.Lock to prevent
-        concurrent writes from causing 'database is locked' errors.
-        WAL mode allows concurrent reads, but SQLite only supports one
-        writer at a time. The lock serializes writers at the application
-        level instead of relying on SQLite's busy_timeout retry loop.
-
-        Use _db_read() for read-only queries that don't need the lock.
+        v3.22.7: Uses a single persistent connection instead of opening
+        a new one per call. The asyncio.Lock serializes writes. Lock wait
+        time is now just query duration (~1ms), not connection overhead.
         """
         t0 = time.monotonic()
         async with self._write_lock:
             waited = time.monotonic() - t0
             if waited > 2.0:
                 _LOGGER.warning("DB write lock waited %.1fs", waited)
-            async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
-                await db.execute("PRAGMA busy_timeout=30000")
+            try:
+                db = await self._ensure_write_conn()
                 yield db
+            except Exception:
+                # Connection may be corrupt — reset it
+                if self._write_conn is not None:
+                    try:
+                        await self._write_conn.close()
+                    except Exception:
+                        pass
+                    self._write_conn = None
+                raise
 
     @asynccontextmanager
     async def _db_read(self):
-        """Get a database connection for read-only queries (no write lock).
+        """Get the persistent read connection (no write lock).
 
-        WAL mode allows concurrent reads without contention. Use this
-        for SELECT queries that don't modify data.
+        WAL mode allows concurrent reads. The read connection has
+        PRAGMA query_only=ON to prevent accidental writes.
         """
-        async with aiosqlite.connect(self.db_file, timeout=30.0) as db:
-            await db.execute("PRAGMA busy_timeout=30000")
+        try:
+            db = await self._ensure_read_conn()
             yield db
+        except Exception:
+            # Connection may be corrupt — reset it
+            if self._read_conn is not None:
+                try:
+                    await self._read_conn.close()
+                except Exception:
+                    pass
+                self._read_conn = None
+            raise
 
     async def _create_table_safe(
         self,
