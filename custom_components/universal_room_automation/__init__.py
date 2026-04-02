@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation v3.22.2
+# Universal Room Automation v3.22.3
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -738,6 +738,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             _LOGGER.error("Failed to initialize camera census: %s", e)
 
         tracked_person_entities = merged_config.get(CONF_TRACKED_PERSONS, [])
+        # v3.22.3 DIAGNOSTIC: Log the full config path for person coordinator init
+        _LOGGER.warning(
+            "PERSON INIT DIAGNOSTIC: entry.data keys=%s, entry.options keys=%s, "
+            "CONF_TRACKED_PERSONS in data=%s, in options=%s, "
+            "merged value=%s (type=%s, len=%d)",
+            list(entry.data.keys()),
+            list(entry.options.keys()),
+            CONF_TRACKED_PERSONS in entry.data,
+            CONF_TRACKED_PERSONS in entry.options,
+            tracked_person_entities,
+            type(tracked_person_entities).__name__,
+            len(tracked_person_entities) if tracked_person_entities else 0,
+        )
         if tracked_person_entities:
             try:
                 # Convert entity IDs to person names
@@ -752,14 +765,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     else:
                         # Already a name, just title case it
                         tracked_persons.append(entity_id.replace("_", " ").title())
-                
+
+                _LOGGER.warning(
+                    "PERSON INIT DIAGNOSTIC: converted %s -> %s",
+                    tracked_person_entities, tracked_persons,
+                )
+
                 # UPDATE the entry.data directly so aggregation.py also sees person names
                 hass.config_entries.async_update_entry(
                     entry,
                     data={**entry.data, CONF_TRACKED_PERSONS: tracked_persons}
                 )
-                
+
                 # Now create coordinator with the updated entry
+                _LOGGER.warning("PERSON INIT DIAGNOSTIC: creating PersonTrackingCoordinator...")
                 person_coordinator = PersonTrackingCoordinator(hass, entry)
                 await person_coordinator.async_config_entry_first_refresh()
                 hass.data[DOMAIN]["person_coordinator"] = person_coordinator
@@ -839,11 +858,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     _LOGGER.error("Traceback: %s", traceback.format_exc())
 
             except Exception as e:
-                _LOGGER.error("Failed to initialize person tracking coordinator: %s", e)
+                _LOGGER.error("PERSON INIT DIAGNOSTIC: FAILED to initialize person tracking: %s", e)
                 import traceback
-                _LOGGER.error("Traceback: %s", traceback.format_exc())
+                _LOGGER.error("PERSON INIT DIAGNOSTIC: Traceback: %s", traceback.format_exc())
         else:
-            _LOGGER.info("No tracked persons configured, skipping person coordinator")
+            _LOGGER.warning(
+                "PERSON INIT DIAGNOSTIC: tracked_person_entities is EMPTY/FALSY — "
+                "skipping person coordinator. Value was: %r",
+                tracked_person_entities,
+            )
 
         # v3.5.1: Initialize perimeter alert manager
         try:

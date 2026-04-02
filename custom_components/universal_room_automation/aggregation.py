@@ -222,8 +222,18 @@ async def async_setup_aggregation_sensors(
 
     # === v3.2.0: INTEGRATION PERSON LOCATION SENSORS ===
     person_coordinator = hass.data[DOMAIN].get("person_coordinator")
+    _LOGGER.warning(
+        "PERSON SENSOR DIAGNOSTIC: person_coordinator=%s, "
+        "entry.data CONF_TRACKED_PERSONS=%s",
+        "FOUND" if person_coordinator else "NONE",
+        entry.data.get(CONF_TRACKED_PERSONS, "NOT_IN_DATA"),
+    )
     if person_coordinator:
         tracked_persons = entry.data.get(CONF_TRACKED_PERSONS, [])
+        _LOGGER.warning(
+            "PERSON SENSOR DIAGNOSTIC: creating sensors for %d persons: %s",
+            len(tracked_persons), tracked_persons,
+        )
         for person_entity_id in tracked_persons:
             person_id = person_entity_id.split('.')[-1]  # person.oji -> oji
             entities.extend([
