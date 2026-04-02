@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation v3.22.6
+# Universal Room Automation v3.22.7
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -1538,6 +1538,11 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if coordinator_manager:
             await coordinator_manager.async_stop()
             del hass.data[DOMAIN]["coordinator_manager"]
+
+        # v3.22.7: Close persistent DB connections on unload
+        database = hass.data[DOMAIN].get("database")
+        if database and hasattr(database, "async_close"):
+            await database.async_close()
 
         if "integration" in hass.data[DOMAIN]:
             del hass.data[DOMAIN]["integration"]
