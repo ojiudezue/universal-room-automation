@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation v3.22.10
+# Universal Room Automation v3.22.11
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -633,8 +633,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             except Exception as e:
                 _LOGGER.debug("Safety alert dedup migration: %s", e)
 
-        # Initialize database (shared across all rooms)
-        if "database" not in hass.data[DOMAIN]:
+        # Initialize database (shared across all rooms — use existing if already created)
+        if hass.data[DOMAIN].get("database") is None:
             database = UniversalRoomDatabase(hass)
             if await database.initialize():
                 await database.start_write_worker()
@@ -1403,8 +1403,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if database is None:
         database = UniversalRoomDatabase(hass)
         if await database.initialize():
-            hass.data[DOMAIN]["database"] = database
             await database.start_write_worker()
+            hass.data[DOMAIN]["database"] = database
             _LOGGER.info("Database initialized successfully")
         else:
             _LOGGER.warning("Database initialization failed")
