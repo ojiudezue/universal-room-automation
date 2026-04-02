@@ -1,7 +1,7 @@
 """Database for Universal Room Automation."""
 from __future__ import annotations
 #
-# Universal Room Automation v3.22.9
+# Universal Room Automation v3.22.10
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors
@@ -54,10 +54,17 @@ class UniversalRoomDatabase:
     _REPAIRABLE_TABLES: frozenset[str] = frozenset({"energy_snapshots"})
 
     async def start_write_worker(self) -> None:
-        """Start the background write worker task."""
-        if self._write_task is None or self._write_task.done():
-            self._write_task = asyncio.ensure_future(self._write_worker())
-            _LOGGER.info("DB write worker started")
+        """Start the background write worker task (idempotent).
+
+        Safe to call multiple times — only starts one worker.
+        Multiple config entries may call this during startup.
+        """
+        if self._write_task is not None and not self._write_task.done():
+            return  # Already running
+        self._write_task = self.hass.async_create_task(
+            self._write_worker(), "ura_db_write_worker"
+        )
+        _LOGGER.info("DB write worker started")
 
     async def _write_worker(self) -> None:
         """Background task that processes write queue sequentially.
