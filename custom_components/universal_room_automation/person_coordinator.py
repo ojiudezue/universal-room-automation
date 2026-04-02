@@ -1,6 +1,6 @@
 """Person tracking coordinator for Universal Room Automation."""
 #
-# Universal Room Automation v3.22.3
+# Universal Room Automation v3.22.4
 # Build: 2026-01-03
 # File: person_coordinator.py
 # v3.2.9: No changes (zone fixes in aggregation.py, fan fixes in automation.py)
@@ -237,7 +237,7 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
                             self._person_lost_since.pop(person_name, None)
                             if self._pre_arrival_enabled:
                                 # v3.21.1: Check Presence observation mode before dispatching
-                                from .const import DOMAIN
+                                # DOMAIN already imported at module level (line 32)
                                 mgr = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
                                 presence_obs = False
                                 if mgr:
