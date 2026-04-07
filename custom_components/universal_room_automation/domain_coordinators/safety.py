@@ -1545,6 +1545,27 @@ class SafetyCoordinator(BaseCoordinator):
                 ),
             )
 
+            # Activity log: hazard detection
+            from ..const import DOMAIN
+            activity_logger = self.hass.data.get(DOMAIN, {}).get("activity_logger")
+            if activity_logger:
+                self.hass.async_create_task(
+                    activity_logger.log(
+                        coordinator="safety",
+                        action="hazard_detected",
+                        description=f"{hazard.severity.name} hazard: {hazard.type.value} at {hazard.location}",
+                        room=hazard.location,
+                        importance="critical",
+                        entity_id=hazard.sensor_id,
+                        details={
+                            "type": hazard.type.value,
+                            "severity": hazard.severity.name,
+                            "location": hazard.location,
+                            "message": hazard.message or "",
+                        },
+                    )
+                )
+
             if hazard.severity == Severity.CRITICAL:
                 actions.extend(self._critical_response(hazard))
             elif hazard.severity == Severity.HIGH:

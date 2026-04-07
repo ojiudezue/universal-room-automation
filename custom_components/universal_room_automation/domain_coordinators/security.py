@@ -826,6 +826,24 @@ class SecurityCoordinator(BaseCoordinator):
             old_state.value,
         )
 
+        # Activity log: armed state change
+        from ..const import DOMAIN
+        activity_logger = self.hass.data.get(DOMAIN, {}).get("activity_logger")
+        if activity_logger:
+            self.hass.async_create_task(
+                activity_logger.log(
+                    coordinator="security",
+                    action="armed_state_change",
+                    description=f"Armed state {old_state.value} -> {new_armed.value} (house={new_house_state})",
+                    importance="notable",
+                    details={
+                        "old_state": old_state.value,
+                        "new_state": new_armed.value,
+                        "house_state": new_house_state,
+                    },
+                )
+            )
+
         # Log decision
         if self.decision_logger is not None:
             from .coordinator_diagnostics import DecisionLog

@@ -100,6 +100,10 @@ class HVACPredictor:
 
         # v3.17.0: Zone-specific pre-conditioning tracking
         self._pre_conditioning_zones: set[str] = set()
+
+        # Pre-arrival fan visibility (consumed by diagnostic sensor)
+        self._last_fan_activation_rooms: list[str] = []
+        self._last_fan_skipped_rooms: list[dict[str, Any]] = []
         self._solar_banking_zones: set[str] = set()
         self._solar_bank_triggered_today: bool = False
         self._net_power_entity: str = "sensor.envoy_202428004328_current_net_power_consumption"
@@ -302,6 +306,8 @@ class HVACPredictor:
         # Reset tracking sets each cycle
         self._pre_conditioning_zones = set()
         self._solar_banking_zones = set()
+        self._last_fan_activation_rooms = []
+        self._last_fan_skipped_rooms = []
 
         # Skip if away/vacation
         if house_state in ("away", "vacation"):
@@ -474,8 +480,15 @@ class HVACPredictor:
             _LOGGER.error("HVAC: Failed to pre-cool %s: %s", zone.climate_entity, e)
 
     async def _activate_zone_fans(self, zone) -> None:
-        """Turn on zone fans for comfort bridge during pre-arrival."""
+        """Turn on zone fans for comfort bridge during pre-arrival.
+
+        Only activates fans in rooms where the temperature is at or above
+        the zone cooling setpoint. Skips rooms with unknown temperature
+        (safe default: don't activate without data).
+        """
         from ..const import CONF_FANS, CONF_ENTRY_TYPE, CONF_ROOM_NAME, DOMAIN, ENTRY_TYPE_ROOM
+
+        setpoint_high = zone.target_temp_high
 
         for room_name in zone.rooms:
             coordinator = self._get_room_coordinator(room_name)
@@ -483,6 +496,46 @@ class HVACPredictor:
                 continue
             config = {**coordinator.config_entry.data, **coordinator.config_entry.options}
             fans = config.get(CONF_FANS, [])
+            if not fans:
+                continue
+
+            # Get room temperature from zone conditions
+            room_temp = None
+            for rc in zone.room_conditions:
+                if rc.room_name == room_name:
+                    room_temp = rc.temperature
+                    break
+
+            # Skip when we lack temperature data to make a decision
+            if setpoint_high is None or room_temp is None:
+                self._last_fan_skipped_rooms.append({
+                    "room": room_name,
+                    "temp": round(room_temp, 1) if room_temp is not None else None,
+                    "setpoint": setpoint_high,
+                    "reason": "no_data",
+                })
+                _LOGGER.info(
+                    "HVAC: Pre-arrival fan skipped %s (temp=%s, setpoint=%s — insufficient data)",
+                    room_name, room_temp, setpoint_high,
+                )
+                continue
+
+            # Skip rooms already below cooling setpoint
+            if room_temp < setpoint_high:
+                self._last_fan_skipped_rooms.append({
+                    "room": room_name,
+                    "temp": round(room_temp, 1),
+                    "setpoint": setpoint_high,
+                    "reason": "below_setpoint",
+                })
+                _LOGGER.info(
+                    "HVAC: Pre-arrival fan skipped %s (%.1f°F < %.1f°F setpoint)",
+                    room_name, room_temp, setpoint_high,
+                )
+                continue
+
+            # Activate fans — track whether at least one succeeded
+            any_succeeded = False
             for fan_entity in fans:
                 domain = fan_entity.split(".")[0]
                 state = self.hass.states.get(fan_entity)
@@ -492,9 +545,28 @@ class HVACPredictor:
                             domain, "turn_on",
                             {"entity_id": fan_entity}, blocking=False,
                         )
+                        any_succeeded = True
                     except Exception:  # noqa: BLE001
-                        pass
-        _LOGGER.info("HVAC: Pre-arrival fans activated for zone %s", zone.zone_name)
+                        _LOGGER.warning(
+                            "HVAC: Pre-arrival fan service call failed for %s",
+                            fan_entity,
+                        )
+                else:
+                    any_succeeded = True  # Already on counts as success
+
+            if any_succeeded:
+                self._last_fan_activation_rooms.append(room_name)
+                _LOGGER.info(
+                    "HVAC: Pre-arrival fan activated %s (%.1f°F >= %.1f°F setpoint)",
+                    room_name, room_temp, setpoint_high,
+                )
+
+        _LOGGER.info(
+            "HVAC: Pre-arrival fans for zone %s: activated=%s, skipped=%s",
+            zone.zone_name,
+            self._last_fan_activation_rooms,
+            [s["room"] for s in self._last_fan_skipped_rooms],
+        )
 
     def _get_room_coordinator(self, room_name: str):
         """Get room coordinator by room name."""

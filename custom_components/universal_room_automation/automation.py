@@ -1,6 +1,6 @@
 """Automation logic for Universal Room Automation."""
 #
-# Universal Room Automation v3.22.11
+# Universal Room Automation v3.23.0
 # Build: 2026-01-04
 # File: automation.py
 # v3.3.1.1: Added int() cast to get_auto_off_hour to handle NumberSelector float values
@@ -835,6 +835,16 @@ class RoomAutomation:
         )
         _LOGGER.info("Cover open [%s]: mode=%s, opened %d cover(s)",
                       room_name, mode, len(available))
+        # Activity log: cover open on entry
+        activity_logger = self.hass.data.get(DOMAIN, {}).get("activity_logger")
+        if activity_logger:
+            self.hass.async_create_task(activity_logger.log(
+                coordinator="room",
+                action="cover_open",
+                description=f"Opened {len(available)} cover(s) (entry, mode={mode})",
+                room=room_name,
+                entity_id=available[0] if available else None,
+            ))
 
     async def check_timed_cover_open(self) -> None:
         """Open covers at sunrise/configured time regardless of occupancy.
@@ -924,6 +934,16 @@ class RoomAutomation:
             blocking=False,
         )
         _LOGGER.info("Cover close on exit [%s]: closed %d cover(s)", room_name, len(available))
+        # Activity log: cover close on exit
+        activity_logger = self.hass.data.get(DOMAIN, {}).get("activity_logger")
+        if activity_logger:
+            self.hass.async_create_task(activity_logger.log(
+                coordinator="room",
+                action="cover_close",
+                description=f"Closed {len(available)} cover(s) (exit)",
+                room=room_name,
+                entity_id=available[0] if available else None,
+            ))
 
     async def check_timed_cover_close(self) -> None:
         """Close covers at sunset/configured time.
@@ -1082,6 +1102,19 @@ class RoomAutomation:
                 {"entity_id": fans},
                 blocking=False,
             )
+            # Activity log: fan off (only if fans were actually on)
+            if any_fan_on:
+                activity_logger = self.hass.data.get(DOMAIN, {}).get("activity_logger")
+                if activity_logger:
+                    room_name = self.config.get("room_name", "Unknown")
+                    reason = "below threshold" if temperature < effective_threshold else "vacant"
+                    self.hass.async_create_task(activity_logger.log(
+                        coordinator="room",
+                        action="fan_off",
+                        description=f"Fans off ({reason}, {temperature:.0f}°F)",
+                        room=room_name,
+                        entity_id=fans[0] if fans else None,
+                    ))
             return
 
         # Determine fan speed based on temperature
@@ -1124,6 +1157,18 @@ class RoomAutomation:
                             blocking=False,
                         )
                 _LOGGER.debug("Set fan speed to %d%% for temp %.1f°F", speed_pct, temperature)
+                # Activity log: fan on (only if fans were not already on)
+                if not any_fan_on:
+                    activity_logger = self.hass.data.get(DOMAIN, {}).get("activity_logger")
+                    if activity_logger:
+                        room_name = self.config.get("room_name", "Unknown")
+                        self.hass.async_create_task(activity_logger.log(
+                            coordinator="room",
+                            action="fan_on",
+                            description=f"Fans on at {speed_pct}% ({temperature:.0f}°F)",
+                            room=room_name,
+                            entity_id=fans[0] if fans else None,
+                        ))
             except Exception as e:
                 _LOGGER.error("Error controlling fans: %s", e)
 

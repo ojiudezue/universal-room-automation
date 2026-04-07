@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation v3.22.11
+# Universal Room Automation v3.23.0
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -63,6 +63,7 @@ from .database import UniversalRoomDatabase
 from .person_coordinator import PersonTrackingCoordinator  # v3.2.0
 from .camera_census import CameraIntegrationManager, PersonCensus  # v3.5.0
 from .perimeter_alert import PerimeterAlertManager  # v3.5.1
+from .activity_logger import ActivityLogger  # Activity log
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -640,9 +641,39 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 await database.start_write_worker()
                 hass.data[DOMAIN]["database"] = database
                 _LOGGER.info("Database initialized successfully")
+
+                # Activity logger — initialized immediately after DB
+                activity_logger = ActivityLogger(hass)
+                hass.data[DOMAIN]["activity_logger"] = activity_logger
+
+                # Prune stale activity log entries on startup
+                try:
+                    await database.prune_activity_log()
+                except Exception as prune_err:
+                    _LOGGER.debug("Activity log startup prune failed: %s", prune_err)
+
+                # Register daily 2 AM prune for activity log + dedup cache clear
+                from homeassistant.helpers.event import async_track_time_change
+
+                async def _daily_activity_prune(_now):
+                    """Prune activity log and clear dedup cache at 2 AM."""
+                    try:
+                        db = hass.data.get(DOMAIN, {}).get("database")
+                        if db:
+                            await db.prune_activity_log()
+                        al = hass.data.get(DOMAIN, {}).get("activity_logger")
+                        if al:
+                            al.clear_dedup_cache()
+                    except Exception as exc:
+                        _LOGGER.debug("Daily activity prune failed: %s", exc)
+
+                unsub_activity_prune = async_track_time_change(
+                    hass, _daily_activity_prune, hour=2, minute=0, second=0
+                )
+                hass.data[DOMAIN]["unsub_activity_prune"] = unsub_activity_prune
             else:
                 _LOGGER.warning("Database initialization failed")
-        
+
         # v3.2.0: Initialize person tracking coordinator if persons are configured
         # FIX v3.2.3.1: Read from options first (where UI saves), then fall back to data
         merged_config = {**entry.data, **entry.options}
@@ -1541,6 +1572,12 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if coordinator_manager:
             await coordinator_manager.async_stop()
             del hass.data[DOMAIN]["coordinator_manager"]
+
+        # Activity log: clean up daily prune timer
+        unsub_activity_prune = hass.data[DOMAIN].pop("unsub_activity_prune", None)
+        if unsub_activity_prune:
+            unsub_activity_prune()
+        hass.data[DOMAIN].pop("activity_logger", None)
 
         # v3.22.7: Close persistent DB connections on unload
         database = hass.data[DOMAIN].get("database")

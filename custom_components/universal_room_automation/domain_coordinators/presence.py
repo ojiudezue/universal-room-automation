@@ -1455,6 +1455,25 @@ class PresenceCoordinator(BaseCoordinator):
                         },
                     )
 
+                    # Activity log: house state transition
+                    from ..const import DOMAIN
+                    activity_logger = self.hass.data.get(DOMAIN, {}).get("activity_logger")
+                    if activity_logger:
+                        self.hass.async_create_task(
+                            activity_logger.log(
+                                coordinator="presence",
+                                action="house_state_change",
+                                description=f"House state {current_state.value} -> {new_state.value} (trigger={trigger})",
+                                importance="notable",
+                                details={
+                                    "old_state": current_state.value,
+                                    "new_state": new_state.value,
+                                    "trigger": trigger,
+                                    "confidence": self._inference_engine.confidence,
+                                },
+                            )
+                        )
+
                 # House-level anomaly detection
                 if self.anomaly_detector is not None:
                     anomaly = self.anomaly_detector.record_observation(

@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.22.11
+# Universal Room Automation v3.23.0
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -254,6 +254,8 @@ async def async_setup_entry(
             EnergyEnvoyStatusSensor(hass, entry),
             SafetyActiveCooldownsSensor(hass, entry),
             SecurityAuthorizedGuestsSensor(hass, entry),
+            # Activity Log sensor
+            URALastActivitySensor(hass, entry),
         ]
         # v3.8.0-H1: Add per-zone HVAC sensors dynamically
         # Read zone IDs from Zone Manager config entry (not coordinator)
@@ -7042,6 +7044,7 @@ class HVACPreArrivalDiagnosticSensor(AggregationEntity, SensorEntity):
         hvac = self._get_hvac()
         if hvac is None:
             return {}
+        predictor = getattr(hvac, '_predictor', None) or getattr(hvac, 'predictor', None)
         return {
             "enabled": hvac.pre_arrival_enabled,
             "sources": getattr(hvac, '_pre_arrival_sources', []),
@@ -7052,6 +7055,8 @@ class HVACPreArrivalDiagnosticSensor(AggregationEntity, SensorEntity):
             "last_trigger_person": getattr(hvac, '_last_pre_arrival_person', ""),
             "triggers_today": getattr(hvac, '_pre_arrival_triggers_today', 0),
             "person_zone_map": getattr(hvac, '_person_zone_map', {}),
+            "fan_rooms_activated": getattr(predictor, '_last_fan_activation_rooms', []) if predictor else [],
+            "fan_rooms_skipped": getattr(predictor, '_last_fan_skipped_rooms', []) if predictor else [],
         }
 
     @property
@@ -7533,3 +7538,151 @@ class SecurityAuthorizedGuestsSensor(AggregationEntity, SensorEntity):
     @callback
     def _handle_update_d6(self) -> None:
         self.async_schedule_update_ha_state()
+
+
+# ===========================================================================
+# Activity Log sensor
+# ===========================================================================
+
+class URALastActivitySensor(AggregationEntity, SensorEntity):
+    """Most recent URA activity with rolling buffer of recent actions.
+
+    Entity: sensor.ura_last_activity
+    Device: URA: Coordinator Manager
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:history"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .const import VERSION
+        self._attr_unique_id = f"{DOMAIN}_last_activity"
+        self._attr_name = "Last Activity"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "coordinator_manager")},
+            name="URA: Coordinator Manager",
+            manufacturer="Universal Room Automation",
+            model="Coordinator Manager",
+            sw_version=VERSION,
+        )
+        self._recent: list[dict] = []
+        self._activities_today: int = 0
+        self._notable_today: int = 0
+        self._counter_date: str = ""  # YYYY-MM-DD for midnight reset
+        self._last_description: str | None = None
+        self._last_attrs: dict = {}
+
+    async def async_added_to_hass(self) -> None:
+        """Register signal listener and seed from DB."""
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_ACTIVITY_LOGGED
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_ACTIVITY_LOGGED, self._handle_activity
+            )
+        )
+        # Seed from DB
+        try:
+            database = self.hass.data.get(DOMAIN, {}).get("database")
+            if database:
+                rows = await database.get_recent_activities(limit=10)
+                if rows:
+                    self._recent = rows
+                    self._last_description = rows[0].get("description")
+                    self._last_attrs = {
+                        "coordinator": rows[0].get("coordinator", ""),
+                        "action": rows[0].get("action", ""),
+                        "room": rows[0].get("room"),
+                        "importance": rows[0].get("importance", "info"),
+                        "timestamp": rows[0].get("timestamp", ""),
+                    }
+                    # Count today's activities from the seeded data
+                    from homeassistant.util import dt as dt_util
+                    self._counter_date = dt_util.now().date().isoformat()
+                    today_start = dt_util.start_of_local_day().isoformat()
+                    for row in rows:
+                        ts = row.get("timestamp", "")
+                        if ts >= today_start:
+                            self._activities_today += 1
+                            if row.get("importance") in ("notable", "critical"):
+                                self._notable_today += 1
+        except Exception as exc:
+            _LOGGER.debug("Activity sensor DB seed failed: %s", exc)
+
+    @callback
+    def _handle_activity(self, data: dict) -> None:
+        """Handle SIGNAL_ACTIVITY_LOGGED."""
+        self._last_description = data.get("description")
+        self._last_attrs = {
+            "coordinator": data.get("coordinator", ""),
+            "action": data.get("action", ""),
+            "room": data.get("room"),
+            "importance": data.get("importance", "info"),
+            "timestamp": data.get("timestamp", ""),
+        }
+        # Prepend to recent buffer, cap at 10
+        self._recent.insert(0, data)
+        if len(self._recent) > 10:
+            self._recent = self._recent[:10]
+
+        # Reset counters on day boundary
+        from homeassistant.util import dt as dt_util
+        today = dt_util.now().date().isoformat()
+        if today != self._counter_date:
+            self._activities_today = 0
+            self._notable_today = 0
+            self._counter_date = today
+
+        self._activities_today += 1
+        if data.get("importance") in ("notable", "critical"):
+            self._notable_today += 1
+
+        self.async_schedule_update_ha_state()
+
+    @property
+    def native_value(self) -> str | None:
+        """Return description of most recent activity."""
+        return self._last_description
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return activity details and rolling buffer."""
+        from homeassistant.util import dt as dt_util
+        attrs: dict[str, Any] = dict(self._last_attrs)
+
+        # Time ago
+        ts = self._last_attrs.get("timestamp")
+        if ts:
+            try:
+                from datetime import datetime
+                last_dt = datetime.fromisoformat(ts)
+                delta = dt_util.utcnow() - last_dt
+                minutes = int(delta.total_seconds() / 60)
+                if minutes < 1:
+                    attrs["time_ago"] = "just now"
+                elif minutes < 60:
+                    attrs["time_ago"] = f"{minutes}m ago"
+                else:
+                    attrs["time_ago"] = f"{minutes // 60}h {minutes % 60}m ago"
+            except (ValueError, TypeError):
+                attrs["time_ago"] = "unknown"
+
+        # Recent activities (compact: description + timestamp only)
+        attrs["recent_activities"] = [
+            {
+                "description": r.get("description", ""),
+                "coordinator": r.get("coordinator", ""),
+                "room": r.get("room"),
+                "importance": r.get("importance", "info"),
+                "timestamp": r.get("timestamp", ""),
+            }
+            for r in self._recent
+        ]
+        attrs["activities_today"] = self._activities_today
+        attrs["notable_today"] = self._notable_today
+        return attrs

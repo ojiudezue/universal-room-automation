@@ -1858,6 +1858,24 @@ class EnergyCoordinator(BaseCoordinator):
             )
             # Execute the actual shed action
             self._execute_shed_action(shed_target, activate=True)
+            # Activity log: load shedding escalation
+            from ..const import DOMAIN
+            activity_logger = self.hass.data.get(DOMAIN, {}).get("activity_logger")
+            if activity_logger:
+                self.hass.async_create_task(
+                    activity_logger.log(
+                        coordinator="energy",
+                        action="load_shed_escalate",
+                        description=f"Load shedding escalated to level {self._load_shedding_active_level} (shedding {shed_target})",
+                        importance="notable",
+                        details={
+                            "level": self._load_shedding_active_level,
+                            "target": shed_target,
+                            "import_kw": round(import_kw, 2),
+                            "threshold_kw": round(threshold, 2),
+                        },
+                    )
+                )
             # Clear readings to require another sustained window for next escalation
             self._sustained_import_readings.clear()
         elif (
@@ -1879,6 +1897,27 @@ class EnergyCoordinator(BaseCoordinator):
                 _LOGGER.info(
                     "Energy: Load shedding de-escalated to level %d (released %s)",
                     self._load_shedding_active_level, released,
+                )
+            # Activity log: load shedding de-escalation
+            from ..const import DOMAIN
+            activity_logger = self.hass.data.get(DOMAIN, {}).get("activity_logger")
+            if activity_logger:
+                desc = (
+                    "Load shedding fully released"
+                    if self._load_shedding_active_level == 0
+                    else f"Load shedding de-escalated to level {self._load_shedding_active_level} (released {released})"
+                )
+                self.hass.async_create_task(
+                    activity_logger.log(
+                        coordinator="energy",
+                        action="load_shed_release",
+                        description=desc,
+                        importance="notable",
+                        details={
+                            "level": self._load_shedding_active_level,
+                            "released": released,
+                        },
+                    )
                 )
 
     def _execute_shed_action(self, target: str, activate: bool) -> None:
