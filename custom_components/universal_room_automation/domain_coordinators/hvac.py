@@ -710,6 +710,25 @@ class HVACCoordinator(BaseCoordinator):
                     self._house_state,
                     " [vacancy]" if zone_vacant_past_grace and effective_preset == "away" else "",
                 )
+                # Activity log: HVAC preset change
+                from ..const import DOMAIN
+                activity_logger = self.hass.data.get(DOMAIN, {}).get("activity_logger")
+                if activity_logger:
+                    self.hass.async_create_task(
+                        activity_logger.log(
+                            coordinator="hvac",
+                            action="preset_change",
+                            description=f"{zone.zone_name} preset {zone.preset_mode} -> {effective_preset} (house={self._house_state})",
+                            zone=zone_id,
+                            importance="notable",
+                            entity_id=zone.climate_entity,
+                            details={
+                                "old_preset": zone.preset_mode,
+                                "new_preset": effective_preset,
+                                "house_state": self._house_state,
+                            },
+                        )
+                    )
             except Exception as e:
                 _LOGGER.error(
                     "HVAC: Failed to set preset on %s: %s",
@@ -1180,6 +1199,20 @@ class HVACCoordinator(BaseCoordinator):
             person_entity, preferred_zones, source or "unknown",
         )
 
+        # Activity log: HVAC pre-arrival
+        from ..const import DOMAIN
+        activity_logger = self.hass.data.get(DOMAIN, {}).get("activity_logger")
+        if activity_logger:
+            self.hass.async_create_task(
+                activity_logger.log(
+                    coordinator="hvac",
+                    action="pre_arrival",
+                    description=f"Pre-arrival for {person_entity} → zones {preferred_zones} (source={source or 'unknown'})",
+                    importance="notable",
+                    details={"person": person_entity, "zones": preferred_zones, "source": source},
+                )
+            )
+
         # v3.18.6: Track last trigger for diagnostics
         self._last_pre_arrival_time = dt_util.utcnow()
         self._last_pre_arrival_source = data.get("source", "unknown")
@@ -1224,10 +1257,22 @@ class HVACCoordinator(BaseCoordinator):
             self.hass.async_create_task(self._deactivate_zone_fans(zone))
 
     async def _deactivate_zone_fans(self, zone) -> None:
-        """Turn off fans that were activated for pre-arrival comfort bridge."""
+        """Turn off fans that were activated for pre-arrival comfort bridge.
+
+        Only deactivates fans in rooms that the predictor actually activated,
+        to avoid turning off fans managed by FanController or the user.
+        """
         from ..const import CONF_FANS, CONF_ENTRY_TYPE, CONF_ROOM_NAME, DOMAIN, ENTRY_TYPE_ROOM
 
+        # Only touch rooms that the predictor explicitly activated
+        activated_rooms = set(
+            getattr(self._predictor, '_last_fan_activation_rooms', [])
+        )
+        deactivated: list[str] = []
+
         for room_name in zone.rooms:
+            if room_name not in activated_rooms:
+                continue
             coordinator = self._get_room_coordinator(room_name)
             if coordinator is None:
                 continue
@@ -1243,8 +1288,16 @@ class HVACCoordinator(BaseCoordinator):
                             {"entity_id": fan_entity}, blocking=False,
                         )
                     except Exception:  # noqa: BLE001
-                        pass
-        _LOGGER.info("HVAC: Pre-arrival fans deactivated for zone %s (timeout)", zone.zone_name)
+                        _LOGGER.warning(
+                            "HVAC: Pre-arrival fan deactivation failed for %s",
+                            fan_entity,
+                        )
+            deactivated.append(room_name)
+
+        _LOGGER.info(
+            "HVAC: Pre-arrival fans deactivated for zone %s (timeout): rooms=%s",
+            zone.zone_name, deactivated,
+        )
 
     def _compute_zone_presence_states(self, now: Any) -> None:
         """Compute the 7-state zone presence state machine (D4).

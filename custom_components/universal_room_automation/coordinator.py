@@ -1,6 +1,6 @@
 """Data coordinator for Universal Room Automation."""
 #
-# Universal Room Automation v3.22.11
+# Universal Room Automation v3.23.0
 # Build: 2026-01-02
 # File: coordinator.py
 # v3.2.8: Support for active state change listeners in aggregation sensors
@@ -316,6 +316,19 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                     blocking=False,
                 )
             )
+
+            # Activity log: chained automation trigger
+            activity_logger = self.hass.data.get(DOMAIN, {}).get("activity_logger")
+            if activity_logger:
+                tasks.append(
+                    activity_logger.log(
+                        coordinator="room",
+                        action="chain_trigger",
+                        description=f"Triggered '{automation_id}' ({trigger})",
+                        room=room_name,
+                        entity_id=automation_id,
+                    )
+                )
 
         if tasks:
             results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -1420,6 +1433,26 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                 except Exception as e:
                     _LOGGER.error("Error in occupancy automation: %s", e)
 
+                # Activity log: occupancy entry/exit
+                activity_logger = self.hass.data.get(DOMAIN, {}).get("activity_logger")
+                if activity_logger:
+                    occ_source = data.get(STATE_OCCUPANCY_SOURCE, "unknown")
+                    occ_action = "occupancy_entry" if data[STATE_OCCUPIED] else "occupancy_exit"
+                    occ_desc = (
+                        f"Room occupied (source: {occ_source})"
+                        if data[STATE_OCCUPIED]
+                        else "Room vacated"
+                    )
+                    self.hass.async_create_task(
+                        activity_logger.log(
+                            coordinator="room",
+                            action=occ_action,
+                            description=occ_desc,
+                            room=room_name,
+                            details={"source": occ_source},
+                        )
+                    )
+
                 # RESILIENCE-003: Verify vacancy exit — non-blocking delayed task
                 if was_occupied and not data[STATE_OCCUPIED]:
                     exit_action = self._get_config(CONF_EXIT_LIGHT_ACTION, LIGHT_ACTION_TURN_OFF)
@@ -1726,7 +1759,7 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         """
         Record the last automation action for tracking.
         Called by automation.py methods after performing actions.
-        
+
         Args:
             action_type: Type of action ("turn_on", "turn_off", "set_temperature", etc.)
             description: Human-readable description ("Turned on 3 lights", "Set fan to medium")
@@ -1736,13 +1769,28 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         self._last_action_description = description
         self._last_action_entity = entity
         self._last_action_time = dt_util.now()
-        
+
         _LOGGER.debug(
             "Action recorded for %s: %s (%s)",
             self.entry.data.get("room_name"),
             description,
             action_type
         )
+
+        # Activity log: light on/off from set_last_action (sync method)
+        activity_logger = self.hass.data.get(DOMAIN, {}).get("activity_logger")
+        if activity_logger:
+            room_name = self.entry.data.get("room_name")
+            entity_id = entity[0] if isinstance(entity, list) and entity else entity
+            self.hass.async_create_task(
+                activity_logger.log(
+                    coordinator="room",
+                    action=f"light_{action_type}",
+                    description=description,
+                    room=room_name,
+                    entity_id=entity_id,
+                )
+            )
     
     def get_last_trigger_info(self) -> dict[str, Any]:
         """Get last trigger information for sensors."""

@@ -788,6 +788,25 @@ class NotificationManager:
                                 hazard_type, location, person_id, "imessage", 0,
                             )
 
+        # Activity log: notification sent
+        activity_logger = self.hass.data.get(DOMAIN, {}).get("activity_logger")
+        if activity_logger:
+            self.hass.async_create_task(
+                activity_logger.log(
+                    coordinator="notification",
+                    action="notification_sent",
+                    description=f"{severity_str} alert: {title} via {', '.join(channels_fired) or 'none'}",
+                    importance="notable" if severity != Severity.CRITICAL else "critical",
+                    details={
+                        "severity": severity_str,
+                        "source_coordinator": coordinator_id,
+                        "channels": channels_fired,
+                        "hazard_type": hazard_type,
+                        "location": location,
+                    },
+                )
+            )
+
         # Update sensor caches
         self._last_notification = {
             "severity": severity_str,

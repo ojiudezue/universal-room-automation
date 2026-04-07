@@ -1,7 +1,7 @@
 """Database for Universal Room Automation."""
 from __future__ import annotations
 #
-# Universal Room Automation v3.22.11
+# Universal Room Automation v3.23.0
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors
@@ -886,6 +886,27 @@ class UniversalRoomDatabase:
                     )""",
                 ]):
                     failed_tables.append("room_state")
+
+                # -- Activity log -----------------------------------------------
+                if not await self._create_table_safe(db, "ura_activity_log", [
+                    """CREATE TABLE IF NOT EXISTS ura_activity_log (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        timestamp TEXT NOT NULL,
+                        coordinator TEXT NOT NULL,
+                        action TEXT NOT NULL,
+                        room TEXT,
+                        zone TEXT,
+                        importance TEXT NOT NULL DEFAULT 'info',
+                        description TEXT NOT NULL,
+                        details_json TEXT,
+                        entity_id TEXT
+                    )""",
+                    """CREATE INDEX IF NOT EXISTS idx_activity_log_timestamp
+                    ON ura_activity_log(timestamp)""",
+                    """CREATE INDEX IF NOT EXISTS idx_activity_log_coordinator
+                    ON ura_activity_log(coordinator, timestamp)""",
+                ]):
+                    failed_tables.append("ura_activity_log")
 
                 # ============================================================
                 # Schema migrations (per-table, safe)
@@ -3227,3 +3248,94 @@ class UniversalRoomDatabase:
         except Exception as err:
             _LOGGER.warning("Failed to get room state for %s: %s", room_id, err)
             return None
+
+    # ====================================================================
+    # Activity Log
+    # ====================================================================
+
+    async def log_activity(
+        self,
+        timestamp: str,
+        coordinator: str,
+        action: str,
+        room: str | None,
+        zone: str | None,
+        importance: str,
+        description: str,
+        details_json: str | None,
+        entity_id: str | None,
+    ) -> None:
+        """Write an activity log entry."""
+        try:
+            async with self._db() as db:
+                await db.execute(
+                    """INSERT INTO ura_activity_log
+                    (timestamp, coordinator, action, room, zone, importance,
+                     description, details_json, entity_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        timestamp,
+                        coordinator,
+                        action,
+                        room,
+                        zone,
+                        importance,
+                        description,
+                        details_json,
+                        entity_id,
+                    ),
+                )
+                await db.commit()
+        except Exception as e:
+            _LOGGER.debug("Activity log write failed (non-critical): %s", e)
+
+    async def prune_activity_log(self) -> int:
+        """Prune activity log entries past retention window.
+
+        Info: 7 days, notable/critical: 30 days.
+        Returns total rows deleted.
+        """
+        try:
+            now = dt_util.utcnow()
+            info_cutoff = (now - timedelta(days=7)).isoformat()
+            notable_cutoff = (now - timedelta(days=30)).isoformat()
+            total_deleted = 0
+            async with self._db() as db:
+                # Delete old info entries
+                cursor = await db.execute(
+                    "DELETE FROM ura_activity_log WHERE importance = 'info' AND timestamp < ?",
+                    (info_cutoff,),
+                )
+                total_deleted += cursor.rowcount
+                # Delete old notable/critical entries
+                cursor = await db.execute(
+                    "DELETE FROM ura_activity_log WHERE importance != 'info' AND timestamp < ?",
+                    (notable_cutoff,),
+                )
+                total_deleted += cursor.rowcount
+                await db.commit()
+            if total_deleted > 0:
+                _LOGGER.info("Pruned %d activity log entries", total_deleted)
+            return total_deleted
+        except Exception as e:
+            _LOGGER.error("Error pruning activity log: %s", e)
+            return 0
+
+    async def get_recent_activities(self, limit: int = 10) -> list[dict]:
+        """Get most recent activity log entries."""
+        try:
+            async with self._db_read() as db:
+                db.row_factory = aiosqlite.Row
+                cursor = await db.execute(
+                    """SELECT timestamp, coordinator, action, room, zone,
+                              importance, description, entity_id
+                       FROM ura_activity_log
+                       ORDER BY timestamp DESC
+                       LIMIT ?""",
+                    (limit,),
+                )
+                rows = await cursor.fetchall()
+                return [dict(r) for r in rows]
+        except Exception as e:
+            _LOGGER.error("Error fetching recent activities: %s", e)
+            return []
