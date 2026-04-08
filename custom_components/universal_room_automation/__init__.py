@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation v4.0.0
+# Universal Room Automation v4.0.1
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -83,6 +83,7 @@ INTEGRATION_PLATFORMS: list[Platform] = [
     Platform.BINARY_SENSOR,
     Platform.SELECT,
     Platform.SWITCH,  # v3.6.0-c2.5: DomainCoordinatorsSwitch, CoordinatorEnabledSwitch
+    Platform.BUTTON,  # v4.0.0-B1: ClearBayesianBeliefsButton + NMAcknowledgeButton
 ]
 
 
