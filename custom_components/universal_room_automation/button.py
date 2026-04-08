@@ -1,6 +1,6 @@
 """Button platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.23.1
+# Universal Room Automation v4.0.0
 # Build: 2026-01-04
 # File: button.py
 #
@@ -37,9 +37,12 @@ async def async_setup_entry(
     """Set up Universal Room Automation buttons."""
     from .const import CONF_ENTRY_TYPE, ENTRY_TYPE_COORDINATOR_MANAGER
 
-    # v3.6.29: Coordinator Manager entry — NM acknowledge button
+    # v3.6.29: Coordinator Manager entry — NM acknowledge button + B1 clear button
     if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_COORDINATOR_MANAGER:
-        async_add_entities([NMAcknowledgeButton(hass, entry)])
+        async_add_entities([
+            NMAcknowledgeButton(hass, entry),
+            ClearBayesianBeliefsButton(hass, entry),
+        ])
         return
 
     if entry.entry_id not in hass.data.get(DOMAIN, {}):
@@ -458,3 +461,51 @@ class NMAcknowledgeButton(ButtonEntity):
             _LOGGER.info("Alert acknowledged via dashboard button")
         else:
             _LOGGER.warning("Notification Manager not available")
+
+
+# ============================================================================
+# v4.0.0-B1: Bayesian Predictor — Clear & Reinitialize button
+# ============================================================================
+
+
+class ClearBayesianBeliefsButton(ButtonEntity):
+    """Button to clear Bayesian beliefs and re-initialize from priors.
+
+    Entity: button.ura_clear_bayesian_beliefs
+    Device: URA: Coordinator Manager
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:brain"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        self.hass = hass
+        self._entry = entry
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .const import VERSION
+        self._attr_unique_id = f"{DOMAIN}_clear_bayesian_beliefs"
+        self._attr_name = "Clear Bayesian Beliefs"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "coordinator_manager")},
+            name="URA: Coordinator Manager",
+            manufacturer="Universal Room Automation",
+            model="Coordinator Manager",
+            sw_version=VERSION,
+        )
+
+    @property
+    def available(self) -> bool:
+        """Button is available when Bayesian predictor is active."""
+        predictor = self.hass.data.get(DOMAIN, {}).get("bayesian_predictor")
+        return predictor is not None
+
+    async def async_press(self) -> None:
+        """Handle button press — clear beliefs and reinitialize from priors."""
+        predictor = self.hass.data.get(DOMAIN, {}).get("bayesian_predictor")
+        if predictor:
+            await predictor.clear_and_reinitialize()
+            _LOGGER.info("Bayesian beliefs cleared and reinitialized via button")
+        else:
+            _LOGGER.warning("Bayesian predictor not available")

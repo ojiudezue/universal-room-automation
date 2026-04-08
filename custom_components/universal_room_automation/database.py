@@ -1,7 +1,7 @@
 """Database for Universal Room Automation."""
 from __future__ import annotations
 #
-# Universal Room Automation v3.23.1
+# Universal Room Automation v4.0.0
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors
@@ -907,6 +907,23 @@ class UniversalRoomDatabase:
                     ON ura_activity_log(coordinator, timestamp)""",
                 ]):
                     failed_tables.append("ura_activity_log")
+
+                # -- v4.0.0-B1: Bayesian beliefs persistence ------------------
+                if not await self._create_table_safe(db, "bayesian_beliefs", [
+                    """CREATE TABLE IF NOT EXISTS bayesian_beliefs (
+                        person_id TEXT NOT NULL,
+                        time_bin INTEGER NOT NULL,
+                        day_type INTEGER NOT NULL,
+                        room_id TEXT NOT NULL,
+                        alpha REAL NOT NULL,
+                        observation_count INTEGER NOT NULL DEFAULT 0,
+                        updated_at TEXT NOT NULL,
+                        PRIMARY KEY (person_id, time_bin, day_type, room_id)
+                    )""",
+                    """CREATE INDEX IF NOT EXISTS idx_bayesian_person
+                    ON bayesian_beliefs(person_id)""",
+                ]):
+                    failed_tables.append("bayesian_beliefs")
 
                 # ============================================================
                 # Schema migrations (per-table, safe)
@@ -3338,4 +3355,110 @@ class UniversalRoomDatabase:
                 return [dict(r) for r in rows]
         except Exception as e:
             _LOGGER.error("Error fetching recent activities: %s", e)
+            return []
+
+    # ====================================================================
+    # v4.0.0-B1: Bayesian beliefs persistence
+    # ====================================================================
+
+    async def save_bayesian_beliefs(self, beliefs: list[dict]) -> None:
+        """Bulk upsert Bayesian belief rows.
+
+        Each dict must have: person_id, time_bin, day_type, room_id,
+        alpha, observation_count, updated_at.
+        """
+        if not beliefs:
+            return
+        try:
+            async with self._db() as db:
+                await db.executemany(
+                    """INSERT OR REPLACE INTO bayesian_beliefs
+                       (person_id, time_bin, day_type, room_id,
+                        alpha, observation_count, updated_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    [
+                        (
+                            b["person_id"],
+                            b["time_bin"],
+                            b["day_type"],
+                            b["room_id"],
+                            b["alpha"],
+                            b["observation_count"],
+                            b["updated_at"],
+                        )
+                        for b in beliefs
+                    ],
+                )
+                await db.commit()
+            _LOGGER.debug("Saved %d Bayesian belief rows", len(beliefs))
+        except Exception as e:
+            _LOGGER.error("Error saving Bayesian beliefs: %s", e)
+
+    async def load_bayesian_beliefs(self) -> list[dict]:
+        """Load all Bayesian belief rows from DB.
+
+        Returns list of dicts with: person_id, time_bin, day_type,
+        room_id, alpha, observation_count, updated_at.
+        """
+        try:
+            async with self._db_read() as db:
+                db.row_factory = aiosqlite.Row
+                cursor = await db.execute(
+                    """SELECT person_id, time_bin, day_type, room_id,
+                              alpha, observation_count, updated_at
+                       FROM bayesian_beliefs"""
+                )
+                rows = await cursor.fetchall()
+                return [dict(r) for r in rows]
+        except Exception as e:
+            _LOGGER.error("Error loading Bayesian beliefs: %s", e)
+            return []
+
+    async def clear_bayesian_beliefs(self) -> None:
+        """Delete all rows from bayesian_beliefs table."""
+        try:
+            async with self._db() as db:
+                await db.execute("DELETE FROM bayesian_beliefs")
+                await db.commit()
+            _LOGGER.info("Cleared bayesian_beliefs table")
+        except Exception as e:
+            _LOGGER.error("Error clearing Bayesian beliefs: %s", e)
+
+    async def get_room_transition_counts(
+        self, days: int | None = None
+    ) -> list[dict]:
+        """Get individual room transition rows for Bayesian prior initialization.
+
+        Returns all rows (not grouped) so the caller can apply its own
+        time-bin and day-type logic.
+
+        Each dict has: person_id, from_room, to_room, timestamp,
+        duration_seconds, confidence.
+        """
+        try:
+            async with self._db_read() as db:
+                db.row_factory = aiosqlite.Row
+                if days is not None:
+                    cutoff = (
+                        dt_util.utcnow() - timedelta(days=days)
+                    ).isoformat()
+                    cursor = await db.execute(
+                        """SELECT person_id, from_room, to_room, timestamp,
+                                  duration_seconds, confidence
+                           FROM room_transitions
+                           WHERE timestamp >= ?
+                           ORDER BY timestamp""",
+                        (cutoff,),
+                    )
+                else:
+                    cursor = await db.execute(
+                        """SELECT person_id, from_room, to_room, timestamp,
+                                  duration_seconds, confidence
+                           FROM room_transitions
+                           ORDER BY timestamp"""
+                    )
+                rows = await cursor.fetchall()
+                return [dict(r) for r in rows]
+        except Exception as e:
+            _LOGGER.error("Error fetching room transition counts: %s", e)
             return []

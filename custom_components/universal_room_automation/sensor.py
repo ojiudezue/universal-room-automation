@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v3.23.1
+# Universal Room Automation v4.0.0
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -256,6 +256,8 @@ async def async_setup_entry(
             SecurityAuthorizedGuestsSensor(hass, entry),
             # Activity Log sensor
             URALastActivitySensor(hass, entry),
+            # v4.0.0-B1: Bayesian Predictor sensors
+            BayesianDataQualitySensor(hass, entry),
         ]
         # v3.8.0-H1: Add per-zone HVAC sensors dynamically
         # Read zone IDs from Zone Manager config entry (not coordinator)
@@ -377,6 +379,13 @@ async def async_setup_entry(
         DatabaseStatusSensor(coordinator),
         AutomationHealthSensor(coordinator),  # v3.6.17: Composite automation health
         AIAutomationStatusSensor(coordinator),  # v3.12.0 M4: AI rule + chain tracking
+    ])
+
+    # === v4.0.0-B1: BAYESIAN OCCUPANCY PREDICTION (Diagnostic) ===
+    entities.extend([
+        BayesianWeekdayMorningProbSensor(coordinator),
+        BayesianWeekendEveningProbSensor(coordinator),
+        BayesianOccupancyPatternSensor(coordinator),
     ])
     
     async_add_entities(entities)
@@ -7685,4 +7694,238 @@ class URALastActivitySensor(AggregationEntity, SensorEntity):
         ]
         attrs["activities_today"] = self._activities_today
         attrs["notable_today"] = self._notable_today
+        return attrs
+
+
+# ============================================================================
+# v4.0.0-B1: Bayesian Predictor Sensors (per-room, diagnostic)
+# ============================================================================
+
+
+class BayesianWeekdayMorningProbSensor(UniversalRoomEntity, SensorEntity):
+    """Bayesian weekday morning occupancy probability for this room.
+
+    Shows P(room occupied | time_bin=MORNING, day_type=weekday).
+    Diagnostic, disabled by default.
+    """
+
+    _attr_icon = "mdi:chart-bell-curve-cumulative"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_entity_registry_enabled_default = False
+    _attr_native_unit_of_measurement = PERCENTAGE
+
+    def __init__(self, coordinator: UniversalRoomCoordinator) -> None:
+        """Initialize."""
+        super().__init__(
+            coordinator, "bayesian_weekday_morning_prob",
+            "Bayesian Weekday Morning Prob",
+        )
+
+    @property
+    def native_value(self) -> float | None:
+        """Return occupancy probability percentage."""
+        predictor = self.hass.data.get(DOMAIN, {}).get("bayesian_predictor")
+        if predictor is None:
+            return None
+        room_name = self.coordinator.entry.data.get("room_name", "")
+        prob = predictor.predict_room_occupancy(room_name, 1, 0)
+        if prob is None:
+            return None
+        return round(prob * 100, 1)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return prediction details."""
+        predictor = self.hass.data.get(DOMAIN, {}).get("bayesian_predictor")
+        if predictor is None:
+            return {}
+        room_name = self.coordinator.entry.data.get("room_name", "")
+        attrs: dict[str, Any] = {
+            "time_bin": "Morning (06-09)",
+            "day_type": "Weekday",
+            "room": room_name,
+        }
+        # Get per-person breakdown
+        for person_id in predictor.known_persons:
+            pred = predictor.predict_room(person_id, 1, 0)
+            if pred:
+                attrs[f"person_{person_id}_top"] = pred.get("top_room", "")
+                attrs[f"person_{person_id}_status"] = pred.get(
+                    "learning_status", ""
+                )
+        return attrs
+
+
+class BayesianWeekendEveningProbSensor(UniversalRoomEntity, SensorEntity):
+    """Bayesian weekend evening occupancy probability for this room.
+
+    Shows P(room occupied | time_bin=EVENING, day_type=weekend).
+    Diagnostic, disabled by default.
+    """
+
+    _attr_icon = "mdi:chart-bell-curve-cumulative"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_entity_registry_enabled_default = False
+    _attr_native_unit_of_measurement = PERCENTAGE
+
+    def __init__(self, coordinator: UniversalRoomCoordinator) -> None:
+        """Initialize."""
+        super().__init__(
+            coordinator, "bayesian_weekend_evening_prob",
+            "Bayesian Weekend Evening Prob",
+        )
+
+    @property
+    def native_value(self) -> float | None:
+        """Return occupancy probability percentage."""
+        predictor = self.hass.data.get(DOMAIN, {}).get("bayesian_predictor")
+        if predictor is None:
+            return None
+        room_name = self.coordinator.entry.data.get("room_name", "")
+        prob = predictor.predict_room_occupancy(room_name, 4, 1)
+        if prob is None:
+            return None
+        return round(prob * 100, 1)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return prediction details."""
+        predictor = self.hass.data.get(DOMAIN, {}).get("bayesian_predictor")
+        if predictor is None:
+            return {}
+        room_name = self.coordinator.entry.data.get("room_name", "")
+        attrs: dict[str, Any] = {
+            "time_bin": "Evening (17-21)",
+            "day_type": "Weekend",
+            "room": room_name,
+        }
+        for person_id in predictor.known_persons:
+            pred = predictor.predict_room(person_id, 4, 1)
+            if pred:
+                attrs[f"person_{person_id}_top"] = pred.get("top_room", "")
+                attrs[f"person_{person_id}_status"] = pred.get(
+                    "learning_status", ""
+                )
+        return attrs
+
+
+class BayesianOccupancyPatternSensor(UniversalRoomEntity, SensorEntity):
+    """Highest-probability time bin for room occupancy.
+
+    Shows which time-of-day this room is most likely to be occupied.
+    Diagnostic, disabled by default.
+    """
+
+    _attr_icon = "mdi:calendar-clock"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_entity_registry_enabled_default = False
+
+    def __init__(self, coordinator: UniversalRoomCoordinator) -> None:
+        """Initialize."""
+        super().__init__(
+            coordinator, "bayesian_occupancy_pattern",
+            "Bayesian Occupancy Pattern",
+        )
+
+    @property
+    def native_value(self) -> str | None:
+        """Return the time bin name with highest occupancy."""
+        predictor = self.hass.data.get(DOMAIN, {}).get("bayesian_predictor")
+        if predictor is None:
+            return None
+        room_name = self.coordinator.entry.data.get("room_name", "")
+        top = predictor.get_top_time_bin_for_room(room_name)
+        if top is None:
+            return "Learning"
+        status = top.get("learning_status", "insufficient_data")
+        if status == "insufficient_data":
+            return "Learning"
+        day_label = "Weekend" if top["day_type"] == 1 else "Weekday"
+        return f"{top['time_bin_name']} ({day_label})"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return pattern details."""
+        predictor = self.hass.data.get(DOMAIN, {}).get("bayesian_predictor")
+        if predictor is None:
+            return {}
+        room_name = self.coordinator.entry.data.get("room_name", "")
+        top = predictor.get_top_time_bin_for_room(room_name)
+        if top is None:
+            return {"room": room_name}
+        return {
+            "room": room_name,
+            "time_bin": top.get("time_bin"),
+            "time_bin_name": top.get("time_bin_name"),
+            "day_type": top.get("day_type"),
+            "probability": top.get("probability"),
+            "learning_status": top.get("learning_status"),
+        }
+
+
+class BayesianDataQualitySensor(AggregationEntity, SensorEntity):
+    """Bayesian predictor data quality summary.
+
+    Entity: sensor.ura_bayesian_data_quality
+    Device: URA: Coordinator Manager
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:database-check"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_entity_registry_enabled_default = False
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .const import VERSION
+        self._attr_unique_id = f"{DOMAIN}_bayesian_data_quality"
+        self._attr_name = "Bayesian Data Quality"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "coordinator_manager")},
+            name="URA: Coordinator Manager",
+            manufacturer="Universal Room Automation",
+            model="Coordinator Manager",
+            sw_version=VERSION,
+        )
+
+    @property
+    def native_value(self) -> str | None:
+        """Return summary state."""
+        predictor = self.hass.data.get(DOMAIN, {}).get("bayesian_predictor")
+        if predictor is None:
+            return "not_initialized"
+        report = predictor.quality_report
+        if report is None:
+            return "no_data"
+        if report.total_rows == 0:
+            return "no_data"
+        pct = report.passed / report.total_rows * 100
+        return f"{pct:.0f}% quality"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return detailed quality metrics."""
+        predictor = self.hass.data.get(DOMAIN, {}).get("bayesian_predictor")
+        if predictor is None:
+            return {}
+        report = predictor.quality_report
+        attrs: dict[str, Any] = {
+            "belief_cells": predictor.belief_cell_count,
+            "known_rooms": len(predictor.known_rooms),
+            "known_persons": len(predictor.known_persons),
+            "learning_suppressed": predictor.is_learning_suppressed,
+        }
+        if report:
+            attrs.update({
+                "total_rows": report.total_rows,
+                "passed": report.passed,
+                "null_rooms": report.null_rooms,
+                "self_transitions": report.self_transitions,
+                "impossible_durations": report.impossible_durations,
+                "duplicate_timestamps": report.duplicate_timestamps,
+                "unknown_rooms": report.unknown_rooms,
+                "low_confidence": report.low_confidence,
+            })
         return attrs

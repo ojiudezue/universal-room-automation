@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation v3.23.1
+# Universal Room Automation v4.0.0
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -14,10 +14,11 @@
 #
 
 import logging
+from datetime import timedelta
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from homeassistant.helpers.event import (
@@ -841,7 +842,74 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     pattern_learner = PatternLearner(hass, database)
                     hass.data[DOMAIN]["pattern_learner"] = pattern_learner
                     _LOGGER.info("✓ PatternLearner initialized successfully")
-                    
+
+                    # v4.0.0-B1: Initialize Bayesian predictor
+                    try:
+                        from .bayesian_predictor import BayesianPredictor
+
+                        _LOGGER.debug("Initializing BayesianPredictor...")
+                        bayesian_predictor = BayesianPredictor(hass)
+                        await bayesian_predictor.initialize(database)
+                        hass.data[DOMAIN]["bayesian_predictor"] = bayesian_predictor
+
+                        # Wire into transition detector for live updates
+                        @callback
+                        def _bayesian_on_transition(transition):
+                            """Update Bayesian beliefs on each room transition."""
+                            bayesian_predictor.update(
+                                person_id=transition.person_id,
+                                to_room=transition.to_room,
+                                timestamp=transition.timestamp,
+                                confidence=transition.confidence,
+                            )
+
+                        transition_detector.async_add_listener(_bayesian_on_transition)
+                        hass.data[DOMAIN]["bayesian_transition_listener"] = _bayesian_on_transition
+
+                        # Periodic save every 30 minutes
+                        async def _bayesian_periodic_save(now):
+                            """Save Bayesian beliefs to DB."""
+                            try:
+                                await bayesian_predictor.save_beliefs()
+                            except Exception as exc:
+                                _LOGGER.error("Bayesian periodic save failed: %s", exc)
+
+                        unsub_bayesian_save = async_track_time_interval(
+                            hass, _bayesian_periodic_save, timedelta(minutes=30)
+                        )
+                        hass.data[DOMAIN]["unsub_bayesian_save"] = unsub_bayesian_save
+
+                        # Save on shutdown (via unload)
+                        hass.data[DOMAIN]["bayesian_predictor_shutdown"] = True
+
+                        # Guest mode listener: suppress learning when GUEST state
+                        from .domain_coordinators.signals import (
+                            SIGNAL_HOUSE_STATE_CHANGED,
+                            HouseStateChange,
+                        )
+                        from homeassistant.helpers.dispatcher import (
+                            async_dispatcher_connect,
+                        )
+
+                        @callback
+                        def _bayesian_guest_listener(payload):
+                            """Suppress Bayesian learning during guest mode."""
+                            if not isinstance(payload, HouseStateChange):
+                                return  # Skip non-conforming payloads
+                            is_guest = str(payload.new_state).lower() == "guest"
+                            bayesian_predictor.suppress_learning(is_guest)
+
+                        unsub_bayesian_guest = async_dispatcher_connect(
+                            hass, SIGNAL_HOUSE_STATE_CHANGED, _bayesian_guest_listener
+                        )
+                        hass.data[DOMAIN]["unsub_bayesian_guest"] = unsub_bayesian_guest
+
+                        _LOGGER.info("✓ BayesianPredictor initialized successfully")
+                    except Exception as e:
+                        _LOGGER.error("BayesianPredictor init failed: %s", e)
+                        import traceback
+                        _LOGGER.error("BayesianPredictor traceback: %s", traceback.format_exc())
+
                     # Initialize music following
                     _LOGGER.debug("Initializing MusicFollowing...")
                     music_following = MusicFollowing(
@@ -1538,6 +1606,30 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         for key in ["transition_detector", "pattern_learner", "music_following"]:
             if key in hass.data[DOMAIN]:
                 del hass.data[DOMAIN][key]
+
+        # v4.0.0-B1: Remove Bayesian transition listener before cleanup
+        bayesian_listener = hass.data[DOMAIN].pop("bayesian_transition_listener", None)
+        transition_det = hass.data[DOMAIN].get("transition_detector")
+        if bayesian_listener and transition_det and hasattr(transition_det, "_listeners"):
+            try:
+                transition_det._listeners.remove(bayesian_listener)
+            except ValueError:
+                pass  # Already removed
+
+        # v4.0.0-B1: Save and clean up Bayesian predictor
+        bayesian_predictor = hass.data[DOMAIN].pop("bayesian_predictor", None)
+        if bayesian_predictor:
+            try:
+                await bayesian_predictor.save_beliefs()
+            except Exception as exc:
+                _LOGGER.warning("Bayesian beliefs shutdown save failed: %s", exc)
+        unsub_bayesian_save = hass.data[DOMAIN].pop("unsub_bayesian_save", None)
+        if unsub_bayesian_save:
+            unsub_bayesian_save()
+        unsub_bayesian_guest = hass.data[DOMAIN].pop("unsub_bayesian_guest", None)
+        if unsub_bayesian_guest:
+            unsub_bayesian_guest()
+        hass.data[DOMAIN].pop("bayesian_predictor_shutdown", None)
 
         # v3.5.0: Clean up camera census
         unsub_census = hass.data[DOMAIN].pop("unsub_census", None)
