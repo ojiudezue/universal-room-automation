@@ -1456,7 +1456,6 @@ class PresenceCoordinator(BaseCoordinator):
                     )
 
                     # Activity log: house state transition
-                    from ..const import DOMAIN
                     activity_logger = self.hass.data.get(DOMAIN, {}).get("activity_logger")
                     if activity_logger:
                         self.hass.async_create_task(
