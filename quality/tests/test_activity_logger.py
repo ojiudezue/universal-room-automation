@@ -473,7 +473,7 @@ def test_logbook_describe_event_with_room():
 
     described_events = {}
 
-    def mock_async_describe_event(event_type, handler):
+    def mock_async_describe_event(domain, event_type, handler):
         described_events[event_type] = handler
 
     mock_hass = MagicMock()
@@ -501,7 +501,7 @@ def test_logbook_describe_event_without_room():
 
     described_events = {}
 
-    def mock_async_describe_event(event_type, handler):
+    def mock_async_describe_event(domain, event_type, handler):
         described_events[event_type] = handler
 
     mock_hass = MagicMock()
