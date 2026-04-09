@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation v4.0.2
+# Universal Room Automation v4.0.3
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -14,7 +14,7 @@
 #
 
 import logging
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import Platform
@@ -1612,7 +1612,45 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     
     # Create coordinator
     coordinator = UniversalRoomCoordinator(hass, entry)
-    
+
+    # v3.22.12: Pre-restore occupancy state from DB BEFORE first refresh.
+    # Without this, the coordinator starts with _last_occupied_state=False.
+    # The first refresh reads sensors, finds the room occupied, and
+    # occupied != False triggers handle_occupancy_change → full entry
+    # automation (lights on, fans on, covers open) on every reload/restart.
+    # By restoring the prior state first, the "transition" is suppressed.
+    if database:
+        try:
+            saved_state = await database.get_room_state(entry.entry_id)
+            if saved_state:
+                coordinator._last_occupied_state = bool(
+                    saved_state.get("last_occupied_state", 0)
+                )
+                coordinator._failsafe_fired = bool(
+                    saved_state.get("failsafe_fired", 0)
+                )
+                # Restore became_occupied_time (ISO string → datetime)
+                bot_str = saved_state.get("became_occupied_time")
+                if bot_str:
+                    try:
+                        coordinator._became_occupied_time = datetime.fromisoformat(
+                            bot_str
+                        )
+                    except (ValueError, TypeError):
+                        pass
+                _LOGGER.debug(
+                    "Pre-restored room state for %s: occupied=%s, failsafe=%s",
+                    entry.data.get("room_name"),
+                    coordinator._last_occupied_state,
+                    coordinator._failsafe_fired,
+                )
+        except Exception as err:
+            _LOGGER.debug(
+                "Could not pre-restore room state for %s (non-fatal): %s",
+                entry.data.get("room_name"),
+                err,
+            )
+
     # Fetch initial data
     await coordinator.async_config_entry_first_refresh()
     
