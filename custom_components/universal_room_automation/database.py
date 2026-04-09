@@ -1,7 +1,7 @@
 """Database for Universal Room Automation."""
 from __future__ import annotations
 #
-# Universal Room Automation v4.0.1
+# Universal Room Automation v4.0.2
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors
@@ -924,6 +924,25 @@ class UniversalRoomDatabase:
                     ON bayesian_beliefs(person_id)""",
                 ]):
                     failed_tables.append("bayesian_beliefs")
+
+                # -- v4.0.0-B2: Prediction results for accuracy tracking ------
+                if not await self._create_table_safe(db, "prediction_results", [
+                    """CREATE TABLE IF NOT EXISTS prediction_results (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        room_id TEXT NOT NULL,
+                        prediction_timestamp DATETIME NOT NULL,
+                        prediction_type TEXT NOT NULL,
+                        predicted_value TEXT,
+                        confidence REAL,
+                        actual_value TEXT,
+                        error_value REAL
+                    )""",
+                    """CREATE INDEX IF NOT EXISTS idx_prediction_results_ts
+                    ON prediction_results(prediction_timestamp)""",
+                    """CREATE INDEX IF NOT EXISTS idx_prediction_results_type
+                    ON prediction_results(prediction_type, prediction_timestamp)""",
+                ]):
+                    failed_tables.append("prediction_results")
 
                 # ============================================================
                 # Schema migrations (per-table, safe)
@@ -3462,3 +3481,193 @@ class UniversalRoomDatabase:
         except Exception as e:
             _LOGGER.error("Error fetching room transition counts: %s", e)
             return []
+
+    # ====================================================================
+    # v4.0.0-B2: Prediction results for accuracy tracking
+    # ====================================================================
+
+    async def save_prediction_result(
+        self,
+        room_id: str,
+        time_bin: int,
+        day_type: int,
+        predicted_prob: float,
+        actual_occupied: int,
+        timestamp: str,
+    ) -> None:
+        """Insert a prediction result into the prediction_results table.
+
+        Maps to existing schema:
+            prediction_type = "bayesian_occupancy"
+            predicted_value = str(predicted_prob)
+            actual_value = str(actual_occupied)
+            error_value = (predicted_prob - actual_occupied) ** 2
+            confidence = learning status confidence (time_bin * 10 + day_type
+                         encoded for context)
+        """
+        error = (predicted_prob - actual_occupied) ** 2
+        context_code = float(time_bin * 10 + day_type)
+        try:
+            async with self._db() as db:
+                await db.execute(
+                    """INSERT INTO prediction_results
+                       (room_id, prediction_timestamp, prediction_type,
+                        predicted_value, confidence, actual_value, error_value)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        room_id,
+                        timestamp,
+                        "bayesian_occupancy",
+                        str(round(predicted_prob, 4)),
+                        context_code,
+                        str(actual_occupied),
+                        round(error, 6),
+                    ),
+                )
+                await db.commit()
+        except Exception as e:
+            _LOGGER.error("Error saving prediction result: %s", e)
+
+    async def save_prediction_results_batch(self, rows: list[tuple]) -> None:
+        """Batch-insert prediction results in a single transaction.
+
+        Each row is a tuple of:
+            (room_id, timestamp, prediction_type, predicted_value,
+             confidence, actual_value, error_value)
+        """
+        if not rows:
+            return
+        try:
+            async with self._db() as db:
+                await db.executemany(
+                    """INSERT INTO prediction_results
+                       (room_id, prediction_timestamp, prediction_type,
+                        predicted_value, confidence, actual_value, error_value)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                    rows,
+                )
+                await db.commit()
+                _LOGGER.debug("Batch-saved %d prediction results", len(rows))
+        except Exception as e:
+            _LOGGER.error("Error batch-saving prediction results: %s", e)
+
+    async def get_prediction_results(
+        self,
+        days: int = 7,
+        prediction_type: str = "bayesian_occupancy",
+    ) -> list[dict]:
+        """Query prediction results for accuracy calculation.
+
+        Returns list of dicts with: predicted_probability, actual_occupied,
+        error_value, room_id, timestamp.
+        """
+        try:
+            cutoff = (
+                dt_util.utcnow() - timedelta(days=days)
+            ).isoformat()
+            async with self._db_read() as db:
+                db.row_factory = aiosqlite.Row
+                cursor = await db.execute(
+                    """SELECT room_id, prediction_timestamp, predicted_value,
+                              actual_value, error_value, confidence
+                       FROM prediction_results
+                       WHERE prediction_type = ?
+                         AND prediction_timestamp >= ?
+                       ORDER BY prediction_timestamp""",
+                    (prediction_type, cutoff),
+                )
+                rows = await cursor.fetchall()
+                result = []
+                for r in rows:
+                    try:
+                        result.append({
+                            "room_id": r["room_id"],
+                            "timestamp": r["prediction_timestamp"],
+                            "predicted_probability": float(r["predicted_value"]),
+                            "actual_occupied": int(r["actual_value"]),
+                            "error_value": r["error_value"],
+                        })
+                    except (ValueError, TypeError):
+                        continue  # Skip malformed rows
+                return result
+        except Exception as e:
+            _LOGGER.error("Error querying prediction results: %s", e)
+            return []
+
+    async def prune_prediction_results(self, days: int = 30) -> int:
+        """Delete old prediction results. Returns count deleted."""
+        try:
+            cutoff = (
+                dt_util.utcnow() - timedelta(days=days)
+            ).isoformat()
+            async with self._db() as db:
+                cursor = await db.execute(
+                    """DELETE FROM prediction_results
+                       WHERE prediction_timestamp < ?
+                         AND prediction_type = 'bayesian_occupancy'""",
+                    (cutoff,),
+                )
+                await db.commit()
+                deleted = cursor.rowcount
+                if deleted > 0:
+                    _LOGGER.debug(
+                        "Pruned %d prediction results older than %d days",
+                        deleted, days,
+                    )
+                return deleted
+        except Exception as e:
+            _LOGGER.error("Error pruning prediction results: %s", e)
+            return 0
+
+    async def get_occupancy_time_today(self, room_id: str) -> int:
+        """Get total occupied seconds since midnight from occupancy_events.
+
+        Sums duration of all 'occupied' events for the room today.
+        Returns seconds.
+        """
+        try:
+            midnight = dt_util.start_of_local_day().isoformat()
+            async with self._db_read() as db:
+                cursor = await db.execute(
+                    """SELECT COALESCE(SUM(duration), 0)
+                       FROM occupancy_events
+                       WHERE room_id = ?
+                         AND event_type = 'occupied'
+                         AND timestamp >= ?""",
+                    (room_id, midnight),
+                )
+                row = await cursor.fetchone()
+                return row[0] if row else 0
+        except Exception as e:
+            _LOGGER.error("Error getting occupancy time today: %s", e)
+            return 0
+
+    async def get_uncomfortable_minutes_today(self, room_id: str) -> int:
+        """Get minutes outside comfort zone while occupied today.
+
+        Counts environmental_data rows where room was occupied AND
+        (temperature < 68 OR temperature > 78 OR humidity > 60 OR humidity < 30).
+        Each row represents a ~5 minute snapshot interval.
+        Returns approximate minutes.
+        """
+        try:
+            now = dt_util.utcnow()
+            midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
+            async with self._db_read() as db:
+                cursor = await db.execute(
+                    """SELECT COUNT(*)
+                       FROM environmental_data
+                       WHERE room_id = ?
+                         AND timestamp >= ?
+                         AND occupied = 1
+                         AND (temperature < 68 OR temperature > 78
+                              OR humidity > 60 OR humidity < 30)""",
+                    (room_id, midnight.isoformat()),
+                )
+                row = await cursor.fetchone()
+                count = row[0] if row else 0
+                # Each environmental_data row is ~5 minutes apart
+                return count * 5
+        except Exception as e:
+            _LOGGER.error("Error getting uncomfortable minutes: %s", e)
+            return 0

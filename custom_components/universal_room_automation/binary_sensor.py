@@ -1,6 +1,6 @@
 """Binary sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v4.0.1
+# Universal Room Automation v4.0.2
 # Build: 2026-01-02
 # File: binary_sensor.py
 # v3.2.6: Renamed "Presence" to "Sensor Presence" for clarity
@@ -157,8 +157,10 @@ async def async_setup_entry(
         RoomAlertBinarySensor(coordinator),
         # v3.12.0 M2: Automation conflict detection (populated in M3)
         AutomationConflictBinarySensor(coordinator),
+        # v4.0.0-B2: Bayesian occupancy anomaly
+        OccupancyAnomalyBinarySensor(coordinator),
     ])
-    
+
     async_add_entities(entities)
     _LOGGER.info(
         "Set up %d binary sensors for room: %s",
@@ -1628,3 +1630,128 @@ class EnergyL1ChargerBinarySensor(AggregationEntity, BinarySensorEntity):
         if energy is None:
             return None
         return energy.l1_charger_active
+
+
+# ============================================================================
+# v4.0.0-B2: Bayesian Occupancy Anomaly
+# ============================================================================
+
+
+class OccupancyAnomalyBinarySensor(UniversalRoomEntity, BinarySensorEntity):
+    """Per-room binary sensor: true when occupancy is anomalous.
+
+    Anomalous = room is occupied but Bayesian predicted < 10% probability
+    AND learning status is ACTIVE (enough observations to be confident).
+
+    Suppressed during GUEST house state to avoid false positives from
+    untracked visitors.
+
+    Fires SIGNAL_OCCUPANCY_ANOMALY and NM alert on activation.
+    Diagnostic, disabled by default.
+    """
+
+    _attr_device_class = BinarySensorDeviceClass.PROBLEM
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_entity_registry_enabled_default = False
+    _attr_icon = "mdi:account-alert"
+
+    def __init__(self, coordinator) -> None:
+        """Initialize."""
+        super().__init__(coordinator, "occupancy_anomaly", "Occupancy Anomaly")
+        self._anomaly_data: dict = {}
+        self._is_anomaly: bool = False
+        self._last_alert_time = None
+        self._startup_time = dt_util.utcnow()
+
+    @property
+    def is_on(self) -> bool:
+        """Return true if occupancy is anomalous."""
+        return self._is_anomaly
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return anomaly score details."""
+        attrs = dict(self._anomaly_data) if self._anomaly_data else {}
+        attrs["room"] = self.coordinator.entry.data.get("room_name", "")
+        return attrs
+
+    async def async_update(self) -> None:
+        """Evaluate anomaly score."""
+        predictor = self.hass.data.get(DOMAIN, {}).get("bayesian_predictor")
+        if predictor is None:
+            self._is_anomaly = False
+            self._anomaly_data = {}
+            return
+
+        room_name = self.coordinator.entry.data.get("room_name", "")
+        is_occupied = bool(
+            self.coordinator.data.get(STATE_OCCUPIED) if self.coordinator.data else False
+        )
+
+        self._anomaly_data = predictor.get_anomaly_score(room_name, is_occupied)
+        was_anomaly = self._is_anomaly
+        new_anomaly = self._anomaly_data.get("anomaly", False)
+
+        # Suppress during GUEST house state
+        if new_anomaly:
+            manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+            if manager is not None:
+                house_state = str(getattr(manager, "house_state", None) or "").lower()
+                if house_state == "guest":
+                    new_anomaly = False
+                    self._anomaly_data["suppressed_reason"] = "guest_mode"
+
+        self._is_anomaly = new_anomaly
+
+        # Fire signal and NM alert on new anomaly (rising edge)
+        # Skip alerts in observation mode (Bug Class #23)
+        if new_anomaly and not was_anomaly:
+            if not getattr(self.coordinator, '_observation_mode', False):
+                await self._fire_anomaly_alert(room_name)
+
+    async def _fire_anomaly_alert(self, room_name: str) -> None:
+        """Fire SIGNAL_OCCUPANCY_ANOMALY and send NM notification."""
+        from homeassistant.helpers.dispatcher import async_dispatcher_send
+        from .domain_coordinators.signals import SIGNAL_OCCUPANCY_ANOMALY
+
+        now = dt_util.now()
+        # Startup grace period: suppress alerts for 5 minutes after init
+        if (dt_util.utcnow() - self._startup_time).total_seconds() < 300:
+            return
+        # Cooldown: don't re-alert within 30 minutes
+        if self._last_alert_time is not None:
+            elapsed = (now - self._last_alert_time).total_seconds()
+            if elapsed < 1800:
+                return
+
+        self._last_alert_time = now
+
+        async_dispatcher_send(
+            self.hass,
+            SIGNAL_OCCUPANCY_ANOMALY,
+            {
+                "room": room_name,
+                "predicted_probability": self._anomaly_data.get("predicted_probability"),
+                "time_bin": self._anomaly_data.get("time_bin"),
+                "day_type": self._anomaly_data.get("day_type"),
+            },
+        )
+
+        # NM alert — severity based on time of day
+        is_night = now.hour < 6 or now.hour >= 22
+        severity = "high" if is_night else "medium"
+
+        nm = self.hass.data.get(DOMAIN, {}).get("notification_manager")
+        if nm is not None:
+            try:
+                await nm.async_notify(
+                    title=f"Unexpected occupancy: {room_name}",
+                    message=(
+                        f"Room '{room_name}' is occupied but Bayesian model predicted "
+                        f"<10% probability for this time period."
+                    ),
+                    severity=severity,
+                    source="bayesian_predictor",
+                )
+            except Exception as e:
+                _LOGGER.debug("NM alert for occupancy anomaly failed: %s", e)

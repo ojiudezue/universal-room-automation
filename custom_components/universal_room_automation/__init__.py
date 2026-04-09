@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation v4.0.1
+# Universal Room Automation v4.0.2
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -57,6 +57,7 @@ from .const import (
     NOTIFY_LEVEL_ERRORS,
     CONF_ENHANCED_CENSUS,  # v3.10.1: Enhanced census toggle
     CENSUS_EVENT_DEBOUNCE_SECONDS,  # v3.10.1: Event debounce
+    STATE_OCCUPIED,  # v4.0.0-B2: Used in accuracy eval
 )
 from .const import VERSION
 from .coordinator import UniversalRoomCoordinator
@@ -905,6 +906,106 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         )
                         hass.data[DOMAIN]["unsub_bayesian_guest"] = unsub_bayesian_guest
 
+                        # v4.0.0-B2: Accuracy evaluation at time-bin boundaries
+                        # Record predictions vs actual occupancy at bin transitions
+                        # Bins start at hours: 0, 6, 9, 12, 17, 21 — evaluate 5 min in
+                        from homeassistant.helpers.event import async_track_time_change
+
+                        async def _bayesian_accuracy_eval(_now):
+                            """Record prediction accuracy at bin boundaries."""
+                            try:
+                                bp = hass.data.get(DOMAIN, {}).get("bayesian_predictor")
+                                if bp is None:
+                                    return
+                                from .bayesian_predictor import (
+                                    _hour_to_time_bin,
+                                    _day_type,
+                                )
+
+                                now = dt_util.now()
+                                time_bin = _hour_to_time_bin(now.hour)
+                                day_type_val = _day_type(now)
+                                timestamp = dt_util.utcnow().isoformat()
+
+                                # Collect all predictions into batch rows
+                                batch_rows = []
+                                for room_entry in hass.config_entries.async_entries(DOMAIN):
+                                    room_name = room_entry.data.get("room_name")
+                                    if not room_name:
+                                        continue
+                                    entry_type = room_entry.data.get("entry_type")
+                                    if entry_type != "room":
+                                        continue
+
+                                    # Get actual occupancy from coordinator
+                                    coord = hass.data.get(DOMAIN, {}).get(room_entry.entry_id)
+                                    if coord is None or not hasattr(coord, "data") or not coord.data:
+                                        continue
+                                    actual_occupied = bool(coord.data.get(STATE_OCCUPIED))
+
+                                    # Get predicted probability
+                                    prob = bp.predict_room_occupancy(
+                                        room_name, time_bin, day_type_val
+                                    )
+                                    if prob is not None:
+                                        error = (prob - (1 if actual_occupied else 0)) ** 2
+                                        context_code = float(time_bin * 10 + day_type_val)
+                                        batch_rows.append((
+                                            room_name,
+                                            timestamp,
+                                            "bayesian_occupancy",
+                                            str(round(prob, 4)),
+                                            context_code,
+                                            str(1 if actual_occupied else 0),
+                                            round(error, 6),
+                                        ))
+
+                                # Single batch DB write
+                                if batch_rows:
+                                    database = hass.data.get(DOMAIN, {}).get("database")
+                                    if database is not None:
+                                        await database.save_prediction_results_batch(batch_rows)
+                            except Exception as exc:
+                                _LOGGER.debug(
+                                    "Bayesian accuracy eval failed: %s", exc
+                                )
+
+                        # Fire at minute=5 of each bin-boundary hour
+                        unsub_bayesian_accuracy = async_track_time_change(
+                            hass,
+                            _bayesian_accuracy_eval,
+                            hour=[0, 6, 9, 12, 17, 21],
+                            minute=5,
+                            second=0,
+                        )
+                        hass.data[DOMAIN]["unsub_bayesian_accuracy"] = unsub_bayesian_accuracy
+
+                        # v4.0.0-B2: Add prediction results pruning to periodic save
+                        _orig_bayesian_save = _bayesian_periodic_save
+
+                        async def _bayesian_periodic_save_with_prune(now):
+                            """Save beliefs + prune old prediction results."""
+                            await _orig_bayesian_save(now)
+                            try:
+                                db = hass.data.get(DOMAIN, {}).get("database")
+                                if db:
+                                    await db.prune_prediction_results(days=30)
+                            except Exception as exc:
+                                _LOGGER.debug(
+                                    "Prediction results pruning failed: %s", exc
+                                )
+
+                        # Replace the periodic save callback
+                        unsub_old = hass.data[DOMAIN].pop("unsub_bayesian_save", None)
+                        if unsub_old:
+                            unsub_old()
+                        unsub_bayesian_save = async_track_time_interval(
+                            hass,
+                            _bayesian_periodic_save_with_prune,
+                            timedelta(minutes=30),
+                        )
+                        hass.data[DOMAIN]["unsub_bayesian_save"] = unsub_bayesian_save
+
                         _LOGGER.info("✓ BayesianPredictor initialized successfully")
                     except Exception as e:
                         _LOGGER.error("BayesianPredictor init failed: %s", e)
@@ -1630,6 +1731,10 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         unsub_bayesian_guest = hass.data[DOMAIN].pop("unsub_bayesian_guest", None)
         if unsub_bayesian_guest:
             unsub_bayesian_guest()
+        # v4.0.0-B2: Clean up accuracy evaluation timer
+        unsub_bayesian_accuracy = hass.data[DOMAIN].pop("unsub_bayesian_accuracy", None)
+        if unsub_bayesian_accuracy:
+            unsub_bayesian_accuracy()
         hass.data[DOMAIN].pop("bayesian_predictor_shutdown", None)
 
         # v3.5.0: Clean up camera census

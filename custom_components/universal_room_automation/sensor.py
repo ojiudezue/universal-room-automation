@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v4.0.1
+# Universal Room Automation v4.0.2
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -258,6 +258,8 @@ async def async_setup_entry(
             URALastActivitySensor(hass, entry),
             # v4.0.0-B1: Bayesian Predictor sensors
             BayesianDataQualitySensor(hass, entry),
+            # v4.0.0-B2: Prediction accuracy sensor (enabled by default)
+            BayesianPredictionAccuracySensor(hass, entry),
         ]
         # v3.8.0-H1: Add per-zone HVAC sensors dynamically
         # Read zone IDs from Zone Manager config entry (not coordinator)
@@ -387,7 +389,16 @@ async def async_setup_entry(
         BayesianWeekendEveningProbSensor(coordinator),
         BayesianOccupancyPatternSensor(coordinator),
     ])
-    
+
+    # === v4.0.0-B2: PREDICTION SENSORS (Diagnostic, disabled) ===
+    entities.extend([
+        BayesianOccupancyForecastSensor(coordinator),
+        OccupancyPercentageTodaySensor(coordinator),
+        TimeOccupiedTodaySensor(coordinator),
+        TimeUncomfortableTodaySensor(coordinator),
+        AvgTimeToComfortSensor(coordinator),
+    ])
+
     async_add_entities(entities)
     _LOGGER.info(
         "Set up %d sensors for room: %s",
@@ -2341,7 +2352,12 @@ class PersonTrackingStatusSensor(UniversalRoomEntity, SensorEntity):
 # v3.3.0: Pattern learning and prediction sensors
 
 class PersonLikelyNextRoomSensor(AggregationEntity, SensorEntity):
-    """Predicted next room for a tracked person."""
+    """Predicted next room for a tracked person.
+
+    v4.0.0-B2: Uses Bayesian predictor as primary source, falls back to
+    pattern_learner (frequency-based) when Bayesian has no data.
+    Preserves existing entity_id and unique_id — no breaking change.
+    """
 
     _attr_icon = "mdi:map-marker-path"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
@@ -2355,33 +2371,60 @@ class PersonLikelyNextRoomSensor(AggregationEntity, SensorEntity):
         self._attr_name = f"{person_id} Likely Next Room"
         self._cached_prediction: dict | None = None
         self._last_camera_sighting: dict | None = None
+        self._prediction_source: str = "none"
 
     async def async_update(self) -> None:
-        """Fetch prediction asynchronously and cache it."""
+        """Fetch prediction — Bayesian primary, frequency fallback."""
+        self._cached_prediction = None
+        self._prediction_source = "none"
+
+        # v4.0.0-B2: Try Bayesian predictor first
         try:
-            pattern_learner = self.hass.data.get(DOMAIN, {}).get("pattern_learner")
-            person_coordinator = self.hass.data.get(DOMAIN, {}).get("person_coordinator")
-
-            if not pattern_learner or not person_coordinator:
-                self._cached_prediction = None
-                return
-
-            person_data = person_coordinator.data.get(self._person_id, {})
-            current_room = person_data.get("location")
-
-            if not current_room or current_room in ("unknown", "away", "home"):
-                self._cached_prediction = None
-                return
-
-            self._cached_prediction = await pattern_learner.predict_next_room(
-                self._person_id, current_room
-            )
+            bayesian = self.hass.data.get(DOMAIN, {}).get("bayesian_predictor")
+            if bayesian is not None:
+                pred = bayesian.predict_room_at_time(
+                    self._person_id, dt_util.now()
+                )
+                if pred is not None and pred.get("learning_status") != "insufficient_data":
+                    self._cached_prediction = {
+                        "next_room": pred.get("top_room"),
+                        "confidence": pred.get("probability"),
+                        "sample_size": None,
+                        "reliability": pred.get("learning_status"),
+                        "alternatives": [
+                            a.get("room") for a in (pred.get("alternatives") or [])
+                        ],
+                        "predicted_path": None,
+                        "current_room": "",
+                    }
+                    self._prediction_source = "bayesian"
         except Exception as e:
-            _LOGGER.error(
-                "Error updating PersonLikelyNextRoomSensor for %s: %s",
+            _LOGGER.debug(
+                "Bayesian prediction failed for %s, falling back: %s",
                 self._person_id, e,
             )
-            self._cached_prediction = None
+
+        # Fallback to frequency-based pattern_learner
+        if self._cached_prediction is None:
+            try:
+                pattern_learner = self.hass.data.get(DOMAIN, {}).get("pattern_learner")
+                person_coordinator = self.hass.data.get(DOMAIN, {}).get("person_coordinator")
+
+                if pattern_learner and person_coordinator:
+                    person_data = person_coordinator.data.get(self._person_id, {})
+                    current_room = person_data.get("location")
+
+                    if current_room and current_room not in ("unknown", "away", "home"):
+                        self._cached_prediction = await pattern_learner.predict_next_room(
+                            self._person_id, current_room
+                        )
+                        if self._cached_prediction:
+                            self._prediction_source = "frequency"
+            except Exception as e:
+                _LOGGER.error(
+                    "Error updating PersonLikelyNextRoomSensor for %s: %s",
+                    self._person_id, e,
+                )
 
         # v3.5.2: Fetch camera sighting for transit validation attribute
         try:
@@ -2405,13 +2448,16 @@ class PersonLikelyNextRoomSensor(AggregationEntity, SensorEntity):
     @property
     def extra_state_attributes(self) -> dict:
         """Return prediction details from cache."""
+        attrs: dict[str, Any] = {
+            "source": self._prediction_source,
+        }
         if not self._cached_prediction:
-            return {}
+            return attrs
         sighting = self._last_camera_sighting
         ts = sighting.get("timestamp") if sighting else None
         if ts and hasattr(ts, "isoformat"):
             ts = ts.isoformat()
-        return {
+        attrs.update({
             "confidence": self._cached_prediction.get("confidence"),
             "sample_size": self._cached_prediction.get("sample_size"),
             "reliability": self._cached_prediction.get("reliability"),
@@ -2422,7 +2468,8 @@ class PersonLikelyNextRoomSensor(AggregationEntity, SensorEntity):
             "camera_last_seen": ts,
             "camera_last_room": sighting.get("room") if sighting else None,
             "transit_camera_validated": sighting is not None,
-        }
+        })
+        return attrs
 
 
 class PersonCurrentPathSensor(AggregationEntity, SensorEntity):
@@ -7929,3 +7976,327 @@ class BayesianDataQualitySensor(AggregationEntity, SensorEntity):
                 "low_confidence": report.low_confidence,
             })
         return attrs
+
+
+# ============================================================================
+# v4.0.0-B2: Prediction Sensors
+# ============================================================================
+
+
+class BayesianOccupancyForecastSensor(UniversalRoomEntity, SensorEntity):
+    """Per-room Bayesian occupancy forecast (now / +1h / +4h).
+
+    Shows current occupancy probability as the state value, with
+    1-hour and 4-hour forecasts as attributes.
+    Diagnostic, disabled by default.
+    """
+
+    _attr_icon = "mdi:crystal-ball"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_entity_registry_enabled_default = False
+    _attr_native_unit_of_measurement = PERCENTAGE
+
+    def __init__(self, coordinator: UniversalRoomCoordinator) -> None:
+        """Initialize."""
+        super().__init__(
+            coordinator, "bayesian_occupancy_forecast",
+            "Bayesian Occupancy Forecast",
+        )
+
+    @property
+    def native_value(self) -> float | None:
+        """Return current occupancy probability percentage."""
+        predictor = self.hass.data.get(DOMAIN, {}).get("bayesian_predictor")
+        if predictor is None:
+            return None
+        room_name = self.coordinator.entry.data.get("room_name", "")
+        now = dt_util.now()
+        prob = predictor.predict_room_occupancy_at_time(room_name, now)
+        if prob is None:
+            return None
+        return round(prob * 100, 1)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return forecast at now, +1h, +4h."""
+        predictor = self.hass.data.get(DOMAIN, {}).get("bayesian_predictor")
+        if predictor is None:
+            return {}
+        room_name = self.coordinator.entry.data.get("room_name", "")
+        now = dt_util.now()
+        attrs: dict[str, Any] = {"room": room_name}
+
+        for label, delta in [("now", timedelta()), ("+1h", timedelta(hours=1)), ("+4h", timedelta(hours=4))]:
+            future_dt = now + delta
+            prob = predictor.predict_room_occupancy_at_time(room_name, future_dt)
+            attrs[f"forecast_{label}"] = round(prob * 100, 1) if prob is not None else None
+
+        # Include current learning status
+        from .bayesian_predictor import _hour_to_time_bin, _day_type
+        time_bin = _hour_to_time_bin(now.hour)
+        day_type_val = _day_type(now)
+        statuses = []
+        for person_id in predictor.known_persons:
+            pred = predictor.predict_room(person_id, time_bin, day_type_val)
+            if pred:
+                statuses.append(pred.get("learning_status", "insufficient_data"))
+        _STATUS_ORDER = {"insufficient_data": 0, "learning": 1, "active": 2}
+        attrs["learning_status"] = max(statuses, key=lambda s: _STATUS_ORDER.get(s, 0)) if statuses else "insufficient_data"
+
+        return attrs
+
+
+class BayesianPredictionAccuracySensor(AggregationEntity, SensorEntity):
+    """Coordinator Manager sensor for Bayesian prediction accuracy.
+
+    Shows Brier score as state, hit rate and total predictions as attributes.
+    Enabled by default (not diagnostic-disabled).
+    Entity: sensor.ura_bayesian_prediction_accuracy
+    Device: URA: Coordinator Manager
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:bullseye-arrow"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_entity_registry_enabled_default = True
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .const import VERSION
+        self._attr_unique_id = f"{DOMAIN}_bayesian_prediction_accuracy"
+        self._attr_name = "Bayesian Prediction Accuracy"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "coordinator_manager")},
+            name="URA: Coordinator Manager",
+            manufacturer="Universal Room Automation",
+            model="Coordinator Manager",
+            sw_version=VERSION,
+        )
+        self._cached_stats: dict = {
+            "brier_score": None,
+            "hit_rate": None,
+            "total_predictions": 0,
+        }
+
+    async def async_update(self) -> None:
+        """Fetch accuracy stats from Bayesian predictor."""
+        predictor = self.hass.data.get(DOMAIN, {}).get("bayesian_predictor")
+        if predictor is None:
+            return
+        try:
+            self._cached_stats = await predictor.get_accuracy_stats(days=7)
+        except Exception as e:
+            _LOGGER.error("Error fetching Bayesian accuracy stats: %s", e)
+
+    @property
+    def native_value(self) -> float | None:
+        """Return Brier score (lower = better, 0 = perfect)."""
+        return self._cached_stats.get("brier_score")
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return detailed accuracy stats."""
+        return {
+            "brier_score": self._cached_stats.get("brier_score"),
+            "hit_rate_pct": self._cached_stats.get("hit_rate"),
+            "total_predictions_7d": self._cached_stats.get("total_predictions"),
+            "window_days": 7,
+        }
+
+class OccupancyPercentageTodaySensor(UniversalRoomEntity, SensorEntity):
+    """Percentage of today the room has been occupied.
+
+    Diagnostic, disabled by default.
+    """
+
+    _attr_icon = "mdi:percent-circle"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_entity_registry_enabled_default = False
+    _attr_native_unit_of_measurement = PERCENTAGE
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(self, coordinator: UniversalRoomCoordinator) -> None:
+        """Initialize."""
+        super().__init__(
+            coordinator, "occupancy_pct_today",
+            "Occupancy Pct Today",
+        )
+        self._cached_value: float | None = None
+
+    async def async_update(self) -> None:
+        """Calculate occupancy percentage for today."""
+        database = self.hass.data.get(DOMAIN, {}).get("database")
+        if database is None:
+            self._cached_value = None
+            return
+        room_name = self.coordinator.entry.data.get("room_name", "")
+        if not room_name:
+            self._cached_value = None
+            return
+        try:
+            occupied_secs = await database.get_occupancy_time_today(room_name)
+            now = dt_util.now()
+            midnight = now.replace(hour=0, minute=0, second=0, microsecond=0)
+            elapsed_secs = (now - midnight).total_seconds()
+            if elapsed_secs > 0:
+                self._cached_value = round(
+                    occupied_secs / elapsed_secs * 100, 1
+                )
+            else:
+                self._cached_value = 0.0
+        except Exception as e:
+            _LOGGER.error("Error calculating occupancy pct: %s", e)
+            self._cached_value = None
+
+    @property
+    def native_value(self) -> float | None:
+        """Return occupancy percentage."""
+        return self._cached_value
+
+
+class TimeOccupiedTodaySensor(UniversalRoomEntity, SensorEntity):
+    """Total time the room has been occupied today (minutes).
+
+    Diagnostic, disabled by default.
+    """
+
+    _attr_icon = "mdi:timer-outline"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_entity_registry_enabled_default = False
+    _attr_native_unit_of_measurement = UnitOfTime.MINUTES
+    _attr_device_class = SensorDeviceClass.DURATION
+    _attr_state_class = SensorStateClass.TOTAL_INCREASING
+
+    def __init__(self, coordinator: UniversalRoomCoordinator) -> None:
+        """Initialize."""
+        super().__init__(
+            coordinator, "time_occupied_today",
+            "Time Occupied Today",
+        )
+        self._cached_value: int | None = None
+
+    async def async_update(self) -> None:
+        """Fetch occupied time from DB."""
+        database = self.hass.data.get(DOMAIN, {}).get("database")
+        if database is None:
+            self._cached_value = None
+            return
+        room_name = self.coordinator.entry.data.get("room_name", "")
+        if not room_name:
+            self._cached_value = None
+            return
+        try:
+            occupied_secs = await database.get_occupancy_time_today(room_name)
+            self._cached_value = occupied_secs // 60
+        except Exception as e:
+            _LOGGER.error("Error fetching time occupied: %s", e)
+            self._cached_value = None
+
+    @property
+    def native_value(self) -> int | None:
+        """Return occupied minutes."""
+        return self._cached_value
+
+
+class TimeUncomfortableTodaySensor(UniversalRoomEntity, SensorEntity):
+    """Minutes outside comfort zone while occupied today.
+
+    Diagnostic, disabled by default.
+    """
+
+    _attr_icon = "mdi:thermometer-alert"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_entity_registry_enabled_default = False
+    _attr_native_unit_of_measurement = UnitOfTime.MINUTES
+    _attr_device_class = SensorDeviceClass.DURATION
+
+    def __init__(self, coordinator: UniversalRoomCoordinator) -> None:
+        """Initialize."""
+        super().__init__(
+            coordinator, "time_uncomfortable_today",
+            "Time Uncomfortable Today",
+        )
+        self._cached_value: int | None = None
+
+    async def async_update(self) -> None:
+        """Fetch uncomfortable minutes from DB."""
+        database = self.hass.data.get(DOMAIN, {}).get("database")
+        if database is None:
+            self._cached_value = None
+            return
+        room_name = self.coordinator.entry.data.get("room_name", "")
+        if not room_name:
+            self._cached_value = None
+            return
+        try:
+            self._cached_value = await database.get_uncomfortable_minutes_today(
+                room_name
+            )
+        except Exception as e:
+            _LOGGER.error("Error fetching uncomfortable minutes: %s", e)
+            self._cached_value = None
+
+    @property
+    def native_value(self) -> int | None:
+        """Return uncomfortable minutes."""
+        return self._cached_value
+
+
+class AvgTimeToComfortSensor(UniversalRoomEntity, SensorEntity):
+    """Average time to reach comfort after occupancy starts (minutes).
+
+    Estimated from the ratio of uncomfortable-to-total occupied time.
+    If uncomfort is low, the room reaches comfort quickly.
+    Diagnostic, disabled by default.
+    """
+
+    _attr_icon = "mdi:clock-fast"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_entity_registry_enabled_default = False
+    _attr_native_unit_of_measurement = UnitOfTime.MINUTES
+    _attr_device_class = SensorDeviceClass.DURATION
+
+    def __init__(self, coordinator: UniversalRoomCoordinator) -> None:
+        """Initialize."""
+        super().__init__(
+            coordinator, "avg_time_to_comfort",
+            "Avg Time to Comfort",
+        )
+        self._cached_value: int | None = None
+
+    async def async_update(self) -> None:
+        """Estimate avg time to comfort from today's data."""
+        database = self.hass.data.get(DOMAIN, {}).get("database")
+        if database is None:
+            self._cached_value = None
+            return
+        room_name = self.coordinator.entry.data.get("room_name", "")
+        if not room_name:
+            self._cached_value = None
+            return
+        try:
+            occupied_secs = await database.get_occupancy_time_today(room_name)
+            uncomfortable_mins = await database.get_uncomfortable_minutes_today(
+                room_name
+            )
+            occupied_mins = occupied_secs // 60
+            if occupied_mins > 0:
+                # Ratio of uncomfortable time gives average ramp-up
+                # If 10% of occupied time is uncomfortable, avg comfort
+                # arrival is ~that fraction of average session length
+                uncomfort_ratio = uncomfortable_mins / occupied_mins
+                # Average session is ~30 min; comfort time scales with ratio
+                self._cached_value = max(0, round(uncomfort_ratio * 30))
+            else:
+                self._cached_value = None
+        except Exception as e:
+            _LOGGER.error("Error estimating time to comfort: %s", e)
+            self._cached_value = None
+
+    @property
+    def native_value(self) -> int | None:
+        """Return estimated minutes to comfort."""
+        return self._cached_value
