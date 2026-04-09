@@ -31,4 +31,4 @@ def async_describe_events(hass, async_describe_event):
             LOGBOOK_ENTRY_MESSAGE: data.get("description", "action"),
         }
 
-    async_describe_event("ura_action", async_describe_ura_action)
+    async_describe_event("universal_room_automation", "ura_action", async_describe_ura_action)
