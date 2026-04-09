@@ -182,6 +182,7 @@ class BayesianPredictor:
         # Log data quality
         report = await self.scan_data_quality(database)
         self._quality_report = report
+        self._cached_transition_rows = None  # Free memory after quality scan
         _LOGGER.info(report.summary())
 
     def _restore_from_saved(self, rows: list[dict]) -> None:
@@ -718,6 +719,161 @@ class BayesianPredictor:
     def is_learning_suppressed(self) -> bool:
         """Whether learning is suppressed (guest mode)."""
         return self._learning_suppressed
+
+    # ====================================================================
+    # v4.0.0-B2: Prediction sensor extensions
+    # ====================================================================
+
+    def predict_room_at_time(
+        self, person_id: str, future_dt: datetime
+    ) -> dict[str, Any] | None:
+        """Predict room for a person at a future time.
+
+        Convenience wrapper that converts a datetime to (time_bin, day_type)
+        and delegates to predict_room().
+        """
+        try:
+            local_dt = (
+                dt_util.as_local(future_dt) if future_dt.tzinfo else future_dt
+            )
+        except (ValueError, AttributeError):
+            local_dt = dt_util.now()
+        time_bin = _hour_to_time_bin(local_dt.hour)
+        day_type = _day_type(local_dt)
+        return self.predict_room(person_id, time_bin, day_type)
+
+    def predict_room_occupancy_at_time(
+        self, room_id: str, future_dt: datetime
+    ) -> float | None:
+        """Predict room occupancy probability at a future time.
+
+        Convenience wrapper that converts a datetime to (time_bin, day_type)
+        and delegates to predict_room_occupancy().
+        """
+        try:
+            local_dt = (
+                dt_util.as_local(future_dt) if future_dt.tzinfo else future_dt
+            )
+        except (ValueError, AttributeError):
+            local_dt = dt_util.now()
+        time_bin = _hour_to_time_bin(local_dt.hour)
+        day_type = _day_type(local_dt)
+        return self.predict_room_occupancy(room_id, time_bin, day_type)
+
+    def get_anomaly_score(self, room_id: str, is_occupied: bool) -> dict:
+        """Check if current occupancy is anomalous vs Bayesian prediction.
+
+        Returns a dict with:
+            predicted_probability: float or None
+            anomaly: bool (True if occupied but predicted < 10% and ACTIVE)
+            learning_status: str
+            time_bin: int
+            day_type: int
+        """
+        now = dt_util.now()
+        time_bin = _hour_to_time_bin(now.hour)
+        day_type = _day_type(now)
+        predicted = self.predict_room_occupancy(room_id, time_bin, day_type)
+
+        # Aggregate learning status across persons for this cell
+        statuses: list[LearningStatus] = []
+        for person_id in self._known_persons:
+            key = (person_id, time_bin, day_type)
+            obs = self._observation_counts.get(key, 0)
+            statuses.append(self._learning_status(obs))
+
+        # Use the best (most advanced) learning status
+        status_order = {
+            LearningStatus.INSUFFICIENT_DATA: 0,
+            LearningStatus.LEARNING: 1,
+            LearningStatus.ACTIVE: 2,
+        }
+        best_status = max(
+            statuses,
+            key=lambda s: status_order.get(s, 0),
+            default=LearningStatus.INSUFFICIENT_DATA,
+        )
+
+        threshold = 0.10  # Below 10% predicted = unexpected if occupied
+        anomaly = (
+            is_occupied
+            and predicted is not None
+            and predicted < threshold
+            and best_status == LearningStatus.ACTIVE
+        )
+
+        return {
+            "predicted_probability": predicted,
+            "anomaly": anomaly,
+            "learning_status": best_status.value,
+            "time_bin": time_bin,
+            "day_type": day_type,
+        }
+
+    async def record_prediction(
+        self,
+        room_id: str,
+        time_bin: int,
+        day_type: int,
+        predicted_prob: float,
+        actual_occupied: bool,
+    ) -> None:
+        """Record a prediction result for accuracy tracking.
+
+        Uses the existing prediction_results table (prediction_type =
+        "bayesian_occupancy").
+        """
+        if self._database is None:
+            return
+        await self._database.save_prediction_result(
+            room_id=room_id,
+            time_bin=time_bin,
+            day_type=day_type,
+            predicted_prob=predicted_prob,
+            actual_occupied=1 if actual_occupied else 0,
+            timestamp=dt_util.utcnow().isoformat(),
+        )
+
+    async def get_accuracy_stats(self, days: int = 7) -> dict:
+        """Compute prediction accuracy over a rolling window.
+
+        Returns:
+            {
+                "brier_score": float or None,
+                "hit_rate": float or None (percentage),
+                "total_predictions": int,
+            }
+        """
+        if self._database is None:
+            return {
+                "brier_score": None,
+                "hit_rate": None,
+                "total_predictions": 0,
+            }
+        rows = await self._database.get_prediction_results(days=days)
+        if not rows:
+            return {
+                "brier_score": None,
+                "hit_rate": None,
+                "total_predictions": 0,
+            }
+
+        brier_sum = 0.0
+        hits = 0
+        for row in rows:
+            pred = row["predicted_probability"]
+            actual = row["actual_occupied"]
+            brier_sum += (pred - actual) ** 2
+            # Hit = predicted > 0.5 and actual == 1, OR predicted <= 0.5 and actual == 0
+            if (pred > 0.5 and actual == 1) or (pred <= 0.5 and actual == 0):
+                hits += 1
+
+        n = len(rows)
+        return {
+            "brier_score": round(brier_sum / n, 4),
+            "hit_rate": round(hits / n * 100, 1),
+            "total_predictions": n,
+        }
 
 
 # ============================================================================

@@ -22,6 +22,7 @@ SIGNAL_PERSON_ARRIVING: Final = "ura_person_arriving"
 SIGNAL_ENERGY_ENTITIES_UPDATE: Final = "ura_energy_entities_update"
 SIGNAL_ACTIVITY_LOGGED: Final = "ura_activity_logged"
 SIGNAL_BAYESIAN_UPDATED: Final = "ura_bayesian_updated"
+SIGNAL_OCCUPANCY_ANOMALY: Final = "ura_occupancy_anomaly"
 
 
 # ============================================================================
