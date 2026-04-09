@@ -1,6 +1,6 @@
 """Data coordinator for Universal Room Automation."""
 #
-# Universal Room Automation v4.0.2
+# Universal Room Automation v4.0.3
 # Build: 2026-01-02
 # File: coordinator.py
 # v3.2.8: Support for active state change listeners in aggregation sensors
@@ -160,6 +160,10 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
 
         # v3.20.0: Room state DB backup throttle
         self._last_room_state_save: datetime | None = None
+
+        # v3.22.12: Skip automation on first refresh to prevent false entry
+        # triggers on reload/restart. Cleared after the first _async_update_data.
+        self._skip_first_automation: bool = True
 
         # Exit verify tracking (for automation health sensor)
         self._last_exit_verify_result: str | None = None  # "skipped_reoccupied" / "retried" / "confirmed" / "retry_failed"
@@ -1419,8 +1423,31 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
             self._last_occupied_state = False
             self._became_occupied_time = None
 
+        # === v3.22.12: Skip automation on first refresh ===
+        # On reload/restart, the first refresh sees sensors and may detect
+        # occupancy. Without this guard, occupied != _last_occupied_state (False)
+        # triggers a full entry automation (lights on, fans on, etc.) even
+        # though the room was already in that state before the reload.
+        # We sync _last_occupied_state from sensor truth and skip automation.
+        if self._skip_first_automation:
+            self._skip_first_automation = False
+            self._last_occupied_state = data[STATE_OCCUPIED]
+            self._last_occupancy_source = data.get(STATE_OCCUPANCY_SOURCE, "none")
+            if data[STATE_OCCUPIED] and not self._became_occupied_time:
+                self._became_occupied_time = now
+            elif not data[STATE_OCCUPIED]:
+                self._became_occupied_time = None
+            _LOGGER.info(
+                "Room %s: First refresh — synced occupancy state to %s "
+                "(skipped automation to prevent false trigger on restart)",
+                room_name,
+                data[STATE_OCCUPIED],
+            )
+            # Skip was_occupied-based DB logging too — no real transition happened
+            was_occupied = data[STATE_OCCUPIED]
+
         # === Automation Logic ===
-        if self._is_automation_enabled():
+        elif self._is_automation_enabled():
             # Handle occupancy changes
             if data[STATE_OCCUPIED] != self._last_occupied_state:
                 self._last_occupied_state = data[STATE_OCCUPIED]
