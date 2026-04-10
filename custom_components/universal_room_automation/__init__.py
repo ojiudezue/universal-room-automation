@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation v4.0.4
+# Universal Room Automation v4.0.5
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -1315,6 +1315,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                             "poor": float(cm_config.get(CONF_ENERGY_SOLAR_THRESHOLD_POOR, 30.0)),
                         }
 
+                    # v4.0.5: Pre-load TOU rates asynchronously to avoid
+                    # blocking I/O on event loop (HA 2026.x enforcement)
+                    from .domain_coordinators.energy_tou import TOURateEngine
+                    from .domain_coordinators.energy_const import DEFAULT_TOU_RATE_FILE
+                    tou_engine = await TOURateEngine.async_from_json_file(
+                        hass, hass.config.path(""), DEFAULT_TOU_RATE_FILE,
+                    )
+
                     energy = EnergyCoordinator(
                         hass,
                         reserve_soc=int(cm_config.get(
@@ -1329,6 +1337,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         smart_plug_entities=smart_plug_entities,
                         solar_classification_mode=solar_mode,
                         custom_solar_thresholds=custom_solar_thresholds,
+                        tou_engine=tou_engine,
                     )
                     coordinator_manager.register_coordinator(energy)
                 else:
@@ -2192,5 +2201,16 @@ async def _async_register_notification_services(hass: HomeAssistant) -> None:
 
 
 async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Handle options update — reload the entry."""
-    await hass.config_entries.async_reload(entry.entry_id)
+    """Handle options update — reload the entry.
+
+    v4.0.5: Fire reload as a background task instead of awaiting it.
+    The old `await async_reload()` ran in the OptionsFlow HTTP request context.
+    With 93+ entities per room, the unload/setup cycle exceeded the frontend's
+    ~30s timeout — aiohttp cancelled the task mid-reload, leaving the entry
+    half-unloaded and the coordinator unable to pick up new config.
+    """
+    _LOGGER.info("Options changed for '%s' (%s), scheduling reload", entry.title, entry.entry_id)
+    hass.async_create_task(
+        hass.config_entries.async_reload(entry.entry_id),
+        f"Reload {entry.title}",
+    )
