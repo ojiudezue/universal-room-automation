@@ -115,6 +115,7 @@ class EnergyCoordinator(BaseCoordinator):
         smart_plug_entities: list[str] | None = None,
         solar_classification_mode: str = "automatic",
         custom_solar_thresholds: dict[str, float] | None = None,
+        tou_engine: TOURateEngine | None = None,
     ) -> None:
         """Initialize Energy Coordinator."""
         super().__init__(
@@ -125,10 +126,13 @@ class EnergyCoordinator(BaseCoordinator):
         )
         self._decision_interval = decision_interval
 
-        # Try loading TOU rates from JSON file, fall back to PEC defaults
-        from .energy_const import DEFAULT_TOU_RATE_FILE
-        config_dir = hass.config.path("")
-        self._tou = TOURateEngine.from_json_file(config_dir, DEFAULT_TOU_RATE_FILE)
+        # v4.0.5: Accept pre-loaded TOU engine (async) or fall back to sync load
+        if tou_engine is not None:
+            self._tou = tou_engine
+        else:
+            from .energy_const import DEFAULT_TOU_RATE_FILE
+            config_dir = hass.config.path("")
+            self._tou = TOURateEngine.from_json_file(config_dir, DEFAULT_TOU_RATE_FILE)
 
         # Build off-peak drain targets from config
         ec = entity_config or {}

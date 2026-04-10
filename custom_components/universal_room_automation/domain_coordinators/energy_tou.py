@@ -50,25 +50,52 @@ class TOURateEngine:
         self._rate_source: str = rate_source
 
     @classmethod
-    def from_json_file(cls, config_dir: str, filename: str) -> "TOURateEngine":
-        """Load TOU rates from a JSON file.
-
-        Expected format: see docs/plans/ENERGY_COORDINATOR_PLAN.md section 11.5
-        Falls back to PEC defaults if file not found or invalid.
-        """
+    def _read_json_file(cls, config_dir: str, filename: str) -> tuple[str, dict | None]:
+        """Read and parse TOU JSON file (blocking I/O — run in executor)."""
         import json
         from pathlib import Path
 
         filepath = Path(config_dir) / filename
         if not filepath.exists():
             _LOGGER.debug("TOU rate file not found at %s, using PEC defaults", filepath)
-            return cls()
+            return str(filepath), None
 
         try:
             data = json.loads(filepath.read_text())
         except (json.JSONDecodeError, OSError) as exc:
             _LOGGER.warning("Failed to load TOU rate file %s: %s — using PEC defaults", filepath, exc)
+            return str(filepath), None
+
+        return str(filepath), data
+
+    @classmethod
+    async def async_from_json_file(cls, hass, config_dir: str, filename: str) -> "TOURateEngine":
+        """Load TOU rates from a JSON file without blocking the event loop.
+
+        v4.0.5: Async wrapper around blocking file I/O.
+        """
+        filepath_str, data = await hass.async_add_executor_job(
+            cls._read_json_file, config_dir, filename,
+        )
+        if data is None:
             return cls()
+        return cls._from_parsed_data(data, filepath_str, filename)
+
+    @classmethod
+    def from_json_file(cls, config_dir: str, filename: str) -> "TOURateEngine":
+        """Load TOU rates from a JSON file (sync — prefer async_from_json_file).
+
+        Expected format: see docs/plans/ENERGY_COORDINATOR_PLAN.md section 11.5
+        Falls back to PEC defaults if file not found or invalid.
+        """
+        filepath_str, data = cls._read_json_file(config_dir, filename)
+        if data is None:
+            return cls()
+        return cls._from_parsed_data(data, filepath_str, filename)
+
+    @classmethod
+    def _from_parsed_data(cls, data: dict, filepath_str: str, filename: str) -> "TOURateEngine":
+        """Build a TOURateEngine from already-parsed JSON data."""
 
         # Convert JSON format to internal rate table format
         try:
@@ -87,7 +114,7 @@ class TOURateEngine:
                     if internal_name not in cls._VALID_PERIODS:
                         _LOGGER.warning(
                             "Unknown TOU period '%s' (from '%s') in %s season %s — ignored",
-                            internal_name, period_name, filepath, season_name,
+                            internal_name, period_name, filepath_str, season_name,
                         )
                         continue
                     periods[internal_name] = {
@@ -100,7 +127,7 @@ class TOURateEngine:
                     _LOGGER.error(
                         "TOU rate file %s missing required 'off_peak' period in season '%s' "
                         "— falling back to PEC defaults",
-                        filepath, season_name,
+                        filepath_str, season_name,
                     )
                     return cls()
                 rate_table[season_name] = {
@@ -121,7 +148,7 @@ class TOURateEngine:
 
             _LOGGER.info(
                 "Loaded TOU rates from %s (utility: %s, effective: %s)",
-                filepath, utility, effective,
+                filepath_str, utility, effective,
             )
             return cls(
                 rate_table=rate_table,
@@ -129,7 +156,7 @@ class TOURateEngine:
                 rate_source=rate_source,
             )
         except Exception:
-            _LOGGER.exception("Failed to parse TOU rate file %s — using PEC defaults", filepath)
+            _LOGGER.exception("Failed to parse TOU rate file %s — using PEC defaults", filepath_str)
             return cls()
 
     @property
