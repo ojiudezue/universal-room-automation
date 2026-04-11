@@ -1,6 +1,6 @@
 """Data coordinator for Universal Room Automation."""
 #
-# Universal Room Automation v4.0.5
+# Universal Room Automation v4.0.6
 # Build: 2026-01-02
 # File: coordinator.py
 # v3.2.8: Support for active state change listeners in aggregation sensors
@@ -728,8 +728,9 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         if power_sensors:
             sensors_to_track.extend(power_sensors)
         
-        _LOGGER.debug("Room %s total sensors to track: %d - %s", room_name, len(sensors_to_track), sensors_to_track)
-        
+        # v4.0.5 DIAG: Promote to WARNING so it always appears in log
+        _LOGGER.warning("Room %s total sensors to track: %d - %s", room_name, len(sensors_to_track), sensors_to_track)
+
         # Set up listener for immediate coordinator refresh
         if sensors_to_track:
             @callback
@@ -748,17 +749,26 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                         room_name, entity_id, old_val, new_val,
                     )
 
-                self.hass.async_create_task(self.async_refresh())
-            
-            self._unsub_state_listeners.append(
-                async_track_state_change_event(
-                    self.hass,
-                    sensors_to_track,
-                    sensor_state_changed
+                # v4.0.5 DIAG: Log every callback invocation at WARNING level
+                _LOGGER.warning(
+                    "Room %s: EVENT-DRIVEN callback fired for %s (%s -> %s)",
+                    room_name, entity_id, old_val, new_val,
                 )
+                self.hass.async_create_task(self.async_refresh())
+
+            unsub = async_track_state_change_event(
+                self.hass,
+                sensors_to_track,
+                sensor_state_changed
             )
-            
-            _LOGGER.info(
+            self._unsub_state_listeners.append(unsub)
+            # v4.0.5 DIAG: Confirm listener was registered
+            _LOGGER.warning(
+                "Room %s: async_track_state_change_event returned %s (type=%s)",
+                room_name, unsub, type(unsub).__name__,
+            )
+
+            _LOGGER.warning(
                 "Room %s: Event-driven mode active - tracking %d sensors",
                 room_name,
                 len(sensors_to_track)
