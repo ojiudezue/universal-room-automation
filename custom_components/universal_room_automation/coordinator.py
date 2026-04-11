@@ -1,6 +1,6 @@
 """Data coordinator for Universal Room Automation."""
 #
-# Universal Room Automation v4.0.8
+# Universal Room Automation v4.0.9
 # Build: 2026-01-02
 # File: coordinator.py
 # v3.2.8: Support for active state change listeners in aggregation sensors
@@ -1761,8 +1761,8 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
             peak_hour = await database.get_peak_occupancy_hour(self.entry.entry_id, days=7)
             if peak_hour is not None:
                 # Format as time string
-                from datetime import time
-                t = time(hour=peak_hour)
+                import datetime as _dt
+                t = _dt.time(hour=peak_hour)
                 data[STATE_PEAK_OCCUPANCY_TIME] = t.strftime("%I:00 %p")
 
         # DIAG v4.0.8: Phase 3 timing
