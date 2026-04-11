@@ -1,6 +1,6 @@
 """Data coordinator for Universal Room Automation."""
 #
-# Universal Room Automation v4.0.9
+# Universal Room Automation v4.0.10
 # Build: 2026-01-02
 # File: coordinator.py
 # v3.2.8: Support for active state change listeners in aggregation sensors
@@ -10,6 +10,7 @@
 
 import asyncio
 import logging
+import random
 import time
 from datetime import datetime, timedelta
 from typing import Any
@@ -170,6 +171,10 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         self._last_event_refresh: float = 0.0
         self._trailing_refresh_unsub = None  # Cancel handle for trailing-edge refresh
 
+        # v4.0.10: Phase 3 prediction/energy query cache (5-minute TTL)
+        self._last_prediction_query: datetime | None = None
+        self._cached_predictions: dict = {}
+
         # Exit verify tracking (for automation health sensor)
         self._last_exit_verify_result: str | None = None  # "skipped_reoccupied" / "retried" / "confirmed" / "retry_failed"
         self._last_exit_verify_time: datetime | None = None
@@ -229,11 +234,16 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         # Automation handler
         self.automation = RoomAutomation(hass, config, self)
         
+        # v4.0.10: Jitter poll interval to prevent thundering herd.
+        # 31 rooms starting at the same HA restart time all poll simultaneously,
+        # causing 20-39s event loop contention. 0-5s jitter spreads rooms over
+        # the window. Kept small to limit occupancy timeout overshoot (max +5s).
+        jitter = random.uniform(0, 5)
         super().__init__(
             hass,
             _LOGGER,
             name=f"{DOMAIN}_{entry.data.get('room_name', 'unknown')}",
-            update_interval=SCAN_INTERVAL_OCCUPANCY,
+            update_interval=timedelta(seconds=30 + jitter),
         )
     
     # =========================================================================
@@ -752,9 +762,9 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
 
                 # RESILIENCE-002: Log motion/occupancy sensor transitions
                 if entity_id in occupancy_sensor_set:
-                    _LOGGER.warning(
-                        "DIAG %s: MOTION %s changed %s -> %s at mono=%.3f",
-                        room_name, entity_id, old_val, new_val, time.monotonic(),
+                    _LOGGER.info(
+                        "Room %s: Sensor %s changed %s -> %s",
+                        room_name, entity_id, old_val, new_val,
                     )
 
                 # Rate limiter with trailing edge: prevents rapid-fire motion
@@ -860,11 +870,6 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
     def _debounce_refresh_callback(self, _now=None) -> None:
         """Re-evaluate occupancy after debounce period expires."""
         self._debounce_refresh_unsub = None
-        # DIAG v4.0.8: Log when debounce callback fires
-        _LOGGER.warning(
-            "DIAG %s: debounce_callback fired at mono=%.3f",
-            self.entry.data.get("room_name", "?"), time.monotonic(),
-        )
         self.hass.async_create_task(self.async_refresh())
 
     @callback
@@ -1049,7 +1054,6 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
     
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch data from sensors."""
-        _t0 = time.monotonic()
         now = dt_util.now()
         data = {}
         
@@ -1207,17 +1211,6 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
             if self._debounce_refresh_unsub is not None:
                 self._debounce_refresh_unsub()
                 self._debounce_refresh_unsub = None
-
-        # DIAG v4.0.8: Checkpoint after debounce
-        _t1 = time.monotonic()
-        if any_sensor_active and not self._last_occupied_state:
-            _LOGGER.warning(
-                "DIAG %s: NEW ENTRY — sensor_active=%s debounce_elapsed=%.2f "
-                "t0=%.3f t1=%.3f phase1=%.1fms",
-                room_name, any_sensor_active,
-                (now - self._occupancy_first_detected).total_seconds() if self._occupancy_first_detected else -1,
-                _t0, _t1, (_t1 - _t0) * 1000,
-            )
 
         # Determine occupancy (any detection method)
         # Track which source is driving occupancy for sensor exposure
@@ -1504,12 +1497,6 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         elif self._is_automation_enabled():
             # Handle occupancy changes
             if data[STATE_OCCUPIED] != self._last_occupied_state:
-                _t_auto = time.monotonic()
-                _LOGGER.warning(
-                    "DIAG %s: OCCUPANCY CHANGE %s→%s at mono=%.3f (%.1fms since refresh start)",
-                    room_name, self._last_occupied_state, data[STATE_OCCUPIED],
-                    _t_auto, (_t_auto - _t0) * 1000,
-                )
                 self._last_occupied_state = data[STATE_OCCUPIED]
                 self._last_occupancy_source = data.get(STATE_OCCUPANCY_SOURCE, "none")
                 try:
@@ -1519,10 +1506,6 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                     )
                 except Exception as e:
                     _LOGGER.error("Error in occupancy automation: %s", e)
-                _LOGGER.warning(
-                    "DIAG %s: automation complete at mono=%.3f (%.1fms)",
-                    room_name, time.monotonic(), (time.monotonic() - _t_auto) * 1000,
-                )
 
                 # Activity log: occupancy entry/exit
                 activity_logger = self.hass.data.get(DOMAIN, {}).get("activity_logger")
@@ -1695,84 +1678,85 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                 )
                 self._last_energy_log = now
         
-        # === Phase 2: Extended Energy Calculations ===
+        # === Phase 2+3: Energy & Prediction Queries (cached, 5-min TTL) ===
+        # v4.0.10: These DB queries were running every 30s across 31 rooms,
+        # causing 3-15s of DB contention per refresh. The data changes slowly
+        # (hourly/daily patterns), so a 5-minute cache eliminates ~90% of queries.
         if database:
-            # Weekly energy
-            week_ago = now - timedelta(days=7)
-            data[STATE_ENERGY_WEEKLY] = await database.get_energy_for_period(
-                self.entry.entry_id,
-                week_ago,
-                now
+            cache_age = (
+                (now - self._last_prediction_query).total_seconds()
+                if self._last_prediction_query else 999
             )
-            
-            # Monthly energy
-            month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-            data[STATE_ENERGY_MONTHLY] = await database.get_energy_for_period(
-                self.entry.entry_id,
-                month_start,
-                now
-            )
-            
-            # Calculate costs
+            if cache_age >= 300:
+                cache = {}
+
+                # Energy: weekly + monthly
+                week_ago = now - timedelta(days=7)
+                cache[STATE_ENERGY_WEEKLY] = await database.get_energy_for_period(
+                    self.entry.entry_id, week_ago, now,
+                )
+                month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+                cache[STATE_ENERGY_MONTHLY] = await database.get_energy_for_period(
+                    self.entry.entry_id, month_start, now,
+                )
+
+                # Predictions
+                prediction = await database.get_next_occupancy_prediction(self.entry.entry_id)
+                if prediction:
+                    cache["_next_time"] = prediction[0]
+                    cache["_next_confidence"] = prediction[1]
+                else:
+                    cache["_next_time"] = None
+                    cache["_next_confidence"] = None
+
+                occupancy_pct = await database.get_occupancy_percentage(self.entry.entry_id, days=7)
+                if occupancy_pct is not None:
+                    cache[STATE_OCCUPANCY_PCT_7D] = round(occupancy_pct, 1)
+
+                peak_hour = await database.get_peak_occupancy_hour(self.entry.entry_id, days=7)
+                if peak_hour is not None:
+                    import datetime as _dt
+                    t = _dt.time(hour=peak_hour)
+                    cache[STATE_PEAK_OCCUPANCY_TIME] = t.strftime("%I:00 %p")
+
+                self._cached_predictions = cache
+                self._last_prediction_query = now  # Set AFTER cache to ensure retry on failure
+
+            # Apply cached values to data dict
+            if STATE_ENERGY_WEEKLY in self._cached_predictions:
+                data[STATE_ENERGY_WEEKLY] = self._cached_predictions[STATE_ENERGY_WEEKLY]
+            if STATE_ENERGY_MONTHLY in self._cached_predictions:
+                data[STATE_ENERGY_MONTHLY] = self._cached_predictions[STATE_ENERGY_MONTHLY]
+
+            # Energy costs (computed fresh from cached energy values)
             electricity_rate = self._get_electricity_rate()
-            
             if data.get(STATE_ENERGY_WEEKLY) is not None:
                 data[STATE_ENERGY_COST_WEEKLY] = round(data[STATE_ENERGY_WEEKLY] * electricity_rate, 2)
-            
             if data.get(STATE_ENERGY_MONTHLY) is not None:
                 data[STATE_ENERGY_COST_MONTHLY] = round(data[STATE_ENERGY_MONTHLY] * electricity_rate, 2)
-            
-            # Cost per hour (from current power)
             if data.get(STATE_POWER_CURRENT) is not None:
                 power_kw = data[STATE_POWER_CURRENT] / 1000.0
                 data[STATE_COST_PER_HOUR] = round(power_kw * electricity_rate, 3)
-        
-        # === Phase 3: Prediction Queries ===
-        _t_db = time.monotonic()
-        if database:
-            # Next occupancy prediction
-            prediction = await database.get_next_occupancy_prediction(self.entry.entry_id)
-            if prediction:
-                next_time, confidence = prediction
+
+            # Prediction values — next_occupancy_in recomputed each cycle (countdown)
+            next_time = self._cached_predictions.get("_next_time")
+            if next_time is not None:
                 data[STATE_NEXT_OCCUPANCY_TIME] = next_time
-                data[STATE_OCCUPANCY_CONFIDENCE] = confidence
-                
-                # Calculate minutes until next occupancy
+                data[STATE_OCCUPANCY_CONFIDENCE] = self._cached_predictions.get("_next_confidence")
                 now_aware = now.replace(tzinfo=next_time.tzinfo) if next_time.tzinfo else now
                 minutes_until = int((next_time - now_aware).total_seconds() / 60)
-                data[STATE_NEXT_OCCUPANCY_IN] = max(0, minutes_until)  # Don't return negative
-                
-                # Calculate precool/preheat start times
-                # Use static lead times for now (Phase 4 will make dynamic)
-                precool_lead = 15  # minutes
-                preheat_lead = 20  # minutes
-                
+                data[STATE_NEXT_OCCUPANCY_IN] = max(0, minutes_until)
+                precool_lead = 15
+                preheat_lead = 20
                 data[STATE_PRECOOL_START_TIME] = next_time - timedelta(minutes=precool_lead)
                 data[STATE_PREHEAT_START_TIME] = next_time - timedelta(minutes=preheat_lead)
                 data[STATE_PRECOOL_LEAD_MINUTES] = precool_lead
                 data[STATE_PREHEAT_LEAD_MINUTES] = preheat_lead
-            
-            # Occupancy percentage (7 days)
-            occupancy_pct = await database.get_occupancy_percentage(self.entry.entry_id, days=7)
-            if occupancy_pct is not None:
-                data[STATE_OCCUPANCY_PCT_7D] = round(occupancy_pct, 1)
-            
-            # Peak occupancy hour
-            peak_hour = await database.get_peak_occupancy_hour(self.entry.entry_id, days=7)
-            if peak_hour is not None:
-                # Format as time string
-                import datetime as _dt
-                t = _dt.time(hour=peak_hour)
-                data[STATE_PEAK_OCCUPANCY_TIME] = t.strftime("%I:00 %p")
 
-        # DIAG v4.0.8: Phase 3 timing
-        _t_db_end = time.monotonic()
-        _db_ms = (_t_db_end - _t_db) * 1000
-        if _db_ms > 100:  # Only log if > 100ms
-            _LOGGER.warning(
-                "DIAG %s: Phase 3 DB queries took %.1fms (total refresh %.1fms so far)",
-                room_name, _db_ms, (_t_db_end - _t0) * 1000,
-            )
+            if STATE_OCCUPANCY_PCT_7D in self._cached_predictions:
+                data[STATE_OCCUPANCY_PCT_7D] = self._cached_predictions[STATE_OCCUPANCY_PCT_7D]
+            if STATE_PEAK_OCCUPANCY_TIME in self._cached_predictions:
+                data[STATE_PEAK_OCCUPANCY_TIME] = self._cached_predictions[STATE_PEAK_OCCUPANCY_TIME]
 
         # v3.20.0: Throttled room state DB backup (every 5 minutes)
         if (
@@ -1812,15 +1796,6 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                 # v3.20.0 review fix: await directly instead of fire-and-forget
                 # (Bug Class #19 — aiosqlite INSERT is sub-ms, won't block refresh)
                 await db.save_room_state(room_id, state)
-
-        # DIAG v4.0.8: Total refresh time
-        _t_end = time.monotonic()
-        _total_ms = (_t_end - _t0) * 1000
-        if _total_ms > 500:  # Only log if > 500ms
-            _LOGGER.warning(
-                "DIAG %s: _async_update_data SLOW — %.1fms total",
-                room_name, _total_ms,
-            )
 
         return data
     
