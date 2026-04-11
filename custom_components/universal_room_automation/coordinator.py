@@ -1,6 +1,6 @@
 """Data coordinator for Universal Room Automation."""
 #
-# Universal Room Automation v4.0.7
+# Universal Room Automation v4.0.8
 # Build: 2026-01-02
 # File: coordinator.py
 # v3.2.8: Support for active state change listeners in aggregation sensors
@@ -752,9 +752,9 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
 
                 # RESILIENCE-002: Log motion/occupancy sensor transitions
                 if entity_id in occupancy_sensor_set:
-                    _LOGGER.info(
-                        "Room %s: Sensor %s changed %s -> %s",
-                        room_name, entity_id, old_val, new_val,
+                    _LOGGER.warning(
+                        "DIAG %s: MOTION %s changed %s -> %s at mono=%.3f",
+                        room_name, entity_id, old_val, new_val, time.monotonic(),
                     )
 
                 # Rate limiter with trailing edge: prevents rapid-fire motion
@@ -860,6 +860,11 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
     def _debounce_refresh_callback(self, _now=None) -> None:
         """Re-evaluate occupancy after debounce period expires."""
         self._debounce_refresh_unsub = None
+        # DIAG v4.0.8: Log when debounce callback fires
+        _LOGGER.warning(
+            "DIAG %s: debounce_callback fired at mono=%.3f",
+            self.entry.data.get("room_name", "?"), time.monotonic(),
+        )
         self.hass.async_create_task(self.async_refresh())
 
     @callback
@@ -1044,6 +1049,7 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
     
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch data from sensors."""
+        _t0 = time.monotonic()
         now = dt_util.now()
         data = {}
         
@@ -1201,6 +1207,17 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
             if self._debounce_refresh_unsub is not None:
                 self._debounce_refresh_unsub()
                 self._debounce_refresh_unsub = None
+
+        # DIAG v4.0.8: Checkpoint after debounce
+        _t1 = time.monotonic()
+        if any_sensor_active and not self._last_occupied_state:
+            _LOGGER.warning(
+                "DIAG %s: NEW ENTRY — sensor_active=%s debounce_elapsed=%.2f "
+                "t0=%.3f t1=%.3f phase1=%.1fms",
+                room_name, any_sensor_active,
+                (now - self._occupancy_first_detected).total_seconds() if self._occupancy_first_detected else -1,
+                _t0, _t1, (_t1 - _t0) * 1000,
+            )
 
         # Determine occupancy (any detection method)
         # Track which source is driving occupancy for sensor exposure
@@ -1487,6 +1504,12 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         elif self._is_automation_enabled():
             # Handle occupancy changes
             if data[STATE_OCCUPIED] != self._last_occupied_state:
+                _t_auto = time.monotonic()
+                _LOGGER.warning(
+                    "DIAG %s: OCCUPANCY CHANGE %s→%s at mono=%.3f (%.1fms since refresh start)",
+                    room_name, self._last_occupied_state, data[STATE_OCCUPIED],
+                    _t_auto, (_t_auto - _t0) * 1000,
+                )
                 self._last_occupied_state = data[STATE_OCCUPIED]
                 self._last_occupancy_source = data.get(STATE_OCCUPANCY_SOURCE, "none")
                 try:
@@ -1496,6 +1519,10 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                     )
                 except Exception as e:
                     _LOGGER.error("Error in occupancy automation: %s", e)
+                _LOGGER.warning(
+                    "DIAG %s: automation complete at mono=%.3f (%.1fms)",
+                    room_name, time.monotonic(), (time.monotonic() - _t_auto) * 1000,
+                )
 
                 # Activity log: occupancy entry/exit
                 activity_logger = self.hass.data.get(DOMAIN, {}).get("activity_logger")
@@ -1701,6 +1728,7 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                 data[STATE_COST_PER_HOUR] = round(power_kw * electricity_rate, 3)
         
         # === Phase 3: Prediction Queries ===
+        _t_db = time.monotonic()
         if database:
             # Next occupancy prediction
             prediction = await database.get_next_occupancy_prediction(self.entry.entry_id)
@@ -1736,6 +1764,15 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                 from datetime import time
                 t = time(hour=peak_hour)
                 data[STATE_PEAK_OCCUPANCY_TIME] = t.strftime("%I:00 %p")
+
+        # DIAG v4.0.8: Phase 3 timing
+        _t_db_end = time.monotonic()
+        _db_ms = (_t_db_end - _t_db) * 1000
+        if _db_ms > 100:  # Only log if > 100ms
+            _LOGGER.warning(
+                "DIAG %s: Phase 3 DB queries took %.1fms (total refresh %.1fms so far)",
+                room_name, _db_ms, (_t_db_end - _t0) * 1000,
+            )
 
         # v3.20.0: Throttled room state DB backup (every 5 minutes)
         if (
@@ -1775,6 +1812,15 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                 # v3.20.0 review fix: await directly instead of fire-and-forget
                 # (Bug Class #19 — aiosqlite INSERT is sub-ms, won't block refresh)
                 await db.save_room_state(room_id, state)
+
+        # DIAG v4.0.8: Total refresh time
+        _t_end = time.monotonic()
+        _total_ms = (_t_end - _t0) * 1000
+        if _total_ms > 500:  # Only log if > 500ms
+            _LOGGER.warning(
+                "DIAG %s: _async_update_data SLOW — %.1fms total",
+                room_name, _total_ms,
+            )
 
         return data
     
