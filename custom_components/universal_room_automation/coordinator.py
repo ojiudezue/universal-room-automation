@@ -1,6 +1,6 @@
 """Data coordinator for Universal Room Automation."""
 #
-# Universal Room Automation v4.0.6
+# Universal Room Automation v4.0.7
 # Build: 2026-01-02
 # File: coordinator.py
 # v3.2.8: Support for active state change listeners in aggregation sensors
@@ -10,6 +10,7 @@
 
 import asyncio
 import logging
+import time
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -164,6 +165,10 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         # v3.22.12: Skip automation on first refresh to prevent false entry
         # triggers on reload/restart. Cleared after the first _async_update_data.
         self._skip_first_automation: bool = True
+
+        # v4.0.7: Rate limiter for event-driven refresh (monotonic seconds)
+        self._last_event_refresh: float = 0.0
+        self._trailing_refresh_unsub = None  # Cancel handle for trailing-edge refresh
 
         # Exit verify tracking (for automation health sensor)
         self._last_exit_verify_result: str | None = None  # "skipped_reoccupied" / "retried" / "confirmed" / "retry_failed"
@@ -687,55 +692,58 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         for unsub in self._unsub_signal_listeners:
             unsub()
         self._unsub_signal_listeners.clear()
+        # v4.0.7: Cancel any pending trailing-edge refresh from rate limiter
+        if self._trailing_refresh_unsub is not None:
+            self._trailing_refresh_unsub()
+            self._trailing_refresh_unsub = None
 
         # Call parent first_refresh to fetch initial data
         await super().async_config_entry_first_refresh()
         
         # NOW set up event listeners (after coordinator is fully initialized)
-        # Listen to all configured sensors for immediate updates
-        sensors_to_track = []
-        
-        # v3.2.3.2: Use _get_config for sensor lists to pick up options changes
-        # Add motion sensors
-        motion_sensors = self._get_config(CONF_MOTION_SENSORS, [])
-        _LOGGER.debug("Room %s motion sensors: %s", room_name, motion_sensors)
-        if motion_sensors:
-            sensors_to_track.extend(motion_sensors)
-        
-        # Add mmWave sensors
-        mmwave_sensors = self._get_config(CONF_MMWAVE_SENSORS, [])
-        _LOGGER.debug("Room %s mmwave sensors: %s", room_name, mmwave_sensors)
-        if mmwave_sensors:
-            sensors_to_track.extend(mmwave_sensors)
-        
-        # Add occupancy sensors (combined motion+presence)
-        occupancy_sensors = self._get_config(CONF_OCCUPANCY_SENSORS, [])
-        _LOGGER.debug("Room %s occupancy sensors: %s", room_name, occupancy_sensors)
-        if occupancy_sensors:
-            sensors_to_track.extend(occupancy_sensors)
-        
-        # v3.2.3.2 FIX: Use _get_config to pick up sensor changes from options flow
-        # Add environmental sensors (only if they exist)
-        if temp := self._get_config(CONF_TEMPERATURE_SENSOR):
-            sensors_to_track.append(temp)
-        if humidity := self._get_config(CONF_HUMIDITY_SENSOR):
-            sensors_to_track.append(humidity)
-        if lux := self._get_config(CONF_ILLUMINANCE_SENSOR):
-            sensors_to_track.append(lux)
-        
-        # Add power sensors
-        power_sensors = self._get_config(CONF_POWER_SENSORS, [])
-        if power_sensors:
-            sensors_to_track.extend(power_sensors)
-        
-        # v4.0.5 DIAG: Promote to WARNING so it always appears in log
-        _LOGGER.warning("Room %s total sensors to track: %d - %s", room_name, len(sensors_to_track), sensors_to_track)
+        # v4.0.7: Two-tier sensor tracking. Only occupancy-affecting sensors
+        # trigger immediate refresh. Environmental sensors are read on the
+        # 30s poll — their frequent updates were flooding the event loop
+        # with ~6500 unnecessary heavy refreshes/hour across 31 rooms.
 
-        # Set up listener for immediate coordinator refresh
-        if sensors_to_track:
+        # --- Tier 1 (immediate): sensors that affect occupancy detection ---
+        motion_sensors = self._get_config(CONF_MOTION_SENSORS, []) or []
+        mmwave_sensors = self._get_config(CONF_MMWAVE_SENSORS, []) or []
+        occupancy_sensors = self._get_config(CONF_OCCUPANCY_SENSORS, []) or []
+
+        tier1_sensors = list(motion_sensors) + list(mmwave_sensors) + list(occupancy_sensors)
+
+        # Lux is Tier 1: needed for lux_dark/lux_bright automation triggers (v3.10.0)
+        if lux := self._get_config(CONF_ILLUMINANCE_SENSOR):
+            tier1_sensors.append(lux)
+
+        # --- Tier 2 (poll-only): read by _async_update_data on 30s interval ---
+        # Temperature, humidity, and power sensors do NOT need event listeners.
+        # They are read via hass.states.get() on every refresh cycle.
+        tier2_count = 0
+        if self._get_config(CONF_TEMPERATURE_SENSOR):
+            tier2_count += 1
+        if self._get_config(CONF_HUMIDITY_SENSOR):
+            tier2_count += 1
+        tier2_count += len(self._get_config(CONF_POWER_SENSORS, []) or [])
+
+        _LOGGER.debug(
+            "Room %s: Tier 1 (immediate) sensors: %d %s, Tier 2 (poll-only): %d",
+            room_name, len(tier1_sensors), tier1_sensors, tier2_count,
+        )
+
+        # Set up event listener for Tier 1 sensors only
+        if tier1_sensors:
+            # Pre-build set for O(1) lookup in hot callback path
+            occupancy_sensor_set = set(motion_sensors + mmwave_sensors + occupancy_sensors)
+
             @callback
-            def sensor_state_changed(event):
-                """Handle sensor state changes with motion event logging."""
+            def _tier1_state_changed(event):
+                """Handle Tier 1 sensor state changes with rate limiting.
+
+                Note: _debounce_refresh_callback and the 30s poll timer call
+                async_refresh() directly — they bypass this rate limiter by design.
+                """
                 entity_id = event.data.get("entity_id", "")
                 new_state = event.data.get("new_state")
                 old_state = event.data.get("old_state")
@@ -743,41 +751,48 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                 old_val = old_state.state if old_state else "None"
 
                 # RESILIENCE-002: Log motion/occupancy sensor transitions
-                if entity_id in (motion_sensors + mmwave_sensors + occupancy_sensors):
+                if entity_id in occupancy_sensor_set:
                     _LOGGER.info(
                         "Room %s: Sensor %s changed %s -> %s",
                         room_name, entity_id, old_val, new_val,
                     )
 
-                # v4.0.5 DIAG: Log every callback invocation at WARNING level
-                _LOGGER.warning(
-                    "Room %s: EVENT-DRIVEN callback fired for %s (%s -> %s)",
-                    room_name, entity_id, old_val, new_val,
-                )
+                # Rate limiter with trailing edge: prevents rapid-fire motion
+                # sensors from queueing multiple concurrent refreshes, while
+                # ensuring the LAST event in a burst is always processed.
+                now_mono = time.monotonic()
+                if now_mono - self._last_event_refresh < 2.0:
+                    # Schedule trailing-edge refresh so final state is captured
+                    if self._trailing_refresh_unsub is None:
+                        remaining = 2.0 - (now_mono - self._last_event_refresh) + 0.05
+                        self._trailing_refresh_unsub = async_call_later(
+                            self.hass, remaining, self._trailing_refresh_callback,
+                        )
+                    return
+
+                # Cancel any pending trailing refresh — we're doing a full one now
+                if self._trailing_refresh_unsub is not None:
+                    self._trailing_refresh_unsub()
+                    self._trailing_refresh_unsub = None
+                self._last_event_refresh = now_mono
                 self.hass.async_create_task(self.async_refresh())
 
-            unsub = async_track_state_change_event(
-                self.hass,
-                sensors_to_track,
-                sensor_state_changed
-            )
-            self._unsub_state_listeners.append(unsub)
-            # v4.0.5 DIAG: Confirm listener was registered
-            _LOGGER.warning(
-                "Room %s: async_track_state_change_event returned %s (type=%s)",
-                room_name, unsub, type(unsub).__name__,
+            self._unsub_state_listeners.append(
+                async_track_state_change_event(
+                    self.hass, tier1_sensors, _tier1_state_changed,
+                )
             )
 
-            _LOGGER.warning(
-                "Room %s: Event-driven mode active - tracking %d sensors",
-                room_name,
-                len(sensors_to_track)
+            _LOGGER.info(
+                "Room %s: Event-driven mode — %d Tier 1 sensors (immediate), "
+                "%d Tier 2 sensors (30s poll)",
+                room_name, len(tier1_sensors), tier2_count,
             )
         else:
-            _LOGGER.warning(
-                "Room %s: No motion/occupancy sensors configured - using 30-second polling mode. "
+            _LOGGER.info(
+                "Room %s: No motion/occupancy sensors — using 30s polling. "
                 "Configure sensors for faster response.",
-                room_name
+                room_name,
             )
 
         # v3.12.0 M2: Subscribe to coordinator signals for trigger/AI-rule detection.
@@ -845,6 +860,18 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
     def _debounce_refresh_callback(self, _now=None) -> None:
         """Re-evaluate occupancy after debounce period expires."""
         self._debounce_refresh_unsub = None
+        self.hass.async_create_task(self.async_refresh())
+
+    @callback
+    def _trailing_refresh_callback(self, _now=None) -> None:
+        """Trailing-edge refresh after rate limiter window expires.
+
+        v4.0.7: Ensures the last state change in a burst is always processed
+        within 2s. Without this, a motion "off" event rate-limited at t=1.5s
+        wouldn't be seen until the 30s poll — delaying occupancy timeout start.
+        """
+        self._trailing_refresh_unsub = None
+        self._last_event_refresh = time.monotonic()
         self.hass.async_create_task(self.async_refresh())
 
     # NOTE: Listener cleanup is in __init__.py async_unload_entry(), NOT here.
