@@ -124,7 +124,7 @@ BATTERY_MODE_BACKUP: Final = "backup"
 DEFAULT_SOLAR_PRODUCTION_ENTITY: Final = "sensor.envoy_202428004328_current_power_production"
 DEFAULT_GRID_CONSUMPTION_ENTITY: Final = "sensor.envoy_202428004328_current_power_consumption"
 DEFAULT_BATTERY_SOC_ENTITY: Final = "sensor.envoy_202428004328_battery"
-DEFAULT_BATTERY_POWER_ENTITY: Final = "sensor.envoy_202428004328_encharge_aggregate_power"
+DEFAULT_BATTERY_POWER_ENTITY: Final = "sensor.envoy_202428004328_current_battery_discharge"
 DEFAULT_NET_POWER_ENTITY: Final = "sensor.envoy_202428004328_current_net_power_consumption"
 
 # Envoy lifetime accumulators (for accurate daily consumption tracking)
@@ -327,7 +327,7 @@ def derive_envoy_config(serial: str) -> dict[str, str]:
         CONF_ENERGY_SOLAR_ENTITY: f"sensor.envoy_{serial}_current_power_production",
         CONF_ENERGY_GRID_ENTITY: f"sensor.envoy_{serial}_current_power_consumption",
         CONF_ENERGY_BATTERY_SOC_ENTITY: f"sensor.envoy_{serial}_battery",
-        CONF_ENERGY_BATTERY_POWER_ENTITY: f"sensor.envoy_{serial}_encharge_aggregate_power",
+        CONF_ENERGY_BATTERY_POWER_ENTITY: f"sensor.envoy_{serial}_current_battery_discharge",
         CONF_ENERGY_NET_POWER_ENTITY: f"sensor.envoy_{serial}_current_net_power_consumption",
         CONF_ENERGY_BATTERY_CAPACITY_ENTITY: f"sensor.envoy_{serial}_battery_capacity",
         CONF_ENERGY_LIFETIME_CONSUMPTION_ENTITY: f"sensor.envoy_{serial}_lifetime_energy_consumption",

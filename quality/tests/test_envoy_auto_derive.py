@@ -201,7 +201,7 @@ class TestDeriveEnvoyConfig:
         assert result[CONF_ENERGY_SOLAR_ENTITY] == f"sensor.envoy_{serial}_current_power_production"
         assert result[CONF_ENERGY_GRID_ENTITY] == f"sensor.envoy_{serial}_current_power_consumption"
         assert result[CONF_ENERGY_BATTERY_SOC_ENTITY] == f"sensor.envoy_{serial}_battery"
-        assert result[CONF_ENERGY_BATTERY_POWER_ENTITY] == f"sensor.envoy_{serial}_encharge_aggregate_power"
+        assert result[CONF_ENERGY_BATTERY_POWER_ENTITY] == f"sensor.envoy_{serial}_current_battery_discharge"
         assert result[CONF_ENERGY_NET_POWER_ENTITY] == f"sensor.envoy_{serial}_current_net_power_consumption"
         assert result[CONF_ENERGY_BATTERY_CAPACITY_ENTITY] == f"sensor.envoy_{serial}_battery_capacity"
         assert result[CONF_ENERGY_LIFETIME_CONSUMPTION_ENTITY] == f"sensor.envoy_{serial}_lifetime_energy_consumption"
