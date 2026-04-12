@@ -1,6 +1,6 @@
 """Data coordinator for Universal Room Automation."""
 #
-# Universal Room Automation v4.0.10
+# Universal Room Automation v4.0.11
 # Build: 2026-01-02
 # File: coordinator.py
 # v3.2.8: Support for active state change listeners in aggregation sensors
@@ -31,6 +31,7 @@ from .const import (
     CONF_OCCUPANCY_SENSORS,
     CONF_DOOR_SENSORS,
     CONF_OCCUPANCY_TIMEOUT,
+    CONF_OCCUPANCY_DEBOUNCE,
     CONF_TEMPERATURE_SENSOR,
     CONF_HUMIDITY_SENSOR,
     CONF_ILLUMINANCE_SENSOR,
@@ -38,6 +39,7 @@ from .const import (
     CONF_ENERGY_SENSOR,
     CONF_ELECTRICITY_RATE,
     DEFAULT_OCCUPANCY_TIMEOUT,
+    DEFAULT_OCCUPANCY_DEBOUNCE,
     DEFAULT_ELECTRICITY_RATE,
     STATE_OCCUPIED,
     STATE_MOTION_DETECTED,
@@ -143,7 +145,11 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
 
         # Debounce: require sensors active for N seconds before confirming entry
         self._occupancy_first_detected: datetime | None = None
-        self._occupancy_debounce_seconds: float = 0.5  # seconds sensor must stay on
+        # v4.0.11: Configurable debounce (default 150ms). Config stores ms, convert to s.
+        self._occupancy_debounce_seconds: float = entry.options.get(
+            CONF_OCCUPANCY_DEBOUNCE,
+            entry.data.get(CONF_OCCUPANCY_DEBOUNCE, DEFAULT_OCCUPANCY_DEBOUNCE)
+        ) / 1000.0
         self._debounce_refresh_unsub = None  # cancel handle for scheduled debounce refresh
 
         # Sensor unavailability grace: hold state if all sensors go unavailable

@@ -576,6 +576,8 @@ class SafetyCoordinator(BaseCoordinator):
 
         # Active hazards: key="{type}:{location}" -> Hazard
         self._active_hazards: dict[str, Hazard] = {}
+        # v4.0.11: Track occurrence count for repeated evaluations (like HA's "N occurrences")
+        self._hazard_occurrences: dict[str, int] = {}
         self._deduplicator = AlertDeduplicator()
         self._rate_detector = RateOfChangeDetector()
 
@@ -1152,6 +1154,7 @@ class SafetyCoordinator(BaseCoordinator):
             # Hazard cleared
             key = f"{hazard_type}:{location}"
             self._active_hazards.pop(key, None)
+            self._hazard_occurrences.pop(key, None)
             # Clear leak tracking
             if hazard_type == HazardType.WATER_LEAK:
                 self._leak_start_times.pop(entity_id, None)
@@ -1263,6 +1266,7 @@ class SafetyCoordinator(BaseCoordinator):
             location = self._sensor_locations.get(entity_id, "unknown")
             key = f"{hazard_type}:{location}"
             self._active_hazards.pop(key, None)
+            self._hazard_occurrences.pop(key, None)
             # v3.6.0.3: Push entity updates on hazard clear
             self._notify_entity_update()
             return None
@@ -1508,12 +1512,24 @@ class SafetyCoordinator(BaseCoordinator):
     async def _respond_to_hazard(self, hazard: Hazard) -> list[CoordinatorAction]:
         """Generate response actions for a detected hazard.
 
-        Tracks the hazard, generates severity-appropriate actions, and
-        handles alert deduplication.
+        v4.0.11: Only dispatches signals and logs for NEW hazards or severity
+        changes. Repeated evaluations of the same active hazard increment an
+        occurrence counter (like HA's "N occurrences" pattern) but don't
+        re-fire signals, activity logs, or response actions.
         """
-        # Track the hazard
+        # Track the hazard — detect transitions vs repeated evaluations
         key = f"{hazard.type.value}:{hazard.location}"
+        existing = self._active_hazards.get(key)
+        is_new = existing is None or existing.severity != hazard.severity
         self._active_hazards[key] = hazard
+
+        if not is_new:
+            # Same hazard, same severity — increment occurrence counter, skip response
+            self._hazard_occurrences[key] = self._hazard_occurrences.get(key, 1) + 1
+            return []
+
+        # New hazard or severity change — reset occurrence counter
+        self._hazard_occurrences[key] = 1
         self._hazards_detected_24h += 1
 
         # Generate actions based on severity
@@ -1886,6 +1902,7 @@ class SafetyCoordinator(BaseCoordinator):
     def clear_all_hazards(self) -> None:
         """Clear all active hazards."""
         self._active_hazards.clear()
+        self._hazard_occurrences.clear()
         self._leak_start_times.clear()
         self._active_leak_sensors.clear()
         self._humidity_hazard_fired.clear()
@@ -2238,6 +2255,7 @@ class SafetyCoordinator(BaseCoordinator):
 
         self._cancel_listeners()
         self._active_hazards.clear()
+        self._hazard_occurrences.clear()
         self._deduplicator.clear()
         self._rate_detector.clear()
         self._leak_start_times.clear()

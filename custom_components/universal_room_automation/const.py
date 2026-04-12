@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation v4.0.10
+# Universal Room Automation v4.0.11
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "4.0.10"
+VERSION: Final = "4.0.11"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -283,6 +283,7 @@ CONF_ROOM_NAME: Final = "room_name"
 CONF_ROOM_TYPE: Final = "room_type"
 CONF_AREA_ID: Final = "area_id"
 CONF_OCCUPANCY_TIMEOUT: Final = "occupancy_timeout"
+CONF_OCCUPANCY_DEBOUNCE: Final = "occupancy_debounce"
 
 # Room types
 ROOM_TYPE_BEDROOM: Final = "bedroom"
@@ -472,6 +473,7 @@ CONF_ELECTRICITY_RATE_SENSOR: Final = "electricity_rate_sensor"
 # ============================================================================
 
 DEFAULT_OCCUPANCY_TIMEOUT: Final = 300  # 5 minutes
+DEFAULT_OCCUPANCY_DEBOUNCE: Final = 150  # milliseconds (UI) — converted to seconds in coordinator
 DEFAULT_DARK_THRESHOLD: Final = 20      # lux (from blueprint v3.5.1)
 DEFAULT_SCAN_INTERVAL: Final = 30       # seconds
 DEFAULT_ELECTRICITY_RATE: Final = 0.15  # $/kWh
