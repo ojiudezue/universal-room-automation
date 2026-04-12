@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation v4.0.14
+# Universal Room Automation v4.0.15
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -1383,6 +1383,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         DEFAULT_FAN_MIN_RUNTIME,
                         DEFAULT_ARRESTER_ENABLED,
                         DEFAULT_AC_RESET_ENABLED,
+                        CONF_HVAC_FAN_CONTROL_ENABLED,
+                        DEFAULT_FAN_CONTROL_ENABLED,
                         DEFAULT_VACANCY_GRACE_MINUTES,
                         DEFAULT_VACANCY_GRACE_CONSTRAINED,
                         DEFAULT_MAX_OCCUPANCY_HOURS,
@@ -1426,6 +1428,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         person_zone_map=None,
                         net_power_entity=energy_entity_config.get(
                             CONF_ENERGY_NET_POWER_ENTITY),
+                        fan_control_enabled=bool(cm_config.get(
+                            CONF_HVAC_FAN_CONTROL_ENABLED, DEFAULT_FAN_CONTROL_ENABLED
+                        )),
                     )
                     coordinator_manager.register_coordinator(hvac)
                 else:
