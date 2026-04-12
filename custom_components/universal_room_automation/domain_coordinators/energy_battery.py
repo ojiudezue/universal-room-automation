@@ -134,10 +134,16 @@ class BatteryStrategy:
 
     @property
     def battery_power(self) -> float | None:
-        """Battery power (positive=charging, negative=discharging)."""
-        return self._get_state_float(
+        """Battery power (positive=charging, negative=discharging).
+
+        The new Envoy ``current_battery_discharge`` sensor uses the opposite
+        sign convention (positive=discharging), so we negate it here to keep
+        the rest of the codebase consistent.
+        """
+        raw = self._get_state_float(
             self._get_entity("battery_power", DEFAULT_BATTERY_POWER_ENTITY)
         )
+        return -raw if raw is not None else None
 
     @property
     def current_storage_mode(self) -> str | None:
