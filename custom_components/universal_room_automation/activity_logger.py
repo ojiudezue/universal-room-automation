@@ -27,7 +27,7 @@ _LOGGER = logging.getLogger(__name__)
 _DEDUP_WINDOWS: dict[str, float] = {
     "info": 30.0,
     "notable": 60.0,
-    "critical": 0.0,  # Never dedup critical
+    "critical": 300.0,  # v4.0.11: 5-min safety net (coordinators should transition-gate)
 }
 
 # Maximum size for details_json (bytes)

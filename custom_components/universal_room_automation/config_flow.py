@@ -1,6 +1,6 @@
 """Config flow for Universal Room Automation v3.6.24."""
 #
-# Universal Room Automation v4.0.10
+# Universal Room Automation v4.0.11
 # Build: 2026-01-05
 # File: config_flow.py
 # v3.3.3: Added manage_zones to integration options menu
@@ -39,6 +39,7 @@ from .const import (
     CONF_ROOM_TYPE,
     CONF_AREA_ID,
     CONF_OCCUPANCY_TIMEOUT,
+    CONF_OCCUPANCY_DEBOUNCE,
     ROOM_TYPE_BEDROOM,
     ROOM_TYPE_CLOSET,
     ROOM_TYPE_BATHROOM,
@@ -48,6 +49,7 @@ from .const import (
     ROOM_TYPE_COMMON_AREA,
     ROOM_TYPE_GENERIC,
     DEFAULT_OCCUPANCY_TIMEOUT,
+    DEFAULT_OCCUPANCY_DEBOUNCE,
     ROOM_TYPE_TIMEOUTS,
     # Integration-level config
     CONF_OUTSIDE_TEMP_SENSOR,
@@ -795,6 +797,18 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
                     min=60,
                     max=3600,
                     unit_of_measurement="seconds",
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
+            vol.Optional(
+                CONF_OCCUPANCY_DEBOUNCE,
+                default=DEFAULT_OCCUPANCY_DEBOUNCE
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0,
+                    max=2000,
+                    step=50,
+                    unit_of_measurement="ms",
                     mode=selector.NumberSelectorMode.BOX,
                 )
             ),
@@ -4429,6 +4443,17 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             default=self._get_current(CONF_OCCUPANCY_TIMEOUT, DEFAULT_OCCUPANCY_TIMEOUT)
         )] = selector.NumberSelector(
             selector.NumberSelectorConfig(min=60, max=3600, unit_of_measurement="seconds", mode=selector.NumberSelectorMode.BOX)
+        )
+
+        schema_fields[vol.Optional(
+            CONF_OCCUPANCY_DEBOUNCE,
+            default=self._get_current(CONF_OCCUPANCY_DEBOUNCE, DEFAULT_OCCUPANCY_DEBOUNCE)
+        )] = selector.NumberSelector(
+            selector.NumberSelectorConfig(
+                min=0, max=2000, step=50,
+                unit_of_measurement="ms",
+                mode=selector.NumberSelectorMode.BOX,
+            )
         )
 
         data_schema = vol.Schema(schema_fields)

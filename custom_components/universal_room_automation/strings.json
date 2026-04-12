@@ -92,7 +92,8 @@
           "shared_space": "Shared Space",
           "shared_space_auto_off_hour": "Auto-Off Hour",
           "shared_space_warning": "Warning Flash",
-          "occupancy_timeout": "Occupancy Timeout"
+          "occupancy_timeout": "Occupancy Timeout",
+          "occupancy_debounce": "Motion Detection Delay"
         },
         "data_description": {
           "room_name": "A friendly name for this room (e.g., 'Master Bedroom')",
@@ -102,7 +103,8 @@
           "shared_space": "Enable scheduled auto-off for common areas (living room, hallway)",
           "shared_space_auto_off_hour": "Hour (0-23) to turn off forgotten devices. 23 = 11 PM",
           "shared_space_warning": "Flash lights 5 minutes before auto-off as a warning",
-          "occupancy_timeout": "Seconds after last motion before room is marked vacant"
+          "occupancy_timeout": "Seconds after last motion before room is marked vacant",
+          "occupancy_debounce": "Milliseconds to wait before confirming occupancy after motion is detected. Lower = faster response, higher = fewer false triggers. 0 for instant response with pre-filtered sensors (Screek, ESPHome LD2410)."
         }
       },
       "sensors": {
@@ -1033,7 +1035,8 @@
           "shared_space": "Shared Space",
           "shared_space_auto_off_hour": "Auto-Off Hour",
           "shared_space_warning": "Warning Flash",
-          "occupancy_timeout": "Occupancy Timeout"
+          "occupancy_timeout": "Occupancy Timeout",
+          "occupancy_debounce": "Motion Detection Delay"
         },
         "data_description": {
           "room_name": "A friendly name for this room",
@@ -1043,7 +1046,8 @@
           "shared_space": "Enable scheduled auto-off for common areas",
           "shared_space_auto_off_hour": "Hour (0-23) to turn off devices",
           "shared_space_warning": "Flash lights before auto-off",
-          "occupancy_timeout": "Seconds until room is marked vacant"
+          "occupancy_timeout": "Seconds until room is marked vacant",
+          "occupancy_debounce": "Milliseconds to wait before confirming occupancy after motion. Lower = faster, higher = fewer false triggers. 0 for pre-filtered sensors."
         }
       },
       "sensors": {
