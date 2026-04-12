@@ -31,6 +31,7 @@ from .energy_const import (
     CONF_ENERGY_ARBITRAGE_ENABLED,
     CONF_ENERGY_ARBITRAGE_SOC_TARGET,
     CONF_ENERGY_ARBITRAGE_SOC_TRIGGER,
+    CONF_ENERGY_BATTERY_CAPACITY_ENTITY,
     CONF_ENERGY_BATTERY_POWER_ENTITY,
     CONF_ENERGY_BATTERY_SOC_ENTITY,
     CONF_ENERGY_CHARGE_FROM_GRID_ENTITY,
@@ -38,10 +39,18 @@ from .energy_const import (
     CONF_ENERGY_CONSTRAINT_PRECOOL_OFFSET,
     CONF_ENERGY_CONSTRAINT_PREHEAT_OFFSET,
     CONF_ENERGY_CONSTRAINT_SHED_OFFSET,
+    CONF_ENERGY_CONSUMPTION_TODAY_ENTITY,
     CONF_ENERGY_EXCESS_SOLAR_ENABLED,
     CONF_ENERGY_EXCESS_SOLAR_KWH,
     CONF_ENERGY_EXCESS_SOLAR_SOC,
     CONF_ENERGY_GRID_ENABLED_ENTITY,
+    CONF_ENERGY_GRID_ENTITY,
+    CONF_ENERGY_LIFETIME_BATTERY_CHARGED_ENTITY,
+    CONF_ENERGY_LIFETIME_BATTERY_DISCHARGED_ENTITY,
+    CONF_ENERGY_LIFETIME_CONSUMPTION_ENTITY,
+    CONF_ENERGY_LIFETIME_NET_EXPORT_ENTITY,
+    CONF_ENERGY_LIFETIME_NET_IMPORT_ENTITY,
+    CONF_ENERGY_LIFETIME_PRODUCTION_ENTITY,
     CONF_ENERGY_LOAD_SHEDDING_ENABLED,
     CONF_ENERGY_LOAD_SHEDDING_MODE,
     CONF_ENERGY_LOAD_SHEDDING_SUSTAINED_MINUTES,
@@ -69,6 +78,7 @@ from .energy_const import (
     DEFAULT_DECISION_INTERVAL_MINUTES,
     DEFAULT_EXCESS_SOLAR_KWH_THRESHOLD,
     DEFAULT_EXCESS_SOLAR_SOC_THRESHOLD,
+    DEFAULT_GRID_CONSUMPTION_ENTITY,
     DEFAULT_LIFETIME_BATTERY_CHARGED_ENTITY,
     DEFAULT_LIFETIME_BATTERY_DISCHARGED_ENTITY,
     DEFAULT_LIFETIME_CONSUMPTION_ENTITY,
@@ -136,6 +146,25 @@ class EnergyCoordinator(BaseCoordinator):
 
         # Build off-peak drain targets from config
         ec = entity_config or {}
+
+        # v4.0.12: Resolved Envoy entity IDs (auto-derived or explicit config)
+        self._entity_lifetime_consumption = ec.get(
+            CONF_ENERGY_LIFETIME_CONSUMPTION_ENTITY, DEFAULT_LIFETIME_CONSUMPTION_ENTITY)
+        self._entity_lifetime_production = ec.get(
+            CONF_ENERGY_LIFETIME_PRODUCTION_ENTITY, DEFAULT_LIFETIME_PRODUCTION_ENTITY)
+        self._entity_lifetime_net_import = ec.get(
+            CONF_ENERGY_LIFETIME_NET_IMPORT_ENTITY, DEFAULT_LIFETIME_NET_IMPORT_ENTITY)
+        self._entity_lifetime_net_export = ec.get(
+            CONF_ENERGY_LIFETIME_NET_EXPORT_ENTITY, DEFAULT_LIFETIME_NET_EXPORT_ENTITY)
+        self._entity_lifetime_battery_charged = ec.get(
+            CONF_ENERGY_LIFETIME_BATTERY_CHARGED_ENTITY, DEFAULT_LIFETIME_BATTERY_CHARGED_ENTITY)
+        self._entity_lifetime_battery_discharged = ec.get(
+            CONF_ENERGY_LIFETIME_BATTERY_DISCHARGED_ENTITY, DEFAULT_LIFETIME_BATTERY_DISCHARGED_ENTITY)
+        self._entity_consumption_today = ec.get(
+            CONF_ENERGY_CONSUMPTION_TODAY_ENTITY, DEFAULT_CONSUMPTION_TODAY_ENTITY)
+        self._entity_grid_consumption = ec.get(
+            CONF_ENERGY_GRID_ENTITY, DEFAULT_GRID_CONSUMPTION_ENTITY)
+
         offpeak_drain_targets = {
             "excellent": ec.get(CONF_ENERGY_OFFPEAK_DRAIN_EXCELLENT, DEFAULT_OFFPEAK_DRAIN_EXCELLENT),
             "good": ec.get(CONF_ENERGY_OFFPEAK_DRAIN_GOOD, DEFAULT_OFFPEAK_DRAIN_GOOD),
@@ -179,11 +208,20 @@ class EnergyCoordinator(BaseCoordinator):
         self._generator = GeneratorMonitor(hass)
 
         # E4: Billing + cost tracking
-        self._billing = CostTracker(hass, self._tou)
+        self._billing = CostTracker(
+            hass, self._tou,
+            net_power_entity=ec.get(CONF_ENERGY_NET_POWER_ENTITY),
+            solar_entity=ec.get(CONF_ENERGY_SOLAR_ENTITY),
+        )
 
         # E5: Forecasting + prediction
         weather_ent = (entity_config or {}).get(CONF_ENERGY_WEATHER_ENTITY)
-        self._predictor = DailyEnergyPredictor(hass, weather_entity=weather_ent)
+        self._predictor = DailyEnergyPredictor(
+            hass,
+            battery_soc_entity=ec.get(CONF_ENERGY_BATTERY_SOC_ENTITY),
+            weather_entity=weather_ent,
+            battery_capacity_entity=ec.get(CONF_ENERGY_BATTERY_CAPACITY_ENTITY),
+        )
         self._accuracy = AccuracyTracker()
 
         # Hold cache for battery_full_time (survives brief Envoy outages)
@@ -304,8 +342,10 @@ class EnergyCoordinator(BaseCoordinator):
             return {}
         key_map = {
             CONF_ENERGY_SOLAR_ENTITY: "solar_production",
+            CONF_ENERGY_GRID_ENTITY: "grid_consumption",
             CONF_ENERGY_BATTERY_SOC_ENTITY: "battery_soc",
             CONF_ENERGY_BATTERY_POWER_ENTITY: "battery_power",
+            CONF_ENERGY_BATTERY_CAPACITY_ENTITY: "battery_capacity",
             CONF_ENERGY_NET_POWER_ENTITY: "net_power",
             CONF_ENERGY_STORAGE_MODE_ENTITY: "storage_mode",
             CONF_ENERGY_RESERVE_SOC_ENTITY: "reserve_soc_number",
@@ -822,7 +862,7 @@ class EnergyCoordinator(BaseCoordinator):
 
     def _get_lifetime_consumption(self) -> float | None:
         """Read Envoy lifetime energy consumption (MWh, monotonically increasing)."""
-        state = self.hass.states.get(DEFAULT_LIFETIME_CONSUMPTION_ENTITY)
+        state = self.hass.states.get(self._entity_lifetime_consumption)
         if state is None or state.state in ("unknown", "unavailable"):
             return None
         try:
@@ -832,7 +872,7 @@ class EnergyCoordinator(BaseCoordinator):
 
     def _get_lifetime_production(self) -> float | None:
         """Read Envoy lifetime energy production (MWh, monotonically increasing)."""
-        state = self.hass.states.get(DEFAULT_LIFETIME_PRODUCTION_ENTITY)
+        state = self.hass.states.get(self._entity_lifetime_production)
         if state is None or state.state in ("unknown", "unavailable"):
             return None
         try:
@@ -842,7 +882,7 @@ class EnergyCoordinator(BaseCoordinator):
 
     def _get_lifetime_net_import(self) -> float | None:
         """Read Envoy lifetime net energy consumption/import (MWh, monotonically increasing)."""
-        state = self.hass.states.get(DEFAULT_LIFETIME_NET_IMPORT_ENTITY)
+        state = self.hass.states.get(self._entity_lifetime_net_import)
         if state is None or state.state in ("unknown", "unavailable"):
             return None
         try:
@@ -852,7 +892,7 @@ class EnergyCoordinator(BaseCoordinator):
 
     def _get_lifetime_net_export(self) -> float | None:
         """Read Envoy lifetime net energy production/export (MWh, monotonically increasing)."""
-        state = self.hass.states.get(DEFAULT_LIFETIME_NET_EXPORT_ENTITY)
+        state = self.hass.states.get(self._entity_lifetime_net_export)
         if state is None or state.state in ("unknown", "unavailable"):
             return None
         try:
@@ -862,7 +902,7 @@ class EnergyCoordinator(BaseCoordinator):
 
     def _get_lifetime_battery_discharged(self) -> float | None:
         """Read Envoy lifetime battery energy discharged (MWh, monotonically increasing)."""
-        state = self.hass.states.get(DEFAULT_LIFETIME_BATTERY_DISCHARGED_ENTITY)
+        state = self.hass.states.get(self._entity_lifetime_battery_discharged)
         if state is None or state.state in ("unknown", "unavailable"):
             return None
         try:
@@ -872,7 +912,7 @@ class EnergyCoordinator(BaseCoordinator):
 
     def _get_lifetime_battery_charged(self) -> float | None:
         """Read Envoy lifetime battery energy charged (MWh, monotonically increasing)."""
-        state = self.hass.states.get(DEFAULT_LIFETIME_BATTERY_CHARGED_ENTITY)
+        state = self.hass.states.get(self._entity_lifetime_battery_charged)
         if state is None or state.state in ("unknown", "unavailable"):
             return None
         try:
@@ -1145,7 +1185,7 @@ class EnergyCoordinator(BaseCoordinator):
         if current_lifetime is None or self._lifetime_consumption_snapshot is None:
             return
 
-        envoy_today_state = self.hass.states.get(DEFAULT_CONSUMPTION_TODAY_ENTITY)
+        envoy_today_state = self.hass.states.get(self._entity_consumption_today)
         if envoy_today_state is None or envoy_today_state.state in ("unknown", "unavailable"):
             return
 
@@ -2597,8 +2637,7 @@ class EnergyCoordinator(BaseCoordinator):
     @property
     def total_consumption_kw(self) -> float | None:
         """Total home consumption from Envoy CT (kW)."""
-        from .energy_const import DEFAULT_GRID_CONSUMPTION_ENTITY
-        return self._get_state_float(DEFAULT_GRID_CONSUMPTION_ENTITY)
+        return self._get_state_float(self._entity_grid_consumption)
 
     @property
     def net_consumption_kw(self) -> float | None:

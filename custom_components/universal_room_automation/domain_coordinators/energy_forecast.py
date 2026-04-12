@@ -54,6 +54,7 @@ class DailyEnergyPredictor:
         solcast_today_entity: str | None = None,
         solcast_remaining_entity: str | None = None,
         weather_entity: str | None = None,
+        battery_capacity_entity: str | None = None,
     ) -> None:
         """Initialize daily predictor."""
         self.hass = hass
@@ -61,6 +62,7 @@ class DailyEnergyPredictor:
         self._solcast_today_entity = solcast_today_entity or DEFAULT_SOLCAST_TODAY_ENTITY
         self._solcast_remaining_entity = solcast_remaining_entity or DEFAULT_SOLCAST_REMAINING_ENTITY
         self._weather_entity = weather_entity or DEFAULT_WEATHER_ENTITY
+        self._battery_capacity_entity = battery_capacity_entity or DEFAULT_BATTERY_CAPACITY_ENTITY
 
         # Today's prediction
         self._prediction_date: str = ""
@@ -258,7 +260,7 @@ class DailyEnergyPredictor:
 
     def _get_battery_capacity_kwh(self) -> float:
         """Get battery capacity in kWh from Envoy, fallback to default."""
-        capacity_wh = self._get_float(DEFAULT_BATTERY_CAPACITY_ENTITY)
+        capacity_wh = self._get_float(self._battery_capacity_entity)
         if capacity_wh is not None and capacity_wh > 0:
             return capacity_wh / 1000.0
         return BATTERY_TOTAL_CAPACITY_KWH_FALLBACK

@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation v4.0.11
+# Universal Room Automation v4.0.12
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -1243,6 +1243,27 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 else:
                     _LOGGER.info("Music Following Coordinator disabled via config")
 
+                # v4.0.12: Build energy entity config + auto-derive Envoy entities.
+                # This runs OUTSIDE the Energy-enabled guard so HVAC can also
+                # access derived entities (e.g. net_power_entity).
+                from .domain_coordinators.energy_const import (
+                    CONF_ENERGY_NET_POWER_ENTITY,
+                    CONF_ENERGY_ENVOY_ENTITY,
+                    extract_envoy_serial,
+                    derive_envoy_config,
+                )
+                energy_entity_config: dict[str, str] = {}
+                for key in cm_config:
+                    if key.startswith("energy_"):
+                        energy_entity_config[key] = cm_config[key]
+
+                envoy_eid = energy_entity_config.get(CONF_ENERGY_ENVOY_ENTITY)
+                if envoy_eid:
+                    serial = extract_envoy_serial(envoy_eid)
+                    if serial:
+                        for k, v in derive_envoy_config(serial).items():
+                            energy_entity_config.setdefault(k, v)
+
                 # v3.7.0-E1: Register Energy Coordinator
                 from .const import CONF_ENERGY_ENABLED
                 if cm_config.get(CONF_ENERGY_ENABLED, False):
@@ -1264,11 +1285,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         DEFAULT_L1_CHARGER_ENTITIES,
                         SOLAR_CLASS_MODE_AUTOMATIC,
                     )
-                    energy_entity_config = {}
-                    # Pull any energy config from cm_config (entities + E6 options)
-                    for key in cm_config:
-                        if key.startswith("energy_"):
-                            energy_entity_config[key] = cm_config[key]
 
                     # Weather entity: use EC config, fall back to house entry
                     if CONF_ENERGY_WEATHER_ENTITY not in energy_entity_config:
@@ -1408,6 +1424,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                             CONF_HVAC_MAX_OCCUPANCY_HOURS, DEFAULT_MAX_OCCUPANCY_HOURS
                         )),
                         person_zone_map=None,
+                        net_power_entity=energy_entity_config.get(
+                            CONF_ENERGY_NET_POWER_ENTITY),
                     )
                     coordinator_manager.register_coordinator(hvac)
                 else:

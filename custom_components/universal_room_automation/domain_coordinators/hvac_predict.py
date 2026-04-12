@@ -69,8 +69,11 @@ class HVACPredictor:
         zone_manager: ZoneManager,
         preset_manager: PresetManager,
         override_arrester: OverrideArrester | None = None,
+        net_power_entity: str | None = None,
     ) -> None:
         """Initialize predictor."""
+        from .energy_const import DEFAULT_NET_POWER_ENTITY
+
         self.hass = hass
         self._zone_manager = zone_manager
         self._preset_manager = preset_manager
@@ -106,7 +109,7 @@ class HVACPredictor:
         self._last_fan_skipped_rooms: list[dict[str, Any]] = []
         self._solar_banking_zones: set[str] = set()
         self._solar_bank_triggered_today: bool = False
-        self._net_power_entity: str = "sensor.envoy_202428004328_current_net_power_consumption"
+        self._net_power_entity: str = net_power_entity or DEFAULT_NET_POWER_ENTITY
 
     def set_outdoor_temp_entity(self, entity_id: str) -> None:
         """Set outdoor temperature sensor entity."""

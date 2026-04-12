@@ -86,6 +86,7 @@ class HVACCoordinator(BaseCoordinator):
         vacancy_grace_constrained: int = DEFAULT_VACANCY_GRACE_CONSTRAINED,
         max_occupancy_hours: int = DEFAULT_MAX_OCCUPANCY_HOURS,
         person_zone_map: dict[str, list[str]] | None = None,  # Deprecated: map now built internally from zone_persons config
+        net_power_entity: str | None = None,
     ) -> None:
         """Initialize HVAC Coordinator."""
         super().__init__(
@@ -112,6 +113,7 @@ class HVACCoordinator(BaseCoordinator):
         self._cover_controller = CoverController(hass, self._zone_manager)
         self._predictor = HVACPredictor(
             hass, self._zone_manager, self._preset_manager, self._override_arrester,
+            net_power_entity=net_power_entity,
         )
 
         # Energy constraint state
