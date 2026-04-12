@@ -87,6 +87,7 @@ class HVACCoordinator(BaseCoordinator):
         max_occupancy_hours: int = DEFAULT_MAX_OCCUPANCY_HOURS,
         person_zone_map: dict[str, list[str]] | None = None,  # Deprecated: map now built internally from zone_persons config
         net_power_entity: str | None = None,
+        fan_control_enabled: bool = True,
     ) -> None:
         """Initialize HVAC Coordinator."""
         super().__init__(
@@ -115,6 +116,9 @@ class HVACCoordinator(BaseCoordinator):
             hass, self._zone_manager, self._preset_manager, self._override_arrester,
             net_power_entity=net_power_entity,
         )
+
+        # v4.0.15: Fan control toggle
+        self._fan_control_enabled: bool = fan_control_enabled
 
         # Energy constraint state
         self._energy_constraint: EnergyConstraint | None = None
@@ -213,6 +217,17 @@ class HVACCoordinator(BaseCoordinator):
         """Set HVAC observation mode."""
         self._observation_mode = value
         _LOGGER.info("HVAC Coordinator observation mode: %s", value)
+
+    @property
+    def fan_control_enabled(self) -> bool:
+        """Whether FanController temperature-based fan management is active."""
+        return self._fan_control_enabled
+
+    @fan_control_enabled.setter
+    def fan_control_enabled(self, value: bool) -> None:
+        """Set fan control enabled state."""
+        self._fan_control_enabled = value
+        _LOGGER.info("HVAC Fan Control: %s", "enabled" if value else "disabled")
 
     @property
     def zone_intelligence_enabled(self) -> bool:
@@ -502,7 +517,10 @@ class HVACCoordinator(BaseCoordinator):
             await self._override_arrester.check_ac_reset()
 
             # Fan and cover control
-            await self._fan_controller.update(self._energy_constraint, self._house_state)
+            if self._fan_control_enabled:
+                await self._fan_controller.update(self._energy_constraint, self._house_state)
+            else:
+                await self._fan_controller.turn_off_all_managed()
             await self._cover_controller.update(self._energy_constraint)
         else:
             # Still update arrester state for diagnostics (no actions)
@@ -512,6 +530,8 @@ class HVACCoordinator(BaseCoordinator):
             )
 
         # Predictive sensors and pre-conditioning
+        # NOTE: predictor.update() includes pre-arrival fan bridge (Path 2),
+        # intentionally NOT gated by fan_control_enabled.
         zi = self._zone_intelligence_enabled
         await self._predictor.update(
             self._energy_constraint,
@@ -1413,6 +1433,7 @@ class HVACCoordinator(BaseCoordinator):
         attrs["arrester_state"] = self._override_arrester.get_arrester_state()
         attrs["arrester_enabled"] = self._override_arrester.enabled
         attrs["ac_reset_enabled"] = self._override_arrester.ac_reset_enabled
+        attrs["fan_control_enabled"] = self._fan_control_enabled
         # v3.17.0: Zone Intelligence attributes
         attrs["pre_arrival_zones"] = list(self._pre_arrival_zones)
         solar_banking_zones = getattr(

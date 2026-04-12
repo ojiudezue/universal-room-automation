@@ -1,6 +1,6 @@
 """Switch platform for Universal Room Automation."""
 #
-# Universal Room Automation v4.0.14
+# Universal Room Automation v4.0.15
 # Build: 2026-01-02
 # File: switch.py
 #
@@ -148,6 +148,8 @@ async def async_setup_entry(
             HVACZoneSweepSwitch(hass, entry),
             # v3.18.6: Pre-Arrival Conditioning toggle
             HVACPreArrivalSwitch(hass, entry),
+            # v4.0.15: Fan Control toggle
+            HVACFanControlSwitch(hass, entry),
             # v3.21.1 D1: Observation mode toggles for Safety, Security, Presence
             SafetyObservationModeSwitch(hass, entry),
             SecurityObservationModeSwitch(hass, entry),
@@ -1156,6 +1158,99 @@ class HVACPreArrivalSwitch(SwitchEntity, RestoreEntity):
             hvac = self._get_hvac()
             if hvac is not None:
                 hvac.pre_arrival_enabled = last_state.state == "on"
+
+    @property
+    def available(self) -> bool:
+        """Only available when HVAC coordinator is active."""
+        return self._get_hvac() is not None
+
+
+class HVACFanControlSwitch(SwitchEntity, RestoreEntity):
+    """Toggle HVAC temperature-based fan control.
+
+    When ON (default): FanController manages ceiling fans based on
+    temperature delta from thermostat setpoint, with occupancy gating.
+    When OFF: FanController is completely disabled — no temperature-based
+    fan activation. Pre-arrival fan bridge (Path 2) is NOT affected.
+
+    v4.0.15: Added to address fan flapping with external leave automations.
+
+    Entity: switch.ura_hvac_coordinator_fan_control
+    Device: URA: HVAC Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:fan"
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        self.hass = hass
+        self._entry = entry
+        self._attr_unique_id = f"{DOMAIN}_hvac_fan_control"
+        self._attr_name = "Fan Control"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "hvac_coordinator")},
+            name="URA: HVAC Coordinator",
+            manufacturer="Universal Room Automation",
+            model="HVAC Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+
+    def _get_hvac(self):
+        """Get the HVAC coordinator instance."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        return manager.coordinators.get("hvac")
+
+    @property
+    def is_on(self) -> bool:
+        """Return True if fan control is enabled."""
+        hvac = self._get_hvac()
+        if hvac is None:
+            return True  # default on
+        return hvac.fan_control_enabled
+
+    async def async_turn_on(self, **kwargs) -> None:
+        """Enable temperature-based fan control."""
+        hvac = self._get_hvac()
+        if hvac is not None:
+            hvac.fan_control_enabled = True
+            self.async_write_ha_state()
+
+    async def async_turn_off(self, **kwargs) -> None:
+        """Disable temperature-based fan control."""
+        hvac = self._get_hvac()
+        if hvac is not None:
+            hvac.fan_control_enabled = False
+            self.async_write_ha_state()
+
+    async def async_added_to_hass(self) -> None:
+        """Restore previous state on startup."""
+        await super().async_added_to_hass()
+        last_state = await self.async_get_last_state()
+        if last_state is not None:
+            hvac = self._get_hvac()
+            if hvac is not None:
+                hvac.fan_control_enabled = last_state.state == "on"
+            else:
+                # HVAC coordinator may not be registered yet — retry after 5s
+                self._deferred_restore_state = last_state.state
+                self.async_on_remove(
+                    async_call_later(self.hass, 5, self._retry_restore)
+                )
+
+    async def _retry_restore(self, _now=None) -> None:
+        """Deferred restore if HVAC coordinator wasn't ready at startup."""
+        state = getattr(self, "_deferred_restore_state", None)
+        if state is None:
+            return
+        hvac = self._get_hvac()
+        if hvac is not None:
+            hvac.fan_control_enabled = state == "on"
+        self._deferred_restore_state = None
 
     @property
     def available(self) -> bool:

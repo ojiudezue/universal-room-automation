@@ -138,6 +138,21 @@ class FanController:
         _LOGGER.info("HVAC Fans: Discovered fans in %d rooms", len(self._room_fans))
         return len(self._room_fans)
 
+    async def turn_off_all_managed(self) -> None:
+        """Turn off all managed fans and reset tracking state.
+
+        Called when fan_control_enabled is toggled off so fans don't
+        stay running indefinitely. Idempotent — safe to call every cycle.
+        """
+        for room_fan in self._room_fans.values():
+            if room_fan.is_on:
+                await self._set_fan_state(room_fan.fan_entities, False, 0)
+                room_fan.is_on = False
+                room_fan.trigger = ""
+                room_fan.speed_pct = 0
+                room_fan.last_on_time = ""
+                room_fan.vacancy_detected_time = ""
+
     async def update(self, energy_constraint: EnergyConstraint | None, house_state: str = "") -> None:
         """Run fan control logic for all managed rooms.
 
@@ -153,6 +168,17 @@ class FanController:
         now = dt_util.now()
 
         for room_name, room_fan in self._room_fans.items():
+            # Sync internal state with actual HA entity state.
+            # Prevents stale is_on/last_on_time if external automations
+            # or manual actions changed fan state while we weren't looking.
+            if room_fan.is_on and not any(
+                self._is_entity_on(e) for e in room_fan.fan_entities
+            ):
+                room_fan.is_on = False
+                room_fan.trigger = ""
+                room_fan.speed_pct = 0
+                room_fan.last_on_time = ""
+
             zone = self._zone_manager.zones.get(room_fan.zone_id)
             if zone is None:
                 continue
@@ -211,8 +237,30 @@ class FanController:
         """Evaluate whether temperature fan should be on.
 
         Returns (should_on, trigger_reason, speed_pct).
+
+        v4.0.15: Occupancy gate moved BEFORE temperature triggers.
+        Fans cool people, not rooms — don't activate in empty rooms.
         """
         delta = room_temp - setpoint_high
+
+        # Occupancy gate: don't activate fans in unoccupied rooms
+        if not occupied and not room_fan.is_on:
+            room_fan.vacancy_detected_time = ""
+            return False, "", 0
+
+        # If fan is on and room becomes unoccupied, apply vacancy hold then off
+        if not occupied and room_fan.is_on:
+            if not room_fan.vacancy_detected_time:
+                room_fan.vacancy_detected_time = now.isoformat()
+            vacancy_since = datetime.fromisoformat(room_fan.vacancy_detected_time)
+            vacancy_seconds = (now - vacancy_since).total_seconds()
+            if vacancy_seconds >= DEFAULT_FAN_VACANCY_HOLD:
+                return False, "", 0
+            # Hold on during vacancy window at current speed
+            return True, room_fan.trigger, room_fan.speed_pct
+
+        # Room is occupied — clear vacancy tracking
+        room_fan.vacancy_detected_time = ""
 
         # 1. Energy fan_assist: turn on 1F above setpoint, off 1F below setpoint
         if self._fan_assist_active:
@@ -227,41 +275,20 @@ class FanController:
         if delta >= self._activation_delta:
             return True, "temperature", self._compute_speed(delta)
         elif room_fan.is_on and room_fan.trigger == "temperature":
-            # Deactivation: off when delta drops below (activation - hysteresis)
             off_threshold = self._activation_delta - self._deactivation_delta
             if delta <= off_threshold:
-                pass  # fall through to off check
+                pass  # fall through to off
             else:
                 return True, "temperature", self._compute_speed(delta)
 
-        # Evaluate off
-        should_off = True
-
-        # Occupancy gate with vacancy hold
-        if not occupied:
-            if not room_fan.vacancy_detected_time:
-                room_fan.vacancy_detected_time = now.isoformat()
-            vacancy_since = datetime.fromisoformat(room_fan.vacancy_detected_time)
-            vacancy_seconds = (now - vacancy_since).total_seconds()
-            if vacancy_seconds < DEFAULT_FAN_VACANCY_HOLD and room_fan.is_on:
-                should_off = False  # Hold on during vacancy window
-        else:
-            room_fan.vacancy_detected_time = ""
-
-        # Min runtime check (vacancy overrides min runtime)
+        # Min runtime check
         if room_fan.is_on and room_fan.last_on_time:
             on_since = datetime.fromisoformat(room_fan.last_on_time)
             runtime_minutes = (now - on_since).total_seconds() / 60
             if runtime_minutes < self._min_runtime:
-                should_off = False
+                return True, room_fan.trigger, room_fan.speed_pct
 
-        if should_off and room_fan.is_on:
-            return False, "", 0
-
-        # If currently on with a trigger and we didn't explicitly turn off, keep on
-        if room_fan.is_on and room_fan.trigger:
-            return True, room_fan.trigger, room_fan.speed_pct
-
+        # Default off
         return False, "", 0
 
     def _evaluate_humidity_fan(
