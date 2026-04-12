@@ -1,6 +1,6 @@
 """Config flow for Universal Room Automation v3.6.24."""
 #
-# Universal Room Automation v4.0.11
+# Universal Room Automation v4.0.12
 # Build: 2026-01-05
 # File: config_flow.py
 # v3.3.3: Added manage_zones to integration options menu
@@ -2608,6 +2608,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         v3.7.10: Entity selectors, solar classification mode.
         """
         from .domain_coordinators.energy_const import (
+            CONF_ENERGY_ENVOY_ENTITY,
             CONF_ENERGY_RESERVE_SOC,
             CONF_ENERGY_BILL_CYCLE_DAY,
             CONF_ENERGY_DECISION_INTERVAL,
@@ -2689,6 +2690,13 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         )
 
         data_schema = vol.Schema({
+            # v4.0.12: Single Envoy entity picker — auto-derives all Envoy entities
+            vol.Optional(
+                CONF_ENERGY_ENVOY_ENTITY,
+                description={"suggested_value": self._get_current(CONF_ENERGY_ENVOY_ENTITY)},
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor")
+            ),
             vol.Optional(
                 CONF_ENERGY_RESERVE_SOC,
                 default=self._get_current(CONF_ENERGY_RESERVE_SOC, DEFAULT_RESERVE_SOC),

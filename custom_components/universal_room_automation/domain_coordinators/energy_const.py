@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Final
 
 # ============================================================================
@@ -138,7 +139,6 @@ DEFAULT_BATTERY_CAPACITY_ENTITY: Final = "sensor.envoy_202428004328_battery_capa
 
 # Envoy daily sensors (reset at midnight — useful for cross-checks)
 DEFAULT_CONSUMPTION_TODAY_ENTITY: Final = "sensor.envoy_202428004328_energy_consumption_today"
-DEFAULT_PRODUCTION_TODAY_ENTITY: Final = "sensor.envoy_202428004328_energy_production_today"
 
 # Enpower control entities
 DEFAULT_STORAGE_MODE_ENTITY: Final = "select.enpower_482348004678_storage_mode"
@@ -201,6 +201,17 @@ CONF_ENERGY_EVSE_A_ENTITY: Final = "energy_evse_a_entity"
 CONF_ENERGY_EVSE_B_ENTITY: Final = "energy_evse_b_entity"
 CONF_ENERGY_L1_CHARGER_ENTITIES: Final = "energy_l1_charger_entities"
 CONF_ENERGY_TOU_RATE_FILE: Final = "energy_tou_rate_file"
+
+# v4.0.12: Envoy auto-derive — one entity picker derives all Envoy entities
+CONF_ENERGY_ENVOY_ENTITY: Final = "energy_envoy_entity"
+CONF_ENERGY_BATTERY_CAPACITY_ENTITY: Final = "energy_battery_capacity_entity"
+CONF_ENERGY_LIFETIME_CONSUMPTION_ENTITY: Final = "energy_lifetime_consumption_entity"
+CONF_ENERGY_LIFETIME_PRODUCTION_ENTITY: Final = "energy_lifetime_production_entity"
+CONF_ENERGY_LIFETIME_NET_IMPORT_ENTITY: Final = "energy_lifetime_net_import_entity"
+CONF_ENERGY_LIFETIME_NET_EXPORT_ENTITY: Final = "energy_lifetime_net_export_entity"
+CONF_ENERGY_LIFETIME_BATTERY_CHARGED_ENTITY: Final = "energy_lifetime_battery_charged_entity"
+CONF_ENERGY_LIFETIME_BATTERY_DISCHARGED_ENTITY: Final = "energy_lifetime_battery_discharged_entity"
+CONF_ENERGY_CONSUMPTION_TODAY_ENTITY: Final = "energy_consumption_today_entity"
 
 # Solar classification modes
 SOLAR_CLASS_MODE_AUTOMATIC: Final = "automatic"
@@ -281,3 +292,49 @@ DEFAULT_PREHEAT_TEMP_THRESHOLD: Final = 40.0  # F — forecast low below this tr
 
 # Load shedding priority order (cascade)
 LOAD_SHEDDING_PRIORITY: Final = ["pool", "ev", "smart_plugs", "hvac"]
+
+
+# ============================================================================
+# Envoy Auto-Derive (v4.0.12)
+# ============================================================================
+
+_ENVOY_SERIAL_RE = re.compile(r"envoy_(\d+)_")
+
+
+def extract_envoy_serial(entity_id: str) -> str | None:
+    """Extract Envoy serial number from any Envoy entity ID.
+
+    >>> extract_envoy_serial("sensor.envoy_482543015950_current_power_production")
+    '482543015950'
+    >>> extract_envoy_serial("sensor.some_other_thing") is None
+    True
+    """
+    match = _ENVOY_SERIAL_RE.search(entity_id)
+    return match.group(1) if match else None
+
+
+def derive_envoy_config(serial: str) -> dict[str, str]:
+    """Return CONF_ENERGY_* keys → derived entity IDs for given Envoy serial.
+
+    Used in __init__.py to inject auto-derived entities into energy_entity_config.
+    Explicit per-entity config keys override these via dict.setdefault().
+
+    NOTE: Enpower entities (storage_mode, reserve_soc, grid_enabled,
+    charge_from_grid) have a DIFFERENT serial than the Envoy and are
+    not derived here. They must be configured separately if hardware changes.
+    """
+    return {
+        CONF_ENERGY_SOLAR_ENTITY: f"sensor.envoy_{serial}_current_power_production",
+        CONF_ENERGY_GRID_ENTITY: f"sensor.envoy_{serial}_current_power_consumption",
+        CONF_ENERGY_BATTERY_SOC_ENTITY: f"sensor.envoy_{serial}_battery",
+        CONF_ENERGY_BATTERY_POWER_ENTITY: f"sensor.envoy_{serial}_encharge_aggregate_power",
+        CONF_ENERGY_NET_POWER_ENTITY: f"sensor.envoy_{serial}_current_net_power_consumption",
+        CONF_ENERGY_BATTERY_CAPACITY_ENTITY: f"sensor.envoy_{serial}_battery_capacity",
+        CONF_ENERGY_LIFETIME_CONSUMPTION_ENTITY: f"sensor.envoy_{serial}_lifetime_energy_consumption",
+        CONF_ENERGY_LIFETIME_PRODUCTION_ENTITY: f"sensor.envoy_{serial}_lifetime_energy_production",
+        CONF_ENERGY_LIFETIME_NET_IMPORT_ENTITY: f"sensor.envoy_{serial}_lifetime_net_energy_consumption",
+        CONF_ENERGY_LIFETIME_NET_EXPORT_ENTITY: f"sensor.envoy_{serial}_lifetime_net_energy_production",
+        CONF_ENERGY_LIFETIME_BATTERY_CHARGED_ENTITY: f"sensor.envoy_{serial}_lifetime_battery_energy_charged",
+        CONF_ENERGY_LIFETIME_BATTERY_DISCHARGED_ENTITY: f"sensor.envoy_{serial}_lifetime_battery_energy_discharged",
+        CONF_ENERGY_CONSUMPTION_TODAY_ENTITY: f"sensor.envoy_{serial}_energy_consumption_today",
+    }

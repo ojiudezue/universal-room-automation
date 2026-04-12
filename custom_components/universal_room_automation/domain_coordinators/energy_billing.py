@@ -22,10 +22,6 @@ from .energy_tou import TOURateEngine
 
 _LOGGER = logging.getLogger(__name__)
 
-# Entities for energy accumulation (from HA Energy dashboard)
-DEFAULT_GRID_IMPORT_ENERGY = "sensor.envoy_202428004328_lifetime_energy_consumption"
-DEFAULT_GRID_EXPORT_ENERGY = "sensor.envoy_202428004328_lifetime_energy_production"
-
 
 class CostTracker:
     """Tracks energy costs by TOU period, daily, and per billing cycle.

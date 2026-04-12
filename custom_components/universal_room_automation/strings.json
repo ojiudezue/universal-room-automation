@@ -730,6 +730,7 @@
         "title": "⚡ Energy Coordinator",
         "description": "Configure the Energy Coordinator. Manages battery strategy, pool/EV optimization, TOU-aware cost tracking, and daily forecasting via Enphase Envoy and Solcast.",
         "data": {
+          "energy_envoy_entity": "Envoy Sensor (pick any — serial auto-derives all energy entities)",
           "energy_reserve_soc": "Battery Reserve SOC (%)",
           "energy_bill_cycle_day": "Billing Cycle Start Day",
           "energy_decision_interval": "Decision Interval (minutes)",
