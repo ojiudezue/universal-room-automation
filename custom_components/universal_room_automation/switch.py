@@ -1,6 +1,6 @@
 """Switch platform for Universal Room Automation."""
 #
-# Universal Room Automation v4.0.15
+# Universal Room Automation v4.0.16
 # Build: 2026-01-02
 # File: switch.py
 #
@@ -1242,7 +1242,7 @@ class HVACFanControlSwitch(SwitchEntity, RestoreEntity):
                     async_call_later(self.hass, 5, self._retry_restore)
                 )
 
-    async def _retry_restore(self, _now=None) -> None:
+    def _retry_restore(self, _now=None) -> None:
         """Deferred restore if HVAC coordinator wasn't ready at startup."""
         state = getattr(self, "_deferred_restore_state", None)
         if state is None:
