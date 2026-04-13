@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from homeassistant.core import HomeAssistant
@@ -57,6 +57,7 @@ class RoomFanState:
     trigger: str = ""  # "temperature" | "fan_assist" | "humidity" | ""
     last_on_time: str = ""
     vacancy_detected_time: str = ""
+    manual_off_cooldown_until: str = ""  # ISO datetime — skip activation until this time
 
 
 class FanController:
@@ -147,11 +148,12 @@ class FanController:
         for room_fan in self._room_fans.values():
             if room_fan.is_on:
                 await self._set_fan_state(room_fan.fan_entities, False, 0)
-                room_fan.is_on = False
-                room_fan.trigger = ""
-                room_fan.speed_pct = 0
-                room_fan.last_on_time = ""
-                room_fan.vacancy_detected_time = ""
+            room_fan.is_on = False
+            room_fan.trigger = ""
+            room_fan.speed_pct = 0
+            room_fan.last_on_time = ""
+            room_fan.vacancy_detected_time = ""
+            room_fan.manual_off_cooldown_until = ""  # Clean reset on toggle off
 
     async def update(self, energy_constraint: EnergyConstraint | None, house_state: str = "") -> None:
         """Run fan control logic for all managed rooms.
@@ -174,10 +176,25 @@ class FanController:
             if room_fan.is_on and not any(
                 self._is_entity_on(e) for e in room_fan.fan_entities
             ):
+                # v4.0.18: Fan turned off externally — set 1-hour cooldown
+                cooldown_until = (now + timedelta(hours=1)).isoformat()
+                room_fan.manual_off_cooldown_until = cooldown_until
+                _LOGGER.info(
+                    "HVAC Fans: %s turned off externally — cooldown until %s",
+                    room_name, cooldown_until,
+                )
                 room_fan.is_on = False
                 room_fan.trigger = ""
                 room_fan.speed_pct = 0
                 room_fan.last_on_time = ""
+            # Reverse: fan turned ON externally during cooldown — clear cooldown
+            elif (not room_fan.is_on and room_fan.manual_off_cooldown_until
+                  and any(self._is_entity_on(e) for e in room_fan.fan_entities)):
+                room_fan.manual_off_cooldown_until = ""
+                room_fan.is_on = True
+                room_fan.trigger = "manual"
+                room_fan.last_on_time = now.isoformat()
+                _LOGGER.info("HVAC Fans: %s turned on during cooldown — cooldown cleared", room_name)
 
             zone = self._zone_manager.zones.get(room_fan.zone_id)
             if zone is None:
@@ -242,6 +259,16 @@ class FanController:
         Fans cool people, not rooms — don't activate in empty rooms.
         """
         delta = room_temp - setpoint_high
+
+        # v4.0.18: Manual off cooldown — skip all activation triggers
+        if room_fan.manual_off_cooldown_until:
+            try:
+                cooldown_until = datetime.fromisoformat(room_fan.manual_off_cooldown_until)
+                if now < cooldown_until:
+                    return False, "", 0
+                room_fan.manual_off_cooldown_until = ""
+            except (ValueError, TypeError):
+                room_fan.manual_off_cooldown_until = ""
 
         # Occupancy gate: don't activate fans in unoccupied rooms
         if not occupied and not room_fan.is_on:
@@ -357,8 +384,15 @@ class FanController:
     def get_fan_status(self) -> dict[str, Any]:
         """Return fan status for sensor attributes."""
         active = sum(1 for r in self._room_fans.values() if r.is_on)
+        now = dt_util.now()
+        in_cooldown = sum(
+            1 for r in self._room_fans.values()
+            if r.manual_off_cooldown_until
+            and datetime.fromisoformat(r.manual_off_cooldown_until) > now
+        )
         return {
             "rooms_with_fans": len(self._room_fans),
             "active_fan_rooms": active,
             "fan_assist_active": self._fan_assist_active,
+            "rooms_in_cooldown": in_cooldown,
         }

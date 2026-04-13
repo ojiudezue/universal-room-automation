@@ -43,6 +43,8 @@ from .energy_const import (
     CONF_ENERGY_EXCESS_SOLAR_ENABLED,
     CONF_ENERGY_EXCESS_SOLAR_KWH,
     CONF_ENERGY_EXCESS_SOLAR_SOC,
+    CONF_ENERGY_GRID_IMPORT_CAP_ENABLED,
+    CONF_ENERGY_GRID_IMPORT_CAP_KW,
     CONF_ENERGY_GRID_ENABLED_ENTITY,
     CONF_ENERGY_GRID_ENTITY,
     CONF_ENERGY_LIFETIME_BATTERY_CHARGED_ENTITY,
@@ -77,6 +79,8 @@ from .energy_const import (
     DEFAULT_CONSUMPTION_TODAY_ENTITY,
     DEFAULT_DECISION_INTERVAL_MINUTES,
     DEFAULT_EXCESS_SOLAR_KWH_THRESHOLD,
+    DEFAULT_GRID_IMPORT_CAP_HYSTERESIS_KW,
+    DEFAULT_GRID_IMPORT_CAP_KW,
     DEFAULT_EXCESS_SOLAR_SOC_THRESHOLD,
     DEFAULT_GRID_CONSUMPTION_ENTITY,
     DEFAULT_LIFETIME_BATTERY_CHARGED_ENTITY,
@@ -202,6 +206,12 @@ class EnergyCoordinator(BaseCoordinator):
         )
         self._evse_battery_hold_active: bool = False
         self._evse_hold_soc: int | None = None  # Captured SOC at start of EVSE hold
+
+        # v4.0.18: EV grid import cap
+        self._grid_import_cap_enabled: bool = ec.get(
+            CONF_ENERGY_GRID_IMPORT_CAP_ENABLED, False)
+        self._grid_import_cap_kw: float = float(ec.get(
+            CONF_ENERGY_GRID_IMPORT_CAP_KW, DEFAULT_GRID_IMPORT_CAP_KW))
 
         # E3: Circuit monitoring + generator
         self._circuits = SPANCircuitMonitor(hass)
@@ -599,11 +609,22 @@ class EnergyCoordinator(BaseCoordinator):
                     self._ev._paused_by_us.add(evse_id)
                 if state.get("excess_solar_active"):
                     self._ev._excess_solar_active.add(evse_id)
+            # Restore grid cap state from key-value store (separate from evse_state table)
+            grid_cap_json = await db.restore_energy_state("evse_grid_cap_paused")
+            if grid_cap_json:
+                import json as _json
+                try:
+                    for eid in _json.loads(grid_cap_json):
+                        if eid in valid_evse_ids:
+                            self._ev._paused_by_grid_cap.add(eid)
+                except (ValueError, TypeError):
+                    pass
             if states:
                 _LOGGER.info(
-                    "Restored EVSE state: paused=%s, excess_solar=%s",
+                    "Restored EVSE state: paused=%s, excess_solar=%s, grid_cap=%s",
                     list(self._ev._paused_by_us),
                     list(self._ev._excess_solar_active),
+                    list(self._ev._paused_by_grid_cap),
                 )
         except Exception as e:
             _LOGGER.warning("Could not restore EVSE state from DB: %s", e)
@@ -620,6 +641,12 @@ class EnergyCoordinator(BaseCoordinator):
                     paused_by_energy=evse_id in self._ev._paused_by_us,
                     excess_solar_active=evse_id in self._ev._excess_solar_active,
                 )
+            # Grid cap state via key-value store (no schema change needed)
+            import json as _json
+            await db.save_energy_state(
+                "evse_grid_cap_paused",
+                _json.dumps(list(self._ev._paused_by_grid_cap)),
+            )
         except Exception as e:
             _LOGGER.warning("Could not save EVSE state to DB: %s", e)
 
@@ -1486,6 +1513,17 @@ class EnergyCoordinator(BaseCoordinator):
                         kwh_threshold=self._excess_solar_kwh,
                     )
                     for action_spec in excess_actions:
+                        await self._execute_service_action(action_spec)
+
+                # v4.0.18: EV grid import cap
+                if self._grid_import_cap_enabled:
+                    net_kw = (self._battery.net_power or 0) / 1000.0
+                    grid_cap_actions = self._ev.determine_grid_cap_actions(
+                        net_power_kw=net_kw,
+                        grid_cap_kw=self._grid_import_cap_kw,
+                        hysteresis_kw=DEFAULT_GRID_IMPORT_CAP_HYSTERESIS_KW,
+                    )
+                    for action_spec in grid_cap_actions:
                         await self._execute_service_action(action_spec)
 
                 # E2: Smart plug control

@@ -1,6 +1,6 @@
 """Config flow for Universal Room Automation v3.6.24."""
 #
-# Universal Room Automation v4.0.17
+# Universal Room Automation v4.0.18
 # Build: 2026-01-05
 # File: config_flow.py
 # v3.3.3: Added manage_zones to integration options menu
@@ -2667,6 +2667,9 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             CONF_ENERGY_EXCESS_SOLAR_KWH,
             DEFAULT_EXCESS_SOLAR_SOC_THRESHOLD,
             DEFAULT_EXCESS_SOLAR_KWH_THRESHOLD,
+            CONF_ENERGY_GRID_IMPORT_CAP_ENABLED,
+            CONF_ENERGY_GRID_IMPORT_CAP_KW,
+            DEFAULT_GRID_IMPORT_CAP_KW,
         )
 
         if user_input is not None:
@@ -2991,6 +2994,21 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 selector.NumberSelectorConfig(
                     min=1, max=15, step=0.5,
                     unit_of_measurement="kWh",
+                    mode=selector.NumberSelectorMode.SLIDER,
+                )
+            ),
+            # v4.0.18: Grid import cap
+            vol.Optional(
+                CONF_ENERGY_GRID_IMPORT_CAP_ENABLED,
+                default=self._get_current(CONF_ENERGY_GRID_IMPORT_CAP_ENABLED, False),
+            ): selector.BooleanSelector(),
+            vol.Optional(
+                CONF_ENERGY_GRID_IMPORT_CAP_KW,
+                default=self._get_current(CONF_ENERGY_GRID_IMPORT_CAP_KW, DEFAULT_GRID_IMPORT_CAP_KW),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=3, max=20, step=0.5,
+                    unit_of_measurement="kW",
                     mode=selector.NumberSelectorMode.SLIDER,
                 )
             ),

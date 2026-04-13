@@ -275,6 +275,12 @@ CONF_ENERGY_EXCESS_SOLAR_ENABLED: Final = "energy_excess_solar_enabled"
 CONF_ENERGY_EXCESS_SOLAR_SOC: Final = "energy_excess_solar_soc"
 CONF_ENERGY_EXCESS_SOLAR_KWH: Final = "energy_excess_solar_kwh"
 
+# EV Grid Import Cap (v4.0.18)
+DEFAULT_GRID_IMPORT_CAP_KW: Final = 8.0
+DEFAULT_GRID_IMPORT_CAP_HYSTERESIS_KW: Final = 1.0
+CONF_ENERGY_GRID_IMPORT_CAP_ENABLED: Final = "energy_grid_import_cap_enabled"
+CONF_ENERGY_GRID_IMPORT_CAP_KW: Final = "energy_grid_import_cap_kw"
+
 # Load shedding defaults
 DEFAULT_LOAD_SHEDDING_THRESHOLD_KW: Final = 5.0
 DEFAULT_LOAD_SHEDDING_SUSTAINED_MINUTES: Final = 15
