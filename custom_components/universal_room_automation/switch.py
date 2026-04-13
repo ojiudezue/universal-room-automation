@@ -1,6 +1,6 @@
 """Switch platform for Universal Room Automation."""
 #
-# Universal Room Automation v4.0.16
+# Universal Room Automation v4.0.17
 # Build: 2026-01-02
 # File: switch.py
 #
@@ -9,7 +9,7 @@ import logging
 
 from homeassistant.components.switch import SwitchEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -1242,6 +1242,7 @@ class HVACFanControlSwitch(SwitchEntity, RestoreEntity):
                     async_call_later(self.hass, 5, self._retry_restore)
                 )
 
+    @callback
     def _retry_restore(self, _now=None) -> None:
         """Deferred restore if HVAC coordinator wasn't ready at startup."""
         state = getattr(self, "_deferred_restore_state", None)
@@ -1250,7 +1251,9 @@ class HVACFanControlSwitch(SwitchEntity, RestoreEntity):
         hvac = self._get_hvac()
         if hvac is not None:
             hvac.fan_control_enabled = state == "on"
-        self._deferred_restore_state = None
+            self._deferred_restore_state = None
+        else:
+            _LOGGER.debug("HVAC still not ready for fan control restore")
 
     @property
     def available(self) -> bool:
