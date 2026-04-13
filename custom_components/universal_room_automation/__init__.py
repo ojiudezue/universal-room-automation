@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation v4.0.16
+# Universal Room Automation v4.0.17
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -13,6 +13,7 @@
 # NEW v3.2.6: Sensor renaming for clarity (Presence → Sensor Presence, etc.)
 #
 
+import asyncio
 import logging
 from datetime import datetime, timedelta
 
@@ -637,45 +638,78 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             except Exception as e:
                 _LOGGER.debug("Safety alert dedup migration: %s", e)
 
-        # Initialize database (shared across all rooms — use existing if already created)
+        # Initialize database (shared across all rooms — use existing if already created).
+        # v4.0.17: Lock prevents race with concurrent room entry setup.
         if hass.data[DOMAIN].get("database") is None:
-            database = UniversalRoomDatabase(hass)
-            if await database.initialize():
-                await database.start_write_worker()
-                hass.data[DOMAIN]["database"] = database
-                _LOGGER.info("Database initialized successfully")
+            db_lock = hass.data[DOMAIN].setdefault("_db_init_lock", asyncio.Lock())
+            async with db_lock:
+                if hass.data[DOMAIN].get("database") is None:
+                    database = UniversalRoomDatabase(hass)
+                    if await database.initialize():
+                        await database.start_write_worker()
+                        hass.data[DOMAIN]["database"] = database
+                        _LOGGER.info("Database initialized successfully")
 
-                # Activity logger — initialized immediately after DB
-                activity_logger = ActivityLogger(hass)
-                hass.data[DOMAIN]["activity_logger"] = activity_logger
+                        # Activity logger — initialized immediately after DB
+                        activity_logger = ActivityLogger(hass)
+                        hass.data[DOMAIN]["activity_logger"] = activity_logger
 
-                # Prune stale activity log entries on startup
+                        # Prune stale activity log entries on startup
+                        try:
+                            await database.prune_activity_log()
+                        except Exception as prune_err:
+                            _LOGGER.debug("Activity log startup prune failed: %s", prune_err)
+
+                        # Register daily 2 AM prune for activity log + dedup cache clear
+                        from homeassistant.helpers.event import async_track_time_change
+
+                        async def _daily_activity_prune(_now):
+                            """Prune activity log and clear dedup cache at 2 AM."""
+                            try:
+                                db = hass.data.get(DOMAIN, {}).get("database")
+                                if db:
+                                    await db.prune_activity_log()
+                                al = hass.data.get(DOMAIN, {}).get("activity_logger")
+                                if al:
+                                    al.clear_dedup_cache()
+                            except Exception as exc:
+                                _LOGGER.debug("Daily activity prune failed: %s", exc)
+
+                        unsub_activity_prune = async_track_time_change(
+                            hass, _daily_activity_prune, hour=2, minute=0, second=0
+                        )
+                        hass.data[DOMAIN]["unsub_activity_prune"] = unsub_activity_prune
+                    else:
+                        _LOGGER.warning("Database initialization failed")
+
+        # v4.0.17: Activity logger may not have been created if a room entry won
+        # the DB init race. Ensure it exists whenever DB exists.
+        if (hass.data[DOMAIN].get("database") is not None
+                and hass.data[DOMAIN].get("activity_logger") is None):
+            activity_logger = ActivityLogger(hass)
+            hass.data[DOMAIN]["activity_logger"] = activity_logger
+            _LOGGER.info("Activity logger initialized (deferred from DB race)")
+
+            try:
+                await hass.data[DOMAIN]["database"].prune_activity_log()
+            except Exception as prune_err:
+                _LOGGER.debug("Activity log startup prune failed: %s", prune_err)
+
+            from homeassistant.helpers.event import async_track_time_change as _attc
+
+            async def _daily_prune_deferred(_now):
                 try:
-                    await database.prune_activity_log()
-                except Exception as prune_err:
-                    _LOGGER.debug("Activity log startup prune failed: %s", prune_err)
+                    db = hass.data.get(DOMAIN, {}).get("database")
+                    if db:
+                        await db.prune_activity_log()
+                    al = hass.data.get(DOMAIN, {}).get("activity_logger")
+                    if al:
+                        al.clear_dedup_cache()
+                except Exception:
+                    pass
 
-                # Register daily 2 AM prune for activity log + dedup cache clear
-                from homeassistant.helpers.event import async_track_time_change
-
-                async def _daily_activity_prune(_now):
-                    """Prune activity log and clear dedup cache at 2 AM."""
-                    try:
-                        db = hass.data.get(DOMAIN, {}).get("database")
-                        if db:
-                            await db.prune_activity_log()
-                        al = hass.data.get(DOMAIN, {}).get("activity_logger")
-                        if al:
-                            al.clear_dedup_cache()
-                    except Exception as exc:
-                        _LOGGER.debug("Daily activity prune failed: %s", exc)
-
-                unsub_activity_prune = async_track_time_change(
-                    hass, _daily_activity_prune, hour=2, minute=0, second=0
-                )
-                hass.data[DOMAIN]["unsub_activity_prune"] = unsub_activity_prune
-            else:
-                _LOGGER.warning("Database initialization failed")
+            unsub = _attc(hass, _daily_prune_deferred, hour=2, minute=0, second=0)
+            hass.data[DOMAIN]["unsub_activity_prune"] = unsub
 
         # v3.2.0: Initialize person tracking coordinator if persons are configured
         # FIX v3.2.3.1: Read from options first (where UI saves), then fall back to data
@@ -1631,17 +1665,28 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         entry.data.get("room_name")
     )
     
-    # Initialize database (shared across all rooms — use existing if already created)
+    # Initialize database (shared across all rooms — use existing if already created).
+    # v4.0.17: Use asyncio.Lock to prevent race where 31 room entries all see
+    # database=None simultaneously during startup and each create a write worker.
     database = hass.data[DOMAIN].get("database")
     if database is None:
-        database = UniversalRoomDatabase(hass)
-        if await database.initialize():
-            await database.start_write_worker()
-            hass.data[DOMAIN]["database"] = database
-            _LOGGER.info("Database initialized successfully")
-        else:
-            _LOGGER.warning("Database initialization failed")
-    
+        db_lock = hass.data[DOMAIN].setdefault("_db_init_lock", asyncio.Lock())
+        async with db_lock:
+            # Re-check after acquiring lock — another entry may have created it
+            database = hass.data[DOMAIN].get("database")
+            if database is None:
+                database = UniversalRoomDatabase(hass)
+                if await database.initialize():
+                    await database.start_write_worker()
+                    hass.data[DOMAIN]["database"] = database
+                    _LOGGER.info("Database initialized successfully")
+                else:
+                    _LOGGER.warning("Database initialization failed")
+                    database = None  # Prevent use of uninitialized DB below
+
+    # Re-read from shared state (another entry may have created it)
+    database = hass.data[DOMAIN].get("database")
+
     # Create coordinator
     coordinator = UniversalRoomCoordinator(hass, entry)
 
@@ -1851,6 +1896,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         database = hass.data[DOMAIN].get("database")
         if database and hasattr(database, "async_close"):
             await database.async_close()
+        hass.data[DOMAIN].pop("database", None)  # Remove stale reference for clean re-init
+        hass.data[DOMAIN].pop("_db_init_lock", None)
 
         if "integration" in hass.data[DOMAIN]:
             del hass.data[DOMAIN]["integration"]
