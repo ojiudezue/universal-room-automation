@@ -185,6 +185,7 @@ class EVChargerController:
         self._evse = evse_config or DEFAULT_EVSE_ENTITIES
         self._paused_by_us: set[str] = set()
         self._excess_solar_active: set[str] = set()
+        self._paused_by_grid_cap: set[str] = set()
 
     def _get_evse_state(self, evse_id: str) -> dict[str, Any]:
         """Get current state of an EVSE."""
@@ -242,6 +243,11 @@ class EVChargerController:
             else:
                 # Resume on off-peak (only if we paused it)
                 if evse_id in self._paused_by_us:
+                    # v4.0.18: Grid cap takes priority — don't resume if grid capped
+                    if evse_id in self._paused_by_grid_cap:
+                        self._paused_by_us.discard(evse_id)
+                        _LOGGER.info("EV: clearing TOU pause for %s (grid cap active)", evse_id)
+                        continue
                     if not state["is_on"]:
                         actions.append({
                             "service": "switch.turn_on",
@@ -347,16 +353,69 @@ class EVChargerController:
 
         return actions
 
+    def determine_grid_cap_actions(
+        self,
+        net_power_kw: float,
+        grid_cap_kw: float,
+        hysteresis_kw: float = 1.0,
+    ) -> list[dict[str, Any]]:
+        """Pause/resume EVSEs based on grid import cap.
+
+        Pauses charging EVSEs when net_power > grid_cap.
+        Resumes when net_power < (grid_cap - hysteresis).
+        Separate from TOU pausing — tracked independently.
+        """
+        actions: list[dict[str, Any]] = []
+
+        for evse_id, config in self._evse.items():
+            switch_entity = config.get("switch", "")
+            if not switch_entity:
+                continue
+            state = self._get_evse_state(evse_id)
+
+            if net_power_kw > grid_cap_kw:
+                # Over cap — pause any charging EVSE not already capped
+                if state["charging"] and evse_id not in self._paused_by_grid_cap:
+                    actions.append({
+                        "service": "switch.turn_off",
+                        "target": switch_entity,
+                        "data": {},
+                    })
+                    self._paused_by_grid_cap.add(evse_id)
+                    _LOGGER.info(
+                        "EV grid cap: pausing %s (grid=%.1f kW > cap=%.1f kW)",
+                        evse_id, net_power_kw, grid_cap_kw,
+                    )
+            elif evse_id in self._paused_by_grid_cap:
+                # Below cap minus hysteresis — resume
+                if net_power_kw < (grid_cap_kw - hysteresis_kw):
+                    if not state["is_on"]:
+                        actions.append({
+                            "service": "switch.turn_on",
+                            "target": switch_entity,
+                            "data": {},
+                        })
+                        _LOGGER.info(
+                            "EV grid cap: resuming %s (grid=%.1f kW < %.1f kW)",
+                            evse_id, net_power_kw, grid_cap_kw - hysteresis_kw,
+                        )
+                    self._paused_by_grid_cap.discard(evse_id)
+
+        return actions
+
     def get_status(self) -> dict[str, Any]:
         """Return EV charging status for sensor."""
         status: dict[str, Any] = {
             "paused_by_energy": list(self._paused_by_us),
+            "paused_by_grid_cap": list(self._paused_by_grid_cap),
             "excess_solar_active": bool(self._excess_solar_active),
             "excess_solar_evses": list(self._excess_solar_active),
         }
         for evse_id in self._evse:
             evse_state = self._get_evse_state(evse_id)
-            if evse_id in self._paused_by_us:
+            if evse_id in self._paused_by_grid_cap:
+                evse_state["energy_status"] = "grid_capped"
+            elif evse_id in self._paused_by_us:
                 evse_state["energy_status"] = "paused"
             elif evse_id in self._excess_solar_active:
                 evse_state["energy_status"] = "excess_solar"

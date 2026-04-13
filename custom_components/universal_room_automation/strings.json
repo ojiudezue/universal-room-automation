@@ -764,7 +764,9 @@
           "energy_arbitrage_soc_target": "Arbitrage SOC Target",
           "energy_excess_solar_enabled": "Excess Solar EV Charging",
           "energy_excess_solar_soc": "Excess Solar SOC Threshold",
-          "energy_excess_solar_kwh": "Excess Solar Forecast Threshold"
+          "energy_excess_solar_kwh": "Excess Solar Forecast Threshold",
+          "energy_grid_import_cap_enabled": "EV Grid Import Cap",
+          "energy_grid_import_cap_kw": "Grid Import Cap (kW)"
         },
         "data_description": {
           "energy_reserve_soc": "Minimum battery reserve percentage. Battery won't discharge below this level during normal operation. Default: 20%.",
@@ -800,7 +802,9 @@
           "energy_arbitrage_soc_target": "SOC target for arbitrage charging. Charging stops when battery reaches this level. Default: 80%.",
           "energy_excess_solar_enabled": "Enable advanced EVSE management: excess solar EV charging (turns on EVSEs when battery full + high forecast remaining) and battery hold (prevents battery discharge during EV charging).",
           "energy_excess_solar_soc": "Battery SOC above which excess solar triggers EV charging. Default: 95%.",
-          "energy_excess_solar_kwh": "Remaining solar forecast (kWh) above which excess solar triggers EV charging. Default: 5.0 kWh."
+          "energy_excess_solar_kwh": "Remaining solar forecast (kWh) above which excess solar triggers EV charging. Default: 5.0 kWh.",
+          "energy_grid_import_cap_enabled": "Pause EV charging when total grid import exceeds the cap. Resumes when import drops below cap minus 1 kW hysteresis.",
+          "energy_grid_import_cap_kw": "Maximum grid import in kW before pausing EV charging. Default: 8 kW."
         }
       },
       "coordinator_hvac": {
