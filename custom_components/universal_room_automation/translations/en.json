@@ -33,8 +33,10 @@
           "grid_import_sensor": "Grid Import Sensor (Primary)",
           "grid_import_sensor_2": "Grid Import Sensor (Secondary)",
           "battery_level_sensor": "Battery Level Sensor",
-          "whole_house_power_sensor": "Whole House Power Sensor",
-          "whole_house_energy_sensor": "Whole House Energy Sensor",
+          "whole_house_power_sensors": "Whole House Power Sensors",
+          "whole_house_energy_sensors": "Whole House Energy Sensors",
+          "house_device_power_sensors": "House Device Power Sensors",
+          "house_device_energy_sensors": "House Device Energy Sensors",
           "delivery_rate": "Delivery Rate ($/kWh)",
           "export_reimbursement_rate": "Export Reimbursement Rate ($/kWh)"
         },
@@ -43,8 +45,10 @@
           "grid_import_sensor": "Primary grid import energy sensor (e.g., Enphase production meter)",
           "grid_import_sensor_2": "Secondary grid import sensor if you have multiple meters (optional)",
           "battery_level_sensor": "Battery state of charge percentage (e.g., Enphase battery)",
-          "whole_house_power_sensor": "Real-time whole house power consumption in watts",
-          "whole_house_energy_sensor": "Cumulative whole house energy usage in kWh",
+          "whole_house_power_sensors": "Real-time whole house power sensors (watts). Select multiple for separate CTs.",
+          "whole_house_energy_sensors": "Cumulative whole house energy sensors (kWh). Select multiple for separate meters.",
+          "house_device_power_sensors": "Power sensors for house-level devices not in any room (EV chargers, pool pumps, water heaters)",
+          "house_device_energy_sensors": "Energy sensors for house-level devices not in any room",
           "delivery_rate": "Fixed transmission/delivery cost per kWh (added to electricity rate)",
           "export_reimbursement_rate": "Credit received per kWh exported to grid (net metering)"
         }
@@ -393,13 +397,13 @@
         "description": "Track energy usage and costs for devices in this room.",
         "data": {
           "power_sensors": "Power Sensors",
-          "energy_sensor": "Energy Sensor",
+          "energy_sensors": "Energy Sensors",
           "electricity_rate": "Electricity Rate",
           "notify_daily_energy_summary": "Daily Summary"
         },
         "data_description": {
           "power_sensors": "Sensors showing current power draw (watts)",
-          "energy_sensor": "Sensor showing cumulative energy usage (kWh)",
+          "energy_sensors": "Sensors showing cumulative energy usage (kWh). Select multiple for rooms with separate circuits.",
           "electricity_rate": "Cost per kWh (overrides integration default)",
           "notify_daily_energy_summary": "Send daily energy usage summary notification"
         }
@@ -506,6 +510,7 @@
           "zone_rooms": "🏠 Zone Rooms",
           "zone_media": "🎵 Zone Media",
           "zone_hvac": "🌡️ Zone HVAC",
+          "zone_energy": "⚡ Zone Energy",
           "zone_persons": "👤 Primary Persons",
           "zone_cameras": "📷 Zone Cameras"
         }
@@ -518,6 +523,18 @@
         },
         "data_description": {
           "zone_thermostat": "Climate entity to control for this zone"
+        }
+      },
+      "zone_energy": {
+        "title": "⚡ Zone Energy Sensors",
+        "description": "Configure power and energy sensors for zone-level loads (HVAC circuits, subpanel meters). These track energy not attributable to individual rooms.",
+        "data": {
+          "zone_power_sensors": "Zone Power Sensors",
+          "zone_energy_sensors": "Zone Energy Sensors"
+        },
+        "data_description": {
+          "zone_power_sensors": "Power sensors for zone-level loads like HVAC circuits (watts)",
+          "zone_energy_sensors": "Energy sensors for zone-level loads (kWh)"
         }
       },
       "zone_persons": {
@@ -566,8 +583,10 @@
           "grid_import_sensor": "Grid Import Sensor (Primary)",
           "grid_import_sensor_2": "Grid Import Sensor (Secondary)",
           "battery_level_sensor": "Battery Level Sensor",
-          "whole_house_power_sensor": "Whole House Power Sensor",
-          "whole_house_energy_sensor": "Whole House Energy Sensor",
+          "whole_house_power_sensors": "Whole House Power Sensors",
+          "whole_house_energy_sensors": "Whole House Energy Sensors",
+          "house_device_power_sensors": "House Device Power Sensors",
+          "house_device_energy_sensors": "House Device Energy Sensors",
           "delivery_rate": "Delivery Rate ($/kWh)",
           "export_reimbursement_rate": "Export Reimbursement Rate ($/kWh)"
         },
@@ -576,8 +595,10 @@
           "grid_import_sensor": "Primary grid import energy sensor",
           "grid_import_sensor_2": "Secondary grid import sensor (optional)",
           "battery_level_sensor": "Battery state of charge percentage",
-          "whole_house_power_sensor": "Real-time whole house power in watts",
-          "whole_house_energy_sensor": "Cumulative whole house energy in kWh",
+          "whole_house_power_sensors": "Real-time whole house power sensors. Select multiple for separate CTs.",
+          "whole_house_energy_sensors": "Cumulative whole house energy sensors. Select multiple for separate meters.",
+          "house_device_power_sensors": "Power sensors for house-level devices (EV chargers, pool pumps, water heaters)",
+          "house_device_energy_sensors": "Energy sensors for house-level devices",
           "delivery_rate": "Fixed transmission/delivery cost per kWh",
           "export_reimbursement_rate": "Credit received per kWh exported"
         }
@@ -1349,7 +1370,7 @@
         "description": "Update energy monitoring settings.",
         "data": {
           "power_sensors": "Power Sensors",
-          "energy_sensor": "Energy Sensor",
+          "energy_sensors": "Energy Sensors",
           "electricity_rate": "Electricity Rate ($/kWh)",
           "notify_daily_energy_summary": "Daily Summary Notification"
         }

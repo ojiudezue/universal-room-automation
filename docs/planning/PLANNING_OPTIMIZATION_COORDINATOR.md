@@ -1,7 +1,7 @@
 # Optimization Coordinator — Implementation Plan
 
 **Status:** Draft
-**Target Version:** v4.x (post-Activity Log, pre or alongside Bayesian v4.0.0)
+**Target Version:** v4.x (Activity Log: done, Bayesian B1+B2: done)
 **Scope:** Multi-phase, 3-5 cycles
 
 ## Mental Model

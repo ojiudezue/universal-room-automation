@@ -944,6 +944,22 @@ class UniversalRoomDatabase:
                 ]):
                     failed_tables.append("prediction_results")
 
+                # -- v4.1.0: Room power profiles for B4 energy integration ---
+                if not await self._create_table_safe(db, "room_power_profiles", [
+                    """CREATE TABLE IF NOT EXISTS room_power_profiles (
+                        room_id TEXT NOT NULL,
+                        time_bin INTEGER NOT NULL,
+                        day_type INTEGER NOT NULL,
+                        avg_watts REAL NOT NULL,
+                        sample_count INTEGER NOT NULL DEFAULT 0,
+                        updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+                        PRIMARY KEY (room_id, time_bin, day_type)
+                    )""",
+                    """CREATE INDEX IF NOT EXISTS idx_power_profiles_room
+                    ON room_power_profiles(room_id)""",
+                ]):
+                    failed_tables.append("room_power_profiles")
+
                 # ============================================================
                 # Schema migrations (per-table, safe)
                 # ============================================================
@@ -3618,6 +3634,56 @@ class UniversalRoomDatabase:
         except Exception as e:
             _LOGGER.error("Error pruning prediction results: %s", e)
             return 0
+
+    # ================================================================
+    # v4.1.0: Room Power Profiles (B4 Energy Integration)
+    # ================================================================
+
+    async def save_power_profiles(self, profiles: list[dict]) -> None:
+        """Save room power profiles to DB (full replace)."""
+        try:
+            async with self._db() as db:
+                await db.execute("DELETE FROM room_power_profiles")
+                for row in profiles:
+                    await db.execute(
+                        """INSERT OR REPLACE INTO room_power_profiles
+                           (room_id, time_bin, day_type, avg_watts, sample_count)
+                           VALUES (?, ?, ?, ?, ?)""",
+                        (
+                            row["room_id"],
+                            row["time_bin"],
+                            row["day_type"],
+                            row["avg_watts"],
+                            row["sample_count"],
+                        ),
+                    )
+                await db.commit()
+                _LOGGER.debug("Saved %d power profile rows", len(profiles))
+        except Exception as e:
+            _LOGGER.error("Error saving power profiles: %s", e)
+
+    async def load_power_profiles(self) -> list[dict]:
+        """Load room power profiles from DB."""
+        try:
+            async with self._db_read() as db:
+                cursor = await db.execute(
+                    """SELECT room_id, time_bin, day_type, avg_watts, sample_count
+                       FROM room_power_profiles"""
+                )
+                rows = await cursor.fetchall()
+                return [
+                    {
+                        "room_id": r[0],
+                        "time_bin": r[1],
+                        "day_type": r[2],
+                        "avg_watts": r[3],
+                        "sample_count": r[4],
+                    }
+                    for r in rows
+                ]
+        except Exception as e:
+            _LOGGER.error("Error loading power profiles: %s", e)
+            return []
 
     async def get_occupancy_time_today(self, room_id: str) -> int:
         """Get total occupied seconds since midnight from occupancy_events.
