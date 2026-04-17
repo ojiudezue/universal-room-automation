@@ -98,6 +98,12 @@ from .const import (
     CONF_BATTERY_LEVEL_SENSOR,
     CONF_WHOLE_HOUSE_POWER_SENSOR,
     CONF_WHOLE_HOUSE_ENERGY_SENSOR,
+    CONF_WHOLE_HOUSE_POWER_SENSORS,
+    CONF_WHOLE_HOUSE_ENERGY_SENSORS,
+    CONF_HOUSE_DEVICE_POWER_SENSORS,
+    CONF_HOUSE_DEVICE_ENERGY_SENSORS,
+    CONF_ZONE_POWER_SENSORS,
+    CONF_ZONE_ENERGY_SENSORS,
     CONF_ELECTRICITY_RATE,
     CONF_DELIVERY_RATE,
     CONF_EXPORT_REIMBURSEMENT_RATE,
@@ -1915,32 +1921,53 @@ class WholeHousePowerSensor(AggregationEntity, SensorEntity):
         self._attr_unique_id = f"{DOMAIN}_whole_house_power"
         self._attr_name = "Whole House Power"
     
+    def _get_sensor_list(self, plural_key, singular_key):
+        """Get sensor list with singular→plural migration fallback."""
+        sensors = self._get_config(plural_key)
+        if sensors:
+            return sensors if isinstance(sensors, list) else [sensors]
+        singular = self._get_config(singular_key)
+        if singular:
+            return [singular]
+        return []
+
+    def _sum_sensors(self, sensor_ids: list[str]) -> float | None:
+        """Sum numeric values from a list of sensor entity IDs."""
+        total = 0.0
+        any_valid = False
+        for sensor_id in sensor_ids:
+            state = self.hass.states.get(sensor_id)
+            if state and state.state not in ("unknown", "unavailable"):
+                try:
+                    total += float(state.state)
+                    any_valid = True
+                except (ValueError, TypeError):
+                    pass
+        return total if any_valid else None
+
     @property
     def native_value(self) -> float | None:
-        """Return whole house power."""
-        sensor = self._get_config(CONF_WHOLE_HOUSE_POWER_SENSOR)
-        if not sensor:
+        """Return whole house power (sum of all configured sensors)."""
+        sensors = self._get_sensor_list(
+            CONF_WHOLE_HOUSE_POWER_SENSORS, CONF_WHOLE_HOUSE_POWER_SENSOR)
+        if not sensors:
             return None
-        
-        state = self.hass.states.get(sensor)
-        if state and state.state not in ("unknown", "unavailable"):
-            try:
-                return float(state.state)
-            except ValueError:
-                pass
-        return None
-    
+        return self._sum_sensors(sensors)
+
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return source info."""
+        sensors = self._get_sensor_list(
+            CONF_WHOLE_HOUSE_POWER_SENSORS, CONF_WHOLE_HOUSE_POWER_SENSOR)
         return {
-            "source_sensor": self._get_config(CONF_WHOLE_HOUSE_POWER_SENSOR),
+            "source_sensors": sensors,
+            "sensor_count": len(sensors),
         }
 
 
 class WholeHouseEnergySensor(AggregationEntity, SensorEntity):
     """Sensor: Whole house energy today from configured sensor."""
-    
+
     _attr_device_class = SensorDeviceClass.ENERGY
     _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
     _attr_state_class = SensorStateClass.TOTAL_INCREASING
@@ -1953,42 +1980,63 @@ class WholeHouseEnergySensor(AggregationEntity, SensorEntity):
         self._attr_name = "Whole House Energy Today"
         self._last_valid_value: float | None = None
     
+    def _get_sensor_list(self, plural_key, singular_key):
+        """Get sensor list with singular→plural migration fallback."""
+        sensors = self._get_config(plural_key)
+        if sensors:
+            return sensors if isinstance(sensors, list) else [sensors]
+        singular = self._get_config(singular_key)
+        if singular:
+            return [singular]
+        return []
+
+    def _sum_sensors(self, sensor_ids: list[str]) -> float | None:
+        """Sum numeric values from a list of sensor entity IDs."""
+        total = 0.0
+        any_valid = False
+        for sensor_id in sensor_ids:
+            state = self.hass.states.get(sensor_id)
+            if state and state.state not in ("unknown", "unavailable"):
+                try:
+                    total += float(state.state)
+                    any_valid = True
+                except (ValueError, TypeError):
+                    pass
+        return total if any_valid else None
+
     @property
     def native_value(self) -> float | None:
         """Return whole house energy with monotonic increasing enforcement."""
-        sensor = self._get_config(CONF_WHOLE_HOUSE_ENERGY_SENSOR)
-        if not sensor:
+        sensors = self._get_sensor_list(
+            CONF_WHOLE_HOUSE_ENERGY_SENSORS, CONF_WHOLE_HOUSE_ENERGY_SENSOR)
+        if not sensors:
             return None
-        
-        state = self.hass.states.get(sensor)
-        if not state or state.state in ("unknown", "unavailable"):
+
+        current = self._sum_sensors(sensors)
+        if current is None:
             return None
-        
-        try:
-            current = float(state.state)
-        except ValueError:
-            return None
-        
+
         # Handle reset (new day, very small value)
         if current < 0.1:
             self._last_valid_value = current
             return current
-        
+
         # Enforce monotonic increasing - reject decreases
         if self._last_valid_value is not None:
             if current < self._last_valid_value:
-                # Value decreased - return last known good value
                 return self._last_valid_value
-        
-        # Valid value - update and return
+
         self._last_valid_value = current
         return current
-    
+
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return source info."""
+        sensors = self._get_sensor_list(
+            CONF_WHOLE_HOUSE_ENERGY_SENSORS, CONF_WHOLE_HOUSE_ENERGY_SENSOR)
         return {
-            "source_sensor": self._get_config(CONF_WHOLE_HOUSE_ENERGY_SENSOR),
+            "source_sensors": sensors,
+            "sensor_count": len(sensors),
         }
 
 
@@ -2069,59 +2117,90 @@ class EnergyCoverageDeltaSensor(AggregationEntity, SensorEntity):
         self._attr_unique_id = f"{DOMAIN}_energy_coverage_delta"
         self._attr_name = "Energy Coverage Delta"
     
+    def _get_sensor_list(self, plural_key, singular_key=None):
+        """Get sensor list with optional singular→plural migration fallback."""
+        sensors = self._get_config(plural_key)
+        if sensors:
+            return sensors if isinstance(sensors, list) else [sensors]
+        if singular_key:
+            singular = self._get_config(singular_key)
+            if singular:
+                return [singular]
+        return []
+
+    def _sum_sensors(self, sensor_ids: list[str]) -> float | None:
+        """Sum numeric values from a list of sensor entity IDs."""
+        total = 0.0
+        any_valid = False
+        for sensor_id in sensor_ids:
+            state = self.hass.states.get(sensor_id)
+            if state and state.state not in ("unknown", "unavailable"):
+                try:
+                    total += float(state.state)
+                    any_valid = True
+                except (ValueError, TypeError):
+                    pass
+        return total if any_valid else None
+
     @property
     def native_value(self) -> float | None:
-        """Return whole house - rooms total."""
+        """Return unattributed energy (whole house minus all attributed tiers)."""
         whole_house = self._get_whole_house_energy()
-        rooms_total = self._get_rooms_total_energy()
-        
         if whole_house is None:
             return None
-        
-        return round(whole_house - rooms_total, 2)
-    
+
+        rooms_total = self._get_rooms_total_energy()
+        zones_total = self._get_zones_total_energy()
+        house_devices_total = self._get_house_devices_total_energy()
+        attributed = rooms_total + zones_total + house_devices_total
+        return round(whole_house - attributed, 2)
+
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        """Return coverage analysis."""
+        """Return 4-tier attribution analysis."""
         whole_house = self._get_whole_house_energy()
         rooms_total = self._get_rooms_total_energy()
-        
+        zones_total = self._get_zones_total_energy()
+        house_devices_total = self._get_house_devices_total_energy()
+
         if whole_house is None or whole_house == 0:
             return {
                 "whole_house": whole_house,
                 "rooms_total": rooms_total,
+                "zones_total": zones_total,
+                "house_devices_total": house_devices_total,
                 "coverage_rating": "No data",
                 "note": "Configure whole house energy sensor",
             }
-        
-        delta_kwh = whole_house - rooms_total
-        delta_percent = (delta_kwh / whole_house) * 100 if whole_house > 0 else 0
-        
+
+        attributed = rooms_total + zones_total + house_devices_total
+        unattributed = whole_house - attributed
+        coverage_pct = (attributed / whole_house) * 100 if whole_house > 0 else 0
+        delta_percent = (unattributed / whole_house) * 100 if whole_house > 0 else 0
+
         return {
             "whole_house": round(whole_house, 2),
             "rooms_total": round(rooms_total, 2),
-            "delta_kwh": round(delta_kwh, 2),
+            "zones_total": round(zones_total, 2),
+            "house_devices_total": round(house_devices_total, 2),
+            "attributed_total": round(attributed, 2),
+            "unattributed": round(unattributed, 2),
+            "attribution_coverage_pct": round(coverage_pct, 1),
+            "delta_kwh": round(unattributed, 2),
             "delta_percent": round(delta_percent, 1),
             "coverage_rating": _get_coverage_rating(delta_percent),
-            "coverage_notes": "Delta may include: HVAC loads (not room-assigned), unconfigured rooms, sub-panel gaps",
         }
-    
+
     def _get_whole_house_energy(self) -> float | None:
-        """Get whole house energy sensor value."""
-        sensor = self._get_config(CONF_WHOLE_HOUSE_ENERGY_SENSOR)
-        if not sensor:
+        """Get whole house energy (sum of all configured whole-house sensors)."""
+        sensors = self._get_sensor_list(
+            CONF_WHOLE_HOUSE_ENERGY_SENSORS, CONF_WHOLE_HOUSE_ENERGY_SENSOR)
+        if not sensors:
             return None
-        
-        state = self.hass.states.get(sensor)
-        if state and state.state not in ("unknown", "unavailable"):
-            try:
-                return float(state.state)
-            except ValueError:
-                pass
-        return None
-    
+        return self._sum_sensors(sensors)
+
     def _get_rooms_total_energy(self) -> float:
-        """Get sum of room energy sensors."""
+        """Get sum of energy from all room coordinators."""
         total = 0.0
         for coord in _get_room_coordinators(self.hass):
             if coord.data:
@@ -2129,6 +2208,31 @@ class EnergyCoverageDeltaSensor(AggregationEntity, SensorEntity):
                 if energy:
                     total += energy
         return total
+
+    def _get_zones_total_energy(self) -> float:
+        """Get sum of zone-level energy sensors across all zones."""
+        total = 0.0
+        # Read zone energy sensors from Zone Manager entry
+        for entry in self.hass.config_entries.async_entries(DOMAIN):
+            from .const import CONF_ENTRY_TYPE, ENTRY_TYPE_ZONE_MANAGER
+            if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ZONE_MANAGER:
+                continue
+            merged = {**entry.data, **entry.options}
+            for zone_data in merged.get("zones", {}).values():
+                zone_sensors = zone_data.get(CONF_ZONE_ENERGY_SENSORS, [])
+                if zone_sensors:
+                    result = self._sum_sensors(zone_sensors)
+                    if result is not None:
+                        total += result
+        return total
+
+    def _get_house_devices_total_energy(self) -> float:
+        """Get sum of house-level device energy sensors."""
+        sensors = self._get_config(CONF_HOUSE_DEVICE_ENERGY_SENSORS) or []
+        if not sensors:
+            return 0.0
+        result = self._sum_sensors(sensors)
+        return result if result is not None else 0.0
 
 
 # ============================================================================

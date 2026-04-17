@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation v4.0.18
+# Universal Room Automation vv4.1.0
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "4.0.18"
+VERSION: Final = "v4.1.0"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -232,8 +232,16 @@ CONF_SOLAR_EXPORT_SENSOR: Final = "solar_export_sensor"
 CONF_GRID_IMPORT_SENSOR: Final = "grid_import_sensor"
 CONF_GRID_IMPORT_SENSOR_2: Final = "grid_import_sensor_2"
 CONF_BATTERY_LEVEL_SENSOR: Final = "battery_level_sensor"
-CONF_WHOLE_HOUSE_POWER_SENSOR: Final = "whole_house_power_sensor"
-CONF_WHOLE_HOUSE_ENERGY_SENSOR: Final = "whole_house_energy_sensor"
+CONF_WHOLE_HOUSE_POWER_SENSOR: Final = "whole_house_power_sensor"  # Legacy singular
+CONF_WHOLE_HOUSE_ENERGY_SENSOR: Final = "whole_house_energy_sensor"  # Legacy singular
+CONF_WHOLE_HOUSE_POWER_SENSORS: Final = "whole_house_power_sensors"  # v4.1.0: plural
+CONF_WHOLE_HOUSE_ENERGY_SENSORS: Final = "whole_house_energy_sensors"  # v4.1.0: plural
+
+# v4.1.0: Zone-level and house-level energy attribution
+CONF_ZONE_POWER_SENSORS: Final = "zone_power_sensors"
+CONF_ZONE_ENERGY_SENSORS: Final = "zone_energy_sensors"
+CONF_HOUSE_DEVICE_POWER_SENSORS: Final = "house_device_power_sensors"
+CONF_HOUSE_DEVICE_ENERGY_SENSORS: Final = "house_device_energy_sensors"
 
 # Energy rate fields
 CONF_DELIVERY_RATE: Final = "delivery_rate"
@@ -446,7 +454,8 @@ DEFAULT_FAN_SLEEP_POLICY: Final = "reduce"
 
 # --- Step 7: Energy Monitoring ---
 CONF_POWER_SENSORS: Final = "power_sensors"
-CONF_ENERGY_SENSOR: Final = "energy_sensor"
+CONF_ENERGY_SENSOR: Final = "energy_sensor"  # Legacy singular — kept for migration
+CONF_ENERGY_SENSORS: Final = "energy_sensors"  # v4.1.0: plural, multiple=True
 CONF_ELECTRICITY_RATE: Final = "electricity_rate"
 CONF_NOTIFY_DAILY_ENERGY: Final = "notify_daily_energy_summary"
 

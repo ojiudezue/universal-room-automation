@@ -1,6 +1,6 @@
 """Data coordinator for Universal Room Automation."""
 #
-# Universal Room Automation v4.0.18
+# Universal Room Automation vv4.1.0
 # Build: 2026-01-02
 # File: coordinator.py
 # v3.2.8: Support for active state change listeners in aggregation sensors
@@ -37,6 +37,7 @@ from .const import (
     CONF_ILLUMINANCE_SENSOR,
     CONF_POWER_SENSORS,
     CONF_ENERGY_SENSOR,
+    CONF_ENERGY_SENSORS,
     CONF_ELECTRICITY_RATE,
     DEFAULT_OCCUPANCY_TIMEOUT,
     DEFAULT_OCCUPANCY_DEBOUNCE,
@@ -196,9 +197,11 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         self._energy_accumulator = 0.0
         self._last_power_reading = None
         self._last_energy_reset = dt_util.now().replace(hour=0, minute=0, second=0)
-        
+
         # Energy sensor baselines for delta calculation (when using direct energy sensors)
-        self._energy_baseline_today = 0.0
+        # v4.1.0: Per-sensor baselines for multi-energy support
+        self._energy_baselines_today: dict[str, float] = {}
+        self._energy_baseline_today = 0.0  # Legacy — kept for weekly/monthly tracking
         self._energy_baseline_week = 0.0
         self._energy_baseline_month = 0.0
         self._last_week_reset = dt_util.now()
@@ -1415,23 +1418,32 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         )
         data[STATE_POWER_CURRENT] = total_power
         
-        # Energy accumulation (if no direct energy sensor)
-        energy_sensor = self._get_config(CONF_ENERGY_SENSOR)
-        if energy_sensor:
-            # Direct energy sensor (usually TOTAL_INCREASING from smart plug)
-            current_value = self._get_sensor_value(energy_sensor, 0)
-            
-            # Initialize baseline on first run
-            if self._energy_baseline_today == 0.0:
-                self._energy_baseline_today = current_value
-            
-            # Reset baselines at midnight
-            if now.date() > self._last_energy_reset.date():
-                self._energy_baseline_today = current_value
+        # Energy accumulation — supports multiple energy sensors (v4.1.0)
+        # Try plural key first, fall back to singular for backward compatibility
+        energy_sensors = self._get_config(CONF_ENERGY_SENSORS, [])
+        if not energy_sensors:
+            singular = self._get_config(CONF_ENERGY_SENSOR)
+            if singular:
+                energy_sensors = [singular]
+
+        if energy_sensors:
+            # Direct energy sensors (usually TOTAL_INCREASING from smart plugs)
+            total_delta = 0.0
+            midnight_reset = now.date() > self._last_energy_reset.date()
+
+            for sensor_id in energy_sensors:
+                current_value = self._get_sensor_value(sensor_id, 0)
+
+                if midnight_reset or sensor_id not in self._energy_baselines_today:
+                    self._energy_baselines_today[sensor_id] = current_value
+
+                baseline = self._energy_baselines_today[sensor_id]
+                total_delta += max(0, current_value - baseline)
+
+            if midnight_reset:
                 self._last_energy_reset = now
-            
-            # Calculate today's delta (today's energy = current - baseline_at_midnight)
-            data[STATE_ENERGY_TODAY] = max(0, current_value - self._energy_baseline_today)
+
+            data[STATE_ENERGY_TODAY] = total_delta
         else:
             # Integrate power over time (for rooms without direct energy sensor)
             if self._last_power_reading is not None and self._last_energy_calc_time is not None:

@@ -1,6 +1,6 @@
 """Config flow for Universal Room Automation v3.6.24."""
 #
-# Universal Room Automation v4.0.18
+# Universal Room Automation vv4.1.0
 # Build: 2026-01-05
 # File: config_flow.py
 # v3.3.3: Added manage_zones to integration options menu
@@ -70,6 +70,12 @@ from .const import (
     CONF_BATTERY_LEVEL_SENSOR,
     CONF_WHOLE_HOUSE_POWER_SENSOR,
     CONF_WHOLE_HOUSE_ENERGY_SENSOR,
+    CONF_WHOLE_HOUSE_POWER_SENSORS,
+    CONF_WHOLE_HOUSE_ENERGY_SENSORS,
+    CONF_ZONE_POWER_SENSORS,
+    CONF_ZONE_ENERGY_SENSORS,
+    CONF_HOUSE_DEVICE_POWER_SENSORS,
+    CONF_HOUSE_DEVICE_ENERGY_SENSORS,
     CONF_DELIVERY_RATE,
     CONF_EXPORT_REIMBURSEMENT_RATE,
     DEFAULT_DELIVERY_RATE,
@@ -188,6 +194,7 @@ from .const import (
     # Energy
     CONF_POWER_SENSORS,
     CONF_ENERGY_SENSOR,
+    CONF_ENERGY_SENSORS,
     CONF_ELECTRICITY_RATE,
     CONF_NOTIFY_DAILY_ENERGY,
     DEFAULT_ELECTRICITY_RATE,
@@ -555,12 +562,19 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
             vol.Optional(CONF_BATTERY_LEVEL_SENSOR): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor", device_class="battery")
             ),
-            # Whole house monitoring
-            vol.Optional(CONF_WHOLE_HOUSE_POWER_SENSOR): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain="sensor", device_class="power")
+            # Whole house monitoring (v4.1.0: multiple sensors)
+            vol.Optional(CONF_WHOLE_HOUSE_POWER_SENSORS): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor", device_class="power", multiple=True)
             ),
-            vol.Optional(CONF_WHOLE_HOUSE_ENERGY_SENSOR): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain="sensor", device_class="energy")
+            vol.Optional(CONF_WHOLE_HOUSE_ENERGY_SENSORS): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor", device_class="energy", multiple=True)
+            ),
+            # House device sensors (EV chargers, pool pumps, water heaters)
+            vol.Optional(CONF_HOUSE_DEVICE_POWER_SENSORS): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor", device_class="power", multiple=True)
+            ),
+            vol.Optional(CONF_HOUSE_DEVICE_ENERGY_SENSORS): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor", device_class="energy", multiple=True)
             ),
             # Rates
             vol.Optional(CONF_DELIVERY_RATE, default=DEFAULT_DELIVERY_RATE): selector.NumberSelector(
@@ -1693,8 +1707,8 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
             vol.Optional(CONF_POWER_SENSORS, default=area_power or vol.UNDEFINED): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor", device_class="power", multiple=True)
             ),
-            vol.Optional(CONF_ENERGY_SENSOR, default=area_energy[0] if area_energy else vol.UNDEFINED): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain="sensor", device_class="energy")
+            vol.Optional(CONF_ENERGY_SENSORS, default=area_energy or vol.UNDEFINED): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor", device_class="energy", multiple=True)
             ),
             vol.Optional(CONF_ELECTRICITY_RATE, default=DEFAULT_ELECTRICITY_RATE): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=0.01, max=1.00, step=0.01, unit_of_measurement="USD/kWh", mode=selector.NumberSelectorMode.BOX)
@@ -1889,6 +1903,32 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         return self._config_entry.options.get(
             key, self._config_entry.data.get(key, default)
         )
+
+    def _get_energy_sensors_default(self):
+        """Get energy sensors default, migrating from singular to plural.
+
+        v4.1.0: CONF_ENERGY_SENSORS (plural) replaces CONF_ENERGY_SENSOR.
+        If only the old singular key exists, wrap its value in a list.
+        """
+        return self._get_multi_sensor_default(CONF_ENERGY_SENSORS, CONF_ENERGY_SENSOR)
+
+    def _get_multi_sensor_default(self, plural_key, singular_key):
+        """Get sensor list default, migrating singular → plural if needed.
+
+        v4.1.0: Generic helper for upgrading single-sensor config keys
+        to multi-sensor. Used for energy sensors and whole-house sensors.
+        """
+        # Try new plural key first
+        plural = self._get_current(plural_key)
+        if plural is not None:
+            return plural if plural else vol.UNDEFINED
+
+        # Fall back to old singular key and wrap in list
+        singular = self._get_current(singular_key)
+        if singular:
+            return [singular]
+
+        return vol.UNDEFINED
     
     def _get_zone_entry(self):
         """Get the zone entry being configured (v3.3.3).
@@ -2102,16 +2142,31 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 selector.EntitySelectorConfig(domain="sensor", device_class="battery")
             ),
             vol.Optional(
-                CONF_WHOLE_HOUSE_POWER_SENSOR,
-                default=self._get_current(CONF_WHOLE_HOUSE_POWER_SENSOR) or vol.UNDEFINED
+                CONF_WHOLE_HOUSE_POWER_SENSORS,
+                default=self._get_multi_sensor_default(
+                    CONF_WHOLE_HOUSE_POWER_SENSORS, CONF_WHOLE_HOUSE_POWER_SENSOR)
             ): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain="sensor", device_class="power")
+                selector.EntitySelectorConfig(domain="sensor", device_class="power", multiple=True)
             ),
             vol.Optional(
-                CONF_WHOLE_HOUSE_ENERGY_SENSOR,
-                default=self._get_current(CONF_WHOLE_HOUSE_ENERGY_SENSOR) or vol.UNDEFINED
+                CONF_WHOLE_HOUSE_ENERGY_SENSORS,
+                default=self._get_multi_sensor_default(
+                    CONF_WHOLE_HOUSE_ENERGY_SENSORS, CONF_WHOLE_HOUSE_ENERGY_SENSOR)
             ): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain="sensor", device_class="energy")
+                selector.EntitySelectorConfig(domain="sensor", device_class="energy", multiple=True)
+            ),
+            # v4.1.0: House-level device sensors (EV chargers, pool pumps, water heaters)
+            vol.Optional(
+                CONF_HOUSE_DEVICE_POWER_SENSORS,
+                default=self._get_current(CONF_HOUSE_DEVICE_POWER_SENSORS, []) or vol.UNDEFINED
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor", device_class="power", multiple=True)
+            ),
+            vol.Optional(
+                CONF_HOUSE_DEVICE_ENERGY_SENSORS,
+                default=self._get_current(CONF_HOUSE_DEVICE_ENERGY_SENSORS, []) or vol.UNDEFINED
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor", device_class="energy", multiple=True)
             ),
             vol.Optional(
                 CONF_DELIVERY_RATE,
@@ -3954,6 +4009,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 "zone_rooms",
                 "zone_media",
                 "zone_hvac",
+                "zone_energy",  # v4.1.0: Zone power/energy sensors
                 "zone_persons",  # v3.18.5
                 "zone_cameras",  # v3.19.0
             ],
@@ -4263,6 +4319,76 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
 
         return self.async_show_form(
             step_id="zone_hvac",
+            data_schema=data_schema,
+        )
+
+    async def async_step_zone_energy(self, user_input=None):
+        """Configure zone power/energy sensors (v4.1.0).
+
+        Sets power and energy sensors for zone-level loads (HVAC circuits,
+        subpanel meters) that aren't attributable to individual rooms.
+        """
+        zm_result = self._get_zm_zone_data()
+        zone_entry = None if zm_result else self._get_zone_entry()
+        if not zm_result and not zone_entry:
+            return self.async_abort(reason="zone_not_found")
+
+        if zm_result:
+            zm_entry, zone_name, zone_data = zm_result
+            current_power = zone_data.get(CONF_ZONE_POWER_SENSORS, [])
+            current_energy = zone_data.get(CONF_ZONE_ENERGY_SENSORS, [])
+        else:
+            current_power = zone_entry.options.get(
+                CONF_ZONE_POWER_SENSORS,
+                zone_entry.data.get(CONF_ZONE_POWER_SENSORS, []),
+            )
+            current_energy = zone_entry.options.get(
+                CONF_ZONE_ENERGY_SENSORS,
+                zone_entry.data.get(CONF_ZONE_ENERGY_SENSORS, []),
+            )
+
+        if user_input is not None:
+            if zm_result:
+                merged = {**zm_entry.data, **zm_entry.options}
+                zones = {
+                    k: dict(v) for k, v in merged.get("zones", {}).items()
+                }
+                zones.setdefault(zone_name, {})
+                zones[zone_name].update(user_input)
+                self.hass.config_entries.async_update_entry(
+                    zm_entry,
+                    options={**zm_entry.options, "zones": zones},
+                )
+                return await self.async_step_zone_config_menu()
+            elif self._selected_zone_entry_id:
+                new_zone_options = {**zone_entry.options, **user_input}
+                self.hass.config_entries.async_update_entry(
+                    zone_entry, options=new_zone_options
+                )
+                return await self.async_step_zone_config_menu()
+            else:
+                return self.async_create_entry(
+                    title="",
+                    data={**zone_entry.options, **user_input},
+                )
+
+        data_schema = vol.Schema({
+            vol.Optional(
+                CONF_ZONE_POWER_SENSORS,
+                default=current_power or vol.UNDEFINED,
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor", device_class="power", multiple=True)
+            ),
+            vol.Optional(
+                CONF_ZONE_ENERGY_SENSORS,
+                default=current_energy or vol.UNDEFINED,
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor", device_class="energy", multiple=True)
+            ),
+        })
+
+        return self.async_show_form(
+            step_id="zone_energy",
             data_schema=data_schema,
         )
 
@@ -5138,10 +5264,10 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 selector.EntitySelectorConfig(domain="sensor", device_class="power", multiple=True)
             ),
             vol.Optional(
-                CONF_ENERGY_SENSOR, 
-                default=self._get_current(CONF_ENERGY_SENSOR) or vol.UNDEFINED
+                CONF_ENERGY_SENSORS,
+                default=self._get_energy_sensors_default()
             ): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain="sensor", device_class="energy")
+                selector.EntitySelectorConfig(domain="sensor", device_class="energy", multiple=True)
             ),
             vol.Optional(
                 CONF_ELECTRICITY_RATE, 

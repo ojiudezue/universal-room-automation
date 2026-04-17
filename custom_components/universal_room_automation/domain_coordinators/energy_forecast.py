@@ -470,3 +470,188 @@ class AccuracyTracker:
             "adjustment_factor": round(self.get_adjustment_factor(), 3),
             "last_eval_date": self._last_eval_date,
         }
+
+
+# Minimum observations per (room, time_bin, day_type) cell before profile is trusted
+MIN_SAMPLES_PER_CELL = 20
+
+# EMA smoothing factor — higher = more responsive, lower = more stable
+EMA_ALPHA = 0.1
+
+# Time bin definitions (same as BayesianPredictor)
+PROFILE_TIME_BINS = {
+    0: (0, 6),    # NIGHT: 00-06
+    1: (6, 9),    # MORNING: 06-09
+    2: (9, 12),   # MIDDAY: 09-12
+    3: (12, 17),  # AFTERNOON: 12-17
+    4: (17, 21),  # EVENING: 17-21
+    5: (21, 24),  # LATE: 21-24
+}
+
+# Hours per time bin (for kWh calculation)
+BIN_HOURS = {0: 6, 1: 3, 2: 3, 3: 5, 4: 4, 5: 3}
+
+
+def get_time_bin(hour: int) -> int:
+    """Return time bin index for a given hour (0-23)."""
+    for bin_idx, (start, end) in PROFILE_TIME_BINS.items():
+        if start <= hour < end:
+            return bin_idx
+    return 0  # Fallback to NIGHT
+
+
+class RoomPowerProfile:
+    """Learns room power baselines by time bin and day type.
+
+    v4.1.0: Stores exponential moving average (EMA) of room power draw per
+    (time_bin, day_type) cell. Updated from room coordinator data during
+    energy coordinator cycles.
+
+    Standby power is learned from NIGHT-bin vacant observations rather than
+    hardcoded — rooms with always-on servers or aquariums get accurate standby.
+    """
+
+    def __init__(self) -> None:
+        """Initialize empty profiles."""
+        # {room_id: {(time_bin, day_type): {"avg_watts": float, "samples": int}}}
+        self._profiles: dict[str, dict[tuple[int, int], dict[str, float]]] = {}
+        # {room_id: {"standby_watts": float, "standby_samples": int}}
+        self._standby: dict[str, dict[str, float]] = {}
+
+    def update(
+        self,
+        room_id: str,
+        time_bin: int,
+        day_type: int,
+        current_watts: float,
+        is_occupied: bool,
+    ) -> None:
+        """Update EMA for room/bin/day_type. Also learn standby from vacant NIGHT data."""
+        if room_id not in self._profiles:
+            self._profiles[room_id] = {}
+
+        key = (time_bin, day_type)
+        cell = self._profiles[room_id].get(key)
+
+        if cell is None:
+            # Cold start — first observation seeds the EMA
+            self._profiles[room_id][key] = {
+                "avg_watts": current_watts,
+                "samples": 1,
+            }
+        else:
+            # EMA update: new_avg = alpha * current + (1 - alpha) * old_avg
+            cell["avg_watts"] = (
+                EMA_ALPHA * current_watts + (1 - EMA_ALPHA) * cell["avg_watts"]
+            )
+            cell["samples"] += 1
+
+        # Learn standby from NIGHT-bin vacant observations
+        if time_bin == 0 and not is_occupied:
+            standby = self._standby.get(room_id)
+            if standby is None:
+                self._standby[room_id] = {
+                    "standby_watts": current_watts,
+                    "standby_samples": 1,
+                }
+            else:
+                standby["standby_watts"] = (
+                    EMA_ALPHA * current_watts
+                    + (1 - EMA_ALPHA) * standby["standby_watts"]
+                )
+                standby["standby_samples"] += 1
+
+    def get_baseline_watts(
+        self, room_id: str, time_bin: int, day_type: int
+    ) -> float | None:
+        """Return learned baseline watts, or None if insufficient data."""
+        cell = self._profiles.get(room_id, {}).get((time_bin, day_type))
+        if cell is None or cell["samples"] < MIN_SAMPLES_PER_CELL:
+            return None
+        return cell["avg_watts"]
+
+    def get_standby_watts(self, room_id: str) -> float | None:
+        """Return learned standby watts from NIGHT-bin vacant data."""
+        standby = self._standby.get(room_id)
+        if standby is None or standby["standby_samples"] < MIN_SAMPLES_PER_CELL:
+            return None
+        return standby["standby_watts"]
+
+    def get_all_profiles(self) -> list[dict]:
+        """Return all profiles as flat dicts for DB persistence."""
+        rows = []
+        for room_id, cells in self._profiles.items():
+            for (time_bin, day_type), cell in cells.items():
+                rows.append({
+                    "room_id": room_id,
+                    "time_bin": time_bin,
+                    "day_type": day_type,
+                    "avg_watts": round(cell["avg_watts"], 2),
+                    "sample_count": cell["samples"],
+                })
+        # Include standby as a virtual row (time_bin=-1, day_type=-1)
+        for room_id, standby in self._standby.items():
+            rows.append({
+                "room_id": room_id,
+                "time_bin": -1,
+                "day_type": -1,
+                "avg_watts": round(standby["standby_watts"], 2),
+                "sample_count": standby["standby_samples"],
+            })
+        return rows
+
+    def restore_from_rows(self, rows: list[dict]) -> int:
+        """Restore profiles from DB rows. Returns count of rows restored."""
+        restored = 0
+        for row in rows:
+            room_id = row.get("room_id", "")
+            time_bin = row.get("time_bin")
+            day_type = row.get("day_type")
+            avg_watts = row.get("avg_watts")
+            sample_count = row.get("sample_count", 0)
+
+            if not room_id or avg_watts is None:
+                continue
+
+            # Standby rows use time_bin=-1, day_type=-1
+            if time_bin == -1 and day_type == -1:
+                self._standby[room_id] = {
+                    "standby_watts": avg_watts,
+                    "standby_samples": sample_count,
+                }
+            else:
+                if room_id not in self._profiles:
+                    self._profiles[room_id] = {}
+                self._profiles[room_id][(time_bin, day_type)] = {
+                    "avg_watts": avg_watts,
+                    "samples": sample_count,
+                }
+            restored += 1
+
+        if restored:
+            _LOGGER.info(
+                "Restored power profiles: %d cells across %d rooms",
+                restored, len(self._profiles),
+            )
+        return restored
+
+    def get_status(self) -> dict[str, Any]:
+        """Return profile status summary."""
+        total_cells = sum(len(cells) for cells in self._profiles.values())
+        mature_cells = sum(
+            1
+            for cells in self._profiles.values()
+            for cell in cells.values()
+            if cell["samples"] >= MIN_SAMPLES_PER_CELL
+        )
+        rooms_with_standby = sum(
+            1 for s in self._standby.values()
+            if s["standby_samples"] >= MIN_SAMPLES_PER_CELL
+        )
+        return {
+            "rooms_tracked": len(self._profiles),
+            "total_cells": total_cells,
+            "mature_cells": mature_cells,
+            "rooms_with_standby": rooms_with_standby,
+            "min_samples_threshold": MIN_SAMPLES_PER_CELL,
+        }
