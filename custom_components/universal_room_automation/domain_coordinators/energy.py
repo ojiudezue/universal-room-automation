@@ -217,12 +217,14 @@ class EnergyCoordinator(BaseCoordinator):
         # v4.2.0: Configurable circuit sources
         from .energy_const import (
             CONF_ENERGY_CIRCUIT_EXTRA_ENTITIES,
+            CONF_ENERGY_CIRCUIT_EXCLUDE_ENTITIES,
             CONF_ENERGY_CIRCUIT_AUTODISCOVER_SPAN,
             CONF_ENERGY_GENERATOR_ENTITY,
         )
         self._circuits = SPANCircuitMonitor(
             hass,
             extra_entities=ec.get(CONF_ENERGY_CIRCUIT_EXTRA_ENTITIES, []),
+            exclude_entities=ec.get(CONF_ENERGY_CIRCUIT_EXCLUDE_ENTITIES, []),
             autodiscover_span=ec.get(CONF_ENERGY_CIRCUIT_AUTODISCOVER_SPAN, True),
         )
         generator_entity = ec.get(CONF_ENERGY_GENERATOR_ENTITY)

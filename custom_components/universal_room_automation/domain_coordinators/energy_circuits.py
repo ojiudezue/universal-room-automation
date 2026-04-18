@@ -67,17 +67,20 @@ class SPANCircuitMonitor:
         self,
         hass: HomeAssistant,
         extra_entities: list[str] | None = None,
+        exclude_entities: list[str] | None = None,
         autodiscover_span: bool = True,
     ) -> None:
         """Initialize circuit monitor.
 
         v4.2.0: Accepts extra circuit entities and autodiscover toggle.
+        v4.2.1: Accepts exclude list to filter out sub-panel feed circuits.
         """
         self.hass = hass
         self._circuits: dict[str, CircuitInfo] = {}
         self._discovered = False
         self._anomalies: list[dict[str, Any]] = []
         self._extra_entities = extra_entities or []
+        self._exclude_entities = set(exclude_entities or [])
         self._autodiscover_span = autodiscover_span
         # v3.13.2: Per-circuit power baselines for z-score anomaly detection
         self._power_baselines: dict[str, MetricBaseline] = {}
@@ -135,12 +138,19 @@ class SPANCircuitMonitor:
             self._circuits[entity_id] = CircuitInfo(entity_id, friendly, "custom")
             count += 1
 
+        # v4.2.1: Remove excluded circuits (e.g., sub-panel feed that overlaps Emporia)
+        excluded = 0
+        for entity_id in self._exclude_entities:
+            if entity_id in self._circuits:
+                del self._circuits[entity_id]
+                excluded += 1
+
         self._discovered = True
         _LOGGER.info(
-            "Circuit monitor: discovered %d circuits (skipped %d unknown/unfilled, %d extra entities)",
-            count, skipped_unknown, len(self._extra_entities),
+            "Circuit monitor: %d circuits (skipped %d unknown, %d extra, %d excluded)",
+            len(self._circuits), skipped_unknown, len(self._extra_entities), excluded,
         )
-        return count
+        return len(self._circuits)
 
     def _get_power_baseline(self, entity_id: str) -> MetricBaseline:
         """Get or create a power baseline for a circuit."""

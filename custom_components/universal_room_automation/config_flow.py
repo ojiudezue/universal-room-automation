@@ -1,6 +1,6 @@
 """Config flow for Universal Room Automation v3.6.24."""
 #
-# Universal Room Automation vv4.2.0
+# Universal Room Automation vv4.2.1
 # Build: 2026-01-05
 # File: config_flow.py
 # v3.3.3: Added manage_zones to integration options menu
@@ -2669,6 +2669,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         from .const import CONF_OCCUPANCY_WEIGHTED_ENERGY
         from .domain_coordinators.energy_const import (
             CONF_ENERGY_CIRCUIT_EXTRA_ENTITIES,
+            CONF_ENERGY_CIRCUIT_EXCLUDE_ENTITIES,
             CONF_ENERGY_CIRCUIT_AUTODISCOVER_SPAN,
             CONF_ENERGY_GENERATOR_ENTITY,
             CONF_ENERGY_GRID_IMPORT_ENTITY,
@@ -3024,6 +3025,12 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             vol.Optional(
                 CONF_ENERGY_CIRCUIT_EXTRA_ENTITIES,
                 default=self._get_current(CONF_ENERGY_CIRCUIT_EXTRA_ENTITIES, []),
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor", device_class="power", multiple=True)
+            ),
+            vol.Optional(
+                CONF_ENERGY_CIRCUIT_EXCLUDE_ENTITIES,
+                default=self._get_current(CONF_ENERGY_CIRCUIT_EXCLUDE_ENTITIES, []),
             ): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor", device_class="power", multiple=True)
             ),
