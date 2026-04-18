@@ -281,6 +281,16 @@ DEFAULT_GRID_IMPORT_CAP_HYSTERESIS_KW: Final = 1.0
 CONF_ENERGY_GRID_IMPORT_CAP_ENABLED: Final = "energy_grid_import_cap_enabled"
 CONF_ENERGY_GRID_IMPORT_CAP_KW: Final = "energy_grid_import_cap_kw"
 
+# v4.2.0: Circuit monitoring configurability
+CONF_ENERGY_CIRCUIT_INTEGRATIONS: Final = "energy_circuit_integrations"
+CONF_ENERGY_CIRCUIT_EXTRA_ENTITIES: Final = "energy_circuit_extra_entities"
+CONF_ENERGY_CIRCUIT_AUTODISCOVER_SPAN: Final = "energy_circuit_autodiscover_span"
+CONF_ENERGY_GENERATOR_ENTITY: Final = "energy_generator_entity"
+
+# v4.2.0: Direct grid import/export sensors (e.g., Emporia mains)
+CONF_ENERGY_GRID_IMPORT_ENTITY: Final = "energy_grid_import_entity"
+CONF_ENERGY_GRID_EXPORT_ENTITY: Final = "energy_grid_export_entity"
+
 # Load shedding defaults
 DEFAULT_LOAD_SHEDDING_THRESHOLD_KW: Final = 5.0
 DEFAULT_LOAD_SHEDDING_SUSTAINED_MINUTES: Final = 15

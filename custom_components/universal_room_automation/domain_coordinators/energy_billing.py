@@ -37,13 +37,21 @@ class CostTracker:
         bill_cycle_day: int = DEFAULT_BILL_CYCLE_START_DAY,
         net_power_entity: str | None = None,
         solar_entity: str | None = None,
+        grid_import_entity: str | None = None,
+        grid_export_entity: str | None = None,
     ) -> None:
-        """Initialize cost tracker."""
+        """Initialize cost tracker.
+
+        v4.2.0: Optional direct grid import/export sensors (e.g., Emporia mains).
+        When configured, these are preferred over derived net_power values.
+        """
         self.hass = hass
         self._tou = tou_engine
         self._bill_cycle_day = bill_cycle_day
         self._net_power_entity = net_power_entity or DEFAULT_NET_POWER_ENTITY
         self._solar_entity = solar_entity or DEFAULT_SOLAR_PRODUCTION_ENTITY
+        self._grid_import_entity = grid_import_entity
+        self._grid_export_entity = grid_export_entity
 
         # Daily accumulators (reset at midnight)
         self._cost_today: float = 0.0
@@ -65,7 +73,34 @@ class CostTracker:
         self._last_accumulate_time: float | None = None
 
     def _get_net_power(self) -> float | None:
-        """Get net power in kW (positive=importing, negative=exporting)."""
+        """Get net power in kW (positive=importing, negative=exporting).
+
+        v4.2.0: Prefers direct grid import/export sensors when configured.
+        Falls back to net_power entity (Envoy) otherwise.
+        Both paths normalize to kW for consistent accumulation.
+        """
+        # Prefer direct grid sensors (e.g., Emporia mains_from_grid / mains_to_grid)
+        if self._grid_import_entity and self._grid_export_entity:
+            import_state = self.hass.states.get(self._grid_import_entity)
+            export_state = self.hass.states.get(self._grid_export_entity)
+            if (
+                import_state and import_state.state not in ("unknown", "unavailable")
+                and export_state and export_state.state not in ("unknown", "unavailable")
+            ):
+                try:
+                    grid_import = float(import_state.state)
+                    grid_export = float(export_state.state)
+                    net = grid_import - grid_export  # positive=importing
+                    # Normalize to kW (accumulate() expects kW).
+                    # Emporia reports W, Envoy reports kW.
+                    uom = import_state.attributes.get("unit_of_measurement", "")
+                    if uom in ("W", "w"):
+                        net /= 1000.0
+                    return net
+                except (ValueError, TypeError):
+                    pass  # Fall through to net_power
+
+        # Fallback: Envoy net power entity
         state = self.hass.states.get(self._net_power_entity)
         if state is None or state.state in ("unknown", "unavailable"):
             return None

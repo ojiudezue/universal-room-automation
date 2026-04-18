@@ -1,6 +1,6 @@
 """Data coordinator for Universal Room Automation."""
 #
-# Universal Room Automation vv4.1.1
+# Universal Room Automation vv4.2.0
 # Build: 2026-01-02
 # File: coordinator.py
 # v3.2.8: Support for active state change listeners in aggregation sensors
@@ -152,6 +152,11 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
             entry.data.get(CONF_OCCUPANCY_DEBOUNCE, DEFAULT_OCCUPANCY_DEBOUNCE)
         ) / 1000.0
         self._debounce_refresh_unsub = None  # cancel handle for scheduled debounce refresh
+
+        # v4.2.0: Infrastructure room flag (always-on equipment rooms)
+        merged_config = {**entry.data, **entry.options}
+        room_type = merged_config.get("room_type", "generic")
+        self._infrastructure_room: bool = (room_type == "infrastructure")
 
         # Sensor unavailability grace: hold state if all sensors go unavailable
         self._all_sensors_unavailable_since: datetime | None = None

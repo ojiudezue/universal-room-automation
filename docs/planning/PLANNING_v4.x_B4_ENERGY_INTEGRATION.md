@@ -454,121 +454,181 @@ instead of assuming flat distribution.
 
 ---
 
-## Layer 3: Energy Intelligence Sensors (~180 lines)
+## Layer 3: Energy Intelligence Sensors + Infrastructure + Circuit Config (~525 lines)
 
 **Depends on:** Layer 1 (power profiles + presence state) for most sensors.
-D8 (EnergyAnomaly) additionally requires Bayesian + L2 toggle ON.
+D8 (EnergyAnomaly) uses power profiles but does NOT require L2 toggle ON.
+**Ships with (v4.2.0):**
+- Energy config cleanup (remove 6 dead fields from integration energy_setup,
+  improve labels, add grid import/export entity pickers to CM)
+- Infrastructure room designation (room type + toggle switch)
+- Config flow save error fix (try-except on 7 room option steps)
+- Circuit monitor configurability (integration picker + manual entities)
 
-### D6: EnergyWasteIdleSensor (per room)
+### Pre-requisite: Energy Config Cleanup
 
-**Entity:** `sensor.{room}_energy_waste_idle_kwh`
-**State:** kWh consumed while room was vacant today
-**Device class:** energy
-**Disabled by default:** Yes
+Integration energy_setup has 6 dead fields that are configured but never read:
+`grid_import_sensor`, `grid_import_sensor_2`, `solar_export_sensor`,
+`battery_level_sensor`, `delivery_rate`, `export_reimbursement_rate`. All
+superseded by Envoy auto-derivation on the CM energy config or TOU rate files.
 
-Calculation: For each 30s coordinator cycle where room is unoccupied, accumulate
-`STATE_POWER_CURRENT * elapsed_hours / 1000`. Reset at midnight.
+**Actions:** Remove from config flow schema (keep constants for backward compat
+with existing stored config). Improve labels for remaining fields. Add optional
+`CONF_ENERGY_GRID_IMPORT_ENTITY` / `CONF_ENERGY_GRID_EXPORT_ENTITY` to CM for
+direct Emporia mains sensors (primary grid tracking source, Envoy as fallback).
 
-**Acceptance Criteria:**
-- **Verify:** Accumulates only when room presence is OFF
-- **Verify:** Resets at midnight
-- **Sensor:** Shows kWh with 2 decimal places
-- **Test:** Accumulation logic, midnight reset, zero when always occupied
+**v4.2.0 Design Decisions (revised from original per-room design):**
+- All L3 sensors are **aggregation-level** (whole-house view), not per-room
+- D9 uses a unified circuit list (SPAN + Emporia + manual) via configurable sources
+- Infrastructure rooms (AV Closet, Media Closet, Study A Closet) get special handling:
+  reported as "infrastructure baseline" in D6, excluded from D7 rankings
+- No circuit-to-room mapping this release — circuits are house-level, rooms are room-level
 
-### D7: EnergyCostPerOccupiedHourSensor (per room)
+### Pre-requisite: Infrastructure Room Designation
 
-**Entity:** `sensor.{room}_energy_cost_per_occupied_hour`
-**State:** $/hour (energy cost while occupied)
-**Disabled by default:** Yes
+Rooms with always-on loads (networking, compute, AV gear) need classification to
+avoid false-positive waste detection. Two controls:
 
-Calculation: `STATE_ENERGY_TODAY / occupied_hours_today * electricity_rate`.
-Uses room's configured electricity rate or integration default.
+1. **Room type:** `ROOM_TYPE_INFRASTRUCTURE` added to room type dropdown in basic
+   setup. Sets initial infrastructure flag.
+2. **Toggle switch:** `InfrastructureRoomSwitch` on every room device. Visible,
+   persistent (RestoreEntity). Can override room type — a closet with a server
+   gets toggle ON regardless of room type.
 
-**Acceptance Criteria:**
-- **Verify:** Updates as energy and occupied time accumulate through the day
-- **Verify:** Handles division by zero (room never occupied → "unknown")
-- **Sensor:** Shows cost with 2 decimal places, unit_of_measurement = "USD/h"
-- **Test:** Normal calculation, zero-occupied-hours edge case
+Infrastructure rooms currently: AV Closet, Media Closet, Study A Closet.
 
-### D8: EnergyAnomalyBinarySensor (per room)
+### Pre-requisite: Circuit Monitor Configurability
 
-**Entity:** `binary_sensor.{room}_energy_anomaly`
-**State:** ON when room draws significant power while vacant and Bayesian predicts
-low occupancy (P < 10%)
-**Disabled by default:** Yes
+Circuit monitoring is currently hardcoded to auto-discover `sensor.span_panel_*_power`.
+Emporia circuits are invisible. This prevents D9 from working for other users.
 
-Trigger conditions (ALL must be true):
-1. Room presence is OFF (vacant)
-2. `STATE_POWER_CURRENT` > 200W (significant draw, not standby)
-3. BayesianPredictor P(occupied) < 0.10 for current time bin
-4. Learning status is ACTIVE (sufficient data)
-5. Duration > 15 minutes (debounce)
-6. Not in GUEST house state
+**Two-tier approach on Energy Coordinator config:**
+1. **Integration picker** — user selects HA config entries for circuit integrations
+   (SPAN, Emporia, Shelly). System traverses device_registry → entity_registry to
+   auto-discover all power/energy sensors from those integrations. Filters out
+   disabled entities and those named "unknown"/"unused"/"spare".
+2. **Manual entity picker** — for standalone sensors not covered by integration
+   discovery (Emporia balance sensor, individual Shelly EMs, etc.).
+3. Both merge into unified circuit list. Existing SPAN auto-discovery preserved
+   as opt-in toggle (default ON for backward compatibility).
 
-Fires `SIGNAL_ENERGY_ANOMALY` for NM integration.
+**Note on integration differences:** SPAN exposes each circuit as a flat sensor
+entity. Emporia creates sub-devices per circuit. The device/entity registry
+traversal handles both consistently — it finds all sensor entities belonging
+to devices under the selected config entry.
 
-**Acceptance Criteria:**
-- **Verify:** Does not fire for normal standby (<200W)
-- **Verify:** Does not fire when Bayesian insufficient data
-- **Verify:** Guest mode suppression works
-- **Verify:** 15-minute debounce prevents transient alerts
-- **Test:** All trigger conditions, suppression paths
-- **Live:** Manually leave a high-draw device on in vacant room, check alert
+### Pre-requisite: Config Flow Save Error Fix
 
-### D9: MostExpensiveDeviceSensor (per room, circuit-level)
+7 room option steps lack try-except around `async_create_entry`, causing "unknown
+error" on first save (exception bubbles silently). Fix: wrap each in try-except
+with debug logging, matching the existing pattern in `async_step_basic_setup`.
 
-**Entity:** `sensor.{room}_most_expensive_circuit`
-**State:** Name of highest-cost power sensor in room (by TOU-weighted draw)
-**Disabled by default:** Yes
+### D6: EnergyWasteIdleSensor (aggregation-level)
 
-**Requires:** Multiple `CONF_POWER_SENSORS` configured (otherwise "unknown").
-Ranks each power sensor by `current_watts * current_tou_rate` and reports the top one.
+**Entity:** `sensor.universal_room_automation_energy_waste_idle`
+**State:** W (total watts drawn by vacant non-infrastructure rooms)
+**Device:** Integration entry (aggregation)
 
-This is the closest to "device awareness" without requiring device-type mapping.
-Each power sensor typically corresponds to a circuit or plug — the entity name
-carries the device identity (e.g., `sensor.study_a_tv_plug_power`).
-
-**Attributes:**
-- `sensors_ranked`: list of `{entity_id, watts, hourly_cost}` sorted descending
-- `tou_period`: current TOU period used for cost calculation
-
-**Acceptance Criteria:**
-- **Verify:** Ranks by TOU-weighted cost, not raw watts
-- **Verify:** Returns "unknown" when room has 0-1 power sensors
-- **Sensor:** Updates every coordinator cycle (30s)
-- **Test:** Ranking with mock TOU rates, single-sensor edge case
-
-### D10: OptimizationPotentialSensor (per room)
-
-**Entity:** `sensor.{room}_optimization_potential`
-**State:** Estimated monthly savings (USD) from reducing idle power waste
-**Disabled by default:** Yes
-
-**Simple calculation (B4 version):**
-```python
-avg_daily_idle_kwh = rolling_7day_avg(energy_waste_idle_kwh)
-monthly_savings = avg_daily_idle_kwh * 30 * electricity_rate
-```
-
-Derives directly from D6 (EnergyWasteIdleSensor) data. No rule engine needed.
+Iterates all room coordinators. Reports two categories:
+- **Waste rooms:** vacant rooms drawing >5W (not infrastructure)
+- **Infrastructure baseline:** infrastructure rooms with their current draw
 
 **Attributes:**
-- `avg_daily_idle_kwh`: 7-day rolling average
-- `monthly_estimate_kwh`: projected monthly idle waste
-- `electricity_rate`: rate used for calculation
-- `confidence`: "low" (<7 days data), "medium" (7-30 days), "high" (30+ days)
-
-**Upgrade path:** Optimizer Phase 4 replaces this with a multi-dimensional version
-that considers HVAC scheduling, TOU shifting, and device automation — not just
-idle waste. The entity_id and unique_id stay the same; the Optimizer enhances
-the calculation and adds recommendations to the attributes.
+- `waste_rooms`: `[{room, watts, duration_vacant_min}]`
+- `infrastructure_baseline`: `[{room, watts}]`
+- `waste_room_count`, `infrastructure_room_count`
+- `estimated_daily_waste_kwh`: waste_watts * 24 / 1000
 
 **Acceptance Criteria:**
-- **Verify:** Shows $0.00 when room has no idle waste
-- **Verify:** Confidence attribute reflects data maturity
-- **Verify:** Uses room-specific electricity rate, falls back to integration default
-- **Test:** Calculation with mock 7-day data, confidence transitions
-- **Live:** Room with known idle draw shows reasonable monthly estimate
+- **Verify:** Infrastructure rooms appear in baseline, not waste
+- **Verify:** Rooms with <5W while vacant are not flagged
+- **Sensor:** Updates every aggregation cycle (30s)
+- **Test:** Mock rooms with infra flag, vacant+power combinations
+- **Live:** AV Closet (infra toggle ON) shows in baseline; vacant Living Room shows in waste
+
+### D7: EnergyCostPerOccupiedHourSensor (aggregation-level)
+
+**Entity:** `sensor.universal_room_automation_energy_cost_per_occupied_hour`
+**State:** USD/h (whole-house energy cost today / total occupied-hours today)
+**Device:** Integration entry (aggregation)
+
+**Attributes:**
+- `rooms`: `[{room, cost_today, occupied_hours, cost_per_hour}]` sorted by cost desc
+- `most_expensive_room`, `most_efficient_room`
+- Excludes infrastructure rooms from per-room ranking
+
+**Acceptance Criteria:**
+- **Verify:** Infrastructure rooms excluded from ranking
+- **Verify:** Division by zero handled (0 occupied hours → "unknown")
+- **Test:** Normal calculation, zero-hours edge case, infra exclusion
+- **Live:** Occupied rooms show reasonable $/h values
+
+### D8: EnergyAnomalyBinarySensor (aggregation-level)
+
+**Entity:** `binary_sensor.universal_room_automation_energy_anomaly`
+**State:** ON when any room draws >2x its power profile baseline
+**Device class:** PROBLEM
+
+Uses L1 power profiles (always learning, does NOT require L2 toggle ON).
+Occupancy-aware: a room drawing 500W while vacant is more anomalous than
+while occupied — compares against the appropriate baseline.
+
+**Attributes:**
+- `anomalies`: `[{room, current_watts, expected_watts, ratio, is_occupied}]`
+- `anomaly_count`: int
+
+**Acceptance Criteria:**
+- **Verify:** Does not fire when power profiles have <20 samples
+- **Verify:** Occupancy-aware baseline comparison (vacant vs occupied)
+- **Verify:** Returns OFF when all rooms within normal range
+- **Test:** Mock profiles with known baselines, threshold crossing
+- **Live:** Should normally be OFF; high-draw anomaly triggers ON
+
+### D9: MostExpensiveCircuitSensor (aggregation-level, house-wide)
+
+**Entity:** `sensor.universal_room_automation_most_expensive_circuits`
+**State:** USD (cost of #1 circuit today)
+
+Uses unified circuit list from energy coordinator (SPAN auto-discovered +
+integration-discovered + manual entities). Shows top 5 circuits by cost.
+
+**Attributes:**
+- `top_circuits`: `[{name, entity_id, panel, power_w, energy_today_kwh, cost_today}]` (top 5)
+- `circuit_count`: total circuits monitored
+- Cost calculated using `tou_engine.get_effective_import_rate()`
+
+**Note:** No circuit-to-room mapping this release. All circuits shown regardless
+of infrastructure status (infrastructure exclusion applies to room-level sensors
+D6/D7, not circuit-level D9).
+
+**Acceptance Criteria:**
+- **Verify:** Shows circuits from all configured sources (SPAN + Emporia + manual)
+- **Verify:** Cost uses effective import rate (base + delivery + transmission)
+- **Verify:** Ranked by cost, not raw watts
+- **Test:** Mock circuits with known energy values, rate calculation
+- **Live:** Top circuit should be HVAC or pool pump on a typical day
+
+### D10: OptimizationPotentialSensor (aggregation-level)
+
+**Entity:** `sensor.universal_room_automation_optimization_potential`
+**State:** USD/day (estimated daily savings from eliminating idle waste)
+
+Derives from D6 waste data. Only counts waste rooms, not infrastructure baseline.
+
+**Attributes:**
+- `waste_watts_total`, `savings_per_day`, `savings_per_month`
+- `top_waste_rooms`: top 3 rooms by waste watts
+- `actionable_suggestion`: "Turn off Living Room (drawing 150W while vacant)"
+
+**Upgrade path:** Optimizer Phase 4 enhances with HVAC scheduling, TOU shifting,
+and device automation recommendations. Entity ID stays the same.
+
+**Acceptance Criteria:**
+- **Verify:** Shows $0.00 when no idle waste
+- **Verify:** Uses effective import rate for cost calculation
+- **Verify:** Infrastructure rooms excluded from waste/savings calculation
+- **Test:** Calculation with mock waste data
+- **Live:** Room with known idle draw shows reasonable daily/monthly estimate
 
 ### D11: OptimizeNowButton
 
@@ -618,7 +678,10 @@ Toggle defaults to OFF — users enable when ready.
 **Layer 3 sensor dependencies vary:**
 - D6 (WasteIdle), D7 (CostPerHour), D9 (MostExpensive), D10 (OptPotential):
   Only need power profiles + presence state. Work regardless of L2 toggle.
-- D8 (EnergyAnomaly): Needs Bayesian — shows "unavailable" when toggle OFF.
+- D8 (EnergyAnomaly): Uses power profiles (L1, always learning). Does NOT
+  require L2 toggle — compares against learned baselines directly.
+- D9 requires circuit monitor configurability (Part C pre-req) for multi-source circuits.
+- D6/D7/D10 require infrastructure room designation (Part A pre-req).
 
 ---
 
@@ -626,31 +689,36 @@ Toggle defaults to OFF — users enable when ready.
 
 | File | Layer | Action | Description |
 |------|-------|--------|-------------|
-| `const.py` | L1+L2 | MODIFY | `CONF_ENERGY_SENSORS`, zone/house sensor consts, `CONF_OCCUPANCY_WEIGHTED_ENERGY`, whole-house plural |
-| `config_flow.py` | L1+L2 | MODIFY | Multi-select pickers (room energy, zone, house device, whole-house plural), toggle, migrations |
-| `switch.py` | L2 | MODIFY | `OccupancyWeightedPredictionSwitch` on Energy Coordinator device (~30 lines) |
-| `coordinator.py` | L1 | MODIFY | Sum multiple energy sensors per room |
+| `const.py` | L1+L2+L3 | MODIFY | Energy sensors, zone/house consts, occupancy toggle, ROOM_TYPE_INFRASTRUCTURE |
+| `config_flow.py` | L1+L2+L3 | MODIFY | Multi-select pickers, toggle, infra room type, circuit config, save error fix |
+| `switch.py` | L2+L3 | MODIFY | OccupancyWeightedPredictionSwitch, InfrastructureRoomSwitch |
+| `coordinator.py` | L1+L3 | MODIFY | Multi-energy sums, infrastructure_room flag |
 | `energy_forecast.py` | L1+L2 | MODIFY | RoomPowerProfile + attribution model + occupancy weighting |
-| `energy.py` | L2 | MODIFY | Read toggle, pass Bayesian ref, profile/attribution updates |
-| `aggregation.py` | L1 | MODIFY | Upgrade coverage delta sensor with 4-tier attribution breakdown |
+| `energy.py` | L2+L3 | MODIFY | Toggle, Bayesian ref, profile updates, circuit config wiring |
+| `energy_const.py` | L3 | MODIFY | Circuit config constants |
+| `energy_circuits.py` | L3 | MODIFY | Integration discovery, extra entities, autodiscover toggle |
+| `aggregation.py` | L1+L3 | MODIFY | Coverage delta, 4 new sensors (D6, D7, D9, D10) |
+| `binary_sensor.py` | L3 | MODIFY | EnergyAnomalyBinarySensor (D8) |
 | `database.py` | L1 | MODIFY | `room_power_profiles` table + save/load |
-| `sensor.py` | L3 | MODIFY | 4 new sensor classes (~120 lines) |
-| `binary_sensor.py` | L3 | MODIFY | EnergyAnomalyBinarySensor (~40 lines) |
-| `strings.json` | L1+L2 | MODIFY | Zone/house sensor labels, toggle label |
-| `translations/en.json` | L1+L2 | MODIFY | Zone/house sensor labels, toggle label |
+| `strings.json` | all | MODIFY | All labels |
+| `translations/en.json` | all | MODIFY | All labels |
 
-**Estimated total:** ~700 lines production code across 3 layers
+**Estimated total:** ~1150 lines production code across 3 layers
+- L1: ~300 lines (shipped v4.1.0)
+- L2: ~220 lines (shipped v4.1.1)
+- L3 + prereqs: ~465 lines (v4.2.0)
 
 ---
 
 ## What B4 Does NOT Do
 
 - Replace DailyEnergyPredictor (extends it)
-- Require per-device power mapping (uses aggregate room sensors + circuit names)
+- Map circuits to rooms (circuit-level is house-wide; room-level uses CONF_POWER_SENSORS)
 - Build a rule engine (deferred to Optimizer Phase 4)
 - Add LLM-assisted optimization (deferred to Optimizer Phase 5)
 - Predict future device state (only correlates occupancy with learned power baselines)
 - Change existing energy TOU, battery, or load shedding logic (only improves inputs)
+- Auto-discover circuit integrations (user selects which integrations to monitor)
 
 ## Resolved Design Decisions
 
@@ -761,51 +829,66 @@ ORDER BY day_type, time_bin;
 
 ---
 
-### Layer 3: Energy Intelligence Sensors
+### Layer 3: Energy Intelligence + Infrastructure + Circuit Config (v4.2.0)
 
-All per-room, disabled by default. Enable on 2-3 sample rooms to verify.
+#### Infrastructure Room Verification
+| Check | How | Expected |
+|-------|-----|----------|
+| Room type dropdown | Options → Room → Basic Setup | "Infrastructure (Always-On Equipment)" option visible |
+| Infrastructure switch | Room device card | `switch.{entry_id}_infrastructure` visible, entity category CONFIG |
+| Toggle persistence | Toggle ON → restart HA | Switch restores to ON (RestoreEntity) |
+| AV Closet designation | Toggle infra switch ON | Room excluded from waste detection, shown in infra baseline |
 
-**Recommended test rooms:**
-- Kitchen (high traffic, should have good data)
-- Study A (medium traffic, has power sensors)
-- Guest Bedroom or low-traffic room (tests edge cases)
+#### Config Save Fix Verification
+- [ ] Save room sensors config → no "unknown error"
+- [ ] Save room devices config → no "unknown error"
+- [ ] Save room energy config → no "unknown error"
+- [ ] Debug log shows: "step_name save: entry_id=..., merged_keys=..."
 
-#### Per-Room Sensors (enable in HA UI to check)
-| Entity Pattern | Expected | Notes |
-|----------------|----------|-------|
-| `sensor.{room}_energy_waste_idle_kwh` | 0.0+ kWh | Accumulates only when room vacant. Resets at midnight. |
-| `sensor.{room}_energy_cost_per_occupied_hour` | $X.XX/h or "unknown" | "unknown" if room never occupied today. Uses room electricity rate. |
-| `sensor.{room}_most_expensive_circuit` | Entity name or "unknown" | "unknown" if 0-1 power sensors. Attributes: `sensors_ranked`, `tou_period`. |
-| `sensor.{room}_optimization_potential` | $X.XX/month | `confidence` attribute: "low"/"medium"/"high". Needs 7+ days for meaningful value. |
-| `binary_sensor.{room}_energy_anomaly` | OFF (normal) | ON = vacant + >200W + Bayesian P<10% + ACTIVE + 15min debounce. Guest suppressed. |
+#### Circuit Configurability Verification
+| Check | How | Expected |
+|-------|-----|----------|
+| Integration picker | Options → CM → Energy | Multi-select with SPAN/Emporia config entries |
+| Manual entity picker | Options → CM → Energy | Multi-select power sensor entities |
+| SPAN auto-discover | Toggle ON (default) | SPAN circuits auto-discovered as before |
+| Integration discovery | Select Emporia entry | Emporia circuit sensors auto-discovered via device/entity registry |
+| Manual entity merge | Add balance sensor | Balance sensor appears in unified circuit list |
+| Generator entity | Options → CM → Energy | Entity picker replaces hardcoded Generac default |
+
+#### Aggregation-Level Sensors
+| Entity | Expected State | Check |
+|--------|---------------|-------|
+| `sensor.universal_room_automation_energy_waste_idle` | W or 0 | `waste_rooms` list + `infrastructure_baseline` list in attributes |
+| `sensor.universal_room_automation_energy_cost_per_occupied_hour` | USD/h | `rooms` list excludes infra rooms; `most_expensive_room` attribute |
+| `binary_sensor.universal_room_automation_energy_anomaly` | OFF (normally) | `anomalies` list; ON when room >2x baseline |
+| `sensor.universal_room_automation_most_expensive_circuits` | USD | `top_circuits` (5 entries from SPAN+Emporia+manual) |
+| `sensor.universal_room_automation_optimization_potential` | USD/day | `savings_per_month`; `actionable_suggestion` attribute |
 
 #### Sensor-Specific Checks
-**EnergyWasteIdleSensor:**
-- [ ] Leave a room vacant with a known load (e.g., TV on standby at 50W)
-- [ ] After 1 hour: sensor shows ~0.05 kWh
-- [ ] After midnight: sensor resets to 0.0
+**EnergyWasteIdleSensor (D6):**
+- [ ] AV Closet (infra ON) appears in `infrastructure_baseline`, NOT `waste_rooms`
+- [ ] Vacant Living Room drawing >5W appears in `waste_rooms`
+- [ ] `estimated_daily_waste_kwh` = waste_watts * 24 / 1000
 
-**EnergyCostPerOccupiedHourSensor:**
-- [ ] Room occupied for 2h, consumed 1 kWh at $0.15/kWh → shows ~$0.075/h
-- [ ] Room never occupied today → shows "unknown" (not $0.00)
+**EnergyCostPerOccupiedHourSensor (D7):**
+- [ ] Infrastructure rooms excluded from `rooms` ranking
+- [ ] No occupied rooms today → state = "unknown"
+- [ ] Per-room cost calculated using TOU effective rate
 
-**MostExpensiveDeviceSensor:**
-- [ ] Room with 3 power sensors: highest TOU-weighted cost sensor shown as state
-- [ ] `sensors_ranked` attribute: list of 3 entries sorted descending by hourly_cost
-- [ ] During peak TOU: rankings may differ from off-peak (cost-weighted, not watts)
+**EnergyAnomalyBinarySensor (D8):**
+- [ ] Normal power within baseline → stays OFF
+- [ ] Room drawing >2x baseline with sufficient samples (>20) → ON
+- [ ] Occupancy-aware: baseline differs for occupied vs vacant state
 
-**OptimizationPotentialSensor:**
-- [ ] After <7 days: `confidence` = "low"
-- [ ] After 7-30 days: `confidence` = "medium"
-- [ ] Room with zero idle waste: shows $0.00
-- [ ] Room with consistent idle draw: estimate plausible (cross-check with manual math)
+**MostExpensiveCircuitSensor (D9):**
+- [ ] Shows circuits from all configured sources (SPAN + integration + manual)
+- [ ] Cost = cumulative_energy * effective_import_rate
+- [ ] Top 5 sorted by cost descending
 
-**EnergyAnomalyBinarySensor:**
-- [ ] Normal standby (<200W) in vacant room: stays OFF
-- [ ] High draw (>200W) in vacant room with ACTIVE Bayesian: turns ON after 15 min
-- [ ] NM alert fires when anomaly triggers
-- [ ] GUEST house state: suppressed (stays OFF even with anomaly conditions met)
-- [ ] Bayesian INSUFFICIENT_DATA: stays OFF regardless of power draw
+**OptimizationPotentialSensor (D10):**
+- [ ] `savings_per_day` = waste_watts * 24 / 1000 * effective_rate
+- [ ] Infrastructure rooms excluded from waste calculation
+- [ ] `actionable_suggestion` names the top waste room
 
 ---
 

@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv4.1.1
+# Universal Room Automation vv4.2.0
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v4.1.1"
+VERSION: Final = "v4.2.0"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -302,6 +302,7 @@ ROOM_TYPE_GARAGE: Final = "garage"
 ROOM_TYPE_UTILITY: Final = "utility"
 ROOM_TYPE_COMMON_AREA: Final = "common_area"
 ROOM_TYPE_GENERIC: Final = "generic"
+ROOM_TYPE_INFRASTRUCTURE: Final = "infrastructure"  # v4.2.0: Always-on equipment rooms
 
 # --- Step 2: Sensors ---
 CONF_MOTION_SENSORS: Final = "motion_sensors"
@@ -525,6 +526,7 @@ ROOM_TYPE_TIMEOUTS: Final = {
     ROOM_TYPE_UTILITY: 600,      # 10 minutes
     ROOM_TYPE_COMMON_AREA: 900,  # 15 minutes
     ROOM_TYPE_GENERIC: 300,      # 5 minutes
+    ROOM_TYPE_INFRASTRUCTURE: 120,  # 2 minutes (rarely visited)
 }
 
 # ============================================================================

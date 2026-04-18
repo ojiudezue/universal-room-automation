@@ -214,14 +214,31 @@ class EnergyCoordinator(BaseCoordinator):
             CONF_ENERGY_GRID_IMPORT_CAP_KW, DEFAULT_GRID_IMPORT_CAP_KW))
 
         # E3: Circuit monitoring + generator
-        self._circuits = SPANCircuitMonitor(hass)
-        self._generator = GeneratorMonitor(hass)
+        # v4.2.0: Configurable circuit sources
+        from .energy_const import (
+            CONF_ENERGY_CIRCUIT_EXTRA_ENTITIES,
+            CONF_ENERGY_CIRCUIT_AUTODISCOVER_SPAN,
+            CONF_ENERGY_GENERATOR_ENTITY,
+        )
+        self._circuits = SPANCircuitMonitor(
+            hass,
+            extra_entities=ec.get(CONF_ENERGY_CIRCUIT_EXTRA_ENTITIES, []),
+            autodiscover_span=ec.get(CONF_ENERGY_CIRCUIT_AUTODISCOVER_SPAN, True),
+        )
+        generator_entity = ec.get(CONF_ENERGY_GENERATOR_ENTITY)
+        self._generator = GeneratorMonitor(
+            hass, status_entity=generator_entity
+        ) if generator_entity else GeneratorMonitor(hass)
 
         # E4: Billing + cost tracking
+        # v4.2.0: Optional direct grid import/export sensors (Emporia mains)
+        from .energy_const import CONF_ENERGY_GRID_IMPORT_ENTITY, CONF_ENERGY_GRID_EXPORT_ENTITY
         self._billing = CostTracker(
             hass, self._tou,
             net_power_entity=ec.get(CONF_ENERGY_NET_POWER_ENTITY),
             solar_entity=ec.get(CONF_ENERGY_SOLAR_ENTITY),
+            grid_import_entity=ec.get(CONF_ENERGY_GRID_IMPORT_ENTITY),
+            grid_export_entity=ec.get(CONF_ENERGY_GRID_EXPORT_ENTITY),
         )
 
         # E5: Forecasting + prediction

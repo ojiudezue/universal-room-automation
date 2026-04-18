@@ -1,6 +1,6 @@
 """Config flow for Universal Room Automation v3.6.24."""
 #
-# Universal Room Automation vv4.1.1
+# Universal Room Automation vv4.2.0
 # Build: 2026-01-05
 # File: config_flow.py
 # v3.3.3: Added manage_zones to integration options menu
@@ -48,6 +48,7 @@ from .const import (
     ROOM_TYPE_UTILITY,
     ROOM_TYPE_COMMON_AREA,
     ROOM_TYPE_GENERIC,
+    ROOM_TYPE_INFRASTRUCTURE,
     DEFAULT_OCCUPANCY_TIMEOUT,
     DEFAULT_OCCUPANCY_DEBOUNCE,
     ROOM_TYPE_TIMEOUTS,
@@ -547,21 +548,11 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
             self._energy_data = user_input
             return await self.async_step_add_first_room()
         
+        # v4.2.0: Removed 6 dead fields (grid_import_sensor, grid_import_sensor_2,
+        # solar_export_sensor, battery_level_sensor, delivery_rate,
+        # export_reimbursement_rate) — all superseded by Envoy auto-derivation on CM
+        # or TOU rate files. Constants kept for backward compat with stored configs.
         data_schema = vol.Schema({
-            # Solar/Grid sensors
-            vol.Optional(CONF_SOLAR_EXPORT_SENSOR): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain="sensor", device_class="energy")
-            ),
-            vol.Optional(CONF_GRID_IMPORT_SENSOR): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain="sensor", device_class="energy")
-            ),
-            vol.Optional(CONF_GRID_IMPORT_SENSOR_2): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain="sensor", device_class="energy")
-            ),
-            # Battery
-            vol.Optional(CONF_BATTERY_LEVEL_SENSOR): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain="sensor", device_class="battery")
-            ),
             # Whole house monitoring (v4.1.0: multiple sensors)
             vol.Optional(CONF_WHOLE_HOUSE_POWER_SENSORS): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor", device_class="power", multiple=True)
@@ -569,27 +560,12 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
             vol.Optional(CONF_WHOLE_HOUSE_ENERGY_SENSORS): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor", device_class="energy", multiple=True)
             ),
-            # House device sensors (EV chargers, pool pumps, water heaters)
+            # Standalone device sensors (EV chargers, pool pumps, water heaters)
             vol.Optional(CONF_HOUSE_DEVICE_POWER_SENSORS): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor", device_class="power", multiple=True)
             ),
             vol.Optional(CONF_HOUSE_DEVICE_ENERGY_SENSORS): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor", device_class="energy", multiple=True)
-            ),
-            # Rates
-            vol.Optional(CONF_DELIVERY_RATE, default=DEFAULT_DELIVERY_RATE): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=0.00, max=0.50, step=0.01,
-                    unit_of_measurement="USD/kWh",
-                    mode=selector.NumberSelectorMode.BOX
-                )
-            ),
-            vol.Optional(CONF_EXPORT_REIMBURSEMENT_RATE, default=DEFAULT_EXPORT_REIMBURSEMENT_RATE): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=0.00, max=0.50, step=0.01,
-                    unit_of_measurement="USD/kWh",
-                    mode=selector.NumberSelectorMode.BOX
-                )
             ),
         })
         
@@ -765,8 +741,9 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
             {"label": "Utility Room", "value": ROOM_TYPE_UTILITY},
             {"label": "Common Area (Living/Dining)", "value": ROOM_TYPE_COMMON_AREA},
             {"label": "Generic Room", "value": ROOM_TYPE_GENERIC},
+            {"label": "Infrastructure (Always-On Equipment)", "value": ROOM_TYPE_INFRASTRUCTURE},
         ]
-        
+
         # v3.3.5.3: Get existing zones from Zone config entries
         existing_zones = self._get_existing_zones()
         zone_options = [{"label": z, "value": z} for z in sorted(existing_zones)]
@@ -2108,39 +2085,23 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         )
 
     async def async_step_energy_sensors(self, user_input=None):
-        """Reconfigure energy sensors for predictions and tracking (integration level)."""
+        """Reconfigure energy sensors for predictions and tracking (integration level).
+
+        v4.2.0: Removed 6 dead fields (grid_import, solar_export, battery_level,
+        delivery_rate, export_reimbursement_rate). These were configured but never
+        read — superseded by Envoy auto-derivation on CM or TOU rate files.
+        """
         if user_input is not None:
-            # FIX v3.2.3.1: Pass merged options directly to async_create_entry
-            return self.async_create_entry(
-                title="",
-                data={**self._config_entry.options, **user_input}
-            )
+            try:
+                merged = {**self._config_entry.options, **user_input}
+                _LOGGER.debug("energy_sensors save: entry_id=%s, merged_keys=%d",
+                              self._config_entry.entry_id, len(merged))
+                return self.async_create_entry(title="", data=merged)
+            except Exception:
+                _LOGGER.exception("energy_sensors save FAILED")
+                raise
 
         data_schema = vol.Schema({
-            vol.Optional(
-                CONF_SOLAR_EXPORT_SENSOR,
-                default=self._get_current(CONF_SOLAR_EXPORT_SENSOR) or vol.UNDEFINED
-            ): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain="sensor", device_class="energy")
-            ),
-            vol.Optional(
-                CONF_GRID_IMPORT_SENSOR,
-                default=self._get_current(CONF_GRID_IMPORT_SENSOR) or vol.UNDEFINED
-            ): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain="sensor", device_class="energy")
-            ),
-            vol.Optional(
-                CONF_GRID_IMPORT_SENSOR_2,
-                default=self._get_current(CONF_GRID_IMPORT_SENSOR_2) or vol.UNDEFINED
-            ): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain="sensor", device_class="energy")
-            ),
-            vol.Optional(
-                CONF_BATTERY_LEVEL_SENSOR,
-                default=self._get_current(CONF_BATTERY_LEVEL_SENSOR) or vol.UNDEFINED
-            ): selector.EntitySelector(
-                selector.EntitySelectorConfig(domain="sensor", device_class="battery")
-            ),
             vol.Optional(
                 CONF_WHOLE_HOUSE_POWER_SENSORS,
                 default=self._get_multi_sensor_default(
@@ -2155,7 +2116,6 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             ): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor", device_class="energy", multiple=True)
             ),
-            # v4.1.0: House-level device sensors (EV chargers, pool pumps, water heaters)
             vol.Optional(
                 CONF_HOUSE_DEVICE_POWER_SENSORS,
                 default=self._get_current(CONF_HOUSE_DEVICE_POWER_SENSORS, []) or vol.UNDEFINED
@@ -2167,26 +2127,6 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 default=self._get_current(CONF_HOUSE_DEVICE_ENERGY_SENSORS, []) or vol.UNDEFINED
             ): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor", device_class="energy", multiple=True)
-            ),
-            vol.Optional(
-                CONF_DELIVERY_RATE,
-                default=self._get_current(CONF_DELIVERY_RATE, DEFAULT_DELIVERY_RATE)
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=0.00, max=0.50, step=0.01,
-                    unit_of_measurement="USD/kWh",
-                    mode=selector.NumberSelectorMode.BOX
-                )
-            ),
-            vol.Optional(
-                CONF_EXPORT_REIMBURSEMENT_RATE,
-                default=self._get_current(CONF_EXPORT_REIMBURSEMENT_RATE, DEFAULT_EXPORT_REIMBURSEMENT_RATE)
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=0.00, max=0.50, step=0.01,
-                    unit_of_measurement="USD/kWh",
-                    mode=selector.NumberSelectorMode.BOX
-                )
             ),
         })
 
@@ -2727,6 +2667,13 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             DEFAULT_GRID_IMPORT_CAP_KW,
         )
         from .const import CONF_OCCUPANCY_WEIGHTED_ENERGY
+        from .domain_coordinators.energy_const import (
+            CONF_ENERGY_CIRCUIT_EXTRA_ENTITIES,
+            CONF_ENERGY_CIRCUIT_AUTODISCOVER_SPAN,
+            CONF_ENERGY_GENERATOR_ENTITY,
+            CONF_ENERGY_GRID_IMPORT_ENTITY,
+            CONF_ENERGY_GRID_EXPORT_ENTITY,
+        )
 
         if user_input is not None:
             return self.async_create_entry(
@@ -3073,6 +3020,36 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 CONF_OCCUPANCY_WEIGHTED_ENERGY,
                 default=self._get_current(CONF_OCCUPANCY_WEIGHTED_ENERGY, False),
             ): selector.BooleanSelector(),
+            # v4.2.0: Circuit monitoring
+            vol.Optional(
+                CONF_ENERGY_CIRCUIT_EXTRA_ENTITIES,
+                default=self._get_current(CONF_ENERGY_CIRCUIT_EXTRA_ENTITIES, []),
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor", device_class="power", multiple=True)
+            ),
+            vol.Optional(
+                CONF_ENERGY_CIRCUIT_AUTODISCOVER_SPAN,
+                default=self._get_current(CONF_ENERGY_CIRCUIT_AUTODISCOVER_SPAN, True),
+            ): selector.BooleanSelector(),
+            vol.Optional(
+                CONF_ENERGY_GENERATOR_ENTITY,
+                description={"suggested_value": self._get_current(CONF_ENERGY_GENERATOR_ENTITY)},
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor")
+            ),
+            # v4.2.0: Direct grid import/export sensors (e.g., Emporia mains)
+            vol.Optional(
+                CONF_ENERGY_GRID_IMPORT_ENTITY,
+                description={"suggested_value": self._get_current(CONF_ENERGY_GRID_IMPORT_ENTITY)},
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor", device_class="power")
+            ),
+            vol.Optional(
+                CONF_ENERGY_GRID_EXPORT_ENTITY,
+                description={"suggested_value": self._get_current(CONF_ENERGY_GRID_EXPORT_ENTITY)},
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor", device_class="power")
+            ),
         })
 
         return self.async_show_form(
@@ -4537,8 +4514,9 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             {"label": "Utility Room", "value": ROOM_TYPE_UTILITY},
             {"label": "Common Area (Living/Dining)", "value": ROOM_TYPE_COMMON_AREA},
             {"label": "Generic Room", "value": ROOM_TYPE_GENERIC},
+            {"label": "Infrastructure (Always-On Equipment)", "value": ROOM_TYPE_INFRASTRUCTURE},
         ]
-        
+
         # Get existing zones for combo selector
         existing_zones = self._get_existing_zones()
         zone_options = [{"label": z, "value": z} for z in sorted(existing_zones)]
@@ -4642,11 +4620,14 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             if not motion and not mmwave and not occupancy:
                 errors["base"] = "no_occupancy_sensors"
             else:
-                # FIX v3.2.3.1: Pass merged options directly to async_create_entry
-                return self.async_create_entry(
-                    title="",
-                    data={**self._config_entry.options, **user_input}
-                )
+                try:
+                    merged = {**self._config_entry.options, **user_input}
+                    _LOGGER.debug("sensors save: entry_id=%s, merged_keys=%d",
+                                  self._config_entry.entry_id, len(merged))
+                    return self.async_create_entry(title="", data=merged)
+                except Exception:
+                    _LOGGER.exception("sensors save FAILED")
+                    raise
 
         door_types = [
             {"label": "Interior Door (room-to-room)", "value": DOOR_TYPE_INTERIOR},
@@ -4734,11 +4715,14 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
     async def async_step_devices(self, user_input=None):
         """Reconfigure devices."""
         if user_input is not None:
-            # FIX v3.2.3.1: Pass merged options directly to async_create_entry
-            return self.async_create_entry(
-                title="",
-                data={**self._config_entry.options, **user_input}
-            )
+            try:
+                merged = {**self._config_entry.options, **user_input}
+                _LOGGER.debug("devices save: entry_id=%s, merged_keys=%d",
+                              self._config_entry.entry_id, len(merged))
+                return self.async_create_entry(title="", data=merged)
+            except Exception:
+                _LOGGER.exception("devices save FAILED")
+                raise
 
         light_capabilities = [
             {"label": "Basic On/Off Only", "value": LIGHT_CAPABILITY_BASIC},
@@ -5073,11 +5057,14 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                                 {**zm_entry.options, "zones": zones},
                             )
 
-            # FIX v3.2.3.1: Pass merged options directly to async_create_entry
-            result = self.async_create_entry(
-                title="",
-                data={**self._config_entry.options, **user_input}
-            )
+            try:
+                merged = {**self._config_entry.options, **user_input}
+                _LOGGER.debug("climate save: entry_id=%s, merged_keys=%d",
+                              self._config_entry.entry_id, len(merged))
+                result = self.async_create_entry(title="", data=merged)
+            except Exception:
+                _LOGGER.exception("climate save FAILED")
+                raise
 
             # v3.18.0: Fire ZM update after room entry is saved to avoid
             # concurrent reload race between room and ZM entries
@@ -5173,11 +5160,14 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
     async def async_step_sleep_protection(self, user_input=None):
         """Reconfigure sleep protection."""
         if user_input is not None:
-            # FIX v3.2.3.1: Pass merged options directly to async_create_entry
-            return self.async_create_entry(
-                title="",
-                data={**self._config_entry.options, **user_input}
-            )
+            try:
+                merged = {**self._config_entry.options, **user_input}
+                _LOGGER.debug("sleep_protection save: entry_id=%s, merged_keys=%d",
+                              self._config_entry.entry_id, len(merged))
+                return self.async_create_entry(title="", data=merged)
+            except Exception:
+                _LOGGER.exception("sleep_protection save FAILED")
+                raise
 
         data_schema = vol.Schema({
             vol.Optional(
@@ -5230,10 +5220,14 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
     async def async_step_music_following(self, user_input=None):
         """Configure room media player for music following (v3.3.1)."""
         if user_input is not None:
-            return self.async_create_entry(
-                title="",
-                data={**self._config_entry.options, **user_input}
-            )
+            try:
+                merged = {**self._config_entry.options, **user_input}
+                _LOGGER.debug("music_following save: entry_id=%s, merged_keys=%d",
+                              self._config_entry.entry_id, len(merged))
+                return self.async_create_entry(title="", data=merged)
+            except Exception:
+                _LOGGER.exception("music_following save FAILED")
+                raise
 
         data_schema = vol.Schema({
             vol.Optional(
@@ -5256,11 +5250,14 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
     async def async_step_energy(self, user_input=None):
         """Reconfigure energy monitoring."""
         if user_input is not None:
-            # FIX v3.2.3.1: Pass merged options directly to async_create_entry
-            return self.async_create_entry(
-                title="",
-                data={**self._config_entry.options, **user_input}
-            )
+            try:
+                merged = {**self._config_entry.options, **user_input}
+                _LOGGER.debug("energy save: entry_id=%s, merged_keys=%d",
+                              self._config_entry.entry_id, len(merged))
+                return self.async_create_entry(title="", data=merged)
+            except Exception:
+                _LOGGER.exception("energy save FAILED")
+                raise
 
         data_schema = vol.Schema({
             vol.Optional(
@@ -5296,11 +5293,14 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
     async def async_step_notifications(self, user_input=None):
         """Reconfigure notifications with override option."""
         if user_input is not None:
-            # FIX v3.2.3.1: Pass merged options directly to async_create_entry
-            return self.async_create_entry(
-                title="",
-                data={**self._config_entry.options, **user_input}
-            )
+            try:
+                merged = {**self._config_entry.options, **user_input}
+                _LOGGER.debug("notifications save: entry_id=%s, merged_keys=%d",
+                              self._config_entry.entry_id, len(merged))
+                return self.async_create_entry(title="", data=merged)
+            except Exception:
+                _LOGGER.exception("notifications save FAILED")
+                raise
 
         # Get available notify services
         notify_services = []
