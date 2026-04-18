@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv4.1.0
+# Universal Room Automation vv4.1.1
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v4.1.0"
+VERSION: Final = "v4.1.1"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -824,6 +824,7 @@ CONF_PRESENCE_ENABLED: Final = "presence_coordinator_enabled"
 CONF_SAFETY_ENABLED: Final = "safety_coordinator_enabled"
 CONF_SECURITY_ENABLED: Final = "security_coordinator_enabled"
 CONF_ENERGY_ENABLED: Final = "energy_coordinator_enabled"
+CONF_OCCUPANCY_WEIGHTED_ENERGY: Final = "occupancy_weighted_energy"  # v4.1.1: B4 L2
 CONF_HVAC_ENABLED: Final = "hvac_coordinator_enabled"
 CONF_COMFORT_ENABLED: Final = "comfort_coordinator_enabled"
 CONF_MUSIC_FOLLOWING_COORDINATOR_ENABLED: Final = "music_following_coordinator_enabled"

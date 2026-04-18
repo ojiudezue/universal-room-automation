@@ -619,6 +619,17 @@ class BayesianPredictor:
         high = min(1.0, mean + 1.96 * std)
         return {"low": round(low, 4), "high": round(high, 4)}
 
+    def count_active_cells(self) -> int:
+        """Count cells with ACTIVE status (50+ observations)."""
+        return sum(
+            1 for count in self._observation_counts.values()
+            if count >= 50
+        )
+
+    def count_total_cells(self) -> int:
+        """Count all cells with any observations."""
+        return len(self._observation_counts)
+
     @staticmethod
     def _learning_status(observation_count: int) -> LearningStatus:
         """Determine learning status from observation count."""
