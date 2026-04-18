@@ -63,54 +63,82 @@ class SPANCircuitMonitor:
     sensor.span_panel_*_power entities.
     """
 
-    def __init__(self, hass: HomeAssistant) -> None:
-        """Initialize circuit monitor."""
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        extra_entities: list[str] | None = None,
+        autodiscover_span: bool = True,
+    ) -> None:
+        """Initialize circuit monitor.
+
+        v4.2.0: Accepts extra circuit entities and autodiscover toggle.
+        """
         self.hass = hass
         self._circuits: dict[str, CircuitInfo] = {}
         self._discovered = False
         self._anomalies: list[dict[str, Any]] = []
+        self._extra_entities = extra_entities or []
+        self._autodiscover_span = autodiscover_span
         # v3.13.2: Per-circuit power baselines for z-score anomaly detection
         self._power_baselines: dict[str, MetricBaseline] = {}
         # v3.13.3: Dedup z-score alerts — cooldown per circuit (epoch timestamp)
         self._zscore_alerted: dict[str, float] = {}
 
     def discover_circuits(self) -> int:
-        """Auto-discover SPAN circuit power entities from HA state machine."""
+        """Discover circuit power entities from multiple sources.
+
+        v4.2.0: Three-tier discovery:
+        1. SPAN auto-discover (if enabled) — existing pattern
+        2. Extra entities — manually configured power sensors
+        All deduplicated by entity_id.
+        """
         count = 0
         skipped_unknown = 0
-        for state in self.hass.states.async_all("sensor"):
-            entity_id = state.entity_id
-            if not entity_id.startswith("sensor.span_panel_") or not entity_id.endswith("_power"):
-                continue
-            # Skip aggregate/feed-through/main meter entities
-            skip_patterns = (
-                "current_power", "feed_through_power",
-                "a_v_main_power",  # aggregate AV
-            )
-            base_name = entity_id.replace("sensor.span_panel_", "").replace("_power", "")
-            if any(p in entity_id for p in skip_patterns):
-                continue
 
+        # Tier 1: SPAN auto-discovery (existing behavior)
+        if self._autodiscover_span:
+            for state in self.hass.states.async_all("sensor"):
+                entity_id = state.entity_id
+                if not entity_id.startswith("sensor.span_panel_") or not entity_id.endswith("_power"):
+                    continue
+                skip_patterns = (
+                    "current_power", "feed_through_power",
+                    "a_v_main_power",
+                )
+                if any(p in entity_id for p in skip_patterns):
+                    continue
+
+                friendly = state.attributes.get("friendly_name", entity_id)
+                friendly_lower = friendly.lower()
+                if any(kw in friendly_lower for kw in (
+                    "unknown", "unfilled", "unused", "spare", "empty",
+                )):
+                    skipped_unknown += 1
+                    continue
+
+                panel = "left" if "_2" in entity_id or "Span Left" in friendly else "right"
+                self._circuits[entity_id] = CircuitInfo(entity_id, friendly, panel)
+                count += 1
+
+        # Tier 2: Extra manually-configured entities
+        for entity_id in self._extra_entities:
+            if entity_id in self._circuits:
+                continue  # Dedup
+            state = self.hass.states.get(entity_id)
+            if state is None:
+                _LOGGER.warning(
+                    "Configured circuit entity %s not found — may not be loaded yet",
+                    entity_id,
+                )
+                continue
             friendly = state.attributes.get("friendly_name", entity_id)
-
-            # v3.16: Skip unfilled/unknown breaker slots — these generate
-            # spurious tripped-breaker alerts because they briefly draw power
-            # during panel resets but never deliver meaningful energy.
-            friendly_lower = friendly.lower()
-            if any(kw in friendly_lower for kw in (
-                "unknown", "unfilled", "unused", "spare", "empty",
-            )):
-                skipped_unknown += 1
-                continue
-
-            panel = "left" if "_2" in entity_id or "Span Left" in friendly else "right"
-            self._circuits[entity_id] = CircuitInfo(entity_id, friendly, panel)
+            self._circuits[entity_id] = CircuitInfo(entity_id, friendly, "custom")
             count += 1
 
         self._discovered = True
         _LOGGER.info(
-            "SPAN circuit monitor: discovered %d circuits (skipped %d unknown/unfilled)",
-            count, skipped_unknown,
+            "Circuit monitor: discovered %d circuits (skipped %d unknown/unfilled, %d extra entities)",
+            count, skipped_unknown, len(self._extra_entities),
         )
         return count
 

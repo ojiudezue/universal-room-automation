@@ -1,6 +1,6 @@
 """Switch platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.1.1
+# Universal Room Automation vv4.2.0
 # Build: 2026-01-02
 # File: switch.py
 #
@@ -172,6 +172,7 @@ async def async_setup_entry(
         CoverAutomationSwitch(coordinator),
         ManualModeSwitch(coordinator),
         AiAutomationSwitch(coordinator),
+        InfrastructureRoomSwitch(coordinator),
     ]
 
     async_add_entities(entities)
@@ -1787,3 +1788,48 @@ class AiAutomationSwitch(UniversalRoomEntity, SwitchEntity, RestoreEntity):
         self._attr_is_on = False
         self.async_write_ha_state()
         _LOGGER.info("AI automation disabled for room: %s", self.coordinator.entry.data.get("room_name"))
+
+
+class InfrastructureRoomSwitch(UniversalRoomEntity, SwitchEntity, RestoreEntity):
+    """Mark a room as infrastructure (always-on equipment).
+
+    When ON: Room is excluded from waste detection (D6), reported as
+    infrastructure baseline instead. Excluded from cost/hour rankings (D7).
+    When OFF (default for most rooms): Normal waste/efficiency tracking.
+
+    Auto-defaults to ON for rooms with room_type == "infrastructure".
+
+    Entity: switch.{room_slug}_infrastructure
+    v4.2.0 B4 L3
+    """
+
+    _attr_icon = "mdi:server-network"
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_entity_registry_enabled_default = True
+
+    def __init__(self, coordinator: UniversalRoomCoordinator) -> None:
+        """Initialize the switch."""
+        super().__init__(coordinator, "infrastructure", "Infrastructure Room")
+        # Default from room_type
+        self._attr_is_on = getattr(coordinator, "_infrastructure_room", False)
+
+    async def async_added_to_hass(self) -> None:
+        """Restore last state."""
+        await super().async_added_to_hass()
+        last_state = await self.async_get_last_state()
+        if last_state is not None:
+            self._attr_is_on = last_state.state == "on"
+        # Sync to coordinator
+        self.coordinator._infrastructure_room = self._attr_is_on
+
+    async def async_turn_on(self, **kwargs) -> None:
+        """Mark room as infrastructure."""
+        self._attr_is_on = True
+        self.coordinator._infrastructure_room = True
+        self.async_write_ha_state()
+
+    async def async_turn_off(self, **kwargs) -> None:
+        """Unmark room as infrastructure."""
+        self._attr_is_on = False
+        self.coordinator._infrastructure_room = False
+        self.async_write_ha_state()

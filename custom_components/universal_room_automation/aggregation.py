@@ -224,6 +224,12 @@ async def async_setup_aggregation_sensors(
         PredictedCostTodaySensor(hass, entry),
         PredictedCostWeekSensor(hass, entry),
         PredictedCostMonthSensor(hass, entry),
+
+        # === v4.2.0 B4 L3: ENERGY INTELLIGENCE ===
+        EnergyWasteIdleSensor(hass, entry),
+        EnergyCostPerOccupiedHourSensor(hass, entry),
+        MostExpensiveCircuitSensor(hass, entry),
+        OptimizationPotentialSensor(hass, entry),
     ]
 
     # === v3.2.0: INTEGRATION PERSON LOCATION SENSORS ===
@@ -274,6 +280,8 @@ async def async_setup_aggregation_binary_sensors(
         AnyoneHomeBinarySensor(hass, entry),
         SafetyAlertBinarySensor(hass, entry),
         SecurityAlertBinarySensor(hass, entry),
+        # v4.2.0 B4 L3: Energy anomaly detection
+        EnergyAnomalyBinarySensor(hass, entry),
     ]
 
     async_add_entities(entities)
@@ -2233,6 +2241,363 @@ class EnergyCoverageDeltaSensor(AggregationEntity, SensorEntity):
             return 0.0
         result = self._sum_sensors(sensors)
         return result if result is not None else 0.0
+
+
+# ============================================================================
+# v4.2.0 B4 L3: ENERGY INTELLIGENCE SENSORS
+# ============================================================================
+
+
+def _get_energy_coordinator(hass):
+    """Get the energy coordinator instance (lazy, survives reloads)."""
+    manager = hass.data.get(DOMAIN, {}).get("coordinator_manager")
+    if manager is None:
+        return None
+    return manager.coordinators.get("energy")
+
+
+class EnergyWasteIdleSensor(AggregationEntity, SensorEntity):
+    """Total watts drawn by vacant non-infrastructure rooms.
+
+    Reports waste rooms (vacant + drawing power) separately from
+    infrastructure baseline (always-on equipment rooms like AV closets).
+    """
+
+    _attr_native_unit_of_measurement = UnitOfPower.WATT
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_icon = "mdi:power-plug-off-outline"
+
+    def __init__(self, hass, entry):
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_energy_waste_idle"
+        self._attr_name = "Energy Waste Idle"
+
+    @property
+    def native_value(self):
+        waste_watts = 0.0
+        for coord in _get_room_coordinators(self.hass):
+            if not coord.data:
+                continue
+            if getattr(coord, "_infrastructure_room", False):
+                continue
+            if not coord.data.get(STATE_OCCUPIED, True):
+                power = coord.data.get(STATE_POWER_CURRENT, 0) or 0
+                if power > 5:
+                    waste_watts += power
+        return round(waste_watts, 1)
+
+    @property
+    def extra_state_attributes(self):
+        waste_rooms = []
+        infra_baseline = []
+        for coord in _get_room_coordinators(self.hass):
+            if not coord.data:
+                continue
+            room_name = coord.entry.data.get("room_name", "Unknown")
+            power = coord.data.get(STATE_POWER_CURRENT, 0) or 0
+            is_infra = getattr(coord, "_infrastructure_room", False)
+
+            if is_infra and power > 0:
+                infra_baseline.append({"room": room_name, "watts": round(power, 1)})
+            elif not coord.data.get(STATE_OCCUPIED, True) and power > 5:
+                waste_rooms.append({"room": room_name, "watts": round(power, 1)})
+
+        waste_total = sum(r["watts"] for r in waste_rooms)
+        return {
+            "waste_rooms": sorted(waste_rooms, key=lambda r: r["watts"], reverse=True),
+            "infrastructure_baseline": infra_baseline,
+            "waste_room_count": len(waste_rooms),
+            "infrastructure_room_count": len(infra_baseline),
+            "estimated_daily_waste_kwh": round(waste_total * 24 / 1000, 2),
+        }
+
+
+class EnergyCostPerOccupiedHourSensor(AggregationEntity, SensorEntity):
+    """Whole-house energy cost per occupied hour."""
+
+    _attr_native_unit_of_measurement = "USD/h"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_icon = "mdi:currency-usd"
+
+    def __init__(self, hass, entry):
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_energy_cost_per_occupied_hour"
+        self._attr_name = "Energy Cost Per Occupied Hour"
+
+    def _get_rate(self):
+        """Get effective electricity rate from energy coordinator."""
+        ec = _get_energy_coordinator(self.hass)
+        if ec and hasattr(ec, "tou_engine"):
+            return ec.tou_engine.get_effective_import_rate()
+        return 0.1  # Fallback
+
+    @property
+    def available(self):
+        """Only available when energy coordinator is active."""
+        return _get_energy_coordinator(self.hass) is not None
+
+    @property
+    def native_value(self):
+        rate = self._get_rate()
+        total_cost = 0.0
+        total_occupied_hours = 0.0
+        from homeassistant.util import dt as dt_util
+        now = dt_util.now()
+        for coord in _get_room_coordinators(self.hass):
+            if not coord.data or getattr(coord, "_infrastructure_room", False):
+                continue
+            # Compute cost from energy today * rate (coordinator doesn't store cost)
+            energy_kwh = coord.data.get(STATE_ENERGY_TODAY, 0) or 0
+            total_cost += energy_kwh * rate
+            # Estimate occupied hours from became_occupied_time
+            if coord.data.get(STATE_OCCUPIED, False) and hasattr(coord, "_became_occupied_time"):
+                if coord._became_occupied_time:
+                    elapsed = (now - coord._became_occupied_time).total_seconds() / 3600
+                    total_occupied_hours += min(elapsed, 24)
+        if total_occupied_hours < 0.1:
+            return None
+        return round(total_cost / total_occupied_hours, 4)
+
+    @property
+    def extra_state_attributes(self):
+        rate = self._get_rate()
+        rooms = []
+        from homeassistant.util import dt as dt_util
+        now = dt_util.now()
+        for coord in _get_room_coordinators(self.hass):
+            if not coord.data or getattr(coord, "_infrastructure_room", False):
+                continue
+            room_name = coord.entry.data.get("room_name", "Unknown")
+            energy_kwh = coord.data.get(STATE_ENERGY_TODAY, 0) or 0
+            cost = energy_kwh * rate
+            occupied_hours = 0.0
+            if hasattr(coord, "_became_occupied_time") and coord._became_occupied_time:
+                if coord.data.get(STATE_OCCUPIED, False):
+                    occupied_hours = min(
+                        (now - coord._became_occupied_time).total_seconds() / 3600, 24
+                    )
+            cost_per_hour = round(cost / occupied_hours, 4) if occupied_hours > 0.1 else None
+            rooms.append({
+                "room": room_name, "cost_today": round(cost, 4),
+                "occupied_hours": round(occupied_hours, 2),
+                "cost_per_hour": cost_per_hour,
+            })
+        rooms_ranked = sorted(
+            [r for r in rooms if r["cost_per_hour"] is not None],
+            key=lambda r: r["cost_per_hour"], reverse=True,
+        )
+        return {
+            "rooms": rooms_ranked,
+            "most_expensive_room": rooms_ranked[0]["room"] if rooms_ranked else None,
+            "most_efficient_room": rooms_ranked[-1]["room"] if rooms_ranked else None,
+        }
+
+
+class MostExpensiveCircuitSensor(AggregationEntity, SensorEntity):
+    """Top 5 circuits by cost today (SPAN + Emporia + manual)."""
+
+    _attr_native_unit_of_measurement = "USD"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_icon = "mdi:flash-alert"
+
+    def __init__(self, hass, entry):
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_most_expensive_circuits"
+        self._attr_name = "Most Expensive Circuits"
+
+    @property
+    def available(self):
+        """Only available when energy coordinator is active."""
+        return _get_energy_coordinator(self.hass) is not None
+
+    def _get_circuits(self):
+        """Get circuit data from energy coordinator."""
+        ec = _get_energy_coordinator(self.hass)
+        if ec is None or not hasattr(ec, "_circuits"):
+            return [], 0.0
+        if not ec._circuits._discovered:
+            return [], 0.0
+        circuits = []
+        rate = ec.tou_engine.get_effective_import_rate() if hasattr(ec, "tou_engine") else 0.1
+        for entity_id, circuit in ec._circuits._circuits.items():
+            energy_kwh = circuit.cumulative_energy_wh / 1000.0
+            cost = energy_kwh * rate
+            circuits.append({
+                "name": circuit.friendly_name,
+                "entity_id": entity_id,
+                "panel": circuit.panel,
+                "power_w": round(circuit.last_power or 0, 1),
+                "energy_today_kwh": round(energy_kwh, 3),
+                "cost_today": round(cost, 4),
+            })
+        return circuits, rate
+
+    @property
+    def native_value(self):
+        circuits, _ = self._get_circuits()
+        if not circuits:
+            return None
+        top = max(circuits, key=lambda c: c["cost_today"])
+        return round(top["cost_today"], 4)
+
+    @property
+    def extra_state_attributes(self):
+        circuits, _ = self._get_circuits()
+        top5 = sorted(circuits, key=lambda c: c["cost_today"], reverse=True)[:5]
+        return {
+            "top_circuits": top5,
+            "circuit_count": len(circuits),
+        }
+
+
+class OptimizationPotentialSensor(AggregationEntity, SensorEntity):
+    """Estimated daily savings from eliminating idle waste."""
+
+    _attr_native_unit_of_measurement = "USD/day"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_icon = "mdi:leaf"
+
+    def __init__(self, hass, entry):
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_optimization_potential"
+        self._attr_name = "Energy Optimization Potential"
+
+    @property
+    def available(self):
+        """Only available when energy coordinator is active."""
+        return _get_energy_coordinator(self.hass) is not None
+
+    @property
+    def native_value(self):
+        waste_watts = 0.0
+        for coord in _get_room_coordinators(self.hass):
+            if not coord.data or getattr(coord, "_infrastructure_room", False):
+                continue
+            if not coord.data.get(STATE_OCCUPIED, True):
+                power = coord.data.get(STATE_POWER_CURRENT, 0) or 0
+                if power > 5:
+                    waste_watts += power
+
+        ec = _get_energy_coordinator(self.hass)
+        rate = ec.tou_engine.get_effective_import_rate() if ec and hasattr(ec, "tou_engine") else 0.1
+        daily_kwh = waste_watts * 24 / 1000
+        return round(daily_kwh * rate, 4)
+
+    @property
+    def extra_state_attributes(self):
+        waste_rooms = []
+        for coord in _get_room_coordinators(self.hass):
+            if not coord.data or getattr(coord, "_infrastructure_room", False):
+                continue
+            if not coord.data.get(STATE_OCCUPIED, True):
+                power = coord.data.get(STATE_POWER_CURRENT, 0) or 0
+                if power > 5:
+                    room_name = coord.entry.data.get("room_name", "Unknown")
+                    waste_rooms.append({"room": room_name, "watts": round(power, 1)})
+
+        waste_rooms.sort(key=lambda r: r["watts"], reverse=True)
+        waste_total = sum(r["watts"] for r in waste_rooms)
+
+        ec = _get_energy_coordinator(self.hass)
+        rate = ec.tou_engine.get_effective_import_rate() if ec and hasattr(ec, "tou_engine") else 0.1
+        daily_kwh = waste_total * 24 / 1000
+        savings_day = daily_kwh * rate
+        suggestion = None
+        if waste_rooms:
+            top = waste_rooms[0]
+            suggestion = f"Turn off {top['room']} (drawing {top['watts']}W while vacant)"
+
+        return {
+            "waste_watts_total": round(waste_total, 1),
+            "savings_per_day": round(savings_day, 4),
+            "savings_per_month": round(savings_day * 30, 2),
+            "top_waste_rooms": waste_rooms[:3],
+            "actionable_suggestion": suggestion,
+        }
+
+
+class EnergyAnomalyBinarySensor(AggregationEntity, BinarySensorEntity):
+    """ON when any room draws significantly more than its learned power profile baseline.
+
+    Uses L1 power profiles (always learning). Does NOT require L2 occupancy toggle.
+    Occupancy-aware: compares against appropriate baseline for current state.
+    """
+
+    _attr_device_class = BinarySensorDeviceClass.PROBLEM
+    _attr_icon = "mdi:flash-alert-outline"
+
+    def __init__(self, hass, entry):
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_energy_anomaly"
+        self._attr_name = "Energy Anomaly"
+        self._cached_anomalies = []
+        self._cache_time = 0.0
+
+    @property
+    def available(self):
+        """Only available when energy coordinator has power profiles."""
+        ec = _get_energy_coordinator(self.hass)
+        return ec is not None and hasattr(ec, "_power_profiles")
+
+    def _get_anomalies(self):
+        """Check all rooms against their power profile baselines."""
+        ec = _get_energy_coordinator(self.hass)
+        if ec is None or not hasattr(ec, "_power_profiles"):
+            return []
+
+        from .domain_coordinators.energy_forecast import get_time_bin
+        from homeassistant.util import dt as dt_util
+
+        now = dt_util.now()
+        time_bin = get_time_bin(now.hour)
+        day_type = 1 if now.weekday() >= 5 else 0
+        anomalies = []
+
+        for coord in _get_room_coordinators(self.hass):
+            if not coord.data:
+                continue
+            room_name = coord.entry.data.get("room_name", "Unknown")
+            power = coord.data.get(STATE_POWER_CURRENT, 0) or 0
+            if power < 10:  # Ignore trivial draws
+                continue
+            is_occupied = coord.data.get(STATE_OCCUPIED, False)
+
+            baseline = ec._power_profiles.get_baseline_watts(
+                room_name, time_bin, day_type
+            )
+            if baseline is None or baseline < 5:
+                continue  # Not enough profile data
+
+            ratio = power / baseline
+            # Higher threshold for occupied rooms (more variability expected)
+            threshold = 3.0 if is_occupied else 2.0
+            if ratio > threshold:
+                anomalies.append({
+                    "room": room_name,
+                    "current_watts": round(power, 1),
+                    "expected_watts": round(baseline, 1),
+                    "ratio": round(ratio, 1),
+                    "is_occupied": is_occupied,
+                })
+
+        return anomalies
+
+    @property
+    def is_on(self):
+        # Cache anomalies for this tick (avoid computing twice per state write)
+        import time
+        now = time.monotonic()
+        if now - self._cache_time > 5:  # Refresh every 5s max
+            self._cached_anomalies = self._get_anomalies()
+            self._cache_time = now
+        return len(self._cached_anomalies) > 0
+
+    @property
+    def extra_state_attributes(self):
+        return {
+            "anomalies": self._cached_anomalies,
+            "anomaly_count": len(self._cached_anomalies),
+        }
 
 
 # ============================================================================

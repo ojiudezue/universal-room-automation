@@ -27,30 +27,18 @@
       },
       "energy_setup": {
         "title": "Energy Tracking Setup",
-        "description": "Configure energy sensors for whole-house tracking and predictions. These enable energy forecasts, cost predictions, and coverage analysis. All fields are optional - skip if you don't have these sensors.",
+        "description": "Configure energy sensors for whole-house tracking and energy attribution. All fields are optional.",
         "data": {
-          "solar_export_sensor": "Solar Export Sensor",
-          "grid_import_sensor": "Grid Import Sensor (Primary)",
-          "grid_import_sensor_2": "Grid Import Sensor (Secondary)",
-          "battery_level_sensor": "Battery Level Sensor",
-          "whole_house_power_sensors": "Whole House Power Sensors",
-          "whole_house_energy_sensors": "Whole House Energy Sensors",
-          "house_device_power_sensors": "House Device Power Sensors",
-          "house_device_energy_sensors": "House Device Energy Sensors",
-          "delivery_rate": "Delivery Rate ($/kWh)",
-          "export_reimbursement_rate": "Export Reimbursement Rate ($/kWh)"
+          "whole_house_power_sensors": "Whole House Power (Total Consumption)",
+          "whole_house_energy_sensors": "Whole House Energy (Total Daily kWh)",
+          "house_device_power_sensors": "Standalone Device Power (EV, Pool, Water Heater)",
+          "house_device_energy_sensors": "Standalone Device Energy (EV, Pool, Water Heater)"
         },
         "data_description": {
-          "solar_export_sensor": "Energy sensor tracking kWh exported to grid (e.g., from Enphase)",
-          "grid_import_sensor": "Primary grid import energy sensor (e.g., Enphase production meter)",
-          "grid_import_sensor_2": "Secondary grid import sensor if you have multiple meters (optional)",
-          "battery_level_sensor": "Battery state of charge percentage (e.g., Enphase battery)",
-          "whole_house_power_sensors": "Real-time whole house power sensors (watts). Select multiple for separate CTs.",
-          "whole_house_energy_sensors": "Cumulative whole house energy sensors (kWh). Select multiple for separate meters.",
-          "house_device_power_sensors": "Power sensors for house-level devices not in any room (EV chargers, pool pumps, water heaters)",
-          "house_device_energy_sensors": "Energy sensors for house-level devices not in any room",
-          "delivery_rate": "Fixed transmission/delivery cost per kWh (added to electricity rate)",
-          "export_reimbursement_rate": "Credit received per kWh exported to grid (net metering)"
+          "whole_house_power_sensors": "Total home power consumption sensors. Usually from main panel CTs (SPAN, Emporia mains). Select multiple for separate CTs.",
+          "whole_house_energy_sensors": "Total home energy consumption sensors (kWh cumulative). For daily tracking and cost prediction.",
+          "house_device_power_sensors": "Power sensors for standalone devices not assigned to rooms or zones — EV chargers, pool pumps, water heaters. Used in energy attribution.",
+          "house_device_energy_sensors": "Energy sensors (kWh) for standalone devices — EV chargers, pool pumps, water heaters. Used in energy attribution."
         }
       },
       "post_integration_setup": {
@@ -787,7 +775,12 @@
           "energy_excess_solar_kwh": "Excess Solar Forecast Threshold",
           "energy_grid_import_cap_enabled": "EV Grid Import Cap",
           "energy_grid_import_cap_kw": "Grid Import Cap (kW)",
-          "occupancy_weighted_energy": "Occupancy-Weighted Prediction"
+          "occupancy_weighted_energy": "Occupancy-Weighted Prediction",
+          "energy_circuit_extra_entities": "Additional Circuit Sensors",
+          "energy_circuit_autodiscover_span": "Auto-Discover SPAN Circuits",
+          "energy_generator_entity": "Generator Status Entity",
+          "energy_grid_import_entity": "Grid Import Sensor (Direct)",
+          "energy_grid_export_entity": "Grid Export Sensor (Direct)"
         },
         "data_description": {
           "energy_reserve_soc": "Minimum battery reserve percentage. Battery won't discharge below this level during normal operation. Default: 20%.",
@@ -826,7 +819,12 @@
           "energy_excess_solar_kwh": "Remaining solar forecast (kWh) above which excess solar triggers EV charging. Default: 5.0 kWh.",
           "energy_grid_import_cap_enabled": "Pause EV charging when total grid import exceeds the cap. Resumes when import drops below cap minus 1 kW hysteresis.",
           "energy_grid_import_cap_kw": "Maximum grid import in kW before pausing EV charging. Default: 8 kW.",
-          "occupancy_weighted_energy": "Use Bayesian occupancy predictions to weight energy consumption estimates by room occupancy patterns. Requires B1/B2 Bayesian data. Default: OFF."
+          "occupancy_weighted_energy": "Use Bayesian occupancy predictions to weight energy consumption estimates by room occupancy patterns. Requires B1/B2 Bayesian data. Default: OFF.",
+          "energy_circuit_extra_entities": "Additional power sensors to monitor as circuits (Emporia channels, Shelly EMs, balance sensors). Merged with auto-discovered circuits.",
+          "energy_circuit_autodiscover_span": "Automatically discover SPAN panel circuit sensors. Disable if you don't have SPAN panels. Default: ON.",
+          "energy_generator_entity": "Generator status sensor entity. Replaces default Generac entity.",
+          "energy_grid_import_entity": "Direct grid import power sensor (e.g., Emporia mains_from_grid). When set, used as primary source for cost tracking instead of Envoy net power.",
+          "energy_grid_export_entity": "Direct grid export power sensor (e.g., Emporia mains_to_grid). When set, used as primary source for export tracking."
         }
       },
       "coordinator_hvac": {
