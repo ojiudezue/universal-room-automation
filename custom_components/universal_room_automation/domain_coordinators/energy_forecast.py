@@ -55,6 +55,10 @@ class DailyEnergyPredictor:
         solcast_remaining_entity: str | None = None,
         weather_entity: str | None = None,
         battery_capacity_entity: str | None = None,
+        bayesian_predictor: Any | None = None,
+        power_profiles: Any | None = None,
+        room_ids: list[str] | None = None,
+        occupancy_enabled_fn: Any | None = None,
     ) -> None:
         """Initialize daily predictor."""
         self.hass = hass
@@ -63,6 +67,13 @@ class DailyEnergyPredictor:
         self._solcast_remaining_entity = solcast_remaining_entity or DEFAULT_SOLCAST_REMAINING_ENTITY
         self._weather_entity = weather_entity or DEFAULT_WEATHER_ENTITY
         self._battery_capacity_entity = battery_capacity_entity or DEFAULT_BATTERY_CAPACITY_ENTITY
+
+        # v4.1.1 B4 L2: Occupancy-weighted prediction
+        # bayesian_predictor is a callable (lazy lookup) to survive integration reloads
+        self._get_bayesian = bayesian_predictor if callable(bayesian_predictor) else lambda: bayesian_predictor
+        self._power_profiles = power_profiles
+        self._room_ids = room_ids or []
+        self._occupancy_enabled_fn = occupancy_enabled_fn
 
         # Today's prediction
         self._prediction_date: str = ""
@@ -256,7 +267,103 @@ class DailyEnergyPredictor:
                     temp_adjustment = 0.9
             adjusted = baseline * temp_adjustment
 
+        # v4.1.1 B4 L2: Occupancy-weighted blending (gated by toggle, off by default)
+        bayesian = self._get_bayesian() if self._get_bayesian else None
+        if (
+            self._occupancy_enabled_fn
+            and self._occupancy_enabled_fn()
+            and bayesian
+            and self._power_profiles
+        ):
+            occupancy_estimate = self._occupancy_weighted_estimate(now, bayesian)
+            if occupancy_estimate is not None:
+                weight = self._occupancy_blend_weight(bayesian)
+                if weight > 0:
+                    adjusted = adjusted * (1 - weight) + occupancy_estimate * weight
+
         return max(0.1, adjusted * self._adjustment_factor)
+
+    def _occupancy_weighted_estimate(self, now: datetime, bayesian: Any = None) -> float | None:
+        """Sum occupancy-weighted load across all rooms by time bin."""
+        if bayesian is None:
+            bayesian = self._get_bayesian() if self._get_bayesian else None
+        if bayesian is None:
+            return None
+
+        day_type = 1 if now.weekday() >= 5 else 0
+        rooms_kwh = 0.0
+        rooms_with_data = 0
+
+        for room_id in self._room_ids:
+            for time_bin in range(6):
+                hours_in_bin = BIN_HOURS[time_bin]
+                baseline_w = self._power_profiles.get_baseline_watts(
+                    room_id, time_bin, day_type)
+                if baseline_w is None:
+                    continue
+
+                p_occupied = bayesian.predict_room_occupancy(
+                    room_id, time_bin, day_type)
+                if p_occupied is None:
+                    p_occupied = 0.5  # No data — assume 50%
+
+                standby_w = self._power_profiles.get_standby_watts(room_id) or 0
+                weighted_w = standby_w + (baseline_w - standby_w) * p_occupied
+                rooms_kwh += weighted_w * hours_in_bin / 1000.0
+                rooms_with_data += 1
+
+        if rooms_with_data < 3:
+            return None  # Not enough room data to be useful
+        return rooms_kwh
+
+    def _occupancy_blend_weight(self, bayesian: Any = None) -> float:
+        """Higher weight when more Bayesian cells are ACTIVE."""
+        if bayesian is None:
+            bayesian = self._get_bayesian() if self._get_bayesian else None
+        if bayesian is None:
+            return 0.0
+        active = bayesian.count_active_cells()
+        total = bayesian.count_total_cells()
+        if total == 0:
+            _LOGGER.debug("Occupancy weighting enabled but no Bayesian cells yet")
+            return 0.0
+        maturity = active / total
+        return min(0.4, maturity * 0.5)
+
+    def _remaining_occupancy_weighted_consumption(self, now: datetime) -> float | None:
+        """Estimate remaining consumption today using occupancy-shaped curve."""
+        bayesian = self._get_bayesian() if self._get_bayesian else None
+        if not self._power_profiles or not bayesian:
+            return None
+
+        day_type = 1 if now.weekday() >= 5 else 0
+        current_bin = get_time_bin(now.hour)
+        remaining_kwh = 0.0
+        any_data = False
+
+        for room_id in self._room_ids:
+            for time_bin in range(current_bin, 6):
+                hours = BIN_HOURS[time_bin]
+                if time_bin == current_bin:
+                    # Partial bin — remaining hours
+                    bin_start = PROFILE_TIME_BINS[time_bin][0]
+                    bin_end = PROFILE_TIME_BINS[time_bin][1]
+                    elapsed = now.hour - bin_start + now.minute / 60.0
+                    hours = max(0, (bin_end - bin_start) - elapsed)
+
+                baseline_w = self._power_profiles.get_baseline_watts(
+                    room_id, time_bin, day_type)
+                if baseline_w is None:
+                    continue
+
+                p_occupied = bayesian.predict_room_occupancy(
+                    room_id, time_bin, day_type) or 0.5
+                standby_w = self._power_profiles.get_standby_watts(room_id) or 0
+                weighted_w = standby_w + (baseline_w - standby_w) * p_occupied
+                remaining_kwh += weighted_w * hours / 1000.0
+                any_data = True
+
+        return remaining_kwh if any_data else None
 
     def _get_battery_capacity_kwh(self) -> float:
         """Get battery capacity in kWh from Envoy, fallback to default."""
@@ -288,9 +395,19 @@ class DailyEnergyPredictor:
         remaining_capacity_kwh = total_capacity * (100 - soc) / 100.0
 
         # v3.14.0: Deduct remaining home consumption from available solar
-        hours_left = max(0, 20 - now.hour)  # consumption tapers by ~8 PM
-        daily_consumption = self._predicted_consumption_kwh or 30.0
-        remaining_consumption = daily_consumption * (hours_left / 24.0)
+        # v4.1.1 B4 L2: Use occupancy-shaped curve when enabled
+        remaining_consumption = None
+        if (
+            self._occupancy_enabled_fn
+            and self._occupancy_enabled_fn()
+        ):
+            remaining_consumption = self._remaining_occupancy_weighted_consumption(now)
+
+        if remaining_consumption is None:
+            # Flat fallback
+            hours_left = max(0, 20 - now.hour)
+            daily_consumption = self._predicted_consumption_kwh or 30.0
+            remaining_consumption = daily_consumption * (hours_left / 24.0)
         net_available_solar = remaining_forecast - remaining_consumption
 
         # Can we fill it with net available solar?

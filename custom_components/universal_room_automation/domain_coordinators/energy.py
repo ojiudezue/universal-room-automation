@@ -25,7 +25,7 @@ from .base import (
 from .energy_battery import BatteryStrategy
 from .energy_billing import CostTracker
 from .energy_circuits import GeneratorMonitor, SPANCircuitMonitor
-from .energy_forecast import AccuracyTracker, DailyEnergyPredictor
+from .energy_forecast import AccuracyTracker, DailyEnergyPredictor, RoomPowerProfile, get_time_bin
 from .energy_pool import EVChargerController, PoolOptimizer, SmartPlugController
 from .energy_const import (
     CONF_ENERGY_ARBITRAGE_ENABLED,
@@ -225,12 +225,23 @@ class EnergyCoordinator(BaseCoordinator):
         )
 
         # E5: Forecasting + prediction
+        # v4.1.1 B4 L2: Room power profiles + occupancy weighting
+        self._power_profiles = RoomPowerProfile()
+        # Runtime toggle — init from config, overridable by switch entity
+        self._occupancy_weighted = ec.get("occupancy_weighted_energy", False)
+        self._room_ids = self._collect_room_ids()
+
         weather_ent = (entity_config or {}).get(CONF_ENERGY_WEATHER_ENTITY)
         self._predictor = DailyEnergyPredictor(
             hass,
             battery_soc_entity=ec.get(CONF_ENERGY_BATTERY_SOC_ENTITY),
             weather_entity=weather_ent,
             battery_capacity_entity=ec.get(CONF_ENERGY_BATTERY_CAPACITY_ENTITY),
+            # v4.1.1: Lazy lookup — survives integration reloads
+            bayesian_predictor=lambda: hass.data.get(DOMAIN, {}).get("bayesian_predictor"),
+            power_profiles=self._power_profiles,
+            room_ids=self._room_ids,
+            occupancy_enabled_fn=lambda: self._occupancy_weighted,
         )
         self._accuracy = AccuracyTracker()
 
@@ -515,6 +526,7 @@ class EnergyCoordinator(BaseCoordinator):
         await self._restore_circuit_state()
         await self._restore_energy_baselines()
         await self._restore_consumption_history()
+        await self._restore_power_profiles()
         await self._restore_midnight_snapshot()
         await self._restore_envoy_cache()
         await self._restore_load_shedding_level()
@@ -700,6 +712,31 @@ class EnergyCoordinator(BaseCoordinator):
                 self._predictor.restore_consumption_history(rows)
         except Exception as e:
             _LOGGER.warning("Could not restore consumption history: %s", e)
+
+    async def _restore_power_profiles(self) -> None:
+        """Restore room power profiles from DB on startup."""
+        db = self.hass.data.get("universal_room_automation", {}).get("database")
+        if db is None:
+            return
+        try:
+            rows = await db.load_power_profiles()
+            if rows:
+                count = self._power_profiles.restore_from_rows(rows)
+                _LOGGER.info("Restored %d power profile rows from DB", count)
+        except Exception as e:
+            _LOGGER.warning("Could not restore power profiles: %s", e)
+
+    async def _save_power_profiles(self) -> None:
+        """Persist power profiles to DB."""
+        db = self.hass.data.get("universal_room_automation", {}).get("database")
+        if db is None:
+            return
+        try:
+            profiles = self._power_profiles.get_all_profiles()
+            if profiles:
+                await db.save_power_profiles(profiles)
+        except Exception as e:
+            _LOGGER.warning("Could not save power profiles: %s", e)
 
     async def _restore_midnight_snapshot(self) -> None:
         """Restore midnight snapshots + billing from DB on startup.
@@ -1583,6 +1620,9 @@ class EnergyCoordinator(BaseCoordinator):
             # E5: Sunrise refresh (re-predict with fresh Solcast after sunrise)
             self._predictor.refresh_at_sunrise()
 
+            # v4.1.1 B4 L2: Update room power profiles from room coordinator data
+            self._update_power_profiles()
+
             # E6: Fetch forecast temps (async service call, cached for property)
             await self._update_forecast_temps()
 
@@ -1601,6 +1641,11 @@ class EnergyCoordinator(BaseCoordinator):
                 self._last_peak_save_hour = current_hour
                 self._peak_import_dirty = False
                 await self._save_peak_import_history()
+
+            # v4.1.1 B4 L2: Persist power profiles hourly
+            if current_hour != getattr(self, "_last_profile_save_hour", -1):
+                self._last_profile_save_hour = current_hour
+                await self._save_power_profiles()
 
             # E6: HVAC constraint determination
             self._update_hvac_constraint(period)
@@ -2185,6 +2230,52 @@ class EnergyCoordinator(BaseCoordinator):
         avg_humidity = sum(humids) / len(humids) if humids else None
         return avg_temp, avg_humidity
 
+    def _update_power_profiles(self) -> None:
+        """Update room power profiles from room coordinator data."""
+        from ..const import DOMAIN, STATE_POWER_CURRENT, STATE_OCCUPIED
+        from ..coordinator import UniversalRoomCoordinator
+        from homeassistant.util import dt as dt_util
+
+        now = dt_util.now()
+        time_bin = get_time_bin(now.hour)
+        day_type = 1 if now.weekday() >= 5 else 0
+
+        try:
+            for key, value in self.hass.data.get(DOMAIN, {}).items():
+                if not isinstance(value, UniversalRoomCoordinator):
+                    continue
+                coord_data = value.data
+                if not coord_data:
+                    continue
+
+                room_id = value.entry.data.get("room_name", "unknown")
+                power = coord_data.get(STATE_POWER_CURRENT, 0)
+                is_occupied = coord_data.get(STATE_OCCUPIED, False)
+
+                if power is not None and power >= 0:
+                    self._power_profiles.update(
+                        room_id, time_bin, day_type, float(power), is_occupied
+                    )
+        except Exception as e:
+            _LOGGER.debug("Power profile update error: %s", e)
+
+    def _collect_room_ids(self) -> list[str]:
+        """Collect room names from room config entries.
+
+        Uses raw room_name (e.g. "Living Room") to match Bayesian predictor
+        format — the predictor stores room names as-is from room_transitions.
+        """
+        from ..const import DOMAIN, CONF_ENTRY_TYPE, ENTRY_TYPE_ROOM
+        room_ids = []
+        try:
+            for entry in self.hass.config_entries.async_entries(DOMAIN):
+                config = {**entry.data, **entry.options}
+                if config.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_ROOM:
+                    room_ids.append(config.get("room_name", entry.title))
+        except Exception:
+            pass
+        return room_ids
+
     def _get_rooms_energy_total(self) -> float | None:
         """Return sum of energy_today from all room coordinators."""
         from ..const import DOMAIN
@@ -2653,6 +2744,17 @@ class EnergyCoordinator(BaseCoordinator):
         _LOGGER.info("Energy Coordinator observation mode: %s", value)
 
     @property
+    def occupancy_weighted(self) -> bool:
+        """Whether occupancy-weighted prediction is active."""
+        return self._occupancy_weighted
+
+    @occupancy_weighted.setter
+    def occupancy_weighted(self, value: bool) -> None:
+        """Set occupancy-weighted prediction mode."""
+        self._occupancy_weighted = value
+        _LOGGER.info("Energy occupancy-weighted prediction: %s", value)
+
+    @property
     def delivery_rate(self) -> float:
         """Current delivery + transmission rate per kWh."""
         from .energy_const import PEC_FIXED_CHARGES
@@ -2762,5 +2864,7 @@ class EnergyCoordinator(BaseCoordinator):
             "envoy_unavailable_count": self._envoy_unavailable_count,
             "envoy_last_available": self._envoy_last_available,
             "observation_mode": self._observation_mode,
+            "occupancy_weighted": self._occupancy_weighted,
+            "power_profiles": self._power_profiles.get_status(),
             "evse_battery_hold": self._evse_battery_hold_active,
         }

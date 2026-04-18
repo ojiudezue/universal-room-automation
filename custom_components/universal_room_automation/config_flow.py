@@ -1,6 +1,6 @@
 """Config flow for Universal Room Automation v3.6.24."""
 #
-# Universal Room Automation vv4.1.0
+# Universal Room Automation vv4.1.1
 # Build: 2026-01-05
 # File: config_flow.py
 # v3.3.3: Added manage_zones to integration options menu
@@ -2726,6 +2726,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             CONF_ENERGY_GRID_IMPORT_CAP_KW,
             DEFAULT_GRID_IMPORT_CAP_KW,
         )
+        from .const import CONF_OCCUPANCY_WEIGHTED_ENERGY
 
         if user_input is not None:
             return self.async_create_entry(
@@ -3067,6 +3068,11 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     mode=selector.NumberSelectorMode.SLIDER,
                 )
             ),
+            # v4.1.1 B4 L2: Occupancy-weighted prediction toggle
+            vol.Optional(
+                CONF_OCCUPANCY_WEIGHTED_ENERGY,
+                default=self._get_current(CONF_OCCUPANCY_WEIGHTED_ENERGY, False),
+            ): selector.BooleanSelector(),
         })
 
         return self.async_show_form(

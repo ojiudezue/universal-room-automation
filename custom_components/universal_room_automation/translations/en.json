@@ -786,7 +786,8 @@
           "energy_excess_solar_soc": "Excess Solar SOC Threshold",
           "energy_excess_solar_kwh": "Excess Solar Forecast Threshold",
           "energy_grid_import_cap_enabled": "EV Grid Import Cap",
-          "energy_grid_import_cap_kw": "Grid Import Cap (kW)"
+          "energy_grid_import_cap_kw": "Grid Import Cap (kW)",
+          "occupancy_weighted_energy": "Occupancy-Weighted Prediction"
         },
         "data_description": {
           "energy_reserve_soc": "Minimum battery reserve percentage. Battery won't discharge below this level during normal operation. Default: 20%.",
@@ -824,7 +825,8 @@
           "energy_excess_solar_soc": "Battery SOC above which excess solar triggers EV charging. Default: 95%.",
           "energy_excess_solar_kwh": "Remaining solar forecast (kWh) above which excess solar triggers EV charging. Default: 5.0 kWh.",
           "energy_grid_import_cap_enabled": "Pause EV charging when total grid import exceeds the cap. Resumes when import drops below cap minus 1 kW hysteresis.",
-          "energy_grid_import_cap_kw": "Maximum grid import in kW before pausing EV charging. Default: 8 kW."
+          "energy_grid_import_cap_kw": "Maximum grid import in kW before pausing EV charging. Default: 8 kW.",
+          "occupancy_weighted_energy": "Use Bayesian occupancy predictions to weight energy consumption estimates by room occupancy patterns. Requires B1/B2 Bayesian data. Default: OFF."
         }
       },
       "coordinator_hvac": {

@@ -1,6 +1,6 @@
 """Data coordinator for Universal Room Automation."""
 #
-# Universal Room Automation vv4.1.0
+# Universal Room Automation vv4.1.1
 # Build: 2026-01-02
 # File: coordinator.py
 # v3.2.8: Support for active state change listeners in aggregation sensors
@@ -1432,7 +1432,13 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
             midnight_reset = now.date() > self._last_energy_reset.date()
 
             for sensor_id in energy_sensors:
-                current_value = self._get_sensor_value(sensor_id, 0)
+                state = self.hass.states.get(sensor_id)
+                if state is None or state.state in ("unknown", "unavailable"):
+                    continue  # Skip unavailable sensors — don't set baseline to 0
+                try:
+                    current_value = float(state.state)
+                except (ValueError, TypeError):
+                    continue
 
                 if midnight_reset or sensor_id not in self._energy_baselines_today:
                     self._energy_baselines_today[sensor_id] = current_value
