@@ -285,6 +285,7 @@ CONF_ENERGY_GRID_IMPORT_CAP_KW: Final = "energy_grid_import_cap_kw"
 CONF_ENERGY_CIRCUIT_INTEGRATIONS: Final = "energy_circuit_integrations"
 CONF_ENERGY_CIRCUIT_EXTRA_ENTITIES: Final = "energy_circuit_extra_entities"
 CONF_ENERGY_CIRCUIT_AUTODISCOVER_SPAN: Final = "energy_circuit_autodiscover_span"
+CONF_ENERGY_CIRCUIT_EXCLUDE_ENTITIES: Final = "energy_circuit_exclude_entities"
 CONF_ENERGY_GENERATOR_ENTITY: Final = "energy_generator_entity"
 
 # v4.2.0: Direct grid import/export sensors (e.g., Emporia mains)
