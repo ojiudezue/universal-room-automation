@@ -27,6 +27,7 @@ from .energy_billing import CostTracker
 from .energy_circuits import GeneratorMonitor, SPANCircuitMonitor
 from .energy_forecast import AccuracyTracker, DailyEnergyPredictor, RoomPowerProfile, get_time_bin
 from .energy_pool import EVChargerController, PoolOptimizer, SmartPlugController
+from ..const import DOMAIN as _DOMAIN  # v4.2.5: Module-level for lambda closures
 from .energy_const import (
     CONF_ENERGY_ARBITRAGE_ENABLED,
     CONF_ENERGY_ARBITRAGE_SOC_TARGET,
@@ -257,7 +258,7 @@ class EnergyCoordinator(BaseCoordinator):
             weather_entity=weather_ent,
             battery_capacity_entity=ec.get(CONF_ENERGY_BATTERY_CAPACITY_ENTITY),
             # v4.1.1: Lazy lookup — survives integration reloads
-            bayesian_predictor=lambda: hass.data.get(DOMAIN, {}).get("bayesian_predictor"),
+            bayesian_predictor=lambda: hass.data.get(_DOMAIN, {}).get("bayesian_predictor"),
             power_profiles=self._power_profiles,
             room_ids=self._room_ids,
             occupancy_enabled_fn=lambda: self._occupancy_weighted,
