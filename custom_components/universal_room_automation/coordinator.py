@@ -1,6 +1,6 @@
 """Data coordinator for Universal Room Automation."""
 #
-# Universal Room Automation vv4.2.5
+# Universal Room Automation vv4.2.6
 # Build: 2026-01-02
 # File: coordinator.py
 # v3.2.8: Support for active state change listeners in aggregation sensors
@@ -158,6 +158,9 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         room_type = merged_config.get("room_type", "generic")
         self._infrastructure_room: bool = (room_type == "infrastructure")
 
+        # v4.2.6: Shared timestamp for deferring first-cycle DB operations
+        _now = dt_util.now()
+
         # Sensor unavailability grace: hold state if all sensors go unavailable
         self._all_sensors_unavailable_since: datetime | None = None
         self._unavail_grace_seconds: int = 60
@@ -173,7 +176,8 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         self._failsafe_fired: bool = False
 
         # v3.20.0: Room state DB backup throttle
-        self._last_room_state_save: datetime | None = None
+        # v4.2.6: Initialize to now() — room state was just restored from DB, no need to save immediately
+        self._last_room_state_save: datetime = _now
 
         # v3.22.12: Skip automation on first refresh to prevent false entry
         # triggers on reload/restart. Cleared after the first _async_update_data.
@@ -184,7 +188,8 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         self._trailing_refresh_unsub = None  # Cancel handle for trailing-edge refresh
 
         # v4.0.10: Phase 3 prediction/energy query cache (5-minute TTL)
-        self._last_prediction_query: datetime | None = None
+        # v4.2.6: Initialize to now() to defer first-cycle reads (5 reads/room × 31 rooms = 155 reads)
+        self._last_prediction_query: datetime = _now
         self._cached_predictions: dict = {}
 
         # Exit verify tracking (for automation health sensor)
@@ -213,8 +218,11 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         self._last_month_reset = dt_util.now().replace(day=1)
         
         # Environmental data logging
-        self._last_env_log = None
-        self._last_energy_log = None
+        # v4.2.6: Initialize to now() so first-cycle writes are deferred to 5-min mark.
+        # Prevents 31 rooms × 3 writes + 5 reads = 248 ops flooding the DB at startup.
+        # Loses ~5 min of env/energy data after restart — trivial gap for a continuous system.
+        self._last_env_log = _now
+        self._last_energy_log = _now
         
         # Automation tracking
         self._last_trigger_source = None  # "motion", "presence", "door"

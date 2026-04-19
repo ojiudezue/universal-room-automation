@@ -1,0 +1,18 @@
+{
+  "format_version": "2.1",
+  "project_name": "Universal Room Automation",
+  "verbosity": "standard",
+  "narrative_target_words": 1200,
+  "narrative_hard_ceiling": 2000,
+  "narrative_version_threshold": 1500,
+  "narrative_min_useful": 200,
+  "auto_narrative_on_commit": false,
+  "auto_narrative_loop_minutes": null,
+  "narrative_generation": "manual",
+  "heuristic_fallback": true,
+  "categories": [
+    "architecture", "stack", "product",
+    "security", "deployment", "data_model",
+    "process"
+  ]
+}
