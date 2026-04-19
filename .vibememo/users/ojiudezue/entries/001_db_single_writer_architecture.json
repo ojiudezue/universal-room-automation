@@ -1,0 +1,63 @@
+{
+  "format_version": "2.0",
+  "entry_id": "001",
+  "author": "ojiudezue",
+  "session_id": "claude_20260419_120000_b4f2",
+  "timestamp": "2026-04-19T12:00:00Z",
+  "type": "decision",
+  "weight": "critical",
+
+  "title": "DB single-writer queue architecture: why it exists and why adding writers would break things",
+  "summary": "URA uses a single-threaded asyncio write worker with one persistent SQLite connection. All writes are serialized through an asyncio.Queue. Reads use independent transient connections via WAL mode. This was chosen in v3.22.8 after repeated 'database is locked' errors from concurrent writes. The architecture is correct for SQLite — adding writers would reintroduce the contention it eliminated.",
+
+  "decisions": [
+    {
+      "id": "001.1",
+      "category": "architecture",
+      "decision": "Single write worker with asyncio.Queue for all DB writes. Reads on independent transient connections.",
+      "alternatives_considered": [
+        "Multiple write workers (2-3 concurrent connections) — rejected: SQLite only allows one writer at a time, multiple connections just contend for the lock",
+        "Connection pool (aiosqlite pool) — rejected: same lock contention issue, plus pool management overhead",
+        "Write batching in the worker (group multiple writes into one transaction) — deferred: would help throughput but adds complexity to the queue protocol",
+        "Separate DB per subsystem (energy, presence, rooms) — rejected: cross-query joins needed for analytics, multiplies backup/migration complexity"
+      ],
+      "why": "SQLite fundamentally allows only one writer at a time. Before v3.22.8, 25+ rooms writing concurrently caused 'database is locked' errors (v3.18.4). The single-worker queue mirrors SQLite's actual constraint — serialize writes in application code rather than fighting the database's lock. WAL mode separates reads from writes so reads are never blocked. The architecture evolved through v3.22.8 (initial queue), v3.22.9 (crash recovery), v3.22.10 (idempotent start), v3.22.11 (timeout guards), v4.0.17 (race fix).",
+      "implications": "The startup contention issue (31 rooms × 3 writes = 93 writes in 3 seconds) is a demand problem, not an architecture problem. The fix is to reduce demand at startup (defer non-critical first-cycle writes, stagger room refresh) rather than adding parallelism. Any proposal to add write workers or connection pools should be rejected unless we move off SQLite entirely.",
+      "confidence": "high",
+      "revisit_trigger": "If URA moves from SQLite to a server-based DB (PostgreSQL, etc.) that supports true concurrent writes. Or if the write worker becomes a bottleneck during steady-state operation (not just startup). Currently steady-state is ~1 write/sec average, well within capacity."
+    },
+    {
+      "id": "001.2",
+      "category": "architecture",
+      "decision": "Startup DB contention should be solved by reducing write demand, not changing the writer architecture",
+      "alternatives_considered": [
+        "Priority 1: Defer non-critical first-cycle writes (set _last_env_log and _last_energy_log to 'now' in __init__ so first write happens at 5-min mark, not immediately) — 3 lines, zero risk, drops startup writes from 93 to 31",
+        "Priority 2: Stagger first_refresh with semaphore + delay between rooms — 10 lines, medium risk (adds 15s to total startup), drops queue peak from 31 to 1-2",
+        "Priority 3: Batch room state saves into single transaction — 20 lines, high risk (changes write ownership pattern), 30% fewer operations",
+        "Priority 4: Increase startup timeout from 35s to 60s — masks the problem, rejected"
+      ],
+      "why": "The 35s timeout fires because 93+ writes queue up while the event loop is saturated with 31 coordinator initializations. The worker processes writes fast (sub-ms each) but can't get scheduled when the event loop is busy. Reducing writes from 93 to 31 (Priority 1) may eliminate timeouts entirely. If not, staggering (Priority 2) spreads the remaining writes over 15s instead of 3s. Priority 3 is architecturally cleaner but changes the per-room ownership model which has been stable since v3.20.0.",
+      "implications": "Priority 1 loses 5 minutes of environmental/energy data after each restart — 10 data points per room, trivial gap in a system that runs continuously. Priority 2 adds 15s to startup but eliminates all thundering herd effects. Both are safe and reversible.",
+      "confidence": "high",
+      "revisit_trigger": "If Priority 1 alone doesn't eliminate startup timeouts. Monitor queue_peak in DB stats after deploying."
+    }
+  ],
+
+  "refs": {
+    "what_prompted_this": "v4.2.3 deployment caused 15-minute HA startup times and DB write worker timeouts. Investigation revealed the single-writer architecture is correct but startup demand is too high.",
+    "tools_in_use": ["claude_code"],
+    "files_affected": [
+      "custom_components/universal_room_automation/database.py",
+      "custom_components/universal_room_automation/coordinator.py",
+      "custom_components/universal_room_automation/__init__.py"
+    ],
+    "related_entries": [],
+    "commits": [
+      "bf909e7 — v3.22.8: DB write queue: single-worker eliminates all write contention",
+      "357066c — v3.22.9: DB write queue hardening: crash recovery + fail-fast + query_only reads",
+      "2086f79 — v3.22.10: Fix multiple write workers: idempotent start + race-safe DB init",
+      "697425f — v3.22.11: DB write queue review fixes: timeout guards + init order + race safety",
+      "1451d1a — v4.0.17: DB write worker race fix + review hardening"
+    ]
+  }
+}
