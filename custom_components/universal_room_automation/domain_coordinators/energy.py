@@ -345,7 +345,11 @@ class EnergyCoordinator(BaseCoordinator):
         # Cross-check: last logged divergence (avoid log spam)
         self._last_crosscheck_hour: int = -1
         # Throttle peak import DB saves to once per hour
-        self._last_peak_save_hour: int = -1
+        # v4.2.6: Initialize to current hour to defer first-cycle write (was -1)
+        from homeassistant.util import dt as _dt_util
+        _current_hour = _dt_util.now().hour
+        self._last_peak_save_hour: int = _current_hour
+        self._last_profile_save_hour: int = _current_hour
         self._peak_import_dirty: bool = False
 
         # v3.13.2+: MetricBaselines for learned anomaly detection

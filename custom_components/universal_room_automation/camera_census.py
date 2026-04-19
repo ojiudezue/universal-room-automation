@@ -692,6 +692,8 @@ class PersonCensus:
         self._camera_manager = camera_manager
         self._last_result: FullCensusResult | None = None
         self._update_lock = asyncio.Lock()
+        # v4.2.6: Defer census DB writes during startup to reduce write queue contention
+        self._created_at: datetime = dt_util.now()
 
         # v3.10.1 Census v2: hold/decay state
         self._peak_house_camera_count: int = 0
@@ -807,8 +809,10 @@ class PersonCensus:
         )
 
         # D5: Log census snapshots to database
+        # v4.2.6: Skip DB writes during startup grace period (5 min)
+        startup_age = (dt_util.now() - self._created_at).total_seconds()
         db = self.hass.data.get(DOMAIN, {}).get("database")
-        if db is not None:
+        if db is not None and startup_age >= 300:
             self.hass.async_create_task(
                 db.log_census(zone="house", result=house_result)
             )
