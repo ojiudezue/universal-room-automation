@@ -844,7 +844,8 @@
           "hvac_arrester_enabled": "Override Arrester",
           "hvac_ac_reset_enabled": "AC Reset",
           "zone_vacancy_sweep_enabled": "Zone Vacancy Sweep",
-          "pre_arrival_sources": "Pre-Arrival Trigger Sources"
+          "pre_arrival_sources": "Pre-Arrival Trigger Sources",
+          "hvac_zone_entry_dwell": "Zone Entry Dwell"
         },
         "data_description": {
           "hvac_max_sleep_offset": "How much to relax the cooling setpoint during sleep. Higher = more energy savings, less cooling at night.",
@@ -858,7 +859,8 @@
           "hvac_arrester_enabled": "Detect and revert manual thermostat overrides that conflict with URA presets.",
           "hvac_ac_reset_enabled": "Cycle the thermostat off briefly when a stuck cooling/heating cycle is detected. Disable if AC reset is causing issues. The thermostat has its own compressor protection.",
           "zone_vacancy_sweep_enabled": "Turn off lights and fans in zones after they become vacant. Runs after the vacancy grace period expires. Disable to keep lights/fans running when zones empty.",
-          "pre_arrival_sources": "Which detection methods trigger zone pre-conditioning when a person arrives home. Geofence uses phone GPS; BLE uses Bluetooth proximity beacons; Camera Face uses Frigate/UniFi face recognition for instant confirmation."
+          "pre_arrival_sources": "Which detection methods trigger zone pre-conditioning when a person arrives home. Geofence uses phone GPS; BLE uses Bluetooth proximity beacons; Camera Face uses Frigate/UniFi face recognition for instant confirmation.",
+          "hvac_zone_entry_dwell": "Minutes a zone must be occupied before switching from away to home preset. Prevents HVAC from conditioning zones when someone just walks through briefly. Only applies when the house is already occupied — has no effect on arrival from away. Set to 0 to disable. Default: 3."
         }
       },
       "coordinator_music_following": {

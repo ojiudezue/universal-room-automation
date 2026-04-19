@@ -1,6 +1,6 @@
 """Config flow for Universal Room Automation v3.6.24."""
 #
-# Universal Room Automation vv4.2.1
+# Universal Room Automation vv4.2.2
 # Build: 2026-01-05
 # File: config_flow.py
 # v3.3.3: Added manage_zones to integration options menu
@@ -3093,6 +3093,8 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             CONF_ZONE_VACANCY_SWEEP_ENABLED,
             CONF_PRE_ARRIVAL_SOURCES,
             DEFAULT_PRE_ARRIVAL_SOURCES,
+            CONF_HVAC_ZONE_ENTRY_DWELL,
+            DEFAULT_ZONE_ENTRY_DWELL_MINUTES,
         )
 
         if user_input is not None:
@@ -3202,6 +3204,17 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     ],
                     multiple=True,
                     mode=selector.SelectSelectorMode.LIST,
+                )
+            ),
+            # v4.2.2: Zone entry dwell
+            vol.Optional(
+                CONF_HVAC_ZONE_ENTRY_DWELL,
+                default=self._get_current(CONF_HVAC_ZONE_ENTRY_DWELL, DEFAULT_ZONE_ENTRY_DWELL_MINUTES),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0, max=15, step=1,
+                    unit_of_measurement="min",
+                    mode=selector.NumberSelectorMode.SLIDER,
                 )
             ),
         }

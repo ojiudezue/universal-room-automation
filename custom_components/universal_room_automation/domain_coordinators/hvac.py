@@ -32,6 +32,7 @@ from .hvac_const import (
     DEFAULT_MAX_OCCUPANCY_HOURS,
     DEFAULT_VACANCY_GRACE_CONSTRAINED,
     DEFAULT_VACANCY_GRACE_MINUTES,
+    DEFAULT_ZONE_ENTRY_DWELL_MINUTES,
     DUTY_CYCLE_COAST,
     DUTY_CYCLE_SHED,
     DUTY_CYCLE_WINDOW_SECONDS,
@@ -85,6 +86,7 @@ class HVACCoordinator(BaseCoordinator):
         vacancy_grace: int = DEFAULT_VACANCY_GRACE_MINUTES,
         vacancy_grace_constrained: int = DEFAULT_VACANCY_GRACE_CONSTRAINED,
         max_occupancy_hours: int = DEFAULT_MAX_OCCUPANCY_HOURS,
+        zone_entry_dwell: int = DEFAULT_ZONE_ENTRY_DWELL_MINUTES,
         person_zone_map: dict[str, list[str]] | None = None,  # Deprecated: map now built internally from zone_persons config
         net_power_entity: str | None = None,
         fan_control_enabled: bool = True,
@@ -146,6 +148,7 @@ class HVACCoordinator(BaseCoordinator):
         self._vacancy_grace = vacancy_grace
         self._vacancy_grace_constrained = vacancy_grace_constrained
         self._max_occupancy_hours = max_occupancy_hours
+        self._zone_entry_dwell = zone_entry_dwell
         self._person_zone_map: dict[str, list[str]] = person_zone_map or {}
         self._last_good_person_zone_map: dict[str, list[str]] = {}
         self._pre_arrival_zones: set[str] = set()
@@ -700,6 +703,21 @@ class HVACCoordinator(BaseCoordinator):
                 # D5: Duty cycle enforcement (skip during sleep — RH4)
                 if zone.runtime_exceeded and self._house_state != "sleep":
                     effective_preset = "away"
+
+                # v4.2.2: Zone entry dwell — prevent preset flapping on brief transits
+                # Only when house is already occupied and zone just became occupied.
+                # Skip dwell for pre-arrival zones (pre-arrival already conditioned them).
+                dwell_minutes = self._zone_entry_dwell
+                if (
+                    dwell_minutes > 0
+                    and self._house_state in ("home_day", "home_evening", "home_night", "guest", "waking")
+                    and zone.any_room_occupied
+                    and zone.current_session_start is not None
+                    and (now - zone.current_session_start).total_seconds() < dwell_minutes * 60
+                    and zone_id not in self._pre_arrival_zones
+                    and effective_preset != "away"  # Don't block vacancy overrides
+                ):
+                    continue  # Skip — dwell not met, keep current preset
 
             # --- Determine if preset change is needed ---
             # Bypass should_change_preset() manual guard for vacancy (RH3 fix)
