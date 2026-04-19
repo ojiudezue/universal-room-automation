@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv4.2.1
+# Universal Room Automation vv4.2.2
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -1409,6 +1409,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         CONF_HVAC_VACANCY_GRACE_MINUTES,
                         CONF_HVAC_VACANCY_GRACE_CONSTRAINED,
                         CONF_HVAC_MAX_OCCUPANCY_HOURS,
+                        CONF_HVAC_ZONE_ENTRY_DWELL,
                         DEFAULT_MAX_SLEEP_OFFSET,
                         DEFAULT_COMPROMISE_MINUTES,
                         DEFAULT_AC_RESET_TIMEOUT,
@@ -1422,6 +1423,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         DEFAULT_VACANCY_GRACE_MINUTES,
                         DEFAULT_VACANCY_GRACE_CONSTRAINED,
                         DEFAULT_MAX_OCCUPANCY_HOURS,
+                        DEFAULT_ZONE_ENTRY_DWELL_MINUTES,
                     )
 
                     hvac = HVACCoordinator(
@@ -1458,6 +1460,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         )),
                         max_occupancy_hours=int(cm_config.get(
                             CONF_HVAC_MAX_OCCUPANCY_HOURS, DEFAULT_MAX_OCCUPANCY_HOURS
+                        )),
+                        zone_entry_dwell=int(cm_config.get(
+                            CONF_HVAC_ZONE_ENTRY_DWELL, DEFAULT_ZONE_ENTRY_DWELL_MINUTES
                         )),
                         person_zone_map=None,
                         net_power_entity=energy_entity_config.get(

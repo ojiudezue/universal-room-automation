@@ -1,6 +1,6 @@
 """Number platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.2.1
+# Universal Room Automation vv4.2.2
 # Build: 2026-01-02
 # File: number.py
 #
@@ -10,15 +10,19 @@ import logging
 from homeassistant.components.number import NumberEntity, NumberMode
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
+from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.const import UnitOfTemperature, UnitOfTime, PERCENTAGE
 
 from .const import (
     DOMAIN,
+    CONF_ENTRY_TYPE,
+    ENTRY_TYPE_COORDINATOR_MANAGER,
     COMFORT_TEMP_MIN,
     COMFORT_TEMP_MAX,
     COMFORT_HUMIDITY_MAX,
     DEFAULT_OCCUPANCY_TIMEOUT,
+    VERSION,
 )
 from .coordinator import UniversalRoomCoordinator
 from .entity import UniversalRoomEntity
@@ -32,15 +36,27 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up Universal Room Automation number entities."""
+    # v4.2.2: Coordinator Manager entry gets HVAC number entities
+    if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_COORDINATOR_MANAGER:
+        entities = [
+            ZoneEntryDwellNumber(hass, entry),
+        ]
+        async_add_entities(entities)
+        _LOGGER.info("Set up %d CM number entities", len(entities))
+        return
+
+    if entry.entry_id not in hass.data.get(DOMAIN, {}):
+        return
+
     coordinator: UniversalRoomCoordinator = hass.data[DOMAIN][entry.entry_id]
-    
+
     entities = [
         TimeoutOverrideNumber(coordinator),
         ComfortTempMinNumber(coordinator),
         ComfortTempMaxNumber(coordinator),
         ComfortHumidityMaxNumber(coordinator),
     ]
-    
+
     async_add_entities(entities)
     _LOGGER.info(
         "Set up %d number entities for room: %s",
@@ -191,3 +207,72 @@ class ComfortHumidityMaxNumber(UniversalRoomEntity, NumberEntity):
             value,
             self.coordinator.entry.data.get("room_name")
         )
+
+
+class ZoneEntryDwellNumber(NumberEntity):
+    """Configurable zone entry dwell time on HVAC Coordinator device.
+
+    Minutes a zone must be occupied before switching from away to home preset.
+    Prevents HVAC flapping when someone briefly transits through a zone.
+    Only applies when the house is already occupied.
+
+    Entity: number.ura_hvac_coordinator_zone_entry_dwell
+    v4.2.2
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:timer-sand"
+    _attr_native_min_value = 0
+    _attr_native_max_value = 15
+    _attr_native_step = 1
+    _attr_native_unit_of_measurement = UnitOfTime.MINUTES
+    _attr_mode = NumberMode.SLIDER
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .domain_coordinators.hvac_const import (
+            DEFAULT_ZONE_ENTRY_DWELL_MINUTES,
+            CONF_HVAC_ZONE_ENTRY_DWELL,
+        )
+        self.hass = hass
+        self._entry = entry
+        self._attr_unique_id = f"{DOMAIN}_hvac_zone_entry_dwell"
+        self._attr_name = "Zone Entry Dwell"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "hvac_coordinator")},
+            name="URA: HVAC Coordinator",
+            manufacturer="Universal Room Automation",
+            model="HVAC Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+        config = {**entry.data, **entry.options}
+        self._value = config.get(CONF_HVAC_ZONE_ENTRY_DWELL, DEFAULT_ZONE_ENTRY_DWELL_MINUTES)
+
+    def _get_hvac(self):
+        """Get the HVAC coordinator instance."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        return manager.coordinators.get("hvac")
+
+    @property
+    def native_value(self) -> float:
+        """Return current dwell value."""
+        return self._value
+
+    @property
+    def available(self) -> bool:
+        """Only available when HVAC coordinator is active."""
+        return self._get_hvac() is not None
+
+    async def async_set_native_value(self, value: float) -> None:
+        """Set new dwell value — takes effect on next HVAC decision cycle."""
+        self._value = int(value)
+        hvac = self._get_hvac()
+        if hvac is not None:
+            hvac._zone_entry_dwell = int(value)
+        self.async_write_ha_state()
+        _LOGGER.info("Zone entry dwell set to %d minutes", int(value))

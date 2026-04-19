@@ -64,6 +64,8 @@ DEFAULT_FAN_CONTROL_ENABLED: Final = True
 DEFAULT_VACANCY_GRACE_MINUTES: Final = 15  # Normal grace period
 DEFAULT_VACANCY_GRACE_CONSTRAINED: Final = 5  # Grace during energy coast/shed
 DEFAULT_MAX_OCCUPANCY_HOURS: Final = 8  # Stale sensor failsafe threshold
+DEFAULT_ZONE_ENTRY_DWELL_MINUTES: Final = 3  # v4.2.2: Min occupancy before preset change
+CONF_HVAC_ZONE_ENTRY_DWELL: Final = "hvac_zone_entry_dwell"  # Config key
 
 # v3.17.0: Solar banking
 SOLAR_BANK_SOC_MIN: Final = 95  # % — battery must be effectively full

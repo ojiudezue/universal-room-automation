@@ -91,6 +91,9 @@ class ZoneState:
     # D6: Max-occupancy-duration failsafe
     continuous_occupied_since: datetime | None = None
 
+    # v4.2.2: Zone entry dwell — when current occupancy session started
+    current_session_start: datetime | None = None
+
     @property
     def any_room_occupied(self) -> bool:
         """Return True if any room in this zone is occupied."""
@@ -409,8 +412,12 @@ class ZoneManager:
                 # D6: Track continuous occupancy
                 if zone.continuous_occupied_since is None:
                     zone.continuous_occupied_since = now
+                # v4.2.2: Track current session start for entry dwell
+                if zone.current_session_start is None:
+                    zone.current_session_start = now
             else:
                 zone.continuous_occupied_since = None
+                zone.current_session_start = None  # Reset on vacancy
 
     def get_zone_status_attrs(self, zone_id: str) -> dict[str, Any]:
         """Return rich attribute dict for a zone status sensor."""
