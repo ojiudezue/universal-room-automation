@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv4.2.3
+# Universal Room Automation vv4.2.4
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -86,7 +86,6 @@ INTEGRATION_PLATFORMS: list[Platform] = [
     Platform.SELECT,
     Platform.SWITCH,  # v3.6.0-c2.5: DomainCoordinatorsSwitch, CoordinatorEnabledSwitch
     Platform.BUTTON,  # v4.0.0-B1: ClearBayesianBeliefsButton + NMAcknowledgeButton
-    Platform.NUMBER,  # v4.2.2: ZoneEntryDwellNumber on HVAC Coordinator
 ]
 
 
@@ -1647,7 +1646,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         )
 
         # Forward sensor/binary_sensor platforms — coordinator sensors created here
-        await hass.config_entries.async_forward_entry_setups(entry, INTEGRATION_PLATFORMS)
+        # v4.2.3: CM also gets number platform for ZoneEntryDwellNumber
+        cm_platforms = list(INTEGRATION_PLATFORMS) + [Platform.NUMBER]
+        await hass.config_entries.async_forward_entry_setups(entry, cm_platforms)
 
         entry.async_on_unload(entry.add_update_listener(_async_update_listener))
         _LOGGER.info("Coordinator Manager entry setup complete")
@@ -1919,7 +1920,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # v3.6.0: Handle Coordinator Manager entry unload
     if entry_type == ENTRY_TYPE_COORDINATOR_MANAGER:
-        unload_ok = await hass.config_entries.async_unload_platforms(entry, INTEGRATION_PLATFORMS)
+        cm_platforms = list(INTEGRATION_PLATFORMS) + [Platform.NUMBER]
+        unload_ok = await hass.config_entries.async_unload_platforms(entry, cm_platforms)
         return unload_ok
 
     # v3.3.2: Handle legacy zone entry unload (deprecated)
