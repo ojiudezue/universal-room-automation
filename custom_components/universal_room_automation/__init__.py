@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv4.2.2
+# Universal Room Automation vv4.2.3
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -86,6 +86,7 @@ INTEGRATION_PLATFORMS: list[Platform] = [
     Platform.SELECT,
     Platform.SWITCH,  # v3.6.0-c2.5: DomainCoordinatorsSwitch, CoordinatorEnabledSwitch
     Platform.BUTTON,  # v4.0.0-B1: ClearBayesianBeliefsButton + NMAcknowledgeButton
+    Platform.NUMBER,  # v4.2.2: ZoneEntryDwellNumber on HVAC Coordinator
 ]
 
 
