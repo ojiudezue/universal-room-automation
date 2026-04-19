@@ -158,8 +158,10 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         room_type = merged_config.get("room_type", "generic")
         self._infrastructure_room: bool = (room_type == "infrastructure")
 
-        # v4.2.6: Shared timestamp for deferring first-cycle DB operations
-        _now = dt_util.now()
+        # v4.2.6: Shared timestamp for deferring first-cycle DB operations.
+        # Add per-room jitter (0-60s) so 31 rooms don't all hit the 5-min mark
+        # simultaneously and recreate the thundering herd.
+        _now = dt_util.now() - timedelta(seconds=random.uniform(0, 60))
 
         # Sensor unavailability grace: hold state if all sensors go unavailable
         self._all_sensors_unavailable_since: datetime | None = None

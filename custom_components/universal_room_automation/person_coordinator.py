@@ -94,7 +94,8 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
         
         # D6+D7: DB visit tracking for person entry/exit/snapshot logging
         self._active_visit_ids: dict[str, int] = {}  # person_name -> visit_id
-        self._last_snapshot_time: datetime | None = None
+        # v4.2.6: Defer first snapshot to reduce startup DB contention
+        self._last_snapshot_time: datetime = dt_util.now()
         self._SNAPSHOT_INTERVAL_SECONDS = 900  # 15 minutes
 
         # v3.18.6: BLE pre-arrival detection state
