@@ -1,0 +1,44 @@
+{
+  "format_version": "2.0",
+  "entry_id": "002",
+  "author": "ojiudezue",
+  "session_id": "claude_20260419_120000_b4f2",
+  "timestamp": "2026-04-19T14:00:00Z",
+  "type": "decision",
+  "weight": "significant",
+
+  "title": "Accept 10-minute DB write warmup period after restart; defer deeper fixes to backlog",
+  "summary": "After v4.2.6 startup deferral + jitter, DB write worker timeouts reduced from t=0 (immediate, 15-min HA startup) to t=5min (burst at deferred mark, 10-min warmup). System stabilizes fully after ~10 minutes. Accepting this as the current steady state. Deeper fixes (non-blocking writes, write batching, larger jitter) deferred to backlog as tech debt.",
+
+  "decisions": [
+    {
+      "id": "002.1",
+      "category": "architecture",
+      "decision": "Accept 10-minute startup warmup with transient DB write timeouts as current behavior",
+      "alternatives_considered": [
+        "Option A: Increase jitter window from 60s to 240s — spreads writes more but some rooms write during early startup contention. Partial fix, diminishing returns.",
+        "Option B (chosen): Accept current state. Errors are transient, non-destructive, self-healing. No user-facing impact after 10 minutes.",
+        "Option C: Non-blocking fire-and-forget writes — callers don't await the write queue. Eliminates timeouts entirely but changes the write ownership model and error handling. Medium-risk architectural change.",
+        "Option D: Write batching — group multiple writes into single transactions. Reduces write count by ~70% but requires a coordinator-level batch timer. High-risk architectural change.",
+        "Option E: Increase 35s timeout to 120s during startup — masks the problem, rejected."
+      ],
+      "why": "The system stabilizes after 10 minutes. The transient errors at t=5min are caused by 31 rooms' deferred writes converging within a 60s window plus census grace expiry plus midnight snapshot catch-up. The write worker processes all queued writes — they complete, just after the caller's 35s timeout fires. No data is lost. No user-facing impact. Further optimization requires architectural changes to the write queue (non-blocking or batching) that carry real risk for diminishing returns on a problem that only manifests during restart.",
+      "implications": "Users will see 5-10 DB write timeout errors in the log after every HA restart. These are harmless but look alarming. Should be documented in a known-issues section. If the room count grows significantly (50+), the warmup period will lengthen and deeper fixes will be needed.",
+      "confidence": "medium-high",
+      "revisit_trigger": "If room count exceeds 40, if warmup period exceeds 15 minutes, if DB write timeouts occur during steady-state operation (not just startup), or if a user reports HA unresponsiveness lasting more than 10 minutes after restart."
+    }
+  ],
+
+  "refs": {
+    "what_prompted_this": "v4.2.6 deferral reduced startup contention but 5-minute mark still shows write timeouts. After analysis, determined remaining errors are transient and self-healing.",
+    "tools_in_use": ["claude_code"],
+    "files_affected": [
+      "custom_components/universal_room_automation/coordinator.py",
+      "custom_components/universal_room_automation/camera_census.py",
+      "custom_components/universal_room_automation/person_coordinator.py",
+      "custom_components/universal_room_automation/domain_coordinators/energy.py"
+    ],
+    "related_entries": ["001"],
+    "commits": []
+  }
+}

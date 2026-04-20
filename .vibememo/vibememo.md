@@ -8,16 +8,20 @@ URA is a Home Assistant custom integration managing 31 rooms across 5 zones with
 
 ## Key Decisions
 
-**Single-threaded DB write worker (v3.22.8):** SQLite only allows one writer at a time. Instead of multiple connections fighting for the lock, all writes serialize through one asyncio.Queue processed by one persistent connection. Reads use independent transient WAL connections. This survived 5 hardening releases and is the correct architecture for SQLite.
+**Single-threaded DB write worker (v3.22.8):** SQLite only allows one writer at a time. Instead of multiple connections fighting for the lock, all writes serialize through one asyncio.Queue processed by one persistent connection. Reads use independent transient WAL connections. Adding writers would reintroduce the contention it eliminated.
 → [001](users/ojiudezue/entries/001_db_single_writer_architecture.json)
+
+**Startup warmup accepted (v4.2.6):** After deferring first-cycle writes by 5 minutes with per-room jitter, startup improved from 15 minutes to ~10 minutes. Remaining transient errors at the 5-minute mark are accepted — non-destructive, self-healing, no user impact. Deeper fixes (non-blocking writes, write batching) deferred to backlog.
+→ [002](users/ojiudezue/entries/002_startup_warmup_accepted.json)
 
 ## Current Architecture
 
-- **Write path:** All 44 write methods → `_db()` context manager → asyncio.Queue → single write worker → one persistent SQLite connection → per-write commit
-- **Read path:** All 43 read methods → `_db_read()` → transient connection → WAL concurrent reads
-- **Startup:** 31 rooms × (3 writes + 5 reads) = 248 DB operations in ~3 seconds. Write queue can't keep up under event loop contention → 35s timeouts. Fix: reduce startup demand, not add parallelism.
+- **Write path:** 44 write methods → `_db()` → asyncio.Queue → single write worker → one persistent SQLite connection
+- **Read path:** 43 read methods → `_db_read()` → transient WAL connections
+- **Startup:** First-cycle writes deferred 5 min with 0-60s jitter. Census deferred 5 min. Person snapshot deferred 15 min. Energy save hours initialized to current hour. ~10 min warmup before all errors clear.
 
 ## Open Questions
 
-- Optimal startup write deferral strategy — defer env/energy logs only, or also room state saves?
-- Whether staggered first_refresh (Priority 2) is needed in addition to write deferral (Priority 1)
+- Non-blocking fire-and-forget writes (Option C from 002) — eliminates timeouts entirely but changes error handling model
+- Write batching (Option D) — groups writes into single transactions, reduces count by ~70%
+- Both deferred to backlog as tech debt

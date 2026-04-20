@@ -1082,9 +1082,17 @@ class HVACCoordinator(BaseCoordinator):
         """Turn off URA-configured lights and fans in all rooms of a vacant zone.
 
         D1: Only touches entities explicitly configured in URA room entries.
+        v4.2.7: Added observation mode guard + warning-level error logging.
         """
-        from ..const import CONF_LIGHTS, CONF_FANS, CONF_ENTRY_TYPE, CONF_ROOM_NAME, DOMAIN, ENTRY_TYPE_ROOM
+        # Defensive observation mode check (call site already gates, but
+        # protect against future callers that might skip the gate)
+        if self._observation_mode:
+            _LOGGER.debug("HVAC: Vacancy sweep suppressed by observation mode for %s", zone.zone_name)
+            return
 
+        from ..const import CONF_LIGHTS, CONF_FANS
+
+        swept_count = 0
         for room_name in zone.rooms:
             coordinator = self._get_room_coordinator(room_name)
             if coordinator is None:
@@ -1106,8 +1114,9 @@ class HVACCoordinator(BaseCoordinator):
                             domain, "turn_off",
                             {"entity_id": entity_id}, blocking=False,
                         )
-                    except Exception:  # noqa: BLE001
-                        pass  # Best effort
+                        swept_count += 1
+                    except Exception as exc:  # noqa: BLE001
+                        _LOGGER.warning("HVAC: Vacancy sweep failed to turn off %s: %s", entity_id, exc)
 
             for entity_id in fans:
                 domain = entity_id.split(".")[0]
@@ -1118,12 +1127,13 @@ class HVACCoordinator(BaseCoordinator):
                             domain, "turn_off",
                             {"entity_id": entity_id}, blocking=False,
                         )
-                    except Exception:  # noqa: BLE001
-                        pass
+                        swept_count += 1
+                    except Exception as exc:  # noqa: BLE001
+                        _LOGGER.warning("HVAC: Vacancy sweep failed to turn off %s: %s", entity_id, exc)
 
         _LOGGER.info(
-            "HVAC: Vacancy sweep executed for zone %s — lights and fans off",
-            zone.zone_name,
+            "HVAC: Vacancy sweep for zone %s — swept %d entities",
+            zone.zone_name, swept_count,
         )
 
     def _get_room_coordinator(self, room_name: str):
