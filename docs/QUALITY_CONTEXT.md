@@ -1,10 +1,10 @@
 # Quality Context
 
-**Version:** 5.0
-**Last Updated:** April 1, 2026
-**Current Production:** v3.22.0
+**Version:** 6.0
+**Last Updated:** April 19, 2026
+**Current Production:** v4.2.6
 **Status:** Active quality standards
-**Bug Classes:** 22 documented (7 original + 13 from Jan–Mar 2026 + 2 from v3.20–v3.22 hardening)
+**Bug Classes:** 24 documented (7 original + 13 from Jan–Mar 2026 + 2 from v3.20–v3.22 hardening + 1 from v4.1.1 lambda scope + 1 from v4.2.5 closure escape)
 
 ---
 
@@ -875,6 +875,31 @@ signals were dispatched before the gate.
 **Discovered:** v3.21.1–v3.21.2
 **Impact:** Observation mode doesn't fully suppress cross-coordinator effects
 **Severity:** HIGH
+
+---
+
+### Bug Class #24: Lambda/Closure Scope Escape ⚠️
+
+**Pattern:** A lambda or closure defined at module/init scope references a name
+that only exists in method-local imports (`from ..const import DOMAIN` inside
+specific methods), not at module level. The NameError only manifests at runtime
+when the lambda is actually called, not at import time — making it hard to catch
+in testing.
+
+**Impact:** Runtime crash (NameError) in the code path that invokes the lambda.
+Can cascade into other failures if the calling code doesn't have try/except.
+
+**Prevention:**
+- [ ] Any name referenced in a lambda/closure at module or `__init__` scope MUST be imported at module level
+- [ ] When creating lazy lookup lambdas (e.g., `lambda: hass.data.get(DOMAIN, {})`), verify `DOMAIN` is in module scope
+- [ ] Use `_DOMAIN` alias if the module uses both module-level and method-local imports of the same name
+
+**Historical Examples:**
+- v4.1.1: `energy.py` lambda `lambda: hass.data.get(DOMAIN, {}).get("bayesian_predictor")` — `DOMAIN` not imported at module level. Crashed energy coordinator decision cycle. Fixed v4.2.5 with `from ..const import DOMAIN as _DOMAIN`.
+
+**Discovered:** v4.2.5
+**Impact:** Energy coordinator prediction failure, cascading DB write worker timeouts
+**Severity:** CRITICAL (when triggered)
 
 ---
 

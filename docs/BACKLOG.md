@@ -1,9 +1,9 @@
-# URA Backlog — As of v4.0.18 (Apr 15, 2026)
+# URA Backlog — As of v4.2.6 (Apr 19, 2026)
 
 ## Bugs (fix first)
 
-1. **Config flow save timeout** — Options persist to disk but `async_reload` from options flow update listener times out. Manual reload works. Blocks ALL config changes.
-   - Investigate: `_async_update_listener` uses `await async_reload` — try `hass.async_create_task` to decouple from options flow context.
+1. **Config flow save timeout** — Options persist to disk but `async_reload` from options flow update listener times out. Manual reload works.
+   - **Partially mitigated** in v4.2.0: try-except + debug logging on 7 room option steps. Root cause (93 entities per room causing reload timeout) remains.
    - Workaround: manually reload entry after save.
 
 2. **Energy TOU blocking I/O** — `energy_tou.py:68` synchronous `filepath.read_text()` on event loop. HA 2026.x flags this.
@@ -11,14 +11,21 @@
 
 3. **5 disabled HA automations use deprecated mireds** — Need `color_temp` → `color_temp_kelvin` migration when re-enabled. Tracked since v3.9.6.
 
+## Tech Debt: DB Write Queue Startup Contention
+
+4. **~10 minute startup warmup with transient DB write timeouts** — After v4.2.6 deferral + jitter, startup improved from 15 min to ~10 min. Remaining errors at t=5min are transient, non-destructive, self-healing. Accepted as current behavior. See `.vibememo/users/ojiudezue/entries/002_startup_warmup_accepted.json` for decision trail.
+
+   **Possible deeper fixes (deferred):**
+   - **Non-blocking fire-and-forget writes** — Callers don't await the write queue, eliminating timeouts entirely. Changes error handling model. Medium risk. ~50 lines across database.py + all callers.
+   - **Write batching** — Group multiple writes into single transactions (e.g., batch all 31 room state saves into one commit). Reduces write count by ~70%. Requires coordinator-level batch timer. High risk. ~80 lines.
+   - **Larger jitter window (240s)** — Spread deferred writes over 4 minutes instead of 1. Simple but some rooms would start writing during early startup. Low risk. 1 line.
+   - **Revisit trigger:** Room count exceeds 40, warmup exceeds 15 min, or timeouts occur during steady-state.
+
 ## Bayesian Remaining
 
-4. **B3: Pre-emptive Actions** — High-confidence Bayesian predictions trigger room preparation (lights, HVAC pre-conditioning). Configurable confidence threshold. Integration with HVAC pre-arrival and chained automations.
+5. **B3: Pre-emptive Actions** — High-confidence Bayesian predictions trigger room preparation (lights, HVAC pre-conditioning). Configurable confidence threshold. Integration with HVAC pre-arrival and chained automations.
 
-5. **B4: Energy Integration** (3 layers, ~500 lines) — See `docs/planning/PLANNING_v4.x_B4_ENERGY_INTEGRATION.md`
-   - **L1: Config + Data Foundation** — Multi-energy sensor config flow fix (`CONF_ENERGY_SENSORS` plural), room power profile learning by time bin. No Bayesian dependency — can ship alongside B3.
-   - **L2: Occupancy-Weighted Prediction** — Extend `DailyEnergyPredictor._estimate_consumption()` with Bayesian occupancy weighting + room power profiles. Adaptive blend weight by Bayesian maturity. Battery strategy occupancy awareness.
-   - **L3: Energy Intelligence Sensors** — EnergyWasteIdleSensor, EnergyCostPerOccupiedHourSensor, EnergyAnomalyBinarySensor, MostExpensiveDeviceSensor (circuit-level ranking).
+6. ~~**B4: Energy Integration**~~ — **DONE** (v4.1.0 L1, v4.1.1 L2, v4.2.0 L3). All 3 layers shipped. See `docs/planning/PLANNING_v4.x_B4_ENERGY_INTEGRATION.md`.
 
 ## Optimization Coordinator (5 phases)
 
@@ -41,11 +48,11 @@
 | AvgTimeToComfortSensor | DONE (B2) | v4.0.2 |
 | OccupancyAnomalyBinarySensor | DONE (B2) | v4.0.2 |
 | ClearDatabaseButton | DONE (B1) | v4.0.0 |
-| EnergyWasteIdleSensor | Deferred | B4 Layer 3 (D6) |
-| MostExpensiveDeviceSensor | Deferred | B4 Layer 3 (D9, circuit-level) |
-| OptimizationPotentialSensor | Deferred | B4 Layer 3 (D10, simple idle-waste version; Optimizer P4 enhances) |
-| EnergyCostPerOccupiedHourSensor | Deferred | B4 Layer 3 (D7) |
-| EnergyAnomalyBinarySensor | Deferred | B4 Layer 3 (D8) |
+| EnergyWasteIdleSensor | DONE (B4 L3) | v4.2.0 |
+| MostExpensiveDeviceSensor | DONE (B4 L3, circuit-level) | v4.2.0 |
+| OptimizationPotentialSensor | DONE (B4 L3, simple version) | v4.2.0 |
+| EnergyCostPerOccupiedHourSensor | DONE (B4 L3) | v4.2.0 |
+| EnergyAnomalyBinarySensor | DONE (B4 L3) | v4.2.0 |
 | OptimizeNowButton | Deferred | Optimizer P4 |
 | SIGNAL_COMFORT_REQUEST | Deferred | B3 |
 
@@ -58,7 +65,7 @@
 
 ## Recommended Priority
 
-1. Config flow save fix (unblocks everything)
-2. B4 energy integration (3 layers — L1 has no Bayesian dep, ships first)
-3. Optimizer Phase 1 (Activity Log done, no blockers remaining)
-4. B3 pre-emptive actions (backlog — practical utility under review)
+1. Config flow save root cause (partially mitigated in v4.2.0, still times out on large rooms)
+2. Optimizer Phase 1 (Activity Log done, no blockers remaining)
+3. B3 pre-emptive actions (backlog — practical utility under review)
+4. DB write queue deeper fixes (if room count grows or warmup becomes unacceptable)
