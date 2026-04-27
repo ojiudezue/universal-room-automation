@@ -1,6 +1,6 @@
 """Camera integration and person census for Universal Room Automation v3.5.0."""
 #
-# Universal Room Automation vv4.2.7
+# Universal Room Automation v4.2.8
 # Build: 2026-02-23
 # File: camera_census.py
 # Cycle 3: Camera Integration & Census Core
@@ -694,6 +694,8 @@ class PersonCensus:
         self._update_lock = asyncio.Lock()
         # v4.2.6: Defer census DB writes during startup to reduce write queue contention
         self._created_at: datetime = dt_util.now()
+        # v4.2.8: Write throttle — DB write every 4th cycle (~120s)
+        self._census_write_counter: int = 0
 
         # v3.10.1 Census v2: hold/decay state
         self._peak_house_camera_count: int = 0
@@ -810,9 +812,13 @@ class PersonCensus:
 
         # D5: Log census snapshots to database
         # v4.2.6: Skip DB writes during startup grace period (5 min)
+        # v4.2.8: Write every 4th cycle (~120s) instead of every cycle (~30s).
+        # Census compute runs every 30s for real-time sensors; DB write throttled
+        # to reduce write queue load (was 4 writes/min, now 1/min).
+        self._census_write_counter += 1
         startup_age = (dt_util.now() - self._created_at).total_seconds()
         db = self.hass.data.get(DOMAIN, {}).get("database")
-        if db is not None and startup_age >= 300:
+        if db is not None and startup_age >= 300 and self._census_write_counter % 4 == 0:
             self.hass.async_create_task(
                 db.log_census(zone="house", result=house_result)
             )
