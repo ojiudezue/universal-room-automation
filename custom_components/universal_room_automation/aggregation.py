@@ -3539,9 +3539,14 @@ class ZoneLastOccupantTimeSensor(ZoneSensorBase, SensorEntity):
             if result:
                 entry_time = result['entry_time']
                 if isinstance(entry_time, str):
-                    self._last_time = datetime.fromisoformat(entry_time)
+                    # v4.2.9: Use dt_util.parse_datetime for tz-aware result
+                    self._last_time = dt_util.parse_datetime(entry_time)
                 else:
                     self._last_time = entry_time
+                # Ensure tz-aware (DB may store naive UTC strings)
+                if self._last_time is not None and self._last_time.tzinfo is None:
+                    from datetime import timezone
+                    self._last_time = self._last_time.replace(tzinfo=timezone.utc)
             else:
                 # v3.2.10: Only set None if never seen anyone (preserve when zone empties)
                 if not hasattr(self, '_last_time'):

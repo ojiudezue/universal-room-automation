@@ -1,7 +1,7 @@
 """Database for Universal Room Automation."""
 from __future__ import annotations
 #
-# Universal Room Automation v4.2.8
+# Universal Room Automation v4.2.9
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors
@@ -2328,7 +2328,7 @@ class UniversalRoomDatabase:
                 if result.identified_persons
                 else None
             )
-            timestamp = result.timestamp.isoformat() if result.timestamp else datetime.now().isoformat()
+            timestamp = result.timestamp.isoformat() if result.timestamp else dt_util.utcnow().isoformat()
 
             async with self._db() as db:
                 await db.execute("""

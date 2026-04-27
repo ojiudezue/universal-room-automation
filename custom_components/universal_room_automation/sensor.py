@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v4.2.8
+# Universal Room Automation v4.2.9
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -2163,21 +2163,26 @@ class LastOccupantSensor(UniversalRoomEntity, SensorEntity):
         attrs = {}
         
         if hasattr(self, '_last_occupant_time') and self._last_occupant_time:
-            attrs["last_seen"] = self._last_occupant_time.isoformat()
-            
+            # v4.2.9: Guard .isoformat() — DB returns strings, not datetime objects
+            if isinstance(self._last_occupant_time, str):
+                attrs["last_seen"] = self._last_occupant_time
+            else:
+                attrs["last_seen"] = self._last_occupant_time.isoformat()
+
             # Calculate time ago
             from homeassistant.util import dt as dt_util
             now = dt_util.utcnow()
-            if isinstance(self._last_occupant_time, str):
-                last_time = datetime.fromisoformat(self._last_occupant_time)
-            else:
-                last_time = self._last_occupant_time
-            # Ensure timezone-aware
-            if last_time.tzinfo is None:
-                import pytz
-                last_time = last_time.replace(tzinfo=pytz.UTC)
+            last_time = dt_util.parse_datetime(
+                self._last_occupant_time if isinstance(self._last_occupant_time, str)
+                else self._last_occupant_time.isoformat()
+            )
+            if last_time is None:
+                last_time = now
+            elif last_time.tzinfo is None:
+                from datetime import timezone
+                last_time = last_time.replace(tzinfo=timezone.utc)
             time_diff = now - last_time
-            attrs["time_ago"] = str(time_diff).split('.')[0]  # Remove microseconds
+            attrs["time_ago"] = str(time_diff).split('.')[0]
         
         return attrs
 
@@ -2230,15 +2235,14 @@ class LastOccupantTimeSensor(UniversalRoomEntity, SensorEntity):
             
             if row:
                 entry_time = row['entry_time']
-                # Convert string to datetime if needed
+                # v4.2.9: Use parse_datetime for robust tz-aware parsing
                 if isinstance(entry_time, str):
-                    self._last_time = datetime.fromisoformat(entry_time)
+                    self._last_time = dt_util.parse_datetime(entry_time)
                 else:
                     self._last_time = entry_time
-                # Ensure timezone-aware (DB stores UTC without tzinfo)
                 if self._last_time is not None and self._last_time.tzinfo is None:
-                    import pytz
-                    self._last_time = self._last_time.replace(tzinfo=pytz.UTC)
+                    from datetime import timezone
+                    self._last_time = self._last_time.replace(tzinfo=timezone.utc)
             else:
                 self._last_time = None
                 
@@ -2826,8 +2830,8 @@ class URACensusValidationAgeSensor(_CensusBaseSensor):
         ts = result.timestamp
         # Ensure both are timezone-aware for subtraction
         if ts.tzinfo is None:
-            import pytz
-            ts = ts.replace(tzinfo=pytz.UTC)
+            from datetime import timezone  # v4.2.9: replaced pytz
+            ts = ts.replace(tzinfo=timezone.utc)
         delta = now - ts
         return int(delta.total_seconds())
 
@@ -4302,12 +4306,14 @@ class SecurityLastLockSweepSensor(AggregationEntity, SensorEntity):
         ts = sweep.get("timestamp")
         if not ts:
             return None
-        from datetime import datetime
         try:
-            dt = datetime.fromisoformat(ts)
+            # v4.2.9: Use parse_datetime for robust tz-aware parsing
+            dt = dt_util.parse_datetime(ts)
+            if dt is None:
+                return None
             if dt.tzinfo is None:
-                import pytz
-                dt = dt.replace(tzinfo=pytz.UTC)
+                from datetime import timezone
+                dt = dt.replace(tzinfo=timezone.utc)
             return dt
         except (ValueError, TypeError):
             return None
@@ -7715,8 +7721,12 @@ class URALastActivitySensor(AggregationEntity, SensorEntity):
         ts = self._last_attrs.get("timestamp")
         if ts:
             try:
-                from datetime import datetime
-                last_dt = datetime.fromisoformat(ts)
+                last_dt = dt_util.parse_datetime(ts)
+                if last_dt is None:
+                    last_dt = dt_util.utcnow()
+                elif last_dt.tzinfo is None:
+                    from datetime import timezone
+                    last_dt = last_dt.replace(tzinfo=timezone.utc)
                 delta = dt_util.utcnow() - last_dt
                 minutes = int(delta.total_seconds() / 60)
                 if minutes < 1:
