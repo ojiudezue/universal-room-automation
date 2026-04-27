@@ -1,6 +1,6 @@
 """Number platform for Universal Room Automation."""
 #
-# Universal Room Automation v4.2.9
+# Universal Room Automation v4.2.10
 # Build: 2026-01-02
 # File: number.py
 #
@@ -12,6 +12,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.const import UnitOfTemperature, UnitOfTime, PERCENTAGE
 
 from .const import (
@@ -40,6 +41,11 @@ async def async_setup_entry(
     if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_COORDINATOR_MANAGER:
         entities = [
             ZoneEntryDwellNumber(hass, entry),
+            # v4.2.10: Off-peak drain target numbers
+            OffPeakDrainNumber(hass, entry, "excellent", 10, 5, 50),
+            OffPeakDrainNumber(hass, entry, "good", 15, 5, 60),
+            OffPeakDrainNumber(hass, entry, "moderate", 20, 5, 70),
+            OffPeakDrainNumber(hass, entry, "poor", 30, 5, 80),
         ]
         async_add_entities(entities)
         _LOGGER.info("Set up %d CM number entities", len(entities))
@@ -276,3 +282,90 @@ class ZoneEntryDwellNumber(NumberEntity):
             hvac._zone_entry_dwell = int(value)
         self.async_write_ha_state()
         _LOGGER.info("Zone entry dwell set to %d minutes", int(value))
+
+
+class OffPeakDrainNumber(NumberEntity, RestoreEntity):
+    """Configurable off-peak battery drain target on Energy Coordinator device.
+
+    SOC% to drain to overnight based on tomorrow's solar forecast quality.
+    v4.2.10: Exposes config-flow-only values as runtime-adjustable numbers.
+    RestoreEntity persists slider changes across restarts.
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:battery-arrow-down-outline"
+    _attr_native_step = 1
+    _attr_native_unit_of_measurement = "%"
+    _attr_mode = NumberMode.SLIDER
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(
+        self, hass: HomeAssistant, entry: ConfigEntry,
+        quality: str, default: int, min_val: int, max_val: int,
+    ) -> None:
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .const import VERSION
+        self.hass = hass
+        self._entry = entry
+        self._quality = quality
+        self._attr_unique_id = f"{DOMAIN}_energy_offpeak_drain_{quality}"
+        self._attr_name = f"Off-Peak Drain {quality.title()}"
+        self._attr_native_min_value = min_val
+        self._attr_native_max_value = max_val
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "energy_coordinator")},
+            name="URA: Energy Coordinator",
+            manufacturer="Universal Room Automation",
+            model="Energy Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+        # Read initial value from config entry
+        from .domain_coordinators.energy_const import (
+            CONF_ENERGY_OFFPEAK_DRAIN_EXCELLENT,
+            CONF_ENERGY_OFFPEAK_DRAIN_GOOD,
+            CONF_ENERGY_OFFPEAK_DRAIN_MODERATE,
+            CONF_ENERGY_OFFPEAK_DRAIN_POOR,
+        )
+        conf_map = {
+            "excellent": CONF_ENERGY_OFFPEAK_DRAIN_EXCELLENT,
+            "good": CONF_ENERGY_OFFPEAK_DRAIN_GOOD,
+            "moderate": CONF_ENERGY_OFFPEAK_DRAIN_MODERATE,
+            "poor": CONF_ENERGY_OFFPEAK_DRAIN_POOR,
+        }
+        config = {**entry.data, **entry.options}
+        self._value = config.get(conf_map.get(quality, ""), default)
+
+    def _get_energy(self):
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        return manager.coordinators.get("energy") if manager else None
+
+    @property
+    def native_value(self) -> float:
+        return self._value
+
+    @property
+    def available(self) -> bool:
+        return self._get_energy() is not None
+
+    async def async_added_to_hass(self) -> None:
+        """Restore last slider value on startup."""
+        await super().async_added_to_hass()
+        last_state = await self.async_get_last_state()
+        if last_state is not None and last_state.state not in ("unknown", "unavailable"):
+            try:
+                restored = int(float(last_state.state))
+                self._value = restored
+                energy = self._get_energy()
+                if energy is not None:
+                    energy.set_offpeak_drain(self._quality, restored)
+            except (ValueError, TypeError):
+                pass
+
+    async def async_set_native_value(self, value: float) -> None:
+        self._value = int(value)
+        energy = self._get_energy()
+        if energy is not None:
+            energy.set_offpeak_drain(self._quality, int(value))
+        self.async_write_ha_state()
+        _LOGGER.info("Off-peak drain %s set to %d%%", self._quality, int(value))

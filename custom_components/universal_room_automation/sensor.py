@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v4.2.9
+# Universal Room Automation v4.2.10
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -260,6 +260,9 @@ async def async_setup_entry(
             BayesianDataQualitySensor(hass, entry),
             # v4.0.0-B2: Prediction accuracy sensor (enabled by default)
             BayesianPredictionAccuracySensor(hass, entry),
+            # v4.2.10: Memory diagnostic sensors
+            URAMemoryUsageSensor(hass, entry),
+            URAMemoryDeltaSensor(hass, entry),
         ]
         # v3.8.0-H1: Add per-zone HVAC sensors dynamically
         # Read zone IDs from Zone Manager config entry (not coordinator)
@@ -8310,3 +8313,118 @@ class AvgTimeToComfortSensor(UniversalRoomEntity, SensorEntity):
     def native_value(self) -> int | None:
         """Return estimated minutes to comfort."""
         return self._cached_value
+
+
+# =========================================================================
+# v4.2.10: URA Memory Diagnostic Sensors
+# =========================================================================
+
+
+def _cm_device_info():
+    """Device info for Coordinator Manager sensors."""
+    from homeassistant.helpers.device_registry import DeviceInfo
+    from .const import VERSION
+    return DeviceInfo(
+        identifiers={(DOMAIN, "coordinator_manager")},
+        name="URA: Coordinator Manager",
+        manufacturer="Universal Room Automation",
+        model="Coordinator Manager",
+        sw_version=VERSION,
+    )
+
+
+class URAMemoryUsageSensor(AggregationEntity, SensorEntity):
+    """URA total in-memory footprint.
+
+    Entity: sensor.ura_coordinator_manager_memory_usage
+    Device: URA: Coordinator Manager
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:memory"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = "KB"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_memory_usage"
+        self._attr_name = "Memory Usage"
+        self._attr_device_info = _cm_device_info()
+        pass  # No extra state needed
+
+    @property
+    def native_value(self) -> float | None:
+        import sys
+        ura_data = self.hass.data.get(DOMAIN)
+        if not ura_data:
+            return None
+        total = sys.getsizeof(ura_data)
+        # Measure key sub-structures
+        for key in ("coordinator_manager", "database", "census", "activity_logger"):
+            obj = ura_data.get(key)
+            if obj is not None:
+                total += sys.getsizeof(obj)
+        kb = round(total / 1024, 1)
+        return kb
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        import sys
+        ura_data = self.hass.data.get(DOMAIN)
+        if not ura_data:
+            return {}
+        attrs = {}
+        for key in ("coordinator_manager", "database", "census", "activity_logger",
+                     "person_tracking", "camera_manager"):
+            obj = ura_data.get(key)
+            if obj is not None:
+                attrs[f"{key}_bytes"] = sys.getsizeof(obj)
+        # DB stats if available
+        db = ura_data.get("database")
+        if db and hasattr(db, "_db_stats"):
+            attrs["db_writes_total"] = db._db_stats.get("writes", 0)
+            attrs["db_queue_peak"] = db._db_stats.get("queue_peak", 0)
+        attrs["keys_count"] = len(ura_data)
+        return attrs
+
+
+class URAMemoryDeltaSensor(AggregationEntity, SensorEntity):
+    """URA memory change since last measurement.
+
+    Positive = growing, negative = shrinking, zero = stable.
+    Entity: sensor.ura_coordinator_manager_memory_delta
+    Device: URA: Coordinator Manager
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:delta"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = "KB"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_memory_delta"
+        self._attr_name = "Memory Delta"
+        self._attr_device_info = _cm_device_info()
+        self._prev_kb: float | None = None
+
+    @property
+    def native_value(self) -> float | None:
+        import sys
+        ura_data = self.hass.data.get(DOMAIN)
+        if not ura_data:
+            return None
+        total = sys.getsizeof(ura_data)
+        for key in ("coordinator_manager", "database", "census", "activity_logger"):
+            obj = ura_data.get(key)
+            if obj is not None:
+                total += sys.getsizeof(obj)
+        current_kb = round(total / 1024, 1)
+        if self._prev_kb is None:
+            self._prev_kb = current_kb
+            return 0.0
+        delta = round(current_kb - self._prev_kb, 1)
+        self._prev_kb = current_kb
+        return delta
