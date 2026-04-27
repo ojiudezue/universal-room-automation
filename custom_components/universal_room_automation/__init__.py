@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation v4.2.8
+# Universal Room Automation v4.2.9
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -693,18 +693,29 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         ]
 
                         async def _nightly_db_maintenance(_now):
-                            """Run all DB cleanup at 2:30 AM (batched)."""
+                            """Run all DB cleanup at 2:30 AM (batched, 5-min budget, rotating)."""
                             _db = hass.data.get(DOMAIN, {}).get("database")
                             if not _db:
                                 return
-                            for name, method_name, kwargs in _cleanup_ops:
+                            from homeassistant.util import dt as _dtu
+                            _start = _dtu.utcnow()
+                            # Rotate start index so later tables get fair access
+                            _idx = hass.data[DOMAIN].get("_nightly_start_idx", 0)
+                            n = len(_cleanup_ops)
+                            for i in range(n):
+                                op = _cleanup_ops[(_idx + i) % n]
+                                name, method_name, kwargs = op
+                                if (_dtu.utcnow() - _start).total_seconds() > 300:
+                                    _LOGGER.warning("Nightly maintenance hit 5-min budget — continuing tomorrow from %s", name)
+                                    break
                                 try:
                                     method = getattr(_db, method_name, None)
                                     if method:
                                         await method(**kwargs)
                                 except Exception as exc:
                                     _LOGGER.warning("Nightly %s cleanup failed: %s", name, exc)
-                                await asyncio.sleep(1.0)  # Yield between methods
+                                await asyncio.sleep(1.0)
+                            hass.data[DOMAIN]["_nightly_start_idx"] = (_idx + 1) % n
 
                         unsub_nightly = async_track_time_change(
                             hass, _nightly_db_maintenance, hour=2, minute=30, second=0
@@ -717,7 +728,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                             _db = hass.data.get(DOMAIN, {}).get("database")
                             if not _db:
                                 return
+                            from homeassistant.util import dt as _dtu2
+                            _start = _dtu2.utcnow()
                             for name, method_name, kwargs in _cleanup_ops:
+                                if (_dtu2.utcnow() - _start).total_seconds() > 300:
+                                    _LOGGER.warning("Startup catch-up hit 5-min budget — rest at 2:30 AM")
+                                    break
                                 try:
                                     method = getattr(_db, method_name, None)
                                     if method:
@@ -726,6 +742,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                                             _LOGGER.info("Startup catch-up: %s pruned %d rows", name, deleted)
                                 except Exception as exc:
                                     _LOGGER.warning("Startup catch-up %s failed: %s", name, exc)
+                                await asyncio.sleep(1.0)
 
                         unsub_catchup = async_call_later(hass, 300, _startup_catchup_prune)
                         hass.data[DOMAIN]["unsub_startup_catchup"] = unsub_catchup
@@ -784,7 +801,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 _db = hass.data.get(DOMAIN, {}).get("database")
                 if not _db:
                     return
-                for name, method_name, kwargs in _cleanup_ops_d:
+                from homeassistant.util import dt as _dtu3
+                _start = _dtu3.utcnow()
+                _idx = hass.data.get(DOMAIN, {}).get("_nightly_start_idx", 0)
+                n = len(_cleanup_ops_d)
+                for i in range(n):
+                    op = _cleanup_ops_d[(_idx + i) % n]
+                    name, method_name, kwargs = op
+                    if (_dtu3.utcnow() - _start).total_seconds() > 300:
+                        _LOGGER.warning("Nightly maintenance hit 5-min budget — continuing tomorrow from %s", name)
+                        break
                     try:
                         method = getattr(_db, method_name, None)
                         if method:
@@ -792,6 +818,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     except Exception as exc:
                         _LOGGER.warning("Nightly %s cleanup failed: %s", name, exc)
                     await asyncio.sleep(1.0)
+                hass.data.get(DOMAIN, {})["_nightly_start_idx"] = (_idx + 1) % n
 
             unsub_n = _attc_d(hass, _nightly_maintenance_deferred, hour=2, minute=30, second=0)
             hass.data[DOMAIN]["unsub_nightly_maintenance"] = unsub_n
@@ -801,7 +828,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 _db = hass.data.get(DOMAIN, {}).get("database")
                 if not _db:
                     return
+                from homeassistant.util import dt as _dtu4
+                _start = _dtu4.utcnow()
                 for name, method_name, kwargs in _cleanup_ops_d:
+                    if (_dtu4.utcnow() - _start).total_seconds() > 300:
+                        _LOGGER.warning("Startup catch-up hit 5-min budget — rest at 2:30 AM")
+                        break
                     try:
                         method = getattr(_db, method_name, None)
                         if method:
@@ -810,6 +842,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                                 _LOGGER.info("Startup catch-up: %s pruned %d rows", name, deleted)
                     except Exception as exc:
                         _LOGGER.warning("Startup catch-up %s failed: %s", name, exc)
+                    await asyncio.sleep(1.0)
 
             unsub_catchup_d = _acl_d(hass, 300, _startup_catchup_deferred)
             hass.data[DOMAIN].setdefault("unsub_startup_catchup", unsub_catchup_d)
@@ -1796,11 +1829,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     saved_state.get("failsafe_fired", 0)
                 )
                 # Restore became_occupied_time (ISO string → datetime)
+                # v4.2.9: Use dt_util.parse_datetime for tz-aware result
                 bot_str = saved_state.get("became_occupied_time")
                 if bot_str:
                     try:
-                        coordinator._became_occupied_time = datetime.fromisoformat(
-                            bot_str
+                        from homeassistant.util import dt as _dt_util
+                        coordinator._became_occupied_time = (
+                            _dt_util.parse_datetime(bot_str) or _dt_util.now()
                         )
                     except (ValueError, TypeError):
                         pass
