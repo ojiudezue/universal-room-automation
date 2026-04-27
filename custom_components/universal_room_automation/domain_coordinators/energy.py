@@ -214,6 +214,9 @@ class EnergyCoordinator(BaseCoordinator):
         self._grid_import_cap_kw: float = float(ec.get(
             CONF_ENERGY_GRID_IMPORT_CAP_KW, DEFAULT_GRID_IMPORT_CAP_KW))
 
+        # v4.2.10: EV TOU management toggle (was always-on)
+        self._ev_tou_enabled: bool = True
+
         # E3: Circuit monitoring + generator
         # v4.2.0: Configurable circuit sources
         from .energy_const import (
@@ -1559,10 +1562,11 @@ class EnergyCoordinator(BaseCoordinator):
                 for action_spec in pool_actions:
                     await self._execute_service_action(action_spec)
 
-                # E2: EV charger control
-                ev_actions = self._ev.determine_actions(period)
-                for action_spec in ev_actions:
-                    await self._execute_service_action(action_spec)
+                # E2: EV charger control (v4.2.10: gated by toggle)
+                if self._ev_tou_enabled:
+                    ev_actions = self._ev.determine_actions(period)
+                    for action_spec in ev_actions:
+                        await self._execute_service_action(action_spec)
 
                 # C2: Excess solar EVSE charging
                 if self._excess_solar_enabled:
@@ -2571,6 +2575,41 @@ class EnergyCoordinator(BaseCoordinator):
     def battery_strategy(self) -> BatteryStrategy:
         """Return the battery strategy."""
         return self._battery
+
+    # v4.2.10: Runtime toggle properties for EC device switches
+    @property
+    def arbitrage_enabled(self) -> bool:
+        """Whether grid arbitrage is active."""
+        return self._battery._arbitrage_enabled
+
+    @arbitrage_enabled.setter
+    def arbitrage_enabled(self, value: bool) -> None:
+        self._battery._arbitrage_enabled = value
+        _LOGGER.info("Energy arbitrage: %s", "enabled" if value else "disabled")
+
+    @property
+    def ev_tou_enabled(self) -> bool:
+        """Whether EV TOU pause/resume management is active."""
+        return self._ev_tou_enabled
+
+    @ev_tou_enabled.setter
+    def ev_tou_enabled(self, value: bool) -> None:
+        self._ev_tou_enabled = value
+        _LOGGER.info("EV TOU management: %s", "enabled" if value else "disabled")
+
+    @property
+    def offpeak_drain_targets(self) -> dict[str, int]:
+        """Current off-peak drain SOC targets by solar quality."""
+        return self._battery._drain_targets
+
+    def set_offpeak_drain(self, quality: str, value: int) -> None:
+        """Update a single off-peak drain target at runtime."""
+        valid = {"excellent", "good", "moderate", "poor"}
+        if quality not in valid:
+            _LOGGER.warning("Invalid drain quality '%s' — must be one of %s", quality, valid)
+            return
+        self._battery._drain_targets[quality] = value
+        _LOGGER.info("Off-peak drain %s set to %d%%", quality, value)
 
     @property
     def tou_period(self) -> str:

@@ -1,6 +1,6 @@
 """Switch platform for Universal Room Automation."""
 #
-# Universal Room Automation v4.2.9
+# Universal Room Automation v4.2.10
 # Build: 2026-01-02
 # File: switch.py
 #
@@ -140,6 +140,12 @@ async def async_setup_entry(
             EnergyObservationModeSwitch(hass, entry),
             # v4.1.1 B4 L2: Occupancy-weighted prediction toggle
             OccupancyWeightedPredictionSwitch(hass, entry),
+            # v4.2.10: EC runtime toggles
+            ECGridImportCapSwitch(hass, entry),
+            ECLoadSheddingSwitch(hass, entry),
+            ECExcessSolarSwitch(hass, entry),
+            ECArbitrageSwitch(hass, entry),
+            ECEvTouSwitch(hass, entry),
             # v3.9.0: HVAC transparency switches
             HVACOverrideArresterSwitch(hass, entry),
             HVACACResetSwitch(hass, entry),
@@ -494,6 +500,111 @@ class OccupancyWeightedPredictionSwitch(SwitchEntity, RestoreEntity):
     def available(self) -> bool:
         """Only available when energy coordinator is active."""
         return self._get_energy() is not None
+
+
+# =========================================================================
+# v4.2.10: Energy Coordinator Runtime Toggles
+# =========================================================================
+# Pattern: SwitchEntity + RestoreEntity, @callback def _retry_restore (NOT async def)
+
+
+def _ec_switch_factory(
+    attr_name: str, unique_suffix: str, name: str, icon: str, default: bool = False
+):
+    """Factory for EC toggle switches — avoids 200 lines of boilerplate."""
+
+    class _ECSwitch(SwitchEntity, RestoreEntity):
+        _attr_has_entity_name = True
+        _attr_icon = icon
+        _attr_entity_category = EntityCategory.CONFIG
+
+        def __init__(self, hass, entry):
+            self.hass = hass
+            self._entry = entry
+            self._attr_unique_id = f"{DOMAIN}_energy_{unique_suffix}"
+            self._attr_name = name
+            self._attr_device_info = DeviceInfo(
+                identifiers={(DOMAIN, "energy_coordinator")},
+                name="URA: Energy Coordinator",
+                manufacturer="Universal Room Automation",
+                model="Energy Coordinator",
+                sw_version=VERSION,
+                via_device=(DOMAIN, "coordinator_manager"),
+            )
+            self._default = default
+
+        def _get_energy(self):
+            manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+            return manager.coordinators.get("energy") if manager else None
+
+        @property
+        def is_on(self) -> bool:
+            energy = self._get_energy()
+            if energy is None:
+                return self._default
+            return getattr(energy, attr_name, self._default)
+
+        async def async_turn_on(self, **kwargs):
+            energy = self._get_energy()
+            if energy is not None:
+                setattr(energy, attr_name, True)
+                self.async_write_ha_state()
+
+        async def async_turn_off(self, **kwargs):
+            energy = self._get_energy()
+            if energy is not None:
+                setattr(energy, attr_name, False)
+                self.async_write_ha_state()
+
+        async def async_added_to_hass(self):
+            await super().async_added_to_hass()
+            last_state = await self.async_get_last_state()
+            if last_state is not None:
+                energy = self._get_energy()
+                target = last_state.state == "on"
+                if energy is not None:
+                    setattr(energy, attr_name, target)
+                else:
+                    self._deferred_value = target
+                    self.async_on_remove(
+                        async_call_later(self.hass, 5, self._retry_restore)
+                    )
+
+        @callback
+        def _retry_restore(self, _now=None):
+            energy = self._get_energy()
+            if energy is not None:
+                setattr(energy, attr_name, getattr(self, "_deferred_value", self._default))
+
+        @property
+        def available(self) -> bool:
+            return self._get_energy() is not None
+
+    _ECSwitch.__name__ = f"EC{unique_suffix.title().replace('_', '')}Switch"
+    _ECSwitch.__qualname__ = _ECSwitch.__name__
+    return _ECSwitch
+
+
+ECGridImportCapSwitch = _ec_switch_factory(
+    "_grid_import_cap_enabled", "grid_import_cap",
+    "Grid Import Cap", "mdi:transmission-tower-import", default=False,
+)
+ECLoadSheddingSwitch = _ec_switch_factory(
+    "_load_shedding_enabled", "load_shedding",
+    "Load Shedding", "mdi:flash-alert", default=False,
+)
+ECExcessSolarSwitch = _ec_switch_factory(
+    "_excess_solar_enabled", "excess_solar",
+    "Excess Solar Charging", "mdi:solar-power", default=False,
+)
+ECArbitrageSwitch = _ec_switch_factory(
+    "arbitrage_enabled", "arbitrage",
+    "Grid Arbitrage", "mdi:battery-charging-wireless", default=False,
+)
+ECEvTouSwitch = _ec_switch_factory(
+    "ev_tou_enabled", "ev_tou_management",
+    "EV TOU Management", "mdi:ev-station", default=True,
+)
 
 
 class HVACOverrideArresterSwitch(SwitchEntity, RestoreEntity):
