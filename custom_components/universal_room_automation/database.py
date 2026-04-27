@@ -1,7 +1,7 @@
 """Database for Universal Room Automation."""
 from __future__ import annotations
 #
-# Universal Room Automation vv4.2.7
+# Universal Room Automation v4.2.8
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors
@@ -2102,36 +2102,42 @@ class UniversalRoomDatabase:
         except Exception as e:
             _LOGGER.error("Failed to log unknown device: %s", e)
 
-    async def cleanup_person_data(self, retention_days: int) -> None:
-        """Remove person tracking data older than retention period."""
+    async def cleanup_person_data(self, retention_days: int, batch_size: int = 1000) -> int:
+        """Remove person tracking data older than retention period. v4.2.8: Batched."""
         if retention_days == 0:
-            return  # 0 = infinite retention
+            return 0  # 0 = infinite retention
 
-        try:
-            cutoff_date = datetime.now() - timedelta(days=retention_days)
-
-            async with self._db() as db:
-                # Clean person visits
-                await db.execute("""
-                    DELETE FROM person_visits WHERE entry_time < ?
-                """, (cutoff_date,))
-
-                # Clean person snapshots
-                await db.execute("""
-                    DELETE FROM person_presence_snapshots WHERE timestamp < ?
-                """, (cutoff_date,))
-
-                # Clean old unknown devices
-                await db.execute("""
-                    DELETE FROM unknown_devices WHERE last_seen < ?
-                """, (cutoff_date,))
-
-                await db.commit()
-
-                _LOGGER.debug("Cleaned person data older than %d days", retention_days)
-
-        except Exception as e:
-            _LOGGER.error("Failed to cleanup person data: %s", e)
+        cutoff = (dt_util.utcnow() - timedelta(days=retention_days)).isoformat()
+        total_deleted = 0
+        for table, col in [
+            ("person_visits", "entry_time"),
+            ("person_presence_snapshots", "timestamp"),
+            ("unknown_devices", "last_seen"),
+        ]:
+            _batch_count = 0
+            while True:
+                _batch_count += 1
+                if _batch_count > 500:
+                    _LOGGER.warning("Person data cleanup (%s) hit max batch limit", table)
+                    break
+                try:
+                    async with self._db() as db:
+                        cursor = await db.execute(
+                            f"DELETE FROM {table} WHERE rowid IN ("
+                            f"SELECT rowid FROM {table} WHERE {col} < ? LIMIT ?)",
+                            (cutoff, batch_size))
+                        await db.commit()
+                        deleted = cursor.rowcount
+                        total_deleted += deleted
+                except Exception as e:
+                    _LOGGER.error("Failed to cleanup %s: %s", table, e)
+                    break
+                if deleted < batch_size:
+                    break
+                await asyncio.sleep(0.1)
+        if total_deleted > 0:
+            _LOGGER.info("Person data cleanup: deleted %d rows older than %d days", total_deleted, retention_days)
+        return total_deleted
 
     async def get_zone_last_occupant(
         self,
@@ -2379,26 +2385,34 @@ class UniversalRoomDatabase:
             _LOGGER.error("Failed to get census history: %s", e)
             return []
 
-    async def cleanup_census(self, retention_days: int = 90) -> int:
-        """Delete census snapshots older than retention_days.
-
-        Returns:
-            Number of rows deleted.
-        """
-        try:
-            cutoff = (datetime.now() - timedelta(days=retention_days)).isoformat()
-            async with self._db() as db:
-                cursor = await db.execute("""
-                    DELETE FROM census_snapshots WHERE timestamp < ?
-                """, (cutoff,))
-                await db.commit()
-                deleted = cursor.rowcount
-                if deleted > 0:
-                    _LOGGER.debug("Census cleanup: deleted %d snapshots older than %d days", deleted, retention_days)
-                return deleted
-        except Exception as e:
-            _LOGGER.error("Failed to cleanup census snapshots: %s", e)
-            return 0
+    async def cleanup_census(self, retention_days: int = 90, batch_size: int = 1000) -> int:
+        """Delete census snapshots older than retention_days. v4.2.8: Batched."""
+        cutoff = (dt_util.utcnow() - timedelta(days=retention_days)).isoformat()
+        total_deleted = 0
+        _batch_count = 0
+        while True:
+            _batch_count += 1
+            if _batch_count > 500:
+                _LOGGER.warning("Census cleanup hit max batch limit")
+                break
+            try:
+                async with self._db() as db:
+                    cursor = await db.execute(
+                        "DELETE FROM census_snapshots WHERE rowid IN ("
+                        "SELECT rowid FROM census_snapshots WHERE timestamp < ? LIMIT ?)",
+                        (cutoff, batch_size))
+                    await db.commit()
+                    deleted = cursor.rowcount
+                    total_deleted += deleted
+            except Exception as e:
+                _LOGGER.error("Failed to cleanup census snapshots: %s", e)
+                break
+            if deleted < batch_size:
+                break
+            await asyncio.sleep(0.1)
+        if total_deleted > 0:
+            _LOGGER.info("Census cleanup: deleted %d snapshots older than %d days", total_deleted, retention_days)
+        return total_deleted
 
     # =========================================================================
     # v3.5.2: TRANSIT VALIDATION METHODS
@@ -2650,19 +2664,32 @@ class UniversalRoomDatabase:
         except Exception as e:
             _LOGGER.error("Error setting cooldown: %s", e)
 
-    async def prune_notification_log(self, retention_days: int = 30) -> int:
-        """Prune notifications older than retention_days. Returns rows deleted."""
-        try:
-            cutoff = (dt_util.utcnow() - timedelta(days=retention_days)).isoformat()
-            async with self._db() as db:
-                cursor = await db.execute("""
-                    DELETE FROM notification_log WHERE timestamp < ?
-                """, (cutoff,))
-                await db.commit()
-                return cursor.rowcount
-        except Exception as e:
-            _LOGGER.error("Error pruning notification log: %s", e)
-            return 0
+    async def prune_notification_log(self, retention_days: int = 30, batch_size: int = 1000) -> int:
+        """Prune notifications older than retention_days. v4.2.8: Batched."""
+        cutoff = (dt_util.utcnow() - timedelta(days=retention_days)).isoformat()
+        total_deleted = 0
+        _batch_count = 0
+        while True:
+            _batch_count += 1
+            if _batch_count > 500:
+                _LOGGER.warning("Notification log prune hit max batch limit")
+                break
+            try:
+                async with self._db() as db:
+                    cursor = await db.execute(
+                        "DELETE FROM notification_log WHERE rowid IN ("
+                        "SELECT rowid FROM notification_log WHERE timestamp < ? LIMIT ?)",
+                        (cutoff, batch_size))
+                    await db.commit()
+                    deleted = cursor.rowcount
+                    total_deleted += deleted
+            except Exception as e:
+                _LOGGER.error("Error pruning notification log: %s", e)
+                break
+            if deleted < batch_size:
+                break
+            await asyncio.sleep(0.1)
+        return total_deleted
 
     # ====================================================================
     # v3.9.7 C4b: Notification Inbound
@@ -2695,19 +2722,32 @@ class UniversalRoomDatabase:
             _LOGGER.error("Error logging inbound message: %s", e)
             return None
 
-    async def prune_inbound_log(self, retention_days: int = 30) -> int:
-        """Prune inbound messages older than retention_days. Returns rows deleted."""
-        try:
-            cutoff = (dt_util.utcnow() - timedelta(days=retention_days)).isoformat()
-            async with self._db() as db:
-                cursor = await db.execute("""
-                    DELETE FROM notification_inbound WHERE timestamp < ?
-                """, (cutoff,))
-                await db.commit()
-                return cursor.rowcount
-        except Exception as e:
-            _LOGGER.error("Error pruning inbound log: %s", e)
-            return 0
+    async def prune_inbound_log(self, retention_days: int = 30, batch_size: int = 1000) -> int:
+        """Prune inbound messages older than retention_days. v4.2.8: Batched."""
+        cutoff = (dt_util.utcnow() - timedelta(days=retention_days)).isoformat()
+        total_deleted = 0
+        _batch_count = 0
+        while True:
+            _batch_count += 1
+            if _batch_count > 500:
+                _LOGGER.warning("Inbound log prune hit max batch limit")
+                break
+            try:
+                async with self._db() as db:
+                    cursor = await db.execute(
+                        "DELETE FROM notification_inbound WHERE rowid IN ("
+                        "SELECT rowid FROM notification_inbound WHERE timestamp < ? LIMIT ?)",
+                        (cutoff, batch_size))
+                    await db.commit()
+                    deleted = cursor.rowcount
+                    total_deleted += deleted
+            except Exception as e:
+                _LOGGER.error("Error pruning inbound log: %s", e)
+                break
+            if deleted < batch_size:
+                break
+            await asyncio.sleep(0.1)
+        return total_deleted
 
     async def get_inbound_today(self) -> list[dict]:
         """Get all inbound messages from today."""
@@ -2937,45 +2977,63 @@ class UniversalRoomDatabase:
     # v3.11.0: CLEANUP METHODS
     # =========================================================================
 
-    async def cleanup_energy_history(self, retention_days: int = 180) -> int:
-        """Delete energy_history rows older than retention_days."""
-        try:
-            cutoff = (dt_util.utcnow() - timedelta(days=retention_days)).isoformat()
-            async with self._db() as db:
-                cursor = await db.execute(
-                    "DELETE FROM energy_history WHERE timestamp < ?", (cutoff,)
-                )
-                await db.commit()
-                deleted = cursor.rowcount
-                if deleted > 0:
-                    _LOGGER.info(
-                        "Energy history cleanup: deleted %d rows older than %d days",
-                        deleted, retention_days,
-                    )
-                return deleted
-        except Exception as e:
-            _LOGGER.error("Error cleaning up energy history: %s", e)
-            return 0
+    async def cleanup_energy_history(self, retention_days: int = 180, batch_size: int = 1000) -> int:
+        """Delete energy_history rows older than retention_days. v4.2.8: Batched."""
+        cutoff = (dt_util.utcnow() - timedelta(days=retention_days)).isoformat()
+        total_deleted = 0
+        _batch_count = 0
+        while True:
+            _batch_count += 1
+            if _batch_count > 500:
+                _LOGGER.warning("Energy history cleanup hit max batch limit")
+                break
+            try:
+                async with self._db() as db:
+                    cursor = await db.execute(
+                        "DELETE FROM energy_history WHERE rowid IN ("
+                        "SELECT rowid FROM energy_history WHERE timestamp < ? LIMIT ?)",
+                        (cutoff, batch_size))
+                    await db.commit()
+                    deleted = cursor.rowcount
+                    total_deleted += deleted
+            except Exception as e:
+                _LOGGER.error("Error cleaning up energy history: %s", e)
+                break
+            if deleted < batch_size:
+                break
+            await asyncio.sleep(0.1)
+        if total_deleted > 0:
+            _LOGGER.info("Energy history cleanup: deleted %d rows older than %d days", total_deleted, retention_days)
+        return total_deleted
 
-    async def cleanup_external_conditions(self, retention_days: int = 90) -> int:
-        """Delete external_conditions rows older than retention_days."""
-        try:
-            cutoff = (dt_util.utcnow() - timedelta(days=retention_days)).isoformat()
-            async with self._db() as db:
-                cursor = await db.execute(
-                    "DELETE FROM external_conditions WHERE timestamp < ?", (cutoff,)
-                )
-                await db.commit()
-                deleted = cursor.rowcount
-                if deleted > 0:
-                    _LOGGER.info(
-                        "External conditions cleanup: deleted %d rows older than %d days",
-                        deleted, retention_days,
-                    )
-                return deleted
-        except Exception as e:
-            _LOGGER.error("Error cleaning up external conditions: %s", e)
-            return 0
+    async def cleanup_external_conditions(self, retention_days: int = 90, batch_size: int = 1000) -> int:
+        """Delete external_conditions rows older than retention_days. v4.2.8: Batched."""
+        cutoff = (dt_util.utcnow() - timedelta(days=retention_days)).isoformat()
+        total_deleted = 0
+        _batch_count = 0
+        while True:
+            _batch_count += 1
+            if _batch_count > 500:
+                _LOGGER.warning("External conditions cleanup hit max batch limit")
+                break
+            try:
+                async with self._db() as db:
+                    cursor = await db.execute(
+                        "DELETE FROM external_conditions WHERE rowid IN ("
+                        "SELECT rowid FROM external_conditions WHERE timestamp < ? LIMIT ?)",
+                        (cutoff, batch_size))
+                    await db.commit()
+                    deleted = cursor.rowcount
+                    total_deleted += deleted
+            except Exception as e:
+                _LOGGER.error("Error cleaning up external conditions: %s", e)
+                break
+            if deleted < batch_size:
+                break
+            await asyncio.sleep(0.1)
+        if total_deleted > 0:
+            _LOGGER.info("External conditions cleanup: deleted %d rows older than %d days", total_deleted, retention_days)
+        return total_deleted
 
     # =========================================================================
     # v3.13.0: CIRCUIT STATE PERSISTENCE
@@ -3341,37 +3399,46 @@ class UniversalRoomDatabase:
         except Exception as e:
             _LOGGER.debug("Activity log write failed (non-critical): %s", e)
 
-    async def prune_activity_log(self) -> int:
+    async def prune_activity_log(self, batch_size: int = 1000) -> int:
         """Prune activity log entries past retention window.
 
         Info: 7 days, notable/critical: 30 days.
-        Returns total rows deleted.
+        v4.2.8: Batched to avoid blocking write queue.
         """
-        try:
-            now = dt_util.utcnow()
-            info_cutoff = (now - timedelta(days=7)).isoformat()
-            notable_cutoff = (now - timedelta(days=30)).isoformat()
-            total_deleted = 0
-            async with self._db() as db:
-                # Delete old info entries
-                cursor = await db.execute(
-                    "DELETE FROM ura_activity_log WHERE importance = 'info' AND timestamp < ?",
-                    (info_cutoff,),
-                )
-                total_deleted += cursor.rowcount
-                # Delete old notable/critical entries
-                cursor = await db.execute(
-                    "DELETE FROM ura_activity_log WHERE importance != 'info' AND timestamp < ?",
-                    (notable_cutoff,),
-                )
-                total_deleted += cursor.rowcount
-                await db.commit()
-            if total_deleted > 0:
-                _LOGGER.info("Pruned %d activity log entries", total_deleted)
-            return total_deleted
-        except Exception as e:
-            _LOGGER.error("Error pruning activity log: %s", e)
-            return 0
+        now = dt_util.utcnow()
+        info_cutoff = (now - timedelta(days=7)).isoformat()
+        notable_cutoff = (now - timedelta(days=30)).isoformat()
+        total_deleted = 0
+        # SAFETY: where clauses are hardcoded literals — never from user input
+        for cutoff, where in [
+            (info_cutoff, "importance = 'info' AND timestamp < ?"),
+            (notable_cutoff, "importance != 'info' AND timestamp < ?"),
+        ]:
+            _batch_count = 0  # Reset per-tier
+            while True:
+                _batch_count += 1
+                if _batch_count > 500:
+                    _LOGGER.warning("Activity log prune hit max batch limit")
+                    break
+                try:
+                    async with self._db() as db:
+                        cursor = await db.execute(
+                            f"DELETE FROM ura_activity_log WHERE rowid IN ("
+                            f"SELECT rowid FROM ura_activity_log WHERE {where} LIMIT ?)",
+                            (cutoff, batch_size),
+                        )
+                        await db.commit()
+                        deleted = cursor.rowcount
+                        total_deleted += deleted
+                except Exception as e:
+                    _LOGGER.error("Error pruning activity log: %s", e)
+                    break
+                if deleted < batch_size:
+                    break
+                await asyncio.sleep(0.1)
+        if total_deleted > 0:
+            _LOGGER.info("Pruned %d activity log entries", total_deleted)
+        return total_deleted
 
     async def get_recent_activities(self, limit: int = 10) -> list[dict]:
         """Get most recent activity log entries."""
@@ -3610,30 +3677,44 @@ class UniversalRoomDatabase:
             _LOGGER.error("Error querying prediction results: %s", e)
             return []
 
-    async def prune_prediction_results(self, days: int = 30) -> int:
-        """Delete old prediction results. Returns count deleted."""
-        try:
-            cutoff = (
-                dt_util.utcnow() - timedelta(days=days)
-            ).isoformat()
-            async with self._db() as db:
-                cursor = await db.execute(
-                    """DELETE FROM prediction_results
-                       WHERE prediction_timestamp < ?
-                         AND prediction_type = 'bayesian_occupancy'""",
-                    (cutoff,),
-                )
-                await db.commit()
-                deleted = cursor.rowcount
-                if deleted > 0:
-                    _LOGGER.debug(
-                        "Pruned %d prediction results older than %d days",
-                        deleted, days,
+    async def prune_prediction_results(self, days: int = 30, batch_size: int = 1000) -> int:
+        """Delete old prediction results in batches.
+
+        v4.2.8: Batched to avoid holding write queue for minutes on large tables.
+        Each batch acquires _db(), deletes ≤batch_size rows, commits, releases.
+        """
+        cutoff = (dt_util.utcnow() - timedelta(days=days)).isoformat()
+        total_deleted = 0
+        _batch_count = 0
+        while True:
+            _batch_count += 1
+            if _batch_count > 500:
+                _LOGGER.warning("Prediction prune hit max batch limit (500K rows)")
+                break
+            try:
+                async with self._db() as db:
+                    cursor = await db.execute(
+                        """DELETE FROM prediction_results
+                           WHERE rowid IN (
+                               SELECT rowid FROM prediction_results
+                               WHERE prediction_timestamp < ?
+                                 AND prediction_type = 'bayesian_occupancy'
+                               LIMIT ?
+                           )""",
+                        (cutoff, batch_size),
                     )
-                return deleted
-        except Exception as e:
-            _LOGGER.error("Error pruning prediction results: %s", e)
-            return 0
+                    await db.commit()
+                    deleted = cursor.rowcount
+                    total_deleted += deleted
+            except Exception as e:
+                _LOGGER.error("Error pruning prediction results (batch): %s", e)
+                break
+            if deleted < batch_size:
+                break
+            await asyncio.sleep(0.1)
+        if total_deleted > 0:
+            _LOGGER.info("Pruned %d prediction results older than %d days", total_deleted, days)
+        return total_deleted
 
     # ================================================================
     # v4.1.0: Room Power Profiles (B4 Energy Integration)

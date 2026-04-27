@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv4.2.7
+# Universal Room Automation v4.2.8
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -661,7 +661,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                             _LOGGER.debug("Activity log startup prune failed: %s", prune_err)
 
                         # Register daily 2 AM prune for activity log + dedup cache clear
-                        from homeassistant.helpers.event import async_track_time_change
+                        from homeassistant.helpers.event import async_call_later, async_track_time_change
 
                         async def _daily_activity_prune(_now):
                             """Prune activity log and clear dedup cache at 2 AM."""
@@ -679,6 +679,57 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                             hass, _daily_activity_prune, hour=2, minute=0, second=0
                         )
                         hass.data[DOMAIN]["unsub_activity_prune"] = unsub_activity_prune
+
+                        # v4.2.8: Nightly DB maintenance at 2:30 AM — all cleanup
+                        # operations batched to avoid blocking write queue.
+                        _cleanup_ops = [
+                            ("predictions", "prune_prediction_results", {"days": 30}),
+                            ("census", "cleanup_census", {"retention_days": 90}),
+                            ("energy_history", "cleanup_energy_history", {"retention_days": 180}),
+                            ("external_conditions", "cleanup_external_conditions", {"retention_days": 90}),
+                            ("notifications", "prune_notification_log", {"retention_days": 30}),
+                            ("inbound", "prune_inbound_log", {"retention_days": 30}),
+                            ("person_data", "cleanup_person_data", {"retention_days": 90}),
+                        ]
+
+                        async def _nightly_db_maintenance(_now):
+                            """Run all DB cleanup at 2:30 AM (batched)."""
+                            _db = hass.data.get(DOMAIN, {}).get("database")
+                            if not _db:
+                                return
+                            for name, method_name, kwargs in _cleanup_ops:
+                                try:
+                                    method = getattr(_db, method_name, None)
+                                    if method:
+                                        await method(**kwargs)
+                                except Exception as exc:
+                                    _LOGGER.warning("Nightly %s cleanup failed: %s", name, exc)
+                                await asyncio.sleep(1.0)  # Yield between methods
+
+                        unsub_nightly = async_track_time_change(
+                            hass, _nightly_db_maintenance, hour=2, minute=30, second=0
+                        )
+                        hass.data[DOMAIN]["unsub_nightly_maintenance"] = unsub_nightly
+
+                        # v4.2.8: One-time startup catch-up prune (5 min after boot).
+                        # Clears accumulated backlog from tables that were never pruned.
+                        async def _startup_catchup_prune(_now):
+                            _db = hass.data.get(DOMAIN, {}).get("database")
+                            if not _db:
+                                return
+                            for name, method_name, kwargs in _cleanup_ops:
+                                try:
+                                    method = getattr(_db, method_name, None)
+                                    if method:
+                                        deleted = await method(**kwargs)
+                                        if deleted:
+                                            _LOGGER.info("Startup catch-up: %s pruned %d rows", name, deleted)
+                                except Exception as exc:
+                                    _LOGGER.warning("Startup catch-up %s failed: %s", name, exc)
+
+                        unsub_catchup = async_call_later(hass, 300, _startup_catchup_prune)
+                        hass.data[DOMAIN]["unsub_startup_catchup"] = unsub_catchup
+
                     else:
                         _LOGGER.warning("Database initialization failed")
 
@@ -710,6 +761,58 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
             unsub = _attc(hass, _daily_prune_deferred, hour=2, minute=0, second=0)
             hass.data[DOMAIN]["unsub_activity_prune"] = unsub
+
+        # v4.2.8: Nightly maintenance deferred path (same race as activity logger)
+        if (hass.data[DOMAIN].get("database") is not None
+                and hass.data[DOMAIN].get("unsub_nightly_maintenance") is None):
+            from homeassistant.helpers.event import (
+                async_call_later as _acl_d,
+                async_track_time_change as _attc_d,
+            )
+
+            _cleanup_ops_d = [
+                ("predictions", "prune_prediction_results", {"days": 30}),
+                ("census", "cleanup_census", {"retention_days": 90}),
+                ("energy_history", "cleanup_energy_history", {"retention_days": 180}),
+                ("external_conditions", "cleanup_external_conditions", {"retention_days": 90}),
+                ("notifications", "prune_notification_log", {"retention_days": 30}),
+                ("inbound", "prune_inbound_log", {"retention_days": 30}),
+                ("person_data", "cleanup_person_data", {"retention_days": 90}),
+            ]
+
+            async def _nightly_maintenance_deferred(_now):
+                _db = hass.data.get(DOMAIN, {}).get("database")
+                if not _db:
+                    return
+                for name, method_name, kwargs in _cleanup_ops_d:
+                    try:
+                        method = getattr(_db, method_name, None)
+                        if method:
+                            await method(**kwargs)
+                    except Exception as exc:
+                        _LOGGER.warning("Nightly %s cleanup failed: %s", name, exc)
+                    await asyncio.sleep(1.0)
+
+            unsub_n = _attc_d(hass, _nightly_maintenance_deferred, hour=2, minute=30, second=0)
+            hass.data[DOMAIN]["unsub_nightly_maintenance"] = unsub_n
+
+            # Also run startup catch-up on deferred path
+            async def _startup_catchup_deferred(_now):
+                _db = hass.data.get(DOMAIN, {}).get("database")
+                if not _db:
+                    return
+                for name, method_name, kwargs in _cleanup_ops_d:
+                    try:
+                        method = getattr(_db, method_name, None)
+                        if method:
+                            deleted = await method(**kwargs)
+                            if deleted:
+                                _LOGGER.info("Startup catch-up: %s pruned %d rows", name, deleted)
+                    except Exception as exc:
+                        _LOGGER.warning("Startup catch-up %s failed: %s", name, exc)
+
+            unsub_catchup_d = _acl_d(hass, 300, _startup_catchup_deferred)
+            hass.data[DOMAIN].setdefault("unsub_startup_catchup", unsub_catchup_d)
 
         # v3.2.0: Initialize person tracking coordinator if persons are configured
         # FIX v3.2.3.1: Read from options first (where UI saves), then fall back to data
@@ -1015,30 +1118,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         hass.data[DOMAIN]["unsub_bayesian_accuracy"] = unsub_bayesian_accuracy
 
                         # v4.0.0-B2: Add prediction results pruning to periodic save
-                        _orig_bayesian_save = _bayesian_periodic_save
-
-                        async def _bayesian_periodic_save_with_prune(now):
-                            """Save beliefs + prune old prediction results."""
-                            await _orig_bayesian_save(now)
-                            try:
-                                db = hass.data.get(DOMAIN, {}).get("database")
-                                if db:
-                                    await db.prune_prediction_results(days=30)
-                            except Exception as exc:
-                                _LOGGER.debug(
-                                    "Prediction results pruning failed: %s", exc
-                                )
-
-                        # Replace the periodic save callback
-                        unsub_old = hass.data[DOMAIN].pop("unsub_bayesian_save", None)
-                        if unsub_old:
-                            unsub_old()
-                        unsub_bayesian_save = async_track_time_interval(
-                            hass,
-                            _bayesian_periodic_save_with_prune,
-                            timedelta(minutes=30),
-                        )
-                        hass.data[DOMAIN]["unsub_bayesian_save"] = unsub_bayesian_save
+                        # v4.2.8: Prediction prune moved to nightly maintenance (2:30 AM)
+                        # and startup catch-up (5 min after boot). The unbounded DELETE
+                        # was holding the write queue for >120s on large tables.
 
                         _LOGGER.info("✓ BayesianPredictor initialized successfully")
                     except Exception as e:
@@ -1897,6 +1979,13 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         unsub_activity_prune = hass.data[DOMAIN].pop("unsub_activity_prune", None)
         if unsub_activity_prune:
             unsub_activity_prune()
+        # v4.2.8: Clean up nightly maintenance + startup catch-up timers
+        unsub_nightly = hass.data[DOMAIN].pop("unsub_nightly_maintenance", None)
+        if unsub_nightly:
+            unsub_nightly()
+        unsub_catchup = hass.data[DOMAIN].pop("unsub_startup_catchup", None)
+        if unsub_catchup:
+            unsub_catchup()
         hass.data[DOMAIN].pop("activity_logger", None)
 
         # v3.22.7: Close persistent DB connections on unload

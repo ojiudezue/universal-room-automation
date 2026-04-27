@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv4.2.7
+# Universal Room Automation v4.2.8
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v4.2.7"
+VERSION: Final = "4.2.8"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -1119,7 +1119,7 @@ DEFAULT_CENSUS_HOLD_EXTERIOR_MINUTES: Final = 5
 CENSUS_DECAY_STEP_SECONDS: Final = 300  # -1 person per 5 min after hold expires
 
 # Event-driven census
-CENSUS_EVENT_DEBOUNCE_SECONDS: Final = 5  # Debounce rapid detection events
+CENSUS_EVENT_DEBOUNCE_SECONDS: Final = 30  # v4.2.8: was 5s, increased to reduce DB write burst from camera events
 
 # Face recognition window (how long a Frigate face match stays "active")
 CENSUS_FACE_RECOGNITION_WINDOW_SECONDS: Final = 1800  # 30 minutes
