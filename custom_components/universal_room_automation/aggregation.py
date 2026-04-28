@@ -3441,25 +3441,31 @@ class ZoneLastOccupantSensor(ZoneSensorBase, SensorEntity):
         return "Unknown"
     
     async def async_update(self) -> None:
-        """Update last occupant from database."""
+        """Update last occupant from database (cached 5 min)."""
+        import time as _time
+        now = _time.monotonic()
+        if not hasattr(self, '_last_query_time'):
+            self._last_query_time = 0
+        if now - self._last_query_time < 300:  # 5 minutes
+            return
         database = self.hass.data[DOMAIN].get("database")
-        
+
         if not database:
             return
-        
+
         # Get all room names in zone
         zone_rooms = [
             coord.entry.data.get("room_name", "")
             for coord in self._get_zone_coordinators()
         ]
-        
+
         if not zone_rooms:
             return
         
         try:
-            # v3.2.2.6: Fixed - Use proper database API method
             result = await database.get_zone_last_occupant(zone_rooms)
-            
+            self._last_query_time = _time.monotonic()
+
             if result:
                 person_id = result['person_id']
                 self._last_occupant = person_id.replace('_', ' ').title()
@@ -3518,23 +3524,29 @@ class ZoneLastOccupantTimeSensor(ZoneSensorBase, SensorEntity):
         return None
     
     async def async_update(self) -> None:
-        """Update last occupant time from database."""
+        """Update last occupant time from database (cached 5 min)."""
+        import time as _time
+        now = _time.monotonic()
+        if not hasattr(self, '_last_query_time'):
+            self._last_query_time = 0
+        if now - self._last_query_time < 300:  # 5 minutes
+            return
         database = self.hass.data[DOMAIN].get("database")
-        
+
         if not database:
             return
-        
+
         zone_rooms = [
             coord.entry.data.get("room_name", "")
             for coord in self._get_zone_coordinators()
         ]
-        
+
         if not zone_rooms:
             return
-        
+
         try:
-            # v3.2.2.6: Fixed - Use proper database API method
             result = await database.get_zone_last_occupant(zone_rooms)
+            self._last_query_time = _time.monotonic()
             
             if result:
                 entry_time = result['entry_time']
