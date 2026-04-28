@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v4.2.10
+# Universal Room Automation v4.2.11
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -8093,14 +8093,20 @@ class BayesianPredictionAccuracySensor(AggregationEntity, SensorEntity):
             "hit_rate": None,
             "total_predictions": 0,
         }
+        self._last_query_time: float = 0
 
     async def async_update(self) -> None:
-        """Fetch accuracy stats from Bayesian predictor."""
+        """Fetch accuracy stats from Bayesian predictor (cached 30 min)."""
+        import time
+        now = time.monotonic()
+        if now - self._last_query_time < 1800:  # 30 minutes
+            return
         predictor = self.hass.data.get(DOMAIN, {}).get("bayesian_predictor")
         if predictor is None:
             return
         try:
             self._cached_stats = await predictor.get_accuracy_stats(days=7)
+            self._last_query_time = now
         except Exception as e:
             _LOGGER.error("Error fetching Bayesian accuracy stats: %s", e)
 
@@ -8344,48 +8350,75 @@ class URAMemoryUsageSensor(AggregationEntity, SensorEntity):
     _attr_icon = "mdi:memory"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_state_class = SensorStateClass.MEASUREMENT
-    _attr_native_unit_of_measurement = "KB"
+    _attr_native_unit_of_measurement = "items"
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         super().__init__(hass, entry)
         self._attr_unique_id = f"{DOMAIN}_memory_usage"
         self._attr_name = "Memory Usage"
         self._attr_device_info = _cm_device_info()
-        pass  # No extra state needed
 
-    @property
-    def native_value(self) -> float | None:
-        import sys
+    def _count_items(self) -> tuple[int, dict[str, Any]]:
+        """Count items in known-growable URA structures."""
         ura_data = self.hass.data.get(DOMAIN)
         if not ura_data:
-            return None
-        total = sys.getsizeof(ura_data)
-        # Measure key sub-structures
-        for key in ("coordinator_manager", "database", "census", "activity_logger"):
-            obj = ura_data.get(key)
-            if obj is not None:
-                total += sys.getsizeof(obj)
-        kb = round(total / 1024, 1)
-        return kb
+            return 0, {}
+        attrs: dict[str, Any] = {}
+        total = 0
 
-    @property
-    def extra_state_attributes(self) -> dict[str, Any]:
-        import sys
-        ura_data = self.hass.data.get(DOMAIN)
-        if not ura_data:
-            return {}
-        attrs = {}
-        for key in ("coordinator_manager", "database", "census", "activity_logger",
-                     "person_tracking", "camera_manager"):
-            obj = ura_data.get(key)
-            if obj is not None:
-                attrs[f"{key}_bytes"] = sys.getsizeof(obj)
-        # DB stats if available
+        # Top-level keys
+        attrs["hass_data_keys"] = len(ura_data)
+        total += len(ura_data)
+
+        # DB stats
         db = ura_data.get("database")
         if db and hasattr(db, "_db_stats"):
             attrs["db_writes_total"] = db._db_stats.get("writes", 0)
             attrs["db_queue_peak"] = db._db_stats.get("queue_peak", 0)
-        attrs["keys_count"] = len(ura_data)
+            attrs["db_queue_current"] = db._write_queue.qsize() if hasattr(db, "_write_queue") else 0
+            total += attrs["db_queue_current"]
+
+        # Activity logger dedup cache
+        al = ura_data.get("activity_logger")
+        if al and hasattr(al, "_dedup_cache"):
+            count = len(al._dedup_cache)
+            attrs["activity_dedup_cache"] = count
+            total += count
+
+        # Bayesian beliefs
+        bp = ura_data.get("bayesian_predictor")
+        if bp and hasattr(bp, "_beliefs"):
+            count = len(bp._beliefs) if bp._beliefs else 0
+            attrs["bayesian_belief_cells"] = count
+            total += count
+
+        # Coordinator count
+        cm = ura_data.get("coordinator_manager")
+        if cm and hasattr(cm, "coordinators"):
+            attrs["coordinators"] = len(cm.coordinators)
+
+        # Process RSS (whole HA process — for correlation)
+        try:
+            import resource
+            rss_kb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+            # macOS returns bytes, Linux returns KB
+            import sys as _sys
+            if _sys.platform == "darwin":
+                rss_kb = rss_kb // 1024
+            attrs["process_rss_kb"] = rss_kb
+        except Exception:
+            pass
+
+        return total, attrs
+
+    @property
+    def native_value(self) -> int | None:
+        total, _ = self._count_items()
+        return total
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        _, attrs = self._count_items()
         return attrs
 
 
@@ -8401,30 +8434,34 @@ class URAMemoryDeltaSensor(AggregationEntity, SensorEntity):
     _attr_icon = "mdi:delta"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_state_class = SensorStateClass.MEASUREMENT
-    _attr_native_unit_of_measurement = "KB"
+    _attr_native_unit_of_measurement = "items"
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         super().__init__(hass, entry)
         self._attr_unique_id = f"{DOMAIN}_memory_delta"
         self._attr_name = "Memory Delta"
         self._attr_device_info = _cm_device_info()
-        self._prev_kb: float | None = None
+        self._prev_count: int | None = None
 
     @property
-    def native_value(self) -> float | None:
-        import sys
+    def native_value(self) -> int | None:
         ura_data = self.hass.data.get(DOMAIN)
         if not ura_data:
             return None
-        total = sys.getsizeof(ura_data)
-        for key in ("coordinator_manager", "database", "census", "activity_logger"):
-            obj = ura_data.get(key)
-            if obj is not None:
-                total += sys.getsizeof(obj)
-        current_kb = round(total / 1024, 1)
-        if self._prev_kb is None:
-            self._prev_kb = current_kb
-            return 0.0
-        delta = round(current_kb - self._prev_kb, 1)
-        self._prev_kb = current_kb
+        # Reuse the usage sensor's counting logic
+        total = len(ura_data)
+        al = ura_data.get("activity_logger")
+        if al and hasattr(al, "_dedup_cache"):
+            total += len(al._dedup_cache)
+        bp = ura_data.get("bayesian_predictor")
+        if bp and hasattr(bp, "_beliefs"):
+            total += len(bp._beliefs) if bp._beliefs else 0
+        db = ura_data.get("database")
+        if db and hasattr(db, "_write_queue"):
+            total += db._write_queue.qsize()
+        if self._prev_count is None:
+            self._prev_count = total
+            return 0
+        delta = total - self._prev_count
+        self._prev_count = total
         return delta
