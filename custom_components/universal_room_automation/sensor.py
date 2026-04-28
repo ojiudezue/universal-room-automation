@@ -8423,58 +8423,53 @@ class URAMemoryUsageSensor(AggregationEntity, SensorEntity):
 
 
 class URAMemoryDeltaSensor(AggregationEntity, SensorEntity):
-    """URA memory change since last measurement.
+    """Process RSS memory change since last measurement (MB).
 
+    Tracks the entire HA process memory via resource.getrusage.
     Positive = growing, negative = shrinking, zero = stable.
+    If consistently positive, something is leaking.
+
     Entity: sensor.ura_coordinator_manager_memory_delta
     Device: URA: Coordinator Manager
-
-    v4.2.11: Moved delta computation from native_value property into
-    async_update() to eliminate side effects in property reads (review fix).
-    Reuses URAMemoryUsageSensor._count_items via helper to stay in sync.
     """
 
     _attr_has_entity_name = True
     _attr_icon = "mdi:delta"
     _attr_entity_category = EntityCategory.DIAGNOSTIC
     _attr_state_class = SensorStateClass.MEASUREMENT
-    _attr_native_unit_of_measurement = "items"
+    _attr_native_unit_of_measurement = "MB"
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         super().__init__(hass, entry)
         self._attr_unique_id = f"{DOMAIN}_memory_delta"
         self._attr_name = "Memory Delta"
         self._attr_device_info = _cm_device_info()
-        self._prev_count: int | None = None
-        self._cached_delta: int = 0
+        self._prev_rss_mb: float | None = None
+        self._cached_delta: float = 0.0
 
-    def _count_total(self) -> int:
-        """Count growable items — mirrors URAMemoryUsageSensor._count_items total."""
-        ura_data = self.hass.data.get(DOMAIN)
-        if not ura_data:
-            return 0
-        total = len(ura_data)
-        al = ura_data.get("activity_logger")
-        if al and hasattr(al, "_dedup_cache"):
-            total += len(al._dedup_cache)
-        bp = ura_data.get("bayesian_predictor")
-        if bp and hasattr(bp, "_beliefs"):
-            total += len(bp._beliefs) if bp._beliefs else 0
-        db = ura_data.get("database")
-        if db and hasattr(db, "_write_queue"):
-            total += db._write_queue.qsize()
-        return total
+    def _get_rss_mb(self) -> float:
+        """Get process RSS in MB."""
+        try:
+            import resource
+            import sys as _sys
+            rss = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+            if _sys.platform == "darwin":
+                return rss / (1024 * 1024)  # bytes → MB
+            return rss / 1024  # KB → MB
+        except Exception:
+            return 0.0
 
     async def async_update(self) -> None:
-        """Compute delta once per poll — property is side-effect free."""
-        total = self._count_total()
-        if self._prev_count is None:
-            self._prev_count = total
-            self._cached_delta = 0
+        """Compute RSS delta once per poll — property is side-effect free."""
+        current = round(self._get_rss_mb(), 1)
+        if self._prev_rss_mb is None:
+            self._prev_rss_mb = current
+            self._cached_delta = 0.0
         else:
-            self._cached_delta = total - self._prev_count
+            self._cached_delta = round(current - self._prev_rss_mb, 1)
+            self._prev_rss_mb = current
             self._prev_count = total
 
     @property
-    def native_value(self) -> int | None:
+    def native_value(self) -> float | None:
         return self._cached_delta
