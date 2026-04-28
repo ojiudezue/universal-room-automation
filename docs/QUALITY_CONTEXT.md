@@ -903,6 +903,65 @@ Can cascade into other failures if the calling code doesn't have try/except.
 
 ---
 
+### Bug Class #25: Unbounded DB DELETE in Write Queue ⚠️
+
+**Pattern:** A DELETE operation without LIMIT runs inside the serialized `_db()` write queue. Table grows over time; DELETE takes progressively longer, eventually blocking all writes for minutes.
+
+**Impact:** Write queue saturation (94+ items), 35s timeouts on all DB callers, HA event loop starvation, app disconnections, potential hardware reboot required.
+
+**Prevention:**
+- [ ] Every DELETE uses `WHERE rowid IN (SELECT rowid ... LIMIT 1000)` with batching loop
+- [ ] Max batch count cap (500) prevents infinite loops
+- [ ] `asyncio.sleep(0.1)` between batches yields write queue to other callers
+- [ ] Heavy prunes scheduled nightly (2:30 AM), not on periodic timers
+
+**Historical Examples:**
+- v4.2.8: `prune_prediction_results()` ran unbounded DELETE every 30 min. After weeks, 43K+ rows blocked write queue for >120s. Fixed with batched LIMIT + nightly schedule.
+
+**Discovered:** v4.2.8
+**Severity:** CRITICAL
+
+---
+
+### Bug Class #26: High-Frequency DB Read from Sensor Platform ⚠️
+
+**Pattern:** A sensor's `async_update()` queries the database every 30s (HA default interval). Under write congestion, reads block on WAL checkpoint. Hundreds of >10s update warnings saturate the event loop.
+
+**Impact:** 202+ occurrences of "Update of sensor.X is taking over 10 seconds". HA becomes sluggish. App WebSocket connections drop due to message backpressure.
+
+**Prevention:**
+- [ ] Every `async_update()` that queries DB MUST have a cache TTL
+- [ ] Zone/aggregation queries: 5-minute cache minimum
+- [ ] Prediction/accuracy queries: 30-minute cache minimum
+- [ ] Use `time.monotonic()` for cache timers (not wall clock)
+
+**Historical Examples:**
+- v4.2.11: Zone last occupant sensors + Bayesian accuracy sensor queried DB every 30s. Cached to 5 min / 30 min respectively. >10s warnings eliminated.
+
+**Discovered:** v4.2.11
+**Severity:** HIGH
+
+---
+
+### Bug Class #27: Orphaned Cleanup Method ⚠️
+
+**Pattern:** A DB cleanup/prune method exists but is never called from any scheduler. The table grows unbounded for months until disk/memory pressure causes issues.
+
+**Impact:** Tables grow to hundreds of thousands of rows. First prune attempt processes months of data, causing extended write queue congestion.
+
+**Prevention:**
+- [ ] Every DB INSERT table must have a matching cleanup method
+- [ ] Every cleanup method must appear in the nightly maintenance schedule
+- [ ] Check `grep -n "def cleanup_\|def prune_" database.py` against `grep -n "cleanup_\|prune_" __init__.py`
+
+**Historical Examples:**
+- v4.2.8: 5 cleanup methods existed since v3.5.0-v3.9.7 but were never scheduled: cleanup_census, cleanup_energy_history, cleanup_external_conditions, prune_notification_log, cleanup_person_data. First nightly run processed months of data.
+
+**Discovered:** v4.2.8
+**Severity:** MEDIUM (accumulates silently, detonates on first prune)
+
+---
+
 ## ✅ MANDATORY VALIDATION CHECKLIST
 
 **Before EVERY deployment, complete this checklist:**

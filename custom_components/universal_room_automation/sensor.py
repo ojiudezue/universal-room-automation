@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v4.2.11
+# Universal Room Automation v4.2.12
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -8077,17 +8077,9 @@ class BayesianPredictionAccuracySensor(AggregationEntity, SensorEntity):
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         """Initialize."""
         super().__init__(hass, entry)
-        from homeassistant.helpers.device_registry import DeviceInfo
-        from .const import VERSION
         self._attr_unique_id = f"{DOMAIN}_bayesian_prediction_accuracy"
         self._attr_name = "Bayesian Prediction Accuracy"
-        self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, "coordinator_manager")},
-            name="URA: Coordinator Manager",
-            manufacturer="Universal Room Automation",
-            model="Coordinator Manager",
-            sw_version=VERSION,
-        )
+        self._attr_device_info = _cm_device_info()
         self._cached_stats: dict = {
             "brier_score": None,
             "hit_rate": None,
@@ -8109,6 +8101,8 @@ class BayesianPredictionAccuracySensor(AggregationEntity, SensorEntity):
             self._last_query_time = now
         except Exception as e:
             _LOGGER.error("Error fetching Bayesian accuracy stats: %s", e)
+            # v4.2.11: Update cache timer on exception to prevent log spam (review fix)
+            self._last_query_time = now
 
     @property
     def native_value(self) -> float | None:
@@ -8357,6 +8351,10 @@ class URAMemoryUsageSensor(AggregationEntity, SensorEntity):
         self._attr_unique_id = f"{DOMAIN}_memory_usage"
         self._attr_name = "Memory Usage"
         self._attr_device_info = _cm_device_info()
+        # v4.2.11: Cache _count_items result so native_value and
+        # extra_state_attributes return consistent data (review fix)
+        self._cached_total: int = 0
+        self._cached_attrs: dict[str, Any] = {}
 
     def _count_items(self) -> tuple[int, dict[str, Any]]:
         """Count items in known-growable URA structures."""
@@ -8411,15 +8409,17 @@ class URAMemoryUsageSensor(AggregationEntity, SensorEntity):
 
         return total, attrs
 
+    async def async_update(self) -> None:
+        """Cache _count_items so properties return consistent snapshot."""
+        self._cached_total, self._cached_attrs = self._count_items()
+
     @property
     def native_value(self) -> int | None:
-        total, _ = self._count_items()
-        return total
+        return self._cached_total
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        _, attrs = self._count_items()
-        return attrs
+        return self._cached_attrs
 
 
 class URAMemoryDeltaSensor(AggregationEntity, SensorEntity):
@@ -8428,6 +8428,10 @@ class URAMemoryDeltaSensor(AggregationEntity, SensorEntity):
     Positive = growing, negative = shrinking, zero = stable.
     Entity: sensor.ura_coordinator_manager_memory_delta
     Device: URA: Coordinator Manager
+
+    v4.2.11: Moved delta computation from native_value property into
+    async_update() to eliminate side effects in property reads (review fix).
+    Reuses URAMemoryUsageSensor._count_items via helper to stay in sync.
     """
 
     _attr_has_entity_name = True
@@ -8442,13 +8446,13 @@ class URAMemoryDeltaSensor(AggregationEntity, SensorEntity):
         self._attr_name = "Memory Delta"
         self._attr_device_info = _cm_device_info()
         self._prev_count: int | None = None
+        self._cached_delta: int = 0
 
-    @property
-    def native_value(self) -> int | None:
+    def _count_total(self) -> int:
+        """Count growable items — mirrors URAMemoryUsageSensor._count_items total."""
         ura_data = self.hass.data.get(DOMAIN)
         if not ura_data:
-            return None
-        # Reuse the usage sensor's counting logic
+            return 0
         total = len(ura_data)
         al = ura_data.get("activity_logger")
         if al and hasattr(al, "_dedup_cache"):
@@ -8459,9 +8463,18 @@ class URAMemoryDeltaSensor(AggregationEntity, SensorEntity):
         db = ura_data.get("database")
         if db and hasattr(db, "_write_queue"):
             total += db._write_queue.qsize()
+        return total
+
+    async def async_update(self) -> None:
+        """Compute delta once per poll — property is side-effect free."""
+        total = self._count_total()
         if self._prev_count is None:
             self._prev_count = total
-            return 0
-        delta = total - self._prev_count
-        self._prev_count = total
-        return delta
+            self._cached_delta = 0
+        else:
+            self._cached_delta = total - self._prev_count
+            self._prev_count = total
+
+    @property
+    def native_value(self) -> int | None:
+        return self._cached_delta

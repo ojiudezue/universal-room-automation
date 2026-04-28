@@ -3427,25 +3427,26 @@ class ZoneLastOccupantSensor(ZoneSensorBase, SensorEntity):
         # Migration in __init__.py renames existing "last_occupant" zone entities
         self._attr_unique_id = f"{DOMAIN}_zone_{zone}_last_identified_person"
         self._attr_name = f"Last Identified Person"
-    
+        # v4.2.11: Declare all instance attrs in __init__ (review fix)
+        self._last_query_time: float = 0
+        self._last_occupant: str = "Unknown"
+        self._last_occupant_time: Any = None
+        self._last_occupant_room: str | None = None
+
     @property
     def available(self) -> bool:
         """Return if entity is available."""
         return True
-    
+
     @property
     def native_value(self) -> str:
         """Return last zone occupant."""
-        if hasattr(self, '_last_occupant'):
-            return self._last_occupant
-        return "Unknown"
-    
+        return self._last_occupant
+
     async def async_update(self) -> None:
         """Update last occupant from database (cached 5 min)."""
         import time as _time
         now = _time.monotonic()
-        if not hasattr(self, '_last_query_time'):
-            self._last_query_time = 0
         if now - self._last_query_time < 300:  # 5 minutes
             return
         database = self.hass.data[DOMAIN].get("database")
@@ -3461,38 +3462,34 @@ class ZoneLastOccupantSensor(ZoneSensorBase, SensorEntity):
 
         if not zone_rooms:
             return
-        
+
         try:
             result = await database.get_zone_last_occupant(zone_rooms)
-            self._last_query_time = _time.monotonic()
+            self._last_query_time = now
 
             if result:
                 person_id = result['person_id']
                 self._last_occupant = person_id.replace('_', ' ').title()
                 self._last_occupant_time = result['entry_time']
                 self._last_occupant_room = result['room_id']
-            else:
-                # v3.2.10: Only set Unknown if never seen anyone (preserve when zone empties)
-                if not hasattr(self, '_last_occupant'):
-                    self._last_occupant = "Unknown"
-                    self._last_occupant_time = None
-                    self._last_occupant_room = None
-                # else: preserve existing values when zone becomes empty
-                
+            # else: preserve existing values when zone becomes empty
+
         except Exception as e:
             _LOGGER.error("Error getting zone last occupant: %s", e)
-            self._last_occupant = "Unknown"
+            # v4.2.11: Update cache timer on exception to prevent log spam (review fix)
+            # Preserve existing values — don't reset on transient DB error
+            self._last_query_time = now
     
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return attributes."""
         attrs = {}
-        
-        if hasattr(self, '_last_occupant_time') and self._last_occupant_time:
+
+        if self._last_occupant_time:
             t = self._last_occupant_time
             attrs["last_seen"] = t if isinstance(t, str) else t.isoformat()
-            attrs["room"] = getattr(self, '_last_occupant_room', None)
-        
+            attrs["room"] = self._last_occupant_room
+
         return attrs
 
 
@@ -3510,25 +3507,24 @@ class ZoneLastOccupantTimeSensor(ZoneSensorBase, SensorEntity):
         # Migration in __init__.py renames existing "last_occupant_time" zone entities
         self._attr_unique_id = f"{DOMAIN}_zone_{zone}_last_identified_time"
         self._attr_name = f"Last Identified Time"
-    
+        # v4.2.11: Declare all instance attrs in __init__ (review fix)
+        self._last_query_time: float = 0
+        self._last_time: datetime | None = None
+
     @property
     def available(self) -> bool:
         """Return if entity is available."""
         return True
-    
+
     @property
     def native_value(self) -> datetime | None:
         """Return timestamp of last zone occupant."""
-        if hasattr(self, '_last_time'):
-            return self._last_time
-        return None
-    
+        return self._last_time
+
     async def async_update(self) -> None:
         """Update last occupant time from database (cached 5 min)."""
         import time as _time
         now = _time.monotonic()
-        if not hasattr(self, '_last_query_time'):
-            self._last_query_time = 0
         if now - self._last_query_time < 300:  # 5 minutes
             return
         database = self.hass.data[DOMAIN].get("database")
@@ -3546,8 +3542,8 @@ class ZoneLastOccupantTimeSensor(ZoneSensorBase, SensorEntity):
 
         try:
             result = await database.get_zone_last_occupant(zone_rooms)
-            self._last_query_time = _time.monotonic()
-            
+            self._last_query_time = now
+
             if result:
                 entry_time = result['entry_time']
                 if isinstance(entry_time, str):
@@ -3559,15 +3555,13 @@ class ZoneLastOccupantTimeSensor(ZoneSensorBase, SensorEntity):
                 if self._last_time is not None and self._last_time.tzinfo is None:
                     from datetime import timezone
                     self._last_time = self._last_time.replace(tzinfo=timezone.utc)
-            else:
-                # v3.2.10: Only set None if never seen anyone (preserve when zone empties)
-                if not hasattr(self, '_last_time'):
-                    self._last_time = None
-                # else: preserve existing value when zone becomes empty
-                
+            # else: preserve existing value when zone becomes empty
+
         except Exception as e:
             _LOGGER.error("Error getting zone last occupant time: %s", e)
-            self._last_time = None
+            # v4.2.11: Update cache timer on exception to prevent log spam (review fix)
+            # Preserve existing value — don't reset on transient DB error
+            self._last_query_time = now
 
 
 class ZonePersonTrackingStatusSensor(ZoneSensorBase, SensorEntity):
