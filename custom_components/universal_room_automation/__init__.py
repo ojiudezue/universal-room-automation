@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation v4.2.13
+# Universal Room Automation v4.2.14
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -722,32 +722,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         )
                         hass.data[DOMAIN]["unsub_nightly_maintenance"] = unsub_nightly
 
-                        # v4.2.13: Startup catch-up prune delayed 30 min (was 5 min).
-                        # At 5 min it competed with Bayesian/zone sensor DB reads,
-                        # causing init failures and write queue congestion.
-                        # 30 min gives all coordinators time to initialize cleanly.
-                        async def _startup_catchup_prune(_now):
-                            _db = hass.data.get(DOMAIN, {}).get("database")
-                            if not _db:
-                                return
-                            from homeassistant.util import dt as _dtu2
-                            _start = _dtu2.utcnow()
-                            for name, method_name, kwargs in _cleanup_ops:
-                                if (_dtu2.utcnow() - _start).total_seconds() > 300:
-                                    _LOGGER.warning("Startup catch-up hit 5-min budget — rest at 2:30 AM")
-                                    break
-                                try:
-                                    method = getattr(_db, method_name, None)
-                                    if method:
-                                        deleted = await method(**kwargs)
-                                        if deleted:
-                                            _LOGGER.info("Startup catch-up: %s pruned %d rows", name, deleted)
-                                except Exception as exc:
-                                    _LOGGER.warning("Startup catch-up %s failed: %s", name, exc)
-                                await asyncio.sleep(1.0)
-
-                        unsub_catchup = async_call_later(hass, 1800, _startup_catchup_prune)
-                        hass.data[DOMAIN]["unsub_startup_catchup"] = unsub_catchup
+                        # v4.2.14: Startup catch-up prune REMOVED.
+                        # v4.2.8 added it to clear a one-time backlog from orphaned
+                        # cleanup methods. v4.2.13 delayed it to 30 min but it still
+                        # saturated the write queue for 15-20 min, blocking all DB
+                        # reads (accuracy sensor, zone sensors, external tools).
+                        # Nightly 2:30 AM maintenance handles all cleanup safely.
 
                     else:
                         _LOGGER.warning("Database initialization failed")
@@ -825,29 +805,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             unsub_n = _attc_d(hass, _nightly_maintenance_deferred, hour=2, minute=30, second=0)
             hass.data[DOMAIN]["unsub_nightly_maintenance"] = unsub_n
 
-            # v4.2.13: Startup catch-up delayed 30 min (deferred path)
-            async def _startup_catchup_deferred(_now):
-                _db = hass.data.get(DOMAIN, {}).get("database")
-                if not _db:
-                    return
-                from homeassistant.util import dt as _dtu4
-                _start = _dtu4.utcnow()
-                for name, method_name, kwargs in _cleanup_ops_d:
-                    if (_dtu4.utcnow() - _start).total_seconds() > 300:
-                        _LOGGER.warning("Startup catch-up hit 5-min budget — rest at 2:30 AM")
-                        break
-                    try:
-                        method = getattr(_db, method_name, None)
-                        if method:
-                            deleted = await method(**kwargs)
-                            if deleted:
-                                _LOGGER.info("Startup catch-up: %s pruned %d rows", name, deleted)
-                    except Exception as exc:
-                        _LOGGER.warning("Startup catch-up %s failed: %s", name, exc)
-                    await asyncio.sleep(1.0)
-
-            unsub_catchup_d = _acl_d(hass, 1800, _startup_catchup_deferred)
-            hass.data[DOMAIN].setdefault("unsub_startup_catchup", unsub_catchup_d)
+            # v4.2.14: Startup catch-up prune REMOVED (deferred path).
+            # Nightly 2:30 AM maintenance handles all cleanup.
 
         # v3.2.0: Initialize person tracking coordinator if persons are configured
         # FIX v3.2.3.1: Read from options first (where UI saves), then fall back to data
