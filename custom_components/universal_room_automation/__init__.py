@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation v4.2.12
+# Universal Room Automation v4.2.13
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -722,8 +722,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         )
                         hass.data[DOMAIN]["unsub_nightly_maintenance"] = unsub_nightly
 
-                        # v4.2.8: One-time startup catch-up prune (5 min after boot).
-                        # Clears accumulated backlog from tables that were never pruned.
+                        # v4.2.13: Startup catch-up prune delayed 30 min (was 5 min).
+                        # At 5 min it competed with Bayesian/zone sensor DB reads,
+                        # causing init failures and write queue congestion.
+                        # 30 min gives all coordinators time to initialize cleanly.
                         async def _startup_catchup_prune(_now):
                             _db = hass.data.get(DOMAIN, {}).get("database")
                             if not _db:
@@ -744,7 +746,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                                     _LOGGER.warning("Startup catch-up %s failed: %s", name, exc)
                                 await asyncio.sleep(1.0)
 
-                        unsub_catchup = async_call_later(hass, 300, _startup_catchup_prune)
+                        unsub_catchup = async_call_later(hass, 1800, _startup_catchup_prune)
                         hass.data[DOMAIN]["unsub_startup_catchup"] = unsub_catchup
 
                     else:
@@ -823,7 +825,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             unsub_n = _attc_d(hass, _nightly_maintenance_deferred, hour=2, minute=30, second=0)
             hass.data[DOMAIN]["unsub_nightly_maintenance"] = unsub_n
 
-            # Also run startup catch-up on deferred path
+            # v4.2.13: Startup catch-up delayed 30 min (deferred path)
             async def _startup_catchup_deferred(_now):
                 _db = hass.data.get(DOMAIN, {}).get("database")
                 if not _db:
@@ -844,7 +846,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         _LOGGER.warning("Startup catch-up %s failed: %s", name, exc)
                     await asyncio.sleep(1.0)
 
-            unsub_catchup_d = _acl_d(hass, 300, _startup_catchup_deferred)
+            unsub_catchup_d = _acl_d(hass, 1800, _startup_catchup_deferred)
             hass.data[DOMAIN].setdefault("unsub_startup_catchup", unsub_catchup_d)
 
         # v3.2.0: Initialize person tracking coordinator if persons are configured
@@ -1021,8 +1023,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
                         _LOGGER.debug("Initializing BayesianPredictor...")
                         bayesian_predictor = BayesianPredictor(hass)
-                        await bayesian_predictor.initialize(database)
+                        # v4.2.13: Register BEFORE initialize so button/sensors
+                        # are available even if DB load fails (empty beliefs,
+                        # learns from live transitions).
                         hass.data[DOMAIN]["bayesian_predictor"] = bayesian_predictor
+                        try:
+                            await bayesian_predictor.initialize(database)
+                        except Exception as init_exc:
+                            _LOGGER.warning(
+                                "BayesianPredictor DB load failed (will learn "
+                                "from live transitions): %s", init_exc
+                            )
 
                         # Wire into transition detector for live updates
                         @callback
