@@ -86,6 +86,9 @@ def stamp_manifest(version: str) -> None:
 def main() -> None:
     if len(sys.argv) > 1:
         new_version = sys.argv[1]
+        # Ensure version has 'v' prefix for const.py/manifest.json
+        if not new_version.startswith("v"):
+            new_version = f"v{new_version}"
         print(f"Setting version to {new_version}")
         set_version(new_version)
         print()

@@ -1,0 +1,9 @@
+# VibeMemo local-only files (see FORMAT.md / INTEROP.md)
+# Everything else — entries, narratives, FORMAT.md, settings.json — MUST be committed.
+# The decision trail travels with the code.
+.lock
+.lock.tmp
+.session
+.events
+.events.*
+.vibememorc

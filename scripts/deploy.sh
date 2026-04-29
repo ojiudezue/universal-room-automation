@@ -8,6 +8,8 @@
 set -euo pipefail
 
 VERSION="${1:?Usage: deploy.sh <version> <commit-summary> <release-notes>}"
+# Strip leading 'v' if present — script adds 'v' prefix in commits/tags/releases
+VERSION="${VERSION#v}"
 SUMMARY="${2:?Usage: deploy.sh <version> <commit-summary> <release-notes>}"
 NOTES="${3:?Usage: deploy.sh <version> <commit-summary> <release-notes>}"
 DRY_RUN=false

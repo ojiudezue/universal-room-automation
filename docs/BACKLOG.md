@@ -23,7 +23,7 @@
 
 ## Bayesian Remaining
 
-5. **B3: Pre-emptive Actions** — High-confidence Bayesian predictions trigger room preparation (lights, HVAC pre-conditioning). Configurable confidence threshold. Integration with HVAC pre-arrival and chained automations.
+5. **B3: Pre-emptive Actions** — Zone + house level Bayesian pre-conditioning, prediction-aware vacancy hold, predicted departure/return transitions, battery occupancy shaping. Room-level actions (lights, music) cut — no practical value over 2-5s reactive detection. **Full plan:** `docs/planning/PLANNING_v4.x_B3_PREEMPTIVE_ACTIONS.md`
 
 6. ~~**B4: Energy Integration**~~ — **DONE** (v4.1.0 L1, v4.1.1 L2, v4.2.0 L3). All 3 layers shipped. See `docs/planning/PLANNING_v4.x_B4_ENERGY_INTEGRATION.md`.
 
@@ -67,5 +67,5 @@
 
 1. Config flow save root cause (partially mitigated in v4.2.0, still times out on large rooms)
 2. Optimizer Phase 1 (Activity Log done, no blockers remaining)
-3. B3 pre-emptive actions (backlog — practical utility under review)
+3. B3 pre-emptive actions (planned — zone/house level, see `docs/planning/PLANNING_v4.x_B3_PREEMPTIVE_ACTIONS.md`)
 4. DB write queue deeper fixes (if room count grows or warmup becomes unacceptable)
