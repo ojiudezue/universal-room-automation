@@ -1,7 +1,7 @@
 """Database for Universal Room Automation."""
 from __future__ import annotations
 #
-# Universal Room Automation v4.2.14
+# Universal Room Automation v4.2.15
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors
@@ -61,7 +61,9 @@ class UniversalRoomDatabase:
         """
         if self._write_task is not None and not self._write_task.done():
             return  # Already running
-        self._write_task = self.hass.async_create_task(
+        # v4.2.15: Use async_create_background_task so the write worker
+        # (which runs forever) doesn't block HA startup completion.
+        self._write_task = self.hass.async_create_background_task(
             self._write_worker(), "ura_db_write_worker"
         )
         _LOGGER.info("DB write worker started")
