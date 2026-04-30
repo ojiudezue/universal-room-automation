@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v4.2.14
+# Universal Room Automation v4.2.15
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -8468,7 +8468,6 @@ class URAMemoryDeltaSensor(AggregationEntity, SensorEntity):
         else:
             self._cached_delta = round(current - self._prev_rss_mb, 1)
             self._prev_rss_mb = current
-            self._prev_count = total
 
     @property
     def native_value(self) -> float | None:
