@@ -425,12 +425,12 @@ class EVChargerController:
         battery_power_w: float | None,
         battery_soc: float | None,
         soc_threshold: int,
-        tou_period: str,
     ) -> list[dict[str, Any]]:
         """Pause EVSEs draining the home battery. Resume on recovery.
 
         Pauses when: EVSE is charging AND battery is discharging AND SOC < threshold.
-        Resumes when: battery stops discharging OR SOC >= threshold + 5% OR off-peak TOU.
+        Resumes when: battery stops discharging (reserve holds, grid takes over)
+                  OR SOC >= threshold + 5% hysteresis (solar recharge).
         Manual override: if user turns charger back on during pause, set 1h cooldown.
         """
         actions: list[dict[str, Any]] = []
@@ -481,16 +481,14 @@ class EVChargerController:
                     )
             elif evse_id in self._paused_by_battery_drain:
                 # Resume conditions:
-                # 1. Battery stopped discharging
-                # 2. SOC recovered above threshold + 5% hysteresis
-                # 3. Off-peak TOU (grid power is cheap, drain is acceptable)
+                # 1. Battery stopped discharging (reserve holds, grid takes over)
+                # 2. SOC recovered above threshold + 5% hysteresis (solar recharge)
                 soc_recovered = (
                     battery_soc is not None and battery_soc >= soc_threshold + 5
                 )
                 battery_ok = not battery_discharging
-                off_peak = tou_period == "off_peak"
 
-                if battery_ok or soc_recovered or off_peak:
+                if battery_ok or soc_recovered:
                     if not state["is_on"]:
                         # Don't resume if another pause reason is active
                         if evse_id in self._paused_by_grid_cap or evse_id in self._paused_by_us:
@@ -505,9 +503,7 @@ class EVChargerController:
                             "target": switch_entity,
                             "data": {},
                         })
-                        reason = "battery ok" if battery_ok else (
-                            "SOC recovered" if soc_recovered else "off-peak"
-                        )
+                        reason = "battery ok" if battery_ok else "SOC recovered"
                         _LOGGER.info(
                             "EV battery drain: resuming %s (%s)", evse_id, reason,
                         )
