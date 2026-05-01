@@ -1642,7 +1642,6 @@ class EnergyCoordinator(BaseCoordinator):
                     battery_power_w=self._battery.battery_power,
                     battery_soc=self._battery.battery_soc,
                     soc_threshold=self._ev_battery_drain_soc,
-                    tou_period=period,
                 )
                 for action_spec in drain_actions:
                     await self._execute_service_action(action_spec)
