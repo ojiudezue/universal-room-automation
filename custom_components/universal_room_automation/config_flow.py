@@ -1,6 +1,6 @@
 """Config flow for Universal Room Automation v3.6.24."""
 #
-# Universal Room Automation v4.2.16
+# Universal Room Automation v4.2.17
 # Build: 2026-01-05
 # File: config_flow.py
 # v3.3.3: Added manage_zones to integration options menu
@@ -2665,6 +2665,8 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             CONF_ENERGY_GRID_IMPORT_CAP_ENABLED,
             CONF_ENERGY_GRID_IMPORT_CAP_KW,
             DEFAULT_GRID_IMPORT_CAP_KW,
+            CONF_ENERGY_EV_BATTERY_DRAIN_SOC,
+            DEFAULT_EV_BATTERY_DRAIN_SOC_THRESHOLD,
         )
         from .const import CONF_OCCUPANCY_WEIGHTED_ENERGY
         from .domain_coordinators.energy_const import (
@@ -2674,6 +2676,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             CONF_ENERGY_GENERATOR_ENTITY,
             CONF_ENERGY_GRID_IMPORT_ENTITY,
             CONF_ENERGY_GRID_EXPORT_ENTITY,
+            CONF_ENERGY_UTILITY_METER_ENTITY,
         )
 
         if user_input is not None:
@@ -3016,6 +3019,17 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     mode=selector.NumberSelectorMode.SLIDER,
                 )
             ),
+            # v4.2.17: EV battery drain SOC threshold
+            vol.Optional(
+                CONF_ENERGY_EV_BATTERY_DRAIN_SOC,
+                default=self._get_current(CONF_ENERGY_EV_BATTERY_DRAIN_SOC, DEFAULT_EV_BATTERY_DRAIN_SOC_THRESHOLD),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=10, max=90, step=5,
+                    unit_of_measurement="%",
+                    mode=selector.NumberSelectorMode.SLIDER,
+                )
+            ),
             # v4.1.1 B4 L2: Occupancy-weighted prediction toggle
             vol.Optional(
                 CONF_OCCUPANCY_WEIGHTED_ENERGY,
@@ -3056,6 +3070,13 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 description={"suggested_value": self._get_current(CONF_ENERGY_GRID_EXPORT_ENTITY)},
             ): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor", device_class="power")
+            ),
+            # v4.2.17: Utility company net energy meter
+            vol.Optional(
+                CONF_ENERGY_UTILITY_METER_ENTITY,
+                description={"suggested_value": self._get_current(CONF_ENERGY_UTILITY_METER_ENTITY)},
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor", device_class="energy")
             ),
         })
 

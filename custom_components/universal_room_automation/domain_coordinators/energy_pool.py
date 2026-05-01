@@ -11,7 +11,12 @@ from typing import Any
 
 from homeassistant.core import HomeAssistant
 
-from .energy_const import EVSE_CHARGING_POWER_THRESHOLD
+import time as _time
+
+from .energy_const import (
+    EVSE_CHARGING_POWER_THRESHOLD,
+    EV_BATTERY_DRAIN_COOLDOWN_SECONDS,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -186,6 +191,8 @@ class EVChargerController:
         self._paused_by_us: set[str] = set()
         self._excess_solar_active: set[str] = set()
         self._paused_by_grid_cap: set[str] = set()
+        self._paused_by_battery_drain: set[str] = set()
+        self._battery_drain_cooldown: dict[str, float] = {}  # evse_id → monotonic expiry
 
     def _get_evse_state(self, evse_id: str) -> dict[str, Any]:
         """Get current state of an EVSE."""
@@ -247,6 +254,11 @@ class EVChargerController:
                     if evse_id in self._paused_by_grid_cap:
                         self._paused_by_us.discard(evse_id)
                         _LOGGER.info("EV: clearing TOU pause for %s (grid cap active)", evse_id)
+                        continue
+                    # v4.2.17: Battery drain takes priority — don't resume if draining
+                    if evse_id in self._paused_by_battery_drain:
+                        self._paused_by_us.discard(evse_id)
+                        _LOGGER.info("EV: clearing TOU pause for %s (battery drain active)", evse_id)
                         continue
                     if not state["is_on"]:
                         actions.append({
@@ -389,6 +401,11 @@ class EVChargerController:
             elif evse_id in self._paused_by_grid_cap:
                 # Below cap minus hysteresis — resume
                 if net_power_kw < (grid_cap_kw - hysteresis_kw):
+                    # v4.2.17: Battery drain takes priority
+                    if evse_id in self._paused_by_battery_drain:
+                        self._paused_by_grid_cap.discard(evse_id)
+                        _LOGGER.info("EV grid cap: clearing for %s (battery drain active)", evse_id)
+                        continue
                     if not state["is_on"]:
                         actions.append({
                             "service": "switch.turn_on",
@@ -403,17 +420,115 @@ class EVChargerController:
 
         return actions
 
+    def determine_battery_drain_actions(
+        self,
+        battery_power_w: float | None,
+        battery_soc: float | None,
+        soc_threshold: int,
+        tou_period: str,
+    ) -> list[dict[str, Any]]:
+        """Pause EVSEs draining the home battery. Resume on recovery.
+
+        Pauses when: EVSE is charging AND battery is discharging AND SOC < threshold.
+        Resumes when: battery stops discharging OR SOC >= threshold + 5% OR off-peak TOU.
+        Manual override: if user turns charger back on during pause, set 1h cooldown.
+        """
+        actions: list[dict[str, Any]] = []
+        now = _time.monotonic()
+
+        for evse_id, config in self._evse.items():
+            switch_entity = config.get("switch", "")
+            if not switch_entity:
+                continue
+            state = self._get_evse_state(evse_id)
+
+            # Check cooldown (manual override protection)
+            cooldown_expiry = self._battery_drain_cooldown.get(evse_id)
+            if cooldown_expiry is not None:
+                if now < cooldown_expiry:
+                    continue  # In cooldown — don't re-pause
+                self._battery_drain_cooldown.pop(evse_id, None)
+
+            # Detect manual override: charger on while we have it paused
+            if evse_id in self._paused_by_battery_drain and state["is_on"]:
+                self._paused_by_battery_drain.discard(evse_id)
+                self._battery_drain_cooldown[evse_id] = now + EV_BATTERY_DRAIN_COOLDOWN_SECONDS
+                _LOGGER.info(
+                    "EV battery drain: %s turned on manually — cooldown %ds",
+                    evse_id, EV_BATTERY_DRAIN_COOLDOWN_SECONDS,
+                )
+                continue
+
+            battery_discharging = (
+                battery_power_w is not None and battery_power_w < -100  # >100W discharge
+            )
+            soc_low = (
+                battery_soc is not None and battery_soc < soc_threshold
+            )
+
+            if state["charging"] and battery_discharging and soc_low:
+                # Pause: EV is draining the battery
+                if evse_id not in self._paused_by_battery_drain:
+                    actions.append({
+                        "service": "switch.turn_off",
+                        "target": switch_entity,
+                        "data": {},
+                    })
+                    self._paused_by_battery_drain.add(evse_id)
+                    _LOGGER.info(
+                        "EV battery drain: pausing %s (battery=%.0fW, SOC=%.0f%% < %d%%)",
+                        evse_id, battery_power_w, battery_soc, soc_threshold,
+                    )
+            elif evse_id in self._paused_by_battery_drain:
+                # Resume conditions:
+                # 1. Battery stopped discharging
+                # 2. SOC recovered above threshold + 5% hysteresis
+                # 3. Off-peak TOU (grid power is cheap, drain is acceptable)
+                soc_recovered = (
+                    battery_soc is not None and battery_soc >= soc_threshold + 5
+                )
+                battery_ok = not battery_discharging
+                off_peak = tou_period == "off_peak"
+
+                if battery_ok or soc_recovered or off_peak:
+                    if not state["is_on"]:
+                        # Don't resume if another pause reason is active
+                        if evse_id in self._paused_by_grid_cap or evse_id in self._paused_by_us:
+                            self._paused_by_battery_drain.discard(evse_id)
+                            _LOGGER.info(
+                                "EV battery drain: clearing for %s (other pause active)",
+                                evse_id,
+                            )
+                            continue
+                        actions.append({
+                            "service": "switch.turn_on",
+                            "target": switch_entity,
+                            "data": {},
+                        })
+                        reason = "battery ok" if battery_ok else (
+                            "SOC recovered" if soc_recovered else "off-peak"
+                        )
+                        _LOGGER.info(
+                            "EV battery drain: resuming %s (%s)", evse_id, reason,
+                        )
+                    self._paused_by_battery_drain.discard(evse_id)
+
+        return actions
+
     def get_status(self) -> dict[str, Any]:
         """Return EV charging status for sensor."""
         status: dict[str, Any] = {
             "paused_by_energy": list(self._paused_by_us),
             "paused_by_grid_cap": list(self._paused_by_grid_cap),
+            "paused_by_battery_drain": list(self._paused_by_battery_drain),
             "excess_solar_active": bool(self._excess_solar_active),
             "excess_solar_evses": list(self._excess_solar_active),
         }
         for evse_id in self._evse:
             evse_state = self._get_evse_state(evse_id)
-            if evse_id in self._paused_by_grid_cap:
+            if evse_id in self._paused_by_battery_drain:
+                evse_state["energy_status"] = "battery_drain_paused"
+            elif evse_id in self._paused_by_grid_cap:
                 evse_state["energy_status"] = "grid_capped"
             elif evse_id in self._paused_by_us:
                 evse_state["energy_status"] = "paused"

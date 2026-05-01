@@ -275,6 +275,11 @@ CONF_ENERGY_EXCESS_SOLAR_ENABLED: Final = "energy_excess_solar_enabled"
 CONF_ENERGY_EXCESS_SOLAR_SOC: Final = "energy_excess_solar_soc"
 CONF_ENERGY_EXCESS_SOLAR_KWH: Final = "energy_excess_solar_kwh"
 
+# EV Battery Drain Protection (v4.2.17)
+DEFAULT_EV_BATTERY_DRAIN_SOC_THRESHOLD: Final = 50
+CONF_ENERGY_EV_BATTERY_DRAIN_SOC: Final = "energy_ev_battery_drain_soc"
+EV_BATTERY_DRAIN_COOLDOWN_SECONDS: Final = 3600  # 1 hour after manual override
+
 # EV Grid Import Cap (v4.0.18)
 DEFAULT_GRID_IMPORT_CAP_KW: Final = 8.0
 DEFAULT_GRID_IMPORT_CAP_HYSTERESIS_KW: Final = 1.0
@@ -291,6 +296,9 @@ CONF_ENERGY_GENERATOR_ENTITY: Final = "energy_generator_entity"
 # v4.2.0: Direct grid import/export sensors (e.g., Emporia mains)
 CONF_ENERGY_GRID_IMPORT_ENTITY: Final = "energy_grid_import_entity"
 CONF_ENERGY_GRID_EXPORT_ENTITY: Final = "energy_grid_export_entity"
+
+# v4.2.17: Utility company net energy meter (SmartHub, etc.)
+CONF_ENERGY_UTILITY_METER_ENTITY: Final = "energy_utility_meter_entity"
 
 # Load shedding defaults
 DEFAULT_LOAD_SHEDDING_THRESHOLD_KW: Final = 5.0

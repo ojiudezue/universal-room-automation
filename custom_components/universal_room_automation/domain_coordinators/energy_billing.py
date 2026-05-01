@@ -313,6 +313,11 @@ class CostTracker:
         return round(self._cost_this_cycle, 4)
 
     @property
+    def import_kwh_cycle(self) -> float:
+        """Total grid import kWh this billing cycle."""
+        return round(self._import_kwh_cycle, 2)
+
+    @property
     def predicted_bill(self) -> float | None:
         """Predicted monthly bill (available after 7 days)."""
         return self._predicted_bill
