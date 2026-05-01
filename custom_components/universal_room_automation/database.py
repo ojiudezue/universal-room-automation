@@ -1,7 +1,7 @@
 """Database for Universal Room Automation."""
 from __future__ import annotations
 #
-# Universal Room Automation v4.2.15
+# Universal Room Automation v4.2.16
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors
@@ -101,8 +101,8 @@ class UniversalRoomDatabase:
                                         "DB write queue peak: %d items", qsize
                                     )
             except asyncio.CancelledError:
-                _LOGGER.info("DB write worker cancelled — draining queue")
-                self._drain_pending_futures("worker cancelled")
+                _LOGGER.info("DB write worker cancelled — flushing pending writes")
+                await self._flush_pending_writes()
                 return
             except Exception as exc:
                 _LOGGER.error(
@@ -112,8 +112,53 @@ class UniversalRoomDatabase:
                 try:
                     await asyncio.sleep(5)
                 except asyncio.CancelledError:
-                    _LOGGER.info("DB write worker cancelled during reconnect")
+                    _LOGGER.info("DB write worker cancelled during reconnect — flushing")
+                    await self._flush_pending_writes()
                     return
+
+    async def _flush_pending_writes(self) -> None:
+        """Gracefully execute remaining queued writes before shutdown.
+
+        Opens a fresh connection and processes pending writes with a
+        5-second time budget. Any writes remaining after the budget
+        are failed via _drain_pending_futures.
+        """
+        deadline = time.monotonic() + 5.0
+        flushed = 0
+        try:
+            async with aiosqlite.connect(self.db_file, timeout=5.0) as db:
+                await db.execute("PRAGMA busy_timeout=5000")
+                await db.execute("PRAGMA journal_mode=WAL")
+                while not self._write_queue.empty():
+                    if time.monotonic() > deadline:
+                        _LOGGER.warning(
+                            "DB flush hit 5s budget after %d writes", flushed
+                        )
+                        break
+                    try:
+                        factory, future = self._write_queue.get_nowait()
+                    except asyncio.QueueEmpty:
+                        break
+                    try:
+                        result = await factory(db)
+                        if not future.done():
+                            future.set_result(result)
+                        flushed += 1
+                    except Exception as exc:
+                        if not future.done():
+                            future.set_exception(exc)
+                    finally:
+                        self._write_queue.task_done()
+        except asyncio.CancelledError:
+            _LOGGER.warning("DB flush interrupted by cancellation")
+        except Exception as exc:
+            _LOGGER.warning("DB flush connection failed: %s", exc)
+        if flushed:
+            _LOGGER.info("DB flush: executed %d pending writes", flushed)
+        # Drain anything left over the budget
+        remaining = self._write_queue.qsize()
+        if remaining:
+            self._drain_pending_futures("shutdown timeout")
 
     def _drain_pending_futures(self, reason: str) -> None:
         """Fail all pending write futures so callers don't hang."""
