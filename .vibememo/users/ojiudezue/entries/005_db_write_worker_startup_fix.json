@@ -1,0 +1,52 @@
+{
+  "format_version": "2.0",
+  "entry_id": "005",
+  "author": "ojiudezue",
+  "session_id": "claude_20260430_200000_b3f1",
+  "timestamp": "2026-04-30T21:00:00Z",
+  "type": "decision",
+  "weight": "significant",
+
+  "title": "DB write worker: background task + graceful flush on shutdown",
+
+  "summary": "The DB write worker was created with async_create_task (tracked for startup completion). Since it runs forever, HA waited indefinitely and logged 'Something is blocking Home Assistant from wrapping up the start up phase.' Changed to async_create_background_task. Also replaced fail-all drain on cancel with graceful flush: opens fresh connection, executes pending writes with 5s time budget, then drains remainder.",
+
+  "decisions": [
+    {
+      "id": "005.1",
+      "category": "architecture",
+      "decision": "Use async_create_background_task for the DB write worker instead of async_create_task",
+      "alternatives_considered": [
+        "Keep async_create_task and accept the startup warning",
+        "Add a startup completion signal that the write worker sends"
+      ],
+      "why": "async_create_task registers tasks for HA startup tracking — HA waits for them to complete before reporting 'ready'. The write worker runs forever by design (while True loop). async_create_background_task is HA's API for exactly this pattern: long-running tasks that shouldn't block startup or async_block_till_done(). The explicit async_close() in our unload path handles shutdown ordering correctly regardless.",
+      "implications": "HA startup completes without waiting for the write worker. The 'wrapping up startup' warning is eliminated. Shutdown safety preserved because async_unload_entry (which calls async_close) runs before HA cancels background tasks.",
+      "confidence": "high",
+      "revisit_trigger": "If HA changes background task cancellation ordering relative to config entry unload"
+    },
+    {
+      "id": "005.2",
+      "category": "architecture",
+      "decision": "Graceful flush on write worker cancel: execute pending writes with 5s budget before failing remainder",
+      "alternatives_considered": [
+        "Keep fail-all drain (existing behavior)",
+        "Unlimited flush (no time budget)"
+      ],
+      "why": "The previous behavior (fail all pending writes with RuntimeError on cancel) caused silent data loss on every integration reload or HA restart. Any writes queued between the last completed write and the cancel were lost. A 5-second flush window executes most pending writes (typical queue < 30 items × <10ms each = <300ms) while keeping shutdown bounded. CancelledError during flush is caught to ensure futures are never orphaned.",
+      "implications": "Census, energy snapshot, activity log, and Bayesian belief saves queued at shutdown will actually persist instead of being silently dropped. The 5s budget is conservative — worst case adds 5s to shutdown/reload time.",
+      "confidence": "high",
+      "revisit_trigger": "If shutdown time becomes unacceptable (>10s), or if write operations during flush cause DB corruption"
+    }
+  ],
+
+  "refs": {
+    "what_prompted_this": "HA logs showed 'Something is blocking Home Assistant from wrapping up the start up phase' with ura_db_write_worker as the culprit. Also discovered NameError in memory delta sensor (stale variable from v4.2.11 rewrite).",
+    "tools_in_use": ["claude_code"],
+    "files_affected": [
+      "custom_components/universal_room_automation/database.py",
+      "custom_components/universal_room_automation/sensor.py"
+    ],
+    "related_entries": ["001", "002"]
+  }
+}

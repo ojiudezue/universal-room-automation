@@ -1,0 +1,71 @@
+{
+  "format_version": "2.0",
+  "entry_id": "003",
+  "author": "ojiudezue",
+  "session_id": "claude_20260430_200000_b3f1",
+  "timestamp": "2026-04-30T20:00:00Z",
+  "type": "decision",
+  "weight": "significant",
+
+  "title": "Energy measurement trust hierarchy: SmartHub > Emporia/SPAN > Envoy",
+
+  "summary": "Three independent energy measurement sources exist (Enphase Envoy, Emporia Vue mains CTs, SmartHub utility meter). Envoy is ~5kWh/day off from utility billing. Emporia and SPAN historically align better with SmartHub. Decision: use SmartHub as ground truth for bill prediction calibration, Emporia for second grid import column in energy_history, and Envoy remains primary for real-time but is the least trusted for cumulative accuracy.",
+
+  "decisions": [
+    {
+      "id": "003.1",
+      "category": "data_model",
+      "decision": "Establish three-source energy measurement hierarchy: SmartHub (utility) > Emporia/SPAN (mains CTs) > Envoy (solar gateway) for cumulative accuracy",
+      "alternatives_considered": [
+        "Trust Envoy as single source of truth",
+        "Replace Envoy-based billing with utility meter entirely",
+        "Average all three sources"
+      ],
+      "why": "Envoy consistently drifts ~5kWh/day from the utility meter. Emporia and SPAN mains CTs track closer to SmartHub because they measure at the service entrance, same as the utility meter. Envoy measures net consumption behind the solar inverter which introduces measurement error from CT clamp placement and solar metering offset. Real-time Envoy data is still valuable (sub-second resolution) but cumulative totals diverge over 24h.",
+      "implications": "Bill prediction accuracy depends on calibrating against the utility meter. Over months, the Envoy drift compounds — a 5kWh/day error is 150kWh/month, which at $0.12/kWh is $18/month prediction error. The divergence sensor will surface this for the first time. Future B3 (auto-switching prediction source) can eliminate the drift entirely.",
+      "confidence": "high",
+      "revisit_trigger": "If Envoy firmware update improves CT accuracy, or if new Envoy hardware has better metering"
+    },
+    {
+      "id": "003.2",
+      "category": "architecture",
+      "decision": "Implement B-Lite (divergence reporting) before B3 (auto source switching) — observe numbers first, automate later",
+      "alternatives_considered": [
+        "Ship B3 immediately with auto-switching",
+        "Skip divergence reporting, just swap to utility meter"
+      ],
+      "why": "The utility meter sensor updates daily (midnight readings from SmartHub scraper). Auto-switching based on a daily-updating sensor against real-time Envoy data risks false triggers from timing misalignment, stale data, and billing cycle boundary mismatches. Need to observe the divergence pattern for 2-4 weeks before trusting automatic source switching with financial prediction output.",
+      "implications": "B-Lite ships as config + read + store + display — no behavioral changes, LOW risk. B3 becomes a follow-up with evidence from B-Lite's divergence data to validate the switching logic.",
+      "confidence": "high",
+      "revisit_trigger": "After 2-4 weeks of B-Lite divergence data shows consistent, predictable pattern"
+    },
+    {
+      "id": "003.3",
+      "category": "architecture",
+      "decision": "Populate grid_import_2 with Emporia mains import power (instantaneous kW) for historical cross-validation",
+      "alternatives_considered": [
+        "Use grid_import_2 for SmartHub utility data",
+        "Add a new column for Emporia",
+        "Leave grid_import_2 empty"
+      ],
+      "why": "grid_import_2 already exists in the energy_history schema (19 columns, created in v3.13.1). The SmartHub sensor is cumulative monthly kWh — doesn't fit the instantaneous kW pattern of energy_history rows. Emporia mains power matches the column's intent: a second instantaneous grid import reading alongside Envoy's.",
+      "implications": "Historical queries can compare Envoy vs Emporia grid readings at any 15-min interval. Drift analysis becomes possible with SQL. No schema migration needed.",
+      "confidence": "high",
+      "revisit_trigger": "If SPAN panel provides a better instantaneous power reading than Emporia"
+    }
+  ],
+
+  "refs": {
+    "what_prompted_this": "User added SmartHub energy sensor and asked how to integrate it. Analysis revealed Envoy is ~5kWh/day off from utility billing.",
+    "tools_in_use": ["claude_code"],
+    "files_affected": [
+      "custom_components/universal_room_automation/domain_coordinators/energy_const.py",
+      "custom_components/universal_room_automation/domain_coordinators/energy.py",
+      "custom_components/universal_room_automation/domain_coordinators/energy_billing.py",
+      "custom_components/universal_room_automation/config_flow.py",
+      "custom_components/universal_room_automation/database.py",
+      "docs/planning/PLANNING_UTILITY_METER_INTEGRATION.md"
+    ],
+    "related_entries": ["001", "002"]
+  }
+}

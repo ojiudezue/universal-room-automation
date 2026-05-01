@@ -1,0 +1,42 @@
+{
+  "format_version": "2.0",
+  "entry_id": "004",
+  "author": "ojiudezue",
+  "session_id": "claude_20260430_200000_b3f1",
+  "timestamp": "2026-04-30T20:30:00Z",
+  "type": "decision",
+  "weight": "notable",
+
+  "title": "EV battery drain auto-pause: detect charger drawing from battery, turn off switch",
+
+  "summary": "When EV charger draws power and the Enphase battery is simultaneously discharging below a SOC threshold, automatically turn off the charger switch. Resumes on battery recovery, off-peak TOU, or manual override with 1h cooldown. Follows existing _paused_by_grid_cap pattern in EVChargerManager.",
+
+  "decisions": [
+    {
+      "id": "004.1",
+      "category": "product",
+      "decision": "Add battery-drain-aware EV pause as a third pause reason alongside TOU and grid cap",
+      "alternatives_considered": [
+        "Tweak Emporia app scheduling to avoid evening charging",
+        "Use HA automation external to URA",
+        "Add to Enphase reserve strategy instead of charger control"
+      ],
+      "why": "The user manually pauses EV charging every evening when the car drains the battery. Emporia app scheduling is too coarse. External HA automations would duplicate URA's EV control logic. Enphase reserve adjustment is indirect — the battery doesn't know about the EV. Direct charger switch control is the most reliable and responsive approach, and URA already controls both charger switches.",
+      "implications": "Completes EV charge control to be fully autonomous — TOU scheduling + grid cap + battery protection. User no longer needs to manually intervene. The SOC threshold is configurable, defaulting to 50%.",
+      "confidence": "high",
+      "revisit_trigger": "If Enphase adds native EV-aware battery management, or if the Emporia chargers gain built-in battery-awareness"
+    }
+  ],
+
+  "refs": {
+    "what_prompted_this": "User reported manually pausing EV charging every evening to prevent battery drain",
+    "tools_in_use": ["claude_code"],
+    "files_affected": [
+      "custom_components/universal_room_automation/domain_coordinators/energy_pool.py",
+      "custom_components/universal_room_automation/domain_coordinators/energy.py",
+      "custom_components/universal_room_automation/domain_coordinators/energy_const.py",
+      "docs/planning/PLANNING_EV_BATTERY_DRAIN_PAUSE.md"
+    ],
+    "related_entries": ["003"]
+  }
+}

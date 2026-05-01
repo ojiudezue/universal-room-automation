@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v4.2.16
+# Universal Room Automation v4.2.17
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -5813,6 +5813,13 @@ class EnergyPredictedBillSensor(AggregationEntity, SensorEntity):
         if billing:
             attrs["days_in_cycle"] = billing.get("days_in_cycle", 0)
             attrs["cycle_start_date"] = billing.get("cycle_start_date", "")
+        # v4.2.17: Utility meter divergence
+        divergence = energy.utility_meter_divergence
+        if divergence:
+            attrs["prediction_source"] = divergence.get("prediction_source", "envoy")
+            attrs["utility_kwh"] = divergence.get("utility_kwh")
+            attrs["envoy_kwh"] = divergence.get("envoy_kwh")
+            attrs["utility_divergence_pct"] = divergence.get("divergence_pct")
         return attrs or None
 
 

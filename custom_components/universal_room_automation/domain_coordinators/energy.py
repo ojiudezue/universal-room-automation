@@ -217,6 +217,15 @@ class EnergyCoordinator(BaseCoordinator):
         # v4.2.10: EV TOU management toggle (was always-on)
         self._ev_tou_enabled: bool = True
 
+        # v4.2.17: EV battery drain protection
+        from .energy_const import (
+            DEFAULT_EV_BATTERY_DRAIN_SOC_THRESHOLD,
+            CONF_ENERGY_EV_BATTERY_DRAIN_SOC,
+        )
+        self._ev_battery_drain_soc: int = int(ec.get(
+            CONF_ENERGY_EV_BATTERY_DRAIN_SOC,
+            DEFAULT_EV_BATTERY_DRAIN_SOC_THRESHOLD))
+
         # E3: Circuit monitoring + generator
         # v4.2.0: Configurable circuit sources
         from .energy_const import (
@@ -238,7 +247,13 @@ class EnergyCoordinator(BaseCoordinator):
 
         # E4: Billing + cost tracking
         # v4.2.0: Optional direct grid import/export sensors (Emporia mains)
-        from .energy_const import CONF_ENERGY_GRID_IMPORT_ENTITY, CONF_ENERGY_GRID_EXPORT_ENTITY
+        from .energy_const import (
+            CONF_ENERGY_GRID_IMPORT_ENTITY,
+            CONF_ENERGY_GRID_EXPORT_ENTITY,
+            CONF_ENERGY_UTILITY_METER_ENTITY,
+        )
+        self._grid_import_entity: str | None = ec.get(CONF_ENERGY_GRID_IMPORT_ENTITY)
+        self._utility_meter_entity: str | None = ec.get(CONF_ENERGY_UTILITY_METER_ENTITY)
         self._billing = CostTracker(
             hass, self._tou,
             net_power_entity=ec.get(CONF_ENERGY_NET_POWER_ENTITY),
@@ -648,22 +663,32 @@ class EnergyCoordinator(BaseCoordinator):
                     self._ev._paused_by_us.add(evse_id)
                 if state.get("excess_solar_active"):
                     self._ev._excess_solar_active.add(evse_id)
-            # Restore grid cap state from key-value store (separate from evse_state table)
+            # Restore grid cap + battery drain state from key-value store
+            import json as _json
             grid_cap_json = await db.restore_energy_state("evse_grid_cap_paused")
             if grid_cap_json:
-                import json as _json
                 try:
                     for eid in _json.loads(grid_cap_json):
                         if eid in valid_evse_ids:
                             self._ev._paused_by_grid_cap.add(eid)
                 except (ValueError, TypeError):
                     pass
+            # v4.2.17: Restore battery drain state
+            drain_json = await db.restore_energy_state("evse_battery_drain_paused")
+            if drain_json:
+                try:
+                    for eid in _json.loads(drain_json):
+                        if eid in valid_evse_ids:
+                            self._ev._paused_by_battery_drain.add(eid)
+                except (ValueError, TypeError):
+                    pass
             if states:
                 _LOGGER.info(
-                    "Restored EVSE state: paused=%s, excess_solar=%s, grid_cap=%s",
+                    "Restored EVSE state: paused=%s, excess_solar=%s, grid_cap=%s, battery_drain=%s",
                     list(self._ev._paused_by_us),
                     list(self._ev._excess_solar_active),
                     list(self._ev._paused_by_grid_cap),
+                    list(self._ev._paused_by_battery_drain),
                 )
         except Exception as e:
             _LOGGER.warning("Could not restore EVSE state from DB: %s", e)
@@ -680,11 +705,15 @@ class EnergyCoordinator(BaseCoordinator):
                     paused_by_energy=evse_id in self._ev._paused_by_us,
                     excess_solar_active=evse_id in self._ev._excess_solar_active,
                 )
-            # Grid cap state via key-value store (no schema change needed)
+            # Grid cap + battery drain state via key-value store
             import json as _json
             await db.save_energy_state(
                 "evse_grid_cap_paused",
                 _json.dumps(list(self._ev._paused_by_grid_cap)),
+            )
+            await db.save_energy_state(
+                "evse_battery_drain_paused",
+                _json.dumps(list(self._ev._paused_by_battery_drain)),
             )
         except Exception as e:
             _LOGGER.warning("Could not save EVSE state to DB: %s", e)
@@ -1388,10 +1417,27 @@ class EnergyCoordinator(BaseCoordinator):
             except Exception:
                 pass
 
+            # v4.2.17: Read Emporia mains import power for grid_import_2
+            grid_import_2_kw = None
+            if self._grid_import_entity:
+                gi_state = self.hass.states.get(self._grid_import_entity)
+                if gi_state and gi_state.state not in ("unknown", "unavailable"):
+                    try:
+                        gi_val = float(gi_state.state)
+                        uom = gi_state.attributes.get("unit_of_measurement", "W")
+                        if uom == "kW":
+                            grid_import_2_kw = max(gi_val, 0)
+                        else:
+                            # Assume watts
+                            grid_import_2_kw = max(gi_val, 0) / 1000.0
+                    except (ValueError, TypeError):
+                        pass
+
             await db.log_energy_history({
                 "solar_production": solar_prod_kw,
                 "solar_export": solar_export_kw,
                 "grid_import": grid_import_kw,
+                "grid_import_2": grid_import_2_kw,
                 "battery_level": self._battery.battery_soc,
                 "whole_house_energy": consumption_kw,
                 "rooms_energy_total": self._get_rooms_energy_total(),
@@ -1590,6 +1636,16 @@ class EnergyCoordinator(BaseCoordinator):
                     )
                     for action_spec in grid_cap_actions:
                         await self._execute_service_action(action_spec)
+
+                # v4.2.17: EV battery drain protection
+                drain_actions = self._ev.determine_battery_drain_actions(
+                    battery_power_w=self._battery.battery_power,
+                    battery_soc=self._battery.battery_soc,
+                    soc_threshold=self._ev_battery_drain_soc,
+                    tou_period=period,
+                )
+                for action_spec in drain_actions:
+                    await self._execute_service_action(action_spec)
 
                 # E2: Smart plug control
                 plug_actions = self._smart_plugs.determine_actions(period)
@@ -2693,6 +2749,62 @@ class EnergyCoordinator(BaseCoordinator):
     def predicted_bill(self) -> float | None:
         """Predicted monthly bill."""
         return self._billing.predicted_bill
+
+    @property
+    def utility_meter_divergence(self) -> dict[str, Any] | None:
+        """Compare utility meter reading against Envoy-derived cycle import.
+
+        Returns dict with divergence info, or None if utility meter not configured.
+
+        Note: The utility meter (SmartHub) resets on its own cycle (typically
+        the 1st of the month). URA's billing cycle resets on bill_cycle_day
+        (configurable, default 9th). The divergence is only meaningful when
+        both cycles started at the same time. The `cycles_aligned` flag
+        indicates whether the comparison is valid.
+        """
+        if not self._utility_meter_entity:
+            return None
+        state = self.hass.states.get(self._utility_meter_entity)
+        if not state or state.state in ("unknown", "unavailable"):
+            return None
+        try:
+            utility_kwh = float(state.state)
+        except (ValueError, TypeError):
+            return None
+        envoy_kwh = self._billing.import_kwh_cycle
+
+        # Check cycle alignment: utility last_reset vs URA cycle start
+        cycles_aligned = False
+        utility_reset = state.attributes.get("last_reset")
+        billing_status = self._billing.get_status()
+        ura_cycle_start = billing_status.get("cycle_start_date") if billing_status else None
+        if utility_reset and ura_cycle_start:
+            # Compare dates (ignore time)
+            try:
+                from homeassistant.util import dt as dt_util
+                u_dt = dt_util.parse_datetime(str(utility_reset))
+                u_date = u_dt.date() if u_dt else None
+                # ura_cycle_start is typically "YYYY-MM-DD" string
+                from datetime import date as _date_cls
+                if isinstance(ura_cycle_start, str) and len(ura_cycle_start) >= 10:
+                    c_date = _date_cls.fromisoformat(ura_cycle_start[:10])
+                else:
+                    c_date = None
+                if u_date and c_date:
+                    cycles_aligned = abs((u_date - c_date).days) <= 2
+            except Exception:
+                pass
+
+        ref = max(utility_kwh, envoy_kwh, 1.0)
+        divergence_pct = abs(utility_kwh - envoy_kwh) / ref * 100
+        return {
+            "utility_kwh": round(utility_kwh, 2),
+            "envoy_kwh": round(envoy_kwh, 2),
+            "divergence_pct": round(divergence_pct, 1),
+            "cycles_aligned": cycles_aligned,
+            "prediction_source": "envoy",
+            "utility_entity": self._utility_meter_entity,
+        }
 
     @property
     def current_effective_rate(self) -> float:
