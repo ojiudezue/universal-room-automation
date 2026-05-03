@@ -197,6 +197,7 @@ class EVChargerController:
         # v4.2.19: Track power sensor unavailability for alerting
         self._power_sensor_unavail_count: dict[str, int] = {}  # evse_id → consecutive misses
         self._power_sensor_alerted: set[str] = set()  # evse_ids already alerted
+        self._power_sensor_unavail_since: dict[str, str] = {}  # evse_id → ISO timestamp
 
     def _get_evse_state(self, evse_id: str) -> dict[str, Any]:
         """Get current state of an EVSE.
@@ -544,33 +545,40 @@ class EVChargerController:
         readings (~15 min), returns an alert dict for the coordinator to send
         via NM. Clears alert when sensor recovers.
         """
+        from homeassistant.util import dt as dt_util
         alerts: list[dict[str, str]] = []
         for evse_id, config in self._evse.items():
             state = self._get_evse_state(evse_id)
             if state["power_source"] == "unavailable":
                 count = self._power_sensor_unavail_count.get(evse_id, 0) + 1
                 self._power_sensor_unavail_count[evse_id] = count
+                # Record when unavailability started
+                if evse_id not in self._power_sensor_unavail_since:
+                    self._power_sensor_unavail_since[evse_id] = dt_util.utcnow().isoformat()
                 if count == 3 and evse_id not in self._power_sensor_alerted:
                     power_entity = config.get("power", "unknown")
+                    since = self._power_sensor_unavail_since.get(evse_id, "unknown")
                     alerts.append({
                         "evse_id": evse_id,
                         "power_entity": power_entity,
                         "message": (
                             f"EVSE {evse_id} power sensor ({power_entity}) has been "
-                            f"unavailable for ~15 min. EV control using switch status "
+                            f"unavailable since {since}. EV control using switch status "
                             f"fallback — charging detection is degraded."
                         ),
                     })
                     self._power_sensor_alerted.add(evse_id)
                     _LOGGER.warning(
-                        "EVSE %s power sensor unavailable for %d cycles — using fallback",
-                        evse_id, count,
+                        "EVSE %s power sensor unavailable since %s (%d cycles) — using fallback",
+                        evse_id, since, count,
                     )
             else:
                 if evse_id in self._power_sensor_alerted:
-                    _LOGGER.info("EVSE %s power sensor recovered", evse_id)
+                    since = self._power_sensor_unavail_since.get(evse_id, "unknown")
+                    _LOGGER.info("EVSE %s power sensor recovered (was down since %s)", evse_id, since)
                     self._power_sensor_alerted.discard(evse_id)
                 self._power_sensor_unavail_count[evse_id] = 0
+                self._power_sensor_unavail_since.pop(evse_id, None)
         return alerts
 
     def get_status(self) -> dict[str, Any]:
@@ -598,6 +606,10 @@ class EVChargerController:
                 evse_state["energy_status"] = "idle"
             else:
                 evse_state["energy_status"] = "off"
+            # v4.2.19: Surface unavailability timestamp
+            unavail_since = self._power_sensor_unavail_since.get(evse_id)
+            if unavail_since:
+                evse_state["power_sensor_unavail_since"] = unavail_since
             status[evse_id] = evse_state
         return status
 
