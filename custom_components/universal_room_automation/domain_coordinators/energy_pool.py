@@ -15,6 +15,7 @@ import time as _time
 
 from .energy_const import (
     EVSE_CHARGING_POWER_THRESHOLD,
+    EVSE_ESTIMATED_POWER_W,
     EV_BATTERY_DRAIN_COOLDOWN_SECONDS,
 )
 
@@ -193,9 +194,16 @@ class EVChargerController:
         self._paused_by_grid_cap: set[str] = set()
         self._paused_by_battery_drain: set[str] = set()
         self._battery_drain_cooldown: dict[str, float] = {}  # evse_id → monotonic expiry
+        # v4.2.19: Track power sensor unavailability for alerting
+        self._power_sensor_unavail_count: dict[str, int] = {}  # evse_id → consecutive misses
+        self._power_sensor_alerted: set[str] = set()  # evse_ids already alerted
 
     def _get_evse_state(self, evse_id: str) -> dict[str, Any]:
-        """Get current state of an EVSE."""
+        """Get current state of an EVSE.
+
+        v4.2.19: Falls back to switch status attribute when power sensor
+        is unavailable, so EV control remains functional.
+        """
         config = self._evse.get(evse_id, {})
         switch_entity = config.get("switch", "")
         power_entity = config.get("power", "")
@@ -205,7 +213,13 @@ class EVChargerController:
 
         is_on = switch_state.state == "on" if switch_state else False
         power = 0.0
-        if power_state and power_state.state not in ("unknown", "unavailable"):
+        power_source = "unavailable"
+        power_sensor_ok = (
+            power_state is not None
+            and power_state.state not in ("unknown", "unavailable")
+        )
+        if power_sensor_ok:
+            power_source = "sensor"  # sensor responsive, even if non-numeric
             try:
                 power = float(power_state.state)
             except (ValueError, TypeError):
@@ -216,11 +230,23 @@ class EVChargerController:
         if switch_state and switch_state.attributes:
             status = switch_state.attributes.get("status", "unknown")
 
+        # Determine charging: prefer power sensor, fall back to switch status
+        if power_source == "sensor":
+            charging = power > EVSE_CHARGING_POWER_THRESHOLD
+        elif is_on and status.lower() in ("charging",):
+            # v4.2.19: Power sensor unavailable — use switch status as fallback
+            charging = True
+            power = float(EVSE_ESTIMATED_POWER_W)  # estimated draw for accounting
+            power_source = "switch_status"
+        else:
+            charging = False
+
         return {
             "is_on": is_on,
             "power": power,
             "status": status,
-            "charging": power > EVSE_CHARGING_POWER_THRESHOLD,
+            "charging": charging,
+            "power_source": power_source,
         }
 
     def determine_actions(self, tou_period: str) -> list[dict[str, Any]]:
@@ -510,6 +536,42 @@ class EVChargerController:
                     self._paused_by_battery_drain.discard(evse_id)
 
         return actions
+
+    def check_power_sensor_health(self) -> list[dict[str, str]]:
+        """Check EVSE power sensor availability. Returns alerts to send.
+
+        Called each decision cycle (~5 min). After 3 consecutive unavailable
+        readings (~15 min), returns an alert dict for the coordinator to send
+        via NM. Clears alert when sensor recovers.
+        """
+        alerts: list[dict[str, str]] = []
+        for evse_id, config in self._evse.items():
+            state = self._get_evse_state(evse_id)
+            if state["power_source"] == "unavailable":
+                count = self._power_sensor_unavail_count.get(evse_id, 0) + 1
+                self._power_sensor_unavail_count[evse_id] = count
+                if count == 3 and evse_id not in self._power_sensor_alerted:
+                    power_entity = config.get("power", "unknown")
+                    alerts.append({
+                        "evse_id": evse_id,
+                        "power_entity": power_entity,
+                        "message": (
+                            f"EVSE {evse_id} power sensor ({power_entity}) has been "
+                            f"unavailable for ~15 min. EV control using switch status "
+                            f"fallback — charging detection is degraded."
+                        ),
+                    })
+                    self._power_sensor_alerted.add(evse_id)
+                    _LOGGER.warning(
+                        "EVSE %s power sensor unavailable for %d cycles — using fallback",
+                        evse_id, count,
+                    )
+            else:
+                if evse_id in self._power_sensor_alerted:
+                    _LOGGER.info("EVSE %s power sensor recovered", evse_id)
+                    self._power_sensor_alerted.discard(evse_id)
+                self._power_sensor_unavail_count[evse_id] = 0
+        return alerts
 
     def get_status(self) -> dict[str, Any]:
         """Return EV charging status for sensor."""

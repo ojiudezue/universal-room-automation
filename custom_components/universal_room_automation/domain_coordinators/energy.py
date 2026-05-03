@@ -1646,6 +1646,17 @@ class EnergyCoordinator(BaseCoordinator):
                 for action_spec in drain_actions:
                     await self._execute_service_action(action_spec)
 
+                # v4.2.19: EVSE power sensor health check
+                evse_alerts = self._ev.check_power_sensor_health()
+                for alert in evse_alerts:
+                    await self._send_nm_alert(
+                        title=f"EVSE Power Sensor Unavailable: {alert['evse_id']}",
+                        message=alert["message"],
+                        severity="high",
+                        hazard_type="evse_sensor_offline",
+                        location=alert["evse_id"],
+                    )
+
                 # E2: Smart plug control
                 plug_actions = self._smart_plugs.determine_actions(period)
                 for action_spec in plug_actions:
