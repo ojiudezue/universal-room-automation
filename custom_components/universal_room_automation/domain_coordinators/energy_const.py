@@ -271,6 +271,7 @@ CONF_ENERGY_ARBITRAGE_SOC_TARGET: Final = "energy_arbitrage_soc_target"
 DEFAULT_EXCESS_SOLAR_SOC_THRESHOLD: Final = 95
 DEFAULT_EXCESS_SOLAR_KWH_THRESHOLD: Final = 5.0
 EVSE_CHARGING_POWER_THRESHOLD: Final = 100  # watts
+EVSE_ESTIMATED_POWER_W: Final = 7600  # L2 charger estimated draw when sensor unavailable
 CONF_ENERGY_EXCESS_SOLAR_ENABLED: Final = "energy_excess_solar_enabled"
 CONF_ENERGY_EXCESS_SOLAR_SOC: Final = "energy_excess_solar_soc"
 CONF_ENERGY_EXCESS_SOLAR_KWH: Final = "energy_excess_solar_kwh"
