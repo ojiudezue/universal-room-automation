@@ -1,6 +1,6 @@
 """Data coordinator for Universal Room Automation."""
 #
-# Universal Room Automation v4.2.21
+# Universal Room Automation v4.2.22
 # Build: 2026-01-02
 # File: coordinator.py
 # v3.2.8: Support for active state change listeners in aggregation sensors
@@ -1623,10 +1623,12 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
 
                 # v3.6.38: Timed cover open/close (sunrise/sunset/time-based)
                 # v3.20.0: Gated by CoverAutomationSwitch
+                # v4.2.22: Cover automation now also runs in the `else` branch
+                # below when master automation is OFF — Option A independence.
                 if self._is_cover_automation_enabled():
                     await self.automation.check_timed_cover_open()
                     await self.automation.check_timed_cover_close()
-                
+
             except Exception as e:
                 _LOGGER.error("Error in periodic automation: %s", e)
 
@@ -1664,6 +1666,29 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         else:
             # Even with automation disabled, track state for DB logging
             self._last_occupied_state = data[STATE_OCCUPIED]
+
+            # v4.2.22: Cover automation runs independently of the master
+            # automation switch (Option A). Timed open/close are
+            # occupancy-independent (sunrise/sunset/time-based), so they
+            # should still fire when a user has disabled lights/fans
+            # automation but left CoverAutomationSwitch on.
+            #
+            # Review fix H2: respect _skip_first_automation just like the
+            # master `elif` branch does — on first refresh after restart,
+            # don't fire blind commands until the next cycle (sensors may
+            # not have settled and dedup state is fresh).
+            if (
+                not self._skip_first_automation
+                and self._is_cover_automation_enabled()
+            ):
+                self.automation._refresh_config()
+                try:
+                    await self.automation.check_timed_cover_open()
+                    await self.automation.check_timed_cover_close()
+                except Exception as e:
+                    _LOGGER.error(
+                        "Error in independent cover automation: %s", e
+                    )
 
         # === Data Logging (for Phase 3 & 4) ===
         database = self.hass.data[DOMAIN].get("database")

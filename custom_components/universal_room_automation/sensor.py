@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation v4.2.21
+# Universal Room Automation v4.2.22
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -1881,9 +1881,26 @@ class AutomationHealthSensor(UniversalRoomEntity, SensorEntity):
             a = c.automation
             attrs["service_calls_today"] = a._service_calls_today
             attrs["service_failures_today"] = a._service_failures_today
+            # v4.2.22: Cover straggler tracking. cover_failures_today counts
+            # individual blinds that did not reach commanded state after all
+            # retries — surfaces hub/RF reliability issues that hub-acceptance
+            # service calls would otherwise hide.
+            attrs["cover_attempts_today"] = getattr(a, "_cover_attempts_today", 0)
+            attrs["cover_failures_today"] = getattr(a, "_cover_failures_today", 0)
+            last_fail = getattr(a, "_last_cover_failure_time", None)
+            attrs["last_cover_failure"] = (
+                last_fail.isoformat() if last_fail else None
+            )
+            attrs["last_cover_failure_entities"] = list(
+                getattr(a, "_last_cover_failure_entities", [])
+            )
         else:
             attrs["service_calls_today"] = 0
             attrs["service_failures_today"] = 0
+            attrs["cover_attempts_today"] = 0
+            attrs["cover_failures_today"] = 0
+            attrs["last_cover_failure"] = None
+            attrs["last_cover_failure_entities"] = []
 
         # --- Tier 2: Exit verify ---
         attrs["last_exit_verify_result"] = c._last_exit_verify_result

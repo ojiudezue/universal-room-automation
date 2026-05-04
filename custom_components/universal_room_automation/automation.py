@@ -1,6 +1,6 @@
 """Automation logic for Universal Room Automation."""
 #
-# Universal Room Automation v4.2.21
+# Universal Room Automation v4.2.22
 # Build: 2026-01-04
 # File: automation.py
 # v3.3.1.1: Added int() cast to get_auto_off_hour to handle NumberSelector float values
@@ -142,6 +142,15 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
+# v4.2.22: Cover command verification tuning.
+# Hunter Douglas (and other RF-bridged covers) accept hub-level group calls
+# even when individual blinds miss the RF burst. We send per-cover with pacing,
+# wait for blinds to physically reach state, then re-issue to stragglers only.
+COVER_PACE_SECONDS = 0.3       # delay between per-cover commands
+COVER_SETTLE_SECONDS = 8.0     # wait after a batch before re-checking state
+COVER_MAX_RETRIES = 2          # retry attempts for stragglers (3 total tries)
+COVER_RETRY_BACKOFF_BASE = 2.0 # 2s, 4s between retries
+
 
 class RoomAutomation:
     """Handles automation logic for a room."""
@@ -168,6 +177,15 @@ class RoomAutomation:
         # Timed cover open/close dedup
         self._last_timed_open_date: str | None = None
         self._last_timed_close_date: str | None = None
+        # v4.2.22: Cover verification + straggler retry tracking.
+        # Set to True while a verify-and-retry runner is active so the periodic
+        # coordinator update doesn't schedule a second concurrent runner.
+        self._cover_op_in_flight: bool = False
+        self._cover_failures_today: int = 0
+        self._cover_attempts_today: int = 0
+        self._cover_failure_reset_date: str = dt_util.now().strftime("%Y-%m-%d")
+        self._last_cover_failure_time: datetime | None = None
+        self._last_cover_failure_entities: list[str] = []
         # Service call tracking (for automation health sensor)
         self._service_calls_today: int = 0
         self._service_failures_today: int = 0
@@ -227,6 +245,178 @@ class RoomAutomation:
                 await asyncio.sleep(backoff)
         self._service_failures_today += 1
         return False
+
+    # ------------------------------------------------------------------
+    # v4.2.22: Cover send-with-verify + straggler retry
+    # ------------------------------------------------------------------
+    def _maybe_reset_cover_counters(self) -> None:
+        """Reset daily cover counters if the day has rolled over.
+
+        Review fix M1: also clear last-failure metadata so the diagnostic
+        sensor doesn't show stale failure entities/timestamp from yesterday
+        when failures_today is 0.
+        """
+        today = dt_util.now().strftime("%Y-%m-%d")
+        if today != self._cover_failure_reset_date:
+            self._cover_failures_today = 0
+            self._cover_attempts_today = 0
+            self._cover_failure_reset_date = today
+            self._last_cover_failure_time = None
+            self._last_cover_failure_entities = []
+
+    def _schedule_cover_runner(
+        self, runner_coro, room_name: str, label: str,
+    ) -> None:
+        """Schedule a cover verify-and-retry runner as a tracked background task.
+
+        Review fixes:
+          - C1: on schedule failure, reset _cover_op_in_flight so we don't
+            silently lock out all future cover operations until restart.
+          - H1: use entry.async_create_background_task (HA 2024.5+) so the
+            runner is tracked and cancelled on entry unload, instead of
+            fire-and-forget hass.async_create_task. Prevents leaked
+            self-references mutating state after the entry is gone.
+        """
+        try:
+            self._config_entry.async_create_background_task(
+                self.hass, runner_coro,
+                f"ura_cover_{label}_{room_name}",
+            )
+        except Exception as e:
+            self._cover_op_in_flight = False
+            try:
+                runner_coro.close()
+            except Exception:
+                pass
+            _LOGGER.warning(
+                "Cover %s [%s]: failed to schedule runner: %s",
+                label, room_name, e,
+            )
+
+    @staticmethod
+    def _cover_at_target(state, target_state: str) -> bool:
+        """Check if a cover state object is at the commanded target.
+
+        Review fix H3: HA cover entities with `current_position` attribute
+        report state="open" for any position > 0. A blind partially closed
+        at position=10 still reports state="open" — naive state.state
+        comparison would mark it a permanent straggler. Use position with
+        a 5%-tolerance window when available.
+        """
+        if state is None:
+            return False
+        attrs = getattr(state, "attributes", None) or {}
+        position = attrs.get("current_position")
+        if position is not None:
+            try:
+                pos = float(position)
+            except (TypeError, ValueError):
+                pos = None
+            if pos is not None:
+                if target_state == "closed":
+                    return pos <= 5.0
+                if target_state == "open":
+                    return pos >= 95.0
+        return state.state == target_state
+
+    async def _send_covers_with_verify(
+        self,
+        cover_ids: list[str],
+        action: str,
+        settle_seconds: float = COVER_SETTLE_SECONDS,
+        max_retries: int = COVER_MAX_RETRIES,
+    ) -> tuple[bool, list[str]]:
+        """Send cover command per-cover, verify state after settle, retry stragglers only.
+
+        Args:
+            cover_ids: List of cover entity_ids to command.
+            action: "open_cover" or "close_cover".
+            settle_seconds: Time to wait after a batch before re-checking state.
+            max_retries: Number of retry attempts for stragglers (in addition to
+                the initial attempt). Total tries = 1 + max_retries.
+
+        Returns:
+            (all_succeeded, failed_entities). Increments
+            self._cover_failures_today by the number of stragglers that never
+            reached commanded state. Caller is responsible for setting any
+            dedup based on the returned success flag.
+
+        Hub-acceptance is not per-cover success — Hunter Douglas + similar
+        RF-bridged hubs report success on group calls even when individual
+        blinds miss the RF burst. We:
+          1. send per-cover (not as a group) with pacing to ease hub queueing,
+          2. wait `settle_seconds` for blinds to physically reach state,
+          3. re-issue commands only to entities that didn't reach state,
+          4. backoff between retries.
+        """
+        if action not in ("open_cover", "close_cover"):
+            raise ValueError(f"Unsupported cover action: {action}")
+
+        self._maybe_reset_cover_counters()
+        target_state = "open" if action == "open_cover" else "closed"
+        room_name = self.config.get("room_name", "Unknown")
+        pending = list(cover_ids)
+        self._cover_attempts_today += len(pending)
+
+        for attempt in range(max_retries + 1):
+            if not pending:
+                break
+            if attempt > 0:
+                backoff = COVER_RETRY_BACKOFF_BASE * attempt
+                _LOGGER.info(
+                    "Cover %s [%s]: retry %d/%d for %d straggler(s) after %.1fs: %s",
+                    action, room_name, attempt, max_retries,
+                    len(pending), backoff, pending,
+                )
+                await asyncio.sleep(backoff)
+
+            # Send per-cover with pacing. Review fix M3: max_retries=0 here —
+            # the outer settle+verify loop is the authoritative retry path
+            # for physical blind misses; doubling retries inside _safe_service_call
+            # would amplify worst-case RF traffic to 9x per cover.
+            for cover_id in pending:
+                await self._safe_service_call(
+                    "cover",
+                    action,
+                    {"entity_id": cover_id},
+                    blocking=True,
+                    timeout=10.0,
+                    max_retries=0,
+                )
+                # Pace inter-cover commands to reduce RF/hub collision.
+                # Skip the trailing pause on the last cover of a batch.
+                if cover_id != pending[-1]:
+                    await asyncio.sleep(COVER_PACE_SECONDS)
+
+            # Wait for blinds to physically settle, then re-evaluate.
+            await asyncio.sleep(settle_seconds)
+
+            new_pending: list[str] = []
+            for cover_id in pending:
+                state = self.hass.states.get(cover_id)
+                if state is None:
+                    # Entity vanished mid-flight; don't count as straggler.
+                    continue
+                if state.state in ("unavailable", "unknown"):
+                    # Don't retry an offline cover; not a fixable straggler.
+                    continue
+                if self._cover_at_target(state, target_state):
+                    continue
+                # opening/closing/partial -> still moving or stuck: retry.
+                new_pending.append(cover_id)
+            pending = new_pending
+
+        success = len(pending) == 0
+        if not success:
+            self._cover_failures_today += len(pending)
+            self._last_cover_failure_time = dt_util.now()
+            self._last_cover_failure_entities = list(pending)
+            _LOGGER.warning(
+                "Cover %s [%s]: %d cover(s) did not reach '%s' after %d attempt(s): %s",
+                action, room_name, len(pending), target_state,
+                max_retries + 1, pending,
+            )
+        return success, pending
 
     def _refresh_config(self) -> None:
         """Refresh config from entry options (picks up options flow changes without reload)."""
@@ -826,25 +1016,40 @@ class RoomAutomation:
         if not available:
             return
 
+        if self._cover_op_in_flight:
+            return  # a runner is still verifying a previous batch
+        self._cover_op_in_flight = True
+
         room_name = self.config.get("room_name", "Unknown")
-        await self._safe_service_call(
-            "cover",
-            "open_cover",
-            {"entity_id": available},
-            blocking=False,
-        )
-        _LOGGER.info("Cover open [%s]: mode=%s, opened %d cover(s)",
+        _LOGGER.info("Cover open [%s]: mode=%s, opening %d cover(s)",
                       room_name, mode, len(available))
-        # Activity log: cover open on entry
         activity_logger = self.hass.data.get(DOMAIN, {}).get("activity_logger")
-        if activity_logger:
-            self.hass.async_create_task(activity_logger.log(
-                coordinator="room",
-                action="cover_open",
-                description=f"Opened {len(available)} cover(s) (entry, mode={mode})",
-                room=room_name,
-                entity_id=available[0] if available else None,
-            ))
+
+        async def _runner() -> None:
+            try:
+                success, failed = await self._send_covers_with_verify(
+                    available, "open_cover",
+                )
+                if activity_logger:
+                    # Review fix M5: log the actual outcome, not just "opened N".
+                    n_ok = len(available) - len(failed)
+                    desc = (
+                        f"Opened {n_ok}/{len(available)} cover(s) "
+                        f"(entry, mode={mode})"
+                    )
+                    if not success:
+                        desc += f" — {len(failed)} straggler(s): {failed}"
+                    self.hass.async_create_task(activity_logger.log(
+                        coordinator="room",
+                        action="cover_open",
+                        description=desc,
+                        room=room_name,
+                        entity_id=available[0] if available else None,
+                    ))
+            finally:
+                self._cover_op_in_flight = False
+
+        self._schedule_cover_runner(_runner(), room_name, "entry_open")
 
     async def check_timed_cover_open(self) -> None:
         """Open covers at sunrise/configured time regardless of occupancy.
@@ -852,6 +1057,11 @@ class RoomAutomation:
         Handles modes: at_time, at_time_or_on_entry.
         Called by coordinator on each update cycle (periodic task).
         Only triggers once per day per room.
+
+        v4.2.22: Schedules a verify-and-retry runner as a background task so
+        the coordinator update cycle isn't blocked by settle delays. Dedup
+        date is set only on confirmed success (state-verified, not service-
+        call-acceptance). _cover_op_in_flight prevents double-scheduling.
         """
         mode = self._get_cover_open_mode()
         if mode not in (COVER_OPEN_AT_TIME, COVER_OPEN_AT_TIME_OR_ON_ENTRY):
@@ -881,26 +1091,40 @@ class RoomAutomation:
         if not available:
             return
 
+        if self._cover_op_in_flight:
+            return  # a runner is still verifying a previous batch
+        self._cover_op_in_flight = True
+
         room_name = self.config.get("room_name", "Unknown")
         _LOGGER.info(
             "Timed cover open [%s]: opening %d cover(s) (mode=%s)",
             room_name, len(available), mode,
         )
-        # v3.20.0 Fix 2: Only set dedup date on success (allows retry on failure)
-        # Review fix: use blocking=True so _safe_service_call returns actual success/fail
-        success = await self._safe_service_call(
-            "cover",
-            "open_cover",
-            {"entity_id": available},
-            blocking=True,
-        )
-        if success:
-            self._last_timed_open_date = today
-        else:
-            _LOGGER.warning(
-                "Timed cover open [%s]: service call failed — will retry next cycle",
-                room_name,
-            )
+
+        async def _runner() -> None:
+            try:
+                # Review fix M4: re-check sleep mode just before issuing
+                # commands; the runner runs ~10s+ after the periodic check.
+                if (
+                    self.is_sleep_mode_active()
+                    and self.config.get(CONF_SLEEP_BLOCK_COVERS, True)
+                ):
+                    return
+                success, _failed = await self._send_covers_with_verify(
+                    available, "open_cover",
+                )
+                if success:
+                    self._last_timed_open_date = today
+                else:
+                    _LOGGER.warning(
+                        "Timed cover open [%s]: stragglers persisted — "
+                        "will retry next cycle",
+                        room_name,
+                    )
+            finally:
+                self._cover_op_in_flight = False
+
+        self._schedule_cover_runner(_runner(), room_name, "timed_open")
 
     async def _control_covers_exit(self, state_data: dict[str, Any]) -> None:
         """Control covers on exit (vacancy)."""
@@ -926,24 +1150,35 @@ class RoomAutomation:
         if not available:
             return
 
+        if self._cover_op_in_flight:
+            return  # a runner is still verifying a previous batch
+        self._cover_op_in_flight = True
+
         room_name = self.config.get("room_name", "Unknown")
-        await self._safe_service_call(
-            "cover",
-            "close_cover",
-            {"entity_id": available},
-            blocking=False,
-        )
-        _LOGGER.info("Cover close on exit [%s]: closed %d cover(s)", room_name, len(available))
-        # Activity log: cover close on exit
+        _LOGGER.info("Cover close on exit [%s]: closing %d cover(s)", room_name, len(available))
         activity_logger = self.hass.data.get(DOMAIN, {}).get("activity_logger")
-        if activity_logger:
-            self.hass.async_create_task(activity_logger.log(
-                coordinator="room",
-                action="cover_close",
-                description=f"Closed {len(available)} cover(s) (exit)",
-                room=room_name,
-                entity_id=available[0] if available else None,
-            ))
+
+        async def _runner() -> None:
+            try:
+                success, failed = await self._send_covers_with_verify(
+                    available, "close_cover",
+                )
+                if activity_logger:
+                    n_ok = len(available) - len(failed)
+                    desc = f"Closed {n_ok}/{len(available)} cover(s) (exit)"
+                    if not success:
+                        desc += f" — {len(failed)} straggler(s): {failed}"
+                    self.hass.async_create_task(activity_logger.log(
+                        coordinator="room",
+                        action="cover_close",
+                        description=desc,
+                        room=room_name,
+                        entity_id=available[0] if available else None,
+                    ))
+            finally:
+                self._cover_op_in_flight = False
+
+        self._schedule_cover_runner(_runner(), room_name, "exit_close")
 
     async def check_timed_cover_close(self) -> None:
         """Close covers at sunset/configured time.
@@ -977,26 +1212,39 @@ class RoomAutomation:
         if not available:
             return
 
+        if self._cover_op_in_flight:
+            return  # a runner is still verifying a previous batch
+        self._cover_op_in_flight = True
+
         room_name = self.config.get("room_name", "Unknown")
         _LOGGER.info(
             "Timed cover close [%s]: closing %d cover(s)",
             room_name, len(available),
         )
-        # v3.20.0 Fix 2: Only set dedup date on success
-        # Review fix: use blocking=True so _safe_service_call returns actual success/fail
-        success = await self._safe_service_call(
-            "cover",
-            "close_cover",
-            {"entity_id": available},
-            blocking=True,
-        )
-        if success:
-            self._last_timed_close_date = today
-        else:
-            _LOGGER.warning(
-                "Timed cover close [%s]: service call failed — will retry next cycle",
-                room_name,
-            )
+
+        async def _runner() -> None:
+            try:
+                # Review fix M4: re-check sleep mode (runner runs ~10s+ later).
+                if (
+                    self.is_sleep_mode_active()
+                    and self.config.get(CONF_SLEEP_BLOCK_COVERS, True)
+                ):
+                    return
+                success, _failed = await self._send_covers_with_verify(
+                    available, "close_cover",
+                )
+                if success:
+                    self._last_timed_close_date = today
+                else:
+                    _LOGGER.warning(
+                        "Timed cover close [%s]: stragglers persisted — "
+                        "will retry next cycle",
+                        room_name,
+                    )
+            finally:
+                self._cover_op_in_flight = False
+
+        self._schedule_cover_runner(_runner(), room_name, "timed_close")
 
     def _is_cover_close_time(self, now: datetime) -> bool:
         """Check if the configured close time has been reached.
