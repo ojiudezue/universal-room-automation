@@ -1662,6 +1662,15 @@ class EnergyCoordinator(BaseCoordinator):
                 for action_spec in plug_actions:
                     await self._execute_service_action(action_spec)
 
+                # v4.2.21: Smart plug battery drain protection
+                plug_drain_actions = self._smart_plugs.determine_battery_drain_actions(
+                    battery_power_w=self._battery.battery_power,
+                    battery_soc=self._battery.battery_soc,
+                    soc_threshold=self._ev_battery_drain_soc,
+                )
+                for action_spec in plug_drain_actions:
+                    await self._execute_service_action(action_spec)
+
             # E3: Circuit anomaly checks
             circuit_anomalies = self._circuits.check_anomalies()
             for anomaly in circuit_anomalies:
@@ -2187,6 +2196,10 @@ class EnergyCoordinator(BaseCoordinator):
                         self._ev._paused_by_us.add(evse_id)
                 else:
                     if evse_id in self._ev._paused_by_us:
+                        # v4.2.21: Don't resume if battery drain is active
+                        if evse_id in self._ev._paused_by_battery_drain:
+                            self._ev._paused_by_us.discard(evse_id)
+                            continue
                         actions.append({
                             "service": "switch.turn_on",
                             "target": switch_entity,
@@ -2208,6 +2221,10 @@ class EnergyCoordinator(BaseCoordinator):
                         self._smart_plugs._paused_by_us.add(entity_id)
                 else:
                     if entity_id in self._smart_plugs._paused_by_us:
+                        # v4.2.21: Don't resume if battery drain is active
+                        if entity_id in self._smart_plugs._paused_by_battery_drain:
+                            self._smart_plugs._paused_by_us.discard(entity_id)
+                            continue
                         actions.append({
                             "service": "switch.turn_on",
                             "target": entity_id,

@@ -620,10 +620,10 @@ class EVChargerController:
 
 
 class SmartPlugController:
-    """Controls additional smart plug loads based on TOU period.
+    """Controls additional smart plug loads (L1 chargers) based on TOU and battery state.
 
     Configured via options flow as a list of entity IDs.
-    Pauses during peak, resumes on off-peak.
+    v4.2.21: Pauses during peak AND mid_peak. Battery drain protection.
     """
 
     def __init__(
@@ -635,9 +635,13 @@ class SmartPlugController:
         self.hass = hass
         self._plugs = plug_entities or []
         self._paused_by_us: set[str] = set()
+        self._paused_by_battery_drain: set[str] = set()
 
     def determine_actions(self, tou_period: str) -> list[dict[str, Any]]:
-        """Determine smart plug actions based on TOU period."""
+        """Determine smart plug actions based on TOU period.
+
+        v4.2.21: Pauses on peak AND mid_peak (was peak only).
+        """
         actions: list[dict[str, Any]] = []
 
         for entity_id in self._plugs:
@@ -645,7 +649,7 @@ class SmartPlugController:
             if state is None:
                 continue
 
-            if tou_period == "peak":
+            if tou_period in ("peak", "mid_peak"):
                 if state.state == "on" and entity_id not in self._paused_by_us:
                     actions.append({
                         "service": "switch.turn_off",
@@ -653,9 +657,14 @@ class SmartPlugController:
                         "data": {},
                     })
                     self._paused_by_us.add(entity_id)
-                    _LOGGER.info("Smart plug: pausing %s (peak)", entity_id)
+                    _LOGGER.info("Smart plug: pausing %s (%s)", entity_id, tou_period)
             else:
                 if entity_id in self._paused_by_us:
+                    # Don't resume if battery drain is active
+                    if entity_id in self._paused_by_battery_drain:
+                        self._paused_by_us.discard(entity_id)
+                        _LOGGER.info("Smart plug: clearing TOU pause for %s (battery drain active)", entity_id)
+                        continue
                     if state.state != "on":
                         actions.append({
                             "service": "switch.turn_on",
@@ -667,9 +676,73 @@ class SmartPlugController:
 
         return actions
 
+    def determine_battery_drain_actions(
+        self,
+        battery_power_w: float | None,
+        battery_soc: float | None,
+        soc_threshold: int,
+    ) -> list[dict[str, Any]]:
+        """Pause smart plugs draining the home battery. Resume on recovery.
+
+        Simpler than EVSE version — no charging detection (no power sensors
+        on dumb plugs). Pauses any ON plug when battery is draining below
+        threshold. No manual override cooldown (plugs are L1 chargers, not
+        user-interactive).
+        """
+        actions: list[dict[str, Any]] = []
+
+        battery_discharging = (
+            battery_power_w is not None and battery_power_w < -100
+        )
+        soc_low = (
+            battery_soc is not None and battery_soc < soc_threshold
+        )
+
+        for entity_id in self._plugs:
+            state = self.hass.states.get(entity_id)
+            if state is None:
+                continue
+
+            if state.state == "on" and battery_discharging and soc_low:
+                if entity_id not in self._paused_by_battery_drain:
+                    actions.append({
+                        "service": "switch.turn_off",
+                        "target": entity_id,
+                        "data": {},
+                    })
+                    self._paused_by_battery_drain.add(entity_id)
+                    _LOGGER.info(
+                        "Smart plug battery drain: pausing %s (SOC=%.0f%% < %d%%)",
+                        entity_id, battery_soc, soc_threshold,
+                    )
+            elif entity_id in self._paused_by_battery_drain:
+                soc_recovered = (
+                    battery_soc is not None and battery_soc >= soc_threshold + 5
+                )
+                battery_ok = not battery_discharging
+
+                if battery_ok or soc_recovered:
+                    # Don't resume if TOU pause is active
+                    if entity_id in self._paused_by_us:
+                        self._paused_by_battery_drain.discard(entity_id)
+                        _LOGGER.info("Smart plug battery drain: clearing for %s (TOU active)", entity_id)
+                        continue
+                    if state.state != "on":
+                        actions.append({
+                            "service": "switch.turn_on",
+                            "target": entity_id,
+                            "data": {},
+                        })
+                        reason = "battery ok" if battery_ok else "SOC recovered"
+                        _LOGGER.info("Smart plug battery drain: resuming %s (%s)", entity_id, reason)
+                    self._paused_by_battery_drain.discard(entity_id)
+
+        return actions
+
     def get_status(self) -> dict[str, Any]:
         """Return smart plug status."""
         return {
             "configured_plugs": len(self._plugs),
             "paused_by_energy": list(self._paused_by_us),
+            "paused_by_battery_drain": list(self._paused_by_battery_drain),
         }
