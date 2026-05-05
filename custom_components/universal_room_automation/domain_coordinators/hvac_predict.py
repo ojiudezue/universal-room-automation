@@ -71,9 +71,14 @@ class HVACPredictor:
         override_arrester: OverrideArrester | None = None,
         net_power_entity: str | None = None,
     ) -> None:
-        """Initialize predictor."""
-        from .energy_const import DEFAULT_NET_POWER_ENTITY
+        """Initialize predictor.
 
+        v4.2.29: net_power_entity is optional. When None (e.g., Energy
+        Coordinator disabled or envoy validation failed), solar-banking
+        decisions cannot read live net power and are skipped — fail-safe
+        rather than reading from a wrong-serial fallback that resolves to
+        a non-existent entity.
+        """
         self.hass = hass
         self._zone_manager = zone_manager
         self._preset_manager = preset_manager
@@ -109,7 +114,7 @@ class HVACPredictor:
         self._last_fan_skipped_rooms: list[dict[str, Any]] = []
         self._solar_banking_zones: set[str] = set()
         self._solar_bank_triggered_today: bool = False
-        self._net_power_entity: str = net_power_entity or DEFAULT_NET_POWER_ENTITY
+        self._net_power_entity: str | None = net_power_entity or None
 
     def set_outdoor_temp_entity(self, entity_id: str) -> None:
         """Set outdoor temperature sensor entity."""
@@ -433,7 +438,14 @@ class HVACPredictor:
         )
 
     def _get_net_power(self) -> float:
-        """Read real-time net power. Negative = exporting to grid."""
+        """Read real-time net power. Negative = exporting to grid.
+
+        v4.2.29: Returns 0.0 when no net_power_entity is configured (e.g.,
+        EC disabled or envoy validation failed). Solar banking decisions
+        that require live net power are gated on the result and will skip.
+        """
+        if not self._net_power_entity:
+            return 0.0
         entity = self.hass.states.get(self._net_power_entity)
         if entity is None or entity.state in ("unavailable", "unknown"):
             return 0.0

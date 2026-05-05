@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv4.2.28
+# Universal Room Automation vv4.2.29
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -1372,6 +1372,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     CONF_ENERGY_ENVOY_ENTITY,
                     extract_envoy_serial,
                     derive_envoy_config,
+                    validate_envoy_config,
                 )
                 energy_entity_config: dict[str, str] = {}
                 for key in cm_config:
@@ -1385,9 +1386,81 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         for k, v in derive_envoy_config(serial).items():
                             energy_entity_config.setdefault(k, v)
 
-                # v3.7.0-E1: Register Energy Coordinator
+                # v4.2.29 (B1): Validate envoy config whenever envoy_eid is
+                # set. If EC is enabled and validation fails, refuse to start
+                # EC and surface a repair issue. HVAC's solar-banking is gated
+                # on validation passing too — better to skip than to read from
+                # a wrong-serial fallback that resolves to a non-existent
+                # entity. Acceptable degrade vs. silently producing wrong
+                # cost numbers or wrong solar-banking triggers.
                 from .const import CONF_ENERGY_ENABLED
-                if cm_config.get(CONF_ENERGY_ENABLED, False):
+                _energy_enabled = bool(cm_config.get(CONF_ENERGY_ENABLED, False))
+                _envoy_validation_ok = True
+
+                if envoy_eid:
+                    _validation = validate_envoy_config(hass, energy_entity_config)
+                    _envoy_validation_ok = _validation["ok"]
+
+                    if not _envoy_validation_ok:
+                        # Hard error only when EC is enabled — silent for users
+                        # who set envoy_eid but haven't enabled EC yet.
+                        if _energy_enabled:
+                            _LOGGER.error(
+                                "Energy Coordinator NOT started — envoy validation "
+                                "failed. Errors: %s. Fix via Coordinator Manager → "
+                                "Configure → Energy.",
+                                _validation["errors"],
+                            )
+                            try:
+                                from homeassistant.helpers import issue_registry as ir
+                                # Entry-scoped + stable issue_id so repeat
+                                # startups update the same issue (no stacking)
+                                # and parallel entries don't collide.
+                                # Tier 2 Review fix.
+                                _envoy_issue_id = (
+                                    f"energy_envoy_invalid_{entry.entry_id}"
+                                )
+                                ir.async_create_issue(
+                                    hass,
+                                    DOMAIN,
+                                    _envoy_issue_id,
+                                    is_fixable=False,
+                                    severity=ir.IssueSeverity.ERROR,
+                                    translation_key="energy_envoy_invalid",
+                                    translation_placeholders={
+                                        "errors": ", ".join(
+                                            f"{k}={v}"
+                                            for k, v in _validation["errors"].items()
+                                        ) or "unknown",
+                                    },
+                                )
+                            except Exception as exc:
+                                _LOGGER.warning(
+                                    "Could not raise repair issue for envoy "
+                                    "validation: %s", exc,
+                                )
+                        else:
+                            _LOGGER.warning(
+                                "Envoy entity set but validation failed (EC "
+                                "disabled, no repair issue): %s",
+                                _validation["errors"],
+                            )
+                    else:
+                        # Clear any stale repair issue from a prior bad config.
+                        try:
+                            from homeassistant.helpers import issue_registry as ir
+                            ir.async_delete_issue(
+                                hass,
+                                DOMAIN,
+                                f"energy_envoy_invalid_{entry.entry_id}",
+                            )
+                        except Exception:
+                            pass
+                        for w in _validation["warnings"]:
+                            _LOGGER.warning("Envoy config warning: %s", w)
+
+                # v3.7.0-E1: Register Energy Coordinator
+                if _energy_enabled and _envoy_validation_ok:
                     from .domain_coordinators.energy import EnergyCoordinator
                     from .domain_coordinators.energy_const import (
                         CONF_ENERGY_RESERVE_SOC,
@@ -1477,12 +1550,30 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         tou_engine=tou_engine,
                     )
                     coordinator_manager.register_coordinator(energy)
-                else:
+                elif not _energy_enabled:
                     _LOGGER.info("Energy Coordinator disabled via config")
+                # else: enabled but validation failed — already logged above.
 
                 # v3.8.0-H1: Register HVAC Coordinator
                 from .const import CONF_HVAC_ENABLED
                 if cm_config.get(CONF_HVAC_ENABLED, False):
+                    # v4.2.29: HVAC's solar-banking needs live net power.
+                    # Without a valid envoy config, pass None and log so the
+                    # user sees the degrade. _get_net_power() returns 0.0
+                    # when entity is None → solar-banking conditions evaluate
+                    # False → no incorrect pre-cool decisions.
+                    if _envoy_validation_ok:
+                        _hvac_net_power_entity = energy_entity_config.get(
+                            CONF_ENERGY_NET_POWER_ENTITY
+                        )
+                    else:
+                        _hvac_net_power_entity = None
+                        _LOGGER.warning(
+                            "HVAC solar banking degraded: envoy validation "
+                            "failed, net_power_entity unavailable. "
+                            "Pre-cool decisions will skip live power input."
+                        )
+
                     from .domain_coordinators.hvac import HVACCoordinator
                     from .domain_coordinators.hvac_const import (
                         CONF_HVAC_MAX_SLEEP_OFFSET,
@@ -1552,8 +1643,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                             CONF_HVAC_ZONE_ENTRY_DWELL, DEFAULT_ZONE_ENTRY_DWELL_MINUTES
                         )),
                         person_zone_map=None,
-                        net_power_entity=energy_entity_config.get(
-                            CONF_ENERGY_NET_POWER_ENTITY),
+                        # v4.2.29: only pass net_power_entity when envoy
+                        # validation passed — otherwise HVAC predictor would
+                        # read from a non-existent wrong-serial entity.
+                        net_power_entity=_hvac_net_power_entity,
                         fan_control_enabled=bool(cm_config.get(
                             CONF_HVAC_FAN_CONTROL_ENABLED, DEFAULT_FAN_CONTROL_ENABLED
                         )),
@@ -1910,7 +2003,19 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     if entry_type == ENTRY_TYPE_INTEGRATION:
         # Unload aggregation platforms
         unload_ok = await hass.config_entries.async_unload_platforms(entry, INTEGRATION_PLATFORMS)
-        
+
+        # v4.2.29: Clear envoy-validation repair issue on unload so it doesn't
+        # linger in Settings → Repairs after the user removes the integration
+        # (Tier 2 Review CRITICAL fix). Issue id is entry-scoped to avoid
+        # cross-entry collisions.
+        try:
+            from homeassistant.helpers import issue_registry as ir
+            ir.async_delete_issue(
+                hass, DOMAIN, f"energy_envoy_invalid_{entry.entry_id}"
+            )
+        except Exception:
+            pass
+
         # Clean up person tracking
         if "person_coordinator" in hass.data[DOMAIN]:
             del hass.data[DOMAIN]["person_coordinator"]
