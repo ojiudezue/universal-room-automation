@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv4.2.27
+# Universal Room Automation vv4.2.28
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -690,6 +690,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                             ("notifications", "prune_notification_log", {"retention_days": 30}),
                             ("inbound", "prune_inbound_log", {"retention_days": 30}),
                             ("person_data", "cleanup_person_data", {"retention_days": 90}),
+                            ("room_energy_baselines", "cleanup_room_energy_baselines", {"retention_days": 90}),
                         ]
 
                         async def _nightly_db_maintenance(_now):
@@ -777,6 +778,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 ("notifications", "prune_notification_log", {"retention_days": 30}),
                 ("inbound", "prune_inbound_log", {"retention_days": 30}),
                 ("person_data", "cleanup_person_data", {"retention_days": 90}),
+                ("room_energy_baselines", "cleanup_room_energy_baselines", {"retention_days": 90}),
             ]
 
             async def _nightly_maintenance_deferred(_now):

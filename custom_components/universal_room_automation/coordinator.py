@@ -1,6 +1,6 @@
 """Data coordinator for Universal Room Automation."""
 #
-# Universal Room Automation vv4.2.27
+# Universal Room Automation vv4.2.28
 # Build: 2026-01-02
 # File: coordinator.py
 # v3.2.8: Support for active state change listeners in aggregation sensors
@@ -212,7 +212,11 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
 
         # Energy sensor baselines for delta calculation (when using direct energy sensors)
         # v4.1.0: Per-sensor baselines for multi-energy support
+        # v4.2.28: Persisted to URA DB to survive restart; needs_reset tracks
+        # baselines that were stale at midnight because sensor was unavailable.
         self._energy_baselines_today: dict[str, float] = {}
+        self._energy_baselines_needs_reset: set[str] = set()
+        self._energy_baselines_loaded: bool = False
         self._energy_baseline_today = 0.0  # Legacy — kept for weekly/monthly tracking
         self._energy_baseline_week = 0.0
         self._energy_baseline_month = 0.0
@@ -1451,23 +1455,185 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
 
         if energy_sensors:
             # Direct energy sensors (usually TOTAL_INCREASING from smart plugs)
+            # v4.2.28: Persistence + unavailable-at-midnight handling + sanity
+            # guard. Previously: in-memory baselines lost on restart, and a
+            # sensor that was unavailable at midnight kept its old baseline
+            # forever (until a coordinator restart), producing
+            # multi-day-cumulative values like "5306 kWh today" with
+            # power=0W now.
             total_delta = 0.0
             midnight_reset = now.date() > self._last_energy_reset.date()
 
+            # Lazy-load baselines from DB on first refresh.
+            # v4.2.28: set flag BEFORE await to prevent concurrent re-entry
+            # double-loading (Tier 1 review HIGH #1 — race-on-first-refresh).
+            if not self._energy_baselines_loaded:
+                self._energy_baselines_loaded = True  # Set first; await below cannot re-enter
+                db = self.hass.data.get(DOMAIN, {}).get("database")
+                if db is not None:
+                    persisted = await db.load_room_energy_baselines(self.entry.entry_id)
+                    for sid, info in persisted.items():
+                        self._energy_baselines_today[sid] = info["baseline_value"]
+                        if info.get("needs_reset"):
+                            self._energy_baselines_needs_reset.add(sid)
+
+                    # v4.2.28: Tier 2 review CRITICAL — if persisted baselines
+                    # are from BEFORE today's midnight (URA was offline across
+                    # the midnight rollover), force a midnight_reset on this
+                    # update. Otherwise on a 6am restart we'd compute delta
+                    # against yesterday's-midnight baseline = 24h+ of usage
+                    # incorrectly attributed to "today".
+                    if persisted:
+                        today_midnight_utc = dt_util.as_utc(
+                            dt_util.now().replace(
+                                hour=0, minute=0, second=0, microsecond=0
+                            )
+                        )
+                        oldest_set_at = None
+                        for info in persisted.values():
+                            set_at_str = info.get("baseline_set_at")
+                            if not set_at_str:
+                                continue
+                            try:
+                                set_at_dt = dt_util.parse_datetime(set_at_str)
+                            except Exception:
+                                continue
+                            if set_at_dt is None:
+                                continue
+                            set_at_utc = dt_util.as_utc(set_at_dt)
+                            if oldest_set_at is None or set_at_utc < oldest_set_at:
+                                oldest_set_at = set_at_utc
+
+                        if (
+                            oldest_set_at is not None
+                            and oldest_set_at < today_midnight_utc
+                        ):
+                            # Backdate _last_energy_reset so the upcoming
+                            # midnight_reset check fires; the energy loop will
+                            # then reset all baselines to current_value, lose
+                            # the part-of-today-before-restart energy, and
+                            # start counting STATE_ENERGY_TODAY freshly. Better
+                            # than reporting 24h+ accumulation.
+                            self._last_energy_reset = (
+                                dt_util.now() - timedelta(days=1)
+                            ).replace(
+                                hour=0, minute=0, second=0, microsecond=0
+                            )
+                            _LOGGER.info(
+                                "Room %s: persisted baselines are pre-midnight "
+                                "(oldest=%s); forcing baseline reset on this "
+                                "update — STATE_ENERGY_TODAY will start from now",
+                                self._get_config(CONF_ROOM_NAME, "?"),
+                                oldest_set_at.isoformat(),
+                            )
+
+                        _LOGGER.info(
+                            "Room %s: loaded %d persisted energy baseline(s) from DB",
+                            self._get_config(CONF_ROOM_NAME, "?"),
+                            len(persisted),
+                        )
+
+            db = self.hass.data.get(DOMAIN, {}).get("database")  # may be None during early startup
+
+            # Sanity cap: if a single update reports a delta larger than this,
+            # the baseline is almost certainly stale (sensor entity_id reuse,
+            # SPAN circuit relabel, or missed midnight). Reset and log instead
+            # of polluting STATE_ENERGY_TODAY with multi-day accumulation.
+            # v4.2.28: 500 kWh accommodates legit multi-day outages on EV/solar
+            # circuits (40-50 kWh/day × 5–10 days). Tier 1 review HIGH #3.
+            SANE_MAX_DELTA_KWH = 500.0
+
             for sensor_id in energy_sensors:
                 state = self.hass.states.get(sensor_id)
-                if state is None or state.state in ("unknown", "unavailable"):
-                    continue  # Skip unavailable sensors — don't set baseline to 0
+                sensor_available = (
+                    state is not None
+                    and state.state not in ("unknown", "unavailable")
+                )
+
+                if not sensor_available:
+                    # If midnight rolled over while this sensor was offline,
+                    # mark the baseline as stale. Next available read will
+                    # set baseline = current_value (cleanly capturing the
+                    # post-midnight start) and clear the flag.
+                    if midnight_reset and sensor_id in self._energy_baselines_today:
+                        self._energy_baselines_needs_reset.add(sensor_id)
+                        if db is not None:
+                            try:
+                                await db.save_room_energy_baseline(
+                                    self.entry.entry_id, sensor_id,
+                                    baseline_value=self._energy_baselines_today[sensor_id],
+                                    set_at=dt_util.utcnow().isoformat(),  # v4.2.28: UTC for cleanup-cutoff sortability
+                                    needs_reset=True,
+                                )
+                            except Exception as err:
+                                _LOGGER.warning(
+                                    "Save needs_reset baseline failed for %s: %s",
+                                    sensor_id, err,
+                                )
+                    continue  # No delta contribution while unavailable
+
                 try:
                     current_value = float(state.state)
                 except (ValueError, TypeError):
                     continue
 
-                if midnight_reset or sensor_id not in self._energy_baselines_today:
+                first_seen = sensor_id not in self._energy_baselines_today
+                stale = sensor_id in self._energy_baselines_needs_reset
+
+                if midnight_reset or first_seen or stale:
+                    old_baseline = self._energy_baselines_today.get(sensor_id)
                     self._energy_baselines_today[sensor_id] = current_value
+                    self._energy_baselines_needs_reset.discard(sensor_id)
+                    if stale and old_baseline is not None:
+                        _LOGGER.info(
+                            "Room %s: sensor %s baseline cleared (was stale=%.2f, "
+                            "now=%.2f) — sensor became available after midnight",
+                            self._get_config(CONF_ROOM_NAME, "?"),
+                            sensor_id, old_baseline, current_value,
+                        )
+                    if db is not None:
+                        try:
+                            await db.save_room_energy_baseline(
+                                self.entry.entry_id, sensor_id,
+                                baseline_value=current_value,
+                                set_at=dt_util.utcnow().isoformat(),  # v4.2.28: UTC for cleanup-cutoff sortability
+                                needs_reset=False,
+                            )
+                        except Exception as err:
+                            _LOGGER.warning(
+                                "Save baseline failed for %s: %s", sensor_id, err,
+                            )
 
                 baseline = self._energy_baselines_today[sensor_id]
-                total_delta += max(0, current_value - baseline)
+                raw_delta = current_value - baseline
+
+                # Sanity guard: implausibly large deltas indicate baseline drift.
+                # Reset baseline to current value, contribute 0 this cycle, log.
+                if raw_delta > SANE_MAX_DELTA_KWH:
+                    _LOGGER.warning(
+                        "Room %s: sensor %s implausible delta %.1f kWh (baseline=%.1f, "
+                        "current=%.1f) — resetting baseline. Likely cause: stale baseline "
+                        "from before integration restart, or sensor entity_id reuse.",
+                        self._get_config(CONF_ROOM_NAME, "?"),
+                        sensor_id, raw_delta, baseline, current_value,
+                    )
+                    self._energy_baselines_today[sensor_id] = current_value
+                    if db is not None:
+                        try:
+                            await db.save_room_energy_baseline(
+                                self.entry.entry_id, sensor_id,
+                                baseline_value=current_value,
+                                set_at=dt_util.utcnow().isoformat(),  # v4.2.28: UTC for cleanup-cutoff sortability
+                                needs_reset=False,
+                            )
+                        except Exception as err:
+                            _LOGGER.warning(
+                                "Save sanity-reset baseline failed for %s: %s",
+                                sensor_id, err,
+                            )
+                    continue  # No delta contribution this cycle
+
+                total_delta += max(0, raw_delta)
 
             if midnight_reset:
                 self._last_energy_reset = now
