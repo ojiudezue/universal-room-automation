@@ -406,6 +406,28 @@ async def test_daily_reset_clears_failure_metadata():
 
 
 @pytest.mark.asyncio
+async def test_blocking_false_for_cover_calls():
+    """v4.2.23: cover calls must use blocking=False to avoid timing out
+    on group covers whose sub-blinds take 30-60s to settle."""
+    covers = ["cover.lr_1"]
+    states = _FakeStates()
+    states.set_fixed("cover.lr_1", "closed")
+
+    automation, _ = _make_automation(covers, states)
+    captured = {}
+    original = automation._safe_service_call
+    async def spy(*args, **kwargs):
+        captured["blocking"] = kwargs.get("blocking")
+        return await original(*args, **kwargs)
+    automation._safe_service_call = spy
+
+    with patch("asyncio.sleep", new=AsyncMock()):
+        await automation._send_covers_with_verify(covers, "close_cover")
+
+    assert captured["blocking"] is False
+
+
+@pytest.mark.asyncio
 async def test_inner_safe_service_call_no_inner_retry():
     """M3: cover sends should not double-retry inside _safe_service_call.
 
