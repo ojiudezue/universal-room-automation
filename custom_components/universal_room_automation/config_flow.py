@@ -1,6 +1,6 @@
 """Config flow for Universal Room Automation v3.6.24."""
 #
-# Universal Room Automation vv4.2.28
+# Universal Room Automation vv4.2.29
 # Build: 2026-01-05
 # File: config_flow.py
 # v3.3.3: Added manage_zones to integration options menu
@@ -2601,6 +2601,9 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
 
         v3.7.0: Reserve SOC, bill cycle day, decision interval.
         v3.7.10: Entity selectors, solar classification mode.
+        v4.2.29: Validate envoy entity (V0-V4) on submit; reject save if
+            user supplied an envoy entity that is missing/malformed/has
+            missing critical derived entities.
         """
         from .domain_coordinators.energy_const import (
             CONF_ENERGY_ENVOY_ENTITY,
@@ -2679,11 +2682,47 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             CONF_ENERGY_UTILITY_METER_ENTITY,
         )
 
+        # v4.2.29: Validate envoy entity on submit (B3). Skipped when user
+        # leaves the field empty — empty is allowed for installs not (yet)
+        # using EC. When set, must pass V0–V2 + V4 (V3 logs warning only).
+        errors: dict[str, str] = {}
         if user_input is not None:
-            return self.async_create_entry(
-                title="",
-                data={**self._config_entry.options, **user_input},
+            from .domain_coordinators.energy_const import (
+                validate_envoy_config,
+                ENVOY_REQUIRED_DERIVED_KEYS,
             )
+
+            submitted_envoy = user_input.get(CONF_ENERGY_ENVOY_ENTITY) or ""
+            if submitted_envoy:
+                # Build the same energy_entity_config the runtime sees:
+                # current options + this submission, narrowed to energy_* keys.
+                merged = {**self._config_entry.options, **user_input}
+                energy_entity_config = {
+                    k: v for k, v in merged.items() if k.startswith("energy_")
+                }
+                result = validate_envoy_config(self.hass, energy_entity_config)
+
+                if not result["ok"]:
+                    # Map every failed field's error_code into the form errors
+                    # dict. HA renders one error per field; we also attach a
+                    # 'base' summary so the user sees the bigger picture.
+                    for field, code in result["errors"].items():
+                        errors[field] = code
+                    if any(
+                        k in result["errors"]
+                        for k in ENVOY_REQUIRED_DERIVED_KEYS
+                    ):
+                        errors.setdefault("base", "envoy_derived_missing")
+                elif result["warnings"]:
+                    # V3: non-blocking — log only. The user's save proceeds.
+                    for w in result["warnings"]:
+                        _LOGGER.warning("Envoy config warning: %s", w)
+
+            if not errors:
+                return self.async_create_entry(
+                    title="",
+                    data={**self._config_entry.options, **user_input},
+                )
 
         # Weather entity default: inherit from house/integration entry if set
         weather_default = self._get_current(CONF_ENERGY_WEATHER_ENTITY)
@@ -3080,9 +3119,11 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             ),
         })
 
+        # v4.2.29: surface envoy validation errors per-field.
         return self.async_show_form(
             step_id="coordinator_energy",
             data_schema=data_schema,
+            errors=errors,
         )
 
     async def async_step_coordinator_hvac(self, user_input=None):

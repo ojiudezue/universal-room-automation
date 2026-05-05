@@ -145,9 +145,9 @@ from custom_components.universal_room_automation.domain_coordinators.energy_cons
     CONF_ENERGY_LIFETIME_PRODUCTION_ENTITY,
     CONF_ENERGY_NET_POWER_ENTITY,
     CONF_ENERGY_SOLAR_ENTITY,
-    DEFAULT_NET_POWER_ENTITY,
     derive_envoy_config,
     extract_envoy_serial,
+    validate_envoy_config,
 )
 
 
@@ -302,6 +302,135 @@ class TestHVACPredictorNetPower:
         predictor = self._make_predictor(net_power_entity=custom)
         assert predictor._net_power_entity == custom
 
-    def test_default_net_power_entity(self):
+    def test_default_net_power_entity_is_none(self):
+        """v4.2.29: no implicit DEFAULT fallback — None when not supplied."""
         predictor = self._make_predictor()
-        assert predictor._net_power_entity == DEFAULT_NET_POWER_ENTITY
+        assert predictor._net_power_entity is None
+
+    def test_get_net_power_returns_zero_when_unconfigured(self):
+        """v4.2.29: missing net_power_entity → 0.0, not a wrong-serial lookup."""
+        predictor = self._make_predictor(net_power_entity=None)
+        assert predictor._get_net_power() == 0.0
+
+
+# ---------------------------------------------------------------------------
+# v4.2.29: validate_envoy_config (V0–V4)
+# ---------------------------------------------------------------------------
+
+
+def _make_hass_with_states(present: dict[str, str]):
+    """Build a fake hass whose states.get(eid) returns a state-like object
+    only for entity IDs in `present` (mapped to their state strings)."""
+    hass = MagicMock()
+
+    def _get(eid):
+        if eid in present:
+            s = MagicMock()
+            s.state = present[eid]
+            return s
+        return None
+
+    hass.states.get = _get
+    return hass
+
+
+class TestValidateEnvoyConfig:
+    """v4.2.29: validator for envoy entity field correctness."""
+
+    SERIAL = "482543015950"
+    # Use battery_capacity as the picked envoy entity so it's distinct from
+    # any critical derived entity (V4 keys = NET_POWER, SOLAR, LIFETIME_*).
+    GOOD_ENVOY = f"sensor.envoy_{SERIAL}_battery_capacity"
+
+    def _all_critical_present(self) -> dict[str, str]:
+        from custom_components.universal_room_automation.domain_coordinators.energy_const import (
+            ENVOY_REQUIRED_DERIVED_KEYS,
+        )
+        derived = derive_envoy_config(self.SERIAL)
+        return {derived[k]: "ok" for k in ENVOY_REQUIRED_DERIVED_KEYS}
+
+    def test_v0_missing_envoy_field(self):
+        """V0: empty/None envoy_eid → envoy_required."""
+        hass = _make_hass_with_states({})
+        result = validate_envoy_config(hass, {})
+        assert result["ok"] is False
+        assert result["errors"][CONF_ENERGY_ENVOY_ENTITY] == "envoy_required"
+
+    def test_v1_unparseable_serial(self):
+        """V1: non-envoy entity ID → envoy_invalid_format."""
+        hass = _make_hass_with_states({})
+        result = validate_envoy_config(hass, {
+            CONF_ENERGY_ENVOY_ENTITY: "sensor.not_an_envoy",
+        })
+        assert result["ok"] is False
+        assert result["errors"][CONF_ENERGY_ENVOY_ENTITY] == "envoy_invalid_format"
+
+    def test_v2_entity_missing_in_ha(self):
+        """V2: parseable but entity not in HA → envoy_entity_missing."""
+        hass = _make_hass_with_states({})  # nothing present
+        result = validate_envoy_config(hass, {
+            CONF_ENERGY_ENVOY_ENTITY: self.GOOD_ENVOY,
+        })
+        assert result["ok"] is False
+        assert result["errors"][CONF_ENERGY_ENVOY_ENTITY] == "envoy_entity_missing"
+
+    def test_v3_unavailable_is_warning_only(self):
+        """V3: envoy present but unavailable → warning, not error, when
+        critical entities exist."""
+        present = {self.GOOD_ENVOY: "unavailable"}
+        present.update(self._all_critical_present())
+        hass = _make_hass_with_states(present)
+        result = validate_envoy_config(hass, {
+            CONF_ENERGY_ENVOY_ENTITY: self.GOOD_ENVOY,
+        })
+        assert result["ok"] is True
+        assert result["warnings"], "expected an unavailable warning"
+
+    def test_v4_critical_derived_missing(self):
+        """V4: envoy present but a critical derived entity missing → error."""
+        # Present: only the envoy entity itself; none of the derived ones.
+        hass = _make_hass_with_states({self.GOOD_ENVOY: "ok"})
+        result = validate_envoy_config(hass, {
+            CONF_ENERGY_ENVOY_ENTITY: self.GOOD_ENVOY,
+        })
+        assert result["ok"] is False
+        # All 4 ENVOY_REQUIRED_DERIVED_KEYS should be flagged
+        from custom_components.universal_room_automation.domain_coordinators.energy_const import (
+            ENVOY_REQUIRED_DERIVED_KEYS,
+        )
+        for key in ENVOY_REQUIRED_DERIVED_KEYS:
+            assert result["errors"].get(key) == "derived_entity_missing"
+
+    def test_explicit_override_used_in_v4(self):
+        """V4: explicit per-entity override is checked, not the derived ID."""
+        # Derived NET_POWER would be missing; explicit override exists.
+        explicit_net = "sensor.my_custom_net_power"
+        present = {self.GOOD_ENVOY: "ok", explicit_net: "ok"}
+        derived = derive_envoy_config(self.SERIAL)
+        # Add the other 3 critical derived entities so only NET is overridden.
+        from custom_components.universal_room_automation.domain_coordinators.energy_const import (
+            CONF_ENERGY_LIFETIME_NET_IMPORT_ENTITY,
+            CONF_ENERGY_LIFETIME_CONSUMPTION_ENTITY,
+        )
+        present[derived[CONF_ENERGY_SOLAR_ENTITY]] = "ok"
+        present[derived[CONF_ENERGY_LIFETIME_NET_IMPORT_ENTITY]] = "ok"
+        present[derived[CONF_ENERGY_LIFETIME_CONSUMPTION_ENTITY]] = "ok"
+
+        hass = _make_hass_with_states(present)
+        result = validate_envoy_config(hass, {
+            CONF_ENERGY_ENVOY_ENTITY: self.GOOD_ENVOY,
+            CONF_ENERGY_NET_POWER_ENTITY: explicit_net,
+        })
+        assert result["ok"] is True, f"unexpected errors: {result['errors']}"
+
+    def test_full_pass(self):
+        """All checks pass when envoy + 4 critical derived entities present."""
+        present = {self.GOOD_ENVOY: "ok"}
+        present.update(self._all_critical_present())
+        hass = _make_hass_with_states(present)
+        result = validate_envoy_config(hass, {
+            CONF_ENERGY_ENVOY_ENTITY: self.GOOD_ENVOY,
+        })
+        assert result["ok"] is True
+        assert result["errors"] == {}
+        assert result["serial"] == self.SERIAL

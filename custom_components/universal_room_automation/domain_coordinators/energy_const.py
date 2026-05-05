@@ -121,24 +121,37 @@ BATTERY_MODE_BACKUP: Final = "backup"
 # ============================================================================
 
 # Solar / Grid / Battery
-DEFAULT_SOLAR_PRODUCTION_ENTITY: Final = "sensor.envoy_202428004328_current_power_production"
-DEFAULT_GRID_CONSUMPTION_ENTITY: Final = "sensor.envoy_202428004328_current_power_consumption"
-DEFAULT_BATTERY_SOC_ENTITY: Final = "sensor.envoy_202428004328_battery"
-DEFAULT_BATTERY_POWER_ENTITY: Final = "sensor.envoy_202428004328_current_battery_discharge"
-DEFAULT_NET_POWER_ENTITY: Final = "sensor.envoy_202428004328_current_net_power_consumption"
+# v4.2.29: Placeholders only. The actual entities are auto-derived in
+# __init__.py from the user-configured CONF_ENERGY_ENVOY_ENTITY (whose
+# serial seeds derive_envoy_config()). These constants exist solely so
+# `ec.get(CONF_X, DEFAULT_X)` and `value or DEFAULT_X` patterns still
+# yield a string at consumer call sites — but they intentionally resolve
+# to a non-existent entity so that any code path that reaches them fails
+# loudly via state.get() returning None, never silently producing wrong
+# data attributed to a real-but-mismatched serial. Validation in
+# validate_envoy_config() + B1 startup gate makes these unreachable for
+# correctly-configured installs. Targeted for full removal in v4.2.30
+# alongside structural None-handling cleanup at consumer sites.
+_UNCONFIGURED_ENVOY: Final = "sensor.envoy_unconfigured"
+
+DEFAULT_SOLAR_PRODUCTION_ENTITY: Final = f"{_UNCONFIGURED_ENVOY}_current_power_production"
+DEFAULT_GRID_CONSUMPTION_ENTITY: Final = f"{_UNCONFIGURED_ENVOY}_current_power_consumption"
+DEFAULT_BATTERY_SOC_ENTITY: Final = f"{_UNCONFIGURED_ENVOY}_battery"
+DEFAULT_BATTERY_POWER_ENTITY: Final = f"{_UNCONFIGURED_ENVOY}_current_battery_discharge"
+DEFAULT_NET_POWER_ENTITY: Final = f"{_UNCONFIGURED_ENVOY}_current_net_power_consumption"
 
 # Envoy lifetime accumulators (for accurate daily consumption tracking)
 # These monotonically increase and never reset — delta gives true daily values.
-DEFAULT_LIFETIME_CONSUMPTION_ENTITY: Final = "sensor.envoy_202428004328_lifetime_energy_consumption"
-DEFAULT_LIFETIME_PRODUCTION_ENTITY: Final = "sensor.envoy_202428004328_lifetime_energy_production"
-DEFAULT_LIFETIME_NET_IMPORT_ENTITY: Final = "sensor.envoy_202428004328_lifetime_net_energy_consumption"
-DEFAULT_LIFETIME_NET_EXPORT_ENTITY: Final = "sensor.envoy_202428004328_lifetime_net_energy_production"
-DEFAULT_LIFETIME_BATTERY_CHARGED_ENTITY: Final = "sensor.envoy_202428004328_lifetime_battery_energy_charged"
-DEFAULT_LIFETIME_BATTERY_DISCHARGED_ENTITY: Final = "sensor.envoy_202428004328_lifetime_battery_energy_discharged"
-DEFAULT_BATTERY_CAPACITY_ENTITY: Final = "sensor.envoy_202428004328_battery_capacity"
+DEFAULT_LIFETIME_CONSUMPTION_ENTITY: Final = f"{_UNCONFIGURED_ENVOY}_lifetime_energy_consumption"
+DEFAULT_LIFETIME_PRODUCTION_ENTITY: Final = f"{_UNCONFIGURED_ENVOY}_lifetime_energy_production"
+DEFAULT_LIFETIME_NET_IMPORT_ENTITY: Final = f"{_UNCONFIGURED_ENVOY}_lifetime_net_energy_consumption"
+DEFAULT_LIFETIME_NET_EXPORT_ENTITY: Final = f"{_UNCONFIGURED_ENVOY}_lifetime_net_energy_production"
+DEFAULT_LIFETIME_BATTERY_CHARGED_ENTITY: Final = f"{_UNCONFIGURED_ENVOY}_lifetime_battery_energy_charged"
+DEFAULT_LIFETIME_BATTERY_DISCHARGED_ENTITY: Final = f"{_UNCONFIGURED_ENVOY}_lifetime_battery_energy_discharged"
+DEFAULT_BATTERY_CAPACITY_ENTITY: Final = f"{_UNCONFIGURED_ENVOY}_battery_capacity"
 
 # Envoy daily sensors (reset at midnight — useful for cross-checks)
-DEFAULT_CONSUMPTION_TODAY_ENTITY: Final = "sensor.envoy_202428004328_energy_consumption_today"
+DEFAULT_CONSUMPTION_TODAY_ENTITY: Final = f"{_UNCONFIGURED_ENVOY}_energy_consumption_today"
 
 # Enpower control entities
 DEFAULT_STORAGE_MODE_ENTITY: Final = "select.enpower_482348004678_storage_mode"
@@ -363,4 +376,104 @@ def derive_envoy_config(serial: str) -> dict[str, str]:
         CONF_ENERGY_LIFETIME_BATTERY_CHARGED_ENTITY: f"sensor.envoy_{serial}_lifetime_battery_energy_charged",
         CONF_ENERGY_LIFETIME_BATTERY_DISCHARGED_ENTITY: f"sensor.envoy_{serial}_lifetime_battery_energy_discharged",
         CONF_ENERGY_CONSUMPTION_TODAY_ENTITY: f"sensor.envoy_{serial}_energy_consumption_today",
+    }
+
+
+# Critical Envoy-derived entities for V4 validation.
+# Missing any of these breaks core EC capabilities (billing, battery decisions,
+# daily lifetime accounting). Lifetime battery + capacity are NOT in this list
+# because installs without battery legitimately won't have them.
+ENVOY_REQUIRED_DERIVED_KEYS: Final = (
+    CONF_ENERGY_NET_POWER_ENTITY,
+    CONF_ENERGY_SOLAR_ENTITY,
+    CONF_ENERGY_LIFETIME_NET_IMPORT_ENTITY,
+    CONF_ENERGY_LIFETIME_CONSUMPTION_ENTITY,
+)
+
+
+def validate_envoy_config(
+    hass,
+    energy_entity_config: dict,
+) -> dict:
+    """Validate envoy entity is set, parseable, present, and critical derived entities exist.
+
+    v4.2.29: Replaces silent-fallback-to-wrong-default with explicit validation.
+
+    Returns a dict:
+      - ok (bool): True iff no hard-fail check tripped.
+      - errors (dict[str, str]): {field_or_'base': error_code}. Empty if ok.
+      - warnings (list[str]): non-blocking issues (e.g., entity unavailable now).
+      - serial (str | None): parsed serial when V1 passes, else None.
+      - resolved (dict[str, str]): entities the EC would actually use, after
+        applying explicit overrides on top of derived-from-serial defaults.
+
+    Validation tiers:
+      V0: envoy_entity field is set (non-empty)
+      V1: extract_envoy_serial returns a serial
+      V2: hass.states.get(envoy_entity) is not None
+      V3: state is not 'unavailable'/'unknown'  (warning only)
+      V4: critical derived entities (NET_POWER, SOLAR, LIFETIME_NET_IMPORT,
+          LIFETIME_CONSUMPTION) all exist in HA. If user explicitly overrode
+          a CONF_ENERGY_*_ENTITY, the override is checked instead of derived.
+
+    Used by:
+      - config_flow.async_step_coordinator_energy: reject save on hard-fail
+      - __init__.py: skip EC registration + raise repair issue on hard-fail
+    """
+    errors: dict[str, str] = {}
+    warnings: list[str] = []
+    resolved: dict[str, str] = {}
+
+    envoy_eid = (energy_entity_config or {}).get(CONF_ENERGY_ENVOY_ENTITY)
+
+    # V0: required
+    if not envoy_eid:
+        errors[CONF_ENERGY_ENVOY_ENTITY] = "envoy_required"
+        return {
+            "ok": False, "errors": errors, "warnings": warnings,
+            "serial": None, "resolved": resolved,
+        }
+
+    # V1: parseable
+    serial = extract_envoy_serial(envoy_eid)
+    if not serial:
+        errors[CONF_ENERGY_ENVOY_ENTITY] = "envoy_invalid_format"
+        return {
+            "ok": False, "errors": errors, "warnings": warnings,
+            "serial": None, "resolved": resolved,
+        }
+
+    # V2: entity exists in HA
+    state = hass.states.get(envoy_eid)
+    if state is None:
+        errors[CONF_ENERGY_ENVOY_ENTITY] = "envoy_entity_missing"
+        return {
+            "ok": False, "errors": errors, "warnings": warnings,
+            "serial": serial, "resolved": resolved,
+        }
+
+    # V3: state not unavailable (warning only — Envoy can blip)
+    if state.state in ("unavailable", "unknown"):
+        warnings.append(
+            f"Envoy entity '{envoy_eid}' is currently '{state.state}' — "
+            "config saved, but verify Enphase integration is online"
+        )
+
+    # V4: critical derived entities exist (after explicit-override layering)
+    derived = derive_envoy_config(serial)
+    for key, derived_eid in derived.items():
+        # Explicit override wins over derived; mirrors __init__.py:1386 setdefault
+        resolved[key] = (energy_entity_config or {}).get(key) or derived_eid
+
+    for key in ENVOY_REQUIRED_DERIVED_KEYS:
+        eid = resolved.get(key)
+        if not eid or hass.states.get(eid) is None:
+            errors[key] = "derived_entity_missing"
+
+    return {
+        "ok": not errors,
+        "errors": errors,
+        "warnings": warnings,
+        "serial": serial,
+        "resolved": resolved,
     }

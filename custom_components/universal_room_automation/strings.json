@@ -1401,11 +1401,22 @@
       "ai_parse_failed": "AI parsing failed. Ensure ai_task integration is configured (Settings > AI Task). If the problem persists, check logs for details.",
       "ai_rule_validation_failed": "The AI-generated actions failed validation. Some entities may not exist or the output was malformed. Try simplifying your rule description.",
       "ai_rule_empty_description": "Please enter a rule description.",
-      "invalid_json": "Invalid JSON format. Use: {\"person.name\": [\"zone_1\", \"zone_2\"]}"
+      "invalid_json": "Invalid JSON format. Use: {\"person.name\": [\"zone_1\", \"zone_2\"]}",
+      "envoy_required": "Envoy entity is required when Energy Coordinator is enabled.",
+      "envoy_invalid_format": "Doesn't look like an Envoy entity ID — expected format: sensor.envoy_<serial>_<...>",
+      "envoy_entity_missing": "This entity does not exist in Home Assistant. Verify the Enphase integration is set up.",
+      "derived_entity_missing": "Auto-derived Envoy entity not found in Home Assistant — serial may be wrong, or the Enphase integration is partial.",
+      "envoy_derived_missing": "One or more critical Envoy-derived entities are missing. Check that the Enphase integration is fully set up for this Envoy serial."
     },
     "abort": {
       "no_zones_configured": "No zones have been configured yet. Add a zone from the integration setup first.",
       "zone_not_found": "The selected zone could not be found. It may have been deleted."
+    }
+  },
+  "issues": {
+    "energy_envoy_invalid": {
+      "title": "Energy Coordinator: Envoy entity validation failed",
+      "description": "The Energy Coordinator did not start because envoy entity validation failed at startup. Errors: {errors}.\n\nFix via Coordinator Manager → Configure → Energy. Pick any Envoy sensor whose serial matches your installed Envoy. URA auto-derives all related entities from that serial."
     }
   }
 }
