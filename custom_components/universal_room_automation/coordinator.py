@@ -1,6 +1,6 @@
 """Data coordinator for Universal Room Automation."""
 #
-# Universal Room Automation v4.2.23
+# Universal Room Automation v4.2.24
 # Build: 2026-01-02
 # File: coordinator.py
 # v3.2.8: Support for active state change listeners in aggregation sensors
@@ -834,8 +834,16 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
 
         # v3.12.0: Re-evaluate signal subscriptions when entry options change
         # (e.g., user adds chains/AI rules via config flow after startup).
-        @callback
-        def _on_entry_update(hass, entry) -> None:
+        # v4.2.24 hotfix: HA 2024+ requires update_listeners to be `async def`
+        # so HA can await the result. Previously decorated `@callback` (sync,
+        # returns None), which caused HA's _async_save_and_notify to call
+        # `async_create_task(None)` -> `TypeError: a coroutine was expected,
+        # got None`. Effect: every options-flow save raised an HTTP 500 to
+        # the frontend ("Unknown error occurred"), aborted the listener
+        # chain (so the reload listener didn't fire), and silently dropped
+        # the disk-write schedule. Async wrapper is correct shape; the
+        # body is still synchronous.
+        async def _on_entry_update(hass, entry) -> None:
             self._update_signal_subscriptions()
 
         self.entry.async_on_unload(
