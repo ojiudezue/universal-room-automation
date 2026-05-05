@@ -1,10 +1,10 @@
 # Quality Context
 
-**Version:** 6.0
-**Last Updated:** April 19, 2026
-**Current Production:** v4.2.6
+**Version:** 7.1
+**Last Updated:** May 5, 2026
+**Current Production:** v4.2.26
 **Status:** Active quality standards
-**Bug Classes:** 24 documented (7 original + 13 from Jan–Mar 2026 + 2 from v3.20–v3.22 hardening + 1 from v4.1.1 lambda scope + 1 from v4.2.5 closure escape)
+**Bug Classes:** 29 documented (7 original + 13 from Jan–Mar 2026 + 2 from v3.20–v3.22 hardening + 1 from v4.1.1 lambda scope + 1 from v4.2.5 closure escape + 3 from v4.2.8–v4.2.11 DB performance + 1 from v4.2.24 sync update_listener + 1 from v4.2.9 maintenance budgeting)
 
 ---
 
@@ -1023,6 +1023,44 @@ def test_no_sync_update_listeners():
 
 **Discovered:** v4.2.24
 **Severity:** CRITICAL (silent data loss on config saves; months of user edits dropped)
+
+---
+
+### Bug Class #29: Unbudgeted Scheduled Maintenance ⚠️
+
+**Pattern:** A nightly or startup task iterates through N cleanup operations sequentially with no time budget. If early operations are slow (large backlogs), later operations never run. If ALL operations are slow, the task blocks the event loop for the entire duration.
+
+**Impact:** Later tables in the cleanup list never get pruned (growing indefinitely). Long-running cleanup blocks other scheduled tasks. On startup catch-up with months of backlog, can block event loop for 30+ minutes.
+
+**The Fix:**
+```python
+# ✅ CORRECT - Time-budgeted with rotating start index
+_start = dt_util.utcnow()
+_idx = hass.data[DOMAIN].get("_nightly_start_idx", 0)
+n = len(cleanup_ops)
+for i in range(n):
+    op = cleanup_ops[(_idx + i) % n]
+    if (dt_util.utcnow() - _start).total_seconds() > 300:  # 5-min budget
+        _LOGGER.warning("Hit time budget — continuing tomorrow from %s", op.name)
+        break
+    await op.run()
+    await asyncio.sleep(1.0)
+hass.data[DOMAIN]["_nightly_start_idx"] = (_idx + 1) % n  # Rotate
+```
+
+**Prevention:**
+- [ ] Every scheduled maintenance task MUST have a time budget (typically 5 minutes)
+- [ ] Check elapsed time BEFORE each operation, not just after
+- [ ] Rotate the start index so ALL tables get serviced over multiple nights
+- [ ] Add `asyncio.sleep(1.0)` between operations to yield to the event loop
+- [ ] Log a warning when budget is hit, naming the operation that will run first next time
+
+**Historical Example:**
+- v4.2.9: Nightly maintenance at 2:30 AM ran 7 cleanup operations in fixed order. Census cleanup (90 days, 100k+ rows) consumed the entire window; later tables (notifications, inbound, person data) never ran. Fixed with 5-min budget + rotating start index.
+
+**Discovered:** v4.2.9
+**Impact:** Starvation of later cleanup operations, unbounded event loop blocking
+**Severity:** HIGH
 
 ---
 

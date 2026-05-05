@@ -879,7 +879,7 @@ class SafetyAlertBinarySensor(AggregationEntity, BinarySensorEntity):
             return
 
         # Debounce: don't alert more than once per minute
-        now = datetime.now()
+        now = dt_util.now()  # v4.2.27: tz-aware (HA convention)
         if self._last_alert_time and (now - self._last_alert_time).total_seconds() < 60:
             return
         
@@ -936,7 +936,7 @@ class SafetyAlertBinarySensor(AggregationEntity, BinarySensorEntity):
             self._failed_alert_lights = {}
         
         # Skip if device failed recently (within 5 minutes)
-        now = datetime.now()
+        now = dt_util.now()  # v4.2.27: tz-aware (HA convention)
         if light_entity in self._failed_alert_lights:
             last_failure = self._failed_alert_lights[light_entity]
             if (now - last_failure).total_seconds() < 300:  # 5 minute cooldown
@@ -1694,11 +1694,11 @@ class PredictedEnergyTodaySensor(AggregationEntity, SensorEntity):
         if not db:
             return
         
-        # Only update every 15 minutes
-        now = datetime.now()
+        # Only update every 15 minutes — v4.2.27: tz-aware (HA convention)
+        now = dt_util.now()
         if self._cache_time and (now - self._cache_time).total_seconds() < 900:
             return
-        
+
         forecast_temp = self._get_forecast_temp()
         value, confidence = await db.predict_energy("day", forecast_temp)
         
@@ -1709,11 +1709,11 @@ class PredictedEnergyTodaySensor(AggregationEntity, SensorEntity):
 
 class PredictedEnergyWeekSensor(AggregationEntity, SensorEntity):
     """Sensor: Predicted net energy for this week."""
-    
+
     _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_icon = "mdi:crystal-ball"
-    
+
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         """Initialize."""
         super().__init__(hass, entry)
@@ -1722,12 +1722,12 @@ class PredictedEnergyWeekSensor(AggregationEntity, SensorEntity):
         self._cached_value: float | None = None
         self._cached_confidence: int = 0
         self._cache_time: datetime | None = None
-    
+
     @property
     def native_value(self) -> float | None:
         """Return predicted kWh value."""
         return self._cached_value
-    
+
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return prediction details."""
@@ -1738,23 +1738,38 @@ class PredictedEnergyWeekSensor(AggregationEntity, SensorEntity):
             "confidence_level": _get_confidence_level(self._cached_confidence),
             "period": "week",
         }
-        
+
         # Add friendly display text
         if self._cached_value is not None:
             attrs["display"] = f"{self._cached_value} kWh ({_get_confidence_level(self._cached_confidence)})"
         else:
             attrs["display"] = "Collecting data..."
-            
+
         return attrs
+
+    async def async_update(self) -> None:
+        """Update prediction from database. v4.2.27: was missing — sensor stayed at None forever."""
+        db = self.hass.data.get(DOMAIN, {}).get("database")
+        if not db:
+            return
+        # Cache for 60 minutes (week predictions don't move fast)
+        now = dt_util.now()  # v4.2.27: tz-aware (HA convention)
+        if self._cache_time and (now - self._cache_time).total_seconds() < 3600:
+            return
+        forecast_temp = self._get_forecast_temp()
+        value, confidence = await db.predict_energy("week", forecast_temp)
+        self._cached_value = value
+        self._cached_confidence = confidence
+        self._cache_time = now
 
 
 class PredictedEnergyMonthSensor(AggregationEntity, SensorEntity):
     """Sensor: Predicted net energy for this month."""
-    
+
     _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_icon = "mdi:crystal-ball"
-    
+
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         """Initialize."""
         super().__init__(hass, entry)
@@ -1762,12 +1777,13 @@ class PredictedEnergyMonthSensor(AggregationEntity, SensorEntity):
         self._attr_name = "Predicted Energy Month"
         self._cached_value: float | None = None
         self._cached_confidence: int = 0
-    
+        self._cache_time: datetime | None = None
+
     @property
     def native_value(self) -> float | None:
         """Return predicted kWh value."""
         return self._cached_value
-    
+
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return prediction details."""
@@ -1777,23 +1793,38 @@ class PredictedEnergyMonthSensor(AggregationEntity, SensorEntity):
             "confidence_level": _get_confidence_level(self._cached_confidence),
             "period": "month",
         }
-        
+
         # Add friendly display text
         if self._cached_value is not None:
             attrs["display"] = f"{self._cached_value} kWh ({_get_confidence_level(self._cached_confidence)})"
         else:
             attrs["display"] = "Collecting data..."
-            
+
         return attrs
+
+    async def async_update(self) -> None:
+        """Update prediction from database. v4.2.27: was missing — sensor stayed at None forever."""
+        db = self.hass.data.get(DOMAIN, {}).get("database")
+        if not db:
+            return
+        # Cache for 6 hours (month predictions are slow-moving)
+        now = dt_util.now()  # v4.2.27: tz-aware (HA convention)
+        if self._cache_time and (now - self._cache_time).total_seconds() < 21600:
+            return
+        forecast_temp = self._get_forecast_temp()
+        value, confidence = await db.predict_energy("month", forecast_temp)
+        self._cached_value = value
+        self._cached_confidence = confidence
+        self._cache_time = now
 
 
 class PredictedCostTodaySensor(AggregationEntity, SensorEntity):
     """Sensor: Predicted energy cost for today."""
-    
+
     _attr_native_unit_of_measurement = "$"
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_icon = "mdi:currency-usd"
-    
+
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         """Initialize."""
         super().__init__(hass, entry)
@@ -1801,19 +1832,20 @@ class PredictedCostTodaySensor(AggregationEntity, SensorEntity):
         self._attr_name = "Predicted Cost Today"
         self._cached_value: float | None = None
         self._cached_confidence: int = 0
-    
+        self._cache_time: datetime | None = None
+
     @property
     def native_value(self) -> float | None:
         """Return predicted cost value."""
         return self._cached_value if self._cached_value is not None else None
-    
+
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return cost calculation details."""
         rate = self._get_config(CONF_ELECTRICITY_RATE, DEFAULT_ELECTRICITY_RATE)
         delivery = self._get_config(CONF_DELIVERY_RATE, DEFAULT_DELIVERY_RATE)
         export_rate = self._get_config(CONF_EXPORT_REIMBURSEMENT_RATE, DEFAULT_EXPORT_REIMBURSEMENT_RATE)
-        
+
         attrs = {
             "value": self._cached_value,
             "confidence": self._cached_confidence,
@@ -1822,24 +1854,51 @@ class PredictedCostTodaySensor(AggregationEntity, SensorEntity):
             "delivery_rate": delivery,
             "export_rate": export_rate,
             "period": "today",
+            "rate_source": "static_config",  # v4.2.27: TOU-aware EC rate migration in v4.5.x backlog
         }
-        
+
         # Add friendly display text
         if self._cached_value is not None:
             attrs["display"] = f"${self._cached_value:.2f} ({_get_confidence_level(self._cached_confidence)})"
         else:
             attrs["display"] = "Collecting data..."
-            
+
         return attrs
+
+    async def async_update(self) -> None:
+        """Update prediction from database. v4.2.27: was missing — sensor stayed at None forever.
+        Cost = energy_kwh × (electricity_rate + delivery_rate) when net-import,
+               energy_kwh × export_rate when net-export (negative kWh).
+        Static rate config; TOU-aware migration tracked in BACKLOG (E)."""
+        db = self.hass.data.get(DOMAIN, {}).get("database")
+        if not db:
+            return
+        now = dt_util.now()  # v4.2.27: tz-aware (HA convention)
+        if self._cache_time and (now - self._cache_time).total_seconds() < 900:
+            return
+        forecast_temp = self._get_forecast_temp()
+        energy_kwh, confidence = await db.predict_energy("day", forecast_temp)
+        if energy_kwh is None:
+            self._cached_value = None
+        else:
+            rate = self._get_config(CONF_ELECTRICITY_RATE, DEFAULT_ELECTRICITY_RATE)
+            delivery = self._get_config(CONF_DELIVERY_RATE, DEFAULT_DELIVERY_RATE)
+            export_rate = self._get_config(CONF_EXPORT_REIMBURSEMENT_RATE, DEFAULT_EXPORT_REIMBURSEMENT_RATE)
+            if energy_kwh >= 0:
+                self._cached_value = round(energy_kwh * (rate + delivery), 2)
+            else:
+                self._cached_value = round(energy_kwh * export_rate, 2)
+        self._cached_confidence = confidence
+        self._cache_time = now
 
 
 class PredictedCostWeekSensor(AggregationEntity, SensorEntity):
     """Sensor: Predicted energy cost for this week."""
-    
+
     _attr_native_unit_of_measurement = "$"
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_icon = "mdi:currency-usd"
-    
+
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         """Initialize."""
         super().__init__(hass, entry)
@@ -1847,12 +1906,13 @@ class PredictedCostWeekSensor(AggregationEntity, SensorEntity):
         self._attr_name = "Predicted Cost Week"
         self._cached_value: float | None = None
         self._cached_confidence: int = 0
-    
+        self._cache_time: datetime | None = None
+
     @property
     def native_value(self) -> float | None:
         """Return predicted cost value."""
         return self._cached_value if self._cached_value is not None else None
-    
+
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return details."""
@@ -1861,24 +1921,48 @@ class PredictedCostWeekSensor(AggregationEntity, SensorEntity):
             "confidence": self._cached_confidence,
             "confidence_level": _get_confidence_level(self._cached_confidence),
             "period": "week",
+            "rate_source": "static_config",
         }
-        
+
         # Add friendly display text
         if self._cached_value is not None:
             attrs["display"] = f"${self._cached_value:.2f} ({_get_confidence_level(self._cached_confidence)})"
         else:
             attrs["display"] = "Collecting data..."
-            
+
         return attrs
+
+    async def async_update(self) -> None:
+        """Update prediction from database. v4.2.27: was missing — sensor stayed at None forever."""
+        db = self.hass.data.get(DOMAIN, {}).get("database")
+        if not db:
+            return
+        now = dt_util.now()  # v4.2.27: tz-aware (HA convention)
+        if self._cache_time and (now - self._cache_time).total_seconds() < 3600:
+            return
+        forecast_temp = self._get_forecast_temp()
+        energy_kwh, confidence = await db.predict_energy("week", forecast_temp)
+        if energy_kwh is None:
+            self._cached_value = None
+        else:
+            rate = self._get_config(CONF_ELECTRICITY_RATE, DEFAULT_ELECTRICITY_RATE)
+            delivery = self._get_config(CONF_DELIVERY_RATE, DEFAULT_DELIVERY_RATE)
+            export_rate = self._get_config(CONF_EXPORT_REIMBURSEMENT_RATE, DEFAULT_EXPORT_REIMBURSEMENT_RATE)
+            if energy_kwh >= 0:
+                self._cached_value = round(energy_kwh * (rate + delivery), 2)
+            else:
+                self._cached_value = round(energy_kwh * export_rate, 2)
+        self._cached_confidence = confidence
+        self._cache_time = now
 
 
 class PredictedCostMonthSensor(AggregationEntity, SensorEntity):
     """Sensor: Predicted energy cost for this month."""
-    
+
     _attr_native_unit_of_measurement = "$"
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_icon = "mdi:currency-usd"
-    
+
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         """Initialize."""
         super().__init__(hass, entry)
@@ -1886,12 +1970,13 @@ class PredictedCostMonthSensor(AggregationEntity, SensorEntity):
         self._attr_name = "Predicted Cost Month"
         self._cached_value: float | None = None
         self._cached_confidence: int = 0
-    
+        self._cache_time: datetime | None = None
+
     @property
     def native_value(self) -> float | None:
         """Return predicted cost value."""
         return self._cached_value if self._cached_value is not None else None
-    
+
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return details."""
@@ -1900,15 +1985,39 @@ class PredictedCostMonthSensor(AggregationEntity, SensorEntity):
             "confidence": self._cached_confidence,
             "confidence_level": _get_confidence_level(self._cached_confidence),
             "period": "month",
+            "rate_source": "static_config",
         }
-        
+
         # Add friendly display text
         if self._cached_value is not None:
             attrs["display"] = f"${self._cached_value:.2f} ({_get_confidence_level(self._cached_confidence)})"
         else:
             attrs["display"] = "Collecting data..."
-            
+
         return attrs
+
+    async def async_update(self) -> None:
+        """Update prediction from database. v4.2.27: was missing — sensor stayed at None forever."""
+        db = self.hass.data.get(DOMAIN, {}).get("database")
+        if not db:
+            return
+        now = dt_util.now()  # v4.2.27: tz-aware (HA convention)
+        if self._cache_time and (now - self._cache_time).total_seconds() < 21600:
+            return
+        forecast_temp = self._get_forecast_temp()
+        energy_kwh, confidence = await db.predict_energy("month", forecast_temp)
+        if energy_kwh is None:
+            self._cached_value = None
+        else:
+            rate = self._get_config(CONF_ELECTRICITY_RATE, DEFAULT_ELECTRICITY_RATE)
+            delivery = self._get_config(CONF_DELIVERY_RATE, DEFAULT_DELIVERY_RATE)
+            export_rate = self._get_config(CONF_EXPORT_REIMBURSEMENT_RATE, DEFAULT_EXPORT_REIMBURSEMENT_RATE)
+            if energy_kwh >= 0:
+                self._cached_value = round(energy_kwh * (rate + delivery), 2)
+            else:
+                self._cached_value = round(energy_kwh * export_rate, 2)
+        self._cached_confidence = confidence
+        self._cache_time = now
 
 
 # ============================================================================

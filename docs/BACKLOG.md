@@ -23,9 +23,166 @@
 
 ## Bayesian Remaining
 
-5. **B3: Pre-emptive Actions** — High-confidence Bayesian predictions trigger room preparation (lights, HVAC pre-conditioning). Configurable confidence threshold. Integration with HVAC pre-arrival and chained automations.
+5. **B3: Pre-emptive Actions** — Zone + house level Bayesian pre-conditioning, prediction-aware vacancy hold, predicted departure/return transitions, battery occupancy shaping. Room-level actions (lights, music) cut — no practical value over 2-5s reactive detection. **Full plan:** `docs/planning/PLANNING_v4.x_B3_PREEMPTIVE_ACTIONS.md`
 
 6. ~~**B4: Energy Integration**~~ — **DONE** (v4.1.0 L1, v4.1.1 L2, v4.2.0 L3). All 3 layers shipped. See `docs/planning/PLANNING_v4.x_B4_ENERGY_INTEGRATION.md`.
+
+## Sensor Reconciliation Cycle (audit findings, May 5 2026)
+
+**A. previous_seen / previous_location wiped after one away cycle** — `person_coordinator.py:325, 347` (and parallel home branch at 312, 313). The fallback branches overwrite `previous_location` with the literal "away"/"home" string and null `previous_location_time` after the first steady-state cycle. Result: anyone away >1 update interval shows `previous_seen=unknown`. Hotfix in flight (preserve old_data values; capture transition only when `old_location` is a real room).
+
+**B. `likely_next_room` source=none for kids weekday afternoons** — NOT a bug. `bayesian_beliefs` confirms 0 observations for (Jaya/Ziri, MIDDAY/AFTERNOON, weekday) because they're at school. `_learning_status` correctly returns INSUFFICIENT_DATA. **See B6 below for UX enhancement** to display "away_typical" instead of "unknown" in this case.
+
+**C. Frigate face DB undersized** — 11–17 samples per family member at recognition_threshold=0.9. 1 match in last 50 events. Not URA code — Frigate config. User handling.
+
+**D. Stub energy/cost prediction sensors** — `aggregation.py:1710-1911`: `PredictedEnergyWeekSensor`, `PredictedEnergyMonthSensor`, `PredictedCostTodaySensor`, `PredictedCostWeekSensor`, `PredictedCostMonthSensor` are missing `async_update()`. Hotfix needs implementation + Cost variants need EC `current_effective_rate` integration (architectural decision pending).
+
+**E. Legacy fixed-cost-rate vs EC TOU rate reconciliation** — Pre-EC code: rooms have `CONF_ELECTRICITY_RATE` static; cost calculations in `coordinator.py:1804-1811`, `aggregation.py:1813-1815` use it. EC era: `EnergyCoordinator.current_effective_rate` (`energy.py:2837`) is TOU-aware and authoritative. All cost calculations should migrate to EC's rate when EC is configured (with static config as fallback when EC not present).
+
+## B6: "away_typical" Display + Seasonal Staleness Handling
+
+**Goal:** When the Bayesian model has no useful data for the current (person, time_bin, day_type) cell AND geofence says away, display "away_typical" instead of "unknown" for `*_likely_next_room`.
+
+**Display logic:**
+```
+if pred is None or pred.learning_status == INSUFFICIENT_DATA:
+    return "away_typical" if geofence_away else "unknown"
+if cell_stale (no obs in cell within `bayesian_cell_staleness_days`, default 14)
+        and geofence_away:
+    return "away_typical"
+return pred.top_room
+```
+
+**Why staleness check matters:** Handles school↔summer transitions. Pre-summer Jaya cell is empty → "away_typical" works. Mid-summer Jaya is home → cell accumulates obs → real predictions resume. Back-to-school: cell has stale summer data + Jaya away → staleness branch correctly returns "away_typical" rather than predicting an obsolete summer room.
+
+**Effort:** ~50 production lines (new path in `sensor.py:2400` + helper for cell staleness query) + 60 test lines + 1 config option (`bayesian_cell_staleness_days`, default 14, range 7-90).
+
+**Tests required:**
+- `test_away_typical_when_cell_empty_and_away`
+- `test_unknown_when_cell_empty_and_home` (honest "we don't know")
+- `test_real_prediction_when_cell_active_and_home`
+- `test_away_typical_when_cell_stale_and_away` (school-resumption case)
+- `test_real_prediction_when_cell_active_and_away_but_recent_obs` (school-year weekend home)
+
+**Discovered during:** May 5 2026 sensor reconciliation cycle.
+
+## Appliance Scheduler (B5)
+
+**B5: Appliance Scheduler — Cost-Reduction Deferral + Forecast-Aware Sprinklers** — New domain coordinator that defers LG ThinQ washer/dishwasher/washtower starts to off-peak TOU, and skips Rainbird sprinkler cycles based on weather forecast. Provider plugin pattern for future integrations (Bosch, SmartThings, generic power-sensor). Restart-survivable, reload-resilient. **Full plan:** `docs/planning/PLANNING_v4.4.x_APPLIANCE_SCHEDULER.md`
+
+Phasing: D1+D2+D3+D4+D6 as v4.4.0; D5 hardening as v4.4.1; D7 sprinkler skip as v4.4.2; D8 generic provider as v4.5.0.
+
+## B7: Routine Change Detection (paired with B6 → ship together as v4.5.0 "Routine Awareness")
+
+**Goal:** Detect when a person's behavior pattern in a (time_bin, day_type) cell shifts significantly from historical baseline — useful for catching real-world regime changes (new job, baby, retirement, school year cycle) and surfacing them as a sensor (and optionally a notification).
+
+### Algorithm: Jensen-Shannon divergence on cell distributions
+
+For each (person, time_bin, day_type) cell:
+1. Compute room-frequency distribution `P` over a recent window (default 14 days) from `person_visits`.
+2. Compute room-frequency distribution `Q` over a reference window (default 90 days, ending where recent starts).
+3. Reject if either window has fewer than `min_obs=10` observations.
+4. Compute `JS(P, Q) = 0.5·KL(P‖M) + 0.5·KL(Q‖M)` where `M = (P+Q)/2`.
+5. Bucket: `<0.3 = stable`, `0.3–0.5 = drifting`, `>0.5 = shifted`.
+6. Require persistence — shift must be present on N consecutive nightly checks before flagging (suppresses vacation/sick-day false positives).
+
+### Why JS over alternatives
+
+JS handles full distributional shift (not just mean), is symmetric/direction-agnostic, bounded `[0,1]` so thresholds are interpretable without per-cell tuning, and is computationally trivial (~microseconds per cell). Considered + rejected: rolling-mean comparison (misses distributional shifts), CUSUM (univariate, direction-aware), Bayesian online change-point (BOCPD; theoretically optimal but brittle hyperparameters and heavy compute).
+
+### Data model — share with existing `AnomalyDetector` infrastructure
+
+URA already has rich anomaly infrastructure (`coordinator_diagnostics.py:631`):
+- `AnomalyRecord` dataclass (line 112)
+- `AnomalySeverity` StrEnum (line 42)
+- `AnomalyDetector.store_anomaly()` for persistence
+- `AnomalyDetector.get_anomaly_count(days)` for query
+- Existing consumers: presence, safety, security, energy_circuits, HVAC
+
+Existing anomalies are **point-in-time** ("current observation surprising vs prediction"). B7 detection is **distributional/temporal** ("recent window distribution differs from historical"). Different math, different time scale — but they should share storage and surface.
+
+**B7 reuses existing infrastructure rather than inventing parallel:**
+- Add `AnomalyType` discriminator to `AnomalyRecord` (`point_in_time | regime_shift`).
+- Persist regime shifts via `anomaly_detector.store_anomaly(AnomalyRecord(type=regime_shift, ...))`.
+- Reuse `AnomalySeverity` for magnitude buckets: `info` = drifting (JS 0.3–0.5), `warning` = shifted (JS 0.5–0.7), `critical` = major shift (JS > 0.7).
+- Existing dashboards / NM hooks pick up B7 events automatically without new wiring.
+- Reuse `AnomalyDetector.get_anomaly_count` and existing cleanup for retention.
+
+**No new SQL table needed.** Schema migration is just adding a `type` column (with default `point_in_time` for backward compat). Cleanup already covered by existing `AnomalyDetector` retention.
+
+Detection still runs from `person_visits` (already has timestamps). Verify/add index on `(person_id, entry_time, room_id)` if not present.
+
+### Sensor surface
+
+Per-person:
+```
+sensor.universal_room_automation_<person>_routine_status
+  state: "stable" | "drifting" | "shifted"
+  attributes:
+    cells_evaluated_last_run, cells_with_recent_data, max_magnitude, max_magnitude_cell,
+    top_changes (list of {cell, magnitude, top_movers}), unacknowledged_events, last_check
+```
+
+House aggregate:
+```
+sensor.universal_room_automation_household_routine_status
+  state: worst-case across persons
+  attributes: persons_stable/drifting/shifted, total_unacknowledged_events
+```
+
+Plus `button.universal_room_automation_acknowledge_routine_changes`.
+
+### Notification surface — opt-in only, three modes
+
+CM option `routine_change_notification_mode`: `silent` (default) | `weekly_digest` | `event` (cooldown 30d per cell). Ship with `silent` default. Privacy: notification copy must be neutral ("routine pattern shift detected") not alarming.
+
+### Risks ranked
+
+**Statistical (highest):**
+1. Vacation/sick-day false positives → mitigation: persistence guard + skip cells where geofence-away >50% of recent window. Shares infrastructure with B6 staleness.
+2. Sparse-cell noise (10-15 obs gives 30%+ variance) → `min_obs=10` floor; high-confidence band requires `min_obs=20`.
+3. Threshold calibration is initially a guess → mandatory 4-6 week observation period in `silent` mode before enabling notifications.
+
+**Implementation (medium):**
+4. Query performance on `person_visits` (~100k rows, ~50-100 cells/night, all aggregating SELECTs) → must verify/add the (person_id, entry_time, room_id) index.
+5. Bug #25 (unbounded query): all queries time-bounded, GROUP BY rooms (not row fetch).
+6. Bug #19, #27, #29: standard prevention — track tasks, register cleanup, populator paths tested.
+
+**Notification (medium):**
+7. Notification fatigue → cooldown + opt-in only.
+8. Privacy/social risk → neutral framing, default silent, user-driven escalation.
+
+**System (low):** Standard schema migration, restart-resilient (results persisted), zero pollution of bayesian_beliefs.
+
+### Cost (revised — shares AnomalyDetector infra)
+
+| Component | Production | Test |
+|---|---|---|
+| `regime_detector.py` (algorithm + JS/KL math) | ~250 | ~200 |
+| `coordinator_diagnostics.py` (add `AnomalyType` discriminator + schema migration for type column) | ~50 | ~40 |
+| Sensor classes (per-person + house aggregate, query `AnomalyDetector` for type=regime_shift) | ~140 | ~80 |
+| Coordinator integration (nightly run, calls `anomaly_detector.store_anomaly`) | ~60 | ~40 |
+| Config flow (windows + threshold + notify) | ~70 | ~30 |
+| Notification (NM hook for type=regime_shift filter) | ~40 | ~20 |
+| Index migration | ~30 | — |
+| **Total** | **~640** | **~410** |
+
+(Net ~130-line reduction vs. the originally-proposed parallel infrastructure, by sharing existing `AnomalyDetector`.)
+
+### Ship plan
+
+**Phase 1 (silent sensor only):** algorithm + DB + sensors + nightly run. Run for 4-6 weeks calibration. ~600 prod / ~400 test.
+
+**Phase 2 (notification surface):** add `weekly_digest` and `event` modes with NM integration. ~170 prod / ~90 test.
+
+Share infrastructure with B6: `is_cell_stale()` helper from B6 lives in same module as `detect_regime_shift()` — both about "this cell's behavior changed". **Plan B6 + B7 to ship together as v4.5.0: Routine Awareness.**
+
+### What B7 is NOT
+
+- Not real-time prediction (nightly batch is sufficient and cheaper).
+- Not for guests (no person tracking).
+- Not for room-level patterns (would need different schema; out of scope).
+- Not for energy patterns (different modality; possibly future).
 
 ## Optimization Coordinator (5 phases)
 
@@ -67,5 +224,5 @@
 
 1. Config flow save root cause (partially mitigated in v4.2.0, still times out on large rooms)
 2. Optimizer Phase 1 (Activity Log done, no blockers remaining)
-3. B3 pre-emptive actions (backlog — practical utility under review)
+3. B3 pre-emptive actions (planned — zone/house level, see `docs/planning/PLANNING_v4.x_B3_PREEMPTIVE_ACTIONS.md`)
 4. DB write queue deeper fixes (if room count grows or warmup becomes unacceptable)

@@ -1,4 +1,48 @@
 {
+  "permissions": {
+    "allow": [
+      "Bash(git *)",
+      "Bash(cd *)",
+      "Bash(ls *)",
+      "Bash(python3 *)",
+      "Bash(PYTHONPATH=* python3 *)",
+      "Bash(pip *)",
+      "Bash(npm *)",
+      "Bash(cat *)",
+      "Bash(head *)",
+      "Bash(tail *)",
+      "Bash(wc *)",
+      "Bash(diff *)",
+      "Bash(mount_smbfs *)",
+      "Bash(gh *)",
+      "Bash(mkdir *)",
+      "Bash(cp *)",
+      "Bash(mv *)",
+      "Bash(touch *)",
+      "Bash(chmod *)",
+      "Bash(./scripts/deploy.sh *)",
+      "Read",
+      "Edit",
+      "Write",
+      "Glob",
+      "Grep",
+      "Agent",
+      "WebFetch",
+      "WebSearch",
+      "TaskCreate",
+      "TaskUpdate",
+      "TaskGet",
+      "TaskList",
+      "mcp__home-assistant__*"
+    ],
+    "deny": [
+      "Bash(rm -rf *)",
+      "Bash(git push --force *)",
+      "Bash(git reset --hard *)",
+      "Bash(git checkout -- *)",
+      "Bash(git clean -f *)"
+    ]
+  },
   "hooks": {
     "PreToolUse": [
       {
@@ -7,6 +51,23 @@
           {
             "type": "command",
             "command": "input=$(cat); cmd=$(echo \"$input\" | jq -r '.tool_input.command // empty'); if echo \"$cmd\" | grep -q 'deploy.sh'; then last_test=$(find quality/tests -name '*.py' -newer custom_components/universal_room_automation/const.py 2>/dev/null | head -1); if [ -z \"$last_test\" ]; then echo 'WARNING: Tests may not have been run since last code change' >&2; fi; fi; exit 0"
+          },
+          {
+            "type": "command",
+            "command": "jq -r '.tool_input.command // \"\"' | grep -q 'git commit' && printf '{\"systemMessage\":\"VibeMemo: Before committing, check for uncaptured decisions. Run /vibememo-eval (Part 1 capture + narrative update). Also synthesize user narratives into project narrative — commits are a consistency checkpoint.\"}' || printf '{}'",
+            "statusMessage": "VibeMemo: checking..."
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "printf '{\"systemMessage\":\"VibeMemo session-end: Run /vibememo-eval (Part 1 + Part 2) before closing. Capture uncaptured decisions, score all 9 eval dimensions, and synthesize user narratives into project narrative.\"}'",
+            "statusMessage": "VibeMemo: session-end eval..."
           }
         ]
       }
