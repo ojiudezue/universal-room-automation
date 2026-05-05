@@ -962,6 +962,70 @@ Can cascade into other failures if the calling code doesn't have try/except.
 
 ---
 
+### Bug Class #28: Sync Function Passed to `add_update_listener` 🚨
+
+**Pattern:** A sync `@callback`-decorated function is passed to `entry.add_update_listener()`. HA 2024+ awaits update listeners (does `async_create_task(listener(hass, entry))`). Sync function returns `None`, which is not a coroutine → `TypeError: a coroutine was expected, got None`.
+
+**Impact (catastrophic, silent):**
+- Every options-flow save fails with "Unknown error occurred" in the UI even though URA's handler runs successfully.
+- The entry IS mutated in memory (HA does that before notifying listeners), but `_async_save_and_notify` crashes mid-iteration:
+  - The async reload listener registered after the broken sync one **never fires** → URA doesn't pick up the new options.
+  - The `_async_schedule_save` call may not run depending on call order → disk write is unreliable.
+- Second-save-after-error appears to "succeed" (no banner) because HA's diff check sees identical merged dict and short-circuits — but no schedule_save runs that time either. Users assume it worked. **Mirage.**
+- Some saves persist (next periodic global flush captures in-memory state); others are silently lost for months.
+
+**Symptoms users report:**
+- "Save errors first time, accepts second time, may be a mirage"
+- "I changed X but it didn't take"
+- `core.config_entries` `modified_at` field stuck on a months-old timestamp despite repeated UI edits
+
+**Prevention:**
+- [ ] **All `add_update_listener` handlers MUST be `async def`**, even if the body is synchronous (wrap with `async def` and call sync helpers from inside).
+- [ ] Grep before deploy: `grep -B 3 "add_update_listener" custom_components/**/*.py | grep "@callback"` should be empty.
+- [ ] Lint guard test (see `quality/tests/test_update_listener_async.py`).
+- [ ] Distinguish carefully: `@callback def` is correct for entity state-update callbacks (`async_added_to_hass` dispatcher subscriptions, `_handle_update`, `_handle_coordinator_update`). It is **wrong** only for `add_update_listener` (config entry options change notification).
+
+**Historical Examples:**
+- v4.2.24 (CRITICAL): `coordinator.py:837` registered `_on_entry_update` as sync `@callback`. Months of room config edits silently failed (Living Room since 2026-03-14, Dining since 2026-01-20, Patio since 2026-01-07, Breakfast Nook since 2026-03-14). Symptom: "Unknown error occurred" UI banner; `TypeError: a coroutine was expected, got None` in HA logs. One-line fix: drop `@callback`, change `def` → `async def`. Body unchanged.
+
+**Detection:**
+```bash
+# Find any sync @callback within 3 lines above an add_update_listener registration
+grep -B 3 "add_update_listener" custom_components/**/*.py | grep "@callback"
+```
+
+```python
+# Guard test (quality/tests/test_update_listener_async.py)
+def test_no_sync_update_listeners():
+    """No add_update_listener handler may be sync — HA 2024+ awaits them."""
+    import asyncio, ast, pathlib
+    src = pathlib.Path("custom_components/universal_room_automation").rglob("*.py")
+    for path in src:
+        tree = ast.parse(path.read_text())
+        for node in ast.walk(tree):
+            # Find any call to .add_update_listener(handler)
+            if (isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "add_update_listener"
+                and node.args):
+                handler = node.args[0]
+                if isinstance(handler, ast.Name):
+                    # Find the function definition by name in the same file
+                    name = handler.id
+                    for fn in ast.walk(tree):
+                        if (isinstance(fn, ast.FunctionDef)
+                            and fn.name == name):
+                            assert False, (
+                                f"{path}:{fn.lineno} sync handler '{name}' "
+                                "passed to add_update_listener — must be async def"
+                            )
+```
+
+**Discovered:** v4.2.24
+**Severity:** CRITICAL (silent data loss on config saves; months of user edits dropped)
+
+---
+
 ## ✅ MANDATORY VALIDATION CHECKLIST
 
 **Before EVERY deployment, complete this checklist:**
