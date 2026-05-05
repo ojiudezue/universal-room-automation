@@ -406,6 +406,28 @@ async def test_daily_reset_clears_failure_metadata():
 
 
 @pytest.mark.asyncio
+async def test_duplicate_cover_ids_are_deduped():
+    """v4.2.26 review M1: a misconfigured covers list with duplicate
+    entries must not double-send the command per cycle."""
+    covers = ["cover.lr_1", "cover.lr_1", "cover.lr_2", "cover.lr_2"]
+    states = _FakeStates()
+    states.set_fixed("cover.lr_1", "closed")
+    states.set_fixed("cover.lr_2", "closed")
+
+    automation, hass = _make_automation(covers, states)
+    with patch("asyncio.sleep", new=AsyncMock()):
+        success, failed = await automation._send_covers_with_verify(
+            covers, "close_cover",
+        )
+
+    assert success is True
+    assert failed == []
+    # 2 unique covers despite 4 input entries
+    assert hass.services.async_call.call_count == 2
+    assert automation._cover_attempts_today == 2
+
+
+@pytest.mark.asyncio
 async def test_blocking_false_for_cover_calls():
     """v4.2.23: cover calls must use blocking=False to avoid timing out
     on group covers whose sub-blinds take 30-60s to settle."""
