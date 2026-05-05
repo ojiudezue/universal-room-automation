@@ -1,6 +1,6 @@
 """Person tracking coordinator for Universal Room Automation."""
 #
-# Universal Room Automation v4.2.26
+# Universal Room Automation vv4.2.27
 # Build: 2026-01-03
 # File: person_coordinator.py
 # v3.2.9: No changes (zone fixes in aggregation.py, fan fixes in automation.py)
@@ -306,11 +306,26 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
                                 continue
                         
                         # No recent Bermuda data or exceeded decay timeout - check person state for home/away
+                        # v4.2.27: preserve previous_location/_time across already-away (or already-home)
+                        # cycles. Capture transition only when old_location is a real room. Earlier
+                        # logic clobbered both fields after one steady-state cycle, leaving
+                        # previous_seen=unknown for anyone away >1 update interval.
+                        old_previous_location = old_data.get("previous_location", "unknown")
+                        was_real_room = old_location and old_location not in ("away", "home", "unknown", "")
+                        if was_real_room:
+                            # Real room → away/home transition: capture
+                            new_previous_location = old_location
+                            new_previous_location_time = now
+                        else:
+                            # Already in state-string territory: preserve real-room history
+                            new_previous_location = old_previous_location
+                            new_previous_location_time = old_previous_location_time
+
                         if person_state.state == "home":
                             person_data[person_name] = {
                                 "location": "home",
-                                "previous_location": old_location,
-                                "previous_location_time": old_previous_location_time if old_location not in ("home", "unknown") else None,
+                                "previous_location": new_previous_location,
+                                "previous_location_time": new_previous_location_time,
                                 "last_changed": person_state.last_changed,
                                 "last_bermuda_update": None,
                                 "tracking_status": TRACKING_STATUS_LOST,
@@ -321,8 +336,8 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
                         else:
                             person_data[person_name] = {
                                 "location": "away",
-                                "previous_location": old_location,
-                                "previous_location_time": old_previous_location_time if old_location not in ("away", "unknown") else None,
+                                "previous_location": new_previous_location,
+                                "previous_location_time": new_previous_location_time,
                                 "last_changed": person_state.last_changed,
                                 "last_bermuda_update": None,
                                 "tracking_status": TRACKING_STATUS_LOST,
@@ -340,11 +355,21 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
                     else:
                         location = "away"
                         confidence = 0.9  # High confidence for away state
-                    
+
+                    # v4.2.27: same preservation logic as the no-Bermuda-area branch above
+                    old_previous_location = old_data.get("previous_location", "unknown")
+                    was_real_room = old_location and old_location not in ("away", "home", "unknown", "")
+                    if was_real_room:
+                        new_previous_location = old_location
+                        new_previous_location_time = now
+                    else:
+                        new_previous_location = old_previous_location
+                        new_previous_location_time = old_previous_location_time
+
                     person_data[person_name] = {
                         "location": location,
-                        "previous_location": old_location,
-                        "previous_location_time": old_previous_location_time if old_location != location else None,
+                        "previous_location": new_previous_location,
+                        "previous_location_time": new_previous_location_time,
                         "last_changed": person_state.last_changed,
                         "last_bermuda_update": None,
                         "tracking_status": TRACKING_STATUS_LOST,
