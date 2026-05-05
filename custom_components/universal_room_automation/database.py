@@ -1,7 +1,7 @@
 """Database for Universal Room Automation."""
 from __future__ import annotations
 #
-# Universal Room Automation vv4.2.27
+# Universal Room Automation vv4.2.28
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors
@@ -933,6 +933,25 @@ class UniversalRoomDatabase:
                     )""",
                 ]):
                     failed_tables.append("room_state")
+
+                # -- v4.2.28: Room energy baseline persistence ----------------
+                # Survives restarts so STATE_ENERGY_TODAY isn't reset to 0 on
+                # every coordinator reload. Tracks one row per (room, sensor)
+                # to support multi-energy-sensor rooms (v4.1.0+).
+                # needs_reset=1 means baseline is stale (sensor was unavailable
+                # at midnight reset); next available reading sets baseline=now
+                # and clears the flag.
+                if not await self._create_table_safe(db, "room_energy_baselines", [
+                    """CREATE TABLE IF NOT EXISTS room_energy_baselines (
+                        room_id TEXT NOT NULL,
+                        sensor_id TEXT NOT NULL,
+                        baseline_value REAL NOT NULL,
+                        baseline_set_at TEXT NOT NULL,
+                        needs_reset INTEGER NOT NULL DEFAULT 0,
+                        PRIMARY KEY (room_id, sensor_id)
+                    )""",
+                ]):
+                    failed_tables.append("room_energy_baselines")
 
                 # -- Activity log -----------------------------------------------
                 if not await self._create_table_safe(db, "ura_activity_log", [
@@ -3405,6 +3424,107 @@ class UniversalRoomDatabase:
         except Exception as err:
             _LOGGER.warning("Failed to get room state for %s: %s", room_id, err)
             return None
+
+    # =========================================================================
+    # v4.2.28: ROOM ENERGY BASELINE PERSISTENCE
+    # =========================================================================
+
+    async def save_room_energy_baseline(
+        self,
+        room_id: str,
+        sensor_id: str,
+        baseline_value: float,
+        set_at: str,
+        needs_reset: bool = False,
+    ) -> None:
+        """Save a single energy baseline for restart resilience.
+
+        Called when a room coordinator establishes or refreshes a baseline
+        (midnight reset, first-seen, stale-baseline recovery, sanity-guard
+        reset). Writes happen O(N_sensors) per day per room — negligible
+        on the URA write queue.
+        """
+        try:
+            async with self._db() as db:
+                await db.execute(
+                    """INSERT OR REPLACE INTO room_energy_baselines
+                    (room_id, sensor_id, baseline_value, baseline_set_at, needs_reset)
+                    VALUES (?, ?, ?, ?, ?)""",
+                    (
+                        room_id,
+                        sensor_id,
+                        float(baseline_value),
+                        set_at,
+                        1 if needs_reset else 0,
+                    ),
+                )
+                await db.commit()
+        except Exception as err:
+            _LOGGER.warning(
+                "Failed to save energy baseline for %s/%s: %s",
+                room_id, sensor_id, err,
+            )
+
+    async def load_room_energy_baselines(self, room_id: str) -> dict:
+        """Return {sensor_id: {baseline_value, baseline_set_at, needs_reset}}
+        for the given room. Empty dict if none persisted.
+
+        v4.2.28: uses fetchall() rather than `async for row in cursor` to avoid
+        runtime risk on older aiosqlite versions (Tier 1 review HIGH #2).
+        """
+        out: dict = {}
+        try:
+            async with self._db_read() as db:
+                cursor = await db.execute(
+                    """SELECT sensor_id, baseline_value, baseline_set_at, needs_reset
+                       FROM room_energy_baselines WHERE room_id = ?""",
+                    (room_id,),
+                )
+                rows = await cursor.fetchall()
+                for row in rows:
+                    out[row[0]] = {
+                        "baseline_value": row[1],
+                        "baseline_set_at": row[2],
+                        "needs_reset": bool(row[3]),
+                    }
+            return out
+        except Exception as err:
+            _LOGGER.warning(
+                "Failed to load energy baselines for %s: %s", room_id, err,
+            )
+            return {}
+
+    async def cleanup_room_energy_baselines(self, retention_days: int = 90) -> int:
+        """Remove stale baselines older than retention_days. Batched per
+        bug-class #25 (LIMIT 1000 per pass) and budgeted by nightly
+        maintenance (Bug Class #28). Removes orphaned rows for rooms
+        whose configuration no longer references the sensor.
+        """
+        from datetime import timedelta as _td  # local import to avoid module top-level coupling
+        from homeassistant.util import dt as _dtu
+
+        cutoff = (_dtu.utcnow() - _td(days=retention_days)).isoformat()
+        total_deleted = 0
+        try:
+            while True:
+                async with self._db() as db:
+                    cursor = await db.execute(
+                        """DELETE FROM room_energy_baselines
+                        WHERE rowid IN (
+                            SELECT rowid FROM room_energy_baselines
+                            WHERE baseline_set_at < ? LIMIT 1000
+                        )""",
+                        (cutoff,),
+                    )
+                    await db.commit()
+                    deleted = cursor.rowcount
+                    total_deleted += deleted
+                if deleted < 1000:
+                    break
+                await asyncio.sleep(0.1)
+        except Exception as err:
+            _LOGGER.warning("cleanup_room_energy_baselines failed: %s", err)
+        return total_deleted
 
     # ====================================================================
     # Activity Log
