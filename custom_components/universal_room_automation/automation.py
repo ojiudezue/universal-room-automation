@@ -1,6 +1,6 @@
 """Automation logic for Universal Room Automation."""
 #
-# Universal Room Automation v4.2.25
+# Universal Room Automation v4.2.26
 # Build: 2026-01-04
 # File: automation.py
 # v3.3.1.1: Added int() cast to get_auto_off_hour to handle NumberSelector float values
@@ -355,7 +355,10 @@ class RoomAutomation:
         self._maybe_reset_cover_counters()
         target_state = "open" if action == "open_cover" else "closed"
         room_name = self.config.get("room_name", "Unknown")
-        pending = list(cover_ids)
+        # v4.2.26 (review M1): dedupe input. A misconfigured covers list
+        # (same entity appearing twice) would otherwise send the command
+        # twice per cycle and waste an RF burst.
+        pending = list(dict.fromkeys(cover_ids))
         self._cover_attempts_today += len(pending)
 
         for attempt in range(max_retries + 1):
@@ -380,12 +383,13 @@ class RoomAutomation:
             # outer settle+verify loop is what confirms physical state, so
             # we don't need per-call blocking confirmation.
             for cover_id in pending:
+                # v4.2.26 (review M3): timeout is meaningless when blocking=False
+                # — async_call returns immediately. Outer settle is the gate.
                 await self._safe_service_call(
                     "cover",
                     action,
                     {"entity_id": cover_id},
                     blocking=False,
-                    timeout=5.0,
                     max_retries=0,
                 )
                 # Pace inter-cover commands to reduce RF/hub collision.
