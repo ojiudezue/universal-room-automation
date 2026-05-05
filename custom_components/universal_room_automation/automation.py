@@ -1,6 +1,6 @@
 """Automation logic for Universal Room Automation."""
 #
-# Universal Room Automation v4.2.22
+# Universal Room Automation v4.2.23
 # Build: 2026-01-04
 # File: automation.py
 # v3.3.1.1: Added int() cast to get_auto_off_hour to handle NumberSelector float values
@@ -370,17 +370,22 @@ class RoomAutomation:
                 )
                 await asyncio.sleep(backoff)
 
-            # Send per-cover with pacing. Review fix M3: max_retries=0 here —
-            # the outer settle+verify loop is the authoritative retry path
-            # for physical blind misses; doubling retries inside _safe_service_call
-            # would amplify worst-case RF traffic to 9x per cover.
+            # Send per-cover with pacing. Review fix M3: max_retries=0 —
+            # the outer settle+verify loop is the authoritative retry path.
+            # v4.2.23: blocking=False — Hunter Douglas group covers can take
+            # 30-60s for all sub-blinds to settle physically, far longer
+            # than any reasonable per-call timeout. blocking=True caused
+            # 294 false service_failures in one Living Room session because
+            # async_call awaited group settle past the 10s timeout. The
+            # outer settle+verify loop is what confirms physical state, so
+            # we don't need per-call blocking confirmation.
             for cover_id in pending:
                 await self._safe_service_call(
                     "cover",
                     action,
                     {"entity_id": cover_id},
-                    blocking=True,
-                    timeout=10.0,
+                    blocking=False,
+                    timeout=5.0,
                     max_retries=0,
                 )
                 # Pace inter-cover commands to reduce RF/hub collision.
@@ -1110,15 +1115,22 @@ class RoomAutomation:
                     and self.config.get(CONF_SLEEP_BLOCK_COVERS, True)
                 ):
                     return
+                # v4.2.23 hotfix: set dedup BEFORE the helper runs.
+                # Internal retries (3 attempts) are the daily budget; if they
+                # fail (e.g. group-cover entity flaps state during async sub-
+                # blind settling) we must NOT loop on the next coordinator
+                # cycle. v4.2.22 set dedup only on verified success and
+                # produced a 2200-event RF storm on cover.living_blinds (an
+                # HA group of 10 sub-blinds). Single shot per day; failures
+                # surface via _cover_failures_today on the health sensor.
+                self._last_timed_open_date = today
                 success, _failed = await self._send_covers_with_verify(
                     available, "open_cover",
                 )
-                if success:
-                    self._last_timed_open_date = today
-                else:
+                if not success:
                     _LOGGER.warning(
-                        "Timed cover open [%s]: stragglers persisted — "
-                        "will retry next cycle",
+                        "Timed cover open [%s]: stragglers persisted "
+                        "after internal retries — not re-firing today",
                         room_name,
                     )
             finally:
@@ -1230,15 +1242,22 @@ class RoomAutomation:
                     and self.config.get(CONF_SLEEP_BLOCK_COVERS, True)
                 ):
                     return
+                # v4.2.23 hotfix: set dedup BEFORE the helper runs.
+                # Internal retries (3 attempts) are the daily budget; if they
+                # fail, we must NOT loop. v4.2.22 set dedup only on verified
+                # success and produced a 2200-event RF storm on
+                # cover.living_blinds (HA group of 10 sub-blinds whose group
+                # state flaps "open"<->"closing" during async sub-blind
+                # settling). Single shot per day; failures surface via
+                # _cover_failures_today on the health sensor.
+                self._last_timed_close_date = today
                 success, _failed = await self._send_covers_with_verify(
                     available, "close_cover",
                 )
-                if success:
-                    self._last_timed_close_date = today
-                else:
+                if not success:
                     _LOGGER.warning(
-                        "Timed cover close [%s]: stragglers persisted — "
-                        "will retry next cycle",
+                        "Timed cover close [%s]: stragglers persisted "
+                        "after internal retries — not re-firing today",
                         room_name,
                     )
             finally:
