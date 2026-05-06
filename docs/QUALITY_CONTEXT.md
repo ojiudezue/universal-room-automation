@@ -1492,12 +1492,39 @@ def my_function(param1, param2):
 
 ## 📋 TECH DEBT
 
+### Architectural items from external review (2026-05-04)
+
+A structured critique against current HA quality-scale rules surfaced 5
+architectural debt items + 1 underlying code-health issue. **Full detail and
+priority sequencing live in `docs/ROADMAP_v11.md` → "TECH DEBT & HARDENING
+QUEUE → Architectural items"**. Summary for reviewers:
+
+- **#0 (BLOCKING):** Test baseline cleanup. 86 failing tests + 14 errors are
+  treated as "pre-existing" every cycle. New regressions in those areas are
+  invisible. Both v4.2.22's storm and v4.2.24's silent save bug lived in
+  untested code paths. Drive failures to 0 + add CI guard before any other
+  architectural work.
+- **#1:** Setup/unload symmetry (services never unregistered, panels never
+  torn down, shared resources unloaded while consumers still depend on them).
+- **#2:** Tracked background tasks (multiple `hass.async_create_task` sites
+  without handle/cancel — same class as v4.2.22 cover runners we already
+  fixed).
+- **#3:** EntityDescription rollout (next coordinator add is the forcing
+  function).
+- **#4:** `ConfigEntry.runtime_data` migration (hygiene during next major
+  refactor, not standalone).
+- **#5:** Config subentries migration → promoted to v5.0 plan.
+
+**Reaction note:** 2026-05-04 review captured the items. Sequencing is
+ROI-driven, not item-number-driven. #0 first, then #1 + #2, then #3 on next
+coordinator add, then #4 in next refactor, then #5 as v5.0.
+
 ### Music Following Device Group Duplication (v3.6.30)
 Music Following was originally a house-level feature, later promoted to a coordinator. Its device appears in both the top-level "Universal Room Automation" integration group AND the "URA: Coordinator Manager" group. Other coordinators (Presence, Safety, Security, NM) only appear under Coordinator Manager. An orphaned "URA: Music Following" device (old identifier `coordinator_music_following`, 0 entities) also lingers in the registry.
 
 **Risk:** MF initialization in `__init__.py` may be tied to the house config entry. Moving it or deleting the orphan could break MF functionality. No config flow entry point for MF exists in the house group.
 
-**Status:** Parked. Orphan can be deleted via HA UI. Grouping fix requires investigating MF init path.
+**Status:** Parked. Will be addressed naturally by Tech Debt #5 (config subentries migration, v5.0).
 
 ---
 
