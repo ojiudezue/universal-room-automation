@@ -1866,8 +1866,13 @@ class EnergyCoordinator(BaseCoordinator):
                         await self._execute_service_action(action_spec)
 
                 # v4.2.17: EV battery drain protection
+                # v4.3.4 fix: pass battery_power_w (unit-normalized to W),
+                # not battery_power (which is whatever the entity reports —
+                # kW on newer Envoy installs, W on older ones). The drain
+                # rule's `< -100` threshold is in W; passing kW broke the
+                # comparison and silently disabled the protection.
                 drain_actions = self._ev.determine_battery_drain_actions(
-                    battery_power_w=self._battery.battery_power,
+                    battery_power_w=self._battery.battery_power_w,
                     battery_soc=self._battery.battery_soc,
                     soc_threshold=self._ev_battery_drain_soc,
                 )
@@ -1891,8 +1896,9 @@ class EnergyCoordinator(BaseCoordinator):
                     await self._execute_service_action(action_spec)
 
                 # v4.2.21: Smart plug battery drain protection
+                # v4.3.4 fix: same kW/W unit fix as EV drain above.
                 plug_drain_actions = self._smart_plugs.determine_battery_drain_actions(
-                    battery_power_w=self._battery.battery_power,
+                    battery_power_w=self._battery.battery_power_w,
                     battery_soc=self._battery.battery_soc,
                     soc_threshold=self._ev_battery_drain_soc,
                 )
