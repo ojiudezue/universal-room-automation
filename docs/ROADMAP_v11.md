@@ -316,6 +316,54 @@ with cache + staleness guard + NM alerting.
 
 ## FUTURE ROADMAP
 
+### v4.3.0 — Grid Arbitrage Hardening
+**Effort:** 2-3 cycles
+**Priority:** HIGH (carries a CRITICAL latent bug fix)
+**Status:** Planned, planning doc complete
+**Planning:** `docs/planning/PLANNING_v4.3.0_arbitrage_hardening.md`
+**Pickup:** `docs/transitions/SESSION_TRANSITION_2026-05-06.md`
+
+Bundles a critical reserve-level bug fix (arbitrage has never actually
+charged the battery since v3.11.0 — see transition doc for live evidence)
+with the runtime sliders + ROI sensor + reconciliation work proposed in
+the 2026-05-06 morning session.
+
+**Deliverables:**
+- D1: Reserve-level fix (set `reserve_level=arbitrage_target` not
+  `reserve_soc` in Phase B paths). Plus cosmetic `_arbitrage_active`
+  reset on envoy-unavailable early return.
+- D2: Live runtime sliders for `arbitrage_soc_trigger` and
+  `arbitrage_soc_target` — mirrors v4.2.10 OffPeakDrainNumber pattern.
+  Battery strategy reads live from entity state, not config-flow snapshot.
+- D3: Drain/arbitrage threshold reconciliation — enforce
+  `arbitrage_trigger < drain_target_poor` to prevent oscillation.
+  UI guard with log warning + sensor attribute on violation.
+- D4: Per-cycle ROI sensor — tracks kWh charged at off-peak rate × spread,
+  exposed as `sensor.ura_arbitrage_savings_today/month/total`. Persists
+  cycles in new DB table.
+- D5: Threshold diagnostic attribute on the battery strategy sensor
+  showing where current SOC sits relative to all thresholds + next
+  expected action.
+
+**Why bundled, not slipped as v4.2.30 hotfix:** user explicitly chose to
+bundle so the bug fix lands with the surrounding observability and
+reconciliation in place — verified together in one Tier 2 cycle.
+
+**Tier 2** — 2 reviews + live validation. Live validation is critical
+for D1 since no test rig can validate Enphase behavior; the success
+signal is `sensor.envoy_*_battery` SOC rising during an arbitrage
+activation.
+
+**Deferred to v4.3.x or later:**
+- Multi-day forecast lookback (look at 2-3 days of Solcast, not just tomorrow)
+- EV/arbitrage shared off-peak budget (needs `energy.py` orchestrator refactor)
+- Dashboard "estimated savings if enabled" widget (depends on D4 ROI
+  sensor having historical data)
+- User-tunable solar classification thresholds (partial impl exists at
+  `energy_battery.py:194` — verify and expose in config flow)
+- Enphase `savings` mode opt-in (likely net-negative; revisit only if
+  user explicitly wants it)
+
 ### v4.0.0 — Bayesian Predictive Intelligence
 **Effort:** 20-30 hours
 **Priority:** HIGH (capstone)
@@ -396,11 +444,118 @@ Two dashboard builds exist:
 
 Dashboard work is user-driven — no planned changes until specific needs arise.
 
+### v5.0 — Config Subentries Migration
+**Effort:** 30-50 hours (planning + implementation + migration validation)
+**Priority:** MEDIUM (eventual destination, not urgent)
+**Status:** Planned, not scheduled
+**Depends on:** Test baseline cleanup (#0 in tech debt) + setup/unload
+symmetry pass (#3 in tech debt) must complete first to safely refactor.
+
+Move from 34 sibling config entries (Coordinator Manager, Zone Manager,
+each Room) to a single parent integration entry with **HA config subentries**
+(shipped in HA 2025.2). Each room/zone/manager becomes a subentry of the
+parent.
+
+**What this fixes:**
+- Orphan device residue from `device_info` identifier rename (v3.6.30
+  Music Following) — subentry identifiers are scoped to parent.
+- Cross-entry validation code (don't double-add same area) becomes
+  HA-managed instead of URA-coded.
+- Per-entry schema migration drift (each entry's `version`/`minor_version`
+  evolves independently) — parent owns the schema, one ordered migration.
+- Setup/unload lifecycle ownership — `async_unload_subentry` is HA's
+  contract instead of URA's coordinator manager listener chain (which
+  was the surface of v4.2.24's silent-save bug).
+- Registry surgery in `__init__.py:399-476` (creating/removing synthetic
+  entries during setup/migration) goes away.
+- Multi-instance safety — each parent's subentry tree is isolated.
+
+**Why it's not urgent:**
+- Subentries shipped in HA 2025.2 — only ~4 months old in HA history.
+  Pattern is right but not yet load-bearing across HA integrations.
+- Migration of 34 live entries with months of accumulated options carries
+  real downside risk if migration fails on any single entry.
+- The orphan-device pain it fixes is cosmetic, not functional.
+
+**What success looks like:**
+- One-time `async_migrate_entry` converts existing URA installs from
+  flat 34-entry topology to parent + 33 subentries.
+- Migration is transactional with explicit rollback path on partial
+  failure (no leaving the user with split state).
+- Dry-run mode that reports the planned migration without executing.
+- Two-review tier (Tier 2 minimum) + manual validation phase on the
+  user's live instance.
+- New rooms add via standard subentry config flow without touching
+  `__init__.py`.
+
+**Planning doc:** to be written before scheduling. Should reference
+https://developers.home-assistant.io/blog/2025/02/16/config-subentries/
+
 ---
 
 ## TECH DEBT & HARDENING QUEUE
 
-Items that don't warrant their own version but should be addressed:
+Items that don't warrant their own version but should be addressed.
+
+### Architectural items (from external code review, 2026-05-04)
+
+These came from a structured critique against current HA quality-scale rules
+and developer docs. Five items, prioritized by ROI not by item number.
+Sources: https://developers.home-assistant.io/docs/core/integration-quality-scale/rules/
+
+**#0. Test baseline cleanup — DO THIS FIRST.**
+The suite ships with 86 baseline failures and 14 errors that we treat as
+"pre-existing" every cycle. Result: we have no signal when a NEW regression
+lands in those files. v4.2.22's storm and v4.2.24's silent save bug both lived
+in code paths the existing tests didn't model. Failures are spread across
+~12 files; root causes are likely import-order, mock staleness, and HA API
+drift (Python 3.14 datetime, removed `mireds` attrs from v3.9.6, etc).
+**Effort:** 1-2 cycles. **Risk:** zero — pure safety upgrade. **Blocks:**
+every other architectural item, since they all need the suite as the safety
+net. **Add a CI guard** that fails on `failed > 0` instead of comparing to
+the previous count — the "compare to last green count" convention is what
+let the failures accumulate.
+
+**#1. Setup/unload symmetry (review item #3).**
+Services registered in `async_setup` (`__init__.py:1589`) are never
+unregistered. Panels/static paths registered at `__init__.py:1615, 1640`
+are never torn down. Integration unload (`__init__.py:1908`) tears down
+shared resources (database, coordinators) while room/manager entries may
+still depend on them. Use `entry.async_on_unload` for every listener/timer
+created by that entry; reference-count or parent-own shared resources.
+**Effort:** 1-2 cycles. **Risk:** medium (touches setup paths).
+**Catches:** stale services on reload; same class of bug as v4.2.24.
+
+**#2. Tracked background tasks (review item #4).**
+Multiple sites still do `self.hass.async_create_task(...)` without
+storing the handle: `coordinator.py:812` (state-change refresh),
+`coordinator.py:417` (signal handlers), `__init__.py:2390` (reload-as-task).
+v4.2.22's cover runners already use `entry.async_create_background_task` —
+extend that pattern. For coordinator refreshes, prefer
+`async_request_refresh()` / coalesced paths. For reloads, surface failures
+as repair issues instead of log-and-pray. **Effort:** 1 cycle.
+
+**#3. EntityDescription rollout (review item #5).**
+`sensor.py:112` (Coordinator Manager sensors) and the per-room sensor
+blocks are hand-built repetition. Switching to `EntityDescription` would
+shrink ~40% of sensor code and standardize translations / device classes /
+state classes / entity categories / disabled-by-default. Forcing function:
+do this when adding the next coordinator (Optimization, per the v4.0.0
+roadmap). **Effort:** rolling — 1 cycle to convert one coordinator's
+sensors as the pattern, then sweep on demand.
+
+**#4. `runtime_data` migration (review item #1).**
+`hass.data[DOMAIN]` is the legacy untyped bag. HA 2024.2+ provides
+`ConfigEntry.runtime_data` with proper typing. URA touches the bag at
+`__init__.py:494, 650, 1575`. Not broken (key set is small and stable),
+but typed runtime would catch typos and missing-key errors at edit time.
+**Effort:** medium (~50 sites). **Schedule as hygiene during the next
+major refactor**, not standalone.
+
+**#5. Config subentries (review item #2).**
+Promoted to a v5.0 plan above — see "v5.0 — Config Subentries Migration".
+
+### Pre-existing items
 
 1. **Sensor placeholder TODOs** — 15 TODO/FIXME comments across sensor.py
    (11), button.py (2), binary_sensor.py (2). Mostly "Calculate from

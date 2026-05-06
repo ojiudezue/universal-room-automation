@@ -1,7 +1,7 @@
 """Database for Universal Room Automation."""
 from __future__ import annotations
 #
-# Universal Room Automation vv4.2.29
+# Universal Room Automation vv4.3.0
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors
@@ -952,6 +952,29 @@ class UniversalRoomDatabase:
                     )""",
                 ]):
                     failed_tables.append("room_energy_baselines")
+
+                # -- v4.3.0 D4: Arbitrage cycle accounting -----------------------
+                # One row per off-peak arbitrage decision cycle (5-min interval)
+                # where charge_from_grid was active. Used to compute today/month/
+                # total savings, the counterfactual on PredictedBillSensor, and
+                # the rolling 7-day pace projection.
+                if not await self._create_table_safe(db, "arbitrage_cycles", [
+                    """CREATE TABLE IF NOT EXISTS arbitrage_cycles (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        timestamp TEXT NOT NULL,
+                        soc_before REAL,
+                        soc_after REAL,
+                        kwh_charged REAL NOT NULL,
+                        off_peak_rate REAL NOT NULL,
+                        displaced_rate REAL NOT NULL,
+                        round_trip_efficiency REAL NOT NULL DEFAULT 0.90,
+                        savings REAL NOT NULL,
+                        season TEXT
+                    )""",
+                    """CREATE INDEX IF NOT EXISTS idx_arbitrage_cycles_timestamp
+                    ON arbitrage_cycles(timestamp)""",
+                ]):
+                    failed_tables.append("arbitrage_cycles")
 
                 # -- Activity log -----------------------------------------------
                 if not await self._create_table_safe(db, "ura_activity_log", [
@@ -3525,6 +3548,168 @@ class UniversalRoomDatabase:
         except Exception as err:
             _LOGGER.warning("cleanup_room_energy_baselines failed: %s", err)
         return total_deleted
+
+    # ====================================================================
+    # v4.3.0 D4: Arbitrage cycle accounting
+    # ====================================================================
+
+    async def save_arbitrage_cycle(
+        self,
+        timestamp: str,
+        soc_before: float | None,
+        soc_after: float | None,
+        kwh_charged: float,
+        off_peak_rate: float,
+        displaced_rate: float,
+        round_trip_efficiency: float,
+        savings: float,
+        season: str | None,
+    ) -> None:
+        """Persist a single arbitrage cycle's accounting row."""
+        try:
+            async with self._db() as db:
+                await db.execute(
+                    """INSERT INTO arbitrage_cycles
+                    (timestamp, soc_before, soc_after, kwh_charged,
+                     off_peak_rate, displaced_rate, round_trip_efficiency,
+                     savings, season)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        timestamp,
+                        float(soc_before) if soc_before is not None else None,
+                        float(soc_after) if soc_after is not None else None,
+                        float(kwh_charged),
+                        float(off_peak_rate),
+                        float(displaced_rate),
+                        float(round_trip_efficiency),
+                        float(savings),
+                        season,
+                    ),
+                )
+                await db.commit()
+        except Exception as err:
+            _LOGGER.warning("Failed to save arbitrage cycle: %s", err)
+
+    async def query_arbitrage_savings_since(self, since_iso: str) -> dict:
+        """Return aggregate savings + cycle count + total kWh since a UTC ISO ts.
+
+        Used by ROI sensors (today / cycle / total) and the PredictedBill
+        counterfactual.
+        """
+        try:
+            async with self._db_read() as db:
+                cursor = await db.execute(
+                    """SELECT COALESCE(SUM(savings), 0.0),
+                              COALESCE(SUM(kwh_charged), 0.0),
+                              COUNT(*)
+                       FROM arbitrage_cycles WHERE timestamp >= ?""",
+                    (since_iso,),
+                )
+                row = await cursor.fetchone()
+                return {
+                    "savings": float(row[0]) if row else 0.0,
+                    "kwh_charged": float(row[1]) if row else 0.0,
+                    "cycles": int(row[2]) if row else 0,
+                }
+        except Exception as err:
+            _LOGGER.warning("query_arbitrage_savings_since failed: %s", err)
+            return {"savings": 0.0, "kwh_charged": 0.0, "cycles": 0}
+
+    async def query_arbitrage_savings_total(self) -> dict:
+        """Lifetime savings + cycle count + kWh."""
+        try:
+            async with self._db_read() as db:
+                cursor = await db.execute(
+                    """SELECT COALESCE(SUM(savings), 0.0),
+                              COALESCE(SUM(kwh_charged), 0.0),
+                              COUNT(*)
+                       FROM arbitrage_cycles""",
+                )
+                row = await cursor.fetchone()
+                return {
+                    "savings": float(row[0]) if row else 0.0,
+                    "kwh_charged": float(row[1]) if row else 0.0,
+                    "cycles": int(row[2]) if row else 0,
+                }
+        except Exception as err:
+            _LOGGER.warning("query_arbitrage_savings_total failed: %s", err)
+            return {"savings": 0.0, "kwh_charged": 0.0, "cycles": 0}
+
+    async def query_arbitrage_last_cycle(self) -> dict | None:
+        """Return the most recent cycle's full row for audit attributes.
+
+        Returns None if no cycles persisted.
+        """
+        try:
+            async with self._db_read() as db:
+                cursor = await db.execute(
+                    """SELECT timestamp, soc_before, soc_after, kwh_charged,
+                              off_peak_rate, displaced_rate,
+                              round_trip_efficiency, savings, season
+                       FROM arbitrage_cycles ORDER BY id DESC LIMIT 1""",
+                )
+                row = await cursor.fetchone()
+                if row is None:
+                    return None
+                return {
+                    "timestamp": row[0],
+                    "soc_before": row[1],
+                    "soc_after": row[2],
+                    "kwh_charged": float(row[3]),
+                    "off_peak_rate": float(row[4]),
+                    "displaced_rate": float(row[5]),
+                    "round_trip_efficiency": float(row[6]),
+                    "savings": float(row[7]),
+                    "season": row[8],
+                }
+        except Exception as err:
+            _LOGGER.warning("query_arbitrage_last_cycle failed: %s", err)
+            return None
+
+    async def query_arbitrage_pace_recent(self, days: int = 7) -> dict:
+        """Avg savings/day + total cycles over the last N days.
+
+        Used to project remaining savings for the bill cycle on
+        PredictedBillSensor's counterfactual.
+
+        v4.3.0 Review C2 fix: bucket cycles into LOCAL days in Python rather
+        than SQL DATE() (which interprets the UTC ISO string as local time
+        and miscounts boundaries for non-UTC users). Fetch raw timestamps,
+        convert each via dt_util to local date, count distinct dates.
+        """
+        from datetime import timedelta as _td
+        from homeassistant.util import dt as _dtu
+
+        since = (_dtu.utcnow() - _td(days=days)).isoformat()
+        try:
+            async with self._db_read() as db:
+                cursor = await db.execute(
+                    """SELECT timestamp, savings FROM arbitrage_cycles
+                       WHERE timestamp >= ?""",
+                    (since,),
+                )
+                rows = await cursor.fetchall()
+                total_savings = 0.0
+                local_dates: set[str] = set()
+                for ts_str, sav in rows:
+                    total_savings += float(sav or 0.0)
+                    parsed = _dtu.parse_datetime(ts_str)
+                    if parsed is None:
+                        continue
+                    local_dates.add(_dtu.as_local(parsed).date().isoformat())
+                days_with_cycles = len(local_dates)
+                avg_per_day = (
+                    total_savings / days_with_cycles
+                    if days_with_cycles > 0 else 0.0
+                )
+                return {
+                    "avg_savings_per_day": avg_per_day,
+                    "days_with_cycles": days_with_cycles,
+                    "lookback_days": days,
+                }
+        except Exception as err:
+            _LOGGER.warning("query_arbitrage_pace_recent failed: %s", err)
+            return {"avg_savings_per_day": 0.0, "days_with_cycles": 0, "lookback_days": days}
 
     # ====================================================================
     # Activity Log

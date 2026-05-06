@@ -286,6 +286,14 @@ class EnergyCoordinator(BaseCoordinator):
         # Hold cache for battery_full_time (survives brief Envoy outages)
         self._last_battery_full_time: str | None = None
 
+        # v4.3.0 D4: Arbitrage cycle accounting state. Tracks SOC at the start
+        # of the current arbitrage segment so each decision tick can compute
+        # the kWh delta and persist a cycle row. None when arbitrage is inactive.
+        self._arbitrage_prev_soc: float | None = None
+        # Cached rollup refreshed each tick after cycle accounting; sensors
+        # read from this synchronously. Empty until first refresh.
+        self._arbitrage_status_cache: dict[str, Any] = {}
+
         # E6: HVAC constraints + covers
         self._hvac_constraint_mode: str = "normal"
         self._hvac_constraint_offset: float = 0.0
@@ -360,6 +368,12 @@ class EnergyCoordinator(BaseCoordinator):
         # Envoy availability tracking
         self._envoy_unavailable_count: int = 0
         self._envoy_last_available: str | None = None
+        # v4.3.0 D6: timestamp of most recent cross-check data anomaly. When
+        # set within the last hour, EnvoyStatusSensor reports "stale" even
+        # though state objects look fresh — covers the v4.2.28 latent defect
+        # where envoy_status said "online" while data was zeroed/wrong after
+        # an Envoy reboot.
+        self._envoy_data_anomaly_at: str | None = None
         # Cross-check: last logged divergence (avoid log spam)
         self._last_crosscheck_hour: int = -1
         # Throttle peak import DB saves to once per hour
@@ -1336,6 +1350,19 @@ class EnergyCoordinator(BaseCoordinator):
                 our_delta_kwh,
                 divergence_pct,
             )
+            # v4.3.0 D6: surface the anomaly to EnvoyStatusSensor so it can
+            # flip from "online" to "stale" even when state objects are fresh.
+            self._envoy_data_anomaly_at = dt_util.now().isoformat()
+        elif divergence_pct < 5 and self._envoy_data_anomaly_at is not None:
+            # v4.3.0 Review M15 fix: clear anomaly on recovery so the sensor
+            # reflects current reality, not a stale 1-hour stale window.
+            _LOGGER.info(
+                "Consumption cross-check recovered (divergence %.1f%% < 5%%); "
+                "clearing envoy data anomaly flag.",
+                divergence_pct,
+            )
+            self._envoy_data_anomaly_at = None
+
             # If Envoy's daily value is significantly higher, our snapshot may
             # be stale (Envoy rebooted and lifetime reset). Re-seed all snapshots.
             if envoy_today_kwh > our_delta_kwh * 2 and our_delta_kwh < 5:
@@ -1505,6 +1532,234 @@ class EnergyCoordinator(BaseCoordinator):
             _LOGGER.warning("Failed to run daily DB cleanup: %s", e)
 
     # =========================================================================
+    # v4.3.0 D4: Arbitrage cycle accounting
+    # =========================================================================
+
+    # Round-trip efficiency assumption for Enphase IQ batteries.
+    # Used to discount nominal savings since not all kWh imported at off-peak
+    # is recoverable at peak (charge/discharge losses).
+    _ARBITRAGE_RTE: float = 0.90
+
+    def _get_battery_capacity_kwh(self) -> float:
+        """Best-effort battery capacity in kWh.
+
+        Reads the auto-derived Envoy battery_capacity entity (Wh) when
+        available; remembers the last good value so an Envoy blip during
+        arbitrage doesn't silently flip to the 40 kWh fallback mid-cycle.
+        Logs a WARNING on first fallback so the user sees it.
+        """
+        from .energy_const import DEFAULT_BATTERY_CAPACITY_ENTITY
+        from .energy_forecast import BATTERY_TOTAL_CAPACITY_KWH_FALLBACK
+        eid = self._battery._get_entity(
+            "battery_capacity", DEFAULT_BATTERY_CAPACITY_ENTITY,
+        )
+        state = self.hass.states.get(eid)
+        if state is not None and state.state not in ("unknown", "unavailable"):
+            try:
+                cap = float(state.state) / 1000.0  # Wh → kWh
+                self._cached_battery_capacity_kwh = cap
+                return cap
+            except (ValueError, TypeError):
+                pass
+        # Last-known-good wins over the static fallback
+        cached = getattr(self, "_cached_battery_capacity_kwh", None)
+        if cached is not None:
+            return cached
+        if not getattr(self, "_capacity_fallback_logged", False):
+            _LOGGER.warning(
+                "Battery capacity entity %s unavailable; using static "
+                "fallback %.1f kWh for arbitrage savings math. ROI sensors "
+                "will be approximate until Envoy reports capacity again.",
+                eid, BATTERY_TOTAL_CAPACITY_KWH_FALLBACK,
+            )
+            self._capacity_fallback_logged = True
+        return BATTERY_TOTAL_CAPACITY_KWH_FALLBACK
+
+    def _get_displaced_rate(self, season: str) -> float:
+        """Return the import rate this arbitrage cycle is displacing.
+
+        Summer: peak rate (4-hour window 16:00–20:00).
+        Shoulder/winter: mid_peak rate (no peak period exists).
+        """
+        from .energy_const import PEC_TOU_RATES
+        season_data = PEC_TOU_RATES.get(season, {}).get("periods", {})
+        if season == "summer" and "peak" in season_data:
+            return float(season_data["peak"]["import_rate"])
+        if "mid_peak" in season_data:
+            return float(season_data["mid_peak"]["import_rate"])
+        # Defensive fallback — should never hit
+        return self._tou.get_current_rate()
+
+    async def _account_arbitrage_cycle(
+        self, decision: dict[str, Any], period: str, season: str,
+    ) -> None:
+        """Persist a row in arbitrage_cycles when arbitrage was active and SOC rose.
+
+        Idempotent: only writes when there's a positive SOC delta vs. the
+        previous tick. Resets state when arbitrage stops.
+        """
+        if not decision.get("arbitrage_active"):
+            self._arbitrage_prev_soc = None
+            return
+
+        soc_now = decision.get("soc")
+        if soc_now is None:
+            return  # envoy blip — wait for next tick
+        soc_now = float(soc_now)
+
+        if self._arbitrage_prev_soc is None:
+            # First tick of this arbitrage segment — capture baseline only
+            self._arbitrage_prev_soc = soc_now
+            _LOGGER.info(
+                "Arbitrage cycle start: SOC=%.1f%%, target=%d%%, season=%s",
+                soc_now, self._battery._arbitrage_target, season,
+            )
+            return
+
+        delta_soc = soc_now - self._arbitrage_prev_soc
+        if delta_soc <= 0:
+            # No charge this cycle (e.g., Enphase still ramping). Don't log a row.
+            self._arbitrage_prev_soc = soc_now
+            return
+
+        capacity_kwh = self._get_battery_capacity_kwh()
+        kwh_charged = (delta_soc / 100.0) * capacity_kwh
+        off_peak_rate = self._tou.get_effective_import_rate()
+        displaced_rate = self._get_displaced_rate(season)
+        savings = kwh_charged * (displaced_rate - off_peak_rate) * self._ARBITRAGE_RTE
+
+        # v4.3.0 Review C1 fix: ADVANCE the baseline BEFORE the DB write so a
+        # transient DB failure (lock contention, write timeout) doesn't cause
+        # the next tick to double-count kWh against a stale prev_soc.
+        # Snapshot the prior value for the log and the DB row.
+        prev_soc_for_log = self._arbitrage_prev_soc
+        self._arbitrage_prev_soc = soc_now
+
+        if savings < 0:
+            # Defensive — displaced should be > off-peak; if not, don't log
+            # (would corrupt counterfactual math). Baseline already advanced.
+            return
+
+        database = self.hass.data.get(DOMAIN, {}).get("database")
+        if database is not None:
+            from homeassistant.util import dt as dt_util
+            await database.save_arbitrage_cycle(
+                timestamp=dt_util.utcnow().isoformat(),
+                soc_before=prev_soc_for_log,
+                soc_after=soc_now,
+                kwh_charged=kwh_charged,
+                off_peak_rate=off_peak_rate,
+                displaced_rate=displaced_rate,
+                round_trip_efficiency=self._ARBITRAGE_RTE,
+                savings=savings,
+                season=season,
+            )
+
+        _LOGGER.info(
+            "Arbitrage cycle: SOC %.1f→%.1f (Δ%.1f), %.3f kWh charged, "
+            "off-peak $%.4f → displaced $%.4f, RTE %.2f, savings $%.4f",
+            prev_soc_for_log, soc_now, delta_soc, kwh_charged,
+            off_peak_rate, displaced_rate, self._ARBITRAGE_RTE, savings,
+        )
+
+    async def _refresh_arbitrage_status_cache(self) -> None:
+        """Refresh DB-derived savings rollups for synchronous sensor reads.
+
+        Runs once per decision tick (5 min). Five queries — small + indexed
+        on timestamp; cost is dominated by the connection open.
+
+        v4.3.0 Review L24: the cache is **sticky on failure** by design. The
+        success-path assignment to ``self._arbitrage_status_cache`` only runs
+        after all 5 queries return; on any exception we log DEBUG and bail
+        out, leaving the prior (slightly-stale) cache in place. This is
+        preferred over clearing on failure (which would cause sensor flicker
+        every transient DB-lock event). No retry loop is added because
+        per-query timeout is already 5s and a fast retry rarely succeeds; an
+        extra round-trip would risk blowing the decision-tick budget.
+
+        v4.3.0 Review M12: log refresh latency at DEBUG so future reviews can
+        see if it grows beyond the decision-tick budget.
+        """
+        database = self.hass.data.get(DOMAIN, {}).get("database")
+        if database is None:
+            return
+        import time
+        _t_start = time.monotonic()
+        try:
+            from homeassistant.util import dt as dt_util
+            now = dt_util.now()
+            # "Today" = since local midnight, expressed as UTC ISO for the
+            # timestamp comparison in the DB (we store UTC).
+            today_local_midnight = now.replace(
+                hour=0, minute=0, second=0, microsecond=0,
+            )
+            today_utc_iso = dt_util.as_utc(today_local_midnight).isoformat()
+
+            # "This cycle" = since bill cycle start day, local midnight.
+            # v4.3.0 Review H4/H5 fix: use dt_util.parse_datetime which handles
+            # tz-aware ISO strings; fall back to fromisoformat only for naive
+            # date strings (YYYY-MM-DD), and explicitly localize via dt_util
+            # rather than `replace(tzinfo=now.tzinfo)` which is fragile across
+            # DST and historical-tz boundaries.
+            cycle_start_iso = today_utc_iso
+            try:
+                billing = self.billing_status or {}
+                cycle_start_str = billing.get("cycle_start_date")
+                if cycle_start_str:
+                    parsed = dt_util.parse_datetime(cycle_start_str)
+                    if parsed is None:
+                        # Naive YYYY-MM-DD — interpret as local-midnight via dt_util
+                        from datetime import datetime as _dt
+                        parsed_naive = _dt.fromisoformat(cycle_start_str)
+                        if parsed_naive.tzinfo is None:
+                            parsed_naive = parsed_naive.replace(
+                                hour=0, minute=0, second=0, microsecond=0,
+                            )
+                            parsed = dt_util.as_local(
+                                parsed_naive.replace(tzinfo=dt_util.DEFAULT_TIME_ZONE)
+                            )
+                    if parsed is not None:
+                        cycle_start_local = dt_util.as_local(parsed).replace(
+                            hour=0, minute=0, second=0, microsecond=0,
+                        )
+                        cycle_start_iso = dt_util.as_utc(cycle_start_local).isoformat()
+            except Exception as exc:
+                _LOGGER.debug("cycle_start parse fell through: %s", exc)
+
+            today = await database.query_arbitrage_savings_since(today_utc_iso)
+            cycle = await database.query_arbitrage_savings_since(cycle_start_iso)
+            total = await database.query_arbitrage_savings_total()
+            last_cycle = await database.query_arbitrage_last_cycle()
+            pace = await database.query_arbitrage_pace_recent(days=7)
+
+            self._arbitrage_status_cache = {
+                "today": today,
+                "cycle": cycle,
+                "total": total,
+                "last_cycle": last_cycle,
+                "pace": pace,
+            }
+            _LOGGER.debug(
+                "Arbitrage cache refresh: %.3fs (5 queries)",
+                time.monotonic() - _t_start,
+            )
+        except Exception as err:
+            _LOGGER.debug("Arbitrage status cache refresh failed: %s", err)
+
+    @property
+    def arbitrage_status(self) -> dict[str, Any]:
+        """v4.3.0 D4: Cached savings rollup for sensor consumption.
+
+        Refreshed each decision tick. Empty {} until first refresh.
+        """
+        return dict(self._arbitrage_status_cache)
+
+    @property
+    def arbitrage_round_trip_efficiency(self) -> float:
+        """RTE assumption used in savings math (constant for v4.3.0)."""
+        return self._ARBITRAGE_RTE
+
+    # =========================================================================
     # v3.11.0 C1: EVSE Battery Hold
     # =========================================================================
 
@@ -1578,6 +1833,18 @@ class EnergyCoordinator(BaseCoordinator):
 
             # Battery decision
             decision = self._battery.determine_mode(period, season)
+
+            # v4.3.0 D4: Arbitrage cycle accounting — fire-and-forget DB write.
+            # When arbitrage_active and SOC has risen since the previous cycle,
+            # log a row capturing the kWh charged this cycle and the savings vs.
+            # the displaced-rate counterfactual (peak in summer, mid_peak in
+            # shoulder/winter). Executed BEFORE actions so we measure the
+            # state-as-observed, not state-after-control.
+            try:
+                await self._account_arbitrage_cycle(decision, period, season)
+                await self._refresh_arbitrage_status_cache()
+            except Exception as exc:  # never let accounting break the cycle
+                _LOGGER.debug("Arbitrage cycle accounting skipped: %s", exc)
 
             # C1: EVSE battery hold — if any EVSE is charging, override battery
             # reserve to captured SOC so battery doesn't discharge to cover EV load.
@@ -2685,6 +2952,23 @@ class EnergyCoordinator(BaseCoordinator):
         """Current off-peak drain SOC targets by solar quality."""
         return self._battery._drain_targets
 
+    def _check_threshold_ladder(self) -> None:
+        """v4.3.0 D3: log a WARNING when the threshold ladder is violated.
+
+        Called from every slider write so users get immediate feedback.
+        The current value is also surfaced as `threshold_warning` attribute
+        on BatteryStrategySensor (via get_status()).
+        """
+        from .energy_const import validate_threshold_ladder
+        warning = validate_threshold_ladder(
+            self._battery.reserve_soc,
+            self._battery._drain_targets,
+            self._battery._arbitrage_trigger,
+            self._battery._arbitrage_target,
+        )
+        if warning:
+            _LOGGER.warning("Threshold ladder violated: %s", warning)
+
     def set_offpeak_drain(self, quality: str, value: int) -> None:
         """Update a single off-peak drain target at runtime."""
         valid = {"excellent", "good", "moderate", "poor"}
@@ -2693,6 +2977,29 @@ class EnergyCoordinator(BaseCoordinator):
             return
         self._battery._drain_targets[quality] = value
         _LOGGER.info("Off-peak drain %s set to %d%%", quality, value)
+        self._check_threshold_ladder()
+
+    @property
+    def arbitrage_trigger(self) -> int:
+        """Current arbitrage SOC trigger threshold."""
+        return self._battery._arbitrage_trigger
+
+    @property
+    def arbitrage_target(self) -> int:
+        """Current arbitrage SOC charge target."""
+        return self._battery._arbitrage_target
+
+    def set_arbitrage_trigger(self, value: int) -> None:
+        """Update arbitrage SOC trigger at runtime (v4.3.0 D2)."""
+        self._battery._arbitrage_trigger = int(value)
+        _LOGGER.info("Arbitrage SOC trigger set to %d%%", int(value))
+        self._check_threshold_ladder()
+
+    def set_arbitrage_target(self, value: int) -> None:
+        """Update arbitrage SOC charge target at runtime (v4.3.0 D2)."""
+        self._battery._arbitrage_target = int(value)
+        _LOGGER.info("Arbitrage SOC target set to %d%%", int(value))
+        self._check_threshold_ladder()
 
     @property
     def tou_period(self) -> str:

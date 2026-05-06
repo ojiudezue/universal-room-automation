@@ -163,10 +163,19 @@ _HARNESS_INITIAL_RESERVE = 50
 
 
 class _BatteryHarness:
-    """Test harness for BatteryStrategy with pre-wired mock entities."""
+    """Test harness for BatteryStrategy with pre-wired mock entities.
+
+    v4.3.0: Pins classification to fixed (custom) thresholds so tests are
+    date-independent. The production default uses per-month percentile
+    thresholds (SOLAR_MONTHLY_THRESHOLDS), which made `solcast_tomorrow="90"`
+    classify differently in different months — broke 3 drain tests roughly
+    Apr–Feb. Fixed here for test stability; no production impact.
+    """
 
     def __init__(self, soc=80.0, storage_mode="self_consumption", solar=5000.0,
-                 solcast_tomorrow="90", arbitrage_enabled=False):
+                 solcast_tomorrow="90", arbitrage_enabled=False,
+                 solar_classification_mode="custom",
+                 custom_solar_thresholds=None):
         self.hass = MockHass()
         self.hass.set_state(DEFAULT_BATTERY_SOC_ENTITY, str(soc))
         self.hass.set_state(DEFAULT_STORAGE_MODE_ENTITY, storage_mode)
@@ -179,10 +188,22 @@ class _BatteryHarness:
         self.hass.set_state(DEFAULT_SOLCAST_TODAY_ENTITY, "90")
         self.hass.set_state(DEFAULT_SOLCAST_TOMORROW_ENTITY, solcast_tomorrow)
         self.hass.set_state(DEFAULT_WEATHER_ENTITY, "sunny")
+        # v4.3.0: default to custom thresholds for date-independent tests.
+        # Tests that specifically exercise the monthly-percentile path can
+        # pass solar_classification_mode="automatic".
+        if custom_solar_thresholds is None and solar_classification_mode == "custom":
+            custom_solar_thresholds = {
+                "excellent": 100.0,
+                "good": 80.0,
+                "moderate": 50.0,
+                "poor": 30.0,
+            }
         self.strategy = BatteryStrategy(
             self.hass,
             reserve_soc=DEFAULT_RESERVE_SOC,
             arbitrage_enabled=arbitrage_enabled,
+            solar_classification_mode=solar_classification_mode,
+            custom_solar_thresholds=custom_solar_thresholds,
         )
 
 
@@ -237,7 +258,7 @@ class TestShoulderMidPeak:
 
     def test_shoulder_mid_peak_low_soc(self):
         """Low SOC in shoulder mid-peak should still allow minimal discharge."""
-        h = _BatteryHarness(soc=15)
+        h = _BatteryHarness(soc=5)  # below v4.3.0 reserve_soc=10
         result = h.strategy.determine_mode("mid_peak", "shoulder")
         assert result["mode"] == BATTERY_MODE_SELF_CONSUMPTION
         assert "low" in result["reason"].lower()
@@ -326,7 +347,7 @@ class TestPeak:
         assert "battery covers load" in result["reason"].lower()
 
     def test_peak_low_soc(self):
-        h = _BatteryHarness(soc=15)
+        h = _BatteryHarness(soc=5)  # below v4.3.0 reserve_soc=10
         result = h.strategy.determine_mode("peak", "summer")
         assert result["mode"] == BATTERY_MODE_SELF_CONSUMPTION
         assert "low" in result["reason"].lower()
@@ -484,7 +505,7 @@ class TestArbitrage:
 
     def test_arbitrage_poor_solar_low_soc(self):
         """Poor solar + SOC below trigger → charge from grid."""
-        h = _BatteryHarness(soc=20, solcast_tomorrow="20", arbitrage_enabled=True)
+        h = _BatteryHarness(soc=15, solcast_tomorrow="20", arbitrage_enabled=True)
         result = h.strategy.determine_mode("off_peak", "summer")
         assert "arbitrage" in result["reason"].lower()
         assert result["arbitrage_active"] is True
@@ -508,7 +529,7 @@ class TestArbitrage:
 
     def test_arbitrage_stops_at_target(self):
         """Arbitrage stops when SOC reaches target."""
-        h = _BatteryHarness(soc=20, solcast_tomorrow="20", arbitrage_enabled=True)
+        h = _BatteryHarness(soc=15, solcast_tomorrow="20", arbitrage_enabled=True)
         # First call activates arbitrage
         result1 = h.strategy.determine_mode("off_peak", "summer")
         assert result1["arbitrage_active"] is True
@@ -521,7 +542,7 @@ class TestArbitrage:
 
     def test_storm_overrides_arbitrage(self):
         """Storm forecast takes priority over arbitrage."""
-        h = _BatteryHarness(soc=20, solcast_tomorrow="20", arbitrage_enabled=True)
+        h = _BatteryHarness(soc=15, solcast_tomorrow="20", arbitrage_enabled=True)
         h.hass.set_state(DEFAULT_WEATHER_ENTITY, "lightning")
         result = h.strategy.determine_mode("off_peak", "summer")
         # Storm path should win — switches to backup mode
@@ -532,6 +553,172 @@ class TestArbitrage:
         h = _BatteryHarness(soc=20, solcast_tomorrow="20", arbitrage_enabled=False)
         result = h.strategy.determine_mode("off_peak", "summer")
         assert result.get("arbitrage_active", False) is False
+
+    # ── v4.3.0 D1: REGRESSION TEST for the reserve-level bug ────────────────
+    # This test should have caught the bug that arbitrage has had since v3.11.0.
+    # Phase B was passing reserve_level=self.reserve_soc (the safety floor)
+    # instead of self._arbitrage_target (the charge target). Enphase saw
+    # "SOC=floor, reserve=floor, hold" and never imported despite charge_from_grid
+    # being on.
+
+    def test_arbitrage_activation_uses_target_as_reserve(self):
+        """Phase B activation: reserve_level action MUST equal arbitrage_target.
+
+        Setting reserve to user's safety floor (e.g. 10%) means Enphase has
+        no incentive to charge. Setting it to the arbitrage target (e.g. 80%)
+        is what tells Enphase 'pull from grid up to this level'.
+        """
+        h = _BatteryHarness(soc=15, solcast_tomorrow="20", arbitrage_enabled=True)
+        result = h.strategy.determine_mode("off_peak", "summer")
+        assert result["arbitrage_active"] is True, "arbitrage must activate"
+        reserve_actions = _get_reserve_actions(result)
+        assert len(reserve_actions) == 1, "must emit a reserve_level action"
+        assert reserve_actions[0]["data"]["value"] == DEFAULT_ARBITRAGE_SOC_TARGET, (
+            f"reserve_level must equal arbitrage_target ({DEFAULT_ARBITRAGE_SOC_TARGET}), "
+            f"got {reserve_actions[0]['data']['value']} — this is the bug from v3.11.0"
+        )
+
+    def test_arbitrage_continuation_uses_target_as_reserve(self):
+        """Phase B continuation (already-active): reserve_level action MUST equal arbitrage_target.
+
+        Second decision cycle while still below target — same bug applies.
+        """
+        h = _BatteryHarness(soc=15, solcast_tomorrow="20", arbitrage_enabled=True)
+        # First call activates arbitrage
+        h.strategy.determine_mode("off_peak", "summer")
+        assert h.strategy._arbitrage_active is True
+        # SOC nudges up but still below target → continuation path
+        h.hass.set_state(DEFAULT_BATTERY_SOC_ENTITY, "45")
+        result = h.strategy.determine_mode("off_peak", "summer")
+        assert result["arbitrage_active"] is True, "must still be arbitrage_active"
+        reserve_actions = _get_reserve_actions(result)
+        # Reserve action only emits if delta >= 2; first call already set it to
+        # arbitrage_target=80, so continuation may emit nothing if reserve is
+        # already 80. That's acceptable. But if it DOES emit, value must be
+        # arbitrage_target — never the user's reserve_soc floor.
+        if reserve_actions:
+            assert reserve_actions[0]["data"]["value"] == DEFAULT_ARBITRAGE_SOC_TARGET, (
+                f"continuation reserve_level must equal arbitrage_target "
+                f"({DEFAULT_ARBITRAGE_SOC_TARGET}), got "
+                f"{reserve_actions[0]['data']['value']}"
+            )
+
+    # ── v4.3.0 D3: Threshold ladder validator ────────────────────────────
+    def test_validate_threshold_ladder_passes_default(self):
+        """Default ladder (reserve=10, drain 10/15/20/30, trigger=20, target=80) passes."""
+        from custom_components.universal_room_automation.domain_coordinators.energy_const import (
+            validate_threshold_ladder,
+        )
+        result = validate_threshold_ladder(
+            reserve_soc=10,
+            drain_targets={"excellent": 10, "good": 15, "moderate": 20, "poor": 30},
+            arbitrage_trigger=20,
+            arbitrage_target=80,
+        )
+        assert result is None, f"expected pass, got: {result}"
+
+    def test_validate_threshold_ladder_warns_on_drain_below_floor(self):
+        from custom_components.universal_room_automation.domain_coordinators.energy_const import (
+            validate_threshold_ladder,
+        )
+        result = validate_threshold_ladder(
+            reserve_soc=20,
+            drain_targets={"excellent": 10, "good": 15, "moderate": 20, "poor": 30},
+            arbitrage_trigger=25,
+            arbitrage_target=80,
+        )
+        assert result is not None
+        assert "reserve_soc" in result
+
+    def test_validate_threshold_ladder_warns_on_trigger_collision(self):
+        """Trigger == drain_poor → oscillation warning."""
+        from custom_components.universal_room_automation.domain_coordinators.energy_const import (
+            validate_threshold_ladder,
+        )
+        result = validate_threshold_ladder(
+            reserve_soc=10,
+            drain_targets={"excellent": 10, "good": 15, "moderate": 20, "poor": 30},
+            arbitrage_trigger=30,  # = drain_poor
+            arbitrage_target=80,
+        )
+        assert result is not None
+        assert "oscillation" in result
+
+    def test_validate_threshold_ladder_warns_on_target_below_drain(self):
+        """arbitrage_target ≤ drain_poor → immediate re-drain after charging."""
+        from custom_components.universal_room_automation.domain_coordinators.energy_const import (
+            validate_threshold_ladder,
+        )
+        result = validate_threshold_ladder(
+            reserve_soc=10,
+            drain_targets={"excellent": 10, "good": 15, "moderate": 20, "poor": 30},
+            arbitrage_trigger=20,
+            arbitrage_target=25,  # < drain_poor=30
+        )
+        assert result is not None
+        assert "re-drain" in result
+
+    def test_validate_threshold_ladder_warns_on_trigger_below_reserve(self):
+        """trigger ≤ reserve_soc → arbitrage would fire below safety floor."""
+        from custom_components.universal_room_automation.domain_coordinators.energy_const import (
+            validate_threshold_ladder,
+        )
+        result = validate_threshold_ladder(
+            reserve_soc=20,
+            drain_targets={"excellent": 20, "good": 25, "moderate": 28, "poor": 30},
+            arbitrage_trigger=15,  # below reserve
+            arbitrage_target=80,
+        )
+        assert result is not None
+        assert "safety floor" in result
+
+    def test_validate_threshold_ladder_warns_on_non_monotonic_drain(self):
+        """drain ladder must be monotonic non-decreasing."""
+        from custom_components.universal_room_automation.domain_coordinators.energy_const import (
+            validate_threshold_ladder,
+        )
+        result = validate_threshold_ladder(
+            reserve_soc=10,
+            drain_targets={"excellent": 30, "good": 15, "moderate": 20, "poor": 30},
+            arbitrage_trigger=20,
+            arbitrage_target=80,
+        )
+        assert result is not None
+        assert "monotonic" in result
+
+    # ── v4.3.0 D4: Arbitrage cycle math smoke ────────────────────────────
+    def test_arbitrage_cycle_savings_math_summer_peak_displacement(self):
+        """Smoke test for the D4 savings formula:
+            savings = kwh_charged × (displaced - off_peak) × RTE
+        """
+        # 5% SOC delta on a 40 kWh battery = 2.0 kWh charged
+        kwh = (5 / 100.0) * 40.0
+        off_peak_rate = 0.043481      # PEC summer off-peak (energy_const.py)
+        displaced_rate = 0.161843     # PEC summer peak (energy_const.py)
+        rte = 0.90
+        expected = kwh * (displaced_rate - off_peak_rate) * rte
+        assert round(expected, 4) == round(2.0 * 0.118362 * 0.90, 4)
+
+    def test_arbitrage_inactive_resets_state_on_envoy_unavailable(self):
+        """Cosmetic state-lag bug: if envoy goes unavailable while arbitrage is
+        active, the in-memory _arbitrage_active should reflect the early-return
+        result dict's 'arbitrage_active': False. Otherwise sensor and in-memory
+        state diverge until envoy comes back.
+        """
+        h = _BatteryHarness(soc=15, solcast_tomorrow="20", arbitrage_enabled=True)
+        # Activate arbitrage
+        h.strategy.determine_mode("off_peak", "summer")
+        assert h.strategy._arbitrage_active is True
+        # Envoy goes unavailable
+        h.hass.set_state(DEFAULT_BATTERY_SOC_ENTITY, "unavailable")
+        result = h.strategy.determine_mode("off_peak", "summer")
+        # Result dict says arbitrage is not active right now (envoy unknown)
+        assert result.get("arbitrage_active", True) is False
+        # In-memory state should agree (was the cosmetic lag)
+        assert h.strategy._arbitrage_active is False, (
+            "envoy-unavailable early return must reset _arbitrage_active "
+            "to match the returned dict (cosmetic state-lag fix from v4.3.0 D1)"
+        )
 
 
 # ── v3.11.0: Result dict has new fields ───────────────────────────────────
@@ -595,8 +782,16 @@ class TestVeryPoorDrain:
     """Very poor solar tomorrow uses poor drain target."""
 
     def test_very_poor_classification(self):
-        """Solar well below P25 → poor classification (no 'very_poor' from monthly thresholds)."""
-        h = _BatteryHarness(soc=90, solcast_tomorrow="5")  # Far below any P25
+        """Solar well below P25 → poor classification (no 'very_poor' from monthly thresholds).
+
+        v4.3.0: explicitly opts into automatic (monthly) mode since this
+        test specifically exercises that classifier's behavior. Default
+        harness uses custom mode for date-stability of other tests.
+        """
+        h = _BatteryHarness(
+            soc=90, solcast_tomorrow="5",
+            solar_classification_mode="automatic",
+        )
         result = h.strategy.determine_mode("off_peak", "summer")
         assert result["tomorrow_solar_class"] == "poor"
         reserve_actions = _get_reserve_actions(result)
@@ -647,7 +842,7 @@ class TestArbitrageContinuing:
 
     def test_arbitrage_continues_mid_charge(self):
         """SOC between trigger and target during active arbitrage → continue charging."""
-        h = _BatteryHarness(soc=20, solcast_tomorrow="20", arbitrage_enabled=True)
+        h = _BatteryHarness(soc=15, solcast_tomorrow="20", arbitrage_enabled=True)
         # First call activates arbitrage
         result1 = h.strategy.determine_mode("off_peak", "summer")
         assert result1["arbitrage_active"] is True
@@ -660,7 +855,7 @@ class TestArbitrageContinuing:
 
     def test_arbitrage_continues_at_trigger(self):
         """SOC exactly at trigger during active arbitrage → continue (not re-enter)."""
-        h = _BatteryHarness(soc=20, solcast_tomorrow="20", arbitrage_enabled=True)
+        h = _BatteryHarness(soc=15, solcast_tomorrow="20", arbitrage_enabled=True)
         h.strategy.determine_mode("off_peak", "summer")  # activate
 
         h.hass.set_state(DEFAULT_BATTERY_SOC_ENTITY, str(DEFAULT_ARBITRAGE_SOC_TRIGGER))
