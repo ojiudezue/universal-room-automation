@@ -889,3 +889,67 @@ class TestEnvoyUnavailableNewFields:
         assert result["arbitrage_active"] is False
         assert "arbitrage_enabled" in result
         assert "reserve_soc" in result
+
+
+# ── v4.3.4 D1: battery_power_w unit normalization ─────────────────────────
+
+class TestBatteryPowerUnitNormalization:
+    """v4.3.4 regression — when the underlying Envoy entity reports in kW
+    (newer firmware/integration), `battery_power_w` MUST normalize to W.
+
+    The pre-v4.3.4 bug: code passed `battery_power` (kW) to a callee whose
+    `< -100` threshold was in W. -0.21 kW < -100 was always False, silently
+    disabling the EV/plug battery-drain protection.
+    """
+
+    def test_battery_power_w_kw_entity_normalizes_to_w(self):
+        """kW entity → battery_power_w returns value × 1000."""
+        h = _BatteryHarness(soc=62)
+        h.hass.set_state(
+            DEFAULT_BATTERY_POWER_ENTITY,
+            "0.21",  # 210W discharge in kW units
+            attributes={"unit_of_measurement": "kW"},
+        )
+        # raw battery_power: -0.21 (kW, sign-flipped)
+        assert h.strategy.battery_power == -0.21
+        # normalized: -210 W
+        assert h.strategy.battery_power_w == -210.0
+        # Threshold: -210 < -100 → True (rule fires)
+        assert h.strategy.battery_power_w < -100
+
+    def test_battery_power_w_w_entity_passes_through(self):
+        """W entity → battery_power_w returns value unchanged."""
+        h = _BatteryHarness(soc=62)
+        h.hass.set_state(
+            DEFAULT_BATTERY_POWER_ENTITY,
+            "210",  # 210W in W units
+            attributes={"unit_of_measurement": "W"},
+        )
+        assert h.strategy.battery_power == -210
+        assert h.strategy.battery_power_w == -210
+        assert h.strategy.battery_power_w < -100
+
+    def test_battery_power_w_no_uom_assumes_w(self):
+        """Missing UoM → no scaling (assume value is in W; safe for legacy)."""
+        h = _BatteryHarness(soc=62)
+        h.hass.set_state(DEFAULT_BATTERY_POWER_ENTITY, "210")
+        assert h.strategy.battery_power_w == -210
+
+    def test_battery_power_w_unavailable(self):
+        """Unavailable entity → None."""
+        h = _BatteryHarness(soc=62)
+        h.hass.set_state(DEFAULT_BATTERY_POWER_ENTITY, "unavailable")
+        assert h.strategy.battery_power_w is None
+
+    def test_battery_power_w_kw_below_threshold(self):
+        """Tiny discharge in kW (e.g. 50W = 0.05 kW) does NOT trip the
+        100W threshold — confirms the kW path doesn't over-fire."""
+        h = _BatteryHarness(soc=62)
+        h.hass.set_state(
+            DEFAULT_BATTERY_POWER_ENTITY,
+            "0.05",  # 50W discharge in kW
+            attributes={"unit_of_measurement": "kW"},
+        )
+        # 50W discharge → -50 W → NOT below -100 threshold
+        assert h.strategy.battery_power_w == -50.0
+        assert h.strategy.battery_power_w >= -100  # rule should NOT fire

@@ -144,9 +144,41 @@ class BatteryStrategy:
         The new Envoy ``current_battery_discharge`` sensor uses the opposite
         sign convention (positive=discharging), so we negate it here to keep
         the rest of the codebase consistent.
+
+        UNITS: returned as-is from the underlying entity (some Envoy installs
+        report W, newer ones report kW). For unit-correct math, use
+        :py:attr:`battery_power_w` instead. This raw value is what's shown on
+        the strategy sensor display for backward compatibility.
         """
         raw = self._get_state_float(self._get_entity("battery_power"))
         return -raw if raw is not None else None
+
+    @property
+    def battery_power_w(self) -> float | None:
+        """Battery power normalized to W (positive=charging, negative=discharging).
+
+        v4.3.4 fix: reads the underlying entity's ``unit_of_measurement``
+        attribute and multiplies by 1000 if the entity reports in kW.
+        Use this for any threshold math (e.g., "is the battery discharging
+        more than 100W?") so behavior is correct regardless of Envoy
+        firmware/integration version.
+
+        Returns None if entity is missing/unavailable.
+        """
+        eid = self._get_entity("battery_power")
+        if eid is None:
+            return None
+        state = self.hass.states.get(eid)
+        if state is None or state.state in ("unknown", "unavailable"):
+            return None
+        try:
+            value = -float(state.state)  # flip sign per battery_power convention
+        except (ValueError, TypeError):
+            return None
+        uom = state.attributes.get("unit_of_measurement", "")
+        if uom in ("kW", "kw"):
+            value *= 1000.0
+        return value
 
     @property
     def current_storage_mode(self) -> str | None:
