@@ -1,6 +1,6 @@
 """Number platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.3.1
+# Universal Room Automation vv4.3.2
 # Build: 2026-01-02
 # File: number.py
 #
@@ -464,34 +464,32 @@ class ArbitrageSOCNumber(NumberEntity, RestoreEntity):
         to the per-tick SIGNAL_ENERGY_ENTITIES_UPDATE so the first time EC
         emits a tick we re-push and unsubscribe.
 
-        v4.3.0 Review H6 fix: precedence on entry reload —
-            * If `entry.options` contains the slider's CONF_ENERGY_ARBITRAGE_*
-              key (user explicitly set in config flow this run), config wins.
-            * Else (normal startup) the prior RestoreEntity value wins.
+        v4.3.2 fix (reverts v4.3.0 H6): always trust RestoreEntity. The
+        prior H6 logic skipped restore when `entry.options` had the conf
+        key, intending to honor a fresh config-flow value. But since the
+        slider's writes go to RestoreEntity and NOT back to `entry.options`,
+        `entry.options` always retained the *original* config-flow value
+        and overrode every slider drag on every entry reload — the slider
+        snapped back. Now the slider is the canonical runtime store
+        (mirrors `OffPeakDrainNumber`). Config-flow value is the initial
+        seed only; subsequent slider drags persist correctly across reloads.
+        Tradeoff: a user who later edits the config-flow value mid-life
+        won't see it reflected until they also drag the slider — acceptable
+        because the slider is the discoverable runtime control.
         """
         await super().async_added_to_hass()
 
-        from .domain_coordinators.energy_const import (
-            CONF_ENERGY_ARBITRAGE_SOC_TRIGGER,
-            CONF_ENERGY_ARBITRAGE_SOC_TARGET,
-        )
-        conf_key = (
-            CONF_ENERGY_ARBITRAGE_SOC_TRIGGER if self._role == "trigger"
-            else CONF_ENERGY_ARBITRAGE_SOC_TARGET
-        )
-        config_explicit = conf_key in (self._entry.options or {})
-
-        if not config_explicit:
-            last_state = await self.async_get_last_state()
-            if (
-                last_state is not None
-                and last_state.state not in ("unknown", "unavailable")
-            ):
-                try:
-                    self._value = int(float(last_state.state))
-                except (ValueError, TypeError):
-                    pass
-        # else: __init__ already loaded from entry.data + entry.options
+        last_state = await self.async_get_last_state()
+        if (
+            last_state is not None
+            and last_state.state not in ("unknown", "unavailable")
+        ):
+            try:
+                self._value = int(float(last_state.state))
+            except (ValueError, TypeError):
+                pass
+        # else: __init__ already loaded from entry.data + entry.options as the
+        # fallback initial seed.
 
         # Try immediate push; if EC isn't registered yet, hook the per-tick
         # signal so we push as soon as it is.
