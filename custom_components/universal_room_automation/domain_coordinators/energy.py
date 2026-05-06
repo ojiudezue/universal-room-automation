@@ -2963,6 +2963,20 @@ class EnergyCoordinator(BaseCoordinator):
         self._check_threshold_ladder()
 
     @property
+    def ev_battery_drain_soc(self) -> int:
+        """Current EV battery-drain pause threshold (v4.3.3)."""
+        return self._ev_battery_drain_soc
+
+    def set_ev_battery_drain_soc(self, value: int) -> None:
+        """Update EV battery-drain pause threshold at runtime (v4.3.3).
+
+        Slider write goes through here; takes effect on next decision tick.
+        Used by determine_battery_drain_actions to gate EV pause.
+        """
+        self._ev_battery_drain_soc = int(value)
+        _LOGGER.info("EV battery drain SOC threshold set to %d%%", int(value))
+
+    @property
     def tou_period(self) -> str:
         """Current TOU period."""
         return self._tou.get_current_period()

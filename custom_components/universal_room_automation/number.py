@@ -1,6 +1,6 @@
 """Number platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.3.2
+# Universal Room Automation vv4.3.3
 # Build: 2026-01-02
 # File: number.py
 #
@@ -49,6 +49,8 @@ async def async_setup_entry(
             # v4.3.0 D2: Arbitrage SOC sliders
             ArbitrageSOCNumber(hass, entry, "trigger", 20, 5, 60),
             ArbitrageSOCNumber(hass, entry, "target", 80, 30, 95),
+            # v4.3.3: EV battery drain SOC slider
+            EVBatteryDrainSOCNumber(hass, entry, 50),
         ]
         async_add_entities(entities)
         _LOGGER.info("Set up %d CM number entities", len(entities))
@@ -519,3 +521,115 @@ class ArbitrageSOCNumber(NumberEntity, RestoreEntity):
         self._push_to_coordinator()
         self.async_write_ha_state()
         _LOGGER.info("Arbitrage SOC %s set to %d%%", self._role, int(value))
+
+
+class EVBatteryDrainSOCNumber(NumberEntity, RestoreEntity):
+    """Configurable EV battery-drain pause SOC threshold on EC device (v4.3.3).
+
+    Exposes the previously config-flow-only `energy_ev_battery_drain_soc` value
+    as a runtime-adjustable slider. When EV charging is in progress AND the
+    house battery is discharging > 100W AND SOC < this threshold, the EVSE is
+    paused (see `EVChargerController.determine_battery_drain_actions`).
+
+    Slider is the canonical runtime store (mirrors v4.3.2 fix to
+    ArbitrageSOCNumber). Config-flow value is the initial seed for first-ever
+    startup only; subsequent slider drags persist via RestoreEntity across
+    restarts and entry reloads.
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:car-battery"
+    _attr_native_step = 5
+    _attr_native_min_value = 5
+    _attr_native_max_value = 95
+    _attr_native_unit_of_measurement = "%"
+    _attr_mode = NumberMode.SLIDER
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(
+        self, hass: HomeAssistant, entry: ConfigEntry, default: int,
+    ) -> None:
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .const import VERSION
+        self.hass = hass
+        self._entry = entry
+        self._attr_unique_id = f"{DOMAIN}_energy_ev_battery_drain_soc"
+        self._attr_name = "EV Battery Drain SOC"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "energy_coordinator")},
+            name="URA: Energy Coordinator",
+            manufacturer="Universal Room Automation",
+            model="Energy Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+        from .domain_coordinators.energy_const import (
+            CONF_ENERGY_EV_BATTERY_DRAIN_SOC,
+        )
+        config = {**entry.data, **entry.options}
+        self._value = int(config.get(CONF_ENERGY_EV_BATTERY_DRAIN_SOC, default))
+
+    def _get_energy(self):
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        return manager.coordinators.get("energy") if manager else None
+
+    @property
+    def native_value(self) -> float:
+        return self._value
+
+    @property
+    def available(self) -> bool:
+        return self._get_energy() is not None
+
+    def _push_to_coordinator(self) -> bool:
+        """Push current slider value into EnergyCoordinator. Returns True
+        if EC was reachable and accepted the value, else False."""
+        energy = self._get_energy()
+        if energy is None:
+            return False
+        energy.set_ev_battery_drain_soc(self._value)
+        return True
+
+    async def async_added_to_hass(self) -> None:
+        """Restore last slider value; push into coordinator (with deferred
+        retry to handle the cross-entry init race per v4.3.0 C3 + v4.3.2 fix).
+        Always trusts RestoreEntity (post-v4.3.2 pattern — no config_explicit
+        branch, which caused the snap-back regression).
+        """
+        await super().async_added_to_hass()
+
+        last_state = await self.async_get_last_state()
+        if (
+            last_state is not None
+            and last_state.state not in ("unknown", "unavailable")
+        ):
+            try:
+                self._value = int(float(last_state.state))
+            except (ValueError, TypeError):
+                pass
+
+        if not self._push_to_coordinator():
+            from homeassistant.helpers.dispatcher import async_dispatcher_connect
+            from .domain_coordinators.signals import SIGNAL_ENERGY_ENTITIES_UPDATE
+            unsub_holder: list = []
+
+            @callback
+            def _on_energy_tick(*_args, **_kwargs):
+                if self._push_to_coordinator() and unsub_holder:
+                    unsub_holder[0]()
+                    _LOGGER.debug(
+                        "EV battery drain SOC slider pushed to EC after deferred ready",
+                    )
+
+            unsub_holder.append(
+                async_dispatcher_connect(
+                    self.hass, SIGNAL_ENERGY_ENTITIES_UPDATE, _on_energy_tick,
+                )
+            )
+            self.async_on_remove(unsub_holder[0])
+
+    async def async_set_native_value(self, value: float) -> None:
+        self._value = int(value)
+        self._push_to_coordinator()
+        self.async_write_ha_state()
+        _LOGGER.info("EV battery drain SOC threshold set to %d%%", int(value))
