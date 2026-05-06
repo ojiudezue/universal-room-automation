@@ -16,8 +16,6 @@ from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
 from .energy_const import (
-    DEFAULT_BATTERY_CAPACITY_ENTITY,
-    DEFAULT_BATTERY_SOC_ENTITY,
     DEFAULT_SOLCAST_REMAINING_ENTITY,
     DEFAULT_SOLCAST_TODAY_ENTITY,
     DEFAULT_WEATHER_ENTITY,
@@ -62,11 +60,15 @@ class DailyEnergyPredictor:
     ) -> None:
         """Initialize daily predictor."""
         self.hass = hass
-        self._battery_soc_entity = battery_soc_entity or DEFAULT_BATTERY_SOC_ENTITY
+        # v4.3.1: envoy-derived entities (battery_soc, battery_capacity) have no
+        # production fallback; B1 envoy validation gate ensures they're populated
+        # when EC is enabled. Solcast/Weather still have legitimate hardcoded
+        # defaults for non-Envoy users.
+        self._battery_soc_entity = battery_soc_entity
         self._solcast_today_entity = solcast_today_entity or DEFAULT_SOLCAST_TODAY_ENTITY
         self._solcast_remaining_entity = solcast_remaining_entity or DEFAULT_SOLCAST_REMAINING_ENTITY
         self._weather_entity = weather_entity or DEFAULT_WEATHER_ENTITY
-        self._battery_capacity_entity = battery_capacity_entity or DEFAULT_BATTERY_CAPACITY_ENTITY
+        self._battery_capacity_entity = battery_capacity_entity
 
         # v4.1.1 B4 L2: Occupancy-weighted prediction
         # bayesian_predictor is a callable (lazy lookup) to survive integration reloads
@@ -101,8 +103,10 @@ class DailyEnergyPredictor:
         # Temperature captured at prediction time (more representative than midnight)
         self._prediction_temperature: float | None = None
 
-    def _get_float(self, entity_id: str) -> float | None:
-        """Get numeric state from entity."""
+    def _get_float(self, entity_id: str | None) -> float | None:
+        """Get numeric state from entity. None entity_id → None (v4.3.1)."""
+        if entity_id is None:
+            return None
         state = self.hass.states.get(entity_id)
         if state is None or state.state in ("unknown", "unavailable"):
             return None

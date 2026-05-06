@@ -120,38 +120,17 @@ BATTERY_MODE_BACKUP: Final = "backup"
 # Entity ID Defaults (Enphase/Envoy)
 # ============================================================================
 
-# Solar / Grid / Battery
-# v4.2.29: Placeholders only. The actual entities are auto-derived in
-# __init__.py from the user-configured CONF_ENERGY_ENVOY_ENTITY (whose
-# serial seeds derive_envoy_config()). These constants exist solely so
-# `ec.get(CONF_X, DEFAULT_X)` and `value or DEFAULT_X` patterns still
-# yield a string at consumer call sites — but they intentionally resolve
-# to a non-existent entity so that any code path that reaches them fails
-# loudly via state.get() returning None, never silently producing wrong
-# data attributed to a real-but-mismatched serial. Validation in
-# validate_envoy_config() + B1 startup gate makes these unreachable for
-# correctly-configured installs. Targeted for full removal in v4.2.30
-# alongside structural None-handling cleanup at consumer sites.
-_UNCONFIGURED_ENVOY: Final = "sensor.envoy_unconfigured"
-
-DEFAULT_SOLAR_PRODUCTION_ENTITY: Final = f"{_UNCONFIGURED_ENVOY}_current_power_production"
-DEFAULT_GRID_CONSUMPTION_ENTITY: Final = f"{_UNCONFIGURED_ENVOY}_current_power_consumption"
-DEFAULT_BATTERY_SOC_ENTITY: Final = f"{_UNCONFIGURED_ENVOY}_battery"
-DEFAULT_BATTERY_POWER_ENTITY: Final = f"{_UNCONFIGURED_ENVOY}_current_battery_discharge"
-DEFAULT_NET_POWER_ENTITY: Final = f"{_UNCONFIGURED_ENVOY}_current_net_power_consumption"
-
-# Envoy lifetime accumulators (for accurate daily consumption tracking)
-# These monotonically increase and never reset — delta gives true daily values.
-DEFAULT_LIFETIME_CONSUMPTION_ENTITY: Final = f"{_UNCONFIGURED_ENVOY}_lifetime_energy_consumption"
-DEFAULT_LIFETIME_PRODUCTION_ENTITY: Final = f"{_UNCONFIGURED_ENVOY}_lifetime_energy_production"
-DEFAULT_LIFETIME_NET_IMPORT_ENTITY: Final = f"{_UNCONFIGURED_ENVOY}_lifetime_net_energy_consumption"
-DEFAULT_LIFETIME_NET_EXPORT_ENTITY: Final = f"{_UNCONFIGURED_ENVOY}_lifetime_net_energy_production"
-DEFAULT_LIFETIME_BATTERY_CHARGED_ENTITY: Final = f"{_UNCONFIGURED_ENVOY}_lifetime_battery_energy_charged"
-DEFAULT_LIFETIME_BATTERY_DISCHARGED_ENTITY: Final = f"{_UNCONFIGURED_ENVOY}_lifetime_battery_energy_discharged"
-DEFAULT_BATTERY_CAPACITY_ENTITY: Final = f"{_UNCONFIGURED_ENVOY}_battery_capacity"
-
-# Envoy daily sensors (reset at midnight — useful for cross-checks)
-DEFAULT_CONSUMPTION_TODAY_ENTITY: Final = f"{_UNCONFIGURED_ENVOY}_energy_consumption_today"
+# v4.3.1: The 13 envoy-derived DEFAULT_*_ENTITY constants were REMOVED.
+# Production code now requires entity IDs to come via config (auto-derived
+# in __init__.py from CONF_ENERGY_ENVOY_ENTITY), and consumer call sites
+# handle None gracefully. Validation in validate_envoy_config() +
+# __init__.py B1 startup gate ensures EC isn't started without resolved
+# envoy entities. Test fixtures defined locally in test files.
+#
+# Removed: DEFAULT_SOLAR_PRODUCTION_ENTITY, DEFAULT_GRID_CONSUMPTION_ENTITY,
+#   DEFAULT_BATTERY_SOC_ENTITY, DEFAULT_BATTERY_POWER_ENTITY,
+#   DEFAULT_NET_POWER_ENTITY, DEFAULT_LIFETIME_*_ENTITY (×6),
+#   DEFAULT_BATTERY_CAPACITY_ENTITY, DEFAULT_CONSUMPTION_TODAY_ENTITY.
 
 # Enpower control entities
 DEFAULT_STORAGE_MODE_ENTITY: Final = "select.enpower_482348004678_storage_mode"
@@ -390,6 +369,17 @@ ENVOY_REQUIRED_DERIVED_KEYS: Final = (
     CONF_ENERGY_LIFETIME_CONSUMPTION_ENTITY,
 )
 
+# v4.3.1: Validator error codes — single source of truth.
+# Keys MUST match strings.json `options.error.<code>` for HA's form
+# rendering to localize them. Caller (validate_envoy_config) returns these
+# as values in the errors dict; config_flow.py reads them and feeds them
+# to async_show_form's `errors` param unchanged.
+ENVOY_ERR_REQUIRED: Final = "envoy_required"
+ENVOY_ERR_INVALID_FORMAT: Final = "envoy_invalid_format"
+ENVOY_ERR_ENTITY_MISSING: Final = "envoy_entity_missing"
+ENVOY_ERR_DERIVED_MISSING: Final = "derived_entity_missing"
+ENVOY_ERR_BASE_DERIVED_MISSING: Final = "envoy_derived_missing"
+
 
 # v4.3.0 D3: Threshold ladder validator.
 # The coherent ladder is:
@@ -489,7 +479,7 @@ def validate_envoy_config(
 
     # V0: required
     if not envoy_eid:
-        errors[CONF_ENERGY_ENVOY_ENTITY] = "envoy_required"
+        errors[CONF_ENERGY_ENVOY_ENTITY] = ENVOY_ERR_REQUIRED
         return {
             "ok": False, "errors": errors, "warnings": warnings,
             "serial": None, "resolved": resolved,
@@ -498,7 +488,7 @@ def validate_envoy_config(
     # V1: parseable
     serial = extract_envoy_serial(envoy_eid)
     if not serial:
-        errors[CONF_ENERGY_ENVOY_ENTITY] = "envoy_invalid_format"
+        errors[CONF_ENERGY_ENVOY_ENTITY] = ENVOY_ERR_INVALID_FORMAT
         return {
             "ok": False, "errors": errors, "warnings": warnings,
             "serial": None, "resolved": resolved,
@@ -507,7 +497,7 @@ def validate_envoy_config(
     # V2: entity exists in HA
     state = hass.states.get(envoy_eid)
     if state is None:
-        errors[CONF_ENERGY_ENVOY_ENTITY] = "envoy_entity_missing"
+        errors[CONF_ENERGY_ENVOY_ENTITY] = ENVOY_ERR_ENTITY_MISSING
         return {
             "ok": False, "errors": errors, "warnings": warnings,
             "serial": serial, "resolved": resolved,
@@ -529,7 +519,7 @@ def validate_envoy_config(
     for key in ENVOY_REQUIRED_DERIVED_KEYS:
         eid = resolved.get(key)
         if not eid or hass.states.get(eid) is None:
-            errors[key] = "derived_entity_missing"
+            errors[key] = ENVOY_ERR_DERIVED_MISSING
 
     return {
         "ok": not errors,

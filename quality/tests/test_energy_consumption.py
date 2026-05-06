@@ -132,21 +132,23 @@ for _submod_name in ("energy_const", "energy_forecast"):
 from conftest import MockHass, MockState
 
 from custom_components.universal_room_automation.domain_coordinators.energy_const import (
-    DEFAULT_LIFETIME_CONSUMPTION_ENTITY,
-    DEFAULT_LIFETIME_PRODUCTION_ENTITY,
-    DEFAULT_LIFETIME_NET_IMPORT_ENTITY,
-    DEFAULT_LIFETIME_NET_EXPORT_ENTITY,
-    DEFAULT_LIFETIME_BATTERY_CHARGED_ENTITY,
-    DEFAULT_LIFETIME_BATTERY_DISCHARGED_ENTITY,
-    DEFAULT_BATTERY_SOC_ENTITY,
     DEFAULT_SOLCAST_REMAINING_ENTITY,
     DEFAULT_SOLCAST_TODAY_ENTITY,
-    DEFAULT_BATTERY_CAPACITY_ENTITY,
 )
 from custom_components.universal_room_automation.domain_coordinators.energy_forecast import (
     DailyEnergyPredictor,
     AVERAGE_CHARGE_RATE_KW,
 )
+
+# v4.3.1: Test-local fixture entity IDs (production no longer defines these).
+DEFAULT_LIFETIME_CONSUMPTION_ENTITY = "sensor.test_envoy_lifetime_consumption"
+DEFAULT_LIFETIME_PRODUCTION_ENTITY = "sensor.test_envoy_lifetime_production"
+DEFAULT_LIFETIME_NET_IMPORT_ENTITY = "sensor.test_envoy_lifetime_net_import"
+DEFAULT_LIFETIME_NET_EXPORT_ENTITY = "sensor.test_envoy_lifetime_net_export"
+DEFAULT_LIFETIME_BATTERY_CHARGED_ENTITY = "sensor.test_envoy_lifetime_battery_charged"
+DEFAULT_LIFETIME_BATTERY_DISCHARGED_ENTITY = "sensor.test_envoy_lifetime_battery_discharged"
+DEFAULT_BATTERY_SOC_ENTITY = "sensor.test_envoy_battery"
+DEFAULT_BATTERY_CAPACITY_ENTITY = "sensor.test_envoy_battery_capacity"
 
 
 # ============================================================================
@@ -344,7 +346,13 @@ class TestBatteryFullTime:
     """Test _estimate_battery_full_time with consumption-aware + piecewise taper."""
 
     def _make_predictor(self, hass):
-        return DailyEnergyPredictor(hass)
+        # v4.3.1: production no longer has envoy entity defaults — wire test
+        # fixture entity IDs explicitly so DailyEnergyPredictor reads from them.
+        return DailyEnergyPredictor(
+            hass,
+            battery_soc_entity=DEFAULT_BATTERY_SOC_ENTITY,
+            battery_capacity_entity=DEFAULT_BATTERY_CAPACITY_ENTITY,
+        )
 
     def test_battery_full_already_full(self):
         """SOC >= 99 returns 'already_full'."""

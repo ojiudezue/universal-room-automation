@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv4.3.0
+# Universal Room Automation vv4.3.1
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -1424,7 +1424,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                                     hass,
                                     DOMAIN,
                                     _envoy_issue_id,
-                                    is_fixable=False,
+                                    # v4.3.1: now fixable — repairs.py provides
+                                    # async_create_fix_flow that re-validates
+                                    # on confirm and clears the issue on pass.
+                                    is_fixable=True,
                                     severity=ir.IssueSeverity.ERROR,
                                     translation_key="energy_envoy_invalid",
                                     translation_placeholders={
@@ -1433,6 +1436,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                                             for k, v in _validation["errors"].items()
                                         ) or "unknown",
                                     },
+                                    data={"entry_id": entry.entry_id},
                                 )
                             except Exception as exc:
                                 _LOGGER.warning(

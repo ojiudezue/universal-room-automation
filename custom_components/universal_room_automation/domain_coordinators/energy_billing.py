@@ -14,8 +14,6 @@ from homeassistant.util import dt as dt_util
 
 from .energy_const import (
     DEFAULT_BILL_CYCLE_START_DAY,
-    DEFAULT_NET_POWER_ENTITY,
-    DEFAULT_SOLAR_PRODUCTION_ENTITY,
     PEC_FIXED_CHARGES,
 )
 from .energy_tou import TOURateEngine
@@ -48,8 +46,11 @@ class CostTracker:
         self.hass = hass
         self._tou = tou_engine
         self._bill_cycle_day = bill_cycle_day
-        self._net_power_entity = net_power_entity or DEFAULT_NET_POWER_ENTITY
-        self._solar_entity = solar_entity or DEFAULT_SOLAR_PRODUCTION_ENTITY
+        # v4.3.1: no production fallback. Envoy validation gate (v4.2.29) ensures
+        # these are populated when EC is enabled; if they are None, downstream
+        # methods (_get_net_power, etc.) handle gracefully via state.get(None).
+        self._net_power_entity = net_power_entity
+        self._solar_entity = solar_entity
         self._grid_import_entity = grid_import_entity
         self._grid_export_entity = grid_export_entity
 
@@ -100,7 +101,9 @@ class CostTracker:
                 except (ValueError, TypeError):
                     pass  # Fall through to net_power
 
-        # Fallback: Envoy net power entity
+        # Fallback: Envoy net power entity (None if not configured — v4.3.1)
+        if self._net_power_entity is None:
+            return None
         state = self.hass.states.get(self._net_power_entity)
         if state is None or state.state in ("unknown", "unavailable"):
             return None
