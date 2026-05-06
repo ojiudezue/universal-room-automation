@@ -292,6 +292,11 @@ class BatteryStrategy:
                 "Envoy unavailable (SOC=%s, mode=%s) — holding current state",
                 soc, current_mode,
             )
+            # v4.3.0 D1 cosmetic fix: keep in-memory _arbitrage_active in sync
+            # with the returned dict so the sensor doesn't show "arbitrage_active=False"
+            # while the in-memory state still says True. When envoy comes back the
+            # next decision cycle will re-evaluate and re-set as needed.
+            self._arbitrage_active = False
             return {
                 "mode": current_mode or "unknown",
                 "reason": "Envoy unavailable — holding (no commands issued)",
@@ -409,7 +414,13 @@ class BatteryStrategy:
                 f"Off-peak arbitrage — grid charging (SOC {soc}%, tomorrow {tomorrow_class})",
                 current_mode,
                 charge_from_grid=True,
-                reserve_level=self.reserve_soc,
+                # v4.3.0 D1 CRITICAL fix: was self.reserve_soc (the user's safety
+                # floor, e.g. 10%) which made Enphase see "SOC=floor, reserve=floor,
+                # hold" → never imported. Setting reserve to the arbitrage target
+                # tells Enphase "pull from grid up to this level, then hold" —
+                # which is what self_consumption + charge_from_grid actually requires.
+                # Latent since v3.11.0; battery has never charged via arbitrage.
+                reserve_level=self._arbitrage_target,
                 season=season,
                 tomorrow_solar_class=tomorrow_class,
                 arbitrage_active=True,
@@ -426,7 +437,8 @@ class BatteryStrategy:
                     f"Off-peak arbitrage — continuing (SOC {soc}%, target {self._arbitrage_target}%)",
                     current_mode,
                     charge_from_grid=True,
-                    reserve_level=self.reserve_soc,
+                    # v4.3.0 D1 CRITICAL fix (continuation path): see comment above.
+                    reserve_level=self._arbitrage_target,
                     season=season,
                     tomorrow_solar_class=tomorrow_class,
                     arbitrage_active=True,
@@ -543,21 +555,92 @@ class BatteryStrategy:
             "arbitrage_enabled": self._arbitrage_enabled,
         }
 
+    def _threshold_position(self, soc: float | None, tomorrow_class: str) -> str:
+        """v4.3.0 D5: human-readable narration of where current SOC sits
+        relative to all thresholds.
+        """
+        if soc is None:
+            return "SOC unknown — Envoy not reporting"
+        s = float(soc)
+        if s <= self.reserve_soc:
+            return (
+                f"SOC={s:.0f}% at/below reserve_soc ({self.reserve_soc}%) — "
+                f"safety floor reached, no further discharge"
+            )
+        if s < self._arbitrage_trigger:
+            return (
+                f"SOC={s:.0f}% below arbitrage_trigger ({self._arbitrage_trigger}%) — "
+                f"arbitrage will activate next off-peak cycle if tomorrow=poor"
+            )
+        drain = self._drain_targets.get(tomorrow_class, self._drain_targets.get("unknown", 40))
+        if s <= drain:
+            return (
+                f"SOC={s:.0f}% at/below drain_target ({drain}%, tomorrow={tomorrow_class}) — "
+                f"will hold at SOC during off-peak"
+            )
+        return (
+            f"SOC={s:.0f}% above drain_target ({drain}%, tomorrow={tomorrow_class}) — "
+            f"will drain to target during off-peak"
+        )
+
+    def _next_action_estimate(self, soc: float | None, tomorrow_class: str) -> str:
+        """v4.3.0 D5: short narration of expected next-cycle action."""
+        if soc is None:
+            return "no estimate — Envoy unavailable"
+        if self._arbitrage_active:
+            return (
+                f"continue arbitrage charging until SOC reaches "
+                f"target ({self._arbitrage_target}%)"
+            )
+        if (
+            self._arbitrage_enabled
+            and float(soc) < self._arbitrage_trigger
+            and tomorrow_class in ("poor", "very_poor")
+        ):
+            return (
+                f"activate arbitrage at next off-peak tick "
+                f"(charge to {self._arbitrage_target}%)"
+            )
+        drain = self._drain_targets.get(tomorrow_class, self._drain_targets.get("unknown", 40))
+        if float(soc) > drain:
+            return f"drain to {drain}% during off-peak (tomorrow={tomorrow_class})"
+        return "hold at current SOC"
+
     def get_status(self) -> dict[str, Any]:
-        """Return current battery strategy status for sensor."""
+        """Return current battery strategy status for sensor.
+
+        v4.3.0 D3: includes threshold_warning when ladder is violated, plus
+        the raw threshold values (arbitrage_trigger/target, drain_targets).
+        v4.3.0 D5: includes threshold_position + next_action_estimate strings.
+        """
+        from .energy_const import validate_threshold_ladder
+        warning = validate_threshold_ladder(
+            self.reserve_soc,
+            self._drain_targets,
+            self._arbitrage_trigger,
+            self._arbitrage_target,
+        )
+        soc = self.battery_soc
+        tomorrow_class = self.classify_tomorrow_solar()
         return {
             "mode": self._last_mode or self.current_storage_mode or "unknown",
             "reason": self._last_reason or "initializing",
-            "soc": self.battery_soc,
+            "soc": soc,
             "solar_production": self.solar_production,
             "net_power": self.net_power,
             "battery_power": self.battery_power,
             "grid_connected": self.grid_connected,
             "envoy_available": self.envoy_available,
             "solar_day_class": self.classify_solar_day(),
-            "tomorrow_solar_class": self.classify_tomorrow_solar(),
+            "tomorrow_solar_class": tomorrow_class,
             "storm_forecast": self.has_storm_forecast(),
             "reserve_soc": self.reserve_soc,
             "arbitrage_active": self._arbitrage_active,
             "arbitrage_enabled": self._arbitrage_enabled,
+            "arbitrage_trigger": self._arbitrage_trigger,
+            "arbitrage_target": self._arbitrage_target,
+            "drain_targets": dict(self._drain_targets),
+            "threshold_warning": warning,
+            "threshold_position": self._threshold_position(soc, tomorrow_class),
+            "next_action_estimate": self._next_action_estimate(soc, tomorrow_class),
         }

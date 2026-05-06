@@ -106,7 +106,7 @@ SOLAR_DAY_THRESHOLDS: Final = {
 # Battery Strategy Defaults
 # ============================================================================
 
-DEFAULT_RESERVE_SOC: Final = 20
+DEFAULT_RESERVE_SOC: Final = 10  # v4.3.0 D3: was 20; lowered to give arbitrage maneuvering room
 DEFAULT_STORM_CHARGE_THRESHOLD: Final = 90
 DEFAULT_DECISION_INTERVAL_MINUTES: Final = 5
 DEFAULT_BILL_CYCLE_START_DAY: Final = 23
@@ -271,7 +271,7 @@ CONF_ENERGY_OFFPEAK_DRAIN_POOR: Final = "energy_offpeak_drain_poor"
 # When tomorrow is poor/very_poor solar and SOC < trigger, charge from grid
 # overnight at off-peak rate ($0.043) to avoid importing at mid-peak/peak later.
 
-DEFAULT_ARBITRAGE_SOC_TRIGGER: Final = 30
+DEFAULT_ARBITRAGE_SOC_TRIGGER: Final = 20  # v4.3.0 D3: was 30 (collided with drain_poor=30); now sits in middle of (reserve_soc=10, drain_poor=30) window
 DEFAULT_ARBITRAGE_SOC_TARGET: Final = 80
 CONF_ENERGY_ARBITRAGE_ENABLED: Final = "energy_arbitrage_enabled"
 CONF_ENERGY_ARBITRAGE_SOC_TRIGGER: Final = "energy_arbitrage_soc_trigger"
@@ -389,6 +389,67 @@ ENVOY_REQUIRED_DERIVED_KEYS: Final = (
     CONF_ENERGY_LIFETIME_NET_IMPORT_ENTITY,
     CONF_ENERGY_LIFETIME_CONSUMPTION_ENTITY,
 )
+
+
+# v4.3.0 D3: Threshold ladder validator.
+# The coherent ladder is:
+#   reserve_soc ≤ drain_excellent ≤ drain_good ≤ drain_moderate ≤ drain_poor
+#   reserve_soc < arbitrage_trigger < drain_poor   (strict on both sides)
+#   arbitrage_target > drain_poor                   (no immediate re-drain)
+# Drains below reserve_soc are incoherent (Enphase clamps to floor).
+# Arbitrage trigger collisions cause drain↔arbitrage oscillation thrash.
+
+def validate_threshold_ladder(
+    reserve_soc: int,
+    drain_targets: dict,
+    arbitrage_trigger: int,
+    arbitrage_target: int,
+) -> str | None:
+    """Validate the SOC threshold ladder for coherence.
+
+    Returns None if valid, else a human-readable warning string suitable
+    for surfacing on a sensor attribute. Caller logs separately.
+    """
+    drain_excellent = int(drain_targets.get("excellent", 0))
+    drain_good = int(drain_targets.get("good", 0))
+    drain_moderate = int(drain_targets.get("moderate", 0))
+    drain_poor = int(drain_targets.get("poor", 0))
+
+    # Drain ladder: monotonic non-decreasing, all above reserve_soc
+    if drain_excellent < reserve_soc:
+        return (
+            f"drain_excellent ({drain_excellent}) < reserve_soc "
+            f"({reserve_soc}) — value will be clamped by Enphase floor"
+        )
+    if not (drain_excellent <= drain_good <= drain_moderate <= drain_poor):
+        return (
+            f"drain ladder not monotonic: "
+            f"excellent={drain_excellent}, good={drain_good}, "
+            f"moderate={drain_moderate}, poor={drain_poor}"
+        )
+
+    # Arbitrage trigger boundaries
+    if arbitrage_trigger <= reserve_soc:
+        return (
+            f"arbitrage_trigger ({arbitrage_trigger}) ≤ reserve_soc "
+            f"({reserve_soc}) — arbitrage would never fire above safety floor"
+        )
+    if arbitrage_trigger >= drain_poor:
+        return (
+            f"arbitrage_trigger ({arbitrage_trigger}) ≥ drain_poor "
+            f"({drain_poor}) — boundary collision causes drain↔arbitrage "
+            f"oscillation when tomorrow=poor"
+        )
+
+    # Arbitrage target above drain_poor
+    if arbitrage_target <= drain_poor:
+        return (
+            f"arbitrage_target ({arbitrage_target}) ≤ drain_poor "
+            f"({drain_poor}) — Phase A would immediately re-drain after "
+            f"Phase B charges"
+        )
+
+    return None
 
 
 def validate_envoy_config(

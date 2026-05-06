@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.2.29
+# Universal Room Automation vv4.3.0
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -214,6 +214,10 @@ async def async_setup_entry(
             EnergyCoordCostTodaySensor(hass, entry),
             EnergyCostCycleSensor(hass, entry),
             EnergyPredictedBillSensor(hass, entry),
+            # v4.3.0 D4: Arbitrage savings tracking
+            EnergyArbitrageSavingsTodaySensor(hass, entry),
+            EnergyArbitrageSavingsCycleSensor(hass, entry),
+            EnergyArbitrageSavingsTotalSensor(hass, entry),
             EnergyCurrentRateSensor(hass, entry),
             EnergyDeliveryRateSensor(hass, entry),
             EnergyImportTodaySensor(hass, entry),
@@ -5463,7 +5467,13 @@ class EnergyBatteryStrategySensor(AggregationEntity, SensorEntity):
         energy = manager.coordinators.get("energy")
         if energy is None:
             return {}
-        return energy.battery_status
+        attrs = dict(energy.battery_status)
+        # v4.3.0 D4 cross-ref: surface today's savings here so users see
+        # arbitrage status AND $ saved in one place.
+        arb = energy.arbitrage_status or {}
+        today = arb.get("today") or {}
+        attrs["arbitrage_savings_today"] = round(float(today.get("savings", 0.0)), 2)
+        return attrs
 
 
 class EnergySolarDayClassSensor(AggregationEntity, SensorEntity):
@@ -5837,7 +5847,218 @@ class EnergyPredictedBillSensor(AggregationEntity, SensorEntity):
             attrs["utility_kwh"] = divergence.get("utility_kwh")
             attrs["envoy_kwh"] = divergence.get("envoy_kwh")
             attrs["utility_divergence_pct"] = divergence.get("divergence_pct")
+
+        # v4.3.0 D4: arbitrage counterfactual
+        # Show what the bill WOULD be without arbitrage, plus accrued and
+        # projected savings, so the user can see if arbitrage is paying off.
+        arb = energy.arbitrage_status or {}
+        cycle_savings = float((arb.get("cycle") or {}).get("savings", 0.0))
+        pace = arb.get("pace") or {}
+        avg_per_day = float(pace.get("avg_savings_per_day", 0.0))
+        days_in_cycle = int(billing.get("days_in_cycle", 0)) if billing else 0
+
+        # v4.3.0 Review L19 fix: derive actual cycle length from cycle_start_date
+        # plus one calendar month, instead of hardcoded 30. PEC bill cycles
+        # follow calendar months and are 28-31 days depending on the month.
+        cycle_length_days = 30  # safety fallback
+        cycle_start_str = billing.get("cycle_start_date") if billing else None
+        if cycle_start_str:
+            try:
+                from dateutil.relativedelta import relativedelta
+                cycle_start_dt = dt_util.parse_datetime(cycle_start_str)
+                if cycle_start_dt is None:
+                    from datetime import datetime as _dt
+                    cycle_start_dt = _dt.fromisoformat(cycle_start_str)
+                next_cycle_dt = cycle_start_dt + relativedelta(months=1)
+                cycle_length_days = max(
+                    1, (next_cycle_dt.date() - cycle_start_dt.date()).days
+                )
+            except Exception:
+                pass  # fall back to 30
+        days_remaining = max(0, cycle_length_days - days_in_cycle)
+        projected_remaining = avg_per_day * days_remaining
+        full_cycle_pace = cycle_savings + projected_remaining
+
+        # v4.3.0 Review L18: renamed from arbitrage_savings_pace_monthly which
+        # implied "per month rolling" — the value is actually accrued+projected
+        # for THIS bill cycle, which can be 28-31 days.
+        attrs["arbitrage_savings_this_cycle"] = round(cycle_savings, 2)
+        attrs["arbitrage_savings_projected_cycle_total"] = round(full_cycle_pace, 2)
+
+        predicted = self.native_value  # already accounts for arbitrage having run
+        if predicted is not None and full_cycle_pace > 0:
+            without_arb = float(predicted) + full_cycle_pace
+            attrs["predicted_bill_without_arbitrage"] = round(without_arb, 2)
+            if without_arb > 0:
+                attrs["arbitrage_savings_pct"] = round(
+                    full_cycle_pace / without_arb * 100.0, 1,
+                )
+            attrs["arbitrage_methodology"] = (
+                "counterfactual assumes charged kWh is discharged during "
+                "displaced rate window; may overstate if solar overproduces."
+            )
         return attrs or None
+
+
+class EnergyArbitrageSavingsTodaySensor(AggregationEntity, SensorEntity):
+    """v4.3.0 D4: Arbitrage savings since local midnight."""
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:cash-plus"
+    _attr_device_class = SensorDeviceClass.MONETARY
+    _attr_state_class = SensorStateClass.TOTAL
+    _attr_native_unit_of_measurement = "USD"
+    _attr_suggested_display_precision = 2
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_arbitrage_savings_today"
+        self._attr_name = "Arbitrage Savings Today"
+        self._attr_device_info = _energy_device_info()
+
+    def _get_today(self) -> dict[str, Any]:
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return {}
+        energy = manager.coordinators.get("energy")
+        if energy is None:
+            return {}
+        return (energy.arbitrage_status or {}).get("today") or {}
+
+    @property
+    def native_value(self) -> float | None:
+        return round(float(self._get_today().get("savings", 0.0)), 2)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        today = self._get_today()
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        energy = manager.coordinators.get("energy") if manager else None
+        last = (energy.arbitrage_status or {}).get("last_cycle") if energy else None
+        attrs: dict[str, Any] = {
+            "cycles_today": int(today.get("cycles", 0)),
+            "kwh_charged_today": round(float(today.get("kwh_charged", 0.0)), 3),
+            # v4.3.0 Review M9-C: honest disclosure of the optimism bias.
+            # The savings figure assumes the charged kWh is later consumed at
+            # the displaced rate (peak in summer, mid_peak in shoulder/winter).
+            # If sun overproduces and the battery doesn't actually discharge
+            # during peak, real savings are lower than reported.
+            "methodology": (
+                "projected: assumes charged kWh is discharged during the "
+                "displaced rate window (peak/mid_peak). May overstate if "
+                "actual solar exceeds forecast."
+            ),
+        }
+        if last is not None:
+            attrs.update({
+                "last_cycle_at": last.get("timestamp"),
+                "last_cycle_kwh_charged": round(float(last.get("kwh_charged", 0.0)), 3),
+                "last_cycle_off_peak_rate": last.get("off_peak_rate"),
+                "last_cycle_displaced_rate": last.get("displaced_rate"),
+                "last_cycle_round_trip_efficiency": last.get("round_trip_efficiency"),
+                "last_cycle_savings": round(float(last.get("savings", 0.0)), 4),
+            })
+        return attrs
+
+
+class EnergyArbitrageSavingsCycleSensor(AggregationEntity, SensorEntity):
+    """v4.3.0 D4: Arbitrage savings since bill cycle start."""
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:cash-multiple"
+    _attr_device_class = SensorDeviceClass.MONETARY
+    _attr_state_class = SensorStateClass.TOTAL
+    _attr_native_unit_of_measurement = "USD"
+    _attr_suggested_display_precision = 2
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_arbitrage_savings_cycle"
+        self._attr_name = "Arbitrage Savings This Cycle"
+        self._attr_device_info = _energy_device_info()
+
+    @property
+    def native_value(self) -> float | None:
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        energy = manager.coordinators.get("energy")
+        if energy is None:
+            return None
+        cycle = (energy.arbitrage_status or {}).get("cycle") or {}
+        return round(float(cycle.get("savings", 0.0)), 2)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return {}
+        energy = manager.coordinators.get("energy")
+        if energy is None:
+            return {}
+        cycle = (energy.arbitrage_status or {}).get("cycle") or {}
+        pace = (energy.arbitrage_status or {}).get("pace") or {}
+        return {
+            "cycles_this_cycle": int(cycle.get("cycles", 0)),
+            "kwh_charged_this_cycle": round(float(cycle.get("kwh_charged", 0.0)), 3),
+            "avg_savings_per_day_7d": round(
+                float(pace.get("avg_savings_per_day", 0.0)), 4,
+            ),
+            "days_with_cycles_in_lookback": int(pace.get("days_with_cycles", 0)),
+            "methodology": (
+                "projected: assumes charged kWh is discharged during the "
+                "displaced rate window. May overstate if actual solar "
+                "exceeds forecast (battery never empties to absorb arbitrage)."
+            ),
+        }
+
+
+class EnergyArbitrageSavingsTotalSensor(AggregationEntity, SensorEntity):
+    """v4.3.0 D4: Lifetime arbitrage savings since v4.3.0 deploy."""
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:cash-100"
+    _attr_device_class = SensorDeviceClass.MONETARY
+    _attr_state_class = SensorStateClass.TOTAL_INCREASING
+    _attr_native_unit_of_measurement = "USD"
+    _attr_suggested_display_precision = 2
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_arbitrage_savings_total"
+        self._attr_name = "Arbitrage Savings Total"
+        self._attr_device_info = _energy_device_info()
+
+    @property
+    def native_value(self) -> float | None:
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        energy = manager.coordinators.get("energy")
+        if energy is None:
+            return None
+        total = (energy.arbitrage_status or {}).get("total") or {}
+        return round(float(total.get("savings", 0.0)), 2)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return {}
+        energy = manager.coordinators.get("energy")
+        if energy is None:
+            return {}
+        total = (energy.arbitrage_status or {}).get("total") or {}
+        return {
+            "total_cycles": int(total.get("cycles", 0)),
+            "total_kwh_charged": round(float(total.get("kwh_charged", 0.0)), 3),
+            "round_trip_efficiency_assumption": energy.arbitrage_round_trip_efficiency,
+            "methodology": (
+                "lifetime projected savings; assumes each charged kWh is "
+                "discharged during the displaced rate window. Cumulative "
+                "overstatement compounds with each non-discharged cycle."
+            ),
+        }
 
 
 class EnergyCurrentRateSensor(AggregationEntity, SensorEntity):
@@ -7385,13 +7606,39 @@ class EnergyEnvoyStatusSensor(AggregationEntity, SensorEntity):
         if not last_available:
             return "initializing"
 
-        # Check staleness: if last available is > 30 min ago, consider stale
+        # v4.3.0 D6: data-anomaly check (covers the v4.2.28 latent defect where
+        # envoy reports state but values are zeroed/stale after reboot). If
+        # cross-check fired within the last hour, surface as "stale" even
+        # though the state objects themselves look fresh.
+        anomaly_at = getattr(energy, "_envoy_data_anomaly_at", None)
+        if anomaly_at:
+            try:
+                anomaly_ts = dt_util.parse_datetime(anomaly_at)
+                if anomaly_ts is not None:
+                    anomaly_age = (dt_util.now() - anomaly_ts).total_seconds()
+                    if anomaly_age < 3600:  # last hour
+                        return "stale"
+            except (ValueError, TypeError):
+                pass
+
+        # v4.3.0 D6: freshness threshold tightened from a hardcoded 30 min
+        # to (decision_interval_minutes × 2). With the default 5-min interval
+        # that's 10 min — one missed cycle and the sensor flips, instead of
+        # waiting 6 missed cycles.
+        # v4.3.0 Review L22 fix: bound the threshold to [600s, 1800s] so a
+        # pathological decision_interval=60 doesn't produce 120-min threshold
+        # (worse than the old 30-min hardcode), and a decision_interval=1
+        # doesn't make the sensor flap on every minor delay.
         try:
             last_ts = dt_util.parse_datetime(last_available)
             if last_ts is None:
                 return "online"
             age = (dt_util.now() - last_ts).total_seconds()
-            if age > 1800:  # 30 minutes
+            decision_interval_min = getattr(energy, "_decision_interval", 5)
+            stale_threshold_seconds = max(
+                600, min(1800, decision_interval_min * 60 * 2)
+            )
+            if age > stale_threshold_seconds:
                 return "stale"
         except (ValueError, TypeError):
             pass
@@ -7420,11 +7667,29 @@ class EnergyEnvoyStatusSensor(AggregationEntity, SensorEntity):
             except (ValueError, TypeError):
                 pass
 
+        # v4.3.0 D6: data-anomaly attributes
+        anomaly_at = getattr(energy, "_envoy_data_anomaly_at", None)
+        anomaly_age_seconds: float | None = None
+        if anomaly_at:
+            try:
+                anomaly_ts = dt_util.parse_datetime(anomaly_at)
+                if anomaly_ts is not None:
+                    anomaly_age_seconds = round(
+                        (dt_util.now() - anomaly_ts).total_seconds(), 1
+                    )
+            except (ValueError, TypeError):
+                pass
+
         attrs: dict[str, Any] = {
             "offline_count_today": unavail_count,
             "last_reading_time": last_available,
             "last_reading_age_seconds": last_reading_age_seconds,
             "decision_interval_minutes": decision_interval,
+            "stale_threshold_seconds": max(
+                600, min(1800, decision_interval * 60 * 2)
+            ),
+            "data_anomaly_at": anomaly_at,
+            "data_anomaly_age_seconds": anomaly_age_seconds,
         }
         return attrs
 
