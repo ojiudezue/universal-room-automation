@@ -128,18 +128,14 @@ from conftest import MockHass, MockState
 from custom_components.universal_room_automation.domain_coordinators.energy_const import (
     BATTERY_MODE_SELF_CONSUMPTION,
     BATTERY_MODE_BACKUP,
-    DEFAULT_BATTERY_SOC_ENTITY,
     DEFAULT_RESERVE_SOC,
     DEFAULT_RESERVE_SOC_ENTITY,
-    DEFAULT_SOLAR_PRODUCTION_ENTITY,
-    DEFAULT_NET_POWER_ENTITY,
     DEFAULT_STORAGE_MODE_ENTITY,
     DEFAULT_GRID_ENABLED_ENTITY,
     DEFAULT_CHARGE_FROM_GRID_ENTITY,
     DEFAULT_SOLCAST_TODAY_ENTITY,
     DEFAULT_SOLCAST_TOMORROW_ENTITY,
     DEFAULT_WEATHER_ENTITY,
-    DEFAULT_BATTERY_POWER_ENTITY,
     DEFAULT_OFFPEAK_DRAIN_EXCELLENT,
     DEFAULT_OFFPEAK_DRAIN_GOOD,
     DEFAULT_OFFPEAK_DRAIN_MODERATE,
@@ -151,6 +147,14 @@ from custom_components.universal_room_automation.domain_coordinators.energy_cons
 from custom_components.universal_room_automation.domain_coordinators.energy_battery import (
     BatteryStrategy,
 )
+
+# v4.3.1: Test-local fixture entity IDs (production no longer defines these).
+# Same names used by test bodies; harness wires them into BatteryStrategy via
+# entity_config so the strategy reads from these fake entity IDs in MockHass.
+DEFAULT_BATTERY_SOC_ENTITY = "sensor.test_envoy_battery"
+DEFAULT_BATTERY_POWER_ENTITY = "sensor.test_envoy_battery_power"
+DEFAULT_SOLAR_PRODUCTION_ENTITY = "sensor.test_envoy_solar_production"
+DEFAULT_NET_POWER_ENTITY = "sensor.test_envoy_net_power"
 
 
 # ---------------------------------------------------------------------------
@@ -198,10 +202,20 @@ class _BatteryHarness:
                 "moderate": 50.0,
                 "poor": 30.0,
             }
+        # v4.3.1: production no longer has envoy entity defaults — wire the
+        # test fixture entity IDs into BatteryStrategy via entity_config so the
+        # strategy reads from MockHass under the same names the test bodies use.
+        entity_config = {
+            "battery_soc": DEFAULT_BATTERY_SOC_ENTITY,
+            "battery_power": DEFAULT_BATTERY_POWER_ENTITY,
+            "solar_production": DEFAULT_SOLAR_PRODUCTION_ENTITY,
+            "net_power": DEFAULT_NET_POWER_ENTITY,
+        }
         self.strategy = BatteryStrategy(
             self.hass,
             reserve_soc=DEFAULT_RESERVE_SOC,
             arbitrage_enabled=arbitrage_enabled,
+            entity_config=entity_config,
             solar_classification_mode=solar_classification_mode,
             custom_solar_thresholds=custom_solar_thresholds,
         )

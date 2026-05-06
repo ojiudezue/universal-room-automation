@@ -16,11 +16,8 @@ from .energy_const import (
     BATTERY_MODE_SELF_CONSUMPTION,
     DEFAULT_ARBITRAGE_SOC_TARGET,
     DEFAULT_ARBITRAGE_SOC_TRIGGER,
-    DEFAULT_BATTERY_POWER_ENTITY,
-    DEFAULT_BATTERY_SOC_ENTITY,
     DEFAULT_CHARGE_FROM_GRID_ENTITY,
     DEFAULT_GRID_ENABLED_ENTITY,
-    DEFAULT_NET_POWER_ENTITY,
     DEFAULT_OFFPEAK_DRAIN_EXCELLENT,
     DEFAULT_OFFPEAK_DRAIN_GOOD,
     DEFAULT_OFFPEAK_DRAIN_MODERATE,
@@ -28,7 +25,6 @@ from .energy_const import (
     DEFAULT_OFFPEAK_DRAIN_UNKNOWN,
     DEFAULT_RESERVE_SOC,
     DEFAULT_RESERVE_SOC_ENTITY,
-    DEFAULT_SOLAR_PRODUCTION_ENTITY,
     DEFAULT_SOLCAST_REMAINING_ENTITY,
     DEFAULT_SOLCAST_TODAY_ENTITY,
     DEFAULT_SOLCAST_TOMORROW_ENTITY,
@@ -83,12 +79,20 @@ class BatteryStrategy:
         self._arbitrage_target = arbitrage_soc_target
         self._arbitrage_active = False
 
-    def _get_entity(self, key: str, default: str) -> str:
-        """Get entity ID from config or default."""
+    def _get_entity(self, key: str, default: str | None = None) -> str | None:
+        """Get entity ID from config or default.
+
+        v4.3.1: default is now optional (None). Envoy-derived entities have
+        no production default — they MUST come via config (auto-derive seeds
+        them in __init__.py). Non-envoy entities (Solcast, Enpower, Weather)
+        still pass their hardcoded defaults explicitly.
+        """
         return self._entities.get(key, default)
 
-    def _get_state_float(self, entity_id: str) -> float | None:
-        """Get numeric state from an entity."""
+    def _get_state_float(self, entity_id: str | None) -> float | None:
+        """Get numeric state from an entity. None entity_id → None."""
+        if entity_id is None:
+            return None
         state = self.hass.states.get(entity_id)
         if state is None or state.state in ("unknown", "unavailable"):
             return None
@@ -97,15 +101,19 @@ class BatteryStrategy:
         except (ValueError, TypeError):
             return None
 
-    def _get_state_str(self, entity_id: str) -> str | None:
-        """Get string state from an entity."""
+    def _get_state_str(self, entity_id: str | None) -> str | None:
+        """Get string state from an entity. None entity_id → None."""
+        if entity_id is None:
+            return None
         state = self.hass.states.get(entity_id)
         if state is None or state.state in ("unknown", "unavailable"):
             return None
         return state.state
 
-    def _get_state_bool(self, entity_id: str) -> bool | None:
-        """Get boolean state from a switch entity."""
+    def _get_state_bool(self, entity_id: str | None) -> bool | None:
+        """Get boolean state from a switch entity. None entity_id → None."""
+        if entity_id is None:
+            return None
         state = self.hass.states.get(entity_id)
         if state is None or state.state in ("unknown", "unavailable"):
             return None
@@ -113,24 +121,21 @@ class BatteryStrategy:
 
     @property
     def battery_soc(self) -> float | None:
-        """Current battery state of charge (%)."""
-        return self._get_state_float(
-            self._get_entity("battery_soc", DEFAULT_BATTERY_SOC_ENTITY)
-        )
+        """Current battery state of charge (%). None if envoy not configured."""
+        return self._get_state_float(self._get_entity("battery_soc"))
 
     @property
     def solar_production(self) -> float | None:
-        """Current solar production in watts."""
-        return self._get_state_float(
-            self._get_entity("solar_production", DEFAULT_SOLAR_PRODUCTION_ENTITY)
-        )
+        """Current solar production in watts. None if envoy not configured."""
+        return self._get_state_float(self._get_entity("solar_production"))
 
     @property
     def net_power(self) -> float | None:
-        """Net power consumption (positive=importing, negative=exporting)."""
-        return self._get_state_float(
-            self._get_entity("net_power", DEFAULT_NET_POWER_ENTITY)
-        )
+        """Net power consumption (positive=importing, negative=exporting).
+
+        None if envoy not configured.
+        """
+        return self._get_state_float(self._get_entity("net_power"))
 
     @property
     def battery_power(self) -> float | None:
@@ -140,9 +145,7 @@ class BatteryStrategy:
         sign convention (positive=discharging), so we negate it here to keep
         the rest of the codebase consistent.
         """
-        raw = self._get_state_float(
-            self._get_entity("battery_power", DEFAULT_BATTERY_POWER_ENTITY)
-        )
+        raw = self._get_state_float(self._get_entity("battery_power"))
         return -raw if raw is not None else None
 
     @property

@@ -1,6 +1,6 @@
 """Config flow for Universal Room Automation v3.6.24."""
 #
-# Universal Room Automation vv4.3.0
+# Universal Room Automation vv4.3.1
 # Build: 2026-01-05
 # File: config_flow.py
 # v3.3.3: Added manage_zones to integration options menu
@@ -2690,6 +2690,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             from .domain_coordinators.energy_const import (
                 validate_envoy_config,
                 ENVOY_REQUIRED_DERIVED_KEYS,
+                ENVOY_ERR_BASE_DERIVED_MISSING,
             )
 
             submitted_envoy = user_input.get(CONF_ENERGY_ENVOY_ENTITY) or ""
@@ -2712,7 +2713,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                         k in result["errors"]
                         for k in ENVOY_REQUIRED_DERIVED_KEYS
                     ):
-                        errors.setdefault("base", "envoy_derived_missing")
+                        errors.setdefault("base", ENVOY_ERR_BASE_DERIVED_MISSING)
                 elif result["warnings"]:
                     # V3: non-blocking — log only. The user's save proceeds.
                     for w in result["warnings"]:

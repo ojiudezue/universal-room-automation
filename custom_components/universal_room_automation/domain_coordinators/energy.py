@@ -77,19 +77,11 @@ from .energy_const import (
     DEFAULT_CONSTRAINT_PRECOOL_OFFSET,
     DEFAULT_CONSTRAINT_PREHEAT_OFFSET,
     DEFAULT_CONSTRAINT_SHED_OFFSET,
-    DEFAULT_CONSUMPTION_TODAY_ENTITY,
     DEFAULT_DECISION_INTERVAL_MINUTES,
     DEFAULT_EXCESS_SOLAR_KWH_THRESHOLD,
     DEFAULT_GRID_IMPORT_CAP_HYSTERESIS_KW,
     DEFAULT_GRID_IMPORT_CAP_KW,
     DEFAULT_EXCESS_SOLAR_SOC_THRESHOLD,
-    DEFAULT_GRID_CONSUMPTION_ENTITY,
-    DEFAULT_LIFETIME_BATTERY_CHARGED_ENTITY,
-    DEFAULT_LIFETIME_BATTERY_DISCHARGED_ENTITY,
-    DEFAULT_LIFETIME_CONSUMPTION_ENTITY,
-    DEFAULT_LIFETIME_NET_EXPORT_ENTITY,
-    DEFAULT_LIFETIME_NET_IMPORT_ENTITY,
-    DEFAULT_LIFETIME_PRODUCTION_ENTITY,
     DEFAULT_LOAD_SHEDDING_SUSTAINED_MINUTES,
     DEFAULT_LOAD_SHEDDING_THRESHOLD_KW,
     DEFAULT_OFFPEAK_DRAIN_EXCELLENT,
@@ -152,23 +144,20 @@ class EnergyCoordinator(BaseCoordinator):
         # Build off-peak drain targets from config
         ec = entity_config or {}
 
-        # v4.0.12: Resolved Envoy entity IDs (auto-derived or explicit config)
-        self._entity_lifetime_consumption = ec.get(
-            CONF_ENERGY_LIFETIME_CONSUMPTION_ENTITY, DEFAULT_LIFETIME_CONSUMPTION_ENTITY)
-        self._entity_lifetime_production = ec.get(
-            CONF_ENERGY_LIFETIME_PRODUCTION_ENTITY, DEFAULT_LIFETIME_PRODUCTION_ENTITY)
-        self._entity_lifetime_net_import = ec.get(
-            CONF_ENERGY_LIFETIME_NET_IMPORT_ENTITY, DEFAULT_LIFETIME_NET_IMPORT_ENTITY)
-        self._entity_lifetime_net_export = ec.get(
-            CONF_ENERGY_LIFETIME_NET_EXPORT_ENTITY, DEFAULT_LIFETIME_NET_EXPORT_ENTITY)
-        self._entity_lifetime_battery_charged = ec.get(
-            CONF_ENERGY_LIFETIME_BATTERY_CHARGED_ENTITY, DEFAULT_LIFETIME_BATTERY_CHARGED_ENTITY)
-        self._entity_lifetime_battery_discharged = ec.get(
-            CONF_ENERGY_LIFETIME_BATTERY_DISCHARGED_ENTITY, DEFAULT_LIFETIME_BATTERY_DISCHARGED_ENTITY)
-        self._entity_consumption_today = ec.get(
-            CONF_ENERGY_CONSUMPTION_TODAY_ENTITY, DEFAULT_CONSUMPTION_TODAY_ENTITY)
-        self._entity_grid_consumption = ec.get(
-            CONF_ENERGY_GRID_ENTITY, DEFAULT_GRID_CONSUMPTION_ENTITY)
+        # v4.0.12: Resolved Envoy entity IDs (auto-derived or explicit config).
+        # v4.3.1: no production fallback. B1 envoy validation gate (v4.2.29)
+        # ensures these are populated when EC is enabled. Values may be None
+        # for installs where EC is disabled or envoy validation skipped — all
+        # downstream consumers must handle None gracefully via state.get(None)
+        # short-circuit at the read site.
+        self._entity_lifetime_consumption = ec.get(CONF_ENERGY_LIFETIME_CONSUMPTION_ENTITY)
+        self._entity_lifetime_production = ec.get(CONF_ENERGY_LIFETIME_PRODUCTION_ENTITY)
+        self._entity_lifetime_net_import = ec.get(CONF_ENERGY_LIFETIME_NET_IMPORT_ENTITY)
+        self._entity_lifetime_net_export = ec.get(CONF_ENERGY_LIFETIME_NET_EXPORT_ENTITY)
+        self._entity_lifetime_battery_charged = ec.get(CONF_ENERGY_LIFETIME_BATTERY_CHARGED_ENTITY)
+        self._entity_lifetime_battery_discharged = ec.get(CONF_ENERGY_LIFETIME_BATTERY_DISCHARGED_ENTITY)
+        self._entity_consumption_today = ec.get(CONF_ENERGY_CONSUMPTION_TODAY_ENTITY)
+        self._entity_grid_consumption = ec.get(CONF_ENERGY_GRID_ENTITY)
 
         offpeak_drain_targets = {
             "excellent": ec.get(CONF_ENERGY_OFFPEAK_DRAIN_EXCELLENT, DEFAULT_OFFPEAK_DRAIN_EXCELLENT),
@@ -996,63 +985,27 @@ class EnergyCoordinator(BaseCoordinator):
 
     def _get_lifetime_consumption(self) -> float | None:
         """Read Envoy lifetime energy consumption (MWh, monotonically increasing)."""
-        state = self.hass.states.get(self._entity_lifetime_consumption)
-        if state is None or state.state in ("unknown", "unavailable"):
-            return None
-        try:
-            return float(state.state)
-        except (ValueError, TypeError):
-            return None
+        return self._get_state_float(self._entity_lifetime_consumption)
 
     def _get_lifetime_production(self) -> float | None:
         """Read Envoy lifetime energy production (MWh, monotonically increasing)."""
-        state = self.hass.states.get(self._entity_lifetime_production)
-        if state is None or state.state in ("unknown", "unavailable"):
-            return None
-        try:
-            return float(state.state)
-        except (ValueError, TypeError):
-            return None
+        return self._get_state_float(self._entity_lifetime_production)
 
     def _get_lifetime_net_import(self) -> float | None:
         """Read Envoy lifetime net energy consumption/import (MWh, monotonically increasing)."""
-        state = self.hass.states.get(self._entity_lifetime_net_import)
-        if state is None or state.state in ("unknown", "unavailable"):
-            return None
-        try:
-            return float(state.state)
-        except (ValueError, TypeError):
-            return None
+        return self._get_state_float(self._entity_lifetime_net_import)
 
     def _get_lifetime_net_export(self) -> float | None:
         """Read Envoy lifetime net energy production/export (MWh, monotonically increasing)."""
-        state = self.hass.states.get(self._entity_lifetime_net_export)
-        if state is None or state.state in ("unknown", "unavailable"):
-            return None
-        try:
-            return float(state.state)
-        except (ValueError, TypeError):
-            return None
+        return self._get_state_float(self._entity_lifetime_net_export)
 
     def _get_lifetime_battery_discharged(self) -> float | None:
         """Read Envoy lifetime battery energy discharged (MWh, monotonically increasing)."""
-        state = self.hass.states.get(self._entity_lifetime_battery_discharged)
-        if state is None or state.state in ("unknown", "unavailable"):
-            return None
-        try:
-            return float(state.state)
-        except (ValueError, TypeError):
-            return None
+        return self._get_state_float(self._entity_lifetime_battery_discharged)
 
     def _get_lifetime_battery_charged(self) -> float | None:
         """Read Envoy lifetime battery energy charged (MWh, monotonically increasing)."""
-        state = self.hass.states.get(self._entity_lifetime_battery_charged)
-        if state is None or state.state in ("unknown", "unavailable"):
-            return None
-        try:
-            return float(state.state)
-        except (ValueError, TypeError):
-            return None
+        return self._get_state_float(self._entity_lifetime_battery_charged)
 
     def _maybe_reset_daily(self) -> None:
         """Reset daily counters and feed accuracy tracking if date changed.
@@ -1319,6 +1272,11 @@ class EnergyCoordinator(BaseCoordinator):
         if current_lifetime is None or self._lifetime_consumption_snapshot is None:
             return
 
+        # v4.3.1: None-safe — _entity_consumption_today is None when EC was
+        # instantiated without an envoy entity (validation gate would normally
+        # block this; defensive guard).
+        if self._entity_consumption_today is None:
+            return
         envoy_today_state = self.hass.states.get(self._entity_consumption_today)
         if envoy_today_state is None or envoy_today_state.state in ("unknown", "unavailable"):
             return
@@ -1547,30 +1505,33 @@ class EnergyCoordinator(BaseCoordinator):
         available; remembers the last good value so an Envoy blip during
         arbitrage doesn't silently flip to the 40 kWh fallback mid-cycle.
         Logs a WARNING on first fallback so the user sees it.
+
+        v4.3.1: battery_capacity entity has no production default — `eid` may
+        be None when not configured (e.g., installs without battery). Treat
+        same as unavailable: use cached value, then static fallback.
         """
-        from .energy_const import DEFAULT_BATTERY_CAPACITY_ENTITY
         from .energy_forecast import BATTERY_TOTAL_CAPACITY_KWH_FALLBACK
-        eid = self._battery._get_entity(
-            "battery_capacity", DEFAULT_BATTERY_CAPACITY_ENTITY,
-        )
-        state = self.hass.states.get(eid)
-        if state is not None and state.state not in ("unknown", "unavailable"):
-            try:
-                cap = float(state.state) / 1000.0  # Wh → kWh
-                self._cached_battery_capacity_kwh = cap
-                return cap
-            except (ValueError, TypeError):
-                pass
+        eid = self._battery._get_entity("battery_capacity")
+        if eid is not None:
+            state = self.hass.states.get(eid)
+            if state is not None and state.state not in ("unknown", "unavailable"):
+                try:
+                    cap = float(state.state) / 1000.0  # Wh → kWh
+                    self._cached_battery_capacity_kwh = cap
+                    return cap
+                except (ValueError, TypeError):
+                    pass
         # Last-known-good wins over the static fallback
         cached = getattr(self, "_cached_battery_capacity_kwh", None)
         if cached is not None:
             return cached
         if not getattr(self, "_capacity_fallback_logged", False):
             _LOGGER.warning(
-                "Battery capacity entity %s unavailable; using static "
-                "fallback %.1f kWh for arbitrage savings math. ROI sensors "
-                "will be approximate until Envoy reports capacity again.",
-                eid, BATTERY_TOTAL_CAPACITY_KWH_FALLBACK,
+                "Battery capacity entity %s; using static fallback %.1f kWh "
+                "for arbitrage savings math. ROI sensors will be approximate "
+                "until Envoy reports capacity again.",
+                eid or "(not configured)",
+                BATTERY_TOTAL_CAPACITY_KWH_FALLBACK,
             )
             self._capacity_fallback_logged = True
         return BATTERY_TOTAL_CAPACITY_KWH_FALLBACK
@@ -3273,8 +3234,10 @@ class EnergyCoordinator(BaseCoordinator):
     # Monitoring accessors (consumption, EV, L1 charger)
     # =========================================================================
 
-    def _get_state_float(self, entity_id: str) -> float | None:
-        """Get numeric state from entity."""
+    def _get_state_float(self, entity_id: str | None) -> float | None:
+        """Get numeric state from entity. None entity_id → None (v4.3.1)."""
+        if entity_id is None:
+            return None
         state = self.hass.states.get(entity_id)
         if state is None or state.state in ("unknown", "unavailable"):
             return None

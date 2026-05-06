@@ -1416,7 +1416,18 @@
   "issues": {
     "energy_envoy_invalid": {
       "title": "Energy Coordinator: Envoy entity validation failed",
-      "description": "The Energy Coordinator did not start because envoy entity validation failed at startup. Errors: {errors}.\n\nFix via Coordinator Manager → Configure → Energy. Pick any Envoy sensor whose serial matches your installed Envoy. URA auto-derives all related entities from that serial."
+      "description": "The Energy Coordinator did not start because envoy entity validation failed at startup. Errors: {errors}.\n\nFix via Coordinator Manager → Configure → Energy. Pick any Envoy sensor whose serial matches your installed Envoy. URA auto-derives all related entities from that serial.",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Re-validate Envoy entity",
+            "description": "Current errors: {errors}.\n\n1. Open Settings → Devices & Services → URA: Coordinator Manager → Configure → Energy.\n2. Set the Envoy Sensor field to a working sensor whose serial matches your installed Envoy.\n3. Save.\n4. Come back here and click Submit — URA will re-validate and reload the integration if it passes."
+          }
+        },
+        "error": {
+          "envoy_validation_still_failing": "Validation still failing. Errors: {errors}. Check the config again."
+        }
+      }
     }
   }
 }
