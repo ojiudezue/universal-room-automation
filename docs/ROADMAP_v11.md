@@ -316,6 +316,54 @@ with cache + staleness guard + NM alerting.
 
 ## FUTURE ROADMAP
 
+### v4.3.0 — Grid Arbitrage Hardening
+**Effort:** 2-3 cycles
+**Priority:** HIGH (carries a CRITICAL latent bug fix)
+**Status:** Planned, planning doc complete
+**Planning:** `docs/planning/PLANNING_v4.3.0_arbitrage_hardening.md`
+**Pickup:** `docs/transitions/SESSION_TRANSITION_2026-05-06.md`
+
+Bundles a critical reserve-level bug fix (arbitrage has never actually
+charged the battery since v3.11.0 — see transition doc for live evidence)
+with the runtime sliders + ROI sensor + reconciliation work proposed in
+the 2026-05-06 morning session.
+
+**Deliverables:**
+- D1: Reserve-level fix (set `reserve_level=arbitrage_target` not
+  `reserve_soc` in Phase B paths). Plus cosmetic `_arbitrage_active`
+  reset on envoy-unavailable early return.
+- D2: Live runtime sliders for `arbitrage_soc_trigger` and
+  `arbitrage_soc_target` — mirrors v4.2.10 OffPeakDrainNumber pattern.
+  Battery strategy reads live from entity state, not config-flow snapshot.
+- D3: Drain/arbitrage threshold reconciliation — enforce
+  `arbitrage_trigger < drain_target_poor` to prevent oscillation.
+  UI guard with log warning + sensor attribute on violation.
+- D4: Per-cycle ROI sensor — tracks kWh charged at off-peak rate × spread,
+  exposed as `sensor.ura_arbitrage_savings_today/month/total`. Persists
+  cycles in new DB table.
+- D5: Threshold diagnostic attribute on the battery strategy sensor
+  showing where current SOC sits relative to all thresholds + next
+  expected action.
+
+**Why bundled, not slipped as v4.2.30 hotfix:** user explicitly chose to
+bundle so the bug fix lands with the surrounding observability and
+reconciliation in place — verified together in one Tier 2 cycle.
+
+**Tier 2** — 2 reviews + live validation. Live validation is critical
+for D1 since no test rig can validate Enphase behavior; the success
+signal is `sensor.envoy_*_battery` SOC rising during an arbitrage
+activation.
+
+**Deferred to v4.3.x or later:**
+- Multi-day forecast lookback (look at 2-3 days of Solcast, not just tomorrow)
+- EV/arbitrage shared off-peak budget (needs `energy.py` orchestrator refactor)
+- Dashboard "estimated savings if enabled" widget (depends on D4 ROI
+  sensor having historical data)
+- User-tunable solar classification thresholds (partial impl exists at
+  `energy_battery.py:194` — verify and expose in config flow)
+- Enphase `savings` mode opt-in (likely net-negative; revisit only if
+  user explicitly wants it)
+
 ### v4.0.0 — Bayesian Predictive Intelligence
 **Effort:** 20-30 hours
 **Priority:** HIGH (capstone)
