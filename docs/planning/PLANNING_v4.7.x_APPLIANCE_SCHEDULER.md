@@ -2,7 +2,8 @@
 
 **Version:** 1.0
 **Date:** May 5, 2026
-**Status:** Ready to build
+**Status:** Ready to build (queued as v4.7.x; was v4.4.x)
+**Renumbered:** 2026-05-06 from v4.4.x to v4.7.x in the post-v4.3.4 reshuffle that moved Battery Strategy v2 Overlay to v4.5.0 and Routine Awareness to v4.6.0.
 **Depends on:** Energy Coordinator (v4.0.0+, TOU engine), Coordinator Manager v3.6+ (`register_coordinator`), URADatabase v4.2.x (write queue with batching + budgeting)
 **Effort:** ~28-36 hours (D1-D6: ~22h core; D7-D8 sprinklers + provider-2: ~10h)
 **Priority:** MEDIUM-HIGH — directly reduces utility cost; foundational for future appliance/water integrations
@@ -304,7 +305,7 @@ D7 (Rainbird + forecast)── parallel after D2; uses D6 dispatch model
 D8 (Generic power)      ── parallel after D1; demonstrates ABC
 ```
 
-**Ship plan:** D1+D2+D3+D4+D6 as v4.4.0 (LG washers/dishwashers/washtowers cost-deferral). D5 hardening as v4.4.1. D7 sprinkler skip as v4.4.2. D8 (generic provider) as v4.5.0 once a real third-party device is being integrated.
+**Ship plan:** D1+D2+D3+D4+D6 as v4.7.0 (LG washers/dishwashers/washtowers cost-deferral). D5 hardening as v4.7.1. D7 sprinkler skip as v4.7.2. D8 (generic provider) as v4.8.0 once a real third-party device is being integrated.
 
 ---
 
