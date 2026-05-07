@@ -1089,6 +1089,56 @@ checks, and energy accounting; very hard to detect post-deploy)
 
 ---
 
+### Bug Class #31: Per-Unit vs Aggregate Sensor Reads on Multi-Unit Hardware ⚠️
+
+**Pattern:** Code reads a sensor that *looks* aggregate (e.g.,
+`current_battery_discharge`) but on multi-unit hardware actually reports
+a single unit, a single zone, or a sliding average that lags the true
+aggregate. Math built on the per-unit reading silently understates by a
+factor equal to the number of units (or units-in-a-zone), or by an
+unpredictable factor when polling intervals differ between integration
+and source.
+
+Sibling of #30 (kW vs W drift) — both are "the value you read isn't the
+value the underlying system reports." #30 is unit-of-measurement drift,
+#31 is per-unit vs aggregate drift.
+
+**Impact:**
+- Silent: no exception, no log error. The reading is internally
+  consistent (all values from the same source), so balance checks pass.
+- Detection-resistant: bench tests with single-unit hardware never
+  reproduce the issue.
+- Cascade: thresholds, accumulators, and savings math are all off by
+  N× where N is the unit count. Defensive guards built on the
+  understated reading don't fire when they should.
+
+**Discovered:** v4.5.0 deploy — user observed Enphase Enlighten app
+showing 31.9 kW battery charging while HA's `sensor.envoy_*_current_battery_discharge`
+read 10.78 kW. Initial hypothesis (3× understatement from per-unit
+reading) turned out to be a polling/ramp artifact (one entity per
+system, but Enlighten samples ~real-time while HA Envoy integration
+polls ~60s). Hypothesis disproved by entity-level investigation; the
+shape of the bug class is real for multi-Envoy installs and other
+multi-unit topologies.
+
+**Prevention:**
+- [ ] When code reads a power/energy sensor for math, document explicitly
+      whether it's per-unit, per-zone, or aggregate.
+- [ ] For multi-unit hardware (multi-Envoy, multi-EVSE, multi-inverter
+      solar), search for ALL matching sensors via `ha_search_entities`
+      during install — confirm there's exactly one source for each
+      aggregate metric.
+- [ ] Add a sanity-check log at startup that compares system-balance
+      math (in - out) — discrepancies > 10% indicate one read is wrong.
+- [ ] Defensive guards (like v4.5.0.2's grid-import guard) read net flow
+      from a separate source (grid CT) rather than computed from battery
+      reads, so they fire correctly even when battery reads are off.
+
+**Severity:** HIGH (silent N× drift; would have masked v4.5.0's breaker
+trip ramp behavior if the user hadn't noticed Enlighten's number)
+
+---
+
 ### Bug Class #29: Unbudgeted Scheduled Maintenance ⚠️
 
 **Pattern:** A nightly or startup task iterates through N cleanup operations sequentially with no time budget. If early operations are slow (large backlogs), later operations never run. If ALL operations are slow, the task blocks the event loop for the entire duration.

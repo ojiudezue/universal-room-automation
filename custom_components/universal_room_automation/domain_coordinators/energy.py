@@ -173,9 +173,11 @@ class EnergyCoordinator(BaseCoordinator):
         from .energy_const import (
             CONF_ENERGY_PEAK_BUFFER_TARGET,
             CONF_ENERGY_ARBITRAGE_CHARGE_LEAD_TIME_MIN,
+            CONF_ENERGY_ARBITRAGE_GRID_IMPORT_GUARD_KW,
             CONF_ENERGY_MULTI_DAY_HORIZON_ENABLED,
             CONF_ENERGY_SOLCAST_DAY_3_ENTITY,
             DEFAULT_ARBITRAGE_CHARGE_LEAD_TIME_MIN,
+            DEFAULT_ARBITRAGE_GRID_IMPORT_GUARD_KW,
             DEFAULT_PEAK_BUFFER_TARGET,
         )
         peak_buffer_target = int(ec.get(
@@ -185,6 +187,10 @@ class EnergyCoordinator(BaseCoordinator):
         lead_time = int(ec.get(
             CONF_ENERGY_ARBITRAGE_CHARGE_LEAD_TIME_MIN,
             DEFAULT_ARBITRAGE_CHARGE_LEAD_TIME_MIN,
+        ))
+        grid_import_guard_kw = float(ec.get(
+            CONF_ENERGY_ARBITRAGE_GRID_IMPORT_GUARD_KW,
+            DEFAULT_ARBITRAGE_GRID_IMPORT_GUARD_KW,
         ))
         self._battery = BatteryStrategy(
             hass,
@@ -199,6 +205,7 @@ class EnergyCoordinator(BaseCoordinator):
             ),
             peak_buffer_target=peak_buffer_target,
             arbitrage_charge_lead_time_min=lead_time,
+            arbitrage_grid_import_guard_kw=grid_import_guard_kw,
             tou_engine=self._tou,  # v4.5.0 D8: charge-window math
             multi_day_horizon_enabled=ec.get(
                 CONF_ENERGY_MULTI_DAY_HORIZON_ENABLED, False

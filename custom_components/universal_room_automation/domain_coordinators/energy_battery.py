@@ -25,6 +25,7 @@ from .energy_const import (
     BATTERY_MODE_BACKUP,
     BATTERY_MODE_SELF_CONSUMPTION,
     DEFAULT_ARBITRAGE_CHARGE_LEAD_TIME_MIN,
+    DEFAULT_ARBITRAGE_GRID_IMPORT_GUARD_KW,
     DEFAULT_ARBITRAGE_SOC_TARGET,
     DEFAULT_CHARGE_FROM_GRID_ENTITY,
     DEFAULT_GRID_ENABLED_ENTITY,
@@ -76,6 +77,7 @@ class BatteryStrategy:
         arbitrage_soc_target: int = DEFAULT_ARBITRAGE_SOC_TARGET,
         peak_buffer_target: int | None = None,
         arbitrage_charge_lead_time_min: int = DEFAULT_ARBITRAGE_CHARGE_LEAD_TIME_MIN,
+        arbitrage_grid_import_guard_kw: float = DEFAULT_ARBITRAGE_GRID_IMPORT_GUARD_KW,
         tou_engine: Any = None,
         multi_day_horizon_enabled: bool = False,
         solcast_day_3_entity: str | None = None,
@@ -143,6 +145,22 @@ class BatteryStrategy:
         self._arbitrage_charge_lead_time_min: int = self._clamp_lead_time(
             arbitrage_charge_lead_time_min
         )
+        # v4.5.0.2: defensive grid-import guard threshold (kW). When
+        # actual grid import exceeds this during a CHARGE tick, the
+        # chunk is aborted (chunk_completed=True, return WAIT) to
+        # protect against undersized breakers. One-shot per chunk.
+        try:
+            self._arbitrage_grid_import_guard_kw: float = float(
+                arbitrage_grid_import_guard_kw
+            )
+        except (TypeError, ValueError):
+            self._arbitrage_grid_import_guard_kw = (
+                DEFAULT_ARBITRAGE_GRID_IMPORT_GUARD_KW
+            )
+        # Diagnostic surface — populated when the guard fires, so the
+        # sensor and tests can assert on the abort cause.
+        self._arbitrage_guard_aborted_at: str | None = None
+        self._arbitrage_guard_aborted_kw: float | None = None
 
         # v4.5.0 D8 hookup. May be None when constructed from a test
         # harness or before the EnergyCoordinator finishes wiring.
@@ -576,6 +594,25 @@ class BatteryStrategy:
                 return True
         return False
 
+    def _grid_import_guard_triggered(self) -> bool:
+        """v4.5.0.2: True iff actual grid import exceeds the configured guard.
+
+        Reads `net_power_w` (already unit-normalized via the v4.5.0 sweep —
+        see Bug Class #30) and converts to kW. A None reading (envoy
+        unavailable) returns False — let the envoy-unavailable branch
+        upstream handle that case. A 0 (or negative — exporting) reading
+        is safe by definition.
+
+        Threshold default 20 kW. Configurable via
+        `arbitrage_grid_import_guard_kw` constructor arg (will become a
+        config-flow form field in v4.5.1).
+        """
+        net_w = self.net_power_w
+        if net_w is None:
+            return False
+        net_kw = net_w / 1000.0
+        return net_kw > self._arbitrage_grid_import_guard_kw
+
     def _gate_is_open(self, now: datetime, target_day_class: str) -> bool:
         """Pre-conditions for *any* arbitrage phase consideration.
 
@@ -644,6 +681,29 @@ class BatteryStrategy:
                         now.isoformat(timespec="minutes") if hasattr(now, "isoformat") else now,
                     )
                     return ARBITRAGE_PHASE_WAIT
+            # v4.5.0.2 defensive guard: if actual grid import exceeds the
+            # configured threshold, abort the chunk. Protects against
+            # undersized breakers tripping under hardware peak draw that
+            # the strategy can't directly throttle (Enphase
+            # charge_from_grid is binary). One-shot per chunk; the
+            # chunk_lock prevents flap. v4.5.1 will replace this with
+            # proper rate control via barneyonline HACS.
+            if self._grid_import_guard_triggered():
+                self._arbitrage_chunk_completed = True
+                from homeassistant.util import dt as dt_util
+                self._arbitrage_guard_aborted_at = dt_util.now().isoformat()
+                self._arbitrage_guard_aborted_kw = (
+                    (self.net_power_w or 0) / 1000.0
+                )
+                _LOGGER.warning(
+                    "Arbitrage CHARGE aborted by grid-import guard: "
+                    "net_power=%.1f kW exceeds threshold=%.1f kW. Chunk "
+                    "locked; will retry next off-peak chunk. (Likely "
+                    "panel breaker risk — consider rate control.)",
+                    self._arbitrage_guard_aborted_kw,
+                    self._arbitrage_grid_import_guard_kw,
+                )
+                return ARBITRAGE_PHASE_WAIT
             return ARBITRAGE_PHASE_CHARGE
 
         # Phase 5 — window not open yet. Battery serves loads naturally.
@@ -736,10 +796,18 @@ class BatteryStrategy:
         attempt (no oscillation if forecast wobbles or SOC dips post-
         completion).
         """
-        if self._arbitrage_chunk_completed or self._chunk_recheck_done:
+        if (
+            self._arbitrage_chunk_completed
+            or self._chunk_recheck_done
+            or self._arbitrage_guard_aborted_at
+        ):
             _LOGGER.info("Arbitrage chunk reset (%s)", reason)
         self._arbitrage_chunk_completed = False
         self._chunk_recheck_done = False
+        # v4.5.0.2: clear guard diagnostic on chunk reset so each chunk's
+        # state is fresh.
+        self._arbitrage_guard_aborted_at = None
+        self._arbitrage_guard_aborted_kw = None
 
     def determine_mode(
         self,
@@ -799,6 +867,16 @@ class BatteryStrategy:
             # next decision cycle will re-evaluate and re-set as needed.
             self._arbitrage_active = False
             self._arbitrage_phase = ARBITRAGE_PHASE_NA
+            # v4.5.0.2 fix: also sync _last_reason. Pre-fix, this early-return
+            # path mutated _arbitrage_phase + _arbitrage_active without touching
+            # _last_reason, leaving the sensor's `reason` attribute holding a
+            # stale CHARGE/HOLD message from a prior tick while phase/active
+            # showed "n/a"/False. Looked like a self-contradicting state to the
+            # user. Now: reason matches phase. Discovered live during v4.5.0
+            # post-deploy validation when an Envoy blip co-occurred with the
+            # battery breaker tripping.
+            self._last_reason = "Envoy unavailable — holding (no commands issued)"
+            self._last_mode = current_mode or "unknown"
             return {
                 "mode": current_mode or "unknown",
                 "reason": "Envoy unavailable — holding (no commands issued)",
@@ -1217,6 +1295,10 @@ class BatteryStrategy:
             "arbitrage_phase": self._arbitrage_phase,
             "arbitrage_chunk_completed": self._arbitrage_chunk_completed,
             "arbitrage_charge_lead_time_min": self._arbitrage_charge_lead_time_min,
+            # v4.5.0.2 grid-import guard surfaces
+            "arbitrage_grid_import_guard_kw": self._arbitrage_grid_import_guard_kw,
+            "arbitrage_guard_aborted_at": self._arbitrage_guard_aborted_at,
+            "arbitrage_guard_aborted_kw": self._arbitrage_guard_aborted_kw,
             "next_high_rate_transition": next_transition_iso,
             "next_high_rate_transition_period": next_transition_period,
             "charge_window_opens_at": charge_window_opens_at_iso,

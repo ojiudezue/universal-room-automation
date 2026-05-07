@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv4.5.0.1
+# Universal Room Automation vv4.5.0.2
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -264,32 +264,69 @@ async def _migrate_arbitrage_target_to_peak_buffer(
         CONF_ENERGY_ARBITRAGE_SOC_TRIGGER_LEGACY,
         CONF_ENERGY_PEAK_BUFFER_TARGET,
     )
-    if cm_entry.options.get("arbitrage_target_rename_migration_done"):
+    # v4.5.0.2: orphan registry cleanup is gated on its own flag so it
+    # runs even on installs that already cleared the rename flag in v4.5.0.1.
+    rename_done = cm_entry.options.get("arbitrage_target_rename_migration_done")
+    orphan_cleanup_done = cm_entry.options.get(
+        "arbitrage_soc_orphan_cleanup_done"
+    )
+    if rename_done and orphan_cleanup_done:
         return False
 
     new_options = dict(cm_entry.options)
     changed = False
 
-    # 1. Carry old value forward to new key (don't override an existing
-    # peak_buffer_target — fresh installs may have only the new key).
-    legacy_target = new_options.pop(CONF_ENERGY_ARBITRAGE_SOC_TARGET, None)
-    if (
-        legacy_target is not None
-        and CONF_ENERGY_PEAK_BUFFER_TARGET not in new_options
-    ):
-        new_options[CONF_ENERGY_PEAK_BUFFER_TARGET] = legacy_target
-        changed = True
-    elif legacy_target is not None:
-        # Both keys present — new key already wins. Just drop the old.
-        changed = True
+    if not rename_done:
+        # 1. Carry old value forward to new key (don't override an existing
+        # peak_buffer_target — fresh installs may have only the new key).
+        legacy_target = new_options.pop(CONF_ENERGY_ARBITRAGE_SOC_TARGET, None)
+        if (
+            legacy_target is not None
+            and CONF_ENERGY_PEAK_BUFFER_TARGET not in new_options
+        ):
+            new_options[CONF_ENERGY_PEAK_BUFFER_TARGET] = legacy_target
+            changed = True
+        elif legacy_target is not None:
+            # Both keys present — new key already wins. Just drop the old.
+            changed = True
 
-    # 2. Drop the deprecated trigger key (no longer used).
-    if CONF_ENERGY_ARBITRAGE_SOC_TRIGGER_LEGACY in new_options:
-        new_options.pop(CONF_ENERGY_ARBITRAGE_SOC_TRIGGER_LEGACY, None)
-        changed = True
+        # 2. Drop the deprecated trigger key (no longer used).
+        if CONF_ENERGY_ARBITRAGE_SOC_TRIGGER_LEGACY in new_options:
+            new_options.pop(CONF_ENERGY_ARBITRAGE_SOC_TRIGGER_LEGACY, None)
+            changed = True
 
-    # 3. Mark done — even if nothing changed (so we don't re-check next setup).
-    new_options["arbitrage_target_rename_migration_done"] = True
+        new_options["arbitrage_target_rename_migration_done"] = True
+
+    if not orphan_cleanup_done:
+        # 3. v4.5.0.2: remove orphan ArbitrageSOCNumber entity registry entries
+        # left over from v4.3.x. These show up as ghost sliders ("Arbitrage
+        # SOC...") on the EC device card after the v4.5.0 D2 entity rename —
+        # the production code no longer instantiates them, but HA's entity
+        # registry still holds the old unique_ids. Idempotent: no-op if the
+        # entities are already gone (e.g. fresh install).
+        try:
+            from homeassistant.helpers import entity_registry as er
+            ent_reg = er.async_get(hass)
+            orphan_unique_ids = (
+                f"{DOMAIN}_energy_arbitrage_soc_trigger",
+                f"{DOMAIN}_energy_arbitrage_soc_target",
+            )
+            for uid in orphan_unique_ids:
+                entity_id = ent_reg.async_get_entity_id("number", DOMAIN, uid)
+                if entity_id:
+                    ent_reg.async_remove(entity_id)
+                    _LOGGER.info(
+                        "v4.5.0.2 migration: removed orphan entity %s (unique_id=%s)",
+                        entity_id, uid,
+                    )
+                    changed = True
+        except Exception as e:
+            # Don't let registry cleanup block the rest of the migration.
+            _LOGGER.warning(
+                "v4.5.0.2 orphan entity cleanup failed (non-fatal): %s", e
+            )
+
+        new_options["arbitrage_soc_orphan_cleanup_done"] = True
 
     hass.config_entries.async_update_entry(cm_entry, options=new_options)
     if changed:

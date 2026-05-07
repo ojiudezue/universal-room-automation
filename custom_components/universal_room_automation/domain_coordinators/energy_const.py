@@ -277,6 +277,21 @@ CONF_ENERGY_PEAK_BUFFER_TARGET: Final = "energy_peak_buffer_target"
 CONF_ENERGY_ARBITRAGE_CHARGE_LEAD_TIME_MIN: Final = (
     "energy_arbitrage_charge_lead_time_min"
 )
+# v4.5.0.2: defensive grid-import guard for arbitrage CHARGE phase.
+# If net_power_w during CHARGE exceeds this threshold, abort the chunk
+# (set chunk_completed=True, return WAIT). One-shot per chunk — no
+# saw-tooth flap. Acts as a software safety rail until v4.5.1 adds
+# proper charge-rate control via barneyonline/ha-enphase-energy HACS.
+# Discovered live during v4.5.0 deploy: user's panel breaker is sized
+# below the IQ Battery 5P stack's nominal 40 kW charge rate, causing
+# repeat trips. Default 20 kW = ~83A on 240V — matches the plan's
+# original (incorrect) assumption that solo battery was within breaker
+# capacity. Users with smaller battery banks or known-marginal breakers
+# should lower this in their config-flow form (added v4.5.1).
+DEFAULT_ARBITRAGE_GRID_IMPORT_GUARD_KW: Final = 20.0
+CONF_ENERGY_ARBITRAGE_GRID_IMPORT_GUARD_KW: Final = (
+    "energy_arbitrage_grid_import_guard_kw"
+)
 # v4.5.0 D3: multi-day Solcast lookback (D+2 awareness). Default OFF
 # during calibration cycle per Open Question #3.
 DEFAULT_SOLCAST_DAY_3_ENTITY: Final = (

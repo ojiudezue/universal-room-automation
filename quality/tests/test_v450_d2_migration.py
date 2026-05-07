@@ -124,24 +124,38 @@ async def _migrate(hass, cm_entry):
 
     Kept in sync with __init__.py via test_migration_helper_imports_resolve
     which AST-walks the production helper to assert its imports.
+
+    v4.5.0.2: dual-flag (rename_done + orphan_cleanup_done) so installs
+    that already ran v4.5.0.1's rename still get the orphan registry
+    cleanup. The orphan-cleanup step itself is mocked out at this layer
+    (we don't need a real entity_registry to verify the contract).
     """
-    if cm_entry.options.get("arbitrage_target_rename_migration_done"):
+    rename_done = cm_entry.options.get("arbitrage_target_rename_migration_done")
+    orphan_cleanup_done = cm_entry.options.get(
+        "arbitrage_soc_orphan_cleanup_done"
+    )
+    if rename_done and orphan_cleanup_done:
         return False
     new_options = dict(cm_entry.options)
     changed = False
-    legacy_target = new_options.pop(CONF_ENERGY_ARBITRAGE_SOC_TARGET, None)
-    if (
-        legacy_target is not None
-        and CONF_ENERGY_PEAK_BUFFER_TARGET not in new_options
-    ):
-        new_options[CONF_ENERGY_PEAK_BUFFER_TARGET] = legacy_target
-        changed = True
-    elif legacy_target is not None:
-        changed = True
-    if CONF_ENERGY_ARBITRAGE_SOC_TRIGGER_LEGACY in new_options:
-        new_options.pop(CONF_ENERGY_ARBITRAGE_SOC_TRIGGER_LEGACY, None)
-        changed = True
-    new_options["arbitrage_target_rename_migration_done"] = True
+    if not rename_done:
+        legacy_target = new_options.pop(CONF_ENERGY_ARBITRAGE_SOC_TARGET, None)
+        if (
+            legacy_target is not None
+            and CONF_ENERGY_PEAK_BUFFER_TARGET not in new_options
+        ):
+            new_options[CONF_ENERGY_PEAK_BUFFER_TARGET] = legacy_target
+            changed = True
+        elif legacy_target is not None:
+            changed = True
+        if CONF_ENERGY_ARBITRAGE_SOC_TRIGGER_LEGACY in new_options:
+            new_options.pop(CONF_ENERGY_ARBITRAGE_SOC_TRIGGER_LEGACY, None)
+            changed = True
+        new_options["arbitrage_target_rename_migration_done"] = True
+    if not orphan_cleanup_done:
+        # Production helper does entity_registry async_remove here. Mocked
+        # at this layer; verified separately in production via INFO logs.
+        new_options["arbitrage_soc_orphan_cleanup_done"] = True
     hass.config_entries.async_update_entry(cm_entry, options=new_options)
     return changed
 
@@ -216,7 +230,7 @@ def test_migration_new_key_wins_when_both_present():
 
 
 def test_migration_no_legacy_keys_present():
-    """Fresh install (only new keys) → flag set but nothing changed."""
+    """Fresh install (only new keys) → both flags set but nothing changed."""
     hass = _MockHass()
     entry = _MockEntry(options={
         CONF_ENERGY_PEAK_BUFFER_TARGET: 80,
@@ -225,6 +239,37 @@ def test_migration_no_legacy_keys_present():
     assert changed is False
     assert entry.options[CONF_ENERGY_PEAK_BUFFER_TARGET] == 80
     assert entry.options["arbitrage_target_rename_migration_done"] is True
+    assert entry.options["arbitrage_soc_orphan_cleanup_done"] is True
+
+
+def test_migration_v4502_orphan_cleanup_runs_after_v4501_rename():
+    """v4.5.0.2 install on top of v4.5.0.1: rename_done flag is already True
+    but orphan_cleanup flag isn't. Helper must run cleanup-only path and
+    set the new flag without touching anything else."""
+    hass = _MockHass()
+    entry = _MockEntry(options={
+        CONF_ENERGY_PEAK_BUFFER_TARGET: 75,
+        "arbitrage_target_rename_migration_done": True,  # set by v4.5.0.1
+        # orphan_cleanup_done NOT set yet
+    })
+    _run(_migrate(hass, entry))
+    # Both flags now set
+    assert entry.options["arbitrage_target_rename_migration_done"] is True
+    assert entry.options["arbitrage_soc_orphan_cleanup_done"] is True
+    # Existing peak_buffer value preserved
+    assert entry.options[CONF_ENERGY_PEAK_BUFFER_TARGET] == 75
+
+
+def test_migration_v4502_idempotent_after_both_flags_set():
+    """After both flags are set, helper is a no-op."""
+    hass = _MockHass()
+    entry = _MockEntry(options={
+        CONF_ENERGY_PEAK_BUFFER_TARGET: 80,
+        "arbitrage_target_rename_migration_done": True,
+        "arbitrage_soc_orphan_cleanup_done": True,
+    })
+    changed = _run(_migrate(hass, entry))
+    assert changed is False
 
 
 # v4.5.0.1 regression: migration helper's imports must resolve against the
