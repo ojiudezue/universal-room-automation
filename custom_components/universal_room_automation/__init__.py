@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv4.5.0
+# Universal Room Automation vv4.5.0.1
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -253,9 +253,15 @@ async def _migrate_arbitrage_target_to_peak_buffer(
 
     Returns True if migration actually ran (something changed), else False.
     """
+    # v4.5.0.1 hotfix: import CONF_ENERGY_ARBITRAGE_SOC_TRIGGER_LEGACY (the
+    # marker constant) — v4.5.0 D2 renamed CONF_ENERGY_ARBITRAGE_SOC_TRIGGER
+    # to ..._LEGACY but missed updating this import, causing every restart
+    # to log an ImportError and the migration to skip (silent no-op; entity
+    # values still loaded correctly via PeakBufferTargetNumber's seed
+    # fallback chain, but the migration_done flag was never set).
     from .domain_coordinators.energy_const import (
         CONF_ENERGY_ARBITRAGE_SOC_TARGET,
-        CONF_ENERGY_ARBITRAGE_SOC_TRIGGER,
+        CONF_ENERGY_ARBITRAGE_SOC_TRIGGER_LEGACY,
         CONF_ENERGY_PEAK_BUFFER_TARGET,
     )
     if cm_entry.options.get("arbitrage_target_rename_migration_done"):
@@ -278,8 +284,8 @@ async def _migrate_arbitrage_target_to_peak_buffer(
         changed = True
 
     # 2. Drop the deprecated trigger key (no longer used).
-    if CONF_ENERGY_ARBITRAGE_SOC_TRIGGER in new_options:
-        new_options.pop(CONF_ENERGY_ARBITRAGE_SOC_TRIGGER, None)
+    if CONF_ENERGY_ARBITRAGE_SOC_TRIGGER_LEGACY in new_options:
+        new_options.pop(CONF_ENERGY_ARBITRAGE_SOC_TRIGGER_LEGACY, None)
         changed = True
 
     # 3. Mark done — even if nothing changed (so we don't re-check next setup).
