@@ -22,6 +22,10 @@ Defer flexible appliance starts (washers, dishwashers, washtowers) into the chea
 
 ---
 
+## Prior art reference
+
+**`flashg1/SolarCharger`** (https://github.com/flashg1/SolarCharger) — HACS solar EV charging integration. Studied 2026-05-07. Worth reviewing for the **deadline-driven scheduling abstraction** ("next charge completion time" + 7-day per-day-of-week SOC target schedule + just-in-time start computation). The same shape applies to appliances: "complete by X time, optimize when within constraint." Adopt this pattern when adding deadline awareness to LG ThinQ cycles (e.g., "dishwasher must finish by 06:00 — defer start to whenever lets us land in cheapest TOU window while meeting deadline"). Also documents a "no-interference" mode for manual user control, anti-flap power-monitor duration thresholds, and per-load weighting/prioritization — all relevant patterns for B5.
+
 ## Design Principles
 
 **1. Defer, don't interrupt.** Scheduler only acts on cycles that have not yet started. A running cycle is never paused, even if user was about to hit "start" during peak. (Mid-cycle interrupt is out of scope; some appliances tolerate it poorly and the user-visible disruption isn't worth the savings.)
