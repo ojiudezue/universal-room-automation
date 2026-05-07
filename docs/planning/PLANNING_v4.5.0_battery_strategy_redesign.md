@@ -34,7 +34,7 @@ User direction (2026-05-06): "Arbitrage overrides drain targets completely on po
 2. Eliminate the boundary collision between drain targets and arbitrage trigger by removing `arbitrage_trigger` entirely. The arbitrage gate becomes forecast class only.
 3. Reduce user-surface complexity: remove the `arbitrage_trigger` slider; rename `arbitrage_target` to `peak_buffer_target` (clearer naming).
 4. Add multi-day forecast awareness so D+2 forecasts can modulate when to fire arbitrage.
-5. Add charge rate cap to prevent 20 kW grid spikes from arbitrage.
+5. Prevent compound-load grid spikes: when battery is grid-charging at hardware rate (~20 kW), don't let an EVSE simultaneously pull additional grid load.
 6. Surface enough diagnostic state that the user can see *why* the strategy made each decision.
 
 ## Non-goals (deferred)
@@ -196,40 +196,60 @@ CONF_ENERGY_SOLCAST_DAY_3_ENTITY: Final = "energy_solcast_day_3_entity"
 - **Test**: `test_25_combination_d1_x_d2_matrix` — exhaustive (5×5 forecast classes)
 - **Live**: 14-day calibration cycle observes ≥3 decisions where multi-day rule diverged from single-day
 
-### D4 — Charge rate cap (saw-tooth control)
+### D4 — Arbitrage / EV mutual-exclusion (compound-load protection)
 
-**File:** `domain_coordinators/energy_battery.py`
+**Files:** `domain_coordinators/energy_pool.py`, `domain_coordinators/energy.py`
 
-Problem: Enphase doesn't expose a grid-charge-rate limit on this user's firmware. Without intervention, arbitrage can pull 20 kW from the grid in bursts, risking demand-charge spikes and panel breaker trips.
+**Original D4 (saw-tooth charge rate cap) was dropped** during 2026-05-07 plan review. Reasons:
 
-**Approach: saw-tooth control** — when arbitrage is charging AND grid_import exceeds threshold, briefly turn off `charge_from_grid`. Resume when import drops below threshold − hysteresis.
+1. **It would flap.** Enphase's `charge_from_grid` is a binary switch (no rate control). When ON, battery pulls at hardware rate (~20 kW). When OFF, ~0 kW. Saw-tooth threshold sits between these two states; hysteresis can't bridge them — system toggles every 5-min decision tick.
+2. **It doesn't solve the actual problem.** PEC residential plans don't have demand charges, so "average rate cap" via saw-tooth provides no cost benefit. The user's other concern — breaker tripping — requires actual peak-rate limiting, which Enphase firmware doesn't expose. Saw-tooth manages averages but instantaneous draw during ON portions is still 20 kW.
 
-**New config:** `CONF_ENERGY_ARBITRAGE_MAX_GRID_KW: Final = "energy_arbitrage_max_grid_kw"`. Default `8.0` (kW). Range 2–20. Slider in EC Configuration section.
+**Replacement: mutual-exclusion scheduling.** The compound-load case (battery 20 kW + EV 7.4 kW + house base 5 kW = 32 kW = 134A) is the real panel-stress scenario. Solo battery charge at 20 kW (83A) is well within main breaker capacity. **Don't run arbitrage AND EV charging simultaneously.**
 
-**Logic addition in arbitrage charging path:**
+**Logic** in `EnergyCoordinator._async_decision_cycle`, after `determine_mode` returns:
 ```python
-if charging_active:
-    grid_import_kw = self._battery.battery_power_w / 1000.0  # via v4.3.4 helper
-    if grid_import_kw > arbitrage_max_grid_kw:
-        # Pause arbitrage — turn off charge_from_grid
-        self._arbitrage_paused_for_rate = True
-        return self._result(..., charge_from_grid=False, reserve_level=current_SOC, ...)
-    elif (grid_import_kw < arbitrage_max_grid_kw - HYSTERESIS_KW
-          and self._arbitrage_paused_for_rate):
-        self._arbitrage_paused_for_rate = False
-        # Resume arbitrage on next decision tick
+arbitrage_charging = decision.get("arbitrage_active") and decision.get("charge_from_grid")
+
+if arbitrage_charging:
+    # Pause any running EVSEs for compound-load protection
+    for evse_id, state in self._ev._evse.items():
+        if state["is_on"] and evse_id not in self._ev._paused_by_arbitrage:
+            self._ev._paused_by_arbitrage.add(evse_id)
+            actions.append(turn off the EVSE switch)
+            _LOGGER.info("EV %s paused for arbitrage compound-load protection", evse_id)
+else:
+    # Not charging from grid — release any EVs we paused
+    for evse_id in list(self._ev._paused_by_arbitrage):
+        self._ev._paused_by_arbitrage.discard(evse_id)
+        # Only resume if TOU permits AND no other pause reason holds
+        if (tou_period == "off_peak"
+            and evse_id not in self._ev._paused_by_grid_cap
+            and evse_id not in self._ev._paused_by_battery_drain
+            and evse_id not in self._ev._paused_by_us):
+            actions.append(turn on the EVSE switch)
+            _LOGGER.info("EV %s resumed (arbitrage released)", evse_id)
 ```
 
-`HYSTERESIS_KW = 0.5` to avoid thrashing.
+**New `_paused_by_arbitrage` set on `EVChargerController`** mirrors the existing `_paused_by_us`, `_paused_by_grid_cap`, `_paused_by_battery_drain` patterns (proven shape). New attribute on `EnergyEVChargingStatusSensor` so user can see *why* the EV was paused.
+
+**No new config option.** Mutual-exclusion is unconditional — there's no use case where you want simultaneous 20+7 kW draw on a normal residential panel. Add a config flag in a future cycle if needed.
 
 #### Acceptance criteria
-- **Verify**: with rate cap = 8 kW and arbitrage charging at 20 kW: charge_from_grid pauses within 1 decision tick
-- **Verify**: when grid_import drops below 7.5 kW (cap − hysteresis): charge_from_grid resumes
-- **Verify**: arbitrage eventually completes (SOC reaches target) — saw-tooth doesn't prevent completion
-- **Test**: `test_rate_cap_pauses_arbitrage_when_exceeded`
-- **Test**: `test_rate_cap_resumes_with_hysteresis`
-- **Test**: `test_rate_cap_does_not_block_completion`
-- **Live**: monitor `sensor.envoy_*_current_net_power_consumption` during arbitrage; verify it stays ≤ cap
+- **Verify**: arbitrage charging starts → all running EVSEs pause within 1 decision tick (≤5 min); `paused_by_arbitrage` attribute populates
+- **Verify**: arbitrage completes (SOC reached target) → paused EVSEs resume on next tick
+- **Verify**: arbitrage releases due to TOU transition (off_peak ends) → paused EVSEs resume if TOU still permits
+- **Verify**: EV plugged in during ongoing arbitrage charging → does NOT start (added to `_paused_by_arbitrage` proactively)
+- **Verify**: peak/mid_peak EV pause (existing TOU rule) takes priority over arbitrage release — EV stays paused if TOU forbids
+- **Test**: `test_arbitrage_charging_pauses_active_evse`
+- **Test**: `test_arbitrage_completion_releases_evse`
+- **Test**: `test_evse_blocked_during_ongoing_arbitrage`
+- **Test**: `test_resume_respects_other_pause_reasons` (grid_cap + battery_drain still hold)
+- **Live**: during overnight arbitrage cycle, observe garage_a switching off when arbitrage starts charging; back on when SOC reaches target (or off-peak ends)
+
+**What this does NOT solve** (accepted limitation, documented):
+- Solo battery 20 kW spike during arbitrage (Enphase firmware doesn't expose rate control on this install)
+- Non-EVSE house loads during arbitrage (HVAC ~3 kW, oven, dryer) — not URA-controlled, so URA can't pause them. Real-world worst case: HVAC compressor cycle + battery = ~23 kW = 96A on main breaker. Safe.
 
 ### D5 — Storm / EVSE / generator interaction guards
 
@@ -262,7 +282,7 @@ Update `BatteryStrategySensor` attributes:
 - Add: `pre_peak_hold_active`: bool — True when currently in pre-peak hold state
 - Add: `arbitrage_completed_in_session`: bool — surfaces the lock state
 - Add: `forecast_outlook` (from D3): `{d1_class, d1_kwh, d2_class, d2_kwh, horizon_enabled}`
-- Add: `arbitrage_paused_for_rate`: bool — surfaces when D4 rate cap is active
+- Add: `evse_paused_by_arbitrage`: list[str] — EVSE IDs paused for compound-load protection (D4)
 
 Update `threshold_position` and `next_action_estimate` strings to reflect the new model.
 
@@ -326,7 +346,7 @@ Currently `get_next_transition(now)` returns just the next single transition —
 
 3. **Default for `multi_day_horizon_enabled`** — OFF (calibration cycle) or ON? My pick: **OFF**. Solcast D+2 accuracy is meaningfully worse than D+1; calibrate first, then flip on after observing.
 
-4. **Saw-tooth charge rate cap default** — 8 kW (conservative) or 10 kW? My pick: **8 kW**. Allows full Encharge 10 charge rate (~5 kW per battery × 1.6 = 8 reasonable), leaves headroom for house base load + any EVSE running concurrently.
+4. **Mutual-exclusion resume policy** — when an EVSE was paused by arbitrage, should it auto-resume the moment arbitrage completes (SOC ≥ peak_buffer_target) within the same off-peak window, or wait until off-peak ends? My pick: **auto-resume**. Off-peak rates still apply; no reason to leave the EV unfilled when the battery is done.
 
 5. **Drain `_get_offpeak_drain_target("very_poor")`** — currently falls back to `poor`. Stay or add explicit very_poor slider? My pick: **stay**. Very_poor is rare; not worth a separate slider.
 
@@ -335,7 +355,7 @@ Currently `get_next_transition(now)` returns just the next single transition —
 ## Risks ranked
 
 **Statistical (highest):**
-1. **Over-charges on misclassified-poor days**: Solcast says "poor" but reality is good → arbitrage wasted off-peak charge that solar would have refilled for free. Mitigation: saw-tooth rate cap (D4) limits damage; pre-peak hold preserves charge through morning so peak does displace it; D6 methodology disclosure honest about the limitation.
+1. **Over-charges on misclassified-poor days**: Solcast says "poor" but reality is good → arbitrage wasted off-peak charge that solar would have refilled for free. Mitigation: pre-peak hold (D1) preserves charge through morning so peak does displace it; D6 methodology disclosure honest about the limitation. Cost ceiling per misclassified day: peak_buffer_target × battery_capacity × off_peak_rate ≈ 80% × 36 kWh × $0.043 = $1.24.
 2. **Under-discharges during peak**: peak load consumed less than expected, battery ends peak still high → no recurring problem; just minor over-buffering. Mitigation: peak_buffer_target slider lets user tune down if observed peak demand is low.
 
 **Implementation (medium):**
@@ -355,14 +375,14 @@ Currently `get_next_transition(now)` returns just the next single transition —
 | D1 arbitrage path | ~150 | ~250 |
 | D2 remove trigger / rename target | ~70 | ~50 |
 | D3 multi-day Solcast | ~120 | ~200 |
-| D4 charge rate cap | ~80 | ~100 |
+| D4 arbitrage / EV mutual-exclusion | ~50 | ~80 |
 | D5 interaction guards | ~50 | ~100 |
 | D6 diagnostics + methodology | ~70 | ~50 |
 | D7 config-flow options | ~50 | ~20 |
 | D8 TOU helpers | ~30 | ~30 |
-| **Total** | **~620** | **~800** |
+| **Total gross** | **~590** | **~780** |
 
-(Actually closer to ~470 / ~520 net since D2 removes existing code rather than only adding.)
+(Actually closer to ~440 / ~500 net since D2 removes existing code rather than only adding.)
 
 ## Tier 2 Review Plan
 
@@ -371,7 +391,7 @@ Currently `get_next_transition(now)` returns just the next single transition —
 - Session lock invariants (no oscillation, no double-fire)
 - Pre/post-peak detection edge cases (multiple peak windows in summer; cross-month-boundary)
 - D3 multi-day classification correctness (target day's month, not today's)
-- D4 saw-tooth control stability (no infinite oscillation around hysteresis boundary)
+- D4 mutual-exclusion correctness (paused EVSEs resume when arbitrage releases; respect other pause reasons)
 - Storm/EVSE/generator interaction precedences
 
 ### Review 2 (Core B): Lifecycle / integration
@@ -386,7 +406,7 @@ After deploy + 14-day observation cycle:
 1. **D1 killer signal**: with arbitrage_enabled + tomorrow=poor + SOC<80, verify SOC rises during off-peak AND stays at peak_buffer_target through morning until peak begins.
 2. **D2**: peak_buffer_target slider exists; arbitrage_trigger slider gone; existing value migrated correctly.
 3. **D3**: at least 3 decision cycles in 14 days where multi-day rule diverges from single-day; reason string shows both classifications.
-4. **D4**: monitor net_power during arbitrage; verify it stays ≤ cap (default 8 kW).
+4. **D4**: during overnight arbitrage cycle, observe `garage_a` switching off when arbitrage charging starts; back on when SOC reaches `peak_buffer_target` (or off-peak ends). EV sensor's `paused_by_arbitrage` attribute populates and clears correctly.
 5. **D5**: storm forecast event during observation → verify storm path wins.
 6. **D6**: `pre_peak_hold_active` attribute correctly tracks state across decision ticks.
 7. **Calibration metric**: arbitrage_savings (this_cycle, total) accumulates correctly.
@@ -395,7 +415,7 @@ After deploy + 14-day observation cycle:
 
 **Single ship as v4.5.0.** All deliverables in one commit. No staged rollout, no opt-in mode — single user, no compatibility surface.
 
-**Calibration phase**: deploy + observe for 14 days. If multi_day_horizon shows clear value, flip default ON in v4.5.1 (or by user toggling). Saw-tooth rate cap and pre-peak hold default ON from day 1 (clear improvements; no calibration needed).
+**Calibration phase**: deploy + observe for 14 days. If multi_day_horizon shows clear value, flip default ON in v4.5.1 (or by user toggling). Mutual-exclusion (D4) and pre-peak hold default ON from day 1 (clear improvements; no calibration needed).
 
 ## Dependencies / preconditions
 
@@ -412,6 +432,6 @@ The release is "done" when:
 - `peak_buffer_target` slider replaces `arbitrage_target`; user's saved value migrated correctly
 - `arbitrage_trigger` slider gone; no references in code
 - Multi-day Solcast (D+2) toggle adds D+2-aware decisions when enabled
-- Charge rate cap saws-tooth correctly under simulated 20 kW import
-- `pre_peak_hold_active`, `forecast_outlook`, `arbitrage_completed_in_session`, `arbitrage_paused_for_rate` attributes appear on BatteryStrategySensor
+- Mutual-exclusion: arbitrage charging pauses any active EVSE; resumes correctly when arbitrage releases (subject to TOU + other pause-reason precedence)
+- `pre_peak_hold_active`, `forecast_outlook`, `arbitrage_completed_in_session` attributes appear on BatteryStrategySensor; `paused_by_arbitrage` attribute appears on EnergyEVChargingStatusSensor
 - All Tier 2 review CRITICAL/HIGH findings resolved; LOW findings explicitly tracked per memory `feedback_review_bug_visibility.md`
