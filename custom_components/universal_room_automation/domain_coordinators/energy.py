@@ -31,7 +31,6 @@ from ..const import DOMAIN as _DOMAIN  # v4.2.5: Module-level for lambda closure
 from .energy_const import (
     CONF_ENERGY_ARBITRAGE_ENABLED,
     CONF_ENERGY_ARBITRAGE_SOC_TARGET,
-    CONF_ENERGY_ARBITRAGE_SOC_TRIGGER,
     CONF_ENERGY_BATTERY_CAPACITY_ENTITY,
     CONF_ENERGY_BATTERY_POWER_ENTITY,
     CONF_ENERGY_BATTERY_SOC_ENTITY,
@@ -72,7 +71,6 @@ from .energy_const import (
     CONF_ENERGY_STORAGE_MODE_ENTITY,
     CONF_ENERGY_WEATHER_ENTITY,
     DEFAULT_ARBITRAGE_SOC_TARGET,
-    DEFAULT_ARBITRAGE_SOC_TRIGGER,
     DEFAULT_CONSTRAINT_COAST_OFFSET,
     DEFAULT_CONSTRAINT_PRECOOL_OFFSET,
     DEFAULT_CONSTRAINT_PREHEAT_OFFSET,
@@ -166,6 +164,28 @@ class EnergyCoordinator(BaseCoordinator):
             "poor": ec.get(CONF_ENERGY_OFFPEAK_DRAIN_POOR, DEFAULT_OFFPEAK_DRAIN_POOR),
         }
 
+        # v4.5.0 D1/D2: peak_buffer_target is the new live-tunable; falls
+        # back to legacy arbitrage_soc_target during the migration window
+        # (the rename migration in __init__.py copies the old key forward).
+        # arbitrage_charge_lead_time_min is the new D2 number-box knob;
+        # initial seed only — runtime store is RestoreEntity (per the
+        # URA mirror pattern, see memory feedback_ura_mirror_pattern.md).
+        from .energy_const import (
+            CONF_ENERGY_PEAK_BUFFER_TARGET,
+            CONF_ENERGY_ARBITRAGE_CHARGE_LEAD_TIME_MIN,
+            CONF_ENERGY_MULTI_DAY_HORIZON_ENABLED,
+            CONF_ENERGY_SOLCAST_DAY_3_ENTITY,
+            DEFAULT_ARBITRAGE_CHARGE_LEAD_TIME_MIN,
+            DEFAULT_PEAK_BUFFER_TARGET,
+        )
+        peak_buffer_target = int(ec.get(
+            CONF_ENERGY_PEAK_BUFFER_TARGET,
+            ec.get(CONF_ENERGY_ARBITRAGE_SOC_TARGET, DEFAULT_PEAK_BUFFER_TARGET),
+        ))
+        lead_time = int(ec.get(
+            CONF_ENERGY_ARBITRAGE_CHARGE_LEAD_TIME_MIN,
+            DEFAULT_ARBITRAGE_CHARGE_LEAD_TIME_MIN,
+        ))
         self._battery = BatteryStrategy(
             hass,
             reserve_soc=reserve_soc,
@@ -174,8 +194,16 @@ class EnergyCoordinator(BaseCoordinator):
             custom_solar_thresholds=custom_solar_thresholds,
             offpeak_drain_targets=offpeak_drain_targets,
             arbitrage_enabled=ec.get(CONF_ENERGY_ARBITRAGE_ENABLED, False),
-            arbitrage_soc_trigger=ec.get(CONF_ENERGY_ARBITRAGE_SOC_TRIGGER, DEFAULT_ARBITRAGE_SOC_TRIGGER),
-            arbitrage_soc_target=ec.get(CONF_ENERGY_ARBITRAGE_SOC_TARGET, DEFAULT_ARBITRAGE_SOC_TARGET),
+            arbitrage_soc_target=ec.get(
+                CONF_ENERGY_ARBITRAGE_SOC_TARGET, DEFAULT_ARBITRAGE_SOC_TARGET
+            ),
+            peak_buffer_target=peak_buffer_target,
+            arbitrage_charge_lead_time_min=lead_time,
+            tou_engine=self._tou,  # v4.5.0 D8: charge-window math
+            multi_day_horizon_enabled=ec.get(
+                CONF_ENERGY_MULTI_DAY_HORIZON_ENABLED, False
+            ),
+            solcast_day_3_entity=ec.get(CONF_ENERGY_SOLCAST_DAY_3_ENTITY),
         )
         # E2: Pool, EV, Smart Plugs
         self._pool = PoolOptimizer(hass, pool_speed_entity=pool_speed_entity)
@@ -1363,9 +1391,13 @@ class EnergyCoordinator(BaseCoordinator):
         if db is None:
             return
         try:
-            # Envoy reports solar_production and net_power in watts — convert to kW
-            solar_prod_w = self._battery.solar_production
-            net_power_w = self._battery.net_power
+            # v4.5.0 unit-consistency sweep: use the _w properties which
+            # normalize Envoy kW/W firmware variants. Pre-v4.5.0 this site
+            # divided the raw entity value by 1000, which silently broke if
+            # the user's Envoy reported in kW (same bug class as v4.3.4
+            # battery_power_w fix).
+            solar_prod_w = self._battery.solar_production_w
+            net_power_w = self._battery.net_power_w
             solar_prod_kw = solar_prod_w / 1000.0 if solar_prod_w is not None else None
             grid_import_kw = max(net_power_w or 0, 0) / 1000.0
             solar_export_kw = abs(min(net_power_w or 0, 0)) / 1000.0
@@ -1377,8 +1409,11 @@ class EnergyCoordinator(BaseCoordinator):
                 outside_temp = weather_state.attributes.get("temperature")
                 outside_humidity = weather_state.attributes.get("humidity")
 
-            # total_consumption_kw property reads Envoy watts despite the name
-            consumption_w = self.total_consumption_kw
+            # v4.5.0 unit-consistency: use total_consumption_w which
+            # normalizes kW/W firmware variants. The historical
+            # `total_consumption_kw` property is mis-named (returns raw
+            # entity value, not always kW) — kept for back-compat callers.
+            consumption_w = self.total_consumption_w
             consumption_kw = consumption_w / 1000.0 if consumption_w is not None else None
 
             # v3.13.1: Indoor averages from room coordinators
@@ -1458,8 +1493,9 @@ class EnergyCoordinator(BaseCoordinator):
                     outside_temp = weather_state.attributes.get("temperature")
                     outside_humidity = weather_state.attributes.get("humidity")
 
-            # Solar production is in watts from Envoy — convert to kW for DB
-            solar_prod_w = self._battery.solar_production
+            # v4.5.0 unit-consistency: normalize via solar_production_w which
+            # checks the entity's unit_of_measurement (kW vs W).
+            solar_prod_w = self._battery.solar_production_w
             solar_prod_kw = solar_prod_w / 1000.0 if solar_prod_w is not None else None
 
             # v3.13.1: Read real occupancy counts from presence coordinator
@@ -1554,12 +1590,19 @@ class EnergyCoordinator(BaseCoordinator):
     async def _account_arbitrage_cycle(
         self, decision: dict[str, Any], period: str, season: str,
     ) -> None:
-        """Persist a row in arbitrage_cycles when arbitrage was active and SOC rose.
+        """Persist a row in arbitrage_cycles when CHARGE was active and SOC rose.
 
         Idempotent: only writes when there's a positive SOC delta vs. the
-        previous tick. Resets state when arbitrage stops.
+        previous tick. Resets state when CHARGE phase ends.
+
+        v4.5.0 D1: gate on `arbitrage_phase == "charge"` rather than the
+        broader `arbitrage_active` (which is also True during HOLD). HOLD's
+        SOC rise comes from solar overcharging, not grid charge — counting
+        it as arbitrage-displaced kWh would inflate savings. The savings
+        formula assumes off-peak grid kWh × (displaced − off-peak rate).
         """
-        if not decision.get("arbitrage_active"):
+        from .energy_battery import ARBITRAGE_PHASE_CHARGE
+        if decision.get("arbitrage_phase") != ARBITRAGE_PHASE_CHARGE:
             self._arbitrage_prev_soc = None
             return
 
@@ -1572,8 +1615,8 @@ class EnergyCoordinator(BaseCoordinator):
             # First tick of this arbitrage segment — capture baseline only
             self._arbitrage_prev_soc = soc_now
             _LOGGER.info(
-                "Arbitrage cycle start: SOC=%.1f%%, target=%d%%, season=%s",
-                soc_now, self._battery._arbitrage_target, season,
+                "Arbitrage cycle start: SOC=%.1f%%, peak_buffer_target=%d%%, season=%s",
+                soc_now, self._battery._peak_buffer_target, season,
             )
             return
 
@@ -1792,8 +1835,14 @@ class EnergyCoordinator(BaseCoordinator):
                     if soc is not None:
                         self._soc_at_peak_baseline.update(float(soc))
 
-            # Battery decision
-            decision = self._battery.determine_mode(period, season)
+            # Battery decision — v4.5.0 D1: pass `now` for charge-window math
+            # and `tou_transition_into` so chunk-lock resets on entry to off_peak.
+            from homeassistant.util import dt as dt_util
+            decision = self._battery.determine_mode(
+                period, season,
+                now=dt_util.now(),
+                tou_transition_into=new_period,
+            )
 
             # v4.3.0 D4: Arbitrage cycle accounting — fire-and-forget DB write.
             # When arbitrage_active and SOC has risen since the previous cycle,
@@ -1842,6 +1891,22 @@ class EnergyCoordinator(BaseCoordinator):
                     for action_spec in ev_actions:
                         await self._execute_service_action(action_spec)
 
+                # v4.5.0 D4: arbitrage / EV mutual-exclusion (compound-load
+                # protection). Pauses any active EVSE while battery is
+                # grid-charging via arbitrage CHARGE phase. Resumes when
+                # phase exits CHARGE (HOLD or DISCHARGE) subject to TOU
+                # period and other pause-reason precedence.
+                from .energy_battery import ARBITRAGE_PHASE_CHARGE
+                arbitrage_charging = (
+                    decision.get("arbitrage_phase") == ARBITRAGE_PHASE_CHARGE
+                )
+                arb_actions = self._ev.determine_arbitrage_actions(
+                    arbitrage_charging=arbitrage_charging,
+                    tou_period=period,
+                )
+                for action_spec in arb_actions:
+                    await self._execute_service_action(action_spec)
+
                 # C2: Excess solar EVSE charging
                 if self._excess_solar_enabled:
                     soc = self._battery.battery_soc
@@ -1856,7 +1921,9 @@ class EnergyCoordinator(BaseCoordinator):
 
                 # v4.0.18: EV grid import cap
                 if self._grid_import_cap_enabled:
-                    net_kw = (self._battery.net_power or 0) / 1000.0
+                    # v4.5.0 unit-consistency: net_power_w normalizes
+                    # firmware kW/W variants before the /1000 → kW step.
+                    net_kw = (self._battery.net_power_w or 0) / 1000.0
                     grid_cap_actions = self._ev.determine_grid_cap_actions(
                         net_power_kw=net_kw,
                         grid_cap_kw=self._grid_import_cap_kw,
@@ -2026,7 +2093,8 @@ class EnergyCoordinator(BaseCoordinator):
         """Evaluate battery strategy and return actions."""
         period = self._tou.get_current_period()
         season = self._tou.get_season()
-        decision = self._battery.determine_mode(period, season)
+        from homeassistant.util import dt as dt_util
+        decision = self._battery.determine_mode(period, season, now=dt_util.now())
 
         # C1 fix: Apply EVSE battery hold in evaluate path too (not just timer path)
         if self._is_any_evse_charging():
@@ -2267,12 +2335,15 @@ class EnergyCoordinator(BaseCoordinator):
             return
 
         # Read current grid import
-        net_power = self._battery.net_power
-        if net_power is None:
+        # v4.5.0 unit-consistency: use net_power_w which normalizes
+        # firmware kW/W variants. Pre-v4.5.0, the raw `net_power` divided
+        # by 1000 silently broke load-shedding thresholding when Envoy
+        # firmware reported in kW.
+        net_power_w = self._battery.net_power_w
+        if net_power_w is None:
             return
 
-        # net_power is in watts, threshold is in kW — convert
-        import_kw = max(net_power / 1000.0, 0.0)
+        import_kw = max(net_power_w / 1000.0, 0.0)
 
         # Record for history (auto-learning)
         if tou_period == "peak" and import_kw > 0:
@@ -2920,18 +2991,17 @@ class EnergyCoordinator(BaseCoordinator):
         return self._battery._drain_targets
 
     def _check_threshold_ladder(self) -> None:
-        """v4.3.0 D3: log a WARNING when the threshold ladder is violated.
+        """v4.3.0 D3 / v4.5.0 D2: log a WARNING when the ladder is violated.
 
-        Called from every slider write so users get immediate feedback.
-        The current value is also surfaced as `threshold_warning` attribute
-        on BatteryStrategySensor (via get_status()).
+        v4.5.0: arbitrage_trigger is removed from the gate (forecast-class
+        only); validator skips trigger checks when None.
         """
         from .energy_const import validate_threshold_ladder
         warning = validate_threshold_ladder(
             self._battery.reserve_soc,
             self._battery._drain_targets,
-            self._battery._arbitrage_trigger,
-            self._battery._arbitrage_target,
+            arbitrage_trigger=None,
+            peak_buffer_target=self._battery._peak_buffer_target,
         )
         if warning:
             _LOGGER.warning("Threshold ladder violated: %s", warning)
@@ -2947,26 +3017,76 @@ class EnergyCoordinator(BaseCoordinator):
         self._check_threshold_ladder()
 
     @property
-    def arbitrage_trigger(self) -> int:
-        """Current arbitrage SOC trigger threshold."""
-        return self._battery._arbitrage_trigger
-
-    @property
     def arbitrage_target(self) -> int:
-        """Current arbitrage SOC charge target."""
-        return self._battery._arbitrage_target
+        """v4.5.0 D2: deprecated alias for peak_buffer_target.
 
-    def set_arbitrage_trigger(self, value: int) -> None:
-        """Update arbitrage SOC trigger at runtime (v4.3.0 D2)."""
-        self._battery._arbitrage_trigger = int(value)
-        _LOGGER.info("Arbitrage SOC trigger set to %d%%", int(value))
-        self._check_threshold_ladder()
+        Kept on the EC API surface for the migration window so any sensor
+        automation referring to the old name continues to function. D6 /
+        v4.6.0 removes the alias.
+        """
+        return self._battery._peak_buffer_target
 
     def set_arbitrage_target(self, value: int) -> None:
-        """Update arbitrage SOC charge target at runtime (v4.3.0 D2)."""
-        self._battery._arbitrage_target = int(value)
-        _LOGGER.info("Arbitrage SOC target set to %d%%", int(value))
+        """Update arbitrage SOC charge target at runtime (v4.3.0 D2).
+
+        v4.5.0 D2: alias of set_peak_buffer_target. Kept on the coord for
+        the migration window so any sensors/automations referring to the
+        old name continue to work.
+        """
+        self.set_peak_buffer_target(value)
+
+    @property
+    def peak_buffer_target(self) -> int:
+        """v4.5.0 D2: Current peak buffer target (replaces arbitrage_target)."""
+        return self._battery._peak_buffer_target
+
+    def set_peak_buffer_target(self, value: int) -> None:
+        """v4.5.0 D2: Update the peak buffer SOC target at runtime."""
+        v = int(value)
+        self._battery._peak_buffer_target = v
+        # Keep alias in sync until callers fully migrate.
+        self._battery._arbitrage_target = v
+        _LOGGER.info("Peak buffer target set to %d%%", v)
         self._check_threshold_ladder()
+
+    @property
+    def arbitrage_charge_lead_time_min(self) -> int:
+        """v4.5.0 D2: Current arbitrage charge lead time (minutes)."""
+        return self._battery._arbitrage_charge_lead_time_min
+
+    def set_arbitrage_charge_lead_time(self, value: int) -> None:
+        """v4.5.0 D2: Update charge lead time at runtime.
+
+        Backstop clamp + WARN log when out of [MIN, MAX]. The number
+        entity already enforces these via native_min/max but a
+        programmatic caller (or a stale RestoreEntity value) could try
+        to write through.
+        """
+        from .energy_const import (
+            MAX_ARBITRAGE_CHARGE_LEAD_TIME_MIN,
+            MIN_ARBITRAGE_CHARGE_LEAD_TIME_MIN,
+        )
+        try:
+            v = int(value)
+        except (TypeError, ValueError):
+            _LOGGER.warning(
+                "Arbitrage charge lead time: invalid value %r — ignored", value
+            )
+            return
+        clamped = max(
+            MIN_ARBITRAGE_CHARGE_LEAD_TIME_MIN,
+            min(MAX_ARBITRAGE_CHARGE_LEAD_TIME_MIN, v),
+        )
+        if clamped != v:
+            _LOGGER.warning(
+                "Arbitrage charge lead time %d outside [%d, %d] — clamped to %d",
+                v,
+                MIN_ARBITRAGE_CHARGE_LEAD_TIME_MIN,
+                MAX_ARBITRAGE_CHARGE_LEAD_TIME_MIN,
+                clamped,
+            )
+        self._battery._arbitrage_charge_lead_time_min = clamped
+        _LOGGER.info("Arbitrage charge lead time set to %d min", clamped)
 
     @property
     def ev_battery_drain_soc(self) -> int:
@@ -3268,8 +3388,38 @@ class EnergyCoordinator(BaseCoordinator):
 
     @property
     def total_consumption_kw(self) -> float | None:
-        """Total home consumption from Envoy CT (kW)."""
+        """Total home consumption from Envoy CT (raw entity value).
+
+        v4.5.0 unit-consistency note: this is mis-named historically — it
+        returns the entity's raw state, which may be W or kW depending on
+        firmware. Callers that need true kW must read the underlying
+        entity's unit_of_measurement and scale, OR use total_consumption_w
+        below which always returns W. Renaming this property is deferred
+        to v4.6.0 to avoid breaking external sensor automations.
+        """
         return self._get_state_float(self._entity_grid_consumption)
+
+    @property
+    def total_consumption_w(self) -> float | None:
+        """Total home consumption normalized to W.
+
+        v4.5.0 unit-consistency: scales kW → W via unit_of_measurement
+        attribute check. Use this for any threshold math.
+        """
+        eid = self._entity_grid_consumption
+        if eid is None:
+            return None
+        state = self.hass.states.get(eid)
+        if state is None or state.state in ("unknown", "unavailable"):
+            return None
+        try:
+            value = float(state.state)
+        except (ValueError, TypeError):
+            return None
+        uom = state.attributes.get("unit_of_measurement", "")
+        if uom in ("kW", "kw"):
+            value *= 1000.0
+        return value
 
     @property
     def net_consumption_kw(self) -> float | None:

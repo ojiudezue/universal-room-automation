@@ -1,0 +1,12 @@
+# URA test suite dependencies
+# Pin one-line deps needed to run `pytest quality/tests/` cleanly.
+# Install via: python3 -m pip install -r quality/requirements_test.txt
+#
+# History:
+#  - v4.5.0: pinned pytest-asyncio after discovering ~180 "failures" in
+#    the baseline were actually `pytest.mark.asyncio` warnings being
+#    treated as test failures. Without the plugin, async tests fail to
+#    even collect and pollute the failure count, hiding real regressions.
+
+pytest>=8.2,<9
+pytest-asyncio>=1.0,<2

@@ -193,6 +193,12 @@ class EVChargerController:
         self._excess_solar_active: set[str] = set()
         self._paused_by_grid_cap: set[str] = set()
         self._paused_by_battery_drain: set[str] = set()
+        # v4.5.0 D4: compound-load protection — pause EVSEs while arbitrage
+        # is grid-charging. Solo battery 20 kW (~83A) is within main breaker;
+        # battery + EV (7.4 kW) + house base (~5 kW) ≈ 134A is the panel-
+        # stress scenario. This pattern (`_paused_by_<reason>` set with
+        # precedence rules) is what v4.7.x B5 will extend to appliances.
+        self._paused_by_arbitrage: set[str] = set()
         self._battery_drain_cooldown: dict[str, float] = {}  # evse_id → monotonic expiry
         # v4.2.19: Track power sensor unavailability for alerting
         self._power_sensor_unavail_count: dict[str, int] = {}  # evse_id → consecutive misses
@@ -223,6 +229,14 @@ class EVChargerController:
             power_source = "sensor"  # sensor responsive, even if non-numeric
             try:
                 power = float(power_state.state)
+                # v4.5.0 unit-consistency: EVSE_CHARGING_POWER_THRESHOLD is
+                # in watts (100). Emporia reports W; Tesla Wall Connector
+                # via some integrations reports kW. Normalize via the
+                # entity's unit_of_measurement attribute. Same bug class
+                # as v4.3.4 battery_power_w fix (Bug Class #30).
+                uom = power_state.attributes.get("unit_of_measurement", "")
+                if uom in ("kW", "kw"):
+                    power *= 1000.0
             except (ValueError, TypeError):
                 pass
 
@@ -538,6 +552,99 @@ class EVChargerController:
 
         return actions
 
+    def determine_arbitrage_actions(
+        self,
+        arbitrage_charging: bool,
+        tou_period: str,
+    ) -> list[dict[str, Any]]:
+        """v4.5.0 D4: pause/resume EVSEs based on arbitrage CHARGE phase.
+
+        When arbitrage is grid-charging the battery (20 kW), running an
+        EVSE concurrently can take a normal residential panel to ~134A
+        on the main breaker (battery 20 kW + EV 7.4 kW + base ~5 kW).
+        Solo battery is well within breaker capacity (~83A).
+
+        Pause logic:
+            arbitrage_charging=True →
+                - For every EVSE that is ON and not already in
+                  _paused_by_arbitrage: turn off + add to set.
+
+        Resume logic (arbitrage_charging=False, i.e., phase exits CHARGE
+        — typically into HOLD or DISCHARGE):
+            - For every EVSE in _paused_by_arbitrage:
+                * Remove from set.
+                * Resume only if:
+                  - TOU still allows EV charging (off_peak), AND
+                  - No other pause reason holds (grid_cap / battery_drain /
+                    paused_by_us / excess_solar isn't claiming).
+
+        Mirrors the pattern that v4.7.x B5 will copy onto appliance controllers.
+        """
+        actions: list[dict[str, Any]] = []
+
+        if arbitrage_charging:
+            for evse_id, config in self._evse.items():
+                switch_entity = config.get("switch", "")
+                if not switch_entity:
+                    continue
+                if evse_id in self._paused_by_arbitrage:
+                    continue  # already paused
+                state = self._get_evse_state(evse_id)
+                if state["is_on"]:
+                    actions.append({
+                        "service": "switch.turn_off",
+                        "target": switch_entity,
+                        "data": {},
+                    })
+                    self._paused_by_arbitrage.add(evse_id)
+                    _LOGGER.info(
+                        "EV %s paused for arbitrage compound-load protection",
+                        evse_id,
+                    )
+                else:
+                    # Proactive claim: EVSE is currently off but gets
+                    # added to the set so it can't auto-resume mid-cycle.
+                    self._paused_by_arbitrage.add(evse_id)
+                    _LOGGER.debug(
+                        "EV %s claimed by arbitrage pause (was already off)",
+                        evse_id,
+                    )
+            return actions
+
+        # arbitrage_charging=False — release any we held
+        for evse_id in list(self._paused_by_arbitrage):
+            self._paused_by_arbitrage.discard(evse_id)
+            config = self._evse.get(evse_id, {})
+            switch_entity = config.get("switch", "")
+            if not switch_entity:
+                continue
+            # Resume only if TOU + other pause-reasons permit
+            if tou_period != "off_peak":
+                _LOGGER.info(
+                    "EV %s arbitrage release: TOU=%s — leaving paused",
+                    evse_id, tou_period,
+                )
+                continue
+            if (
+                evse_id in self._paused_by_grid_cap
+                or evse_id in self._paused_by_battery_drain
+                or evse_id in self._paused_by_us
+            ):
+                _LOGGER.info(
+                    "EV %s arbitrage release: another pause reason holds — leaving paused",
+                    evse_id,
+                )
+                continue
+            state = self._get_evse_state(evse_id)
+            if not state["is_on"]:
+                actions.append({
+                    "service": "switch.turn_on",
+                    "target": switch_entity,
+                    "data": {},
+                })
+                _LOGGER.info("EV %s resumed (arbitrage released)", evse_id)
+        return actions
+
     def check_power_sensor_health(self) -> list[dict[str, str]]:
         """Check EVSE power sensor availability. Returns alerts to send.
 
@@ -587,6 +694,8 @@ class EVChargerController:
             "paused_by_energy": list(self._paused_by_us),
             "paused_by_grid_cap": list(self._paused_by_grid_cap),
             "paused_by_battery_drain": list(self._paused_by_battery_drain),
+            # v4.5.0 D4: arbitrage compound-load mutual-exclusion set
+            "paused_by_arbitrage": list(self._paused_by_arbitrage),
             "excess_solar_active": bool(self._excess_solar_active),
             "excess_solar_evses": list(self._excess_solar_active),
         }
@@ -594,6 +703,8 @@ class EVChargerController:
             evse_state = self._get_evse_state(evse_id)
             if evse_id in self._paused_by_battery_drain:
                 evse_state["energy_status"] = "battery_drain_paused"
+            elif evse_id in self._paused_by_arbitrage:
+                evse_state["energy_status"] = "arbitrage_paused"
             elif evse_id in self._paused_by_grid_cap:
                 evse_state["energy_status"] = "grid_capped"
             elif evse_id in self._paused_by_us:

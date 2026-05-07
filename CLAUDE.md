@@ -11,6 +11,13 @@
 - Read `quality/DEVELOPMENT_CHECKLIST.md` for review checklist
 - Read the relevant source files before proposing changes
 
+## No Fabrication — CRITICAL
+Never describe HA APIs, library behavior, or in-repo code patterns from a plausible-sounding mental model. There are three valid options when a question about code/library behavior comes up:
+1. **Verify**: read the actual source, the HA dev docs (https://developers.home-assistant.io), or the library docs. Cite file:line.
+2. **Ask**: surface the gap before continuing.
+3. **Admit**: say "I don't know" or "I'd be guessing." Explicit uncertainty beats confident-sounding fiction.
+A fabricated spec wastes review cycles defending against bugs that can't happen and may miss the real ones. If you catch yourself writing "the standard pattern is..." without having read the standard pattern in this session — stop and verify.
+
 ## Data Source Verification — CRITICAL
 - **MCP `ura-sqlite`** reads the URA DB. Verify `--db-path` in `~/.claude.json` points to the **live** Samba-mounted path (`/Users/ojiudezue/ha-config/universal_room_automation/data/universal_room_automation.db`), NOT a stale cache (`~/.cache/ura/`).
 - Before acting on any "missing table" or schema diagnosis from MCP tools, cross-validate against the live HA instance (use `ha-mcp` or SSH).

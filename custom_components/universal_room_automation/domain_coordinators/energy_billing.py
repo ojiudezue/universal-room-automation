@@ -102,15 +102,25 @@ class CostTracker:
                     pass  # Fall through to net_power
 
         # Fallback: Envoy net power entity (None if not configured — v4.3.1)
+        # v4.5.0 unit-consistency: normalize to kW. Pre-v4.5.0 this path
+        # returned the raw entity value; the docstring + accumulate()'s
+        # `kW × hours = kWh` math assumed Envoy reports kW. Newer Envoy
+        # firmware can report W — without normalization that produces
+        # 1000× bill predictions. Same bug class as v4.3.4 battery_power_w.
         if self._net_power_entity is None:
             return None
         state = self.hass.states.get(self._net_power_entity)
         if state is None or state.state in ("unknown", "unavailable"):
             return None
         try:
-            return float(state.state)
+            value = float(state.state)
         except (ValueError, TypeError):
             return None
+        uom = state.attributes.get("unit_of_measurement", "")
+        if uom in ("W", "w"):
+            value /= 1000.0
+        # If uom is "kW", value is already kW — pass through.
+        return value
 
     def get_yesterday_totals(self) -> dict[str, float] | None:
         """Return yesterday's daily totals if we have them (before reset).

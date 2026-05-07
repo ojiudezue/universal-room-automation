@@ -1,9 +1,13 @@
 # PLANNING v4.3.3 — Multi-Day Solcast Forecast Lookback
 
-**Status:** Planned, not started
-**Tier:** Feature cycle (Tier 2 — 2 reviews + live validation per CLAUDE.md)
-**Predecessor:** v4.3.2 (current production)
-**Effort estimate:** 1 cycle
+> **⚠ SUPERSEDED 2026-05-06.** This work has been folded into the broader Battery Strategy v2 Overlay cycle as deliverable D3. See `PLANNING_v4.5.0_battery_strategy_v2_overlay.md` for the active spec. This document is retained as historical reference for the original design rationale and risk analysis (much of which carries over to v4.5.0 D3).
+>
+> **Why folded:** the multi-day forecast and the v2 strategy redesign are tightly coupled — both modulate when arbitrage fires. Shipping them in a single coherent cycle (one toggle for v2 mode, one for multi-day awareness, both off by default for calibration) is cleaner than two stacked Tier 2 cycles touching the same code paths.
+
+**Status:** SUPERSEDED — folded into v4.5.0 D3
+**Tier:** Was Feature cycle (Tier 2 — 2 reviews + live validation per CLAUDE.md)
+**Predecessor:** v4.3.2 (when planned)
+**Effort estimate:** Originally 1 cycle; now ~120 prod / ~200 test as part of v4.5.0
 
 ## Context
 

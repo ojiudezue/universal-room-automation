@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv4.3.4
+# Universal Room Automation vv4.5.0
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -233,6 +233,65 @@ async def _migrate_room_cameras_to_integration(hass: HomeAssistant, integration_
         )
 
     return len(collected_cameras)
+
+
+async def _migrate_arbitrage_target_to_peak_buffer(
+    hass: HomeAssistant, cm_entry: ConfigEntry
+) -> bool:
+    """v4.5.0 D2: rename arbitrage_target → peak_buffer_target and drop trigger.
+
+    Idempotent — checks `arbitrage_target_rename_migration_done` flag and
+    returns False (no-op) if already run. Mirrors the existing
+    `zone_manager_migration_done` / `camera_migration_done` pattern.
+
+    Operations on the CM entry's options dict:
+      1. If CONF_ENERGY_ARBITRAGE_SOC_TARGET present → copy value to
+         CONF_ENERGY_PEAK_BUFFER_TARGET (new key) and pop the old key.
+      2. Pop CONF_ENERGY_ARBITRAGE_SOC_TRIGGER entirely (gate is now
+         forecast-class only — see PLANNING_v4.5.0_battery_strategy_redesign.md).
+      3. Set the migration_done flag so this only runs once.
+
+    Returns True if migration actually ran (something changed), else False.
+    """
+    from .domain_coordinators.energy_const import (
+        CONF_ENERGY_ARBITRAGE_SOC_TARGET,
+        CONF_ENERGY_ARBITRAGE_SOC_TRIGGER,
+        CONF_ENERGY_PEAK_BUFFER_TARGET,
+    )
+    if cm_entry.options.get("arbitrage_target_rename_migration_done"):
+        return False
+
+    new_options = dict(cm_entry.options)
+    changed = False
+
+    # 1. Carry old value forward to new key (don't override an existing
+    # peak_buffer_target — fresh installs may have only the new key).
+    legacy_target = new_options.pop(CONF_ENERGY_ARBITRAGE_SOC_TARGET, None)
+    if (
+        legacy_target is not None
+        and CONF_ENERGY_PEAK_BUFFER_TARGET not in new_options
+    ):
+        new_options[CONF_ENERGY_PEAK_BUFFER_TARGET] = legacy_target
+        changed = True
+    elif legacy_target is not None:
+        # Both keys present — new key already wins. Just drop the old.
+        changed = True
+
+    # 2. Drop the deprecated trigger key (no longer used).
+    if CONF_ENERGY_ARBITRAGE_SOC_TRIGGER in new_options:
+        new_options.pop(CONF_ENERGY_ARBITRAGE_SOC_TRIGGER, None)
+        changed = True
+
+    # 3. Mark done — even if nothing changed (so we don't re-check next setup).
+    new_options["arbitrage_target_rename_migration_done"] = True
+
+    hass.config_entries.async_update_entry(cm_entry, options=new_options)
+    if changed:
+        _LOGGER.info(
+            "v4.5.0 D2 migration: renamed arbitrage_target → peak_buffer_target "
+            "and removed arbitrage_trigger from CM entry options"
+        )
+    return changed
 
 
 async def _migrate_sensor_entity_ids(hass: HomeAssistant) -> int:
@@ -1228,10 +1287,32 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 # Settings are stored in the CM entry by the coordinator config steps.
                 # Fall back to integration merged_config for backward compatibility.
                 cm_config: dict = {}
+                cm_entry: ConfigEntry | None = None
                 for ce in hass.config_entries.async_entries(DOMAIN):
                     if ce.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_COORDINATOR_MANAGER:
-                        cm_config = {**ce.data, **ce.options}
+                        cm_entry = ce
                         break
+
+                # v4.5.0 D2: Migrate arbitrage_target → peak_buffer_target and
+                # drop the now-removed arbitrage_trigger key. Idempotent —
+                # gated on options["arbitrage_target_rename_migration_done"].
+                # Must run BEFORE cm_config dict is built so the renamed key
+                # is in place when EnergyCoordinator constructs BatteryStrategy.
+                if cm_entry is not None:
+                    try:
+                        await _migrate_arbitrage_target_to_peak_buffer(hass, cm_entry)
+                        # Re-read after potential update
+                        cm_entry = (
+                            hass.config_entries.async_get_entry(cm_entry.entry_id)
+                            or cm_entry
+                        )
+                    except Exception as e:
+                        _LOGGER.error(
+                            "v4.5.0 arbitrage_target rename migration failed: %s", e
+                        )
+
+                if cm_entry is not None:
+                    cm_config = {**cm_entry.data, **cm_entry.options}
 
                 coordinator_manager = CoordinatorManager(hass)
 

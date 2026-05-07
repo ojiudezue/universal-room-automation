@@ -1,8 +1,9 @@
-# PLANNING v4.5.0 — Routine Awareness (B6 + B7)
+# PLANNING v4.6.0 — Routine Awareness (B6 + B7)
 
 **Status:** Planned, not started
 **Tier:** Feature cycle (Tier 2 — 2 reviews + live validation per CLAUDE.md)
-**Predecessor:** v4.4.x (TBD) and `docs/planning/ANOMALY_RECONCILIATION_SURVEY.md` survey
+**Predecessor:** v4.5.0 Battery Strategy v2 Overlay; `docs/planning/ANOMALY_RECONCILIATION_SURVEY.md` survey
+**Renumbered:** Originally planned as v4.5.0 (2026-05-06). Reshuffled 2026-05-06 to v4.6.0 to make room for Battery Strategy v2 Overlay at v4.5.0.
 **Effort estimate:** 2-3 cycles (Phase 1 silent + Phase 2 notification, plus the D0 reconciliation precondition)
 
 ## Context
@@ -32,7 +33,7 @@ User direction (2026-05-06): "First reconcile with our anomaly work on coordinat
 ## Non-goals (deferred)
 
 - Cross-system anomaly correlation engine (multi-coordinator events with policy logic) — needs its own cycle.
-- Anomaly ML models (ARIMA, Prophet, change-point detection beyond JS divergence) — out of v4.5.0 scope.
+- Anomaly ML models (ARIMA, Prophet, change-point detection beyond JS divergence) — out of v4.6.0 scope.
 - Real-time streaming to external dashboards — query-on-demand only.
 - Privacy-sensitive filtering of anomaly events — current sensor-attribute model is sufficient.
 - Migration of every legacy touchpoint to `AnomalyEvent` — D0 is bounded; full migration is opportunistic via later cycles.
@@ -88,7 +89,7 @@ Existing `anomaly_log` rows get `event_class = 'point_in_time'` and remain query
 
 **File:** `domain_coordinators/anomaly_event.py` (single `AnomalySeverity` enum), all coordinators that emit anomalies (touch sites — internal, no API change).
 
-Survey found 8 different severity scales. v4.5.0 picks **one** enum used everywhere:
+Survey found 8 different severity scales. v4.6.0 picks **one** enum used everywhere:
 ```python
 class AnomalySeverity(IntEnum):
     INFO = 0       # observation worth recording but not alerting
@@ -248,12 +249,12 @@ Press → marks all current unacknowledged events for that person as `recovery_a
 
 ## Migration of legacy anomaly touchpoints (canaries)
 
-Survey lists 12 touchpoints. v4.5.0 D0 migrates **two canaries** to the new shape; full migration of the remaining 10 is opportunistic in later cycles:
+Survey lists 12 touchpoints. v4.6.0 D0 migrates **two canaries** to the new shape; full migration of the remaining 10 is opportunistic in later cycles:
 
 1. **Energy `_envoy_data_anomaly_at`** (added v4.3.0 D6) — collapse the per-instance flag to an `AnomalyEvent(coordinator="energy", type="energy.crosscheck_divergence", event_class="point_in_time", ...)`. The sensor's "stale" derivation logic stays in `EnvoyStatusSensor`; only the storage migrates.
 2. **Bayesian anomaly score** (existing) — store each scoring run as an `AnomalyEvent(coordinator="bayesian", type="bayesian.prediction_anomaly", event_class="point_in_time", ...)`. Verifies the unified shape works for an existing-and-frequent emitter.
 
-Other 10 touchpoints (safety hazards, person transitions, transit validator, circuit anomaly, NM alerts, decision/compliance/outcome logs) are **not migrated in v4.5.0** — they keep their current shape until needed for a feature. This bounds the risk and lets v4.5.0 ship.
+Other 10 touchpoints (safety hazards, person transitions, transit validator, circuit anomaly, NM alerts, decision/compliance/outcome logs) are **not migrated in v4.6.0** — they keep their current shape until needed for a feature. This bounds the risk and lets v4.6.0 ship.
 
 ## Tier 2 Review Plan
 
@@ -292,7 +293,7 @@ Focus: D2 cleanup batching + Bug Class #27 prevention, D4 nightly batch scheduli
 | Canary migrations (2 touchpoints, energy + bayesian) | ~50 | ~30 |
 | **Total** | **~890** | **~580** |
 
-Survey-claimed savings (~100 lines lighter for B7) are realized by D4 reusing D0's persistence + D1's severity vocab + D2's cleanup. Original estimate (BACKLOG.md) of 640 prod / 410 test for B7-only is preserved at the feature level; the D0-D2 reconciliation costs are folded into v4.5.0 as up-front infrastructure investment that other future cycles will amortize.
+Survey-claimed savings (~100 lines lighter for B7) are realized by D4 reusing D0's persistence + D1's severity vocab + D2's cleanup. Original estimate (BACKLOG.md) of 640 prod / 410 test for B7-only is preserved at the feature level; the D0-D2 reconciliation costs are folded into v4.6.0 as up-front infrastructure investment that other future cycles will amortize.
 
 ## Ship plan
 
@@ -302,13 +303,13 @@ Survey-claimed savings (~100 lines lighter for B7) are realized by D4 reusing D0
 
 **Phase 3 — B7 Phase 2 (D6)**: notification surface. ~80 prod / ~40 test. Default `silent`; user-driven opt-in to `weekly_digest` or `event` modes.
 
-Phases 1 + 2 ship as v4.5.0. Phase 3 ships as v4.5.1 after the silent calibration period — gates on the user being satisfied that the detector is false-positive-free for their household.
+Phases 1 + 2 ship as v4.6.0. Phase 3 ships as v4.6.1 after the silent calibration period — gates on the user being satisfied that the detector is false-positive-free for their household.
 
 ## Dependencies / preconditions
 
 - `docs/planning/ANOMALY_RECONCILIATION_SURVEY.md` (2026-05-06) — ✅ shipped
 - v4.3.0 — ✅ shipped (this is the predecessor)
-- v4.4.x B5 (Appliance Scheduler) — **NOT a dependency**, can ship in either order
+- v4.7.x B5 (Appliance Scheduler) — **NOT a dependency**, can ship in either order
 - Architectural #0 (test baseline cleanup) — **NOT a hard dependency**, but a clean test net would catch regressions in the canary migrations more reliably. Worth doing first if scheduling allows.
 
 ## Acceptance criteria summary

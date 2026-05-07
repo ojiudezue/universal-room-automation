@@ -385,3 +385,134 @@ class TestSeparateImportExport:
             now = datetime(2026, 3, 15, 18, 0)
             assert engine.get_current_rate(now) == 0.10
             assert engine.get_export_rate(now) == 0.07
+
+
+# ---------------------------------------------------------------------------
+# v4.5.0 D8: high-rate transition awareness
+# ---------------------------------------------------------------------------
+
+class TestNextHighRateTransition:
+    """`get_next_high_rate_transition` must walk forward across midnight."""
+
+    def test_summer_noon_returns_today_14h_mid_peak(self):
+        """Summer at 12:00 → next transition is today 14:00 mid_peak."""
+        engine = TOURateEngine()  # PEC defaults
+        now = datetime(2026, 7, 15, 12, 0)  # July → summer
+        result = engine.get_next_high_rate_transition(now)
+        assert result is not None
+        when, period = result
+        assert when == datetime(2026, 7, 15, 14, 0)
+        assert period == "mid_peak"
+
+    def test_summer_late_night_crosses_midnight(self):
+        """Summer at 22:00 → off_peak runs through midnight to 14:00 next day."""
+        engine = TOURateEngine()
+        now = datetime(2026, 7, 15, 22, 0)  # July, 10 PM
+        result = engine.get_next_high_rate_transition(now)
+        assert result is not None
+        when, period = result
+        assert when == datetime(2026, 7, 16, 14, 0)
+        assert period == "mid_peak"
+
+    def test_shoulder_afternoon_returns_today_17h(self):
+        """Shoulder at 14:00 → mid_peak at 17:00 today."""
+        engine = TOURateEngine()
+        now = datetime(2026, 4, 15, 14, 0)  # April → shoulder
+        result = engine.get_next_high_rate_transition(now)
+        assert result is not None
+        when, period = result
+        assert when == datetime(2026, 4, 15, 17, 0)
+        assert period == "mid_peak"
+
+    def test_winter_late_night_crosses_to_morning_mid_peak(self):
+        """Winter at 22:00 → next mid_peak at 05:00 next day."""
+        engine = TOURateEngine()
+        now = datetime(2026, 1, 15, 22, 0)  # January → winter
+        result = engine.get_next_high_rate_transition(now)
+        assert result is not None
+        when, period = result
+        assert when == datetime(2026, 1, 16, 5, 0)
+        assert period == "mid_peak"
+
+    def test_winter_after_morning_window_returns_evening_window(self):
+        """Winter at 10:00 → next mid_peak at 17:00 today (evening window)."""
+        engine = TOURateEngine()
+        now = datetime(2026, 1, 15, 10, 0)
+        result = engine.get_next_high_rate_transition(now)
+        assert result is not None
+        when, period = result
+        assert when == datetime(2026, 1, 15, 17, 0)
+        assert period == "mid_peak"
+
+    def test_summer_inside_peak_finds_next_transition(self):
+        """Summer at 17:00 (peak) → next high-rate transition skips current
+        peak/mid_peak and finds tomorrow's 14:00 mid_peak (since we already
+        ARE in a high-rate window — there's no "into" transition until
+        we cycle back through off_peak)."""
+        engine = TOURateEngine()
+        now = datetime(2026, 7, 15, 17, 0)
+        result = engine.get_next_high_rate_transition(now)
+        assert result is not None
+        when, _period = result
+        # Must come after today's evening window ends and the off_peak
+        # gap is bridged → tomorrow at 14:00.
+        assert when == datetime(2026, 7, 16, 14, 0)
+
+    def test_returns_none_when_no_high_rate_in_lookback(self):
+        """Custom rate file with all-off_peak season → None."""
+        all_offpeak = {
+            "summer": {
+                "months": [6, 7, 8, 9],
+                "periods": {
+                    "off_peak": {
+                        "hours": [(0, 24)],
+                        "import_rate": 0.04,
+                        "export_rate": 0.04,
+                    },
+                },
+            },
+        }
+        engine = TOURateEngine(rate_table=all_offpeak)
+        now = datetime(2026, 7, 15, 12, 0)
+        assert engine.get_next_high_rate_transition(now, lookback_hours=72) is None
+
+    def test_lead_time_math_summer(self):
+        """Charge window opens at (transition - lead_time). Default 360 min
+        means at 08:00 today for the 14:00 mid_peak transition."""
+        engine = TOURateEngine()
+        from datetime import timedelta
+        now = datetime(2026, 7, 15, 7, 30)  # 30 min before window open
+        transition, _period = engine.get_next_high_rate_transition(now)
+        assert transition == datetime(2026, 7, 15, 14, 0)
+        window_open = transition - timedelta(minutes=360)
+        assert window_open == datetime(2026, 7, 15, 8, 0)
+        assert (now < window_open) is True  # 07:30 < 08:00
+
+
+class TestTodayHighRateTransitions:
+    """Diagnostic helper for at-a-glance display."""
+
+    def test_summer_lists_two_windows(self):
+        engine = TOURateEngine()
+        now = datetime(2026, 7, 15, 8, 0)
+        windows = engine.get_today_high_rate_transitions(now)
+        # summer: mid_peak 14-16 + 20-21, peak 16-20
+        assert (14, "mid_peak") in windows
+        assert (16, "peak") in windows
+        assert (20, "mid_peak") in windows
+
+    def test_shoulder_lists_one_window(self):
+        engine = TOURateEngine()
+        now = datetime(2026, 4, 15, 8, 0)
+        windows = engine.get_today_high_rate_transitions(now)
+        # shoulder: mid_peak 17-21 only
+        assert (17, "mid_peak") in windows
+        assert all(p != "peak" for _h, p in windows)
+
+    def test_winter_lists_two_windows(self):
+        engine = TOURateEngine()
+        now = datetime(2026, 1, 15, 8, 0)
+        windows = engine.get_today_high_rate_transitions(now)
+        # winter: mid_peak 05-09 + 17-21
+        assert (5, "mid_peak") in windows
+        assert (17, "mid_peak") in windows

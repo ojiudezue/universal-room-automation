@@ -1026,6 +1026,69 @@ def test_no_sync_update_listeners():
 
 ---
 
+### Bug Class #30: Unit-of-Measurement Drift Across Firmware ⚠️
+
+**Pattern:** A sensor that historically reported in one unit (e.g., W)
+silently changes to another (e.g., kW) on a firmware/integration update.
+Code that divides the raw value by 1000 (assuming W → kW) now divides
+twice, producing a 1000× too small number. Threshold comparisons that
+used to fire never fire (or vice-versa); accumulator math that used to
+balance now drifts by 3 orders of magnitude.
+
+**Impact:**
+- Silent: no exception, no log error. Just wrong numbers.
+- Detection-resistant: appears correct on a bench install (legacy firmware),
+  fails in production after a routine integration update.
+- Cascade: bill predictions, EV grid_import_cap, load shedding, drain
+  protection — anything that does `value / 1000` to convert "Envoy watts"
+  to kW silently breaks.
+
+**Discovered:** v4.3.4 (battery_power kW vs W broke EV/plug battery
+drain protection — the `< -100W` threshold never fired when entity
+reported kW; -0.21 kW < -100 is False).
+
+**Resurfaced:** v4.5.0 sweep — solar_production, net_power, and
+total_consumption had the same bug class but unfixed. Net-power affected
+billing accumulator (`kW × hours = kWh` math assumed kW), grid_import_cap
+threshold, and load_shedding threshold.
+
+**The Fix:**
+```python
+@property
+def some_power_w(self) -> float | None:
+    """Always returns W. Reads unit_of_measurement and scales kW → W."""
+    state = self.hass.states.get(entity_id)
+    if state is None or state.state in ("unknown", "unavailable"):
+        return None
+    try:
+        value = float(state.state)
+    except (ValueError, TypeError):
+        return None
+    uom = state.attributes.get("unit_of_measurement", "")
+    if uom in ("kW", "kw"):
+        value *= 1000.0
+    return value
+```
+
+**Prevention:**
+- [ ] For every Envoy/Emporia/Solcast/etc. sensor used in math, add a
+      normalized `_w` (or `_kwh`) property that reads the entity's
+      `unit_of_measurement` attribute.
+- [ ] Production callers that do `/1000` or `*1000` MUST source from
+      the normalized property — not the raw entity reader.
+- [ ] Test fixtures must cover BOTH W and kW UoM cases (not just one).
+- [ ] When adding new sensors that participate in threshold math, write
+      a regression test asserting both UoM paths produce the same
+      threshold-comparison outcome.
+- [ ] Search for naked `/ 1000` and `* 1000` in domain coordinator code
+      during code review — each should be paired with a UoM check or a
+      normalized-property read.
+
+**Severity:** HIGH (silent data drift; affects billing, threshold safety
+checks, and energy accounting; very hard to detect post-deploy)
+
+---
+
 ### Bug Class #29: Unbudgeted Scheduled Maintenance ⚠️
 
 **Pattern:** A nightly or startup task iterates through N cleanup operations sequentially with no time budget. If early operations are slow (large backlogs), later operations never run. If ALL operations are slow, the task blocks the event loop for the entire duration.
@@ -1499,11 +1562,17 @@ architectural debt items + 1 underlying code-health issue. **Full detail and
 priority sequencing live in `docs/ROADMAP_v11.md` → "TECH DEBT & HARDENING
 QUEUE → Architectural items"**. Summary for reviewers:
 
-- **#0 (BLOCKING):** Test baseline cleanup. 86 failing tests + 14 errors are
-  treated as "pre-existing" every cycle. New regressions in those areas are
-  invisible. Both v4.2.22's storm and v4.2.24's silent save bug lived in
-  untested code paths. Drive failures to 0 + add CI guard before any other
-  architectural work.
+- **#0 (BLOCKING):** Test baseline cleanup. **Calibrated baseline (v4.5.0):
+  57 failing tests + 14 errors** with `pytest-asyncio` pinned. Without the
+  plugin, the count appeared as ~238 failures because async test markers
+  produced collection errors counted as failures — masking the real number
+  for ~2 months. The Mar 2026 figure ("86 failing + 14 errors") was the
+  pre-drift number; the gap (57 → 86 → 238) shows exactly the trap this
+  item warns about: failure count drifts upward, new regressions hide in
+  the noise. v4.5.0 pinned the plugin via `quality/requirements_test.txt`;
+  the deeper cleanup (drive 57+14 → 0 + add CI guard) is **v4.5.2**'s job.
+  v4.5.1 is the config-flow restructure deferred from v4.5.0 (paginated
+  energy form, rate-plan top-level toggle, net-metering branch).
 - **#1:** Setup/unload symmetry (services never unregistered, panels never
   torn down, shared resources unloaded while consumers still depend on them).
 - **#2:** Tracked background tasks (multiple `hass.async_create_task` sites
