@@ -195,7 +195,7 @@ class _BatteryHarness:
                  multi_day_horizon_enabled=False,
                  solcast_day_3="80",
                  net_power="-500", net_power_uom="W",
-                 grid_import_guard_kw=20.0):
+                 grid_import_guard_kw=12.0):  # v4.5.0.3: default sized for 60A breaker
         self.hass = MockHass()
         self.hass.set_state(DEFAULT_BATTERY_SOC_ENTITY, str(soc))
         self.hass.set_state(DEFAULT_STORAGE_MODE_ENTITY, storage_mode)
@@ -1655,6 +1655,45 @@ class TestV4502GridImportGuard:
         assert status["arbitrage_grid_import_guard_kw"] == 20.0
         assert status["arbitrage_guard_aborted_at"] is not None
         assert status["arbitrage_guard_aborted_kw"] == 25.0
+
+    def test_default_guard_threshold_is_60A_breaker_sized(self):
+        """v4.5.0.3: default DEFAULT_ARBITRAGE_GRID_IMPORT_GUARD_KW = 12 kW.
+
+        Sized for 60A DER breaker on IQ System Controller 3/3G with
+        NEC 80% continuous-load derating: 60 × 240 × 0.8 = 11.52 kW,
+        rounded up to 12 kW. Discovery context: user's 8x IQ Battery 5P
+        stack ramps to ~32 kW; 60A and 80A breakers (Enphase's options)
+        cannot sustain that; default needs to be conservative so guard
+        actually fires before sustained breaker overload.
+
+        Plan's original 20 kW default was unsafe.
+        """
+        from custom_components.universal_room_automation.domain_coordinators.energy_const import (
+            DEFAULT_ARBITRAGE_GRID_IMPORT_GUARD_KW,
+        )
+        assert DEFAULT_ARBITRAGE_GRID_IMPORT_GUARD_KW == 12.0
+
+    def test_charge_aborts_at_default_threshold_with_typical_8stack_load(self):
+        """End-to-end: with default 12 kW guard, an 8-battery stack
+        ramping above ~12 kW grid import correctly aborts the chunk."""
+        from custom_components.universal_room_automation.domain_coordinators.energy_battery import BatteryStrategy as _BS
+        from custom_components.universal_room_automation.domain_coordinators.energy_const import (
+            DEFAULT_ARBITRAGE_GRID_IMPORT_GUARD_KW,
+        )
+        # Construct without explicit guard arg → uses default
+        h = _BatteryHarness(
+            soc=15, solcast_today="20", solcast_tomorrow="20",
+            arbitrage_enabled=True, with_tou_engine=True,
+            net_power="15000",  # 15 kW import — over default 12 kW
+            # NOTE: harness default is now 12 (matching constant); not passed.
+        )
+        # Verify harness honored the new default
+        assert h.strategy._arbitrage_grid_import_guard_kw == DEFAULT_ARBITRAGE_GRID_IMPORT_GUARD_KW
+        result = h.strategy.determine_mode(
+            "off_peak", "summer", now=_SUMMER_INSIDE_WINDOW,
+        )
+        assert result["arbitrage_phase"] == ARBITRAGE_PHASE_WAIT
+        assert h.strategy._arbitrage_chunk_completed is True
 
 
 class TestV4501EnvoyUnavailableLastReasonSync:
