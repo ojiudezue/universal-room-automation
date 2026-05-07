@@ -1,0 +1,101 @@
+{
+  "format_version": "2.0",
+  "entry_id": "006",
+  "author": "ojiudezue",
+  "session_id": "claude_20260506_planning_v450",
+  "timestamp": "2026-05-07T18:00:00Z",
+  "type": "pivot",
+  "weight": "critical",
+
+  "title": "v4.5.0 — battery strategy: phased state machine + EC cost-minimization nexus framing",
+
+  "summary": "Reversed the v4.5.0 framing across multiple dimensions over a 2-day design conversation. v4.5.0 was originally Routine Awareness; reshuffled to Battery Strategy Redesign because the existing 5-knob system had structural conflicts (drain targets fight arbitrage; charged energy drains before peak; arbitrage trigger almost never fires). The redesign introduces a four-phase state machine (WAIT → CHARGE → HOLD → DISCHARGE) gated on forecast class; folds in multi-day Solcast lookback (former v4.3.3); replaces a flawed saw-tooth charge rate cap with arbitrage/EV mutual-exclusion that establishes the load-coordination pattern v4.7.x B5 (Appliance Scheduler) will extend; and frames the cycle as one slice of a longer arc whose objective is total energy cost minimization (the 'EC nexus' framing).",
+
+  "decisions": [
+    {
+      "id": "006.1",
+      "category": "architecture",
+      "decision": "Replace 'charge at off-peak start, drain to drain_target' with a four-phase state machine: WAIT → CHARGE → HOLD → DISCHARGE, gated by forecast class + arbitrage_enabled toggle",
+      "alternatives_considered": [
+        "Keep the v3.11.0 Phase A/Phase B model with tuned thresholds",
+        "Mode toggle: v1_legacy vs v2_simplified with calibration phase",
+        "Charge late within off-peak (lead_time ~120 min) — initially proposed",
+        "Charge at off-peak start with HOLD until peak — initially proposed"
+      ],
+      "why": "The five-knob system (reserve_soc + 4 drain targets + arbitrage_trigger + arbitrage_target) had three structural failures: (a) arbitrage_trigger=20 < drain_target_poor=30 means arbitrage is unreachable from above, so it almost never fires; (b) charged energy drains during morning off-peak before peak hits, wasting the arbitrage; (c) two coupled concerns — drain decisions and arbitrage decisions — share thresholds. The phased model decouples them: arbitrage path takes over completely when (arbitrage_enabled AND tomorrow_class in poor/very_poor); drain targets remain as the fallback when arbitrage is disabled. Lead time default 360 min (6 hours) — earlier than initially proposed 120 min after user clarified 'earlier start is better same-day' (intraday solar telemetry confirms forecast by morning; no need to wait for late-charge freshness).",
+      "implications": "v4.3.4 → v4.5.0 is byte-for-byte preserved when arbitrage is OFF (drain targets unchanged). When arbitrage is ON and tomorrow=poor, the new path replaces the old rescue-charge wholesale. Implementation MUST follow the State Matrix in PLANNING_v4.5.0_battery_strategy_redesign.md exactly — 13 rows, with 'existing v4.3.4 behavior' rows verbatim preserved. Rename arbitrage_target → peak_buffer_target with a one-time migration helper. arbitrage_trigger slider removed entirely.",
+      "confidence": "high",
+      "revisit_trigger": "If 14-day live calibration shows lead_time=360 is too generous (excess HOLD duration eats overnight battery autonomy) or too tight (charge stalls land in mid_peak); also revisit if Bayesian-derived dynamic lead_time (v4.6.x) supersedes the fixed default."
+    },
+    {
+      "id": "006.2",
+      "category": "architecture",
+      "decision": "Adopt 'EC cost-minimization nexus' as the architectural through-line connecting v4.5.0 → v4.6.0 → v4.6.x → v4.7.x B5 → v5.0",
+      "alternatives_considered": [
+        "Treat each version as a discrete project",
+        "Frame v4.5.0 narrowly as 'battery strategy' without articulating the umbrella objective"
+      ],
+      "why": "User direction: 'we have appliance control coming which will inevitably have to be connected to both EV and battery load control. The nexus point is EC. The ultimate goal is energy cost minimization.' Without this frame, every cycle looks orthogonal; with it, the integration points are obvious. v4.5.0's D4 mutual-exclusion (`_paused_by_arbitrage` set) is the precedent v4.7.x B5 will copy onto each appliance controller. v4.6.x advanced topics (Bayesian peak_buffer_target, charge-rate control via barneyonline HACS, solar-aware partial top-up, intraday-confirmed dynamic lead time) all sit on top of v4.5.0's calibration data. v5.0 cleans up arch debt to support config subentries. One objective threads it all.",
+      "implications": "Future planning docs in this arc must reference the nexus framing in their opening section. Design decisions get evaluated against 'does this serve total-energy-cost minimization?' as the umbrella objective, not narrower 'is this a good standalone feature?' framings. Pattern compliance with v4.5.0 D4 (paused-by-reason set + precedence rules) becomes a hard requirement for B5 appliances.",
+      "confidence": "high",
+      "revisit_trigger": "If a future load category emerges (e.g., V2G bidirectional EV) that doesn't fit the cost-minimization frame cleanly. Or if user goals shift away from cost minimization (e.g., grid-resilience prioritized over cost)."
+    },
+    {
+      "id": "006.3",
+      "category": "process",
+      "decision": "Drop ALL mode-toggle / dual-strategy / opt-in-calibration scaffolding; ship new behavior directly",
+      "alternatives_considered": [
+        "Default v1_legacy, v2 opt-in for 4-8 weeks, then flip default in v4.5.1",
+        "Feature flag with runtime toggle for instant revert"
+      ],
+      "why": "User direction: 'Only 1 use Ura for now. So we don't need backward compatibility.' URA has exactly one production install. Mode toggles, calibration cycles, and migration phases are scaffolding for users who don't exist. Live validation IS the regression net. Renaming and removing config keys is free; one-time migration helpers (~15 LoC) carry forward saved values. This unlocks ~150 LoC of design simplification across v4.5.0 and every future cycle.",
+      "implications": "All future plans default to 'ship the new model directly, no opt-in.' Saved as project memory `project_single_user_no_backcompat.md`. If URA ever distributes to additional users, this decision must be re-examined and migration story added retroactively.",
+      "confidence": "high",
+      "revisit_trigger": "If URA gains a second production user (HACS distribution, family install, etc.). At that point, all single-user assumptions need an audit."
+    },
+    {
+      "id": "006.4",
+      "category": "architecture",
+      "decision": "D4 = arbitrage/EV mutual-exclusion (not saw-tooth charge rate cap)",
+      "alternatives_considered": [
+        "Saw-tooth via charge_from_grid switch with hysteresis (initial proposal)",
+        "Charge rate control via barneyonline/ha-enphase-energy HACS (deferred to v4.6.x)",
+        "No compound-load protection (accept ~32 kW peak draws)"
+      ],
+      "why": "Two reasons saw-tooth is wrong: (a) Enphase charge_from_grid is a binary switch, ON=~20kW / OFF=~0kW; saw-tooth threshold sits between, hysteresis can't bridge — system flaps every 5-min decision tick. (b) PEC has no demand charges, so 'average rate cap' provides no cost benefit. The real risk is breaker tripping during compound loads (battery 20kW + EV 7.4kW + house 5kW = 134A = panel-stress). Solo battery 20kW (~83A) is well within breaker capacity. Mutual-exclusion solves the actual failure mode by pausing EV when arbitrage charges; auto-resume on phase exit. Pattern uses the existing `_paused_by_*` set + precedence rules already proven in URA, and is the precedent B5 (v4.7.x) extends to dishwasher/dryer/oven.",
+      "implications": "EV (and eventually appliances) won't run during arbitrage CHARGE phase. Acceptable because arbitrage CHARGE is bounded (~1.4h), and EVs are typically already-full or scheduled overnight. Auto-resume on CHARGE→HOLD transition or chunk lock fire. Charge-rate control HACS (barneyonline) becomes a v4.6.x topic; if it works on user's Enphase firmware, it OBSOLETES mutual-exclusion entirely (battery + EV could charge concurrently at controlled rates). Chunk lock prevents oscillation if conditions wobble.",
+      "confidence": "high",
+      "revisit_trigger": "If barneyonline charge-rate control proves out on user's firmware in v4.6.x scoped test. Then re-architect to allow concurrent battery + EV charging at controlled rates."
+    },
+    {
+      "id": "006.5",
+      "category": "scope",
+      "decision": "Defer 7+ optimization topics to v4.6.x: Bayesian peak_buffer_target, charge-rate control, solar-aware partial top-up, intraday-confirmed dynamic lead time, season-variable buffer, per-window economic gate, cycle-wear amortization in ROI math, appliance-coordinated arbitrage",
+      "alternatives_considered": [
+        "Pile a few of these into v4.5.0 to maximize value per cycle",
+        "Spread across v4.5.0, v4.5.1, v4.5.2 sub-cycles"
+      ],
+      "why": "v4.5.0 review surface is already 680 prod / 900 test LoC at the safe upper edge of Tier 2. Each deferred topic has dependencies on v4.5.0's calibration data (Bayesian needs the fixed-target baseline first), or external integration risk (barneyonline HACS), or scope of its own (cycle-wear ROI). Capturing all of them in a single 'Advanced topics — deferred to v4.6.x' table with 'why deferred' + 'what it would unlock' rows preserves the ideas without bloating v4.5.0.",
+      "implications": "v4.5.0 ships focused. v4.6.0 = Routine Awareness (anomaly reconciliation foundation). v4.6.x topics are a distinct umbrella for advanced energy-cost optimization — ordering within v4.6.x will depend on which v4.5.0 calibration signals are strongest. Cycle-wear ROI gate becomes important for winter, where v4.5.0's two-charge-per-day default may push closer to battery cycle spec.",
+      "confidence": "medium",
+      "revisit_trigger": "After v4.5.0 has 4-8 weeks of live data. Pick the 1-2 v4.6.x topics with strongest signal; deprioritize the rest if they prove unnecessary."
+    }
+  ],
+
+  "refs": {
+    "what_prompted_this": "User identified that arbitrage almost never fires due to drain_target_poor=30 holding battery above arbitrage_trigger=20. Multi-turn design conversation surfaced deeper structural issues. Multiple corrections through the conversation produced significantly different design from initial drafts.",
+    "tools_in_use": ["claude_code"],
+    "files_affected": [
+      "docs/planning/PLANNING_v4.5.0_battery_strategy_redesign.md",
+      "docs/planning/PLANNING_v4.5.0_TRANSITION_NOTES.md",
+      "docs/planning/PLANNING_v4.6.0_routine_awareness.md",
+      "docs/planning/PLANNING_v4.7.x_APPLIANCE_SCHEDULER.md",
+      "docs/planning/PLANNING_v4.3.3_multi_day_solcast_lookback.md"
+    ],
+    "related_entries": ["004"],
+    "memory_keys": [
+      "project_single_user_no_backcompat",
+      "project_roadmap_decisions_2026_05_06"
+    ]
+  }
+}

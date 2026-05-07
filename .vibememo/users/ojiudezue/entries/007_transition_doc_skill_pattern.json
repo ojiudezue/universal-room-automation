@@ -1,0 +1,54 @@
+{
+  "format_version": "2.0",
+  "entry_id": "007",
+  "author": "ojiudezue",
+  "session_id": "claude_20260506_planning_v450",
+  "timestamp": "2026-05-07T18:30:00Z",
+  "type": "decision",
+  "weight": "significant",
+
+  "title": "transition-doc skill — hazard map for end-of-planning context handoffs",
+
+  "summary": "Built and installed a reusable Claude Code skill (.claude/skills/transition-doc/) that generates a structured 'transition notes' doc capturing the false starts, misconceptions, and corrections from a planning conversation, designed to be read by the NEXT session before any implementation begins. Pattern emerged from the v4.5.0 redesign where ~9 distinct mistake-and-correction pivots happened during the conversation; the final plan reflected only the destination, leaving future sessions vulnerable to re-deriving the same mistakes.",
+
+  "decisions": [
+    {
+      "id": "007.1",
+      "category": "tooling",
+      "decision": "Create a per-project skill that generates transition notes on user invocation, separate from the durable memory system",
+      "alternatives_considered": [
+        "Use a PreCompact hook to auto-write transition notes at compaction time",
+        "Rely on auto-memory (.claude/projects/.../memory) to capture the lessons",
+        "Manually write transition notes per-cycle as part of normal planning flow"
+      ],
+      "why": "Memory systems capture *durable* cross-session principles ('this user prefers terse responses', 'always validate against live HA'). They're not optimized for the rich, conversation-specific narrative of 'we considered approach A, then B, finally landed on C — here's why A and B don't work even though they look reasonable.' That story is too narrow for global memory but too important to lose between sessions on the same project. A PreCompact hook would automate the trigger but generate generic content that misses the load-bearing 'why' — the good content here was human-curated. A per-cycle slash command, invoked explicitly when a planning conversation produced significant pivots, captures fresh context with intentional curation. Output lives next to the artifact it accompanies (e.g., PLANNING_v4.5.0_TRANSITION_NOTES.md alongside PLANNING_v4.5.0_battery_strategy_redesign.md).",
+      "implications": "Future planning conversations end with /transition-doc invocation before /clear. The doc captures: (1) mistakes in order with user quotes; (2) confirmed-good decisions to inhibit relitigation; (3) hot-zone code-review focus areas if implementation is next; (4) reference path through prior planning; (5) what next session should/shouldn't do. Skill has both SKILL.md (Claude-readable) and README.md (human-readable, publishable) — designed as a reusable pattern other projects can adopt. Sets precedent that some categories of session-specific knowledge deserve dedicated tooling, not just memory entries.",
+      "confidence": "medium",
+      "revisit_trigger": "After 3-4 transition docs are generated, evaluate whether the pattern is producing useful artifacts that future sessions actually consume. If sessions ignore them or generate them but don't read them next time, the pattern isn't paying off and should be replaced with a different approach (e.g., embedding the rationale directly into the plan doc, or using vibememo entries more aggressively)."
+    },
+    {
+      "id": "007.2",
+      "category": "process",
+      "decision": "Distinguish three layers of cross-session knowledge: durable memory (cross-cutting principles), vibememo (load-bearing decisions), transition docs (session-narrative scoped to one planning cycle)",
+      "alternatives_considered": [
+        "Use only one of the three layers and absorb the rest into it",
+        "Treat all three as interchangeable and let the model pick"
+      ],
+      "why": "Each layer serves a different reader profile and timescale. Memory is the always-loaded global context — must stay terse and broadly applicable. VibeMemo entries are the load-bearing 'why' archive — JSON-structured for tooling, with eventual narrative compression. Transition docs are the per-cycle hazard map — narrative form, scoped to one artifact, optimized for the next session opening that artifact cold. Different shapes for different jobs. Conflating them produces either bloated memory (unreadable when always loaded) or shallow transition notes (no architectural reasoning) or memoir-style vibememo entries (drowns the structural decisions in conversational context).",
+      "implications": "Going forward: principle that recurs across projects → memory; load-bearing decision with structured rationale → vibememo; session-specific narrative of how-we-got-to-good → transition doc. Future skill investments should respect these boundaries. The transition-doc skill itself acknowledges this in its README ('Pairs well with: memory systems, planning docs, structured review protocols').",
+      "confidence": "medium",
+      "revisit_trigger": "If two of these layers prove redundant in practice (e.g., transition docs end up duplicating vibememo entries 80% of the time), collapse them. Reassess after 2-3 months of using all three together."
+    }
+  ],
+
+  "refs": {
+    "what_prompted_this": "User question at end of v4.5.0 planning: 'I want to clear context and start. Should we have a hook that writes something like this just before context clear?' Recognition that we'd just produced ~9 mistake-and-correction pivots that the next session would benefit from but the plan doc itself doesn't preserve.",
+    "tools_in_use": ["claude_code"],
+    "files_affected": [
+      ".claude/skills/transition-doc/SKILL.md",
+      ".claude/skills/transition-doc/README.md",
+      "docs/planning/PLANNING_v4.5.0_TRANSITION_NOTES.md"
+    ],
+    "related_entries": ["006"]
+  }
+}
