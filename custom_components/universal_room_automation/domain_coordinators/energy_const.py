@@ -282,13 +282,25 @@ CONF_ENERGY_ARBITRAGE_CHARGE_LEAD_TIME_MIN: Final = (
 # (set chunk_completed=True, return WAIT). One-shot per chunk — no
 # saw-tooth flap. Acts as a software safety rail until v4.5.1 adds
 # proper charge-rate control via barneyonline/ha-enphase-energy HACS.
-# Discovered live during v4.5.0 deploy: user's panel breaker is sized
-# below the IQ Battery 5P stack's nominal 40 kW charge rate, causing
-# repeat trips. Default 20 kW = ~83A on 240V — matches the plan's
-# original (incorrect) assumption that solo battery was within breaker
-# capacity. Users with smaller battery banks or known-marginal breakers
-# should lower this in their config-flow form (added v4.5.1).
-DEFAULT_ARBITRAGE_GRID_IMPORT_GUARD_KW: Final = 20.0
+#
+# v4.5.0.3: default lowered 20 → 12 kW. Sized for the 60A DER breaker
+# (BR260) on the IQ System Controller 3/3G — Enphase's smaller breaker
+# option, common on residential installs. NEC 80% continuous-load
+# derating: 60A × 240V × 0.8 = 11.52 kW; round up to 12 kW. With this
+# default, the guard fires on a slow ramp before sustained import
+# crosses the breaker rating. Installs with 80A breakers can raise to
+# 15 kW; installs with 100A+ should set explicitly via
+# CONF_ENERGY_ARBITRAGE_GRID_IMPORT_GUARD_KW. (Note: even at the right
+# threshold, the guard is tick-frequency limited — 5 min between ticks
+# means a fast 30 kW ramp can trip the breaker before the next check.
+# barneyonline rate control in v4.5.1 is the real fix; this guard is
+# the safety rail.)
+#
+# Plan's original 20 kW assumption was based on the (incorrect) "solo
+# battery 20 kW is within breaker capacity" reasoning — discovered live
+# during v4.5.0 deploy when user's 8x IQ Battery 5P stack ramped to
+# ~32 kW and tripped the breaker twice.
+DEFAULT_ARBITRAGE_GRID_IMPORT_GUARD_KW: Final = 12.0
 CONF_ENERGY_ARBITRAGE_GRID_IMPORT_GUARD_KW: Final = (
     "energy_arbitrage_grid_import_guard_kw"
 )
