@@ -134,9 +134,17 @@
   cp custom_components/universal_room_automation/strings.json \
      custom_components/universal_room_automation/translations/en.json
   ```
+- [ ] **Test dependencies installed.** First-time setup or fresh env:
+  ```bash
+  python3 -m pip install -r quality/requirements_test.txt
+  ```
+  v4.5.0 pinned `pytest-asyncio` after discovering ~180 phantom "failures"
+  in the baseline were just async markers being treated as collection
+  errors. Skip this and the `pytest-asyncio` warnings will pollute the
+  failure count, hiding real regressions (the exact trap of tech debt #0).
 - [ ] **Run quality tests before every commit.**
   ```bash
-  cd quality && python3 -m pytest tests/ -v
+  PYTHONPATH=quality python3 -m pytest quality/tests/ -v
   ```
   Do not skip this because "it's a small change" — the v3.4.1 strings omission was a small change too.
 

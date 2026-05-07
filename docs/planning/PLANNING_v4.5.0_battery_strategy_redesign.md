@@ -3,7 +3,7 @@
 **Status:** Planned, not started
 **Tier:** Feature cycle (Tier 2 — 2 reviews + live validation per CLAUDE.md)
 **Predecessors:** v4.3.4 (production), `PLANNING_v4.3.3_multi_day_solcast_lookback.md` (superseded — folded as D3)
-**Effort estimate:** 1 cycle (~520 prod / ~580 test LoC)
+**Effort estimate:** 1 cycle (~600 prod / ~640 test LoC net)
 
 ## Context
 
@@ -187,8 +187,7 @@ New instance state:
 ```python
 self._arbitrage_chunk_completed: bool = False    # per-chunk lock (replaces session lock)
 self._peak_buffer_target: int = 80
-self._hold_phase_enabled: bool = True
-self._arbitrage_charge_lead_time_min: int = 360   # configurable; bias earlier for safety + same-day intraday confirmation
+self._arbitrage_charge_lead_time_min: int = 360   # live-tunable via number entity (D2); bias earlier for safety + same-day intraday confirmation
 self._arbitrage_phase: str = "wait"               # "wait" | "charge" | "hold" | "discharge" | "n/a"
 ```
 
@@ -240,7 +239,7 @@ HOLD:      {"reserve_level": peak_buffer_target,  "charge_from_grid": False, "re
 - **Test**: `test_phase_summer_full_day_sequence` — fixture walks through 21:00→14:00→16:00→20:00 ticks
 - **Live**: with arbitrage_enabled + tomorrow=poor: phase sensor reports WAIT through overnight, transitions to CHARGE in early morning (~08:00 summer with default lead_time=360), HOLD locked through midday, DISCHARGE at mid-peak/peak
 
-### D2 — Remove `arbitrage_trigger`; rename `arbitrage_target` → `peak_buffer_target`
+### D2 — Remove `arbitrage_trigger`; rename `arbitrage_target` → `peak_buffer_target`; add lead-time number entity
 
 **Files:** `domain_coordinators/energy_const.py`, `number.py`, `config_flow.py`, `strings.json`
 
@@ -256,22 +255,70 @@ HOLD:      {"reserve_level": peak_buffer_target,  "charge_from_grid": False, "re
 **Renamed**:
 - `DEFAULT_ARBITRAGE_SOC_TARGET` → `DEFAULT_PEAK_BUFFER_TARGET`
 - `CONF_ENERGY_ARBITRAGE_SOC_TARGET` → `CONF_ENERGY_PEAK_BUFFER_TARGET`
-- `ArbitrageSOCNumber(role="target")` → `PeakBufferTargetNumber` (or rename existing class with role removed)
+- `ArbitrageSOCNumber(role="target")` → `PeakBufferTargetNumber` (or rename existing class with role removed). Render mode stays slider (consistent with existing SOC sliders) since this is a percentage in 0–100.
 - `EnergyCoordinator.set_arbitrage_target()` → `EnergyCoordinator.set_peak_buffer_target()`
 - `BatteryStrategy._arbitrage_target` → `BatteryStrategy._peak_buffer_target`
 - Sensor attributes: `arbitrage_target` → `peak_buffer_target` everywhere
 - Config flow field labels via strings.json
 - Entity friendly name "Arbitrage SOC Target" → "Peak Buffer Target"
 
-**Migration**: User has one install. Manually update entry options once via config flow if the auto-migration doesn't carry the old key value. Add a small one-time `_migrate_arbitrage_target_to_peak_buffer()` helper at startup that reads `entry.options[CONF_ENERGY_ARBITRAGE_SOC_TARGET]` and writes `entry.options[CONF_ENERGY_PEAK_BUFFER_TARGET]`, then clears the old key. Single-user-friendly migration; ~15 LoC.
+**Added** — new constant + number entity for the charge lead time. Follows the established URA `OffPeakDrainNumber` pattern (post-v4.3.2 fix shape — see memory `feedback_ura_mirror_pattern.md`).
+
+Constants in `energy_const.py`:
+- `CONF_ENERGY_ARBITRAGE_CHARGE_LEAD_TIME_MIN = "energy_arbitrage_charge_lead_time_min"`
+- `DEFAULT_ARBITRAGE_CHARGE_LEAD_TIME_MIN = 360`
+- `MIN_ARBITRAGE_CHARGE_LEAD_TIME_MIN = 120`
+- `MAX_ARBITRAGE_CHARGE_LEAD_TIME_MIN = 720`
+
+Number entity `ArbitrageChargeLeadTimeNumber` in `number.py`:
+- Render as `NumberMode.BOX` (number box, **not** slider — user has slider fatigue; minute-precision values are easier to type than drag). This deliberately departs from `OffPeakDrainNumber`'s slider mode.
+- `native_min_value=120`, `native_max_value=720`, `native_step=15`, `unit_of_measurement="min"`, `entity_category=EntityCategory.CONFIG`, `RestoreEntity` mixin.
+- **Hard minimum 120 min** (the safety guard): full charge from `reserve_soc=10%` to `peak_buffer_target=80%` ≈ 25 kWh / 20 kW ÷ 0.9 RTE ≈ 84 min. The 120 floor gives ~36 min margin against Enphase stalls, slow ramps, or breaker hiccups. Below 120, charge may not complete before the high-rate window. HA's frontend enforces `native_min_value`; coordinator setter clamps + warns as a backstop.
+- Friendly name: "Arbitrage Charge Lead Time".
+
+Lifecycle (mirrors `OffPeakDrainNumber` exactly):
+
+1. **`__init__`** — read initial seed from `{**entry.data, **entry.options}.get(CONF_ENERGY_ARBITRAGE_CHARGE_LEAD_TIME_MIN, DEFAULT_ARBITRAGE_CHARGE_LEAD_TIME_MIN)` into `self._value`. One-time read. (The CONF key won't exist in entry.options for first-time users since we're not adding it to the form — fall through to DEFAULT cleanly.)
+
+2. **`async_added_to_hass`** — `await self.async_get_last_state()`; if restored, OVERRIDE `self._value`. Then push to `EnergyCoordinator.set_arbitrage_charge_lead_time(value)`. If EC not yet registered, subscribe to `SIGNAL_ENERGY_ENTITIES_UPDATE` and re-push on first tick (v4.3.0 C3 retry pattern; existing helper).
+
+3. **`async_set_native_value(value)`** — update `self._value`, call coordinator setter, then `self.async_write_ha_state()`. HA auto-persists to RestoreEntity. **Do NOT call `async_update_entry()` writeback to entry.options** — that's the v4.3.0 H6 anti-pattern that v4.3.2 reverted.
+
+4. **`EnergyCoordinator.set_arbitrage_charge_lead_time(value)`** — clamp + warn if out of range; update `BatteryStrategy._arbitrage_charge_lead_time_min` so the next decision tick picks up the new value. No entry-options writeback.
+
+**The reload guard (v4.3.2 fix shape):** never make `entry.options` "win" over RestoreEntity in `async_added_to_hass` — even when the CONF key is present in entry.options. v4.3.0 H6 tried "fresh config-flow value wins" and broke `ArbitrageSOCNumber` snap-back behavior. The same trap applies here. Implementation: just call `async_get_last_state()` unconditionally; never read entry.options inside `async_added_to_hass`.
+
+**Why not in the config-flow form (D7):** the form is for set-once-and-forget options; live-tunables go on the device card. Adding it to the form would mean the user could edit it both places — but config-flow edits don't propagate into RestoreEntity (they only update entry.options, which the entity ignores at runtime), so it would silently appear to fail. Keep the surface single (device card). Pagination in v4.5.1 may add an "advanced tunables" page; if so, document the entry-options seed-only semantics there.
+
+**Migration**: User has one install. Follow the established URA pattern in `__init__.py` (e.g., `_migrate_zone_names_to_entries`, `_migrate_room_cameras_to_integration`):
+
+1. Helper function `_migrate_arbitrage_target_to_peak_buffer(hass, entry)` in `__init__.py`:
+   - Reads `entry.options.get(CONF_ENERGY_ARBITRAGE_SOC_TARGET)` (old key)
+   - If present, computes `new_options = {**entry.options}; new_options[CONF_ENERGY_PEAK_BUFFER_TARGET] = new_options.pop(CONF_ENERGY_ARBITRAGE_SOC_TARGET)`
+   - Calls `hass.config_entries.async_update_entry(entry, options={**new_options, "arbitrage_target_rename_migration_done": True})`
+2. Idempotency flag: `entry.options.get("arbitrage_target_rename_migration_done")` — gate the migration so it only runs once. Mirrors the existing `zone_manager_migration_done`, `camera_migration_done`, etc. flags.
+3. Called from `async_setup_entry` for `ENTRY_TYPE_COORDINATOR_MANAGER` (where energy coord lives), before energy coordinator initialization so the renamed key is in place when entities read their seed.
+
+~20 LoC including the idempotency flag handling.
 
 #### Acceptance criteria
 - **Verify**: `grep arbitrage_trigger` returns zero hits in production code
 - **Verify**: `grep arbitrage_target` returns zero hits (renamed everywhere)
 - **Verify**: existing user's saved value carries over to new key on first startup post-deploy
+- **Verify**: "Arbitrage Charge Lead Time" number-box entity appears on EC device card; renders as box not slider; default 360
+- **Verify**: writing 60 (below min) is rejected at the entity level (HA enforces `native_min_value`); writing 800 (above max) is rejected; writing 240 succeeds
+- **Verify**: writing 240 → `BatteryStrategy._arbitrage_charge_lead_time_min == 240` within one tick (coordinator setter runs)
+- **Verify**: writing 240, then HA restart → entity restores 240 from RestoreEntity; coordinator picks it up via the entity's `async_added_to_hass` push (and `SIGNAL_ENERGY_ENTITIES_UPDATE` retry if EC isn't ready yet)
+- **Verify (snap-back regression)**: with `entry.options[CONF_ENERGY_ARBITRAGE_CHARGE_LEAD_TIME_MIN]` somehow set to 360 (e.g., simulated from old form value) AND restored value 240, after reload the entity shows 240 — RestoreEntity wins, options is NOT consulted in `async_added_to_hass`
+- **Verify**: setter clamping — if coordinator.set_arbitrage_charge_lead_time(60) is called programmatically (bypassing the entity's native_min), it clamps to 120 and logs a warning
 - **Test**: `test_migration_arbitrage_target_to_peak_buffer_target`
 - **Test**: `test_no_arbitrage_trigger_references_remain`
-- **Live**: post-deploy, EC device card shows "Peak Buffer Target" slider; "Arbitrage SOC Trigger" slider gone
+- **Test**: `test_lead_time_entity_rejects_below_min` (HA-level)
+- **Test**: `test_lead_time_setter_clamps_out_of_range_with_warning` (coordinator-level backstop)
+- **Test**: `test_lead_time_initial_seed_from_default_when_options_missing`
+- **Test**: `test_lead_time_restoreentity_overrides_options_on_reload` (the v4.3.2 snap-back regression test for the new entity)
+- **Test**: `test_lead_time_push_retries_on_signal_when_ec_not_ready` (v4.3.0 C3 pattern)
+- **Live**: post-deploy, EC device card shows "Peak Buffer Target" slider AND "Arbitrage Charge Lead Time" number box; "Arbitrage SOC Trigger" slider gone; adjusting lead time → reload entry → value persists (no snap-back)
 
 ### D3 — Multi-day Solcast forecast lookback (D+2 awareness)
 
@@ -432,12 +479,14 @@ Changes to the existing single-page energy form:
 - Remove field: `CONF_ENERGY_ARBITRAGE_SOC_TRIGGER`
 - Rename field: `CONF_ENERGY_ARBITRAGE_SOC_TARGET` → `CONF_ENERGY_PEAK_BUFFER_TARGET`
 - Add fields:
-  - `CONF_ENERGY_SOLCAST_DAY_3_ENTITY` (entity selector, optional)
-  - `CONF_MULTI_DAY_HORIZON_ENABLED` (boolean, default False)
-  - `CONF_HOLD_PHASE_ENABLED` (boolean, default True)
-  - `CONF_ARBITRAGE_CHARGE_LEAD_TIME_MIN` (number, default 360, range 60-720 minutes) — minutes before next high-rate window when grid charge starts. Higher = more safety margin and (for same-day targets) more intraday solar telemetry informing the forecast re-check; lower = leans on freshest possible forecast at the cost of margin.
+  - `CONF_ENERGY_SOLCAST_DAY_3_ENTITY` (entity selector, optional) — set-once-and-forget
+  - `CONF_MULTI_DAY_HORIZON_ENABLED` (boolean, default False) — set-once-and-forget
 
-Pagination is v4.5.1's job; D7 just adds/renames within the existing form.
+`CONF_ENERGY_ARBITRAGE_CHARGE_LEAD_TIME_MIN` is defined as a constant + DEFAULT but is intentionally NOT in the config-flow form. Per the URA live-tunable pattern (memory `feedback_ura_mirror_pattern.md`), runtime adjustments persist via RestoreEntity (HA state machine), not entry.options. Users adjust it via the number-box entity on the EC device card; the entity's setter does NOT write back to entry.options (doing so would re-introduce the v4.3.0 H6 snap-back bug fixed in v4.3.2). The CONF key exists only as the initial-seed lookup in `__init__`; for first-time users with no prior RestoreEntity state, `__init__` falls back to `DEFAULT_ARBITRAGE_CHARGE_LEAD_TIME_MIN` cleanly.
+
+`hold_phase_enabled` was considered and dropped — HOLD without it recreates the v3.11.0 charge-then-drain bug this redesign fixes; there's no coherent use case for CHARGE without HOLD. If a debug toggle is ever needed, add it then.
+
+Pagination, rate-plan top-level toggle, and net-metering branch logic are v4.5.1's job; D7 just adds/renames within the existing single-page form.
 
 #### Acceptance criteria
 - **Verify**: form save persists all new options
@@ -489,17 +538,15 @@ These optimizations all push the cost-minimization curve further but each carrie
 
 2. **Default `arbitrage_charge_lead_time_min`** — 360 (6 h, my pick) vs 240 (tighter, slightly fresher forecast) vs 480 (very generous). 360 gives ~4.5 h between charge completion and high-rate window — safe margin for stalls and, for same-day target windows, ample intraday solar telemetry to inform the forecast re-check at CHARGE entry. The user has stated preference: earlier start is better when target window is same-day; freshness benefit doesn't dominate once we have intraday telemetry. v4.6.x dynamic lead-time (intraday-confirmed) will compute this adaptively per day.
 
-3. **`hold_phase_enabled` granularity** — should it be a separate toggle from `arbitrage_enabled`? My pick: **yes, separate**. User might want arbitrage charging but not the HOLD phase (rare; useful for debug). Default ON.
+3. **Default for `multi_day_horizon_enabled`** — OFF (calibration cycle) or ON? My pick: **OFF**. Solcast D+2 accuracy is meaningfully worse than D+1; calibrate first, then flip on after observing.
 
-4. **Default for `multi_day_horizon_enabled`** — OFF (calibration cycle) or ON? My pick: **OFF**. Solcast D+2 accuracy is meaningfully worse than D+1; calibrate first, then flip on after observing.
+4. **Mutual-exclusion resume policy** — when an EVSE was paused by arbitrage, should it auto-resume the moment arbitrage completes (SOC ≥ peak_buffer_target) within the same off-peak chunk, or wait until off-peak ends? My pick: **auto-resume**. Off-peak rates still apply; no reason to leave the EV unfilled when the battery is done.
 
-5. **Mutual-exclusion resume policy** — when an EVSE was paused by arbitrage, should it auto-resume the moment arbitrage completes (SOC ≥ peak_buffer_target) within the same off-peak chunk, or wait until off-peak ends? My pick: **auto-resume**. Off-peak rates still apply; no reason to leave the EV unfilled when the battery is done.
+5. **Winter two-charge-per-day default** — winter has two high-rate windows (05:00-09:00 morning, 17:00-21:00 evening). v4.5.0 charges before each. Acceptable for cycle wear (~700 cycles/yr ≈ 11k lifetime cycles vs >6k spec) but cycle-wear ROI math (deferred to v4.6.x) may want to skip the smaller window. **Default ON for both windows for v4.5.0**; advanced gate is a v4.6.x topic.
 
-6. **Winter two-charge-per-day default** — winter has two high-rate windows (05:00-09:00 morning, 17:00-21:00 evening). v4.5.0 charges before each. Acceptable for cycle wear (~700 cycles/yr ≈ 11k lifetime cycles vs >6k spec) but cycle-wear ROI math (deferred to v4.6.x) may want to skip the smaller window. **Default ON for both windows for v4.5.0**; advanced gate is a v4.6.x topic.
+6. **Drain `_get_offpeak_drain_target("very_poor")`** — currently falls back to `poor`. Stay or add explicit very_poor slider? My pick: **stay**. Very_poor is rare; not worth a separate slider.
 
-7. **Drain `_get_offpeak_drain_target("very_poor")`** — currently falls back to `poor`. Stay or add explicit very_poor slider? My pick: **stay**. Very_poor is rare; not worth a separate slider.
-
-8. **Treatment of `tomorrow_class = "unknown"`** — current code excludes from arbitrage gate. New code keeps that: unknown → no arbitrage; drain_target_unknown=40 (most conservative drain). Don't bet money on uncertain forecasts.
+7. **Treatment of `tomorrow_class = "unknown"`** — current code excludes from arbitrage gate. New code keeps that: unknown → no arbitrage; drain_target_unknown=40 (most conservative drain). Don't bet money on uncertain forecasts.
 
 ## Risks ranked
 
@@ -524,16 +571,16 @@ These optimizations all push the cost-minimization curve further but each carrie
 | Component | Production | Test |
 |---|---|---|
 | D1 arbitrage path (phased state machine) | ~200 | ~330 |
-| D2 remove trigger / rename target | ~70 | ~50 |
+| D2 remove trigger / rename target / add lead-time entity + migration helper | ~150 | ~130 |
 | D3 multi-day Solcast | ~120 | ~200 |
 | D4 arbitrage / EV mutual-exclusion | ~50 | ~80 |
 | D5 interaction guards | ~50 | ~100 |
 | D6 diagnostics + methodology | ~80 | ~60 |
-| D7 config-flow options | ~60 | ~30 |
+| D7 config-flow options (2-field add + 1 rename + 1 remove) | ~25 | ~15 |
 | D8 TOU helpers (next high-rate transition) | ~50 | ~50 |
-| **Total gross** | **~680** | **~900** |
+| **Total gross** | **~725** | **~965** |
 
-(Actually closer to ~520 / ~580 net since D2 removes existing code rather than only adding.)
+(Actually closer to ~600 / ~640 net since D2 removes existing code — the trigger slider class + setter + tests — rather than only adding.)
 
 ## Tier 2 Review Plan
 
@@ -553,6 +600,13 @@ These optimizations all push the cost-minimization curve further but each carrie
 - Phase persistence across HA restart (compute from current state on first tick post-restart; no stale phase)
 - D6 sensor attribute changes (sensor reference compat with the user's automations / dashboards — they may reference `arbitrage_target`)
 - D7 config-flow validation (no required-field regressions)
+- **Mirror-pattern correctness for `arbitrage_charge_lead_time_min`** (D2) — per memory `feedback_ura_mirror_pattern.md`:
+  - `__init__` reads seed from `{**entry.data, **entry.options}.get(...)` with `DEFAULT_*` fallback; one-time only
+  - `async_added_to_hass` calls `async_get_last_state()`; if restored, OVERRIDES `self._value`. Does NOT consult entry.options here. (v4.3.2 snap-back regression check.)
+  - `async_added_to_hass` pushes to coordinator; if EC not ready, subscribes to `SIGNAL_ENERGY_ENTITIES_UPDATE` and re-pushes on first tick (v4.3.0 C3 pattern)
+  - `async_set_native_value` updates `self._value` + coordinator setter + `async_write_ha_state()` ONLY. Does NOT call `async_update_entry()`.
+  - Coordinator setter clamps + warns on out-of-range as a backstop to HA's native_min/max enforcement
+  - Same pattern audit for `peak_buffer_target` while the rename touches the same code (it's already correct post-v4.3.2; just verify the rename didn't regress it)
 - Bug Class scan: #1 lifecycle, #19 untracked tasks, #28 sync update_listener
 
 ### Live validation (Review 3)
@@ -564,7 +618,7 @@ After deploy + 14-day observation cycle:
    - Phase = HOLD until off-peak ends (~4.5 h of HOLD in summer at default lead_time)
    - Phase = DISCHARGE during mid_peak/peak; SOC drops to `reserve_soc`
 2. **D1 forecast re-check**: at least once during 14 days, observe a CHARGE-entry abort where Solcast had said "poor" overnight but intraday telemetry shows actual is "good" — chunk lock sets without grid charge fired.
-3. **D2**: peak_buffer_target slider exists; arbitrage_trigger slider gone; existing value migrated correctly.
+3. **D2**: peak_buffer_target slider exists; arbitrage_trigger slider gone; existing value migrated correctly. "Arbitrage Charge Lead Time" number-box entity present on EC device card; adjusting it (e.g., 360 → 240) survives an entry reload AND an HA restart (snap-back regression check — the v4.3.2 fix shape).
 4. **D3**: at least 3 decision cycles in 14 days where multi-day rule diverges from single-day; reason string shows both classifications.
 5. **D4**: during a CHARGE phase, observe `garage_a` switching off the moment phase enters CHARGE; back on when phase enters HOLD or DISCHARGE. EV sensor's `paused_by_arbitrage` attribute populates and clears correctly.
 6. **D5**: storm forecast event during observation → verify storm path wins (phase = "n/a", storm reserve applied).
@@ -575,7 +629,7 @@ After deploy + 14-day observation cycle:
 
 **Single ship as v4.5.0.** All deliverables in one commit. No staged rollout, no opt-in mode — single user, no compatibility surface.
 
-**Calibration phase**: deploy + observe for 14 days. If multi_day_horizon shows clear value, flip default ON in v4.5.1 (or by user toggling). Mutual-exclusion (D4) and HOLD phase default ON from day 1 (clear improvements; no calibration needed). Phased timing (D1) defaults ON; lead_time default 360 min (6 h) — observe whether this is too generous or too tight and tune in v4.5.1. The v4.6.x intraday-confirmed dynamic lead time will eventually replace the fixed value with adaptive behavior.
+**Calibration phase**: deploy + observe for 14 days. If multi_day_horizon shows clear value, flip default ON in v4.5.1 (or by user toggling). Mutual-exclusion (D4) and HOLD phase are unconditional (no toggle — see D7 rationale). Phased timing (D1) defaults ON; lead_time default 360 min (6 h) — live-tunable via the number-box entity (D2) during the observation cycle (hard min 120). The v4.6.x intraday-confirmed dynamic lead time will eventually replace the fixed value with adaptive behavior.
 
 ## Dependencies / preconditions
 
@@ -591,8 +645,9 @@ The release is "done" when:
 - arbitrage_enabled + tomorrow=excellent: phase = "n/a"; drain_target_excellent applies
 - arbitrage_disabled + any forecast: phase = "n/a"; drain_target_X applies (existing behavior, unchanged)
 - `peak_buffer_target` slider replaces `arbitrage_target`; user's saved value migrated correctly
-- `arbitrage_charge_lead_time_min` slider exists with sane default (360)
+- `arbitrage_charge_lead_time_min` exists as a live-tunable number-box entity (default 360, hard min 120, max 720) on the EC device card — NOT a slider, NOT in the config-flow form. Persists across HA restart via RestoreEntity (NOT entry.options writeback — see memory `feedback_ura_mirror_pattern.md` for the v4.3.2 fix shape this follows)
 - `arbitrage_trigger` slider gone; no references in code
+- `hold_phase_enabled` config option does NOT exist — HOLD is unconditional whenever the arbitrage gate is open
 - Multi-day Solcast (D+2) toggle adds D+2-aware decisions when enabled
 - Mutual-exclusion: CHARGE phase pauses any active EVSE; resumes correctly on phase exit (subject to TOU + other pause-reason precedence). Pattern documented as the precedent v4.7.x B5 will extend to appliances.
 - `arbitrage_phase`, `next_high_rate_transition`, `charge_window_opens_at`, `forecast_outlook`, `arbitrage_chunk_completed`, `evse_paused_by_arbitrage` attributes appear on the relevant sensors

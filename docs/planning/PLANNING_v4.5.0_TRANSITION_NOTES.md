@@ -153,6 +153,60 @@ Throughout the conversation I (or the user) considered adding to v4.5.0:
 
 ---
 
+## Mistake 10: Fabricated the URA mirror pattern (most dangerous mistake)
+
+**What I proposed:** When detailing the new `ArbitrageChargeLeadTimeNumber` entity in D2, I wrote a "standard URA live-tunable mirror pattern" with these mechanisms:
+- Coordinator setter writes to BOTH in-memory state AND `entry.options` via `hass.config_entries.async_update_entry(...)`
+- `async_update_listener` has a no-op guard against feedback loops on the listener's own writes
+- Reload-mid-write race protection: defer entry write if `coordinator._reloading == True`
+
+I also wrote acceptance-criteria tests for each of these mechanisms (`test_lead_time_setter_writes_to_entry_options_and_strategy`, `test_lead_time_update_listener_no_feedback_loop`, etc.) and added them to the Tier 2 Core B review section.
+
+**Why it was wrong:** **None of those mechanisms exist in URA.** I hallucinated them from a plausible-sounding mental model of "how live-tunable HA entities probably work." I never opened `number.py` to check.
+
+**The correction (user direction):** "The last time we encountered it was the arbitrage floor trigger level that we plan to remove I think." That recall pointed at v4.3.2 (commit 3d1d11a) — the actual `ArbitrageSOCNumber` snap-back fix. Reading that commit + `OffPeakDrainNumber` revealed the real pattern:
+- `entry.options` = **initial seed only**, read once in `__init__`
+- `RestoreEntity` (HA state machine) = **canonical runtime store**, restored in `async_added_to_hass`
+- `async_set_native_value` updates `self._value` + coordinator setter + `async_write_ha_state()` ONLY. **No `async_update_entry()` writeback exists or should exist.**
+- The actual guard (v4.3.2 fix shape): "Don't let entry.options stomp RestoreEntity on reload" — reverted v4.3.0 H6's "config-flow override wins" logic.
+- The other actual guard (v4.3.0 C3 fix): push-with-retry on `SIGNAL_ENERGY_ENTITIES_UPDATE` if EC isn't registered yet.
+
+**The right approach:** Implement `ArbitrageChargeLeadTimeNumber` exactly mirroring `OffPeakDrainNumber`'s lifecycle, with `NumberMode.BOX` instead of slider. The corrected D2 section now describes this accurately.
+
+**Why this matters more than any other mistake:** A fabricated spec wastes review cycles building guards against impossible bugs (feedback loops that can't fire because no entry writeback exists) while missing the real one (snap-back from entry.options stomping RestoreEntity on reload). It also pollutes downstream artifacts — Tier 2 review checklist had tests pointing at non-existent code paths. Caught only because the user recalled the v4.3.2 incident.
+
+**Codified in:** `feedback_no_fabrication.md` (user memory) and CLAUDE.md "No Fabrication — CRITICAL" section. Rule: when describing how a library, API, or in-repo pattern works — verify (read source / HA dev docs), ask, or admit "I don't know." Never present a guessed mental model as fact.
+
+**Memory enforcement:** `feedback_ura_mirror_pattern.md` describes the actual pattern with the v4.3.2 incident as the historical reference and `OffPeakDrainNumber` / post-v4.3.2 `ArbitrageSOCNumber` as the reference implementation. Read it before touching any persistent NumberEntity / SwitchEntity / SelectEntity.
+
+---
+
+## Mistake 11: Kept `hold_phase_enabled` toggle for "debug usefulness"
+
+**What I proposed:** In the original D7 config-flow options, included `CONF_HOLD_PHASE_ENABLED` (boolean, default True) — "user might want arbitrage charging but not the HOLD phase (rare; useful for debug)." Open question #3 picked "yes, separate toggle, default ON."
+
+**Why it was wrong:** HOLD is the whole point of v4.5.0. Without HOLD, CHARGE fills to 80% then drain-target logic immediately starts pulling SOC back down to `drain_target_poor=30` before the high-rate window. **That's the v3.11.0 bug this entire redesign fixes.** A toggle that re-enables the bug is anti-feature scaffolding. CHARGE without HOLD is incoherent — there's no use case the user could be expressing. If they want no arbitrage, `arbitrage_enabled=False` already covers it.
+
+**The correction (user direction):** "Do we really need hold phase enabled?" — surfaced the right question.
+
+**The right approach:** HOLD is unconditional whenever the arbitrage gate is open. Removed `_hold_phase_enabled` from D1 instance state, removed `CONF_HOLD_PHASE_ENABLED` from D7, removed Open Question #3.
+
+---
+
+## Mistake 12: Default to slider for `ArbitrageChargeLeadTimeNumber`
+
+**What I proposed:** When promoting lead time from a config-flow field to a number entity, defaulted to `NumberMode.SLIDER` to match the existing `OffPeakDrainNumber` and `PeakBufferTargetNumber` shape.
+
+**Why it was wrong:** User has slider fatigue. Minute-precision values (60–720 with 15-min step) are easier to type than to drag accurately on a 0–720 slider track.
+
+**The correction (user direction):** "Maybe not a slider? It could be a number box? I'm getting tired of the sliders."
+
+**The right approach:** `NumberMode.BOX`. Plus user added "if we do this it needs a minimum guard" → hard min 120 min (physics floor: full charge from `reserve_soc=10%` to `peak_buffer_target=80%` ≈ 84 min at 20 kW; 120 gives ~36 min margin against stalls). Frontend enforces via `native_min_value`; coordinator setter clamps + warns as backstop.
+
+**General lesson:** Don't default to existing entity shapes when user surface preferences may differ. Ask if uncertain.
+
+---
+
 ## Confirmed-good design decisions (don't second-guess these)
 
 These were tested in conversation and approved by the user. Don't relitigate:
@@ -168,6 +222,9 @@ These were tested in conversation and approved by the user. Don't relitigate:
 9. **Storm/outage paths run BEFORE the arbitrage gate.** Existing precedence preserved.
 10. **D3 multi-day Solcast** folded in as a deliverable (was the standalone v4.3.3 plan).
 11. **D4 logs flap-protection.** Chunk lock prevents EV pause/resume oscillation if conditions wobble.
+12. **Lead time as `NumberMode.BOX` number entity, not slider.** Hard min 120 min (physics floor + margin). Lives on EC device card; not in config flow form.
+13. **HOLD is unconditional** when arbitrage gate is open (no `hold_phase_enabled` toggle).
+14. **URA mirror pattern is RestoreEntity-based, NOT entry.options writeback.** Read `OffPeakDrainNumber` + v4.3.2 commit 3d1d11a before touching any number entity. See memory `feedback_ura_mirror_pattern.md`.
 
 ---
 
@@ -181,6 +238,9 @@ When implementing v4.5.0:
 5. **EV mutual-exclusion timing.** D4 trigger is "arbitrage charging from grid" (i.e., phase=CHARGE), not "arbitrage active" (which includes HOLD).
 6. **TOU helper.** `get_next_high_rate_transition` must walk forward across midnight boundaries (essential for winter).
 7. **Migration test for `arbitrage_target` → `peak_buffer_target` rename.** User has a saved value; it must carry over.
+8. **`ArbitrageChargeLeadTimeNumber` lifecycle**: mirror `OffPeakDrainNumber` exactly. `__init__` reads seed from `{**entry.data, **entry.options}.get(CONF_KEY, DEFAULT)`; `async_added_to_hass` calls `async_get_last_state()` and OVERRIDES self._value if restored — never consult entry.options here. `async_set_native_value` does NOT write back to entry.options. Snap-back regression test required (the v4.3.2 fix shape).
+9. **Coordinator setter clamping**: `set_arbitrage_charge_lead_time` clamps + warns on out-of-range as a backstop to HA's frontend `native_min`/`native_max` enforcement.
+10. **Push-with-retry**: subscribe to `SIGNAL_ENERGY_ENTITIES_UPDATE` if EC isn't registered when entity is added (v4.3.0 C3 pattern; existing helper).
 
 ---
 
@@ -199,6 +259,8 @@ Memory references in `~/.claude/projects/.../memory/MEMORY.md`:
 - `feedback_review_bug_visibility.md`
 - `feedback_verify_hacs_install.md`
 - `feedback_parallel_agent_isolation.md`
+- `feedback_ura_mirror_pattern.md` — RestoreEntity-based pattern; the v4.3.2 fix shape; mandatory read before D2 implementation
+- `feedback_no_fabrication.md` — verify in source / HA dev docs / ask / admit "I don't know"; never describe code patterns from a guessed mental model
 
 ---
 
@@ -218,8 +280,11 @@ The next session should NOT:
 - Remove drain targets entirely (Mistake 2)
 - Treat reserve_level as a charge ceiling (Mistake 3)
 - Re-introduce saw-tooth charge rate cap (Mistake 4)
-- Set lead_time to 120 min (Mistake 5 — the corrected default is 360)
+- Set lead_time to 120 min (Mistake 5 — the corrected default is 360; 120 is the hard *minimum*, not the default)
 - Assume PEC off-peak ends at 06:00 (Mistake 6)
 - Add a drain floor during WAIT phase (Mistake 7)
 - Pile new features into v4.5.0 (Mistake 8)
 - Lose sight of cost minimization as the umbrella objective (Mistake 9)
+- Describe the URA mirror pattern from memory without reading `OffPeakDrainNumber` first (Mistake 10 — the most expensive class of failure; verify, ask, or admit unknown)
+- Re-add a `hold_phase_enabled` toggle (Mistake 11 — HOLD is unconditional)
+- Default new number entities to slider mode (Mistake 12 — `ArbitrageChargeLeadTimeNumber` is `NumberMode.BOX` with hard min 120)

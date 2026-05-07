@@ -250,11 +250,40 @@ CONF_ENERGY_OFFPEAK_DRAIN_POOR: Final = "energy_offpeak_drain_poor"
 # When tomorrow is poor/very_poor solar and SOC < trigger, charge from grid
 # overnight at off-peak rate ($0.043) to avoid importing at mid-peak/peak later.
 
-DEFAULT_ARBITRAGE_SOC_TRIGGER: Final = 20  # v4.3.0 D3: was 30 (collided with drain_poor=30); now sits in middle of (reserve_soc=10, drain_poor=30) window
+# v4.5.0 D2: DEFAULT_ARBITRAGE_SOC_TRIGGER and CONF_ENERGY_ARBITRAGE_SOC_TRIGGER
+# removed — gate is now forecast-class only (no SOC trigger). The constant
+# below is retained as a documented removed-field marker for the migration
+# helper which strips the legacy CONF key from entry.options.
 DEFAULT_ARBITRAGE_SOC_TARGET: Final = 80
 CONF_ENERGY_ARBITRAGE_ENABLED: Final = "energy_arbitrage_enabled"
-CONF_ENERGY_ARBITRAGE_SOC_TRIGGER: Final = "energy_arbitrage_soc_trigger"
+# Legacy key — kept on this line ONLY so the v4.5.0 D2 migration helper
+# can pop it from entry.options. No production code reads this key.
+CONF_ENERGY_ARBITRAGE_SOC_TRIGGER_LEGACY: Final = "energy_arbitrage_soc_trigger"
 CONF_ENERGY_ARBITRAGE_SOC_TARGET: Final = "energy_arbitrage_soc_target"
+
+# v4.5.0 D1/D2: rename of arbitrage_target → peak_buffer_target.
+# Keeps DEFAULT_ARBITRAGE_SOC_TARGET as the canonical default for now;
+# D2 swaps the public name. The number-entity hard min/max for the new
+# live-tunable charge lead time are set per the plan's physics-floor
+# analysis: 84 min minimum to charge 10→80% at 20 kW × 0.9 RTE; the 120
+# floor adds ~36 min margin against Enphase stalls. Default 360 (6 h)
+# biases earlier-start so same-day target windows benefit from intraday
+# Solcast updates accumulated since sunrise.
+DEFAULT_PEAK_BUFFER_TARGET: Final = DEFAULT_ARBITRAGE_SOC_TARGET  # 80
+DEFAULT_ARBITRAGE_CHARGE_LEAD_TIME_MIN: Final = 360
+MIN_ARBITRAGE_CHARGE_LEAD_TIME_MIN: Final = 120
+MAX_ARBITRAGE_CHARGE_LEAD_TIME_MIN: Final = 720
+CONF_ENERGY_PEAK_BUFFER_TARGET: Final = "energy_peak_buffer_target"
+CONF_ENERGY_ARBITRAGE_CHARGE_LEAD_TIME_MIN: Final = (
+    "energy_arbitrage_charge_lead_time_min"
+)
+# v4.5.0 D3: multi-day Solcast lookback (D+2 awareness). Default OFF
+# during calibration cycle per Open Question #3.
+DEFAULT_SOLCAST_DAY_3_ENTITY: Final = (
+    "sensor.solcast_pv_forecast_forecast_day_3"
+)
+CONF_ENERGY_SOLCAST_DAY_3_ENTITY: Final = "energy_solcast_day_3_entity"
+CONF_ENERGY_MULTI_DAY_HORIZON_ENABLED: Final = "energy_multi_day_horizon_enabled"
 
 # ============================================================================
 # EVSE Refinement
@@ -392,10 +421,17 @@ ENVOY_ERR_BASE_DERIVED_MISSING: Final = "envoy_derived_missing"
 def validate_threshold_ladder(
     reserve_soc: int,
     drain_targets: dict,
-    arbitrage_trigger: int,
-    arbitrage_target: int,
+    arbitrage_trigger: int | None = None,
+    arbitrage_target: int = 80,
+    peak_buffer_target: int | None = None,
 ) -> str | None:
     """Validate the SOC threshold ladder for coherence.
+
+    v4.5.0 D2: arbitrage_trigger is OPTIONAL — v4.5.0 removed the SOC
+    trigger gate entirely (the gate is forecast-class only). When None,
+    trigger checks are skipped. peak_buffer_target is preferred over
+    arbitrage_target as the buffer-ceiling check input; the latter is
+    accepted for back-compat.
 
     Returns None if valid, else a human-readable warning string suitable
     for surfacing on a sensor attribute. Caller logs separately.
@@ -418,25 +454,30 @@ def validate_threshold_ladder(
             f"moderate={drain_moderate}, poor={drain_poor}"
         )
 
-    # Arbitrage trigger boundaries
-    if arbitrage_trigger <= reserve_soc:
-        return (
-            f"arbitrage_trigger ({arbitrage_trigger}) ≤ reserve_soc "
-            f"({reserve_soc}) — arbitrage would never fire above safety floor"
-        )
-    if arbitrage_trigger >= drain_poor:
-        return (
-            f"arbitrage_trigger ({arbitrage_trigger}) ≥ drain_poor "
-            f"({drain_poor}) — boundary collision causes drain↔arbitrage "
-            f"oscillation when tomorrow=poor"
-        )
+    # v4.5.0: trigger checks are optional (kept for back-compat callers).
+    if arbitrage_trigger is not None:
+        if arbitrage_trigger <= reserve_soc:
+            return (
+                f"arbitrage_trigger ({arbitrage_trigger}) ≤ reserve_soc "
+                f"({reserve_soc}) — arbitrage would never fire above safety floor"
+            )
+        if arbitrage_trigger >= drain_poor:
+            return (
+                f"arbitrage_trigger ({arbitrage_trigger}) ≥ drain_poor "
+                f"({drain_poor}) — boundary collision causes drain↔arbitrage "
+                f"oscillation when tomorrow=poor"
+            )
 
-    # Arbitrage target above drain_poor
-    if arbitrage_target <= drain_poor:
+    # Buffer ceiling (renamed from arbitrage_target in v4.5.0 D2).
+    buffer_ceiling = (
+        peak_buffer_target if peak_buffer_target is not None
+        else arbitrage_target
+    )
+    if buffer_ceiling <= drain_poor:
         return (
-            f"arbitrage_target ({arbitrage_target}) ≤ drain_poor "
-            f"({drain_poor}) — Phase A would immediately re-drain after "
-            f"Phase B charges"
+            f"peak_buffer_target ({buffer_ceiling}) ≤ drain_poor "
+            f"({drain_poor}) — drain path would immediately re-drain after "
+            f"arbitrage CHARGE completes"
         )
 
     return None

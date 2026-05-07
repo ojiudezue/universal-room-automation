@@ -1,6 +1,6 @@
 """Config flow for Universal Room Automation v3.6.24."""
 #
-# Universal Room Automation vv4.3.4
+# Universal Room Automation vv4.5.0
 # Build: 2026-01-05
 # File: config_flow.py
 # v3.3.3: Added manage_zones to integration options menu
@@ -2656,10 +2656,13 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             DEFAULT_OFFPEAK_DRAIN_MODERATE,
             DEFAULT_OFFPEAK_DRAIN_POOR,
             CONF_ENERGY_ARBITRAGE_ENABLED,
-            CONF_ENERGY_ARBITRAGE_SOC_TRIGGER,
             CONF_ENERGY_ARBITRAGE_SOC_TARGET,
-            DEFAULT_ARBITRAGE_SOC_TRIGGER,
             DEFAULT_ARBITRAGE_SOC_TARGET,
+            # v4.5.0 D2 / D7: peak buffer target (renamed) + multi-day horizon
+            CONF_ENERGY_PEAK_BUFFER_TARGET,
+            CONF_ENERGY_SOLCAST_DAY_3_ENTITY,
+            CONF_ENERGY_MULTI_DAY_HORIZON_ENABLED,
+            DEFAULT_PEAK_BUFFER_TARGET,
             CONF_ENERGY_EXCESS_SOLAR_ENABLED,
             CONF_ENERGY_EXCESS_SOLAR_SOC,
             CONF_ENERGY_EXCESS_SOLAR_KWH,
@@ -2994,30 +2997,45 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     mode=selector.NumberSelectorMode.SLIDER,
                 )
             ),
-            # v3.11.0: Grid charge arbitrage
+            # v4.5.0 D7: arbitrage gate is forecast-class only (no SOC
+            # trigger). The lead-time live-tunable lives on the EC device
+            # card (NumberMode.BOX) per the URA mirror pattern — NOT in
+            # this form (memory: feedback_ura_mirror_pattern.md).
             vol.Optional(
                 CONF_ENERGY_ARBITRAGE_ENABLED,
                 default=self._get_current(CONF_ENERGY_ARBITRAGE_ENABLED, False),
             ): selector.BooleanSelector(),
+            # v4.5.0 D2: renamed from CONF_ENERGY_ARBITRAGE_SOC_TARGET. The
+            # migration helper in __init__.py copies legacy values forward
+            # before this form is rendered, so existing users see their
+            # saved value.
             vol.Optional(
-                CONF_ENERGY_ARBITRAGE_SOC_TRIGGER,
-                default=self._get_current(CONF_ENERGY_ARBITRAGE_SOC_TRIGGER, DEFAULT_ARBITRAGE_SOC_TRIGGER),
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=10, max=50, step=5,
-                    unit_of_measurement="%",
-                    mode=selector.NumberSelectorMode.SLIDER,
-                )
-            ),
-            vol.Optional(
-                CONF_ENERGY_ARBITRAGE_SOC_TARGET,
-                default=self._get_current(CONF_ENERGY_ARBITRAGE_SOC_TARGET, DEFAULT_ARBITRAGE_SOC_TARGET),
+                CONF_ENERGY_PEAK_BUFFER_TARGET,
+                default=self._get_current(
+                    CONF_ENERGY_PEAK_BUFFER_TARGET,
+                    self._get_current(
+                        CONF_ENERGY_ARBITRAGE_SOC_TARGET,
+                        DEFAULT_PEAK_BUFFER_TARGET,
+                    ),
+                ),
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(
                     min=50, max=100, step=5,
                     unit_of_measurement="%",
                     mode=selector.NumberSelectorMode.SLIDER,
                 )
+            ),
+            # v4.5.0 D3: multi-day Solcast lookback (D+2 awareness).
+            # Default OFF during calibration cycle per Open Question #3.
+            vol.Optional(
+                CONF_ENERGY_MULTI_DAY_HORIZON_ENABLED,
+                default=self._get_current(CONF_ENERGY_MULTI_DAY_HORIZON_ENABLED, False),
+            ): selector.BooleanSelector(),
+            vol.Optional(
+                CONF_ENERGY_SOLCAST_DAY_3_ENTITY,
+                description={"suggested_value": self._get_current(CONF_ENERGY_SOLCAST_DAY_3_ENTITY)},
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor")
             ),
             # v3.11.0: Advanced EVSE management
             vol.Optional(

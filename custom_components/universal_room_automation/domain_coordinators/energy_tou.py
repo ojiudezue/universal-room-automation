@@ -7,7 +7,7 @@ the PEC Interconnect TOU rate schedule.
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from homeassistant.util import dt as dt_util
@@ -259,6 +259,83 @@ class TOURateEngine:
             return current
         self._last_period = current
         return None
+
+    # v4.5.0 D8: high-rate transition awareness for arbitrage charge window
+    # ------------------------------------------------------------------
+    # `get_next_transition` only walks intra-day in the current season's
+    # rate table; arbitrage charge windows can stretch across midnight
+    # (summer off-peak 21:00→14:00 next day, winter 21:00→05:00 next day),
+    # so we need a helper that walks forward in real time and changes
+    # season/month if it has to.
+    def _period_at(self, dt: datetime) -> str:
+        """Return the TOU period for an arbitrary datetime (handles cross-month)."""
+        return self.get_current_period(dt)
+
+    def get_next_high_rate_transition(
+        self,
+        now: datetime | None = None,
+        lookback_hours: int = 36,
+    ) -> tuple[datetime, str] | None:
+        """Return the next time TOU leaves off_peak and enters mid_peak/peak.
+
+        v4.5.0 D8. Walks forward at hour granularity up to ``lookback_hours``
+        into the future. The returned datetime is the (top-of-hour) start of
+        the first non-off_peak hour. ``period_name`` is "mid_peak" or "peak".
+
+        Returns None if no high-rate window is found in the lookback window
+        (e.g. extended off-peak holiday rate, or future-PEC schedule with
+        no peaks). Callers must handle None — typically by skipping the
+        arbitrage gate that tick (no charge fires).
+
+        Crosses midnight cleanly: scans `now` itself if currently off_peak,
+        then steps to the top of the next hour and continues. Boundaries
+        align with the underlying rate table which is hour-granular.
+        """
+        if now is None:
+            now = dt_util.now()
+
+        # Start from the top of `now`'s hour and step forward.
+        # If we're already inside a high-rate hour, the immediate scan still
+        # finds it — but the caller should be aware that "transition" then
+        # equals "in progress" (we return now-on-the-hour).
+        cursor = now.replace(minute=0, second=0, microsecond=0)
+        end = cursor + timedelta(hours=int(lookback_hours))
+
+        # Track whether we've seen at least one off_peak hour first;
+        # if `now` itself is high-rate, returning that hour is correct
+        # (the caller is asking "what's the next non-off_peak boundary?").
+        # But we want a TRANSITION, so require a switch *into* high-rate.
+        prev_period = self._period_at(cursor)
+        cursor += timedelta(hours=1)
+        while cursor <= end:
+            cur_period = self._period_at(cursor)
+            if cur_period != "off_peak" and prev_period == "off_peak":
+                return (cursor, cur_period)
+            prev_period = cur_period
+            cursor += timedelta(hours=1)
+        return None
+
+    def get_today_high_rate_transitions(
+        self,
+        now: datetime | None = None,
+    ) -> list[tuple[int, str]]:
+        """Diagnostic helper — list of (hour, period) for today's high-rate windows.
+
+        Used by sensors and tests for at-a-glance display of when arbitrage
+        will/should fire. Reads the active season's rate table directly so
+        we don't accidentally miss the "winter has two windows" case.
+        """
+        if now is None:
+            now = dt_util.now()
+        season = self.get_season(now)
+        out: list[tuple[int, str]] = []
+        for period_name, period_data in self._rates[season]["periods"].items():
+            if period_name == "off_peak":
+                continue
+            for start, _end in period_data["hours"]:
+                out.append((int(start), period_name))
+        out.sort()
+        return out
 
     def get_period_info(self, now: datetime | None = None) -> dict[str, Any]:
         """Return comprehensive info about current TOU state."""
