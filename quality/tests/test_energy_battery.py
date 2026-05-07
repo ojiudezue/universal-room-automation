@@ -193,12 +193,17 @@ class _BatteryHarness:
                  with_tou_engine=False,
                  lead_time_min=360,
                  multi_day_horizon_enabled=False,
-                 solcast_day_3="80"):
+                 solcast_day_3="80",
+                 net_power="-500", net_power_uom="W",
+                 grid_import_guard_kw=20.0):
         self.hass = MockHass()
         self.hass.set_state(DEFAULT_BATTERY_SOC_ENTITY, str(soc))
         self.hass.set_state(DEFAULT_STORAGE_MODE_ENTITY, storage_mode)
         self.hass.set_state(DEFAULT_SOLAR_PRODUCTION_ENTITY, str(solar))
-        self.hass.set_state(DEFAULT_NET_POWER_ENTITY, "-500")
+        self.hass.set_state(
+            DEFAULT_NET_POWER_ENTITY, str(net_power),
+            attributes={"unit_of_measurement": net_power_uom},
+        )
         self.hass.set_state(DEFAULT_BATTERY_POWER_ENTITY, "-200")
         self.hass.set_state(DEFAULT_GRID_ENABLED_ENTITY, "on")
         self.hass.set_state(DEFAULT_CHARGE_FROM_GRID_ENTITY, "off")
@@ -245,6 +250,7 @@ class _BatteryHarness:
             custom_solar_thresholds=custom_solar_thresholds,
             tou_engine=self.tou_engine,
             arbitrage_charge_lead_time_min=lead_time_min,
+            arbitrage_grid_import_guard_kw=grid_import_guard_kw,
             multi_day_horizon_enabled=multi_day_horizon_enabled,
             solcast_day_3_entity=(
                 "sensor.solcast_pv_forecast_forecast_day_3"
@@ -1514,6 +1520,180 @@ class TestPeakBufferTargetRename:
         next_trans = _dt.fromisoformat(next_trans_str)
         delta_min = (next_trans - opens_at).total_seconds() / 60
         assert int(delta_min) == 360
+
+
+class TestV4502GridImportGuard:
+    """v4.5.0.2: defensive grid-import guard. If actual net_power_w during a
+    CHARGE tick exceeds the configured threshold, abort the chunk by setting
+    chunk_completed=True and returning WAIT. One-shot per chunk; no flap.
+
+    Discovered live during v4.5.0 deploy: user's panel breaker tripped twice
+    when IQ Battery 5P stack ramped to ~32 kW grid import. Strategy can't
+    throttle Enphase's binary charge_from_grid switch directly. Until v4.5.1
+    rate control via barneyonline lands, this guard is the safety rail.
+    """
+
+    def test_charge_proceeds_when_grid_import_below_threshold(self):
+        """Net import 9 kW < 20 kW guard → CHARGE proceeds."""
+        h = _BatteryHarness(
+            soc=15, solcast_today="20", solcast_tomorrow="20",
+            arbitrage_enabled=True, with_tou_engine=True,
+            net_power="9000",  # 9 kW import (W units)
+            grid_import_guard_kw=20.0,
+        )
+        result = h.strategy.determine_mode(
+            "off_peak", "summer", now=_SUMMER_INSIDE_WINDOW,
+        )
+        assert result["arbitrage_phase"] == ARBITRAGE_PHASE_CHARGE
+        assert result["arbitrage_active"] is True
+        assert h.strategy._arbitrage_chunk_completed is False
+        assert h.strategy._arbitrage_guard_aborted_at is None
+
+    def test_charge_aborts_when_grid_import_exceeds_threshold(self):
+        """Net import 25 kW > 20 kW guard → abort, lock chunk, return WAIT."""
+        h = _BatteryHarness(
+            soc=15, solcast_today="20", solcast_tomorrow="20",
+            arbitrage_enabled=True, with_tou_engine=True,
+            net_power="25000",  # 25 kW import — over guard
+            grid_import_guard_kw=20.0,
+        )
+        result = h.strategy.determine_mode(
+            "off_peak", "summer", now=_SUMMER_INSIDE_WINDOW,
+        )
+        assert result["arbitrage_phase"] == ARBITRAGE_PHASE_WAIT
+        assert result["arbitrage_active"] is False
+        # Chunk locked so subsequent ticks don't re-attempt CHARGE
+        assert h.strategy._arbitrage_chunk_completed is True
+        # Diagnostic populated
+        assert h.strategy._arbitrage_guard_aborted_at is not None
+        assert h.strategy._arbitrage_guard_aborted_kw is not None
+        assert h.strategy._arbitrage_guard_aborted_kw == 25.0
+
+    def test_guard_handles_kw_unit_normalization(self):
+        """Same threshold check works when net_power entity reports kW.
+
+        Bug Class #30: net_power_w normalizes via the entity's
+        unit_of_measurement attribute. The guard reads net_power_w (already
+        normalized) so the kW vs W variant doesn't matter to the threshold.
+        """
+        h = _BatteryHarness(
+            soc=15, solcast_today="20", solcast_tomorrow="20",
+            arbitrage_enabled=True, with_tou_engine=True,
+            net_power="25", net_power_uom="kW",  # 25 kW reported in kW
+            grid_import_guard_kw=20.0,
+        )
+        result = h.strategy.determine_mode(
+            "off_peak", "summer", now=_SUMMER_INSIDE_WINDOW,
+        )
+        assert result["arbitrage_phase"] == ARBITRAGE_PHASE_WAIT
+        assert h.strategy._arbitrage_chunk_completed is True
+
+    def test_chunk_reset_clears_guard_diagnostic(self):
+        """When chunk lock resets (new off_peak entry), guard diagnostic clears."""
+        h = _BatteryHarness(
+            soc=15, solcast_today="20", solcast_tomorrow="20",
+            arbitrage_enabled=True, with_tou_engine=True,
+            net_power="25000", grid_import_guard_kw=20.0,
+        )
+        # Trigger the guard
+        h.strategy.determine_mode("off_peak", "summer", now=_SUMMER_INSIDE_WINDOW)
+        assert h.strategy._arbitrage_guard_aborted_at is not None
+        # Reset chunk
+        h.strategy.reset_arbitrage_chunk()
+        assert h.strategy._arbitrage_guard_aborted_at is None
+        assert h.strategy._arbitrage_guard_aborted_kw is None
+        assert h.strategy._arbitrage_chunk_completed is False
+
+    def test_guard_no_flap_within_chunk(self):
+        """Plan acceptance: one-shot abort, no oscillation. Once aborted,
+        subsequent ticks within the same chunk stay in WAIT even if
+        net_power drops back below threshold."""
+        h = _BatteryHarness(
+            soc=15, solcast_today="20", solcast_tomorrow="20",
+            arbitrage_enabled=True, with_tou_engine=True,
+            net_power="25000", grid_import_guard_kw=20.0,
+        )
+        # First tick — guard fires
+        r1 = h.strategy.determine_mode("off_peak", "summer", now=_SUMMER_INSIDE_WINDOW)
+        assert r1["arbitrage_phase"] == ARBITRAGE_PHASE_WAIT
+        assert h.strategy._arbitrage_chunk_completed is True
+        # Now grid import drops below threshold — would the guard re-allow CHARGE?
+        h.hass.set_state(
+            DEFAULT_NET_POWER_ENTITY, "5000",  # 5 kW, well under guard
+            attributes={"unit_of_measurement": "W"},
+        )
+        # Next tick — chunk still locked → stay in WAIT
+        r2 = h.strategy.determine_mode("off_peak", "summer", now=_SUMMER_INSIDE_WINDOW)
+        assert r2["arbitrage_phase"] == ARBITRAGE_PHASE_WAIT, (
+            "chunk lock must hold across guard-abort even if conditions ease"
+        )
+
+    def test_guard_does_not_fire_when_envoy_unavailable(self):
+        """If net_power_w is None (envoy blip), guard returns False — let
+        the upstream envoy-unavailable path handle the case."""
+        h = _BatteryHarness(
+            soc=15, solcast_today="20", solcast_tomorrow="20",
+            arbitrage_enabled=True, with_tou_engine=True,
+            grid_import_guard_kw=20.0,
+        )
+        h.hass.set_state(DEFAULT_NET_POWER_ENTITY, "unavailable")
+        # Battery SOC also unavailable in real envoy blip — but we're
+        # testing the guard helper's None-safety in isolation here.
+        # Whole determine_mode goes through envoy_unavailable path because
+        # battery_soc unavailable; so guard never fires either way.
+        # Direct unit test of helper:
+        assert h.strategy._grid_import_guard_triggered() is False
+
+    def test_get_status_exposes_guard_attrs(self):
+        h = _BatteryHarness(
+            soc=15, solcast_today="20", solcast_tomorrow="20",
+            arbitrage_enabled=True, with_tou_engine=True,
+            net_power="25000", grid_import_guard_kw=20.0,
+        )
+        h.strategy.determine_mode("off_peak", "summer", now=_SUMMER_INSIDE_WINDOW)
+        status = h.strategy.get_status()
+        assert status["arbitrage_grid_import_guard_kw"] == 20.0
+        assert status["arbitrage_guard_aborted_at"] is not None
+        assert status["arbitrage_guard_aborted_kw"] == 25.0
+
+
+class TestV4501EnvoyUnavailableLastReasonSync:
+    """v4.5.0.2 regression: envoy-unavailable early-return must keep
+    _last_reason consistent with _arbitrage_phase / _arbitrage_active.
+
+    Pre-fix: the early-return path mutated _arbitrage_phase=NA and
+    _arbitrage_active=False but did NOT update _last_reason. After a
+    CHARGE tick followed by an envoy-unavailable tick, the sensor would
+    show reason="Arbitrage CHARGE..." with phase="n/a" — a confusing
+    self-contradicting state. Discovered live during v4.5.0 deploy when
+    a battery breaker trip caused both an Envoy blip and a real arbitrage
+    halt simultaneously.
+    """
+
+    def test_envoy_unavailable_updates_last_reason(self):
+        h = _BatteryHarness(
+            soc=15, solcast_today="20", solcast_tomorrow="20",
+            arbitrage_enabled=True, with_tou_engine=True,
+        )
+        # Tick 1: envoy available, CHARGE → _last_reason = "Arbitrage CHARGE..."
+        r1 = h.strategy.determine_mode(
+            "off_peak", "summer", now=_SUMMER_INSIDE_WINDOW,
+        )
+        assert "CHARGE" in r1["reason"]
+        assert "CHARGE" in (h.strategy._last_reason or "")
+        # Tick 2: envoy goes unavailable
+        h.hass.set_state(DEFAULT_BATTERY_SOC_ENTITY, "unavailable")
+        r2 = h.strategy.determine_mode(
+            "off_peak", "summer", now=_SUMMER_INSIDE_WINDOW,
+        )
+        # Phase + active reset
+        assert r2["arbitrage_phase"] == ARBITRAGE_PHASE_NA
+        assert r2["arbitrage_active"] is False
+        # NEW: _last_reason ALSO synced — no longer holding stale "Arbitrage CHARGE"
+        assert "Envoy unavailable" in (h.strategy._last_reason or "")
+        assert "CHARGE" not in (h.strategy._last_reason or "")
+        # And the returned reason matches the cached value
+        assert r2["reason"] == h.strategy._last_reason
 
 
 class TestSettersBackstopClamp:

@@ -1,6 +1,6 @@
 """Switch platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.5.0.1
+# Universal Room Automation vv4.5.0.2
 # Build: 2026-01-02
 # File: switch.py
 #
@@ -511,7 +511,45 @@ class OccupancyWeightedPredictionSwitch(SwitchEntity, RestoreEntity):
 def _ec_switch_factory(
     attr_name: str, unique_suffix: str, name: str, icon: str, default: bool = False
 ):
-    """Factory for EC toggle switches — avoids 200 lines of boilerplate."""
+    """Factory for EC toggle switches — avoids 200 lines of boilerplate.
+
+    Known issue (v4.5.0 deploy): users reported that several EC switches
+    (Grid Arbitrage, Excess Solar, Grid Import Cap, EV TOU Management)
+    reset to OFF after the v4.5.0 + v4.5.0.1 HACS upgrade restart cycle.
+    The pattern in this factory uses RestoreEntity + push-to-coord-on-add
+    + deferred retry, which should preserve state across restarts and has
+    been working through many prior URA versions.
+
+    Investigation was inconclusive. Two leading hypotheses:
+
+      1. **`is_on` default-return race.** The property returns
+         `self._default` (False for most switches) when `_get_energy()`
+         returns None. If HA polls `is_on` between entity registration
+         and coordinator init completion, "off" gets written to state
+         storage. RestoreEntity on the next restart returns "off",
+         async_added_to_hass below pushes False to the coord. Stuck off.
+
+      2. **Reload-mid-setup race.** v4.5.0 D2 added a migration helper
+         that calls `async_update_entry(cm_entry, ...)`. If the entry
+         update triggers a CM reload during initial integration setup,
+         entities unload + reload mid-flight; depending on HA version,
+         state_storage may capture "unavailable" or "off" before the
+         coord settles.
+
+    No defensive fix shipped in v4.5.0.2 because:
+    - Both hypotheses lack a reproducer
+    - A naive fix (prefer coord when restore says off) could swallow
+      legitimate user toggle-off intent
+    - Workaround for the user is one click per affected switch after
+      a deploy (annoying but recoverable)
+
+    Future investigators: capture HA debug logs around restart to see
+    the actual sequence of `is_on` calls, RestoreEntity restore values,
+    and coord-init timing. If hypothesis 1 confirmed, the fix is
+    "in `is_on`, return None when coord is None and let the entity
+    show as unavailable instead of returning the default" — but verify
+    that `unavailable` doesn't also get persisted.
+    """
 
     class _ECSwitch(SwitchEntity, RestoreEntity):
         _attr_has_entity_name = True
