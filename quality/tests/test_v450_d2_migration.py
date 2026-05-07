@@ -120,7 +120,11 @@ from custom_components.universal_room_automation.domain_coordinators.energy_cons
 # *is* the point. (We can't import __init__.py directly without pulling
 # the full HA-coupled module graph.)
 async def _migrate(hass, cm_entry):
-    """Mirror of _migrate_arbitrage_target_to_peak_buffer."""
+    """Mirror of _migrate_arbitrage_target_to_peak_buffer.
+
+    Kept in sync with __init__.py via test_migration_helper_imports_resolve
+    which AST-walks the production helper to assert its imports.
+    """
     if cm_entry.options.get("arbitrage_target_rename_migration_done"):
         return False
     new_options = dict(cm_entry.options)
@@ -221,3 +225,77 @@ def test_migration_no_legacy_keys_present():
     assert changed is False
     assert entry.options[CONF_ENERGY_PEAK_BUFFER_TARGET] == 80
     assert entry.options["arbitrage_target_rename_migration_done"] is True
+
+
+# v4.5.0.1 regression: migration helper's imports must resolve against the
+# real energy_const module. v4.5.0 shipped with a stale import name
+# (CONF_ENERGY_ARBITRAGE_SOC_TRIGGER) that crashed at every restart with
+# ImportError. The runtime helper survives via try/except, but the
+# migration silently no-ops. This test asserts that every constant the
+# helper references is importable — would have caught the ImportError
+# pre-deploy.
+
+def test_migration_helper_imports_resolve():
+    """Every constant the production migration helper imports must exist
+    in energy_const at deploy time. AST-walk __init__.py to find the
+    helper's `from .domain_coordinators.energy_const import (...)` block,
+    then verify each name resolves on the loaded energy_const module.
+
+    Catches v4.5.0's ImportError class of bug (rename one place, miss
+    another) before it ships.
+    """
+    import ast
+    import os
+
+    init_path = os.path.join(
+        os.path.dirname(__file__),
+        "..", "..",
+        "custom_components", "universal_room_automation", "__init__.py",
+    )
+    src = open(init_path).read()
+    tree = ast.parse(src)
+
+    # Find the helper function
+    helper_fn = None
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, (ast.AsyncFunctionDef, ast.FunctionDef))
+            and node.name == "_migrate_arbitrage_target_to_peak_buffer"
+        ):
+            helper_fn = node
+            break
+    assert helper_fn is not None, (
+        "expected _migrate_arbitrage_target_to_peak_buffer in __init__.py"
+    )
+
+    # Collect all CONF_/DEFAULT_ names imported from energy_const inside
+    # the helper's body. These are the constants whose existence we assert.
+    imported_names: list[str] = []
+    for node in ast.walk(helper_fn):
+        if (
+            isinstance(node, ast.ImportFrom)
+            and node.module
+            and node.module.endswith("energy_const")
+        ):
+            for alias in node.names:
+                imported_names.append(alias.name)
+
+    assert imported_names, (
+        "expected the helper to import constants from energy_const"
+    )
+
+    # Load the real energy_const module and assert each name resolves.
+    from custom_components.universal_room_automation.domain_coordinators import (
+        energy_const,
+    )
+    missing = [
+        name for name in imported_names
+        if not hasattr(energy_const, name)
+    ]
+    assert not missing, (
+        f"Migration helper references constants that no longer exist in "
+        f"energy_const: {missing}. This was the v4.5.0.1 ImportError class "
+        f"of bug — rename one place, miss another. Update the helper's "
+        f"import to match the renamed constant, OR keep the old name as a "
+        f"_LEGACY marker for the migration to read."
+    )
