@@ -1612,17 +1612,46 @@ architectural debt items + 1 underlying code-health issue. **Full detail and
 priority sequencing live in `docs/ROADMAP_v11.md` → "TECH DEBT & HARDENING
 QUEUE → Architectural items"**. Summary for reviewers:
 
-- **#0 (BLOCKING):** Test baseline cleanup. **Calibrated baseline (v4.5.0):
-  57 failing tests + 14 errors** with `pytest-asyncio` pinned. Without the
-  plugin, the count appeared as ~238 failures because async test markers
-  produced collection errors counted as failures — masking the real number
-  for ~2 months. The Mar 2026 figure ("86 failing + 14 errors") was the
-  pre-drift number; the gap (57 → 86 → 238) shows exactly the trap this
-  item warns about: failure count drifts upward, new regressions hide in
-  the noise. v4.5.0 pinned the plugin via `quality/requirements_test.txt`;
-  the deeper cleanup (drive 57+14 → 0 + add CI guard) is **v4.5.2**'s job.
-  v4.5.1 is the config-flow restructure deferred from v4.5.0 (paginated
-  energy form, rate-plan top-level toggle, net-metering branch).
+- **#0 (DONE in v4.5.2):** Test baseline cleanup. v4.5.0 calibrated the
+  number at 57 failing + 14 errors (was masked as ~238 because
+  `pytest-asyncio` wasn't pinned — async markers produced collection
+  errors counted as failures, hiding the real count for ~2 months).
+  v4.5.2 drove **isolated** failures to **zero** by:
+  (a) pinning `pytest-asyncio`, `aiosqlite`, and `voluptuous` in
+  `quality/requirements_test.txt`;
+  (b) replacing `sys.modules.setdefault("aiosqlite", MagicMock())`
+  with a try-import + defensive fallback in `quality/tests/conftest.py`
+  (the MagicMock was making `await db.execute(...)` a no-op so DB
+  harness "passes" hid an empty schema);
+  (c) running the DB write worker in tests by wiring
+  `hass.async_create_background_task = asyncio.ensure_future` and
+  adding `_do_db_op_with_worker(db, ...)` to drive init+start+drain
+  in a single coroutine (each `_run()` creates a fresh event loop);
+  (d) adding `from __future__ import annotations` across 9 modules
+  (`__init__.py`, `automation.py`, `binary_sensor.py`, `camera_census.py`,
+  `config_flow.py`, `coordinator.py`, `person_coordinator.py`,
+  `sensor.py`, `aggregation.py`, `transit_validator.py`,
+  `perimeter_alert.py`) so PEP 604 unions (`X | None`) parse on
+  Python 3.9;
+  (e) updating stale tests to current behavior — `test_cycle_c_stub_cleanup`
+  (5 entities resurrected as B2 Bayesian sensors in v4.0.2),
+  `test_low_cleanup` (`_retry_restore` accepts equivalent guard
+  patterns), `test_activity_logger` (post-v4.0.11 critical events
+  use a 5-min safety-net dedup window).
+  CI guard at `scripts/test_isolation_check.py` enforces the
+  zero-isolated-fails baseline (run-per-file because of cross-test
+  `sys.modules` pollution: bulk run still shows ~50 noise fails the
+  isolation runner doesn't). Bulk-run cleanup is intentionally
+  deferred — it's a presentation problem, not a regression-detection
+  one.
+
+  **v4.5.1 was skipped.** Originally scoped as config-flow restructure +
+  barneyonline charge-rate control, but v4.5.0 deployment found that
+  barneyonline's "rate control" was actually for Enphase IQ EV Chargers,
+  not IQ Batteries — Enphase's residential firmware doesn't expose
+  battery charge-rate to any integration. Config-flow restructure can
+  wait (UX polish, not blocking). Memory:
+  `project_v451_skipped_2026_05_07.md`.
 - **#1:** Setup/unload symmetry (services never unregistered, panels never
   torn down, shared resources unloaded while consumers still depend on them).
 - **#2:** Tracked background tasks (multiple `hass.async_create_task` sites

@@ -9,6 +9,8 @@ tracks egress camera direction (entry vs exit) via interior correlation.
 # File: transit_validator.py
 #
 
+from __future__ import annotations
+
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta

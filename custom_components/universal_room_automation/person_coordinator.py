@@ -1,6 +1,6 @@
 """Person tracking coordinator for Universal Room Automation."""
 #
-# Universal Room Automation vv4.5.0.4
+# Universal Room Automation vv4.5.2
 # Build: 2026-01-03
 # File: person_coordinator.py
 # v3.2.9: No changes (zone fixes in aggregation.py, fan fixes in automation.py)
@@ -16,6 +16,8 @@
 # FIX v3.2.6: Lowered confidence threshold from 0.5 to 0.3 for room occupant matching
 # FIX v3.2.6: Added comprehensive diagnostic logging for room occupant matching
 #
+
+from __future__ import annotations
 
 import logging
 from datetime import datetime, timedelta

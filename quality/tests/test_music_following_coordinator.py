@@ -58,6 +58,7 @@ _mods = {
     },
     "homeassistant.helpers.dispatcher": {
         "async_dispatcher_send": _mock_cls(),
+        "async_dispatcher_connect": _mock_cls(),
     },
     "homeassistant.helpers.update_coordinator": {
         "DataUpdateCoordinator": _mock_cls,

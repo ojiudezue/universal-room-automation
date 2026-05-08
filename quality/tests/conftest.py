@@ -4,10 +4,18 @@ import pytest
 from unittest.mock import MagicMock, Mock
 from datetime import datetime, time, timedelta
 
-# Ensure aiosqlite is always available as a mock — several URA modules
-# import it at module level, and test files that use heavy HA module mocking
-# depend on this being present regardless of collection order.
-sys.modules.setdefault("aiosqlite", MagicMock())
+# v4.5.2 D2: aiosqlite is now a hard test dep (quality/requirements_test.txt).
+# Pre-fix, this file did `sys.modules.setdefault("aiosqlite", MagicMock())`
+# which made every `await db.execute(...)` a MagicMock no-op — `db.initialize()`
+# appeared to succeed but no tables were actually written. ~30 DB-harness
+# test failures dissolved when the real package got installed. The setdefault
+# is now defensive-only — kept as a fallback so tests on a machine without
+# aiosqlite still collect (with their DB-touching tests rightfully failing
+# rather than silently mocking past the truth).
+try:
+    import aiosqlite  # noqa: F401  # real package preferred
+except ImportError:  # pragma: no cover — only fires on broken dev env
+    sys.modules.setdefault("aiosqlite", MagicMock())
 
 
 class MockState:

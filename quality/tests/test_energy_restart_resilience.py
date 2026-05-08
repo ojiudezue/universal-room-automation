@@ -302,8 +302,29 @@ class TestBillingRestoreDaily:
         assert billing._cost_today == 0
 
     def test_accumulate_continues_after_restore(self):
-        """After restore, accumulate() continues adding to restored values."""
-        hass, billing = _make_billing()
+        """After restore, accumulate() continues adding to restored values.
+
+        v4.5.2 D2: explicitly pass net_power_entity to CostTracker —
+        v4.3.1 made the entity default to None (was DEFAULT_NET_POWER_ENTITY
+        before the env-derived defaults removal), so the test fixture's
+        bare _make_billing() returns a CostTracker that can't find any
+        entity to read. Pre-fix, accumulate() short-circuited on
+        _net_power_entity is None and the assertion failed because
+        no kWh was added.
+        """
+        from custom_components.universal_room_automation.domain_coordinators.energy_billing import (
+            CostTracker,
+        )
+        from custom_components.universal_room_automation.domain_coordinators.energy_tou import (
+            TOURateEngine,
+        )
+        hass = MockHass()
+        net_power_entity = "sensor.envoy_202428004328_current_net_power_consumption"
+        billing = CostTracker(
+            hass,
+            TOURateEngine(),
+            net_power_entity=net_power_entity,
+        )
         today = datetime.now().date().isoformat()
 
         billing.restore_daily({
@@ -315,8 +336,11 @@ class TestBillingRestoreDaily:
             "net_cost_today": 1.00,
         })
 
-        # Set up for accumulate: importing 1 kW (net power entity)
-        hass.set_state("sensor.envoy_202428004328_current_net_power_consumption", "1.0")
+        # v4.5.0 unit-consistency: net_power_w now reads UoM. Provide it.
+        hass.set_state(
+            net_power_entity, "1.0",
+            attributes={"unit_of_measurement": "kW"},
+        )
         import time
         billing._last_accumulate_time = time.time() - 300  # 5 min ago
 

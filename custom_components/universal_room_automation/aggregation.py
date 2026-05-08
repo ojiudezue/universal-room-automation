@@ -20,6 +20,8 @@ Provides whole-house and zone-level sensors from the integration entry.
 # FIX v3.2.6: Renamed "Occupant Count" to "Identified People Count" for clarity
 #
 
+from __future__ import annotations
+
 import asyncio
 import logging
 from datetime import datetime, timedelta

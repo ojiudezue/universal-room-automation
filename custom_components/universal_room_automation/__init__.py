@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv4.5.0.4
+# Universal Room Automation vv4.5.2
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -12,6 +12,8 @@
 # FIX v3.2.6: Added diagnostic logging and sensors for person tracking
 # NEW v3.2.6: Sensor renaming for clarity (Presence → Sensor Presence, etc.)
 #
+
+from __future__ import annotations
 
 import asyncio
 import logging

@@ -14,6 +14,9 @@ Tests verify decision logic directly using simple fixtures (MockHass,
 basic_room_config). No heavy HA module mocking. Each test is self-contained
 with clear setup/assert.
 """
+# v4.5.2 D1: defer annotation eval for Python 3.9 dev-env compat.
+from __future__ import annotations
+
 import pytest
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock

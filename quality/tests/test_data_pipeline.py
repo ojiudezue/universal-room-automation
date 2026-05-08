@@ -98,13 +98,44 @@ from custom_components.universal_room_automation.database import UniversalRoomDa
 # ---------------------------------------------------------------------------
 
 def _make_db(tmp_path: str) -> UniversalRoomDatabase:
+    """Create a UniversalRoomDatabase pointing at a temp directory.
+
+    v4.5.2 D2: hass.async_create_background_task wired to actually
+    schedule via asyncio.ensure_future so the write worker runs.
+    Without this, db.start_write_worker() returns but the worker
+    coroutine never executes — every queued write silently fails.
+    """
     hass = MagicMock()
     hass.config.path = lambda *parts: os.path.join(tmp_path, *parts)
+    def _schedule_task(coro, name=None):
+        return asyncio.ensure_future(coro)
+    hass.async_create_background_task = _schedule_task
+    hass.async_create_task = _schedule_task
     return UniversalRoomDatabase(hass)
 
 
 def _run(coro):
     return asyncio.get_event_loop().run_until_complete(coro)
+
+
+async def _do_db_op_with_worker(db: UniversalRoomDatabase, op_coro_factory):
+    """Run an op that uses the write worker. Starts worker, runs op,
+    drains queue, cancels worker. v4.5.2 D2 — see test_database_resilience.py
+    for full rationale.
+    """
+    await db.initialize()
+    await db.start_write_worker()
+    try:
+        result = await op_coro_factory()
+        await db._write_queue.join()
+        return result
+    finally:
+        if db._write_task is not None and not db._write_task.done():
+            db._write_task.cancel()
+            try:
+                await db._write_task
+            except asyncio.CancelledError:
+                pass
 
 
 # ---------------------------------------------------------------------------
@@ -118,9 +149,7 @@ class TestLogEnergyHistoryWithTouPeriod:
     def test_tou_period_stored(self, tmp_path):
         """tou_period should be stored in energy_history rows."""
         db = _make_db(str(tmp_path))
-        _run(db.initialize())
-
-        _run(db.log_energy_history({
+        data = {
             "solar_production": 5.0,
             "solar_export": 2.0,
             "grid_import": 1.0,
@@ -134,7 +163,10 @@ class TestLogEnergyHistoryWithTouPeriod:
             "humidity_delta_outside": -5.0,
             "rooms_occupied": 3,
             "tou_period": "peak",
-        }))
+        }
+        async def _do():
+            await db.log_energy_history(data)
+        _run(_do_db_op_with_worker(db, _do))
 
         conn = sqlite3.connect(db.db_file)
         cursor = conn.execute("SELECT tou_period FROM energy_history")
@@ -147,12 +179,12 @@ class TestLogEnergyHistoryWithTouPeriod:
     def test_tou_period_null_when_not_provided(self, tmp_path):
         """tou_period should be NULL when not provided in data dict."""
         db = _make_db(str(tmp_path))
-        _run(db.initialize())
-
-        _run(db.log_energy_history({
-            "solar_production": 1.0,
-            "grid_import": 0.5,
-        }))
+        async def _do():
+            await db.log_energy_history({
+                "solar_production": 1.0,
+                "grid_import": 0.5,
+            })
+        _run(_do_db_op_with_worker(db, _do))
 
         conn = sqlite3.connect(db.db_file)
         cursor = conn.execute("SELECT tou_period FROM energy_history")
@@ -165,8 +197,6 @@ class TestLogEnergyHistoryWithTouPeriod:
     def test_all_new_columns_populated(self, tmp_path):
         """All M2 columns should be stored when provided."""
         db = _make_db(str(tmp_path))
-        _run(db.initialize())
-
         data = {
             "solar_production": 5.0,
             "solar_export": 2.0,
@@ -183,7 +213,9 @@ class TestLogEnergyHistoryWithTouPeriod:
             "rooms_occupied": 3,
             "tou_period": "off_peak",
         }
-        _run(db.log_energy_history(data))
+        async def _do():
+            await db.log_energy_history(data)
+        _run(_do_db_op_with_worker(db, _do))
 
         conn = sqlite3.connect(db.db_file)
         conn.row_factory = sqlite3.Row

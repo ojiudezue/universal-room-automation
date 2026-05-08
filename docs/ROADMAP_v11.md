@@ -503,18 +503,37 @@ These came from a structured critique against current HA quality-scale rules
 and developer docs. Five items, prioritized by ROI not by item number.
 Sources: https://developers.home-assistant.io/docs/core/integration-quality-scale/rules/
 
-**#0. Test baseline cleanup — DO THIS FIRST.**
-The suite ships with 86 baseline failures and 14 errors that we treat as
-"pre-existing" every cycle. Result: we have no signal when a NEW regression
-lands in those files. v4.2.22's storm and v4.2.24's silent save bug both lived
-in code paths the existing tests didn't model. Failures are spread across
-~12 files; root causes are likely import-order, mock staleness, and HA API
-drift (Python 3.14 datetime, removed `mireds` attrs from v3.9.6, etc).
-**Effort:** 1-2 cycles. **Risk:** zero — pure safety upgrade. **Blocks:**
-every other architectural item, since they all need the suite as the safety
-net. **Add a CI guard** that fails on `failed > 0` instead of comparing to
-the previous count — the "compare to last green count" convention is what
-let the failures accumulate.
+**#0. Test baseline cleanup — DONE in v4.5.2.**
+The suite previously shipped with 86 "pre-existing" failures and 14 errors
+that we accepted every cycle, leaving no signal when a NEW regression
+landed (v4.2.22's storm and v4.2.24's silent save lived in code paths the
+existing tests didn't model). v4.5.0 calibrated the actual number — 57
+fails + 14 errors after pinning `pytest-asyncio` (which had been masking
+~180 fails as collection errors for ~2 months). v4.5.2 drove the
+**isolated** count to **0** by:
+- pinning `pytest-asyncio`, `aiosqlite`, and `voluptuous` in `quality/requirements_test.txt`;
+- replacing the `aiosqlite` MagicMock-fallback in `conftest.py` with
+  a real-package preference (the MagicMock made `await db.execute(...)`
+  a silent no-op so DB harness tests "passed" against an empty schema);
+- making the DB write worker actually run in tests by wiring
+  `hass.async_create_background_task → asyncio.ensure_future` and
+  adding `_do_db_op_with_worker` to drive init+start+drain in one
+  coroutine;
+- adding `from __future__ import annotations` to 11 modules so PEP 604
+  unions parse on Python 3.9;
+- updating stale tests to current behavior (5 sensors resurrected as
+  B2 Bayesian implementations in v4.0.2; `_retry_restore` accepts
+  multiple equivalent guard patterns; post-v4.0.11 critical events
+  use a 5-min safety-net dedup window).
+
+CI guard: `python3 scripts/test_isolation_check.py` runs every test
+file alone (cross-test `sys.modules` pollution still produces ~50 noise
+fails in bulk runs — that's a presentation problem, not a regression
+one) and exits nonzero if any file has real isolated failures.
+
+Bulk-run cleanup is intentionally **deferred** as a future hygiene pass
+(would require auditing every test that mutates `sys.modules` for HA
+mocks). Not blocking other tech debt items.
 
 **#1. Setup/unload symmetry (review item #3).**
 Services registered in `async_setup` (`__init__.py:1589`) are never

@@ -1,4 +1,8 @@
 """Config flow for Universal Room Automation v3.6.24."""
+# v4.5.2 D1: PEP 563 deferred annotation evaluation. See automation.py
+# for rationale.
+from __future__ import annotations
+
 #
 # Universal Room Automation vv4.5.0.4
 # Build: 2026-01-05

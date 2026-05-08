@@ -1,6 +1,6 @@
 """Camera integration and person census for Universal Room Automation v3.5.0."""
 #
-# Universal Room Automation vv4.5.0.4
+# Universal Room Automation vv4.5.2
 # Build: 2026-02-23
 # File: camera_census.py
 # Cycle 3: Camera Integration & Census Core
@@ -11,6 +11,8 @@
 #   - CensusZoneResult: Per-zone census result dataclass
 #   - FullCensusResult: Combined house + property result dataclass
 #
+
+from __future__ import annotations
 
 import asyncio
 import logging

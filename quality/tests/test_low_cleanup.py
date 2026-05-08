@@ -769,24 +769,56 @@ class TestSwitchRestoreDeferredRetry:
         assert not switch._deferred_restore
 
     def test_retry_restore_guard_in_source(self):
-        """_retry_restore methods check _deferred_restore before acting."""
+        """_retry_restore methods have an early-return guard.
+
+        Two equivalent guard patterns are accepted:
+          - `if not self._deferred_restore:` (boolean flag, observation switches)
+          - `if state is None:` after `state = getattr(self, "_deferred_restore_state", None)`
+            (None-check, HVAC fan control switch)
+
+        The `_ec_switch_factory` closure (one-shot, scheduled exactly once
+        in async_added_to_hass) is exempt: re-entry is impossible because
+        it never re-schedules itself. v4.5.2 D3: prior version of this test
+        asserted the boolean-flag pattern verbatim, missing the closure
+        and the None-check variant.
+        """
         src_path = "custom_components/universal_room_automation/switch.py"
         with open(src_path) as f:
             source = f.read()
 
-        # Find all _retry_restore definitions
         idx = 0
         count = 0
+        guarded = 0
+        ec_factory_closures = 0
         while True:
             pos = source.find("def _retry_restore(self", idx)
             if pos == -1:
                 break
-            method_head = source[pos:pos + 200]
-            assert "if not self._deferred_restore:" in method_head, (
-                f"_retry_restore at pos {pos} does not check _deferred_restore"
-            )
+            method_head = source[pos:pos + 400]
+            line_no = source[:pos].count("\n") + 1
             count += 1
             idx = pos + 1
 
-        # Should be at least 2 (energy + hvac observation mode switches)
+            has_bool_guard = "if not self._deferred_restore:" in method_head
+            has_none_guard = (
+                '_deferred_restore_state' in method_head
+                and "is None:" in method_head
+            )
+            # Detect closure inside _ec_switch_factory by scanning backward
+            # for the factory def — this _retry_restore is the one-shot
+            # closure variant that doesn't need a guard.
+            ctx = source[max(0, pos - 8000):pos]
+            in_ec_factory = "def _ec_switch_factory(" in ctx and "class _ECSwitch" in ctx
+
+            if has_bool_guard or has_none_guard:
+                guarded += 1
+            elif in_ec_factory:
+                ec_factory_closures += 1
+            else:
+                raise AssertionError(
+                    f"_retry_restore at line {line_no} (pos {pos}) has no "
+                    f"guard and is not the _ec_switch_factory closure"
+                )
+
         assert count >= 2, f"Expected at least 2 _retry_restore methods, found {count}"
+        assert guarded >= 2, f"Expected at least 2 guarded variants, found {guarded}"
