@@ -54,15 +54,33 @@ break anything because they're already not connected to anything.
 | `CONF_TRACK_PERSONS_IN_ROOM` | Per-room person tracking superseded by presence coordinator (integration-level). |
 | `CONF_COMFORT_ENABLED` | Was planned as a comfort-scoring gate; never wired. `ComfortScoreSensor` is ungated diagnostic today. |
 
-### Dead legacy time-window CONFs (read-only via hardcoded fallback, never collected)
+### Truly dead `DEFAULT_*` time-window constants (never referenced anywhere)
 
-| CONF / Default | Status | Replacement |
-|---|---|---|
-| `CONF_OPEN_TIME_START` | Never in any form. `automation.py:988 _is_in_open_time_range` reads `.get(CONF_OPEN_TIME_START, 7)` — always falls back to literal 7. | `CONF_COVER_OPEN_TIME_SOURCE` + `CONF_COVER_OPEN_HOUR` (form-collected) |
-| `CONF_OPEN_TIME_END` | Same — hardcoded fallback 20. | (see above) |
-| `CONF_CLOSE_TIME` | `automation.py:1365` reads with hardcoded fallback 20. | `CONF_COVER_CLOSE_TIME_SOURCE` + `CONF_COVER_CLOSE_HOUR` |
-| `DEFAULT_OPEN_TIME_START`, `DEFAULT_OPEN_TIME_END`, `DEFAULT_CLOSE_TIME`, `DEFAULT_SCAN_INTERVAL` | Defined but no consumer references them. The `.get()` calls all use literals instead. | (delete) |
-| `_is_in_open_time_range` | Helper in `automation.py:986-990`; unused vestige of the legacy time-window system. | (delete) |
+| Default | Status |
+|---|---|
+| `DEFAULT_OPEN_TIME_START`, `DEFAULT_OPEN_TIME_END`, `DEFAULT_CLOSE_TIME`, `DEFAULT_SCAN_INTERVAL` | Defined but no consumer references them. The `.get()` calls in automation.py all use literals (7, 20, 20) instead. Safe to delete. |
+
+### REVISED — DO NOT DELETE legacy time-window CONFs (caught in 2026-05-08 docs pass)
+
+The first-pass plan would have deleted `CONF_OPEN_TIME_START`, `CONF_OPEN_TIME_END`,
+`CONF_CLOSE_TIME`, `_is_in_open_time_range`, and `_is_after_close_time` — but the
+docs/code grep showed these are part of an **active legacy fallback chain** in
+`_is_cover_open_time` (automation.py:939-967) and `_is_cover_close_time`
+(automation.py:1324-1350). The chain:
+
+1. New config `CONF_COVER_OPEN_TIME_SOURCE` — preferred (post-v3.6.39 entries)
+2. Legacy `CONF_OPEN_TIMING_MODE` — fallback for pre-v3.6.39 entries
+3. Within that legacy branch, `TIMING_MODE_TIME`/`BOTH_LATEST`/`BOTH_EARLIEST`
+   modes invoke `_is_in_open_time_range` → reads `CONF_OPEN_TIME_START` /
+   `CONF_OPEN_TIME_END`
+
+Same shape on the close side with `CONF_CLOSE_TIME` + `_is_after_close_time`.
+
+URA dates back to v3.3.5.3; many of the 34 live entries likely still have legacy
+keys in `entry.data` and have never been re-edited through the v3.6.39 form.
+Deleting these CONFs / helpers would break those rooms' cover automation. Leave
+them alone until a dedicated migration cycle migrates every legacy entry to the
+new `CONF_COVER_*_TIME_SOURCE` keys, then deletes the fallback chain wholesale.
 
 ### Legacy cover action fallback (keep code, hide form field)
 
@@ -102,17 +120,17 @@ entries still resolve to a valid mode without forcing a re-edit.
 - **Test:** existing tests still pass (no consumer broke).
 - **Live:** integration loads cleanly; no startup errors.
 
-### D3 — Delete dead legacy time-window CONFs
+### D3 — Delete only the truly-dead `DEFAULT_*` time-window constants
 
-- Delete `CONF_OPEN_TIME_START`, `CONF_OPEN_TIME_END`, `CONF_CLOSE_TIME` from `const.py`.
 - Delete `DEFAULT_OPEN_TIME_START`, `DEFAULT_OPEN_TIME_END`, `DEFAULT_CLOSE_TIME`, `DEFAULT_SCAN_INTERVAL` from `const.py`.
-- Delete `_is_in_open_time_range` from `automation.py:986-990`.
-- Audit `automation.py:1365` and similar sites for `.get(CONF_CLOSE_TIME, 20)`-style reads and remove them; confirm the modern `CONF_COVER_CLOSE_TIME_SOURCE` + `CONF_COVER_CLOSE_HOUR` path is the only one.
+- **DO NOT** delete `CONF_OPEN_TIME_START` / `CONF_OPEN_TIME_END` / `CONF_CLOSE_TIME` — they're consumed by the legacy fallback chain in `_is_cover_open_time` / `_is_cover_close_time`.
+- **DO NOT** delete `_is_in_open_time_range` (called at automation.py:958) or `_is_after_close_time` (called at automation.py:1341).
 
 #### Acceptance criteria
-- **Verify:** Cover open/close timing functions identically (pre-vs-post deploy comparison on a few rooms).
-- **Test:** `test_v4504_blind_tilt.py` and any cover-timing tests still pass.
-- **Live:** cover entry/exit automation runs unchanged.
+- **Verify:** `grep DEFAULT_OPEN_TIME_START custom_components/` returns 0 hits (and same for the other 3 defaults).
+- **Verify:** legacy fallback chain still intact: `CONF_OPEN_TIMING_MODE`, `CONF_CLOSE_TIMING_MODE`, `CONF_OPEN_TIME_START`, `CONF_OPEN_TIME_END`, `CONF_CLOSE_TIME` all still present.
+- **Test:** existing cover-timing tests still pass.
+- **Live:** pre-v3.6.39 rooms (legacy `entry.data` keys) still automate identically.
 
 ### D4 — Hide the legacy `CONF_ENTRY_COVER_ACTION` form field
 

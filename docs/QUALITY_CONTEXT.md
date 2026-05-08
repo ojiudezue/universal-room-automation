@@ -1139,6 +1139,66 @@ trip ramp behavior if the user hadn't noticed Enlighten's number)
 
 ---
 
+### Bug Class #32: Form Field With No Runtime Reader ⚠️
+
+**Pattern:** A `CONF_*` constant is defined in `const.py`, the form
+collects it in `config_flow.py`, voluptuous validates it, the value
+ends up in `entry.options` / `entry.data`, but **no runtime path reads
+it**. The setting silently does nothing — the user toggles it, saves
+it, sees it persisted in the form, and assumes it works.
+
+This is the dual of #28 (untracked input fields). #28 is "the form
+ignores the user's input"; #32 is "the form remembers the user's
+input but the runtime ignores it." Both are silent.
+
+**Impact:**
+- User-facing setting that does nothing. No log error, no exception.
+- Form's `default=self._get_current(...)` re-reads the saved value, so
+  the field stays "checked" or "set" across edits — reinforcing the
+  illusion that it works.
+- Confusion debugging the "non-feature": users assume their config is
+  the cause of unexpected behavior and toggle the dead field looking
+  for an effect.
+
+**Detection (one-liner per CONF):**
+```bash
+# For each CONF_X in const.py, count occurrences outside const.py +
+# config_flow.py + strings/translations. Zero hits == this bug class.
+grep -rn "CONF_X" custom_components/universal_room_automation \
+  --exclude=const.py --exclude=config_flow.py
+```
+
+**Hits to date:**
+- `CONF_COVER_TYPE` (v4.5.0.4) — venetian-blind tilt config was set in
+  3 form locations, never read at runtime; venetian blinds always got
+  `cover.open_cover` instead of `cover.open_cover_tilt`. Fixed in
+  v4.5.0.4 by adding the runtime reader + tilt-aware verify path.
+- `CONF_HVAC_EFFICIENCY_ALERTS` (v4.5.4) — climate-step boolean toggle,
+  never read; HVAC coord's AnomalyDetector is not gated by it. No
+  successor exists at any other level. Removed.
+- `CONF_MUSIC_FOLLOWING_ENABLED` (deferred to CM cleanup cycle) — room
+  form toggle; the real gate is `CONF_MUSIC_FOLLOWING_COORDINATOR_ENABLED`
+  at CM level. Conceptual successor exists; deferring removal until
+  the CM cleanup cycle so the MF wiring isn't touched twice.
+
+**Prevention:**
+- [ ] When adding a new form field in `config_flow.py`, the same PR
+      MUST add a runtime reader, OR the field gets deleted in review.
+      `quality/DEVELOPMENT_CHECKLIST.md` enforces this.
+- [ ] Audit cycle for every cleanup release: for each `CONF_*` in
+      `const.py`, confirm at least one reader exists in a domain
+      coordinator, automation, or sensor. Zero readers = either
+      delete the constant + form field, or add the reader.
+- [ ] When removing a form field that's been live for any length of
+      time, leave the runtime fallback that reads `entry.data` for
+      legacy entries (see `_get_cover_open_mode` in v3.6.39 → v4.5.4).
+
+**Severity:** MEDIUM — user-facing confusion, no functional damage,
+but the latent bug exposes the user to incorrect mental models that
+compound over time (the venetian blinds case sat for years).
+
+---
+
 ### Bug Class #29: Unbudgeted Scheduled Maintenance ⚠️
 
 **Pattern:** A nightly or startup task iterates through N cleanup operations sequentially with no time budget. If early operations are slow (large backlogs), later operations never run. If ALL operations are slow, the task blocks the event loop for the entire duration.
