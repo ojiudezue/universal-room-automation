@@ -9,10 +9,15 @@ This test walks the URA codebase, finds every `entry.add_update_listener(name)`
 call, locates the function definition by name in the same file, and asserts
 the function is `async def`.
 
+v4.5.2 D1: defer annotation eval for Python 3.9 dev-env compat (the test
+itself uses `ast.AST | None` at module level for a helper signature).
+
 Discovered v4.2.24: coordinator.py:837 had a sync `@callback` registered as
 update listener — caused months of silent config-save failures. See
 docs/QUALITY_CONTEXT.md Bug Class #28.
 """
+from __future__ import annotations
+
 import ast
 import pathlib
 

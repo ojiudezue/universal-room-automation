@@ -1,12 +1,14 @@
 """Data coordinator for Universal Room Automation."""
 #
-# Universal Room Automation vv4.5.0.4
+# Universal Room Automation vv4.5.2
 # Build: 2026-01-02
 # File: coordinator.py
 # v3.2.8: Support for active state change listeners in aggregation sensors
 # NEW: get_became_occupied_time() for three-tier scanner disambiguation
 # FIX: Environmental sensors now read from options (user changes) with data fallback
 #
+
+from __future__ import annotations
 
 import asyncio
 import logging

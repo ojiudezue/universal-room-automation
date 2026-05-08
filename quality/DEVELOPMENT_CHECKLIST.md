@@ -140,13 +140,26 @@
   ```
   v4.5.0 pinned `pytest-asyncio` after discovering ~180 phantom "failures"
   in the baseline were just async markers being treated as collection
-  errors. Skip this and the `pytest-asyncio` warnings will pollute the
-  failure count, hiding real regressions (the exact trap of tech debt #0).
+  errors. v4.5.2 pinned `aiosqlite` (production HA bundles it; dev env
+  was using a `sys.modules.setdefault` MagicMock that silently no-op'd
+  every `await db.execute(...)` — DB harness "passed" against an empty
+  schema) and `voluptuous` (config_flow.py imports it). Skip this step
+  and the failure count drifts (the exact trap of tech debt #0).
 - [ ] **Run quality tests before every commit.**
   ```bash
   PYTHONPATH=quality python3 -m pytest quality/tests/ -v
   ```
   Do not skip this because "it's a small change" — the v3.4.1 strings omission was a small change too.
+- [ ] **Run the isolation check before merging.** Bulk pytest runs are
+  noisy because of `sys.modules` cross-pollination between tests; the
+  truth is per-file. The CI guard runs each file alone and counts only
+  real failures:
+  ```bash
+  python3 scripts/test_isolation_check.py
+  ```
+  Exit code is the number of files with real isolated failures.
+  Baseline (v4.5.2 onward): **0**. Anything >0 should block the merge
+  unless explicitly waived.
 
 ---
 

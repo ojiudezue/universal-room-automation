@@ -344,3 +344,117 @@ def test_migration_helper_imports_resolve():
         f"import to match the renamed constant, OR keep the old name as a "
         f"_LEGACY marker for the migration to read."
     )
+
+
+# v4.5.2 D5: generalize the v4.5.0.1 regression check above so it
+# covers EVERY `_migrate_*` helper in __init__.py — not just the
+# arbitrage one. A future migration that imports a renamed constant
+# from any URA submodule should fail this test before deploy.
+
+def _resolve_relative_module(module_str, level):
+    """Convert a relative `from .X import` clause inside __init__.py into
+    a fully-qualified module name, given that __init__.py lives in the
+    `custom_components.universal_room_automation` package.
+
+    level=0 → absolute import (e.g. `homeassistant.helpers.event`)
+    level=1 → sibling of __init__.py (e.g. `from .const import …`)
+    level=2 → parent's sibling (irrelevant here; we'd skip)
+    """
+    base = "custom_components.universal_room_automation"
+    if level == 0:
+        return module_str or ""
+    # level=1 means "this package"; the module attaches to that package
+    pkg = base
+    for _ in range(level - 1):
+        pkg = pkg.rsplit(".", 1)[0]
+    if module_str:
+        return f"{pkg}.{module_str}"
+    return pkg
+
+
+def test_all_migration_helpers_imports_resolve():
+    """Every `_migrate_*` helper's intra-repo imports must resolve.
+
+    AST-walks __init__.py for every function whose name starts with
+    `_migrate_`, finds each relative ImportFrom inside its body, and
+    asserts every imported name exists on the loaded module. Imports
+    of non-URA modules (homeassistant.*, std-lib) are skipped.
+
+    This generalizes test_migration_helper_imports_resolve (which only
+    covers _migrate_arbitrage_target_to_peak_buffer) to catch the
+    v4.5.0.1 class of bug — rename a constant in one file, forget the
+    matching import inside a migration helper — across every helper.
+    """
+    import ast
+    import importlib
+    import os
+
+    init_path = os.path.join(
+        os.path.dirname(__file__),
+        "..", "..",
+        "custom_components", "universal_room_automation", "__init__.py",
+    )
+    src = open(init_path).read()
+    tree = ast.parse(src)
+
+    helpers = [
+        node for node in ast.iter_child_nodes(tree)
+        if (
+            isinstance(node, (ast.AsyncFunctionDef, ast.FunctionDef))
+            and node.name.startswith("_migrate_")
+        )
+    ]
+    assert helpers, "expected at least one _migrate_* helper in __init__.py"
+
+    failures: list[str] = []
+    checked_helpers: list[str] = []
+    for fn in helpers:
+        intra_repo_imports: list[tuple[str, list[str]]] = []
+        for node in ast.walk(fn):
+            if not isinstance(node, ast.ImportFrom):
+                continue
+            # Skip non-URA imports — only verify intra-repo references
+            # (relative imports, level >= 1).
+            if node.level == 0:
+                continue
+            full_mod = _resolve_relative_module(node.module, node.level)
+            if not full_mod.startswith("custom_components.universal_room_automation"):
+                continue
+            names = [alias.name for alias in node.names if alias.name != "*"]
+            if names:
+                intra_repo_imports.append((full_mod, names))
+
+        if not intra_repo_imports:
+            # Some migrations (e.g. _migrate_zone_names_to_entries) only
+            # touch entry data; nothing to verify against the source.
+            continue
+        checked_helpers.append(fn.name)
+
+        for module_path, names in intra_repo_imports:
+            try:
+                mod = importlib.import_module(module_path)
+            except ImportError as e:
+                failures.append(
+                    f"{fn.name}: cannot import {module_path}: {e}"
+                )
+                continue
+            missing = [n for n in names if not hasattr(mod, n)]
+            if missing:
+                failures.append(
+                    f"{fn.name}: imports from {module_path} reference "
+                    f"missing names {missing}"
+                )
+
+    assert not failures, (
+        "Migration helpers reference symbols that no longer exist:\n  "
+        + "\n  ".join(failures)
+        + "\n\nThis is the v4.5.0.1 ImportError class of bug — a "
+        "constant was renamed in one file but its import inside a "
+        "migration helper still uses the old name. Either fix the "
+        "helper's import to match the new name, or keep the old name "
+        "as a _LEGACY marker so the migration can still read it."
+    )
+    assert checked_helpers, (
+        "expected at least one _migrate_* helper to have intra-repo "
+        "imports under verification"
+    )

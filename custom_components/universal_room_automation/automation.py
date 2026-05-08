@@ -1,4 +1,12 @@
 """Automation logic for Universal Room Automation."""
+# v4.5.2 D1: PEP 563 deferred annotation evaluation. Production runs on
+# Python 3.14+ where `float | None` works natively, but the dev test
+# environment (Python 3.9.6) cannot compile such hints at module load,
+# blocking test collection. `from __future__ import annotations` defers
+# annotation evaluation to string form, restoring 3.9-compat without any
+# runtime behavior change. Zero risk on 3.14+.
+from __future__ import annotations
+
 #
 # Universal Room Automation vv4.5.0.4
 # Build: 2026-01-04

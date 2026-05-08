@@ -2,10 +2,34 @@
 
 Verifies that removed stub entities no longer exist in the codebase
 and that imports of modified modules still work correctly.
+
+v4.5.2 D3: Of the 11 sensors and 2 binary sensors removed in v3.20.2,
+five (OccupancyPercentageTodaySensor, TimeOccupiedTodaySensor,
+TimeUncomfortableTodaySensor, AvgTimeToComfortSensor,
+OccupancyAnomalyBinarySensor) were re-introduced in v4.0.2 as part of
+the B2 Bayesian Prediction Sensors milestone — exactly as
+DEFERRED_TO_BAYESIAN.md anticipated. Those classes are now real
+implementations backed by the database/bayesian_predictor; the
+removal tests below have been narrowed to entities that should still
+be absent.
 """
 import importlib
 import sys
 import pytest
+
+
+# Entities removed in v3.20.2 and resurrected in v4.0.2-B2 as legitimate
+# Bayesian-backed implementations. They are EXPECTED to be present in
+# source. Listed here so the test is self-documenting.
+B2_RESTORED_SENSORS = (
+    "OccupancyPercentageTodaySensor",
+    "TimeOccupiedTodaySensor",
+    "TimeUncomfortableTodaySensor",
+    "AvgTimeToComfortSensor",
+)
+B2_RESTORED_BINARY_SENSORS = (
+    "OccupancyAnomalyBinarySensor",
+)
 
 
 class TestStubSensorRemoval:
@@ -21,46 +45,47 @@ class TestStubSensorRemoval:
         )
 
     def test_removed_sensor_classes_not_in_source(self):
-        """Verify all 11 stub sensor classes are removed from source."""
+        """Verify the 7 still-removed stub sensor classes are absent."""
         with open("custom_components/universal_room_automation/sensor.py") as f:
             source = f.read()
 
         removed_classes = [
-            "class OccupancyPercentageTodaySensor",
             "class EnergyWasteIdleSensor",
             "class MostExpensiveDeviceSensor",
             "class OptimizationPotentialSensor",
             "class EnergyCostPerOccupiedHourSensor",
-            "class TimeUncomfortableTodaySensor",
-            "class AvgTimeToComfortSensor",
             "class WeekdayMorningOccupancyProbSensor",
             "class WeekendEveningOccupancyProbSensor",
-            "class TimeOccupiedTodaySensor",
             "class OccupancyPatternDetectedSensor",
         ]
         for cls in removed_classes:
             assert cls not in source, f"{cls} should have been removed"
 
     def test_removed_sensors_not_in_entity_list(self):
-        """Verify removed sensors are not registered in async_setup_entry."""
+        """Verify still-removed sensors are not registered in async_setup_entry."""
         with open("custom_components/universal_room_automation/sensor.py") as f:
             source = f.read()
 
         removed_registrations = [
-            "OccupancyPercentageTodaySensor(coordinator)",
             "EnergyWasteIdleSensor(coordinator)",
             "MostExpensiveDeviceSensor(coordinator)",
             "OptimizationPotentialSensor(coordinator)",
             "EnergyCostPerOccupiedHourSensor(coordinator)",
-            "TimeUncomfortableTodaySensor(coordinator)",
-            "AvgTimeToComfortSensor(coordinator)",
             "WeekdayMorningOccupancyProbSensor(coordinator)",
             "WeekendEveningOccupancyProbSensor(coordinator)",
-            "TimeOccupiedTodaySensor(coordinator)",
             "OccupancyPatternDetectedSensor(coordinator)",
         ]
         for reg in removed_registrations:
             assert reg not in source, f"{reg} should have been removed from entity list"
+
+    def test_b2_restored_sensors_present(self):
+        """B2 Bayesian sensors restored in v4.0.2 should exist in source."""
+        with open("custom_components/universal_room_automation/sensor.py") as f:
+            source = f.read()
+        for cls in B2_RESTORED_SENSORS:
+            assert f"class {cls}" in source, (
+                f"{cls} was restored in v4.0.2-B2 and should be present"
+            )
 
     def test_non_stub_sensors_preserved(self):
         """Verify that legitimate sensors were NOT removed."""
@@ -95,20 +120,31 @@ class TestStubBinarySensorRemoval:
         )
 
     def test_removed_binary_sensor_classes_not_in_source(self):
-        """Verify both stub binary sensor classes are removed."""
+        """Verify the still-removed stub binary sensor class is absent.
+
+        OccupancyAnomalyBinarySensor was restored in v4.0.2-B2; only
+        EnergyAnomalyBinarySensor remains removed.
+        """
         with open("custom_components/universal_room_automation/binary_sensor.py") as f:
             source = f.read()
 
-        assert "class OccupancyAnomalyBinarySensor" not in source
         assert "class EnergyAnomalyBinarySensor" not in source
 
     def test_removed_binary_sensors_not_in_entity_list(self):
-        """Verify removed binary sensors are not registered."""
+        """Verify still-removed binary sensors are not registered."""
         with open("custom_components/universal_room_automation/binary_sensor.py") as f:
             source = f.read()
 
-        assert "OccupancyAnomalyBinarySensor(coordinator)" not in source
         assert "EnergyAnomalyBinarySensor(coordinator)" not in source
+
+    def test_b2_restored_binary_sensors_present(self):
+        """B2 Bayesian binary sensors restored in v4.0.2 should exist."""
+        with open("custom_components/universal_room_automation/binary_sensor.py") as f:
+            source = f.read()
+        for cls in B2_RESTORED_BINARY_SENSORS:
+            assert f"class {cls}" in source, (
+                f"{cls} was restored in v4.0.2-B2 and should be present"
+            )
 
     def test_non_stub_binary_sensors_preserved(self):
         """Verify that legitimate binary sensors were NOT removed."""

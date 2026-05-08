@@ -98,10 +98,65 @@ from custom_components.universal_room_automation.database import UniversalRoomDa
 # ---------------------------------------------------------------------------
 
 def _make_db(tmp_path: str) -> UniversalRoomDatabase:
-    """Create a UniversalRoomDatabase pointing at a temp directory."""
+    """Create a UniversalRoomDatabase pointing at a temp directory.
+
+    v4.5.2 D2: hass.async_create_background_task is configured to
+    actually schedule via asyncio.create_task so the write worker
+    runs when started. Pre-fix, that method was a bare MagicMock
+    returning another MagicMock — `db.start_write_worker()` appeared
+    to succeed but the worker never executed, every queued write
+    silently failed with "DB write worker not running".
+
+    Tests that ONLY exercise direct sqlite3 reads after `initialize()`
+    don't need the worker. Tests that hit save_* / log_* methods
+    must use `_make_db_with_worker` (which calls start_write_worker
+    inside the same _run() so the task lifecycle aligns).
+    """
     hass = MagicMock()
     hass.config.path = lambda *parts: os.path.join(tmp_path, *parts)
+
+    # Make the create_background_task call schedule a real asyncio.Task
+    # in the current event loop. Otherwise the worker is a dangling coro.
+    def _schedule_task(coro, name=None):
+        return asyncio.ensure_future(coro)
+    hass.async_create_background_task = _schedule_task
+    hass.async_create_task = _schedule_task
+
     return UniversalRoomDatabase(hass)
+
+
+async def _do_db_op_with_worker(db: UniversalRoomDatabase, op_coro_factory):
+    """Run a coro that uses the write worker. Starts worker, runs op,
+    drains the queue, cancels worker, returns the op's result.
+
+    Use this for tests that need the worker but want to stay in a
+    single _run() call (so the asyncio.Task survives long enough to
+    process queued writes). Pre-fix attempts that called
+    `_run(db.start_write_worker())` then `_run(db.save_*())` failed
+    because each _run created a fresh loop, the worker task from the
+    first _run was orphaned, and the queued write in the second _run
+    sat unprocessed.
+
+    Usage:
+        async def _do():
+            await db.save_circuit_state(circuits)
+            return await db.restore_circuit_state()
+        result = _run(_do_db_op_with_worker(db, _do))
+    """
+    await db.initialize()
+    await db.start_write_worker()
+    try:
+        result = await op_coro_factory()
+        # Drain the queue so all queued writes complete before returning
+        await db._write_queue.join()
+        return result
+    finally:
+        if db._write_task is not None and not db._write_task.done():
+            db._write_task.cancel()
+            try:
+                await db._write_task
+            except asyncio.CancelledError:
+                pass
 
 
 def _get_tables(db_path: str) -> set[str]:
@@ -242,9 +297,13 @@ class TestCircuitStateTable:
         assert columns == {"circuit_id", "was_loaded", "zero_since", "alerted", "updated_at"}
 
     def test_save_and_restore_circuit_state_with_float_zero_since(self, tmp_path):
-        """Save and restore circuit state round-trips correctly with float zero_since."""
+        """Save and restore circuit state round-trips correctly with float zero_since.
+
+        v4.5.2 D2: this exercises the async write-queue path, which
+        requires worker + saves + reads in the SAME event loop. Pre-fix,
+        each _run() spun up a fresh loop and orphaned the worker task.
+        """
         db = _make_db(str(tmp_path))
-        _run(db.initialize())
 
         circuits = {
             "circuit_kitchen": {
@@ -258,9 +317,12 @@ class TestCircuitStateTable:
                 "alerted": True,
             },
         }
-        _run(db.save_circuit_state(circuits))
 
-        restored = _run(db.restore_circuit_state())
+        async def _do():
+            await db.save_circuit_state(circuits)
+            return await db.restore_circuit_state()
+        restored = _run(_do_db_op_with_worker(db, _do))
+
         assert len(restored) == 2
         assert restored["circuit_kitchen"]["was_loaded"] is True
         # zero_since must come back as float, not string
@@ -273,19 +335,20 @@ class TestCircuitStateTable:
     def test_save_circuit_state_overwrites(self, tmp_path):
         """Saving circuit state again should overwrite previous values."""
         db = _make_db(str(tmp_path))
-        _run(db.initialize())
 
         circuits_v1 = {
             "circuit_a": {"was_loaded": True, "zero_since": None, "alerted": False}
         }
-        _run(db.save_circuit_state(circuits_v1))
-
         circuits_v2 = {
             "circuit_a": {"was_loaded": False, "zero_since": 1741790000.0, "alerted": True}
         }
-        _run(db.save_circuit_state(circuits_v2))
 
-        restored = _run(db.restore_circuit_state())
+        async def _do():
+            await db.save_circuit_state(circuits_v1)
+            await db.save_circuit_state(circuits_v2)
+            return await db.restore_circuit_state()
+        restored = _run(_do_db_op_with_worker(db, _do))
+
         assert restored["circuit_a"]["was_loaded"] is False
         assert restored["circuit_a"]["alerted"] is True
 

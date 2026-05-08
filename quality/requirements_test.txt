@@ -7,6 +7,19 @@
 #    the baseline were actually `pytest.mark.asyncio` warnings being
 #    treated as test failures. Without the plugin, async tests fail to
 #    even collect and pollute the failure count, hiding real regressions.
+#  - v4.5.2: pinned aiosqlite. Production runs in HA which bundles it as
+#    a transitive dep; URA's database.py uses it directly. Conftest had
+#    `sys.modules.setdefault("aiosqlite", MagicMock())` as a placeholder,
+#    but that returned a MagicMock for every `await db.execute(...)` —
+#    so `db.initialize()` appeared to succeed but no tables were
+#    actually written. ~30 DB-harness test fails dissolved when the real
+#    package got installed. Same trap as #pytest-asyncio above: dev env
+#    drift hiding real failures behind mock no-ops.
 
 pytest>=8.2,<9
 pytest-asyncio>=1.0,<2
+aiosqlite>=0.20,<1
+# v4.5.2 D3: voluptuous required by config_flow.py (HA core dep,
+# transitively present in production). test_cycle_b_config_flow.py
+# imports config_flow directly.
+voluptuous>=0.13

@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.5.0.4
+# Universal Room Automation vv4.5.2
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -17,6 +17,8 @@
 #   - "Last Occupant Time" → "Last Identified Time"
 # v3.2.6: Added LastAutomationTimeSensor and PersonCoordinatorDiagnosticSensor
 #
+from __future__ import annotations
+
 import logging
 from datetime import datetime, timedelta
 from typing import Any, Optional

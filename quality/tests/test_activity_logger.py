@@ -277,8 +277,15 @@ async def test_dedup_different_room_passes(activity_logger, mock_database):
 
 
 @pytest.mark.asyncio
-async def test_critical_bypasses_dedup(activity_logger, mock_database):
-    """Verify critical importance events are never deduped."""
+async def test_critical_safety_net_dedupes_within_window(activity_logger, mock_database):
+    """Critical events are deduped within a 5-min safety-net window.
+
+    v4.0.11 changed critical from "never dedupe" to "5-min safety net":
+    coordinators are expected to transition-gate, so back-to-back
+    identical critical writes within 5 minutes indicate a runaway
+    caller and are suppressed. v4.5.2 D4: test was previously asserting
+    the pre-v4.0.11 behavior (count == 2).
+    """
     await activity_logger.log(
         coordinator="safety",
         action="hazard_detected",
@@ -292,16 +299,25 @@ async def test_critical_bypasses_dedup(activity_logger, mock_database):
         importance="critical",
     )
 
-    assert mock_database.log_activity.call_count == 2
+    assert mock_database.log_activity.call_count == 1, (
+        "second back-to-back critical should be deduped by safety net"
+    )
 
 
 @pytest.mark.asyncio
-async def test_notable_has_longer_dedup_window(activity_logger, mock_database):
-    """Verify notable events use 60s dedup (vs 30s for info)."""
+async def test_dedup_windows_are_tiered(activity_logger, mock_database):
+    """Importance tiers each have their own dedup window.
+
+    v4.5.2 D4: replaces test_notable_has_longer_dedup_window which
+    asserted critical == 0.0 (pre-v4.0.11 behavior).
+    """
     from custom_components.universal_room_automation.activity_logger import _DEDUP_WINDOWS
     assert _DEDUP_WINDOWS["info"] == 30.0
     assert _DEDUP_WINDOWS["notable"] == 60.0
-    assert _DEDUP_WINDOWS["critical"] == 0.0
+    assert _DEDUP_WINDOWS["critical"] == 300.0
+    # Each tier strictly longer than the previous → strongest events
+    # have the longest safety-net.
+    assert _DEDUP_WINDOWS["info"] < _DEDUP_WINDOWS["notable"] < _DEDUP_WINDOWS["critical"]
 
 
 @pytest.mark.asyncio
