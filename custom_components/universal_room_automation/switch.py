@@ -1,6 +1,6 @@
 """Switch platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.5.2
+# Universal Room Automation vv4.5.3
 # Build: 2026-01-02
 # File: switch.py
 #
@@ -513,48 +513,42 @@ def _ec_switch_factory(
 ):
     """Factory for EC toggle switches — avoids 200 lines of boilerplate.
 
-    Known issue (v4.5.0 deploy): users reported that several EC switches
-    (Grid Arbitrage, Excess Solar, Grid Import Cap, EV TOU Management)
-    reset to OFF after the v4.5.0 + v4.5.0.1 HACS upgrade restart cycle.
-    The pattern in this factory uses RestoreEntity + push-to-coord-on-add
-    + deferred retry, which should preserve state across restarts and has
-    been working through many prior URA versions.
+    v4.5.3: lifecycle race fixed. Prior bug (deferred from v4.5.0): the
+    factory's `_retry_restore` had no `_deferred_restore` flag and only a
+    single 5s retry — if `_get_energy()` returned None at both
+    `async_added_to_hass` AND the 5s retry (e.g. CM platform setup still
+    in flight), the user's persisted toggle was silently lost. Then the
+    EnergyCoordinator constructor's `ec.get(CONF_*_ENABLED, …)` seed
+    became the visible state after restart.
 
-    Investigation was inconclusive. Two leading hypotheses:
+    User-visible symptom: a toggle the user had explicitly set OFF would
+    appear ON after restart, because the constructor seed (read from
+    cm_entry.data/options, which is unchanged when the user toggles via
+    the UI) leaked through after the failed restore.
 
-      1. **`is_on` default-return race.** The property returns
-         `self._default` (False for most switches) when `_get_energy()`
-         returns None. If HA polls `is_on` between entity registration
-         and coordinator init completion, "off" gets written to state
-         storage. RestoreEntity on the next restart returns "off",
-         async_added_to_hass below pushes False to the coord. Stuck off.
+    v4.5.3 fix:
+      - `_deferred_restore` flag set when restore is pending.
+      - Retry chain: 5s, 30s, 120s with each callback rescheduling the
+        next on continued failure.
+      - Flag is cleared only on successful setattr; exhausted retries
+        log a warning so future investigations have signal.
 
-      2. **Reload-mid-setup race.** v4.5.0 D2 added a migration helper
-         that calls `async_update_entry(cm_entry, ...)`. If the entry
-         update triggers a CM reload during initial integration setup,
-         entities unload + reload mid-flight; depending on HA version,
-         state_storage may capture "unavailable" or "off" before the
-         coord settles.
-
-    No defensive fix shipped in v4.5.0.2 because:
-    - Both hypotheses lack a reproducer
-    - A naive fix (prefer coord when restore says off) could swallow
-      legitimate user toggle-off intent
-    - Workaround for the user is one click per affected switch after
-      a deploy (annoying but recoverable)
-
-    Future investigators: capture HA debug logs around restart to see
-    the actual sequence of `is_on` calls, RestoreEntity restore values,
-    and coord-init timing. If hypothesis 1 confirmed, the fix is
-    "in `is_on`, return None when coord is None and let the entity
-    show as unavailable instead of returning the default" — but verify
-    that `unavailable` doesn't also get persisted.
+    The `is_on` default-return race documented in the prior version of
+    this docstring is unchanged — it's a separate latent issue and
+    out of scope for v4.5.3. If a regression reappears in that shape,
+    capture HA debug logs around restart and look at the sequence of
+    `is_on` calls, RestoreEntity restore values, and coord-init timing.
     """
 
     class _ECSwitch(SwitchEntity, RestoreEntity):
         _attr_has_entity_name = True
         _attr_icon = icon
         _attr_entity_category = EntityCategory.CONFIG
+
+        # v4.5.3: retry chain delays for deferred restore (seconds).
+        # Covers the worst observed CM/energy-coord-not-yet-registered
+        # window without scheduling forever.
+        _RETRY_DELAYS_S = (5, 30, 120)
 
         def __init__(self, hass, entry):
             self.hass = hass
@@ -570,6 +564,12 @@ def _ec_switch_factory(
                 via_device=(DOMAIN, "coordinator_manager"),
             )
             self._default = default
+            # v4.5.3: explicit deferred-restore state so _retry_restore
+            # is a no-op once the restore has landed (or after the
+            # async_added_to_hass fast-path succeeded).
+            self._deferred_restore: bool = False
+            self._deferred_value: bool = default
+            self._retry_index: int = 0
 
         def _get_energy(self):
             manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
@@ -586,33 +586,70 @@ def _ec_switch_factory(
             energy = self._get_energy()
             if energy is not None:
                 setattr(energy, attr_name, True)
+                # v4.5.3: explicit user toggle wins over any pending restore.
+                self._deferred_restore = False
                 self.async_write_ha_state()
 
         async def async_turn_off(self, **kwargs):
             energy = self._get_energy()
             if energy is not None:
                 setattr(energy, attr_name, False)
+                self._deferred_restore = False
                 self.async_write_ha_state()
 
         async def async_added_to_hass(self):
             await super().async_added_to_hass()
             last_state = await self.async_get_last_state()
-            if last_state is not None:
-                energy = self._get_energy()
-                target = last_state.state == "on"
-                if energy is not None:
-                    setattr(energy, attr_name, target)
-                else:
-                    self._deferred_value = target
-                    self.async_on_remove(
-                        async_call_later(self.hass, 5, self._retry_restore)
-                    )
+            if last_state is None:
+                # First-time install (no prior RestoreEntity state):
+                # the constructor's `ec.get(...)` seed is the source of
+                # truth. Do nothing here.
+                return
+            target = last_state.state == "on"
+            self._deferred_value = target
+            energy = self._get_energy()
+            if energy is not None:
+                setattr(energy, attr_name, target)
+                # Restore landed immediately; no retry needed.
+                self._deferred_restore = False
+                return
+            # Coord not registered yet → defer + retry chain.
+            self._deferred_restore = True
+            self._retry_index = 0
+            self.async_on_remove(
+                async_call_later(
+                    self.hass, self._RETRY_DELAYS_S[0], self._retry_restore
+                )
+            )
 
         @callback
         def _retry_restore(self, _now=None):
+            if not self._deferred_restore:
+                return
             energy = self._get_energy()
             if energy is not None:
-                setattr(energy, attr_name, getattr(self, "_deferred_value", self._default))
+                setattr(energy, attr_name, self._deferred_value)
+                self._deferred_restore = False
+                return
+            # Coord still not ready — schedule the next retry if any
+            # remain in the chain.
+            self._retry_index += 1
+            if self._retry_index < len(self._RETRY_DELAYS_S):
+                self.async_on_remove(
+                    async_call_later(
+                        self.hass,
+                        self._RETRY_DELAYS_S[self._retry_index],
+                        self._retry_restore,
+                    )
+                )
+            else:
+                _LOGGER.warning(
+                    "EC switch %s: deferred restore exhausted retries "
+                    "(coord never became available); leaving runtime at "
+                    "constructor-seeded value",
+                    unique_suffix,
+                )
+                self._deferred_restore = False
 
         @property
         def available(self) -> bool:
