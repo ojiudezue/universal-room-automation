@@ -160,6 +160,23 @@
   Exit code is the number of files with real isolated failures.
   Baseline (v4.5.2 onward): **0**. Anything >0 should block the merge
   unless explicitly waived.
+- [ ] **Every new form field must have a runtime reader.** When you
+  add a `vol.Optional(CONF_X, …)` to any form step in `config_flow.py`,
+  the same PR must include the runtime read site (typically inside an
+  automation, coordinator, or sensor). Bug Class #32 in
+  `docs/QUALITY_CONTEXT.md` documents the cost of skipping this.
+  Quick audit:
+  ```bash
+  # For a CONF_X you just added, confirm at least one reader exists
+  # outside const.py + config_flow.py + strings/translations:
+  grep -rn "CONF_X" custom_components/universal_room_automation \
+    --exclude=const.py --exclude=config_flow.py
+  ```
+  Zero hits means the field is dead config from day one. Either wire
+  it to the runtime path, or delete the form field before merging.
+  Hits to date: `CONF_COVER_TYPE` (v4.5.0.4 — venetian-blind tilt was
+  silently broken for years), `CONF_HVAC_EFFICIENCY_ALERTS` (v4.5.4 —
+  cleaned up).
 
 ---
 

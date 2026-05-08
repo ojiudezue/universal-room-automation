@@ -331,8 +331,7 @@
           "fan_control_enabled": "Enable Fan Control",
           "fan_temp_threshold": "Fan Start Temperature",
           "humidity_fan_threshold": "Humidity Fan Threshold",
-          "humidity_fan_timeout": "Humidity Fan Timeout",
-          "hvac_efficiency_alerts": "HVAC Efficiency Alerts"
+          "humidity_fan_timeout": "Humidity Fan Timeout"
         },
         "data_description": {
           "climate_entity": "Your thermostat or HVAC controller (auto-detected from area if available)",
@@ -342,8 +341,7 @@
           "fan_control_enabled": "Automatically control fans based on temperature (speed thresholds in next step)",
           "fan_temp_threshold": "Temperature above which fans turn on",
           "humidity_fan_threshold": "Humidity % above which exhaust fans turn on",
-          "humidity_fan_timeout": "Seconds to run exhaust fan after humidity drops",
-          "hvac_efficiency_alerts": "Alert when HVAC seems inefficient"
+          "humidity_fan_timeout": "Seconds to run exhaust fan after humidity drops"
         }
       },
       "fan_speeds": {
@@ -1340,8 +1338,7 @@
           "fan_speed_med_temp": "Medium Speed Temperature",
           "fan_speed_high_temp": "High Speed Temperature",
           "humidity_fan_threshold": "Humidity Fan Threshold (%)",
-          "humidity_fan_timeout": "Humidity Fan Timeout (s)",
-          "hvac_efficiency_alerts": "HVAC Efficiency Alerts"
+          "humidity_fan_timeout": "Humidity Fan Timeout (s)"
         }
       },
       "sleep_protection": {

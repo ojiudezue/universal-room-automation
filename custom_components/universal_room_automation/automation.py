@@ -928,7 +928,14 @@ class RoomAutomation:
                 "Room %s: Invalid cover open mode '%s' — falling back to legacy",
                 room_name, mode,
             )
-        # Legacy fallback
+        # Legacy fallback for pre-v3.6.39 entries that still have the
+        # legacy CONF_ENTRY_COVER_ACTION key in entry.data. The room form
+        # has not collected this CONF since v3.6.39 (the new 5-mode
+        # system in CONF_COVER_OPEN_MODE replaced it). Mapping is the
+        # one documented in README_v3.6.40 and verified in v4.5.4 audit:
+        #   COVER_ACTION_NONE   → COVER_OPEN_NONE
+        #   COVER_ACTION_ALWAYS → COVER_OPEN_ON_ENTRY (no time gate)
+        #   COVER_ACTION_SMART  → COVER_OPEN_ON_ENTRY_AFTER_TIME
         action = self.config.get(CONF_ENTRY_COVER_ACTION, COVER_ACTION_NONE)
         if action == COVER_ACTION_NONE:
             return COVER_OPEN_NONE

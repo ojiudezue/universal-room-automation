@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv4.5.3
+# Universal Room Automation vv4.5.4
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v4.5.3"
+VERSION: Final = "v4.5.4"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -152,7 +152,6 @@ AGGREGATION_ENERGY_COVERAGE_DELTA: Final = "energy_coverage_delta"
 CONF_TRACKED_PERSONS: Final = "tracked_persons"
 CONF_PERSON_DATA_RETENTION: Final = "person_data_retention_days"
 CONF_TRANSITION_DETECTION_WINDOW: Final = "transition_detection_window"
-CONF_TRACK_PERSONS_IN_ROOM: Final = "track_persons_in_room"
 
 # v3.2.8: Presence decay configuration
 CONF_PERSON_DECAY_TIMEOUT: Final = "person_decay_timeout"
@@ -310,8 +309,6 @@ CONF_MMWAVE_SENSORS: Final = "presence_sensors"  # Note: blueprint calls them pr
 CONF_OCCUPANCY_SENSORS: Final = "occupancy_sensors"  # Combined motion+presence sensors
 # v3.2.4: CONF_PHONE_TRACKER deprecated - use person tracking with Bermuda instead
 CONF_PHONE_TRACKER: Final = "phone_tracker"  # DEPRECATED in v3.2.4 - kept for migration
-CONF_PHONE_TRACKERS: Final = "phone_trackers"  # v3.1.5: Multi-phone support (DEPRECATED)
-CONF_ROOM_BEACONS: Final = "room_beacons"  # v3.1.5: ESPresense/Bermuda room sensors
 # v3.2.4: Scanner areas for sparse scanner homes (optional override)
 CONF_SCANNER_AREAS: Final = "scanner_areas"  # List of HA area_ids where BLE scanners are
 CONF_DOOR_SENSORS: Final = "door_sensor"
@@ -438,7 +435,6 @@ CONF_FAN_SPEED_MED_TEMP: Final = "fan_speed_med_temp"
 CONF_FAN_SPEED_HIGH_TEMP: Final = "fan_speed_high_temp"
 CONF_HUMIDITY_FAN_THRESHOLD: Final = "humidity_fan_threshold"
 CONF_HUMIDITY_FAN_TIMEOUT: Final = "humidity_fan_timeout"
-CONF_HVAC_EFFICIENCY_ALERTS: Final = "hvac_efficiency_alerts"
 CONF_FAN_VACANCY_HOLD: Final = "fan_vacancy_hold"
 
 # --- Step 6: Sleep Protection ---
@@ -485,7 +481,6 @@ CONF_ELECTRICITY_RATE_SENSOR: Final = "electricity_rate_sensor"
 DEFAULT_OCCUPANCY_TIMEOUT: Final = 300  # 5 minutes
 DEFAULT_OCCUPANCY_DEBOUNCE: Final = 150  # milliseconds (UI) — converted to seconds in coordinator
 DEFAULT_DARK_THRESHOLD: Final = 20      # lux (from blueprint v3.5.1)
-DEFAULT_SCAN_INTERVAL: Final = 30       # seconds
 DEFAULT_ELECTRICITY_RATE: Final = 0.15  # $/kWh
 
 # Lighting defaults
@@ -505,9 +500,12 @@ DEFAULT_HUMIDITY_FAN_TIMEOUT: Final = 600  # 10 minutes
 DEFAULT_FAN_VACANCY_HOLD: Final = 300  # 5 minutes extra after occupancy timeout
 
 # Cover defaults
-DEFAULT_OPEN_TIME_START: Final = 7  # 7 AM
-DEFAULT_OPEN_TIME_END: Final = 20  # 8 PM
-DEFAULT_CLOSE_TIME: Final = 21  # 9 PM
+# v4.5.4: DEFAULT_OPEN_TIME_START/END and DEFAULT_CLOSE_TIME removed —
+# never referenced anywhere; .get(CONF_OPEN_TIME_START, 7) calls in
+# automation.py use literals. The CONFs themselves (CONF_OPEN_TIME_START
+# etc.) and helpers (_is_in_open_time_range, _is_after_close_time) are
+# still alive in the legacy fallback chain inside _is_cover_open_time
+# and _is_cover_close_time — leave those for a future migration cycle.
 DEFAULT_SUNRISE_OFFSET: Final = 0  # minutes
 DEFAULT_SUNSET_OFFSET: Final = 0  # minutes
 
