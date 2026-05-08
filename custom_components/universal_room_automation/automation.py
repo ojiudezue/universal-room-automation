@@ -1,6 +1,6 @@
 """Automation logic for Universal Room Automation."""
 #
-# Universal Room Automation vv4.5.0.3
+# Universal Room Automation vv4.5.0.4
 # Build: 2026-01-04
 # File: automation.py
 # v3.3.1.1: Added int() cast to get_auto_off_hour to handle NumberSelector float values
@@ -294,7 +294,7 @@ class RoomAutomation:
             )
 
     @staticmethod
-    def _cover_at_target(state, target_state: str) -> bool:
+    def _cover_at_target(state, target_state: str, cover_type: str = "shade") -> bool:
         """Check if a cover state object is at the commanded target.
 
         Review fix H3: HA cover entities with `current_position` attribute
@@ -302,10 +302,36 @@ class RoomAutomation:
         at position=10 still reports state="open" — naive state.state
         comparison would mark it a permanent straggler. Use position with
         a 5%-tolerance window when available.
+
+        v4.5.0.4: For venetian/tilt blinds (cover_type="tilt"), check
+        `current_tilt_position` instead of `current_position`. The tilt
+        action moves the slats while the blind stays at fixed position;
+        `current_position` may always read 100 even when slats are fully
+        closed. Pre-fix, every tilt blind looked like a permanent
+        straggler because position never changed.
         """
         if state is None:
             return False
         attrs = getattr(state, "attributes", None) or {}
+
+        # v4.5.0.4: tilt-blind verify — check tilt_position attribute first.
+        if cover_type == "tilt":
+            tilt_pos = attrs.get("current_tilt_position")
+            if tilt_pos is not None:
+                try:
+                    tp = float(tilt_pos)
+                except (TypeError, ValueError):
+                    tp = None
+                if tp is not None:
+                    if target_state == "closed":
+                        return tp <= 5.0
+                    if target_state == "open":
+                        return tp >= 95.0
+            # Fallback if integration doesn't expose tilt_position: trust
+            # state.state (which most tilt-capable integrations DO update).
+            return state.state == target_state
+
+        # Default (roller-shade) path — unchanged from v4.5.0.3.
         position = attrs.get("current_position")
         if position is not None:
             try:
@@ -355,6 +381,21 @@ class RoomAutomation:
         self._maybe_reset_cover_counters()
         target_state = "open" if action == "open_cover" else "closed"
         room_name = self.config.get("room_name", "Unknown")
+
+        # v4.5.0.4 hotfix: dispatch tilt service for venetian blinds.
+        # Pre-fix, the room form let the user pick "Venetian Blinds (Tilt)"
+        # as cover_type, but `automation.py` and `_cover_at_target` ignored
+        # the value entirely — every blind got `cover.open_cover` /
+        # `cover.close_cover`, which raises/lowers the WHOLE blind on a
+        # tilt cover, leaving slats unchanged. The dead read of
+        # CONF_COVER_TYPE has been latent since the option was added.
+        from .const import CONF_COVER_TYPE, COVER_TYPE_SHADE, COVER_TYPE_TILT
+        cover_type = self.config.get(CONF_COVER_TYPE, COVER_TYPE_SHADE)
+        if cover_type == COVER_TYPE_TILT:
+            # cover.open_cover_tilt / cover.close_cover_tilt — moves slats.
+            service_name = f"{action}_tilt"
+        else:
+            service_name = action
         # v4.2.26 (review M1): dedupe input. A misconfigured covers list
         # (same entity appearing twice) would otherwise send the command
         # twice per cycle and waste an RF burst.
@@ -368,7 +409,7 @@ class RoomAutomation:
                 backoff = COVER_RETRY_BACKOFF_BASE * attempt
                 _LOGGER.info(
                     "Cover %s [%s]: retry %d/%d for %d straggler(s) after %.1fs: %s",
-                    action, room_name, attempt, max_retries,
+                    service_name, room_name, attempt, max_retries,
                     len(pending), backoff, pending,
                 )
                 await asyncio.sleep(backoff)
@@ -385,9 +426,10 @@ class RoomAutomation:
             for cover_id in pending:
                 # v4.2.26 (review M3): timeout is meaningless when blocking=False
                 # — async_call returns immediately. Outer settle is the gate.
+                # v4.5.0.4: service_name is `<action>_tilt` for venetian.
                 await self._safe_service_call(
                     "cover",
-                    action,
+                    service_name,
                     {"entity_id": cover_id},
                     blocking=False,
                     max_retries=0,
@@ -409,7 +451,9 @@ class RoomAutomation:
                 if state.state in ("unavailable", "unknown"):
                     # Don't retry an offline cover; not a fixable straggler.
                     continue
-                if self._cover_at_target(state, target_state):
+                # v4.5.0.4: pass cover_type so tilt blinds verify via
+                # current_tilt_position attribute instead of current_position.
+                if self._cover_at_target(state, target_state, cover_type):
                     continue
                 # opening/closing/partial -> still moving or stuck: retry.
                 new_pending.append(cover_id)
@@ -422,7 +466,7 @@ class RoomAutomation:
             self._last_cover_failure_entities = list(pending)
             _LOGGER.warning(
                 "Cover %s [%s]: %d cover(s) did not reach '%s' after %d attempt(s): %s",
-                action, room_name, len(pending), target_state,
+                service_name, room_name, len(pending), target_state,
                 max_retries + 1, pending,
             )
         return success, pending
