@@ -1,6 +1,6 @@
 """Person tracking coordinator for Universal Room Automation."""
 #
-# Universal Room Automation vv4.5.4
+# Universal Room Automation vv4.5.5
 # Build: 2026-01-03
 # File: person_coordinator.py
 # v3.2.9: No changes (zone fixes in aggregation.py, fan fixes in automation.py)
@@ -862,7 +862,10 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
                     continue
 
             # v3.6.24: Store closest distance in person data for downstream consumers
-            if person_name in self.data and closest_area_distance is not None:
+            # v4.5.5: guard self.data is None — DataUpdateCoordinator.data is None
+            # before first successful refresh; matches the `if not self.data or …`
+            # guard used at every other access site in this file.
+            if self.data and person_name in self.data and closest_area_distance is not None:
                 self.data[person_name]["closest_distance"] = closest_area_distance
 
             # Calculate confidence based on scanner count and distance
