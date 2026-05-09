@@ -1001,14 +1001,43 @@ class RoomAutomation:
 
         Review fix: filter unavailable covers so they don't cause
         false negatives (unavailable != "open" would block the check).
+
+        v4.5.6: cover_type-aware. For tilt blinds (venetians) the entity
+        `state` reflects position only — slats wide open with the blind
+        fully lowered still report state="closed". The gate must compare
+        on `current_tilt_position` so a tilt blind with slats genuinely
+        open isn't mis-detected as already-open. Thresholds match
+        `_cover_at_target` (≥95 = open, ≤5 = closed) so what one helper
+        calls "open" the other agrees with. Same bug class as v4.5.0.4
+        (CONF_COVER_TYPE was honored by `_send_covers_with_verify` and
+        `_cover_at_target` but the gate helpers were missed —
+        QUALITY_CONTEXT.md Bug Class #33).
         """
+        from .const import CONF_COVER_TYPE, COVER_TYPE_SHADE, COVER_TYPE_TILT
         available = self._get_available_covers()
         if not available:
             return True
+        cover_type = self.config.get(CONF_COVER_TYPE, COVER_TYPE_SHADE)
         for cover_id in available:
             state = self.hass.states.get(cover_id)
-            if state is None or state.state != "open":
+            if state is None:
                 return False
+            if cover_type == COVER_TYPE_TILT:
+                tilt = state.attributes.get("current_tilt_position")
+                if tilt is None:
+                    # Integration doesn't expose tilt — fall back to state.
+                    if state.state != "open":
+                        return False
+                    continue
+                try:
+                    if float(tilt) < 95.0:
+                        return False
+                except (TypeError, ValueError):
+                    if state.state != "open":
+                        return False
+            else:
+                if state.state != "open":
+                    return False
         return True
 
     def _are_covers_already_closed(self) -> bool:
@@ -1016,14 +1045,36 @@ class RoomAutomation:
 
         Review fix: filter unavailable covers so they don't cause
         repeated close commands to already-closed available covers.
+
+        v4.5.6: cover_type-aware. See _are_covers_already_open for
+        rationale. Tilt blinds with slats open at tilt=97 used to be
+        mis-detected as "already closed" because position=0 made
+        state="closed", silently skipping timed/exit close runners.
         """
+        from .const import CONF_COVER_TYPE, COVER_TYPE_SHADE, COVER_TYPE_TILT
         available = self._get_available_covers()
         if not available:
             return True
+        cover_type = self.config.get(CONF_COVER_TYPE, COVER_TYPE_SHADE)
         for cover_id in available:
             state = self.hass.states.get(cover_id)
-            if state is None or state.state != "closed":
+            if state is None:
                 return False
+            if cover_type == COVER_TYPE_TILT:
+                tilt = state.attributes.get("current_tilt_position")
+                if tilt is None:
+                    if state.state != "closed":
+                        return False
+                    continue
+                try:
+                    if float(tilt) > 5.0:
+                        return False
+                except (TypeError, ValueError):
+                    if state.state != "closed":
+                        return False
+            else:
+                if state.state != "closed":
+                    return False
         return True
 
     def _get_available_covers(self) -> list[str]:
@@ -1150,9 +1201,14 @@ class RoomAutomation:
         if not self._is_cover_open_time(now):
             return
 
-        if self._are_covers_already_open():
-            self._last_timed_open_date = today
-            return
+        # v4.5.6: removed `_are_covers_already_open()` early-return. Timed
+        # open is a deterministic schedule — fire it whether or not the
+        # blinds *look* open. The verify path resolves a no-op open in
+        # zero retries (cover.open_cover_tilt on already-open slats is
+        # idempotent), so the cost is one extra service call per day.
+        # Removing the gate also closes a Bug Class #33 hole where a
+        # tilt blind with slats already open at tilt=97 would block the
+        # daily open from running.
 
         # v3.20.0 Fix 1: Validate cover entities
         available = self._get_available_covers()
@@ -1277,10 +1333,15 @@ class RoomAutomation:
         if not self._is_cover_close_time(now):
             return
 
-        # Respect manual override: skip if already closed
-        if self._are_covers_already_closed():
-            self._last_timed_close_date = today
-            return
+        # v4.5.6: removed `_are_covers_already_closed()` early-return.
+        # Timed close is a deterministic schedule — fire it whether or
+        # not the blinds *look* closed. Reproducer: tilt blinds with
+        # position=0 + tilt=97 (blind down, slats wide open) reported
+        # state="closed" so the gate kept skipping the close all day.
+        # Same bug class as v4.5.0.4's CONF_COVER_TYPE (#33) but in a
+        # different helper. The verify path resolves a no-op close on
+        # already-closed slats in zero retries; cost is one extra
+        # service call per day per room.
 
         # v3.20.0 Fix 1: Validate cover entities
         available = self._get_available_covers()

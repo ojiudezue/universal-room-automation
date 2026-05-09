@@ -1199,6 +1199,88 @@ compound over time (the venetian blinds case sat for years).
 
 ---
 
+### Bug Class #33: Partial Fix — Sibling Helpers Skipped ⚠️
+
+**Pattern:** A fix correctly threads a config field through one or two
+runtime sites (the obvious ones from the user's symptom) but misses
+**cousin sites** that also depend on the same field — typically a
+gate / pre-check / "is it already done?" helper that's logically
+separate from the dispatcher but conceptually needs the same branch.
+The fix ships, the immediate symptom resolves, the regression class
+remains latent in the cousin sites.
+
+**Subtype of #32** (Form Field With No Runtime Reader): the runtime
+reader was added, just not in **all** the places it conceptually
+needs to live. Different from a regression — the cousin sites were
+never correct, the original symptom just hid them by routing around
+that codepath.
+
+**Detection:** when fixing a config-field-not-honored bug, before
+calling it done:
+
+```bash
+# For the CONF_X you just plumbed through, list every helper that
+# branches on a *related* attribute or makes a same-domain decision.
+# Each one is a candidate sibling site.
+grep -rn "current_position\|current_tilt_position\|state.state" custom_components/<area>/
+
+# More general: grep for the obvious *competing* attribute the fix
+# replaced, anywhere outside the function you fixed.
+grep -rn "\.state\.state\|\.attributes\.get(" custom_components/<area>/ \
+  | grep -v "<file_you_fixed>"
+```
+
+If the fix introduced a new branch (e.g. `if cover_type == 'tilt'`),
+**every helper that touches the same domain** (covers, in this case)
+should either branch the same way or be deliberately exempt with a
+comment.
+
+**Hits to date:**
+
+- **`CONF_COVER_TYPE` v4.5.0.4 → v4.5.6.** v4.5.0.4 added tilt-aware
+  branches to `_send_covers_with_verify` (dispatch) and
+  `_cover_at_target` (verify). It missed the gate helpers
+  `_are_covers_already_open` / `_are_covers_already_closed` (still
+  comparing on `state.state`). Symptom: tilt blinds with position=0
+  + tilt=97 (slats wide open, blind lowered) reported `state="closed"`
+  → gate returned True → timed-close runner silently skipped → user's
+  Study A and Master Bedroom blinds stayed open all evening past their
+  configured automation time. Fixed in v4.5.6 by (a) dropping the gate
+  from the deterministic timed paths entirely (schedules should fire
+  whether the blinds *look* in-target or not — verify resolves a no-op
+  in zero retries) and (b) making both gate helpers cover_type-aware
+  for the entry/exit paths, with thresholds matching the verify path
+  (≤5 = closed, ≥95 = open) so all four sites agree on "closed" /
+  "open" semantics for tilt blinds.
+
+**Prevention:**
+
+- [ ] When fixing a config-honored-vs-not bug, before calling the fix
+      done, search the file (and adjacent files in the same domain)
+      for **other helpers that make a same-shape decision** on the
+      competing attribute. Each one is a candidate sibling — verify it
+      either branches consistently or is deliberately exempt.
+- [ ] Reviewer's mandate: a "fix CONF_X is honored" PR description
+      that names only one or two sites is a yellow flag. Ask "what
+      else in this domain depends on this field?"
+- [ ] Lean on the verify path's thresholds when a gate / pre-check
+      needs to make the same decision. If `_cover_at_target` says
+      "closed when tilt ≤ 5", then `_are_covers_already_closed`
+      should agree on the same threshold; otherwise the two helpers
+      can disagree at boundaries and produce subtle bugs.
+- [ ] Prefer **dropping the gate** for deterministic schedules when
+      the dispatcher's no-op cost is low. v4.5.6 removed the gate
+      from `check_timed_cover_open` / `check_timed_cover_close`
+      because a schedule should fire deterministically; one extra
+      idempotent service call per day is cheaper than reasoning about
+      gate / dispatch / verify disagreement edges.
+
+**Severity:** HIGH when the cousin site is a gate (silently skips the
+action). MEDIUM when the cousin site is a logging or summary helper.
+LOW when the cousin site is just diagnostic.
+
+---
+
 ### Bug Class #29: Unbudgeted Scheduled Maintenance ⚠️
 
 **Pattern:** A nightly or startup task iterates through N cleanup operations sequentially with no time budget. If early operations are slow (large backlogs), later operations never run. If ALL operations are slow, the task blocks the event loop for the entire duration.
