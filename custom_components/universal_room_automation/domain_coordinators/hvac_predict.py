@@ -306,10 +306,19 @@ class HVACPredictor:
         v3.17.0: Refactored to be zone-aware with floor protection on all offsets.
         When zone_intelligence_enabled is False, only weather pre-cool runs
         (pre-existing feature). Solar banking and pre-arrival are ZI features.
+
+        v4.5.7: Per-feature gating on house_state. Solar banking now runs
+        regardless of away/vacation — its design intent is "store thermal
+        mass when surplus solar has nowhere better to go," which is
+        independent of occupancy and most valuable when nobody's home
+        (line 346 comment was correct; the unconditional early-return
+        was the bug). Other pre-conditioning features (weather, pre-arrival,
+        pre-heat) are occupant-comfort-driven and keep their away-skip.
         """
         hour = now.hour
         season = self._preset_manager.current_season
         pre_arrival_zones = pre_arrival_zones or set()
+        is_unoccupied = house_state in ("away", "vacation")
 
         # Reset tracking sets each cycle
         self._pre_conditioning_zones = set()
@@ -317,21 +326,18 @@ class HVACPredictor:
         self._last_fan_activation_rooms = []
         self._last_fan_skipped_rooms = []
 
-        # Skip if away/vacation
-        if house_state in ("away", "vacation"):
-            return
-
         forecast_high = constraint.forecast_high_temp if constraint else None
         soc = constraint.soc if constraint else None
 
-        # --- Weather pre-cool (pre-existing, always active) ---
-        if self._should_weather_pre_cool(constraint, now):
+        # --- Weather pre-cool (occupant-comfort driven; skip when away) ---
+        if not is_unoccupied and self._should_weather_pre_cool(constraint, now):
             for zone_id, zone in self._zone_manager.zones.items():
                 if zone.any_room_occupied:
                     await self._execute_zone_pre_cool(zone, offset=-2.0, reason="weather")
                     self._pre_conditioning_zones.add(zone_id)
 
-        # End pre-cool when peak starts
+        # End pre-cool when peak starts (run regardless of house_state so the
+        # _pre_cool_active flag clears even if the user came home mid-event)
         if self._pre_cool_active and hour >= PEAK_HOUR_START:
             self._pre_cool_active = False
             _LOGGER.info("HVAC Pre-cool ended: peak period started")
@@ -340,42 +346,50 @@ class HVACPredictor:
         if not zone_intelligence_enabled:
             return
 
-        # --- Solar banking (lowest priority — truly excess only) ---
+        # --- Solar banking (economics-driven — runs regardless of house_state) ---
+        # Bank ALL zones including away/vacation — energy has nowhere better to
+        # go (battery already ≥95% full, grid export is the only alternative).
+        # Storing thermal mass into the building is most valuable when nobody's
+        # home, since there's no comfort cost to over-cooling.
         if self._should_solar_bank(constraint, now):
             for zone_id, zone in self._zone_manager.zones.items():
-                # Bank ALL zones including away — energy has nowhere better to go
                 await self._execute_zone_pre_cool(zone, offset=SOLAR_BANK_OFFSET, reason="solar_banking")
                 self._pre_conditioning_zones.add(zone_id)
                 self._solar_banking_zones.add(zone_id)
 
-        # --- Pre-arrival (person-routed) ---
-        for zone_id, zone in self._zone_manager.zones.items():
-            if zone_id in pre_arrival_zones:
-                await self._execute_zone_pre_cool(zone, offset=-2.0, reason="pre_arrival")
-                # Fans as comfort bridge (skip during sleep — Critique 5 fix)
-                if house_state != "sleep":
-                    await self._activate_zone_fans(zone)
-                self._pre_conditioning_zones.add(zone_id)
+        # --- Pre-arrival (person-routed; skip when away/vacation as a defensive
+        # belt — pre_arrival_zones should be empty during away anyway, but the
+        # explicit gate documents the contract) ---
+        if not is_unoccupied:
+            for zone_id, zone in self._zone_manager.zones.items():
+                if zone_id in pre_arrival_zones:
+                    await self._execute_zone_pre_cool(zone, offset=-2.0, reason="pre_arrival")
+                    # Fans as comfort bridge (skip during sleep — Critique 5 fix)
+                    if house_state != "sleep":
+                        await self._activate_zone_fans(zone)
+                    self._pre_conditioning_zones.add(zone_id)
 
-        # --- Pre-heat (winter, before off-peak ends) ---
-        outdoor_temp = self._get_outdoor_temp()
-        if (
-            not self._pre_heat_active
-            and not self._pre_heat_triggered_today
-            and season == SEASON_WINTER
-            and outdoor_temp is not None
-            and outdoor_temp <= PREHEAT_FORECAST_LOW
-            and OFF_PEAK_END_HOUR - PREHEAT_LEAD_HOURS <= hour < OFF_PEAK_END_HOUR
-        ):
-            self._pre_heat_active = True
-            self._pre_heat_triggered_today = True
-            _LOGGER.info(
-                "HVAC Pre-heat triggered: outdoor=%.0fF, hour=%d",
-                outdoor_temp, hour,
-            )
-            await self._execute_pre_heat()
+        # --- Pre-heat (winter, before off-peak ends; occupant-comfort driven) ---
+        if not is_unoccupied:
+            outdoor_temp = self._get_outdoor_temp()
+            if (
+                not self._pre_heat_active
+                and not self._pre_heat_triggered_today
+                and season == SEASON_WINTER
+                and outdoor_temp is not None
+                and outdoor_temp <= PREHEAT_FORECAST_LOW
+                and OFF_PEAK_END_HOUR - PREHEAT_LEAD_HOURS <= hour < OFF_PEAK_END_HOUR
+            ):
+                self._pre_heat_active = True
+                self._pre_heat_triggered_today = True
+                _LOGGER.info(
+                    "HVAC Pre-heat triggered: outdoor=%.0fF, hour=%d",
+                    outdoor_temp, hour,
+                )
+                await self._execute_pre_heat()
 
-        # End pre-heat when off-peak ends
+        # End pre-heat when off-peak ends (run regardless of house_state for
+        # the same reason as the pre-cool end-flag clear above)
         if self._pre_heat_active and hour >= OFF_PEAK_END_HOUR:
             self._pre_heat_active = False
             _LOGGER.info("HVAC Pre-heat ended: off-peak period ended")
