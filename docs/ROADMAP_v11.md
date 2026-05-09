@@ -431,6 +431,32 @@ camera coverage overlay, blind spot visualization, occupancy heatmaps.
 Large effort for primarily visual value — deferred until core intelligence
 is complete.
 
+### Sensor Health Surfacing — chattering + stuck-on detection
+**Effort:** 1-2 cycles (~150-300 LoC + DB migration + dashboard tile)
+**Priority:** MEDIUM (preventative — catches silently-degrading sensors before they corrupt automation)
+**Status:** Backlog (proposed 2026-05-08)
+**Trigger:** Kitchen mmWave LD2412 fired 27s phantom pulses every few minutes for hours; URA's existing >3-hour stuck-on detector at `coordinator.py:1158` doesn't catch chattering patterns. Same class of failure could quietly poison occupancy on any room.
+
+URA already detects classically *stuck-on* sensors (continuously ON ≥ N hours) and logs a WARNING + ignores the sensor. This item adds the second failure mode and surfaces both as live entities so the user knows which physical units to swap.
+
+**Deliverables:**
+- D1: New *chattering* detector in `coordinator.py` per-room. Rolling 24h count of motion/presence flips with on-duration < N seconds (e.g. < 60s pulses). Threshold-based promotion to "chattering" status.
+- D2: Per-room diagnostic sensor `sensor.ura_<room>_chatter_score` (number, last-24h) — disabled-by-default; enable when investigating a room.
+- D3: Integration-level `sensor.ura_unhealthy_sensors` listing all sensors currently flagged as either stuck-on (existing detector, lifted into the same surface) or chattering (new detector). Attribute payload: `[{entity_id, room, pattern, age_hours, last_n_flips}]`.
+- D4: DB-backed frequency log. New `sensor_health` table: `(timestamp, entity_id, pattern_type, duration_or_count, room)`. Nightly cleanup row consistent with existing maintenance queue. Weekly rollup persisted for the dashboard.
+- D5: Notification Manager hook — when a sensor crosses both detectors in the same week, fire a single "consider replacing this sensor" notification (deduped, not nagging).
+- D6: Dashboard tile listing top-N most-frequent offenders over 7d / 30d / lifetime so the user knows which physical units to prioritize swapping.
+
+**Why MEDIUM not LOW:** the silent-degradation cost compounds — chattering sensors don't fail loudly, they slowly poison occupancy decisions, sleep-mode logic, energy attribution, and Bayesian training data. A user with 50+ sensors will eventually have several misbehaving without realizing.
+
+**Does NOT include:**
+- Auto-disabling a chattering sensor (could mask a real problem; leave the user in control)
+- Cross-sensor correlation ("is this room's mmwave triggering the camera?") — separate analytics track
+- Sensitivity-tuning recommendations — out of scope; URA can't write to ESPHome configs
+- Hardware procurement integration
+
+**Tier 2** review — multi-file (coordinator + DB schema + sensor + binary_sensor + button.py possibly + notification_manager) and changes the per-room data path. Live validation: confirm the existing >3hr stuck-on detector continues to fire (regression-protect), then watch a known chattering sensor (Kitchen mmWave) get flagged within a tick.
+
 ### Dashboard Iteration
 **Effort:** Variable
 **Priority:** LOW
