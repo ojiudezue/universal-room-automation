@@ -1,6 +1,6 @@
 """Data coordinator for Universal Room Automation."""
 #
-# Universal Room Automation vv4.5.7
+# Universal Room Automation vv4.5.8
 # Build: 2026-01-02
 # File: coordinator.py
 # v3.2.8: Support for active state change listeners in aggregation sensors
@@ -392,9 +392,47 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
     # v3.12.0 M2: COORDINATOR SIGNAL TRIGGER HANDLERS
     # =========================================================================
 
+    # =========================================================================
+    # GATING MODEL FOR SIGNAL HANDLERS (documented v4.5.8)
+    # =========================================================================
+    # The 4 coordinator-signal handlers below have an intentional asymmetry
+    # vs. the per-room occupancy/lux trigger path in _async_update_data:
+    #
+    #   - Occupancy/lux triggers (per-room, frequent):
+    #         gated by BOTH _is_automation_enabled() AND _is_ai_automation_enabled()
+    #
+    #   - House-state, energy-constraint signal handlers (system-level, rare):
+    #         gated by _is_ai_automation_enabled() ONLY — NOT by the master
+    #         automation switch. Pausing per-room automation does not silence
+    #         system-level reactions to house state or energy events.
+    #
+    #   - Safety, security signal handlers (critical):
+    #         NOT gated by either toggle (Review fix F11). A smoke detector
+    #         firing or a security event must still execute its chained
+    #         automations and AI rules even if the user has paused all
+    #         automation. Killing safety with the regular toggle would be
+    #         a real bug.
+    #
+    # This is design intent, not an oversight. Test coverage in
+    # quality/tests/test_v458_signal_handler_gating.py asserts the matrix
+    # so future "consistency fixes" don't accidentally regress safety.
+    #
+    # =========================================================================
+
     @callback
     def _on_house_state_changed(self, payload) -> None:
-        """Handle house state change signal → fire house_state_* trigger."""
+        """Handle house state change signal → fire house_state_* trigger.
+
+        Gating: AI automation toggle ONLY.
+
+        The master `automation` switch does NOT gate this handler — house
+        state transitions are system-level events (away ↔ home ↔ sleep ↔
+        guest, etc.) and any chained automation or AI rule keyed on
+        `house_state_*` should fire regardless of whether per-room
+        automation is paused. If the user wants to silence everything
+        including house-state reactions, they disable the AI automation
+        toggle separately.
+        """
         if isinstance(payload, dict):
             new_state = payload.get("new_state", "")
         elif hasattr(payload, "new_state"):
@@ -424,7 +462,16 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
 
     @callback
     def _on_energy_constraint(self, payload) -> None:
-        """Handle energy constraint signal → fire energy_constraint trigger."""
+        """Handle energy constraint signal → fire energy_constraint trigger.
+
+        Gating: AI automation toggle ONLY (same as _on_house_state_changed).
+
+        Energy constraint signals fire when the energy coordinator changes
+        load/shed/coast modes. These are reactive system-level signals and
+        any chained automation or AI rule should fire whether or not the
+        master `automation` switch is on. See the "GATING MODEL FOR SIGNAL
+        HANDLERS" comment block above for the full matrix.
+        """
         chains = self._get_config(CONF_AUTOMATION_CHAINS, {})
         rules = self._get_config(CONF_AI_RULES, [])
         has_matching_rule = any(r.get("trigger_type") == TRIGGER_ENERGY_CONSTRAINT for r in rules if r.get("enabled", True))
@@ -444,7 +491,18 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
 
     @callback
     def _on_safety_hazard(self, payload) -> None:
-        """Handle safety hazard signal → fire safety_hazard trigger."""
+        """Handle safety hazard signal → fire safety_hazard trigger.
+
+        Gating: NEITHER toggle (Review fix F11 — DELIBERATE).
+
+        A safety hazard signal (smoke / CO / leak / hard-fail sensor)
+        must execute its chained automations and AI rules even if BOTH
+        the master automation switch AND the AI automation toggle are
+        off. Killing safety with a regular toggle would be a real bug —
+        a user who paused automation for the night still expects the
+        smoke detector's notify-and-light-the-path automation to run.
+        See the "GATING MODEL FOR SIGNAL HANDLERS" comment block above.
+        """
         chains = self._get_config(CONF_AUTOMATION_CHAINS, {})
         rules = self._get_config(CONF_AI_RULES, [])
         has_matching_rule = any(r.get("trigger_type") == TRIGGER_SAFETY_HAZARD for r in rules if r.get("enabled", True))
@@ -465,7 +523,17 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
 
     @callback
     def _on_security_event(self, payload) -> None:
-        """Handle security event signal → fire security_event trigger."""
+        """Handle security event signal → fire security_event trigger.
+
+        Gating: NEITHER toggle (Review fix F11 — DELIBERATE, same as
+        _on_safety_hazard).
+
+        Security events (intrusion, glass break, door forced) must run
+        their chained automations regardless of automation toggles —
+        the user explicitly does not want a "pause automation" button
+        to also disarm the security response. See the "GATING MODEL
+        FOR SIGNAL HANDLERS" comment block above.
+        """
         chains = self._get_config(CONF_AUTOMATION_CHAINS, {})
         rules = self._get_config(CONF_AI_RULES, [])
         has_matching_rule = any(r.get("trigger_type") == TRIGGER_SECURITY_EVENT for r in rules if r.get("enabled", True))
