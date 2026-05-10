@@ -1,6 +1,6 @@
 """Number platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.5.10
+# Universal Room Automation vv4.5.10.1
 # Build: 2026-01-02
 # File: number.py
 #
@@ -862,9 +862,15 @@ def _hvac_tunable_number_factory(
                 except (ValueError, TypeError):
                     pass
             if not self._push_to_controller():
-                # Sub-controller not ready yet — listen for HVAC-ready signal
+                # Sub-controller not ready yet — listen for HVAC-ready signal.
+                # v4.5.10.1: import from hvac_const (where this signal lives)
+                # not signals.py. The original v4.5.10 code raised ImportError
+                # because the module-level SIGNAL_HVAC_ENTITIES_UPDATE doesn't
+                # exist in signals.py — only HVAC-only signals live in
+                # hvac_const. Source-grep tests verified the import statement
+                # was present but didn't verify the symbol resolved.
                 from homeassistant.helpers.dispatcher import async_dispatcher_connect
-                from .domain_coordinators.signals import (
+                from .domain_coordinators.hvac_const import (
                     SIGNAL_HVAC_ENTITIES_UPDATE,
                 )
                 unsub_holder: list = []

@@ -127,6 +127,84 @@ class TestHVACTunableNumberFactory:
             "Cross-coord init race handled via deferred push on signal"
         )
 
+    def test_factory_signal_import_resolves(self):
+        """v4.5.10.1 regression: live HA caught an ImportError because
+        the v4.5.10 code imported SIGNAL_HVAC_ENTITIES_UPDATE from
+        signals.py — but it lives in hvac_const.py. Source-grep tests
+        verified the import statement was present but didn't actually
+        check that the source module DEFINES the symbol.
+
+        Same shape as v4.5.0.1's CONF_ENERGY_ARBITRAGE_SOC_TRIGGER bug
+        — verify imports point at modules that actually expose the
+        symbol, not just that the import statement is well-formed.
+
+        Approach: AST-walk every ImportFrom inside the factory and
+        text-search the target module for the imported symbols.
+        Test-env can't actually import HA-dependent modules, so we
+        rely on source-text presence rather than runtime import.
+        """
+        import ast
+        import os
+
+        path = "custom_components/universal_room_automation/number.py"
+        with open(path) as f:
+            tree = ast.parse(f.read())
+
+        target = None
+        for node in ast.iter_child_nodes(tree):
+            if isinstance(node, ast.FunctionDef) and node.name == "_hvac_tunable_number_factory":
+                target = node
+                break
+        assert target is not None, "_hvac_tunable_number_factory must exist"
+
+        # Map relative module name to file path within the package.
+        package_root = "custom_components/universal_room_automation"
+        for n in ast.walk(target):
+            if not isinstance(n, ast.ImportFrom):
+                continue
+            if n.level == 0:
+                continue   # absolute import — skip
+            if not n.module:
+                continue
+            # Resolve relative module to a file path. n.level is the dots.
+            # n.level=1 means sibling of number.py (i.e. inside package_root)
+            # n.level=2 would mean parent's sibling — not used here.
+            if n.level == 1:
+                module_file = os.path.join(package_root, n.module.replace(".", "/") + ".py")
+            else:
+                continue   # nested package — out of scope for this test
+            assert os.path.exists(module_file), (
+                f"_hvac_tunable_number_factory imports from "
+                f"{n.module} but the target file {module_file} does not exist"
+            )
+            with open(module_file) as mf:
+                module_src = mf.read()
+            for alias in n.names:
+                if alias.name == "*":
+                    continue
+                # Symbol must be defined as a module-level name.
+                # Heuristic: appear at start of line followed by `=` or `:`.
+                pattern_assign = f"\n{alias.name} ="
+                pattern_typed = f"\n{alias.name}:"
+                pattern_def = f"\ndef {alias.name}"
+                pattern_class = f"\nclass {alias.name}"
+                # Also accept top-of-file occurrence (no leading newline)
+                if module_src.startswith(f"{alias.name} =") or module_src.startswith(f"{alias.name}:"):
+                    continue
+                assert (
+                    pattern_assign in module_src
+                    or pattern_typed in module_src
+                    or pattern_def in module_src
+                    or pattern_class in module_src
+                ), (
+                    f"v4.5.10.1 bug class — _hvac_tunable_number_factory "
+                    f"imports `{alias.name}` from `{n.module}` but the "
+                    f"symbol is NOT defined in {module_file}. Live HA "
+                    f"raises ImportError on entity registration. Either "
+                    f"the imported name is wrong, or it lives in a "
+                    f"different module."
+                )
+
     def test_seven_v4510_numbers_built(self, number_src):
         """The build function must produce exactly 7 Number classes."""
         idx = number_src.find("def _build_hvac_v4510_numbers")
