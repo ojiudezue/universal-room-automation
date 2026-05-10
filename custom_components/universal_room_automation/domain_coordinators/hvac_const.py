@@ -27,6 +27,13 @@ CONF_HVAC_AC_RESET_TIMEOUT: Final = "hvac_ac_reset_timeout"
 CONF_HVAC_FAN_ACTIVATION_DELTA: Final = "hvac_fan_activation_delta"
 CONF_HVAC_FAN_HYSTERESIS: Final = "hvac_fan_hysteresis"
 CONF_HVAC_FAN_MIN_RUNTIME: Final = "hvac_fan_min_runtime"
+# v4.5.9.2: occupancy-aware solar-gain cover close threshold.
+# When a room is occupied, HVAC only closes its covers if room temp
+# is at least this many °F above the zone's cooling setpoint. Default
+# 2.0°F, configurable per-house from the coordinator_hvac config step.
+# Read by CoverController._should_close_for_occupied_room.
+CONF_HVAC_OCCUPIED_COVER_CLOSE_DELTA: Final = "hvac_occupied_cover_close_delta"
+DEFAULT_HVAC_OCCUPIED_COVER_CLOSE_DELTA: Final = 2.0  # °F
 CONF_HVAC_ARRESTER_ENABLED: Final = "hvac_arrester_enabled"
 CONF_HVAC_AC_RESET_ENABLED: Final = "hvac_ac_reset_enabled"
 CONF_HVAC_FAN_CONTROL_ENABLED: Final = "hvac_fan_control_enabled"

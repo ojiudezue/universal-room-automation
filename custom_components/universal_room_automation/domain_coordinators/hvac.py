@@ -90,6 +90,8 @@ class HVACCoordinator(BaseCoordinator):
         person_zone_map: dict[str, list[str]] | None = None,  # Deprecated: map now built internally from zone_persons config
         net_power_entity: str | None = None,
         fan_control_enabled: bool = True,
+        # v4.5.9.2: occupancy-aware solar-gain cover-close threshold (was hardcoded)
+        occupied_cover_close_delta: float = 2.0,
     ) -> None:
         """Initialize HVAC Coordinator."""
         super().__init__(
@@ -113,7 +115,10 @@ class HVACCoordinator(BaseCoordinator):
             deactivation_delta=fan_hysteresis,
             min_runtime=fan_min_runtime,
         )
-        self._cover_controller = CoverController(hass, self._zone_manager)
+        self._cover_controller = CoverController(
+            hass, self._zone_manager,
+            occupied_close_delta=occupied_cover_close_delta,
+        )
         self._predictor = HVACPredictor(
             hass, self._zone_manager, self._preset_manager, self._override_arrester,
             net_power_entity=net_power_entity,

@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv4.5.9.1
+# Universal Room Automation vv4.5.9.2
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -1732,6 +1732,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         DEFAULT_VACANCY_GRACE_CONSTRAINED,
                         DEFAULT_MAX_OCCUPANCY_HOURS,
                         DEFAULT_ZONE_ENTRY_DWELL_MINUTES,
+                        # v4.5.9.2: per-house occupancy-aware cover-close delta
+                        CONF_HVAC_OCCUPIED_COVER_CLOSE_DELTA,
+                        DEFAULT_HVAC_OCCUPIED_COVER_CLOSE_DELTA,
                     )
 
                     hvac = HVACCoordinator(
@@ -1779,6 +1782,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         net_power_entity=_hvac_net_power_entity,
                         fan_control_enabled=bool(cm_config.get(
                             CONF_HVAC_FAN_CONTROL_ENABLED, DEFAULT_FAN_CONTROL_ENABLED
+                        )),
+                        # v4.5.9.2: occupancy-aware cover-close delta (was hardcoded 2.0°F)
+                        occupied_cover_close_delta=float(cm_config.get(
+                            CONF_HVAC_OCCUPIED_COVER_CLOSE_DELTA,
+                            DEFAULT_HVAC_OCCUPIED_COVER_CLOSE_DELTA,
                         )),
                     )
                     coordinator_manager.register_coordinator(hvac)

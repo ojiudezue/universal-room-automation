@@ -187,7 +187,8 @@
           "timed_close_enabled": "Enable Timed Close",
           "close_timing_mode": "Close Timing",
           "close_time": "Close Time",
-          "sunset_offset": "Sunset Offset"
+          "sunset_offset": "Sunset Offset",
+          "cover_hvac_managed": "HVAC Solar-Gain Management"
         },
         "data_description": {
           "cover_type": "Roller shades (open/close) vs. venetian blinds (tilt)",
@@ -200,7 +201,8 @@
           "timed_close_enabled": "Automatically close covers at a specific time",
           "close_timing_mode": "Control when covers auto-close",
           "close_time": "Hour (0-23) for timed auto-close",
-          "sunset_offset": "Minutes before/after sunset for sun-based timing"
+          "sunset_offset": "Minutes before/after sunset for sun-based timing",
+          "cover_hvac_managed": "When ON, the HVAC coordinator may close these covers during peak afternoon solar hours to reduce cooling load. Turn OFF to keep this room's covers exempt from HVAC management (e.g. master bedroom for naps, kid's room with light-sensitive sleep)."
         }
       },
       "automation_behavior": {
@@ -850,7 +852,8 @@
           "hvac_ac_reset_enabled": "AC Reset",
           "zone_vacancy_sweep_enabled": "Zone Vacancy Sweep",
           "pre_arrival_sources": "Pre-Arrival Trigger Sources",
-          "hvac_zone_entry_dwell": "Zone Entry Dwell"
+          "hvac_zone_entry_dwell": "Zone Entry Dwell",
+          "hvac_occupied_cover_close_delta": "Occupied-Room Cover Close Threshold"
         },
         "data_description": {
           "hvac_max_sleep_offset": "How much to relax the cooling setpoint during sleep. Higher = more energy savings, less cooling at night.",
@@ -865,7 +868,8 @@
           "hvac_ac_reset_enabled": "Cycle the thermostat off briefly when a stuck cooling/heating cycle is detected. Disable if AC reset is causing issues. The thermostat has its own compressor protection.",
           "zone_vacancy_sweep_enabled": "Turn off lights and fans in zones after they become vacant. Runs after the vacancy grace period expires. Disable to keep lights/fans running when zones empty.",
           "pre_arrival_sources": "Which detection methods trigger zone pre-conditioning when a person arrives home. Geofence uses phone GPS; BLE uses Bluetooth proximity beacons; Camera Face uses Frigate/UniFi face recognition for instant confirmation.",
-          "hvac_zone_entry_dwell": "Minutes a zone must be occupied before switching from away to home preset. Prevents HVAC from conditioning zones when someone just walks through briefly. Only applies when the house is already occupied — has no effect on arrival from away. Set to 0 to disable. Default: 3."
+          "hvac_zone_entry_dwell": "Minutes a zone must be occupied before switching from away to home preset. Prevents HVAC from conditioning zones when someone just walks through briefly. Only applies when the house is already occupied — has no effect on arrival from away. Set to 0 to disable. Default: 3.",
+          "hvac_occupied_cover_close_delta": "When a room is occupied, HVAC only closes its covers for solar-gain reduction if the room temp is at least this many °F above the zone's cooling setpoint. Lower = more aggressive (closes covers sooner when occupied), higher = more conservative (lets occupied rooms get warmer before closing). Default: 2.0°F."
         }
       },
       "coordinator_music_following": {
@@ -1199,7 +1203,8 @@
           "timed_close_enabled": "Enable Timed Close",
           "cover_close_time_source": "Close Time Source",
           "cover_close_hour": "Close Hour",
-          "sunset_offset": "Sunset Offset (minutes)"
+          "sunset_offset": "Sunset Offset (minutes)",
+          "cover_hvac_managed": "HVAC Solar-Gain Management"
         },
         "data_description": {
           "cover_type": "Roller/shade style or venetian tilt style",
@@ -1211,7 +1216,8 @@
           "timed_close_enabled": "Automatically close covers at a specific time",
           "cover_close_time_source": "Use sunset or a specific hour for timed close",
           "cover_close_hour": "Hour (0-23) for timed auto-close",
-          "sunset_offset": "Minutes before/after sunset for sun-based timing"
+          "sunset_offset": "Minutes before/after sunset for sun-based timing",
+          "cover_hvac_managed": "When ON, the HVAC coordinator may close these covers during peak afternoon solar hours to reduce cooling load. Turn OFF to keep this room's covers exempt from HVAC management."
         }
       },
       "automation_chaining": {
