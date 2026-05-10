@@ -976,6 +976,90 @@ class TestZoneHVACFormFields:
 # ===========================================================================
 
 
+# ===========================================================================
+# v4.5.11.1 — Zone-ID vs climate_entity resolution (regression guard)
+# ===========================================================================
+
+
+class TestZoneResolutionAcrossSchemes:
+    """v4.5.11 slice-1 review-2 caught a critical bug: button + Number
+    factories derived zone_id locally as
+        thermostat.replace("climate.", "").replace(".", "_")
+    while ZoneManager._zone_id_from_thermostat extracts "zone_N" from
+    the same entity. The two schemes don't match, so every per-zone
+    Number slider, every per-zone button, and the OverrideArrester's
+    public force_nudge/cancel_nudge/clear_zone_lockout methods would
+    fail to find their ZoneState at runtime.
+
+    Fix: OverrideArrester._resolve_zone(zone_id_or_entity) accepts both
+    the local zone_id and the climate_entity. Buttons + Number factories
+    store climate_entity (stable identifier) and pass it to the
+    arrester methods.
+    """
+
+    def test_arrester_has_resolve_zone_helper(self, hvac_override_src):
+        assert "def _resolve_zone(self, zone_id_or_entity:" in hvac_override_src
+
+    def test_resolve_zone_falls_through_to_climate_entity_match(
+        self, hvac_override_src,
+    ):
+        idx = hvac_override_src.find(
+            "def _resolve_zone(self, zone_id_or_entity:"
+        )
+        body = hvac_override_src[idx:idx + 1500]
+        assert "self._zone_manager.zones.get(zone_id_or_entity)" in body
+        assert "z.climate_entity == zone_id_or_entity" in body
+
+    def test_force_nudge_uses_resolve_zone(self, hvac_override_src):
+        idx = hvac_override_src.find("async def force_nudge(")
+        body = hvac_override_src[idx:idx + 2000]
+        assert "self._resolve_zone(zone_id)" in body
+        # Canonicalize zone_id after resolution so downstream DB ops
+        # use the ZoneManager-owned zone_id
+        assert "zone_id = zone.zone_id" in body
+
+    def test_cancel_nudge_uses_resolve_zone(self, hvac_override_src):
+        idx = hvac_override_src.find("async def cancel_nudge(")
+        body = hvac_override_src[idx:idx + 2500]
+        assert "self._resolve_zone(zone_id)" in body
+        assert "zone_id = zone.zone_id" in body
+
+    def test_clear_zone_lockout_uses_resolve_zone(self, hvac_override_src):
+        idx = hvac_override_src.find("async def clear_zone_lockout(")
+        body = hvac_override_src[idx:idx + 2000]
+        assert "self._resolve_zone(zone_id)" in body
+
+    def test_number_factory_stores_climate_entity(self, number_src):
+        # Scope to the function body via the next top-level def
+        idx = number_src.find("def _hvac_zone_kwh_threshold_factory(")
+        assert idx > 0
+        rest = number_src[idx + len("def _hvac_zone_kwh_threshold_factory("):]
+        next_def = rest.find("\ndef ")
+        end = (idx + len("def _hvac_zone_kwh_threshold_factory(") + next_def
+               if next_def > 0 else len(number_src))
+        body = number_src[idx:end]
+        assert "self._climate_entity = climate_entity" in body
+        assert "zone.climate_entity == self._climate_entity" in body
+
+    def test_button_factory_passes_climate_entity(self, button_src):
+        idx = button_src.find("def _make_ac_ramp_button(")
+        body = button_src[idx:idx + 1500]
+        assert 'climate_entity=zone_spec["climate_entity"]' in body
+
+    def test_button_init_stores_climate_entity(self, button_src):
+        idx = button_src.find("class _ACRampButton(")
+        body = button_src[idx:idx + 4000]
+        assert "self._climate_entity = climate_entity" in body
+
+    def test_button_press_passes_climate_entity_not_zone_id(self, button_src):
+        idx = button_src.find("class _ACRampButton(")
+        body = button_src[idx:idx + 4000]
+        # The runtime call to OverrideArrester methods should use
+        # climate_entity (which _resolve_zone handles) — NOT the
+        # locally-derived zone_id.
+        assert "method(self._climate_entity)" in body
+
+
 class TestHVACCoordIntegration:
 
     def test_hvac_wires_database_to_arrester(self, hvac_src):

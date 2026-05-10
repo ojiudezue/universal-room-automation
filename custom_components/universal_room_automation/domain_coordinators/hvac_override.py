@@ -1420,13 +1420,36 @@ class OverrideArrester:
             zone.zone_name, state.get("hard_reset_count", 0),
         )
 
+    def _resolve_zone(self, zone_id_or_entity: str):
+        """Find a ZoneState by zone_id OR climate_entity.
+
+        v4.5.11 review-2 fix: button + Number entities derive zone_id
+        locally from climate.x_zone_3 -> 'x_zone_3', but ZoneManager
+        derives zone_3 via _zone_id_from_thermostat. Accept either so
+        callers from the platform side (which often only know the
+        climate entity) and the coordinator side (which uses its own
+        zone_id scheme) both work.
+
+        Returns the ZoneState if found, else None.
+        """
+        zone = self._zone_manager.zones.get(zone_id_or_entity)
+        if zone is not None:
+            return zone
+        for z in self._zone_manager.zones.values():
+            if z.climate_entity == zone_id_or_entity:
+                return z
+        return None
+
     async def cancel_nudge(
         self, zone_id: str, triggered_by: str = "manual",
     ) -> None:
         """Abort an in-flight nudge, restore target immediately (D9 button)."""
-        zone = self._zone_manager.zones.get(zone_id)
+        zone = self._resolve_zone(zone_id)
         if zone is None:
             return
+        # Use the canonical zone_id from the resolved state for downstream
+        # DB ops (the parameter could have been a climate entity).
+        zone_id = zone.zone_id
 
         cancel = self._nudge_restore_timers.pop(zone_id, None)
         if cancel:
@@ -1489,9 +1512,10 @@ class OverrideArrester:
                 "force_nudge blocked: master switch is OFF (zone=%s)", zone_id,
             )
             return
-        zone = self._zone_manager.zones.get(zone_id)
+        zone = self._resolve_zone(zone_id)
         if zone is None:
             return
+        zone_id = zone.zone_id  # canonicalize
         if zone_id in self._nudge_in_flight:
             _LOGGER.warning(
                 "force_nudge: %s already mid-nudge", zone.zone_name,
@@ -1506,11 +1530,12 @@ class OverrideArrester:
         """Reset today's counters + clear lockout for one zone (D9 button)."""
         if self._db is None:
             return
-        await self._db.clear_ac_zone_today(zone_id)
-        zone = self._zone_manager.zones.get(zone_id)
+        zone = self._resolve_zone(zone_id)
         if zone is not None:
+            zone_id = zone.zone_id  # canonicalize before DB write
             zone.ac_reset_count_today = 0
             zone.ramp_state = AC_RAMP_STATE_IDLE
+        await self._db.clear_ac_zone_today(zone_id)
         try:
             await self.hass.services.async_call(
                 "persistent_notification",

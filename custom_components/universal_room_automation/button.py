@@ -1,6 +1,6 @@
 """Button platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.5.11
+# Universal Room Automation vv4.5.11.1
 # Build: 2026-01-04
 # File: button.py
 #
@@ -599,6 +599,7 @@ def _make_ac_ramp_button(
         entry=entry,
         zone_id=zone_spec["zone_id"],
         zone_name=zone_spec["zone_name"],
+        climate_entity=zone_spec["climate_entity"],
         action=action,
         label=spec["label"],
         icon=spec["icon"],
@@ -624,6 +625,7 @@ class _ACRampButton(ButtonEntity):
         entry: ConfigEntry,
         zone_id: str,
         zone_name: str,
+        climate_entity: str,
         action: str,
         label: str,
         icon: str,
@@ -636,6 +638,11 @@ class _ACRampButton(ButtonEntity):
         self.hass = hass
         self._entry = entry
         self._zone_id = zone_id
+        # Store climate_entity for the runtime call to OverrideArrester
+        # methods — OverrideArrester._resolve_zone matches by either
+        # zone_id (its own scheme) or climate_entity. Passing the climate
+        # entity sidesteps the local-vs-coord zone_id naming drift.
+        self._climate_entity = climate_entity
         self._action = action
         self._method_name = method_name
         self._attr_unique_id = f"{DOMAIN}_hvac_ac_ramp_{action}_{zone_id}"
@@ -679,7 +686,9 @@ class _ACRampButton(ButtonEntity):
             )
             return
         try:
-            await method(self._zone_id)
+            # Pass climate_entity rather than local zone_id — arrester's
+            # _resolve_zone bridges to the ZoneManager-owned zone_id.
+            await method(self._climate_entity)
         except Exception as e:
             _LOGGER.error(
                 "AC ramp button %s (%s) failed: %s",
