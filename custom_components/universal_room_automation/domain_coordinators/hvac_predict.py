@@ -70,6 +70,11 @@ class HVACPredictor:
         preset_manager: PresetManager,
         override_arrester: OverrideArrester | None = None,
         net_power_entity: str | None = None,
+        # v4.5.10: 3 new tunables (was hardcoded module constants)
+        solar_bank_floor: float = SOLAR_BANK_FLOOR,
+        solar_bank_soc_min: int = SOLAR_BANK_SOC_MIN,
+        precool_forecast_high: float = PRECOOL_FORECAST_HIGH,
+        preheat_forecast_low: float = PREHEAT_FORECAST_LOW,
     ) -> None:
         """Initialize predictor.
 
@@ -115,6 +120,12 @@ class HVACPredictor:
         self._solar_banking_zones: set[str] = set()
         self._solar_bank_triggered_today: bool = False
         self._net_power_entity: str | None = net_power_entity or None
+        # v4.5.10: configurable tunables (URA mirror pattern: install-time
+        # seeds; future Number entities can write to these instance attrs).
+        self._solar_bank_floor: float = float(solar_bank_floor)
+        self._solar_bank_soc_min: int = int(solar_bank_soc_min)
+        self._precool_forecast_high: float = float(precool_forecast_high)
+        self._preheat_forecast_low: float = float(preheat_forecast_low)
 
     def set_outdoor_temp_entity(self, entity_id: str) -> None:
         """Set outdoor temperature sensor entity."""
@@ -189,11 +200,12 @@ class HVACPredictor:
         forecast_high = constraint.forecast_high_temp if constraint else None
 
         # Forecast temperature component (0-40%)
+        # v4.5.10: threshold is now self._precool_forecast_high (configurable).
         if forecast_high is not None:
-            if forecast_high >= PRECOOL_FORECAST_HIGH + 10:
+            if forecast_high >= self._precool_forecast_high + 10:
                 likelihood += 40
-            elif forecast_high >= PRECOOL_FORECAST_HIGH:
-                pct = (forecast_high - PRECOOL_FORECAST_HIGH) / 10
+            elif forecast_high >= self._precool_forecast_high:
+                pct = (forecast_high - self._precool_forecast_high) / 10
                 likelihood += int(pct * 40)
 
         # Time proximity to peak (0-30%)
@@ -377,7 +389,7 @@ class HVACPredictor:
                 and not self._pre_heat_triggered_today
                 and season == SEASON_WINTER
                 and outdoor_temp is not None
-                and outdoor_temp <= PREHEAT_FORECAST_LOW
+                and outdoor_temp <= self._preheat_forecast_low  # v4.5.10: configurable
                 and OFF_PEAK_END_HOUR - PREHEAT_LEAD_HOURS <= hour < OFF_PEAK_END_HOUR
             ):
                 self._pre_heat_active = True
@@ -408,7 +420,7 @@ class HVACPredictor:
             and not self._pre_cool_triggered_today
             and season in (SEASON_SUMMER, SEASON_SHOULDER)
             and forecast_high is not None
-            and forecast_high >= PRECOOL_FORECAST_HIGH
+            and forecast_high >= self._precool_forecast_high  # v4.5.10
             and PEAK_HOUR_START - PRECOOL_LEAD_HOURS <= hour < PEAK_HOUR_START
             and (soc is None or soc >= PRECOOL_SOC_MIN)
         ):
@@ -442,8 +454,9 @@ class HVACPredictor:
         # Check real-time net export
         net_power = self._get_net_power()
 
+        # v4.5.10: SOC threshold is now self._solar_bank_soc_min (configurable).
         return (
-            soc >= SOLAR_BANK_SOC_MIN
+            soc >= self._solar_bank_soc_min
             and net_power < -500  # Actively exporting >500W
             and forecast_high >= SOLAR_BANK_TEMP_MIN
             and constraint.mode == "normal"  # Off-peak, no constraint active
@@ -480,7 +493,8 @@ class HVACPredictor:
             return
 
         banked_high = zone.target_temp_high + offset  # offset is negative
-        floor = max(SOLAR_BANK_FLOOR, zone.target_temp_low + MIN_DEADBAND)
+        # v4.5.10: floor is now self._solar_bank_floor (configurable).
+        floor = max(self._solar_bank_floor, zone.target_temp_low + MIN_DEADBAND)
         effective_high = max(banked_high, floor)
 
         if effective_high >= zone.target_temp_high:

@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv4.5.9.2
+# Universal Room Automation vv4.5.10
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -1735,6 +1735,27 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         # v4.5.9.2: per-house occupancy-aware cover-close delta
                         CONF_HVAC_OCCUPIED_COVER_CLOSE_DELTA,
                         DEFAULT_HVAC_OCCUPIED_COVER_CLOSE_DELTA,
+                        # v4.5.10: HVAC tunables (master + 9 thresholds)
+                        CONF_HVAC_SOLAR_GAIN_COVER_ENABLED,
+                        DEFAULT_HVAC_SOLAR_GAIN_COVER_ENABLED,
+                        CONF_HVAC_COVER_CLOSE_TEMP,
+                        DEFAULT_HVAC_COVER_CLOSE_TEMP,
+                        CONF_HVAC_COVER_OPEN_TEMP,
+                        DEFAULT_HVAC_COVER_OPEN_TEMP,
+                        CONF_HVAC_COVER_OVERRIDE_HOURS,
+                        DEFAULT_HVAC_COVER_OVERRIDE_HOURS,
+                        CONF_HVAC_SOLAR_BANK_FLOOR,
+                        DEFAULT_HVAC_SOLAR_BANK_FLOOR,
+                        CONF_HVAC_COVER_SOLAR_START_HOUR,
+                        DEFAULT_HVAC_COVER_SOLAR_START_HOUR,
+                        CONF_HVAC_COVER_SOLAR_END_HOUR,
+                        DEFAULT_HVAC_COVER_SOLAR_END_HOUR,
+                        CONF_HVAC_SOLAR_BANK_SOC_MIN,
+                        DEFAULT_HVAC_SOLAR_BANK_SOC_MIN,
+                        CONF_HVAC_PRECOOL_FORECAST_HIGH,
+                        DEFAULT_HVAC_PRECOOL_FORECAST_HIGH,
+                        CONF_HVAC_PREHEAT_FORECAST_LOW,
+                        DEFAULT_HVAC_PREHEAT_FORECAST_LOW,
                     )
 
                     hvac = HVACCoordinator(
@@ -1787,6 +1808,47 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         occupied_cover_close_delta=float(cm_config.get(
                             CONF_HVAC_OCCUPIED_COVER_CLOSE_DELTA,
                             DEFAULT_HVAC_OCCUPIED_COVER_CLOSE_DELTA,
+                        )),
+                        # v4.5.10: solar-gain cover management master + tunables
+                        solar_gain_cover_enabled=bool(cm_config.get(
+                            CONF_HVAC_SOLAR_GAIN_COVER_ENABLED,
+                            DEFAULT_HVAC_SOLAR_GAIN_COVER_ENABLED,
+                        )),
+                        cover_close_temp=float(cm_config.get(
+                            CONF_HVAC_COVER_CLOSE_TEMP,
+                            DEFAULT_HVAC_COVER_CLOSE_TEMP,
+                        )),
+                        cover_open_temp=float(cm_config.get(
+                            CONF_HVAC_COVER_OPEN_TEMP,
+                            DEFAULT_HVAC_COVER_OPEN_TEMP,
+                        )),
+                        cover_override_hours=float(cm_config.get(
+                            CONF_HVAC_COVER_OVERRIDE_HOURS,
+                            DEFAULT_HVAC_COVER_OVERRIDE_HOURS,
+                        )),
+                        solar_bank_floor=float(cm_config.get(
+                            CONF_HVAC_SOLAR_BANK_FLOOR,
+                            DEFAULT_HVAC_SOLAR_BANK_FLOOR,
+                        )),
+                        cover_solar_start_hour=int(cm_config.get(
+                            CONF_HVAC_COVER_SOLAR_START_HOUR,
+                            DEFAULT_HVAC_COVER_SOLAR_START_HOUR,
+                        )),
+                        cover_solar_end_hour=int(cm_config.get(
+                            CONF_HVAC_COVER_SOLAR_END_HOUR,
+                            DEFAULT_HVAC_COVER_SOLAR_END_HOUR,
+                        )),
+                        solar_bank_soc_min=int(cm_config.get(
+                            CONF_HVAC_SOLAR_BANK_SOC_MIN,
+                            DEFAULT_HVAC_SOLAR_BANK_SOC_MIN,
+                        )),
+                        precool_forecast_high=float(cm_config.get(
+                            CONF_HVAC_PRECOOL_FORECAST_HIGH,
+                            DEFAULT_HVAC_PRECOOL_FORECAST_HIGH,
+                        )),
+                        preheat_forecast_low=float(cm_config.get(
+                            CONF_HVAC_PREHEAT_FORECAST_LOW,
+                            DEFAULT_HVAC_PREHEAT_FORECAST_LOW,
                         )),
                     )
                     coordinator_manager.register_coordinator(hvac)

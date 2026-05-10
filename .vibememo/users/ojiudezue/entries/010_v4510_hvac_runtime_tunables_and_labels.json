@@ -1,0 +1,102 @@
+{
+  "format_version": "2.0",
+  "entry_id": "010",
+  "author": "ojiudezue",
+  "session_id": "claude_20260510_v4510_hvac_tunables",
+  "timestamp": "2026-05-10T05:00:00Z",
+  "type": "decision",
+  "weight": "significant",
+
+  "title": "v4.5.10 — HVAC runtime tunables, form-only thresholds, label renames",
+
+  "summary": "Tier 2 cycle that promotes 7 hardcoded HVAC behavior values to runtime Number entities, adds 5 form-only thresholds for set-and-forget tuning, adds a master switch for the entire solar-gain cover management feature, and renames two opaque entity labels ('Zone Intelligence' → 'Per-Zone HVAC Control'; 'Zone Sweep' → 'Vacancy Auto-Off') without touching CONF/entity_id. Closes the audit started after v4.5.9.x where user observed that climate-specific behavior values were hardcoded module constants with no UI surface. Defaults preserve v4.5.9.x behavior exactly.",
+
+  "decisions": [
+    {
+      "id": "010.1",
+      "category": "architecture",
+      "decision": "Single factory function `_hvac_tunable_number_factory` produces all 7 v4.5.10 Number entity classes",
+      "alternatives_considered": [
+        "Hand-write 7 individual NumberEntity subclasses (~70 LoC each = ~500 LoC of boilerplate)",
+        "Single generic `HVACTunableNumber` class with constructor params (loses static class identity for HA entity registry)",
+        "Mix: factory for the 4 cover-related, hand-written for the 3 fan/predictor (asymmetric)"
+      ],
+      "why": "All 7 entities share the same shape: live on the HVAC Coordinator device, read form-seed from CM entry, RestoreEntity-backed slider, push to a sub-controller's runtime field via setattr, deferred-push on cross-coord init race. Factory deduplicates ~350 LoC of boilerplate to ~150 LoC of factory + ~70 LoC of 7 invocations. Each invocation is essentially a config dict — easy to add #8 / #9 in v4.5.11. Modeled on `_ec_switch_factory` from switch.py (5 EC switches via the same pattern).",
+      "implications": "Future Number entities for HVAC tunables can be added by appending one factory call to `_build_hvac_v4510_numbers()`. The factory enforces consistent behavior (mirror pattern, RestoreEntity, deferred-push race handling) — bugs in one entity become bugs in all 7 (good for finding/fixing; bad if the bug is subtle). v4.5.10 review verified the factory's `_push_to_controller` semantics across all 7 instantiations.",
+      "confidence": "high",
+      "revisit_trigger": "If a future v4.5.x or v4.6.x adds an HVAC tunable that doesn't fit the pattern (e.g. needs a Select instead of a Number, or pushes to multiple sub-controllers), break it into a separate hand-written class rather than bloating the factory."
+    },
+    {
+      "id": "010.2",
+      "category": "ux",
+      "decision": "Rename two switch entities by `_attr_name` only — keep CONF, entity_id, unique_id unchanged",
+      "alternatives_considered": [
+        "Full rename including CONF + entity_id + migration helper (per the plan's 'three-tier rename' analysis)",
+        "Leave names as-is and rely on helper text (loses UI clarity)"
+      ],
+      "why": "User explicitly stated: 'I do not think we should rename constants, just labels.' The CONF + entity_id rename costs are real: dashboard tile breakage, automation YAML breakage, template breakage. The benefit (semantic alignment in code) is small for a single-user system. The label-only rename gives 100% of the UI clarity benefit at 0% of the dashboard-breakage cost. Mirror pattern: friendly_name is the user-facing surface; entity_id is the API surface. They serve different audiences.",
+      "implications": "Going forward, any rename request defaults to label-only unless there's a structural reason to touch the CONF (e.g. field is being deleted, or being moved to a different scope). Documents 'label vs CONF rename' as a explicit decision the team makes per case. Source-contract tests assert unique_id is unchanged so a future contributor can't accidentally rename it.",
+      "confidence": "high",
+      "revisit_trigger": "If URA ever distributes to additional users (HACS, family installs), the per-user dashboard cost of an entity_id change becomes higher; if anything we'd lock down rename-the-CONF even harder."
+    },
+    {
+      "id": "010.3",
+      "category": "ux",
+      "decision": "Master switch (`Solar Cover Management`) added as the third gating layer for solar-gain cover management",
+      "alternatives_considered": [
+        "Rely on per-room `CONF_COVER_HVAC_MANAGED` opt-out (clunky — 28 rooms to flip individually)",
+        "Hide entire feature behind a global flag with no UI (no escape hatch for emergencies)"
+      ],
+      "why": "User's question 'is there a global toggle to turn it all off?' surfaced a real gap. Symmetric to existing `CONF_HVAC_FAN_CONTROL_ENABLED` for fans (added v4.0.15). Three-layer gating model now: (1) master switch (house-wide), (2) per-room `cover_hvac_managed` (room-wide), (3) per-decision intent + occupancy gates (cover-by-cover). Master switch is the emergency-stop / experiment-pause; per-room is for set-and-forget exclusions; per-decision is the normal logic. The October v4.5.0.4 incident (venetian blinds raised at 18:00) would have been less stressful if the user could flip the master OFF while the fix shipped.",
+      "implications": "Adds a new code path (early-return in `CoverController.update`) that must stay first — verified by source-contract test asserting the check appears textually before `_get_outdoor_temp`. The switch's state survives restart via RestoreEntity. New v4.5.x cycles that add cover-related logic should respect the master.",
+      "confidence": "high",
+      "revisit_trigger": "If a future analytics/observability feature wants to track 'time HVAC cover management was disabled,' add a metric off this switch's transitions."
+    },
+    {
+      "id": "010.4",
+      "category": "process",
+      "decision": "Form-save validation rejects Cover Open Temp ≥ Cover Close Temp − 3°F with a localized error string",
+      "alternatives_considered": [
+        "Runtime-only check with log warning (silent acceptance at form-save time; users wonder why it doesn't behave as set)",
+        "Coerce the user's value (auto-adjust open to close − 3°F) without warning",
+        "Skip validation entirely (lets users set whatever)"
+      ],
+      "why": "v4.5.10's solar-gain logic flaps if hysteresis < 3°F (verified in v3.8.4 README — 5°F was original; 3°F is the relaxed minimum). Catching at form-save means the user sees their mistake immediately with a message that explains why, not 6 hours later when they notice covers cycling. Voluptuous would also work but the manual check inside the step handler is simpler for a single rule and matches existing URA patterns. Constant `COVER_HYSTERESIS_MIN_GAP = 3.0` is the source of truth used in both validator and helper text — drift-proof.",
+      "implications": "Establishes a pattern for paired-form-field validation in URA. Future paired tunables (e.g. pre-cool start hour vs end hour) should follow the same shape: shared constant + check inside step handler + localized error string in `errors` block in strings.json. Source-contract test asserts the validator block exists.",
+      "confidence": "high",
+      "revisit_trigger": "If users find the 3°F gap arbitrary in their climate (e.g. very stable outdoor temps benefit from tighter hysteresis), make `COVER_HYSTERESIS_MIN_GAP` itself configurable. Until then, hardcoded constant."
+    }
+  ],
+
+  "refs": {
+    "what_prompted_this": "User audit conversation on 2026-05-10 about which HVAC behavior values deserved UI controls. Three threads: (1) OCCUPIED_CLOSE_TEMP_DELTA hardcoded vs configurable (gap from v4.5.9.2); (2) request for full audit of HC tunables with DO/DON'T columns and short Device-UI labels; (3) request for label refinements + better names for opaque switches (Zone Intelligence + Zone Sweep). Bundled into a single Tier 2 cycle for review/test efficiency.",
+    "tools_in_use": ["claude_code"],
+    "files_affected": [
+      "custom_components/universal_room_automation/domain_coordinators/hvac_const.py",
+      "custom_components/universal_room_automation/domain_coordinators/hvac_covers.py",
+      "custom_components/universal_room_automation/domain_coordinators/hvac_predict.py",
+      "custom_components/universal_room_automation/domain_coordinators/hvac.py",
+      "custom_components/universal_room_automation/__init__.py",
+      "custom_components/universal_room_automation/config_flow.py",
+      "custom_components/universal_room_automation/switch.py",
+      "custom_components/universal_room_automation/number.py",
+      "custom_components/universal_room_automation/strings.json",
+      "custom_components/universal_room_automation/translations/en.json",
+      "quality/tests/test_v4510_hvac_tunables_and_labels.py",
+      "docs/planning/PLANNING_v4.5.10_hvac_runtime_tunables_and_labels.md",
+      "docs/reviews/code-review/v4.5.10_review.md",
+      "docs/readmes/README_v4.5.10.md"
+    ],
+    "related_entries": ["008", "009"],
+    "memory_keys": [
+      "feedback_ura_mirror_pattern"
+    ],
+    "external_refs": [
+      "Bug Class #32 (Form Field With No Runtime Reader) in QUALITY_CONTEXT.md",
+      "Bug Class #33 (Partial Fix — Sibling Helpers Skipped) in QUALITY_CONTEXT.md",
+      "v4.5.9 README — HVAC cover dispatch tilt-awareness + intent-respecting management",
+      "v4.5.9.2 README — strings + configurable occupied-cover-close delta",
+      "v3.8.4 README — original CoverController + FanController"
+    ]
+  }
+}

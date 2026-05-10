@@ -3184,13 +3184,49 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             # v4.5.9.2: occupancy-aware cover-close threshold
             CONF_HVAC_OCCUPIED_COVER_CLOSE_DELTA,
             DEFAULT_HVAC_OCCUPIED_COVER_CLOSE_DELTA,
+            # v4.5.10: HVAC tunables (master + 9 thresholds)
+            CONF_HVAC_SOLAR_GAIN_COVER_ENABLED,
+            DEFAULT_HVAC_SOLAR_GAIN_COVER_ENABLED,
+            CONF_HVAC_COVER_CLOSE_TEMP,
+            DEFAULT_HVAC_COVER_CLOSE_TEMP,
+            CONF_HVAC_COVER_OPEN_TEMP,
+            DEFAULT_HVAC_COVER_OPEN_TEMP,
+            CONF_HVAC_COVER_OVERRIDE_HOURS,
+            DEFAULT_HVAC_COVER_OVERRIDE_HOURS,
+            CONF_HVAC_SOLAR_BANK_FLOOR,
+            DEFAULT_HVAC_SOLAR_BANK_FLOOR,
+            CONF_HVAC_COVER_SOLAR_START_HOUR,
+            DEFAULT_HVAC_COVER_SOLAR_START_HOUR,
+            CONF_HVAC_COVER_SOLAR_END_HOUR,
+            DEFAULT_HVAC_COVER_SOLAR_END_HOUR,
+            CONF_HVAC_SOLAR_BANK_SOC_MIN,
+            DEFAULT_HVAC_SOLAR_BANK_SOC_MIN,
+            CONF_HVAC_PRECOOL_FORECAST_HIGH,
+            DEFAULT_HVAC_PRECOOL_FORECAST_HIGH,
+            CONF_HVAC_PREHEAT_FORECAST_LOW,
+            DEFAULT_HVAC_PREHEAT_FORECAST_LOW,
+            COVER_HYSTERESIS_MIN_GAP,
         )
 
+        # v4.5.10: validation — Cover Open Temp must be at least
+        # COVER_HYSTERESIS_MIN_GAP (3°F) below Cover Close Temp to
+        # prevent solar-gain flapping. Reject the form save with an
+        # error rather than silently accepting bad config.
+        errors: dict[str, str] = {}
         if user_input is not None:
-            return self.async_create_entry(
-                title="",
-                data={**self._config_entry.options, **user_input},
-            )
+            close_temp = float(user_input.get(
+                CONF_HVAC_COVER_CLOSE_TEMP, DEFAULT_HVAC_COVER_CLOSE_TEMP,
+            ))
+            open_temp = float(user_input.get(
+                CONF_HVAC_COVER_OPEN_TEMP, DEFAULT_HVAC_COVER_OPEN_TEMP,
+            ))
+            if close_temp - open_temp < COVER_HYSTERESIS_MIN_GAP:
+                errors["base"] = "cover_temp_hysteresis_too_small"
+            else:
+                return self.async_create_entry(
+                    title="",
+                    data={**self._config_entry.options, **user_input},
+                )
 
         # Build HVAC tuning schema
         schema_dict = {
@@ -3272,6 +3308,130 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     mode=selector.NumberSelectorMode.SLIDER,
                 )
             ),
+            # v4.5.10: Solar Cover Management master toggle. When OFF,
+            # the entire CoverController feature is disabled — no closes,
+            # no opens, regardless of per-room cover_hvac_managed settings.
+            vol.Optional(
+                CONF_HVAC_SOLAR_GAIN_COVER_ENABLED,
+                default=self._get_current(
+                    CONF_HVAC_SOLAR_GAIN_COVER_ENABLED,
+                    DEFAULT_HVAC_SOLAR_GAIN_COVER_ENABLED,
+                ),
+            ): selector.BooleanSelector(),
+            # v4.5.10: Solar-gain temperature thresholds (close/open).
+            # Hysteresis: open must be at least COVER_HYSTERESIS_MIN_GAP
+            # below close — enforced at form save time.
+            vol.Optional(
+                CONF_HVAC_COVER_CLOSE_TEMP,
+                default=self._get_current(
+                    CONF_HVAC_COVER_CLOSE_TEMP, DEFAULT_HVAC_COVER_CLOSE_TEMP,
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=75, max=95, step=1,
+                    unit_of_measurement="°F",
+                    mode=selector.NumberSelectorMode.SLIDER,
+                )
+            ),
+            vol.Optional(
+                CONF_HVAC_COVER_OPEN_TEMP,
+                default=self._get_current(
+                    CONF_HVAC_COVER_OPEN_TEMP, DEFAULT_HVAC_COVER_OPEN_TEMP,
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=70, max=90, step=1,
+                    unit_of_measurement="°F",
+                    mode=selector.NumberSelectorMode.SLIDER,
+                )
+            ),
+            # v4.5.10: Manual override duration after a user touches a managed cover.
+            vol.Optional(
+                CONF_HVAC_COVER_OVERRIDE_HOURS,
+                default=self._get_current(
+                    CONF_HVAC_COVER_OVERRIDE_HOURS, DEFAULT_HVAC_COVER_OVERRIDE_HOURS,
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0.5, max=24, step=0.5,
+                    unit_of_measurement="hr",
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
+            # v4.5.10: Solar banking floor (coolest setpoint banking will drive zones to).
+            vol.Optional(
+                CONF_HVAC_SOLAR_BANK_FLOOR,
+                default=self._get_current(
+                    CONF_HVAC_SOLAR_BANK_FLOOR, DEFAULT_HVAC_SOLAR_BANK_FLOOR,
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=65, max=80, step=1,
+                    unit_of_measurement="°F",
+                    mode=selector.NumberSelectorMode.SLIDER,
+                )
+            ),
+            # v4.5.10: Solar window hours (when HVAC watches for solar conditions).
+            vol.Optional(
+                CONF_HVAC_COVER_SOLAR_START_HOUR,
+                default=self._get_current(
+                    CONF_HVAC_COVER_SOLAR_START_HOUR, DEFAULT_HVAC_COVER_SOLAR_START_HOUR,
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=6, max=14, step=1,
+                    mode=selector.NumberSelectorMode.SLIDER,
+                )
+            ),
+            vol.Optional(
+                CONF_HVAC_COVER_SOLAR_END_HOUR,
+                default=self._get_current(
+                    CONF_HVAC_COVER_SOLAR_END_HOUR, DEFAULT_HVAC_COVER_SOLAR_END_HOUR,
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=14, max=20, step=1,
+                    mode=selector.NumberSelectorMode.SLIDER,
+                )
+            ),
+            # v4.5.10: Solar banking battery threshold.
+            vol.Optional(
+                CONF_HVAC_SOLAR_BANK_SOC_MIN,
+                default=self._get_current(
+                    CONF_HVAC_SOLAR_BANK_SOC_MIN, DEFAULT_HVAC_SOLAR_BANK_SOC_MIN,
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=80, max=100, step=1,
+                    unit_of_measurement="%",
+                    mode=selector.NumberSelectorMode.SLIDER,
+                )
+            ),
+            # v4.5.10: Pre-cool / pre-heat forecast triggers.
+            vol.Optional(
+                CONF_HVAC_PRECOOL_FORECAST_HIGH,
+                default=self._get_current(
+                    CONF_HVAC_PRECOOL_FORECAST_HIGH, DEFAULT_HVAC_PRECOOL_FORECAST_HIGH,
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=80, max=100, step=1,
+                    unit_of_measurement="°F",
+                    mode=selector.NumberSelectorMode.SLIDER,
+                )
+            ),
+            vol.Optional(
+                CONF_HVAC_PREHEAT_FORECAST_LOW,
+                default=self._get_current(
+                    CONF_HVAC_PREHEAT_FORECAST_LOW, DEFAULT_HVAC_PREHEAT_FORECAST_LOW,
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=20, max=50, step=1,
+                    unit_of_measurement="°F",
+                    mode=selector.NumberSelectorMode.SLIDER,
+                )
+            ),
             # v4.0.15: Fan control toggle
             vol.Optional(
                 CONF_HVAC_FAN_CONTROL_ENABLED,
@@ -3331,6 +3491,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         return self.async_show_form(
             step_id="coordinator_hvac",
             data_schema=data_schema,
+            errors=errors,
         )
 
     async def async_step_coordinator_security(self, user_input=None):
