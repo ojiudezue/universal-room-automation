@@ -452,6 +452,22 @@ class HVACCoordinator(BaseCoordinator):
         self._override_arrester.setup()
         self._startup_audit_done = False
 
+        # v4.5.11: Wire database into OverrideArrester so persistent caps
+        # + lockout flags + event log have a place to live. Without this,
+        # the ramp-down feature is inert (caps not enforced, no events
+        # logged) — graceful degrade, not a crash.
+        from ..const import DOMAIN
+        db = self.hass.data.get(DOMAIN, {}).get("database")
+        if db is not None:
+            self._override_arrester.set_database(db)
+            _LOGGER.info(
+                "HVAC: OverrideArrester wired to database for AC ramp-down state"
+            )
+        else:
+            _LOGGER.warning(
+                "HVAC: database not available — AC ramp-down feature inert"
+            )
+
         # Start periodic decision cycle (every 5 minutes)
         self._decision_timer_unsub = async_track_time_interval(
             self.hass,
@@ -526,6 +542,10 @@ class HVACCoordinator(BaseCoordinator):
             await self._override_arrester.async_startup_audit(
                 self._preset_manager, self._house_state or "home_day",
             )
+            # v4.5.11: Restore in-flight nudges that survived an HA restart
+            # (R1 mitigation). Runs after override audit so suppression flags
+            # are settled.
+            await self._override_arrester.async_startup_ramp_audit()
 
         now_utc = dt_util.utcnow()
 

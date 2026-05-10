@@ -505,12 +505,16 @@
       },
       "zone_hvac": {
         "title": "🌡️ Zone HVAC",
-        "description": "Select the thermostat that controls this zone. If not set, falls back to the first room's thermostat.",
+        "description": "Select the thermostat that controls this zone. If not set, falls back to the first room's thermostat. The AC Load Sensor below is used by the AC Ramp-Down feature (v4.5.11) to detect when this zone keeps burning energy past setpoint.",
         "data": {
-          "zone_thermostat": "Zone Thermostat"
+          "zone_thermostat": "Zone Thermostat",
+          "hvac_ac_load_sensor": "AC Load Sensor (kW or kWh)",
+          "hvac_ac_ramp_zone_enabled": "AC Ramp-Down enabled for this zone"
         },
         "data_description": {
-          "zone_thermostat": "Climate entity to control for this zone"
+          "zone_thermostat": "Climate entity to control for this zone",
+          "hvac_ac_load_sensor": "Sensor that measures this AC unit's draw (Span panel circuit, Emporia Vue, etc.). Power (kW) is preferred. Leave empty to disable the ramp-down feature for this zone.",
+          "hvac_ac_ramp_zone_enabled": "When OFF, this zone is skipped by the AC ramp-down feature even when the master switch is ON. Useful for AC units on circuits shared with other large loads (dryer, oven) that would cause false positives."
         }
       },
       "zone_energy": {

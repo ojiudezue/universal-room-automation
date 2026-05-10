@@ -1,6 +1,6 @@
 """Button platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.5.10.1
+# Universal Room Automation vv4.5.11
 # Build: 2026-01-04
 # File: button.py
 #
@@ -39,10 +39,24 @@ async def async_setup_entry(
 
     # v3.6.29: Coordinator Manager entry — NM acknowledge button + B1 clear button
     if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_COORDINATOR_MANAGER:
-        async_add_entities([
+        cm_entities: list[ButtonEntity] = [
             NMAcknowledgeButton(hass, entry),
             ClearBayesianBeliefsButton(hass, entry),
-        ])
+        ]
+        # v4.5.11: 3 buttons per AC zone (force_nudge / cancel_nudge /
+        # clear_lockout). Discovers zones from Zone Manager entries — same
+        # pattern as number.py per-zone kWh threshold sliders.
+        for zone_spec in _discover_ac_zones(hass):
+            cm_entities.append(
+                _make_ac_ramp_button(hass, entry, zone_spec, "force_nudge")
+            )
+            cm_entities.append(
+                _make_ac_ramp_button(hass, entry, zone_spec, "cancel_nudge")
+            )
+            cm_entities.append(
+                _make_ac_ramp_button(hass, entry, zone_spec, "clear_lockout")
+            )
+        async_add_entities(cm_entities)
         return
 
     if entry.entry_id not in hass.data.get(DOMAIN, {}):
@@ -509,3 +523,169 @@ class ClearBayesianBeliefsButton(ButtonEntity):
             _LOGGER.info("Bayesian beliefs cleared and reinitialized via button")
         else:
             _LOGGER.warning("Bayesian predictor not available")
+
+
+# ============================================================================
+# v4.5.11: AC Ramp-Down per-zone buttons (force_nudge / cancel / clear_lockout)
+# ============================================================================
+
+
+def _discover_ac_zones(hass: HomeAssistant) -> list[dict]:
+    """Mirror of number._discover_ac_zones — kept local to avoid cross-platform
+    imports. Enumerates (zone_id, zone_name, climate_entity) tuples from
+    Zone Manager entries.
+    """
+    from .const import (
+        CONF_ENTRY_TYPE,
+        CONF_ZONE_THERMOSTAT,
+        ENTRY_TYPE_ZONE_MANAGER,
+    )
+
+    out: list[dict] = []
+    seen: set[str] = set()
+    for entry in hass.config_entries.async_entries(DOMAIN):
+        if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ZONE_MANAGER:
+            continue
+        merged = {**entry.data, **entry.options}
+        zones_dict = merged.get("zones", {})
+        for zone_name, zone_cfg in zones_dict.items():
+            thermostat = zone_cfg.get(CONF_ZONE_THERMOSTAT)
+            if not thermostat or thermostat in seen:
+                continue
+            seen.add(thermostat)
+            zone_id = thermostat.replace("climate.", "").replace(".", "_")
+            out.append(
+                {
+                    "zone_id": zone_id,
+                    "zone_name": zone_name,
+                    "climate_entity": thermostat,
+                }
+            )
+    return out
+
+
+_AC_RAMP_BUTTON_SPECS: dict[str, dict] = {
+    "force_nudge": {
+        "label": "Force AC Nudge",
+        "icon": "mdi:thermometer-chevron-up",
+        "method": "force_nudge",
+        "category": None,  # primary user-facing action
+    },
+    "cancel_nudge": {
+        "label": "Cancel AC Nudge",
+        "icon": "mdi:cancel",
+        "method": "cancel_nudge",
+        "category": None,
+    },
+    "clear_lockout": {
+        "label": "Clear AC Ramp Lockout",
+        "icon": "mdi:lock-reset",
+        "method": "clear_zone_lockout",
+        "category": EntityCategory.CONFIG,
+    },
+}
+
+
+def _make_ac_ramp_button(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    zone_spec: dict,
+    action: str,
+) -> "_ACRampButton":
+    """Construct one button entity for a (zone, action) pair."""
+    spec = _AC_RAMP_BUTTON_SPECS[action]
+    return _ACRampButton(
+        hass=hass,
+        entry=entry,
+        zone_id=zone_spec["zone_id"],
+        zone_name=zone_spec["zone_name"],
+        action=action,
+        label=spec["label"],
+        icon=spec["icon"],
+        method_name=spec["method"],
+        category=spec["category"],
+    )
+
+
+class _ACRampButton(ButtonEntity):
+    """Per-zone AC ramp-down control button.
+
+    Routes to OverrideArrester methods via the HVAC coordinator. Single
+    class parameterized by action keeps the device-UI grouping tight
+    (3 buttons × N zones all live on the HVAC Coordinator device).
+    """
+
+    _attr_has_entity_name = True
+
+    def __init__(
+        self,
+        *,
+        hass: HomeAssistant,
+        entry: ConfigEntry,
+        zone_id: str,
+        zone_name: str,
+        action: str,
+        label: str,
+        icon: str,
+        method_name: str,
+        category: EntityCategory | None,
+    ) -> None:
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .const import VERSION
+
+        self.hass = hass
+        self._entry = entry
+        self._zone_id = zone_id
+        self._action = action
+        self._method_name = method_name
+        self._attr_unique_id = f"{DOMAIN}_hvac_ac_ramp_{action}_{zone_id}"
+        self._attr_name = f"{label} ({zone_name})"
+        self._attr_icon = icon
+        if category is not None:
+            self._attr_entity_category = category
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "hvac_coordinator")},
+            name="URA: HVAC Coordinator",
+            manufacturer="Universal Room Automation",
+            model="HVAC Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+
+    def _get_arrester(self):
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        hvac = manager.coordinators.get("hvac") if hasattr(manager, "coordinators") else None
+        return getattr(hvac, "_override_arrester", None) if hvac else None
+
+    @property
+    def available(self) -> bool:
+        return self._get_arrester() is not None
+
+    async def async_press(self) -> None:
+        arr = self._get_arrester()
+        if arr is None:
+            _LOGGER.warning(
+                "AC ramp button %s (%s): OverrideArrester not available",
+                self._action, self._zone_id,
+            )
+            return
+        method = getattr(arr, self._method_name, None)
+        if method is None:
+            _LOGGER.error(
+                "AC ramp button %s: method %s missing on arrester",
+                self._action, self._method_name,
+            )
+            return
+        try:
+            await method(self._zone_id)
+        except Exception as e:
+            _LOGGER.error(
+                "AC ramp button %s (%s) failed: %s",
+                self._action, self._zone_id, e,
+            )
+        _LOGGER.info(
+            "AC ramp button pressed: %s (zone=%s)",
+            self._action, self._zone_id,
+        )

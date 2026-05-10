@@ -4542,13 +4542,37 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         if not zm_result and not zone_entry:
             return self.async_abort(reason="zone_not_found")
 
+        # v4.5.11: AC ramp-down per-zone fields (ac_load_sensor for Span/
+        # Emporia/etc. kW sensor; ac_ramp_zone_enabled for per-zone opt-out).
+        from .domain_coordinators.hvac_const import (
+            CONF_HVAC_AC_LOAD_SENSOR,
+            CONF_HVAC_AC_RAMP_ZONE_ENABLED,
+            DEFAULT_HVAC_AC_RAMP_ZONE_ENABLED,
+        )
+
         if zm_result:
             zm_entry, zone_name, zone_data = zm_result
             current_thermostat = zone_data.get(CONF_ZONE_THERMOSTAT)
+            current_ac_load_sensor = zone_data.get(CONF_HVAC_AC_LOAD_SENSOR, "")
+            current_ac_ramp_enabled = zone_data.get(
+                CONF_HVAC_AC_RAMP_ZONE_ENABLED,
+                DEFAULT_HVAC_AC_RAMP_ZONE_ENABLED,
+            )
         else:
             current_thermostat = zone_entry.options.get(
                 CONF_ZONE_THERMOSTAT,
                 zone_entry.data.get(CONF_ZONE_THERMOSTAT),
+            )
+            current_ac_load_sensor = zone_entry.options.get(
+                CONF_HVAC_AC_LOAD_SENSOR,
+                zone_entry.data.get(CONF_HVAC_AC_LOAD_SENSOR, ""),
+            )
+            current_ac_ramp_enabled = zone_entry.options.get(
+                CONF_HVAC_AC_RAMP_ZONE_ENABLED,
+                zone_entry.data.get(
+                    CONF_HVAC_AC_RAMP_ZONE_ENABLED,
+                    DEFAULT_HVAC_AC_RAMP_ZONE_ENABLED,
+                ),
             )
 
         if user_input is not None:
@@ -4579,18 +4603,35 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     data={**zone_entry.options, **user_input},
                 )
 
-        data_schema = vol.Schema({
+        # Schema build: keep existing thermostat field; add v4.5.11 fields.
+        # ac_load_sensor accepts kW OR kWh sensors (we filter by device_class
+        # at runtime — power preferred, but energy works if user only has
+        # kWh totalizers).
+        schema_fields: dict = {
             vol.Optional(
                 CONF_ZONE_THERMOSTAT,
                 default=current_thermostat or vol.UNDEFINED,
             ): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="climate")
             ),
-        })
+            vol.Optional(
+                CONF_HVAC_AC_LOAD_SENSOR,
+                default=current_ac_load_sensor or vol.UNDEFINED,
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(
+                    domain="sensor",
+                    device_class=["power", "energy"],
+                )
+            ),
+            vol.Optional(
+                CONF_HVAC_AC_RAMP_ZONE_ENABLED,
+                default=bool(current_ac_ramp_enabled),
+            ): selector.BooleanSelector(),
+        }
 
         return self.async_show_form(
             step_id="zone_hvac",
-            data_schema=data_schema,
+            data_schema=vol.Schema(schema_fields),
         )
 
     async def async_step_zone_energy(self, user_input=None):

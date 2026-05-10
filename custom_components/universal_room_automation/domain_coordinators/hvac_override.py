@@ -22,10 +22,39 @@ from homeassistant.helpers.event import (
 from homeassistant.util import dt as dt_util
 
 from .hvac_const import (
+    AC_KWH_AVOIDED_PROJECTION_CAP_MIN,
+    AC_KWH_SENSOR_STALENESS_S,
+    AC_KWH_STALE_WARN_INTERVAL_S,
+    AC_NUDGE_EVALUATION_DELAY_S,
+    AC_NUDGE_OVERSHOOT_GAP,
+    AC_RAMP_EVENT_CANCEL_INVOKED,
+    AC_RAMP_EVENT_DETECTION_FIRED,
+    AC_RAMP_EVENT_HARD_RESET_COMPLETED,
+    AC_RAMP_EVENT_HARD_RESET_STARTED,
+    AC_RAMP_EVENT_LOCKOUT_ENGAGED,
+    AC_RAMP_EVENT_NUDGE_EVALUATED,
+    AC_RAMP_EVENT_NUDGE_RESTORED,
+    AC_RAMP_EVENT_NUDGE_STARTED,
+    AC_RAMP_EVENT_STARTUP_RESTORE,
+    AC_RAMP_STATE_AWAITING_EVAL,
+    AC_RAMP_STATE_DETECTING,
+    AC_RAMP_STATE_DISABLED,
+    AC_RAMP_STATE_ESCALATING,
+    AC_RAMP_STATE_IDLE,
+    AC_RAMP_STATE_LOCKED_OUT,
+    AC_RAMP_STATE_NUDGING,
     AC_RESET_MAX_PER_DAY,
     AC_RESET_OFF_DURATION_SECONDS,
     AC_RESET_STUCK_MINUTES,
     DEFAULT_COMPROMISE_MINUTES,
+    DEFAULT_HVAC_AC_DETECTION_TIME_GATE,
+    DEFAULT_HVAC_AC_HARD_RESET_DAILY_LIMIT,
+    DEFAULT_HVAC_AC_HARD_RESET_MIN_INTERVAL,
+    DEFAULT_HVAC_AC_KWH_RATE_THRESHOLD,
+    DEFAULT_HVAC_AC_NUDGE_DURATION,
+    DEFAULT_HVAC_AC_NUDGE_SIZE,
+    DEFAULT_HVAC_AC_RAMP_MASTER_ENABLED,
+    DEFAULT_HVAC_AC_SUSTAINED_SAMPLES,
     OVERRIDE_COAST_TOLERANCE_BONUS,
     OVERRIDE_NORMAL_DELTA,
     OVERRIDE_NORMAL_GRACE_MINUTES,
@@ -85,6 +114,75 @@ class OverrideArrester:
 
         # v3.18.x review fix: Track verify/retry tasks for AC reset restore
         self._verify_tasks: dict[str, asyncio.Task] = {}
+
+        # v4.5.11: AC ramp-down (energy-aware overshoot detection)
+        # Master switch + house-wide tunables. Per-zone state lives on
+        # ZoneState. Per-zone-per-day persistent counters live in SQLite.
+        self._db = None  # set via set_database(); needed for persistent caps
+        self._ramp_master_enabled: bool = DEFAULT_HVAC_AC_RAMP_MASTER_ENABLED
+        self._nudge_size_f: float = DEFAULT_HVAC_AC_NUDGE_SIZE
+        self._nudge_duration_min: int = DEFAULT_HVAC_AC_NUDGE_DURATION
+        self._sustained_samples: int = DEFAULT_HVAC_AC_SUSTAINED_SAMPLES
+        self._detection_time_gate_min: int = DEFAULT_HVAC_AC_DETECTION_TIME_GATE
+        self._hard_reset_daily_limit: int = DEFAULT_HVAC_AC_HARD_RESET_DAILY_LIMIT
+        self._hard_reset_min_interval_min: int = DEFAULT_HVAC_AC_HARD_RESET_MIN_INTERVAL
+        # Per-zone timers — separate from _reset_timers (existing hard-reset
+        # restore timers) so a soft nudge in flight doesn't get cancelled
+        # by an unrelated hard-reset path on the same zone.
+        self._nudge_restore_timers: dict[str, CALLBACK_TYPE] = {}
+        self._nudge_eval_timers: dict[str, CALLBACK_TYPE] = {}
+        # Track which zones are currently mid-nudge for sensor exposure.
+        self._nudge_in_flight: set[str] = set()
+        # Track today's date so we can detect day-rollover and prune events.
+        self._last_rollover_date: str = ""
+
+    def set_database(self, db) -> None:
+        """Wire UniversalRoomDatabase reference (v4.5.11).
+
+        Called from HVAC coordinator setup. Without it, ramp-down feature
+        is inert (graceful degrade — no caps to enforce, no events to log).
+        """
+        self._db = db
+
+    @property
+    def ramp_master_enabled(self) -> bool:
+        """House-wide ramp-down master switch."""
+        return self._ramp_master_enabled
+
+    @ramp_master_enabled.setter
+    def ramp_master_enabled(self, value: bool) -> None:
+        """Toggle ramp-down feature. OFF cancels in-flight nudges + restores
+        original setpoints to avoid stranding zones at +1.5°F."""
+        self._ramp_master_enabled = bool(value)
+        if not self._ramp_master_enabled:
+            # Cancel any in-flight nudges so we don't strand zones.
+            for zone_id in list(self._nudge_in_flight):
+                self.hass.async_create_task(
+                    self.cancel_nudge(zone_id, triggered_by="master_off")
+                )
+        _LOGGER.info(
+            "AC ramp-down master %s",
+            "enabled" if self._ramp_master_enabled else "disabled",
+        )
+
+    # Slider write-throughs (called by Number entity factory on slider change)
+    def set_nudge_size(self, value: float) -> None:
+        self._nudge_size_f = float(value)
+
+    def set_nudge_duration(self, value: int) -> None:
+        self._nudge_duration_min = int(value)
+
+    def set_sustained_samples(self, value: int) -> None:
+        self._sustained_samples = int(value)
+
+    def set_detection_time_gate(self, value: int) -> None:
+        self._detection_time_gate_min = int(value)
+
+    def set_hard_reset_daily_limit(self, value: int) -> None:
+        self._hard_reset_daily_limit = int(value)
+
+    def set_hard_reset_min_interval(self, value: int) -> None:
+        self._hard_reset_min_interval_min = int(value)
 
     def has_active_ac_reset(self, zone_id: str) -> bool:
         """Check if a zone is mid-AC-reset (intentionally off)."""
@@ -231,6 +329,15 @@ class OverrideArrester:
         for task in self._verify_tasks.values():
             task.cancel()
         self._verify_tasks.clear()
+
+        # v4.5.11: Cancel any in-flight nudge restore + evaluation timers
+        for cancel in self._nudge_restore_timers.values():
+            cancel()
+        self._nudge_restore_timers.clear()
+        for cancel in self._nudge_eval_timers.values():
+            cancel()
+        self._nudge_eval_timers.clear()
+        self._nudge_in_flight.clear()
 
     def update_energy_state(self, offset: float, coast: bool) -> None:
         """Update energy constraint state for tolerance adjustment."""
@@ -619,69 +726,141 @@ class OverrideArrester:
     # =========================================================================
 
     async def check_ac_reset(self) -> None:
-        """Check for stuck AC cycles across all zones.
+        """v4.5.11: Detect overshoot + sustained kWh-rate waste, then act.
+
+        Replaces the v3.8.3 'still hot despite cooling' trigger which never
+        fired for the dominant Texas-summer waste pattern (AC reaches setpoint,
+        keeps burning kWh past the natural cycle-end).
 
         Called from the 5-minute HVAC decision cycle.
-        A zone is "stuck" if actively heating/cooling for ac_reset_timeout minutes
-        and current temp hasn't moved toward setpoint.
+
+        Gating order (any failure -> skip zone, set ramp_state, continue):
+          0. _ac_reset_enabled (legacy backward-compat kill-switch)
+          1. _ramp_master_enabled (v4.5.11 master switch)
+          2. zone.ramp_zone_enabled (per-zone opt-out)
+          3. zone.ac_load_sensor configured (graceful degrade if not)
+          4. hvac_action == cooling AND temps known
+          5. lockout_flag not set (DB)
+          6. current <= target_high - 0.5  (overshoot)
+          7. kwh_rate > zone threshold for N consecutive samples (debounce)
+          8. overshoot sustained for detection_time_gate minutes
+          9. not already mid-nudge or mid-evaluation
+        All gates passed -> _handle_overshoot_detected.
         """
+        # Gate 0: legacy backward-compat kill-switch
         if not self._ac_reset_enabled:
+            return
+        # Gate 1: v4.5.11 master switch (default OFF)
+        if not self._ramp_master_enabled:
             return
 
         now = dt_util.now()
+        today = now.date().isoformat()
+
+        # Day-rollover hook: prune old events once per new day. Fire-and-forget.
+        if self._last_rollover_date and self._last_rollover_date != today:
+            if self._db is not None:
+                self.hass.async_create_task(self._db.cleanup_ac_ramp_events())
+        self._last_rollover_date = today
 
         for zone_id, zone in self._zone_manager.zones.items():
-            if zone.ac_reset_count_today >= AC_RESET_MAX_PER_DAY:
-                continue
-
-            # Skip zones with active overrides
+            # Skip zones with active overrides (let override path handle)
             if self._override_active.get(zone_id, False):
+                zone.ramp_state = AC_RAMP_STATE_IDLE
                 continue
 
-            # Only check zones actively heating or cooling
-            if zone.hvac_action not in ("cooling", "heating"):
-                zone.last_stuck_detected = ""
+            # Gate 2: per-zone enable
+            if not zone.ramp_zone_enabled:
+                zone.ramp_state = AC_RAMP_STATE_DISABLED
                 continue
 
-            if zone.current_temperature is None:
+            # Gate 3: ac_load_sensor configured (else feature OFF for zone)
+            if not zone.ac_load_sensor:
+                zone.ramp_state = AC_RAMP_STATE_DISABLED
                 continue
 
-            # Stuck = actively running but temp hasn't reached setpoint
-            is_stuck = False
-            if zone.hvac_action == "cooling" and zone.target_temp_high is not None:
-                if zone.current_temperature > zone.target_temp_high:
-                    is_stuck = True  # Still hot despite cooling
-            elif zone.hvac_action == "heating" and zone.target_temp_low is not None:
-                if zone.current_temperature < zone.target_temp_low:
-                    is_stuck = True  # Still cold despite heating
-
-            if not is_stuck:
-                zone.last_stuck_detected = ""
+            # Gate 4: cooling action + valid temps
+            if zone.hvac_action != "cooling":
+                zone.last_overshoot_started = ""
+                zone.kwh_samples_above_threshold = 0
+                if zone_id not in self._nudge_in_flight:
+                    zone.ramp_state = AC_RAMP_STATE_IDLE
+                continue
+            if zone.target_temp_high is None or zone.current_temperature is None:
                 continue
 
-            # Track how long we've been stuck
-            if not zone.last_stuck_detected:
-                zone.last_stuck_detected = now.isoformat()
-                continue
+            # Gate 5: lockout flag (DB)
+            if self._db is not None:
+                state = await self._db.get_ac_reset_state(zone_id)
+                if state.get("lockout_flag"):
+                    zone.ramp_state = AC_RAMP_STATE_LOCKED_OUT
+                    continue
 
-            stuck_since = datetime.fromisoformat(zone.last_stuck_detected)
-            stuck_minutes = (now - stuck_since).total_seconds() / 60
-
-            if stuck_minutes < self._ac_reset_timeout:
-                continue
-
-            # Stuck long enough — perform reset
-            _LOGGER.warning(
-                "AC Reset on %s: stuck %s for %.0fmin past setpoint, "
-                "cycling off for %ds",
-                zone.zone_name, zone.hvac_action, stuck_minutes,
-                AC_RESET_OFF_DURATION_SECONDS,
+            # Gate 6: overshoot — current cooled below target by safety gap.
+            # 0.5°F gap prevents flap when AC is at setpoint and modulating
+            # naturally (Bryant rounds to 0.5°F; current==target reads happen
+            # constantly during legit cycling).
+            overshoot = (
+                zone.current_temperature
+                <= zone.target_temp_high - AC_NUDGE_OVERSHOOT_GAP
             )
+            if not overshoot:
+                zone.last_overshoot_started = ""
+                zone.kwh_samples_above_threshold = 0
+                if zone_id not in self._nudge_in_flight:
+                    zone.ramp_state = AC_RAMP_STATE_IDLE
+                continue
 
-            zone.ac_reset_count_today += 1
-            zone.last_stuck_detected = ""
+            # Read kWh rate (with staleness check)
+            kwh_rate = self._read_kwh_rate(zone, now)
+            if kwh_rate is None:
+                continue  # graceful degrade — sensor stale or unavailable
 
-            await self._perform_ac_reset(zone)
+            # Update live attrs for D7 sensor exposure
+            zone.last_kwh_rate = kwh_rate
+            zone.last_kwh_rate_ts = now.isoformat()
+
+            # Gate 7: debounce — N consecutive samples > zone-specific threshold
+            if kwh_rate > zone.kwh_rate_threshold:
+                zone.kwh_samples_above_threshold += 1
+            else:
+                zone.kwh_samples_above_threshold = 0
+                if zone_id not in self._nudge_in_flight:
+                    zone.ramp_state = AC_RAMP_STATE_IDLE
+                continue
+
+            if zone.kwh_samples_above_threshold < self._sustained_samples:
+                if zone_id not in self._nudge_in_flight:
+                    zone.ramp_state = AC_RAMP_STATE_DETECTING
+                continue
+
+            # Gate 8: time-sustained
+            if not zone.last_overshoot_started:
+                zone.last_overshoot_started = now.isoformat()
+                if zone_id not in self._nudge_in_flight:
+                    zone.ramp_state = AC_RAMP_STATE_DETECTING
+                continue
+            try:
+                overshoot_started = datetime.fromisoformat(
+                    zone.last_overshoot_started
+                )
+            except (ValueError, TypeError):
+                zone.last_overshoot_started = now.isoformat()
+                continue
+            elapsed_min = (now - overshoot_started).total_seconds() / 60
+            if elapsed_min < self._detection_time_gate_min:
+                if zone_id not in self._nudge_in_flight:
+                    zone.ramp_state = AC_RAMP_STATE_DETECTING
+                continue
+
+            # Gate 9: already in nudge/eval flow — let the in-flight cycle finish
+            if zone_id in self._nudge_in_flight:
+                continue
+            if zone_id in self._nudge_eval_timers:
+                continue
+
+            # All gates passed — dispatch action
+            await self._handle_overshoot_detected(zone, kwh_rate, now, elapsed_min)
 
     async def _perform_ac_reset(self, zone: ZoneState) -> None:
         """Perform AC reset: off -> wait -> restore mode."""
@@ -829,6 +1008,619 @@ class OverrideArrester:
 
         task = self.hass.async_create_task(_verify_restore())
         self._verify_tasks[zone_id] = task
+
+        # v4.5.11: hard reset is also part of the ramp-down state machine when
+        # invoked via _perform_hard_reset_escalation. Log completion event.
+        if self._db is not None and zone_id in self._nudge_in_flight:
+            # Defensive: shouldn't happen (hard reset is post-eval),
+            # but if it did, clear in-flight to avoid stranded state.
+            self._nudge_in_flight.discard(zone_id)
+        if self._db is not None:
+            await self._db.log_ac_ramp_event(
+                zone_id=zone_id,
+                event_type=AC_RAMP_EVENT_HARD_RESET_COMPLETED,
+                target_high=zone.target_temp_high,
+                action_taken=f"restored_mode={target_mode}",
+            )
+        zone.ramp_state = AC_RAMP_STATE_IDLE
+
+    # =========================================================================
+    # v4.5.11 — AC Energy-Aware Ramp-Down: action paths
+    # =========================================================================
+
+    def _read_kwh_rate(
+        self, zone: ZoneState, now: datetime,
+    ) -> float | None:
+        """Read kW from configured ac_load_sensor with staleness check.
+
+        Returns:
+          float — kW rate (converts W -> kW if unit_of_measurement is W)
+          None — sensor missing, stale, or value unparseable
+
+        Staleness threshold = AC_KWH_SENSOR_STALENESS_S (10 min). Stale
+        readings are treated as missing rather than trusted, so a Span
+        outage doesn't silently keep firing detection on the last good
+        value (Risk R3).
+        """
+        if not zone.ac_load_sensor:
+            return None
+        state = self.hass.states.get(zone.ac_load_sensor)
+        if state is None:
+            return None
+        last_updated = state.last_updated
+        if last_updated is not None:
+            try:
+                age_s = (now - dt_util.as_local(last_updated)).total_seconds()
+            except (TypeError, ValueError):
+                age_s = 0.0
+            if age_s > AC_KWH_SENSOR_STALENESS_S:
+                self._maybe_warn_stale(zone, age_s, now)
+                return None
+        raw = state.state
+        if raw in (None, "unknown", "unavailable", ""):
+            return None
+        try:
+            value = float(raw)
+        except (ValueError, TypeError):
+            return None
+        unit = (state.attributes.get("unit_of_measurement") or "").lower()
+        if unit in ("w", "watt", "watts"):
+            value = value / 1000.0
+        return value
+
+    def _maybe_warn_stale(
+        self, zone: ZoneState, age_s: float, now: datetime,
+    ) -> None:
+        """Rate-limited stale-sensor warning (every 6h per zone)."""
+        if zone.last_kwh_stale_warned_ts:
+            try:
+                last = datetime.fromisoformat(zone.last_kwh_stale_warned_ts)
+            except (ValueError, TypeError):
+                last = None
+            if last is not None and (now - last).total_seconds() < AC_KWH_STALE_WARN_INTERVAL_S:
+                return
+        _LOGGER.warning(
+            "AC ramp-down: %s ac_load_sensor (%s) stale (age=%.0fs > %ds) "
+            "— feature inert for this zone until sensor recovers",
+            zone.zone_name, zone.ac_load_sensor, age_s,
+            AC_KWH_SENSOR_STALENESS_S,
+        )
+        zone.last_kwh_stale_warned_ts = now.isoformat()
+
+    async def _handle_overshoot_detected(
+        self,
+        zone: ZoneState,
+        kwh_rate: float,
+        now: datetime,
+        overshoot_minutes: float,
+    ) -> None:
+        """All detection gates passed — log + dispatch to soft nudge."""
+        zone_id = zone.zone_id
+        if self._db is not None:
+            await self._db.log_ac_ramp_event(
+                zone_id=zone_id,
+                event_type=AC_RAMP_EVENT_DETECTION_FIRED,
+                current_temp=zone.current_temperature,
+                target_high=zone.target_temp_high,
+                kwh_rate_before=kwh_rate,
+                notes=f"overshoot_min={overshoot_minutes:.1f};threshold={zone.kwh_rate_threshold:.2f}",
+            )
+        _LOGGER.info(
+            "AC overshoot detected on %s: current=%.1f, target=%.1f, "
+            "kwh_rate=%.2f kW (threshold=%.2f), overshoot=%.0fmin",
+            zone.zone_name, zone.current_temperature, zone.target_temp_high,
+            kwh_rate, zone.kwh_rate_threshold, overshoot_minutes,
+        )
+        await self._perform_soft_nudge(zone, kwh_rate, triggered_by="auto")
+
+    async def _perform_soft_nudge(
+        self,
+        zone: ZoneState,
+        kwh_rate_before: float,
+        triggered_by: str = "auto",
+    ) -> None:
+        """v4.5.11 D2: Bump target +nudge_size, restore after nudge_duration.
+
+        Restart-safe: writes in_flight state to DB BEFORE issuing the climate
+        service call. If we crash between the DB write and the service call,
+        the next startup audit will "restore" to the original target — which
+        equals the current target — i.e., a benign no-op. Risk R1.
+        """
+        zone_id = zone.zone_id
+        if zone.target_temp_high is None:
+            return
+        original_target = float(zone.target_temp_high)
+        new_target = original_target + self._nudge_size_f
+        duration_s = self._nudge_duration_min * 60
+        started_ts = dt_util.now().isoformat()
+
+        # CRITICAL ORDER (R1): DB first, setpoint second.
+        if self._db is not None:
+            await self._db.set_ac_in_flight_nudge(
+                zone_id=zone_id,
+                original_target=original_target,
+                started_ts=started_ts,
+                duration_s=duration_s,
+            )
+
+        # Suppress override detection during URA-initiated change (R11)
+        self._suppressed_entities.add(zone.climate_entity)
+
+        try:
+            await self.hass.services.async_call(
+                "climate",
+                "set_temperature",
+                {
+                    "entity_id": zone.climate_entity,
+                    "target_temp_high": new_target,
+                    "target_temp_low": zone.target_temp_low,
+                },
+                blocking=False,
+            )
+        except Exception as e:
+            _LOGGER.error(
+                "Soft nudge: set_temperature failed on %s: %s",
+                zone.climate_entity, e,
+            )
+            if self._db is not None:
+                await self._db.clear_ac_in_flight_nudge(zone_id)
+            return
+
+        self._nudge_in_flight.add(zone_id)
+        zone.ramp_state = AC_RAMP_STATE_NUDGING
+        zone.nudge_kwh_rate_before = kwh_rate_before
+        zone.last_overshoot_started = ""  # window resets — outcome under eval
+        zone.kwh_samples_above_threshold = 0
+
+        if self._db is not None:
+            state = await self._db.get_ac_reset_state(zone_id)
+            state["soft_nudge_count"] = int(state.get("soft_nudge_count", 0)) + 1
+            state["last_soft_nudge_ts"] = started_ts
+            await self._db.save_ac_reset_state(state)
+            await self._db.log_ac_ramp_event(
+                zone_id=zone_id,
+                event_type=AC_RAMP_EVENT_NUDGE_STARTED,
+                triggered_by=triggered_by,
+                current_temp=zone.current_temperature,
+                target_high=original_target,
+                kwh_rate_before=kwh_rate_before,
+                action_taken=(
+                    f"target {original_target:.1f}->{new_target:.1f} "
+                    f"for {duration_s}s"
+                ),
+                soft_nudge_count_today=state["soft_nudge_count"],
+            )
+
+        _LOGGER.info(
+            "Soft nudge fired on %s: target %.1f -> %.1f for %d min "
+            "(kwh_rate_before=%.2f kW, by=%s)",
+            zone.zone_name, original_target, new_target,
+            self._nudge_duration_min, kwh_rate_before, triggered_by,
+        )
+
+        @callback
+        def _on_nudge_restore_fire(_now):
+            self.hass.async_create_task(
+                self._restore_after_nudge(zone, original_target)
+            )
+
+        self._nudge_restore_timers[zone_id] = async_call_later(
+            self.hass, duration_s, _on_nudge_restore_fire,
+        )
+
+    async def _restore_after_nudge(
+        self, zone: ZoneState, original_target: float,
+    ) -> None:
+        """Restore target after nudge_duration; schedule outcome evaluation."""
+        zone_id = zone.zone_id
+        self._nudge_restore_timers.pop(zone_id, None)
+        self._nudge_in_flight.discard(zone_id)
+
+        # Risk R11: re-suppress before our own write so an in-flight user
+        # override doesn't get mis-classified.
+        self._suppressed_entities.add(zone.climate_entity)
+
+        try:
+            await self.hass.services.async_call(
+                "climate",
+                "set_temperature",
+                {
+                    "entity_id": zone.climate_entity,
+                    "target_temp_high": original_target,
+                    "target_temp_low": zone.target_temp_low,
+                },
+                blocking=False,
+            )
+        except Exception as e:
+            _LOGGER.error(
+                "Soft nudge restore: set_temperature failed on %s: %s",
+                zone.climate_entity, e,
+            )
+
+        if self._db is not None:
+            await self._db.clear_ac_in_flight_nudge(zone_id)
+            await self._db.log_ac_ramp_event(
+                zone_id=zone_id,
+                event_type=AC_RAMP_EVENT_NUDGE_RESTORED,
+                target_high=original_target,
+                kwh_rate_before=zone.nudge_kwh_rate_before,
+            )
+
+        zone.ramp_state = AC_RAMP_STATE_AWAITING_EVAL
+
+        @callback
+        def _on_eval_fire(_now):
+            self.hass.async_create_task(self._evaluate_nudge_outcome(zone))
+
+        self._nudge_eval_timers[zone_id] = async_call_later(
+            self.hass, AC_NUDGE_EVALUATION_DELAY_S, _on_eval_fire,
+        )
+        _LOGGER.info(
+            "Soft nudge restored on %s (target=%.1f); evaluating in %ds",
+            zone.zone_name, original_target, AC_NUDGE_EVALUATION_DELAY_S,
+        )
+
+    async def _evaluate_nudge_outcome(self, zone: ZoneState) -> None:
+        """10 min post-restore: did kWh drop? If not, escalate to hard reset.
+
+        Decision rule: if kwh_rate_after >= 85% of kwh_rate_before, treat as
+        ineffective and escalate. The 15% threshold tolerates small natural
+        fluctuations without escalating on noise.
+        """
+        zone_id = zone.zone_id
+        self._nudge_eval_timers.pop(zone_id, None)
+
+        now = dt_util.now()
+        kwh_rate_after = self._read_kwh_rate(zone, now)
+        kwh_rate_before = zone.nudge_kwh_rate_before
+
+        # Compute capped kWh-avoided estimate (rough — see TECH_DEBT)
+        kwh_avoided = 0.0
+        if (kwh_rate_before is not None
+                and kwh_rate_after is not None
+                and kwh_rate_after < kwh_rate_before):
+            delta = kwh_rate_before - kwh_rate_after
+            kwh_avoided = delta * (AC_KWH_AVOIDED_PROJECTION_CAP_MIN / 60.0)
+
+        if self._db is not None:
+            await self._db.log_ac_ramp_event(
+                zone_id=zone_id,
+                event_type=AC_RAMP_EVENT_NUDGE_EVALUATED,
+                current_temp=zone.current_temperature,
+                target_high=zone.target_temp_high,
+                kwh_rate_before=kwh_rate_before,
+                kwh_rate_after=kwh_rate_after,
+                notes=f"kwh_avoided={kwh_avoided:.3f}",
+            )
+
+        # Effectiveness decision
+        ineffective = (
+            kwh_rate_after is None
+            or kwh_rate_before is None
+            or kwh_rate_after >= kwh_rate_before * 0.85
+        )
+        if ineffective:
+            zone.ramp_state = AC_RAMP_STATE_ESCALATING
+            _LOGGER.warning(
+                "Nudge ineffective on %s (kwh_rate_before=%.2f, after=%s) "
+                "— escalating to hard reset",
+                zone.zone_name,
+                kwh_rate_before if kwh_rate_before is not None else 0.0,
+                f"{kwh_rate_after:.2f}" if kwh_rate_after is not None else "None",
+            )
+            await self._perform_hard_reset_escalation(
+                zone, kwh_rate_after if kwh_rate_after is not None else 0.0,
+            )
+        else:
+            zone.ramp_state = AC_RAMP_STATE_IDLE
+            zone.nudge_kwh_rate_before = None
+            _LOGGER.info(
+                "Nudge succeeded on %s: kwh_rate %.2f -> %.2f kW "
+                "(avoided ~%.2f kWh est.)",
+                zone.zone_name, kwh_rate_before, kwh_rate_after, kwh_avoided,
+            )
+
+    async def _perform_hard_reset_escalation(
+        self, zone: ZoneState, kwh_rate_now: float,
+    ) -> None:
+        """Gated hard reset (compressor protection).
+
+        Two gates AND together:
+          - daily cap (hard_reset_count_today < limit)
+          - global min-interval (no-date-filter MAX query — Risk R2)
+
+        Cap hit -> _engage_lockout. Min-interval gate fail -> log + skip.
+        Both pass -> increment counter, fire _perform_ac_reset (existing
+        v3.18.x off->wait->restore logic with verify+retry).
+        """
+        zone_id = zone.zone_id
+        now = dt_util.now()
+
+        if self._db is None:
+            zone.ramp_state = AC_RAMP_STATE_IDLE
+            return
+
+        state = await self._db.get_ac_reset_state(zone_id)
+
+        # Gate A: daily cap
+        if int(state.get("hard_reset_count", 0)) >= self._hard_reset_daily_limit:
+            await self._engage_lockout(zone, state)
+            return
+
+        # Gate B: global min-interval (R2 — across day-rollover)
+        last_global_ts = await self._db.get_global_last_hard_reset_ts(zone_id)
+        if last_global_ts:
+            try:
+                last = datetime.fromisoformat(last_global_ts)
+                age_min = (now - last).total_seconds() / 60
+            except (ValueError, TypeError):
+                age_min = self._hard_reset_min_interval_min + 1  # treat as ok
+            if age_min < self._hard_reset_min_interval_min:
+                _LOGGER.warning(
+                    "Hard reset on %s blocked by min-interval gate "
+                    "(last=%.0fmin ago, gate=%dmin)",
+                    zone.zone_name, age_min, self._hard_reset_min_interval_min,
+                )
+                zone.ramp_state = AC_RAMP_STATE_IDLE
+                return
+
+        # Both gates passed
+        state["hard_reset_count"] = int(state.get("hard_reset_count", 0)) + 1
+        state["last_hard_reset_ts"] = now.isoformat()
+        await self._db.save_ac_reset_state(state)
+        await self._db.log_ac_ramp_event(
+            zone_id=zone_id,
+            event_type=AC_RAMP_EVENT_HARD_RESET_STARTED,
+            kwh_rate_before=kwh_rate_now,
+            hard_reset_count_today=int(state["hard_reset_count"]),
+        )
+        # Keep ZoneState counter in sync for legacy sensor exposure
+        zone.ac_reset_count_today = int(state["hard_reset_count"])
+
+        # Reuse existing _perform_ac_reset (off -> wait -> restore w/ verify)
+        await self._perform_ac_reset(zone)
+
+    async def _engage_lockout(
+        self, zone: ZoneState, state: dict,
+    ) -> None:
+        """Cap hit — set lockout_flag, fire persistent notification (D6)."""
+        zone_id = zone.zone_id
+        state["lockout_flag"] = 1
+        await self._db.save_ac_reset_state(state)
+        await self._db.log_ac_ramp_event(
+            zone_id=zone_id,
+            event_type=AC_RAMP_EVENT_LOCKOUT_ENGAGED,
+            hard_reset_count_today=int(state.get("hard_reset_count", 0)),
+            lockout_triggered=True,
+        )
+        zone.ramp_state = AC_RAMP_STATE_LOCKED_OUT
+
+        try:
+            await self.hass.services.async_call(
+                "persistent_notification",
+                "create",
+                {
+                    "title": f"AC Ramp Lockout: {zone.zone_name}",
+                    "message": (
+                        f"AC {zone.zone_name} hit max hard resets today "
+                        f"({state.get('hard_reset_count', 0)}). Controller may "
+                        f"need manual investigation. Resets resume tomorrow. "
+                        f"Use the Clear Lockout button if this was a false "
+                        f"positive."
+                    ),
+                    "notification_id": f"ura_ac_ramp_lockout_{zone_id}",
+                },
+                blocking=False,
+            )
+        except Exception as e:
+            _LOGGER.warning("Lockout notification failed for %s: %s",
+                            zone.zone_name, e)
+        _LOGGER.warning(
+            "AC ramp lockout engaged on %s (hard_reset_count=%d)",
+            zone.zone_name, state.get("hard_reset_count", 0),
+        )
+
+    async def cancel_nudge(
+        self, zone_id: str, triggered_by: str = "manual",
+    ) -> None:
+        """Abort an in-flight nudge, restore target immediately (D9 button)."""
+        zone = self._zone_manager.zones.get(zone_id)
+        if zone is None:
+            return
+
+        cancel = self._nudge_restore_timers.pop(zone_id, None)
+        if cancel:
+            cancel()
+        cancel_eval = self._nudge_eval_timers.pop(zone_id, None)
+        if cancel_eval:
+            cancel_eval()
+        self._nudge_in_flight.discard(zone_id)
+
+        original_target = None
+        if self._db is not None:
+            state = await self._db.get_ac_reset_state(zone_id)
+            original_target = state.get("in_flight_nudge_original_target")
+
+        if original_target is not None:
+            self._suppressed_entities.add(zone.climate_entity)
+            try:
+                await self.hass.services.async_call(
+                    "climate",
+                    "set_temperature",
+                    {
+                        "entity_id": zone.climate_entity,
+                        "target_temp_high": float(original_target),
+                        "target_temp_low": zone.target_temp_low,
+                    },
+                    blocking=False,
+                )
+            except Exception as e:
+                _LOGGER.error(
+                    "cancel_nudge restore failed for %s: %s",
+                    zone.climate_entity, e,
+                )
+
+        if self._db is not None:
+            await self._db.clear_ac_in_flight_nudge(zone_id)
+            await self._db.log_ac_ramp_event(
+                zone_id=zone_id,
+                event_type=AC_RAMP_EVENT_CANCEL_INVOKED,
+                triggered_by=triggered_by,
+                target_high=(
+                    float(original_target)
+                    if original_target is not None else None
+                ),
+            )
+
+        zone.ramp_state = AC_RAMP_STATE_IDLE
+        _LOGGER.info(
+            "Nudge cancelled on %s (triggered_by=%s)",
+            zone.zone_name, triggered_by,
+        )
+
+    async def force_nudge(self, zone_id: str) -> None:
+        """User-triggered nudge (D9 button).
+
+        Respects master switch (kill-switch contract) but ignores daily caps
+        — counts toward day's budget so can't mask runaway loops via testing.
+        """
+        if not self._ramp_master_enabled:
+            _LOGGER.warning(
+                "force_nudge blocked: master switch is OFF (zone=%s)", zone_id,
+            )
+            return
+        zone = self._zone_manager.zones.get(zone_id)
+        if zone is None:
+            return
+        if zone_id in self._nudge_in_flight:
+            _LOGGER.warning(
+                "force_nudge: %s already mid-nudge", zone.zone_name,
+            )
+            return
+
+        now = dt_util.now()
+        kwh_rate = self._read_kwh_rate(zone, now) or 0.0
+        await self._perform_soft_nudge(zone, kwh_rate, triggered_by="manual")
+
+    async def clear_zone_lockout(self, zone_id: str) -> None:
+        """Reset today's counters + clear lockout for one zone (D9 button)."""
+        if self._db is None:
+            return
+        await self._db.clear_ac_zone_today(zone_id)
+        zone = self._zone_manager.zones.get(zone_id)
+        if zone is not None:
+            zone.ac_reset_count_today = 0
+            zone.ramp_state = AC_RAMP_STATE_IDLE
+        try:
+            await self.hass.services.async_call(
+                "persistent_notification",
+                "dismiss",
+                {"notification_id": f"ura_ac_ramp_lockout_{zone_id}"},
+                blocking=False,
+            )
+        except Exception:
+            pass
+        _LOGGER.info("Cleared lockout for zone %s", zone_id)
+
+    async def async_startup_ramp_audit(self) -> None:
+        """Restore in-flight nudges that survived an HA restart (R1).
+
+        Scans ac_reset_state for non-NULL in_flight_nudge_original_target.
+        For each:
+          - elapsed >= duration  -> restore immediately + clear DB
+          - elapsed <  duration  -> schedule restore for remaining time
+
+        Called from HVAC coordinator first-decision-cycle (post-state-init)
+        so climate entities have populated their initial state.
+        """
+        if self._db is None:
+            return
+        rows = await self._db.get_zones_with_in_flight_nudge()
+        if not rows:
+            return
+        now = dt_util.now()
+        for row in rows:
+            zone_id = row["zone_id"]
+            zone = self._zone_manager.zones.get(zone_id)
+            if zone is None:
+                # Stale row for a zone that no longer exists — clear it
+                await self._db.clear_ac_in_flight_nudge(zone_id)
+                continue
+
+            original_target = row.get("original_target")
+            if original_target is None:
+                continue
+
+            started_ts = row.get("started_ts")
+            duration_s = int(row.get("duration_s") or 0)
+            elapsed_s: float
+            if started_ts:
+                try:
+                    started = datetime.fromisoformat(started_ts)
+                    elapsed_s = (now - started).total_seconds()
+                except (ValueError, TypeError):
+                    elapsed_s = float(duration_s + 1)  # treat as expired
+            else:
+                elapsed_s = float(duration_s + 1)
+
+            if elapsed_s >= duration_s:
+                # Expired — restore now
+                self._suppressed_entities.add(zone.climate_entity)
+                try:
+                    await self.hass.services.async_call(
+                        "climate", "set_temperature",
+                        {
+                            "entity_id": zone.climate_entity,
+                            "target_temp_high": float(original_target),
+                            "target_temp_low": zone.target_temp_low,
+                        },
+                        blocking=False,
+                    )
+                except Exception as e:
+                    _LOGGER.error(
+                        "Startup nudge restore failed for %s: %s",
+                        zone.climate_entity, e,
+                    )
+                await self._db.clear_ac_in_flight_nudge(zone_id)
+                await self._db.log_ac_ramp_event(
+                    zone_id=zone_id,
+                    event_type=AC_RAMP_EVENT_STARTUP_RESTORE,
+                    triggered_by="startup",
+                    target_high=float(original_target),
+                    notes=f"elapsed_s={elapsed_s:.0f};duration_s={duration_s};expired",
+                )
+                zone.ramp_state = AC_RAMP_STATE_IDLE
+                _LOGGER.info(
+                    "Startup audit: restored expired nudge on %s (target=%.1f)",
+                    zone.zone_name, original_target,
+                )
+            else:
+                # Still in-window — schedule restore for the remaining time
+                remaining_s = duration_s - elapsed_s
+                self._nudge_in_flight.add(zone_id)
+                zone.ramp_state = AC_RAMP_STATE_NUDGING
+                target = float(original_target)
+
+                @callback
+                def _on_resume_restore(_now, z=zone, t=target):
+                    self.hass.async_create_task(
+                        self._restore_after_nudge(z, t)
+                    )
+
+                self._nudge_restore_timers[zone_id] = async_call_later(
+                    self.hass, remaining_s, _on_resume_restore,
+                )
+                await self._db.log_ac_ramp_event(
+                    zone_id=zone_id,
+                    event_type=AC_RAMP_EVENT_STARTUP_RESTORE,
+                    triggered_by="startup",
+                    target_high=target,
+                    notes=f"resume_remaining_s={remaining_s:.0f}",
+                )
+                _LOGGER.info(
+                    "Startup audit: resuming nudge on %s, %.0fs remaining",
+                    zone.zone_name, remaining_s,
+                )
 
     # =========================================================================
     # Helpers

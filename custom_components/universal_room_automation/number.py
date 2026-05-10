@@ -1,6 +1,6 @@
 """Number platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.5.10.1
+# Universal Room Automation vv4.5.11
 # Build: 2026-01-02
 # File: number.py
 #
@@ -61,6 +61,14 @@ async def async_setup_entry(
         # Each is a runtime slider; form values seed install-time only,
         # then RestoreEntity-backed slider is the source of truth.
         for cls in _build_hvac_v4510_numbers():
+            entities.append(cls(hass, entry))
+        # v4.5.11: 6 house-wide AC ramp-down tunables + 1 per-zone kWh
+        # rate threshold per AC zone. The per-zone count varies with
+        # configured zones (3 for the canonical 2x3-ton + 1x4-ton install).
+        for cls in _build_hvac_v4511_numbers():
+            entities.append(cls(hass, entry))
+        for zone_spec in _discover_ac_zones(hass):
+            cls = _hvac_zone_kwh_threshold_factory(**zone_spec)
             entities.append(cls(hass, entry))
         async_add_entities(entities)
         _LOGGER.info("Set up %d CM number entities", len(entities))
@@ -991,3 +999,261 @@ def _build_hvac_v4510_numbers():
             min_value=0.5, max_value=5, step=0.5, unit="°F",
         ),
     ]
+
+
+# ===========================================================================
+# v4.5.11 — AC Energy-Aware Ramp-Down (house-wide tunables)
+# ===========================================================================
+# 6 house-wide Number entities push to OverrideArrester instance attrs.
+# (kwh_rate_threshold is per-zone — see _build_hvac_v4511_zone_numbers below.)
+
+
+def _build_hvac_v4511_numbers():
+    """Lazy-build to avoid CONF import-at-module-load."""
+    from .domain_coordinators.hvac_const import (
+        CONF_HVAC_AC_NUDGE_SIZE,
+        DEFAULT_HVAC_AC_NUDGE_SIZE,
+        CONF_HVAC_AC_NUDGE_DURATION,
+        DEFAULT_HVAC_AC_NUDGE_DURATION,
+        CONF_HVAC_AC_SUSTAINED_SAMPLES,
+        DEFAULT_HVAC_AC_SUSTAINED_SAMPLES,
+        CONF_HVAC_AC_DETECTION_TIME_GATE,
+        DEFAULT_HVAC_AC_DETECTION_TIME_GATE,
+        CONF_HVAC_AC_HARD_RESET_DAILY_LIMIT,
+        DEFAULT_HVAC_AC_HARD_RESET_DAILY_LIMIT,
+        CONF_HVAC_AC_HARD_RESET_MIN_INTERVAL,
+        DEFAULT_HVAC_AC_HARD_RESET_MIN_INTERVAL,
+    )
+    return [
+        _hvac_tunable_number_factory(
+            suffix="ac_nudge_size",
+            name="AC Nudge Size",
+            icon="mdi:thermometer-plus",
+            sub_controller_attr="_override_arrester",
+            runtime_field="_nudge_size_f",
+            conf_key=CONF_HVAC_AC_NUDGE_SIZE,
+            default=DEFAULT_HVAC_AC_NUDGE_SIZE,
+            min_value=0.5, max_value=3.0, step=0.5, unit="°F",
+        ),
+        _hvac_tunable_number_factory(
+            suffix="ac_nudge_duration",
+            name="AC Nudge Duration",
+            icon="mdi:timer-sand",
+            sub_controller_attr="_override_arrester",
+            runtime_field="_nudge_duration_min",
+            conf_key=CONF_HVAC_AC_NUDGE_DURATION,
+            default=DEFAULT_HVAC_AC_NUDGE_DURATION,
+            min_value=1, max_value=15, step=1, unit="min",
+            integer=True,
+        ),
+        _hvac_tunable_number_factory(
+            suffix="ac_sustained_samples",
+            name="AC Sustained Samples",
+            icon="mdi:counter",
+            sub_controller_attr="_override_arrester",
+            runtime_field="_sustained_samples",
+            conf_key=CONF_HVAC_AC_SUSTAINED_SAMPLES,
+            default=DEFAULT_HVAC_AC_SUSTAINED_SAMPLES,
+            min_value=2, max_value=10, step=1, unit=None,
+            integer=True,
+        ),
+        _hvac_tunable_number_factory(
+            suffix="ac_detection_time_gate",
+            name="AC Detection Time Gate",
+            icon="mdi:timer-outline",
+            sub_controller_attr="_override_arrester",
+            runtime_field="_detection_time_gate_min",
+            conf_key=CONF_HVAC_AC_DETECTION_TIME_GATE,
+            default=DEFAULT_HVAC_AC_DETECTION_TIME_GATE,
+            min_value=5, max_value=30, step=1, unit="min",
+            integer=True,
+        ),
+        _hvac_tunable_number_factory(
+            suffix="ac_hard_reset_daily_limit",
+            name="AC Hard Reset Daily Limit",
+            icon="mdi:calendar-alert",
+            sub_controller_attr="_override_arrester",
+            runtime_field="_hard_reset_daily_limit",
+            conf_key=CONF_HVAC_AC_HARD_RESET_DAILY_LIMIT,
+            default=DEFAULT_HVAC_AC_HARD_RESET_DAILY_LIMIT,
+            min_value=0, max_value=5, step=1, unit=None,
+            integer=True,
+        ),
+        _hvac_tunable_number_factory(
+            suffix="ac_hard_reset_min_interval",
+            name="AC Hard Reset Min Interval",
+            icon="mdi:timer-lock-outline",
+            sub_controller_attr="_override_arrester",
+            runtime_field="_hard_reset_min_interval_min",
+            conf_key=CONF_HVAC_AC_HARD_RESET_MIN_INTERVAL,
+            default=DEFAULT_HVAC_AC_HARD_RESET_MIN_INTERVAL,
+            min_value=30, max_value=360, step=30, unit="min",
+            integer=True,
+        ),
+    ]
+
+
+# ===========================================================================
+# v4.5.11 — Per-zone AC kWh Rate Threshold (one Number per AC zone)
+# ===========================================================================
+# Threshold scales with AC tonnage (~25-30% of rated power floor). 3-ton
+# units default to 0.8 kW; 4-ton typically wants 1.0 kW. Per-zone sliders
+# allow independent tuning without forcing all units to the same value.
+
+
+def _hvac_zone_kwh_threshold_factory(
+    *, zone_id: str, zone_name: str, climate_entity: str,
+):
+    """Build a Number class for one AC zone's kWh-rate threshold.
+
+    Pushes to ZoneState.kwh_rate_threshold (not a sub-controller attr).
+    Lookup chain: hass.data[DOMAIN]["coordinator_manager"] -> hvac
+    coordinator -> _zone_manager -> zones[zone_id].
+    """
+    from .domain_coordinators.hvac_const import DEFAULT_HVAC_AC_KWH_RATE_THRESHOLD
+
+    class _HVACZoneKwhThresholdNumber(NumberEntity, RestoreEntity):
+        _attr_has_entity_name = True
+        _attr_icon = "mdi:flash-alert"
+        _attr_native_min_value = 0.3
+        _attr_native_max_value = 3.0
+        _attr_native_step = 0.1
+        _attr_native_unit_of_measurement = "kW"
+        _attr_mode = NumberMode.SLIDER
+        _attr_entity_category = EntityCategory.CONFIG
+
+        def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+            from homeassistant.helpers.device_registry import DeviceInfo
+            from .const import VERSION
+            self.hass = hass
+            self._entry = entry
+            self._zone_id = zone_id
+            self._attr_unique_id = f"{DOMAIN}_hvac_ac_kwh_threshold_{zone_id}"
+            self._attr_name = f"AC kWh Rate Threshold ({zone_name})"
+            self._attr_device_info = DeviceInfo(
+                identifiers={(DOMAIN, "hvac_coordinator")},
+                name="URA: HVAC Coordinator",
+                manufacturer="Universal Room Automation",
+                model="HVAC Coordinator",
+                sw_version=VERSION,
+                via_device=(DOMAIN, "coordinator_manager"),
+            )
+            self._value: float = float(DEFAULT_HVAC_AC_KWH_RATE_THRESHOLD)
+
+        def _get_zone(self):
+            manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+            if manager is None:
+                return None
+            hvac = manager.coordinators.get("hvac") if hasattr(manager, "coordinators") else None
+            if hvac is None:
+                return None
+            zm = getattr(hvac, "_zone_manager", None)
+            if zm is None:
+                return None
+            return zm.zones.get(self._zone_id)
+
+        @property
+        def native_value(self) -> float:
+            return self._value
+
+        @property
+        def available(self) -> bool:
+            return self._get_zone() is not None
+
+        def _push_to_zone(self) -> bool:
+            zone = self._get_zone()
+            if zone is None:
+                return False
+            try:
+                zone.kwh_rate_threshold = float(self._value)
+                return True
+            except Exception as e:
+                _LOGGER.error(
+                    "Per-zone kWh threshold push failed for %s: %s",
+                    self._zone_id, e,
+                )
+                return False
+
+        async def async_added_to_hass(self) -> None:
+            await super().async_added_to_hass()
+            last_state = await self.async_get_last_state()
+            if (
+                last_state is not None
+                and last_state.state not in ("unknown", "unavailable")
+            ):
+                try:
+                    self._value = float(last_state.state)
+                except (ValueError, TypeError):
+                    pass
+            if not self._push_to_zone():
+                from homeassistant.helpers.dispatcher import async_dispatcher_connect
+                from .domain_coordinators.hvac_const import SIGNAL_HVAC_ENTITIES_UPDATE
+                unsub_holder: list = []
+
+                @callback
+                def _on_hvac_tick(*_a, **_kw):
+                    if self._push_to_zone() and unsub_holder:
+                        unsub_holder[0]()
+
+                unsub_holder.append(
+                    async_dispatcher_connect(
+                        self.hass,
+                        SIGNAL_HVAC_ENTITIES_UPDATE,
+                        _on_hvac_tick,
+                    )
+                )
+                self.async_on_remove(unsub_holder[0])
+
+        async def async_set_native_value(self, value: float) -> None:
+            self._value = float(value)
+            self._push_to_zone()
+            self.async_write_ha_state()
+            _LOGGER.info(
+                "AC kWh threshold for zone %s set to %.2f kW",
+                self._zone_id, self._value,
+            )
+
+    _HVACZoneKwhThresholdNumber.__name__ = (
+        f"HVACZoneKwhThreshold{zone_id.title().replace('_', '')}Number"
+    )
+    _HVACZoneKwhThresholdNumber.__qualname__ = _HVACZoneKwhThresholdNumber.__name__
+    return _HVACZoneKwhThresholdNumber
+
+
+def _discover_ac_zones(hass: HomeAssistant) -> list[dict]:
+    """Enumerate (zone_id, zone_name, climate_entity) tuples for all
+    HVAC zones — used at CM setup to instantiate one threshold slider
+    per zone.
+
+    Reads from the Zone Manager entry's `zones` dict (matches how
+    HVAC ZoneManager.discover_zones works at runtime).
+    """
+    from .const import (
+        CONF_ENTRY_TYPE,
+        CONF_ZONE_THERMOSTAT,
+        ENTRY_TYPE_ZONE_MANAGER,
+    )
+
+    out: list[dict] = []
+    seen: set[str] = set()
+    for entry in hass.config_entries.async_entries(DOMAIN):
+        if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ZONE_MANAGER:
+            continue
+        merged = {**entry.data, **entry.options}
+        zones_dict = merged.get("zones", {})
+        for zone_name, zone_cfg in zones_dict.items():
+            thermostat = zone_cfg.get(CONF_ZONE_THERMOSTAT)
+            if not thermostat or thermostat in seen:
+                continue
+            seen.add(thermostat)
+            # Mirror ZoneManager._zone_id_from_thermostat: derive a stable
+            # zone_id from the climate entity_id.
+            zone_id = thermostat.replace("climate.", "").replace(".", "_")
+            out.append(
+                {
+                    "zone_id": zone_id,
+                    "zone_name": zone_name,
+                    "climate_entity": thermostat,
+                }
+            )
+    return out
