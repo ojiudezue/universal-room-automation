@@ -113,12 +113,26 @@ class CoverController:
         hass: HomeAssistant,
         zone_manager: ZoneManager,
         occupied_close_delta: float = OCCUPIED_CLOSE_TEMP_DELTA,
+        # v4.5.10: 5 new tunables + master enable
+        solar_gain_enabled: bool = True,
+        cover_close_temp: float = COVER_CLOSE_TEMP,
+        cover_open_temp: float = COVER_OPEN_TEMP,
+        cover_override_hours: float = COVER_MANUAL_OVERRIDE_HOURS,
+        solar_start_hour: int = COVER_SOLAR_HOUR_START,
+        solar_end_hour: int = COVER_SOLAR_HOUR_END,
     ) -> None:
         """Initialize cover controller.
 
         v4.5.9.2: occupied_close_delta accepted as constructor arg
         (was hardcoded module constant). Wired through from
         HVACCoordinator → CM-level CONF_HVAC_OCCUPIED_COVER_CLOSE_DELTA.
+
+        v4.5.10: master toggle (solar_gain_enabled) + 5 additional
+        tunables now configurable. Module constants stay as constructor
+        defaults so existing test fixtures work unchanged. URA mirror
+        pattern: kwargs are install-time seeds; the eventual Number /
+        Switch entities are the runtime source of truth (they write to
+        these instance attrs directly).
         """
         self.hass = hass
         self._zone_manager = zone_manager
@@ -130,6 +144,13 @@ class CoverController:
         self._hvac_closed: set[str] = set()
         # v4.5.9.2: per-house occupancy-aware close threshold (configurable)
         self._occupied_close_delta: float = float(occupied_close_delta)
+        # v4.5.10: master toggle + 5 tunables
+        self._solar_gain_enabled: bool = bool(solar_gain_enabled)
+        self._cover_close_temp: float = float(cover_close_temp)
+        self._cover_open_temp: float = float(cover_open_temp)
+        self._cover_override_hours: float = float(cover_override_hours)
+        self._solar_start_hour: int = int(solar_start_hour)
+        self._solar_end_hour: int = int(solar_end_hour)
         self._state_listener_unsub: CALLBACK_TYPE | None = None
         self._outdoor_temp_entity: str = ""
 
@@ -300,7 +321,15 @@ class CoverController:
         Each close decision passes through intent + occupancy gates;
         open is scoped to ONLY covers HVAC explicitly closed (the
         `_hvac_closed` set).
+
+        v4.5.10: master enable check (early-return). Tunable thresholds
+        and hours read from instance attrs (live — Number/Switch entity
+        edits take effect on next tick without reload).
         """
+        # v4.5.10: master switch — early return if disabled
+        if not self._solar_gain_enabled:
+            return
+
         if not self._covers:
             return
 
@@ -316,18 +345,20 @@ class CoverController:
         if outdoor_temp is None:
             return  # Can't make cover decisions without temperature
 
-        # Determine if covers should be closed for solar gain
+        # Determine if covers should be closed for solar gain.
+        # v4.5.10: hours are now configurable instance attrs.
         in_solar_window = (
             month in COVER_SOLAR_MONTHS
-            and COVER_SOLAR_HOUR_START <= hour < COVER_SOLAR_HOUR_END
+            and self._solar_start_hour <= hour < self._solar_end_hour
         )
 
-        # Hysteresis: close at COVER_CLOSE_TEMP, open at COVER_OPEN_TEMP
+        # Hysteresis: close at self._cover_close_temp, open at self._cover_open_temp
+        # (v4.5.10: was hardcoded COVER_CLOSE_TEMP / COVER_OPEN_TEMP module constants)
         should_close = False
         if in_solar_window:
-            if outdoor_temp >= COVER_CLOSE_TEMP:
+            if outdoor_temp >= self._cover_close_temp:
                 should_close = True
-            elif self._hvac_closed and outdoor_temp > COVER_OPEN_TEMP:
+            elif self._hvac_closed and outdoor_temp > self._cover_open_temp:
                 should_close = True  # Stay closed until below open threshold
 
         # === Close phase: per-cover, gated ===
@@ -608,9 +639,11 @@ class CoverController:
             if (now - last_cmd).total_seconds() < COVER_COMMAND_WINDOW_SECONDS:
                 return
 
-        # Manual change detected — set override backoff
+        # Manual change detected — set override backoff.
+        # v4.5.10: duration is now configurable per house (was hardcoded
+        # COVER_MANUAL_OVERRIDE_HOURS = 2).
         now = dt_util.now()
-        override_end = now + timedelta(hours=COVER_MANUAL_OVERRIDE_HOURS)
+        override_end = now + timedelta(hours=self._cover_override_hours)
         cover.manual_override_until = override_end.isoformat()
 
         _LOGGER.info(

@@ -1,6 +1,6 @@
 """Number platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.5.9.2
+# Universal Room Automation vv4.5.10
 # Build: 2026-01-02
 # File: number.py
 #
@@ -57,6 +57,11 @@ async def async_setup_entry(
             # v4.3.3: EV battery drain SOC slider
             EVBatteryDrainSOCNumber(hass, entry, 50),
         ]
+        # v4.5.10: 7 HVAC tunable Number entities on the HVAC Coordinator device.
+        # Each is a runtime slider; form values seed install-time only,
+        # then RestoreEntity-backed slider is the source of truth.
+        for cls in _build_hvac_v4510_numbers():
+            entities.append(cls(hass, entry))
         async_add_entities(entities)
         _LOGGER.info("Set up %d CM number entities", len(entities))
         return
@@ -739,3 +744,244 @@ class EVBatteryDrainSOCNumber(NumberEntity, RestoreEntity):
         self._push_to_coordinator()
         self.async_write_ha_state()
         _LOGGER.info("EV battery drain SOC threshold set to %d%%", int(value))
+
+
+# ===========================================================================
+# v4.5.10 — HVAC Coordinator runtime tunables (Number entities)
+# ===========================================================================
+# Factory that produces 7 Number-entity classes for HVAC tunables. Each
+# instance reads/writes a runtime field on a sub-controller (cover_controller,
+# predictor, fan_controller). Mirror pattern: form value is install-time
+# seed; this Number entity is the runtime source of truth (per
+# `feedback_ura_mirror_pattern.md`).
+
+
+def _hvac_tunable_number_factory(
+    *,
+    suffix: str,
+    name: str,
+    icon: str,
+    sub_controller_attr: str,   # "_cover_controller" | "_predictor" | "_fan_controller"
+    runtime_field: str,          # e.g. "_occupied_close_delta"
+    conf_key: str,               # CONF_* string for form-seed lookup
+    default: float,
+    min_value: float,
+    max_value: float,
+    step: float,
+    unit: str | None,
+    integer: bool = False,
+):
+    """Build a Number entity class for an HVAC sub-controller tunable.
+
+    The class:
+      - Lives on the URA: HVAC Coordinator device
+      - Reads form-seed value from entry on first install
+      - RestoreEntity-backed (slider survives restart)
+      - Pushes value into sub-controller's runtime field on every change
+      - Pushes again on coord-ready signal (handles cross-coordinator init race)
+    """
+    cast = int if integer else float
+
+    class _HVACTunableNumber(NumberEntity, RestoreEntity):
+        _attr_has_entity_name = True
+        _attr_icon = icon
+        _attr_native_min_value = min_value
+        _attr_native_max_value = max_value
+        _attr_native_step = step
+        _attr_native_unit_of_measurement = unit
+        _attr_mode = NumberMode.SLIDER
+        _attr_entity_category = EntityCategory.CONFIG
+
+        def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+            from homeassistant.helpers.device_registry import DeviceInfo
+            from .const import VERSION
+            self.hass = hass
+            self._entry = entry
+            self._attr_unique_id = f"{DOMAIN}_hvac_{suffix}"
+            self._attr_name = name
+            self._attr_device_info = DeviceInfo(
+                identifiers={(DOMAIN, "hvac_coordinator")},
+                name="URA: HVAC Coordinator",
+                manufacturer="Universal Room Automation",
+                model="HVAC Coordinator",
+                sw_version=VERSION,
+                via_device=(DOMAIN, "coordinator_manager"),
+            )
+            # Read form-seed from the CM entry's options
+            cm_entry = self._find_cm_entry()
+            cm_config = (
+                {**cm_entry.data, **cm_entry.options}
+                if cm_entry is not None else {}
+            )
+            self._value = cast(cm_config.get(conf_key, default))
+
+        def _find_cm_entry(self):
+            from .const import CONF_ENTRY_TYPE, ENTRY_TYPE_COORDINATOR_MANAGER
+            for e in self.hass.config_entries.async_entries(DOMAIN):
+                if e.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_COORDINATOR_MANAGER:
+                    return e
+            return None
+
+        def _get_sub_controller(self):
+            manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+            if manager is None:
+                return None
+            hvac = manager.coordinators.get("hvac")
+            return getattr(hvac, sub_controller_attr, None) if hvac else None
+
+        @property
+        def native_value(self) -> float:
+            return self._value
+
+        @property
+        def available(self) -> bool:
+            return self._get_sub_controller() is not None
+
+        def _push_to_controller(self) -> bool:
+            sub = self._get_sub_controller()
+            if sub is None:
+                return False
+            try:
+                setattr(sub, runtime_field, cast(self._value))
+                return True
+            except Exception as e:
+                _LOGGER.error(
+                    "HVAC tunable %s push failed: %s", suffix, e,
+                )
+                return False
+
+        async def async_added_to_hass(self) -> None:
+            await super().async_added_to_hass()
+            last_state = await self.async_get_last_state()
+            if (
+                last_state is not None
+                and last_state.state not in ("unknown", "unavailable")
+            ):
+                try:
+                    self._value = cast(float(last_state.state))
+                except (ValueError, TypeError):
+                    pass
+            if not self._push_to_controller():
+                # Sub-controller not ready yet — listen for HVAC-ready signal
+                from homeassistant.helpers.dispatcher import async_dispatcher_connect
+                from .domain_coordinators.signals import (
+                    SIGNAL_HVAC_ENTITIES_UPDATE,
+                )
+                unsub_holder: list = []
+
+                @callback
+                def _on_hvac_tick(*_a, **_kw):
+                    if self._push_to_controller() and unsub_holder:
+                        unsub_holder[0]()
+
+                unsub_holder.append(
+                    async_dispatcher_connect(
+                        self.hass,
+                        SIGNAL_HVAC_ENTITIES_UPDATE,
+                        _on_hvac_tick,
+                    )
+                )
+                self.async_on_remove(unsub_holder[0])
+
+        async def async_set_native_value(self, value: float) -> None:
+            self._value = cast(value)
+            self._push_to_controller()
+            self.async_write_ha_state()
+            _LOGGER.info("HVAC tunable %s set to %s", suffix, self._value)
+
+    _HVACTunableNumber.__name__ = f"HVAC{suffix.title().replace('_', '')}Number"
+    _HVACTunableNumber.__qualname__ = _HVACTunableNumber.__name__
+    return _HVACTunableNumber
+
+
+# Build the 7 v4.5.10 Number entity classes via the factory
+def _build_hvac_v4510_numbers():
+    """Lazy-build to avoid import at module load (CONFs may not be available)."""
+    from .domain_coordinators.hvac_const import (
+        CONF_HVAC_OCCUPIED_COVER_CLOSE_DELTA,
+        DEFAULT_HVAC_OCCUPIED_COVER_CLOSE_DELTA,
+        CONF_HVAC_COVER_CLOSE_TEMP,
+        DEFAULT_HVAC_COVER_CLOSE_TEMP,
+        CONF_HVAC_COVER_OPEN_TEMP,
+        DEFAULT_HVAC_COVER_OPEN_TEMP,
+        CONF_HVAC_COVER_OVERRIDE_HOURS,
+        DEFAULT_HVAC_COVER_OVERRIDE_HOURS,
+        CONF_HVAC_SOLAR_BANK_FLOOR,
+        DEFAULT_HVAC_SOLAR_BANK_FLOOR,
+        CONF_HVAC_FAN_ACTIVATION_DELTA,
+        DEFAULT_FAN_ACTIVATION_DELTA,
+        CONF_HVAC_FAN_HYSTERESIS,
+        DEFAULT_FAN_HYSTERESIS,
+    )
+    return [
+        _hvac_tunable_number_factory(
+            suffix="cover_close_threshold",
+            name="Cover Close Threshold",
+            icon="mdi:thermometer-chevron-up",
+            sub_controller_attr="_cover_controller",
+            runtime_field="_occupied_close_delta",
+            conf_key=CONF_HVAC_OCCUPIED_COVER_CLOSE_DELTA,
+            default=DEFAULT_HVAC_OCCUPIED_COVER_CLOSE_DELTA,
+            min_value=0.5, max_value=5.0, step=0.5, unit="°F",
+        ),
+        _hvac_tunable_number_factory(
+            suffix="cover_close_temp",
+            name="Cover Close Temp",
+            icon="mdi:weather-sunny",
+            sub_controller_attr="_cover_controller",
+            runtime_field="_cover_close_temp",
+            conf_key=CONF_HVAC_COVER_CLOSE_TEMP,
+            default=DEFAULT_HVAC_COVER_CLOSE_TEMP,
+            min_value=75, max_value=95, step=1, unit="°F",
+        ),
+        _hvac_tunable_number_factory(
+            suffix="cover_open_temp",
+            name="Cover Open Temp",
+            icon="mdi:weather-partly-cloudy",
+            sub_controller_attr="_cover_controller",
+            runtime_field="_cover_open_temp",
+            conf_key=CONF_HVAC_COVER_OPEN_TEMP,
+            default=DEFAULT_HVAC_COVER_OPEN_TEMP,
+            min_value=70, max_value=90, step=1, unit="°F",
+        ),
+        _hvac_tunable_number_factory(
+            suffix="cover_override_duration",
+            name="Cover Override Duration",
+            icon="mdi:timer-sand",
+            sub_controller_attr="_cover_controller",
+            runtime_field="_cover_override_hours",
+            conf_key=CONF_HVAC_COVER_OVERRIDE_HOURS,
+            default=DEFAULT_HVAC_COVER_OVERRIDE_HOURS,
+            min_value=0.5, max_value=24, step=0.5, unit="hr",
+        ),
+        _hvac_tunable_number_factory(
+            suffix="solar_bank_floor",
+            name="Solar Banking Cool Floor",
+            icon="mdi:thermometer-low",
+            sub_controller_attr="_predictor",
+            runtime_field="_solar_bank_floor",
+            conf_key=CONF_HVAC_SOLAR_BANK_FLOOR,
+            default=DEFAULT_HVAC_SOLAR_BANK_FLOOR,
+            min_value=65, max_value=80, step=1, unit="°F",
+        ),
+        _hvac_tunable_number_factory(
+            suffix="fan_on_threshold",
+            name="Fan On Threshold",
+            icon="mdi:fan-plus",
+            sub_controller_attr="_fan_controller",
+            runtime_field="_activation_delta",
+            conf_key=CONF_HVAC_FAN_ACTIVATION_DELTA,
+            default=DEFAULT_FAN_ACTIVATION_DELTA,
+            min_value=0.5, max_value=5, step=0.5, unit="°F",
+        ),
+        _hvac_tunable_number_factory(
+            suffix="fan_off_hysteresis",
+            name="Fan Off Hysteresis",
+            icon="mdi:fan-minus",
+            sub_controller_attr="_fan_controller",
+            runtime_field="_deactivation_delta",
+            conf_key=CONF_HVAC_FAN_HYSTERESIS,
+            default=DEFAULT_FAN_HYSTERESIS,
+            min_value=0.5, max_value=5, step=0.5, unit="°F",
+        ),
+    ]

@@ -34,6 +34,55 @@ CONF_HVAC_FAN_MIN_RUNTIME: Final = "hvac_fan_min_runtime"
 # Read by CoverController._should_close_for_occupied_room.
 CONF_HVAC_OCCUPIED_COVER_CLOSE_DELTA: Final = "hvac_occupied_cover_close_delta"
 DEFAULT_HVAC_OCCUPIED_COVER_CLOSE_DELTA: Final = 2.0  # °F
+
+# v4.5.10 — Solar-gain cover management tunables (CM-level / HVAC step)
+# Master toggle for the entire CoverController feature (parallels
+# CONF_HVAC_FAN_CONTROL_ENABLED for fans). When False, CoverController
+# .update() early-returns and no close/open commands fire — regardless
+# of per-room CONF_COVER_HVAC_MANAGED settings.
+CONF_HVAC_SOLAR_GAIN_COVER_ENABLED: Final = "hvac_solar_gain_cover_enabled"
+DEFAULT_HVAC_SOLAR_GAIN_COVER_ENABLED: Final = True
+
+# Solar-gain temperature thresholds (was hardcoded as
+# COVER_CLOSE_TEMP / COVER_OPEN_TEMP module constants).
+CONF_HVAC_COVER_CLOSE_TEMP: Final = "hvac_cover_close_temp"
+DEFAULT_HVAC_COVER_CLOSE_TEMP: Final = 85.0  # °F (matches v3.8.4 COVER_CLOSE_TEMP)
+CONF_HVAC_COVER_OPEN_TEMP: Final = "hvac_cover_open_temp"
+DEFAULT_HVAC_COVER_OPEN_TEMP: Final = 80.0  # °F (matches v3.8.4 COVER_OPEN_TEMP)
+
+# Manual-override duration after a user touches a managed cover
+# (was hardcoded as COVER_MANUAL_OVERRIDE_HOURS = 2).
+CONF_HVAC_COVER_OVERRIDE_HOURS: Final = "hvac_cover_override_hours"
+DEFAULT_HVAC_COVER_OVERRIDE_HOURS: Final = 2.0  # hours
+
+# Solar banking floor: the coolest setpoint solar banking will drive
+# zones to (was hardcoded as SOLAR_BANK_FLOOR = 72.0).
+CONF_HVAC_SOLAR_BANK_FLOOR: Final = "hvac_solar_bank_floor"
+DEFAULT_HVAC_SOLAR_BANK_FLOOR: Final = 72.0  # °F (matches v3.8.4 SOLAR_BANK_FLOOR)
+
+# Solar window hours — when HVAC watches for solar-gain conditions
+# (was hardcoded as COVER_SOLAR_HOUR_START / END = 13 / 18).
+CONF_HVAC_COVER_SOLAR_START_HOUR: Final = "hvac_cover_solar_start_hour"
+DEFAULT_HVAC_COVER_SOLAR_START_HOUR: Final = 13
+CONF_HVAC_COVER_SOLAR_END_HOUR: Final = "hvac_cover_solar_end_hour"
+DEFAULT_HVAC_COVER_SOLAR_END_HOUR: Final = 18
+
+# Solar banking battery threshold — minimum SOC for banking to fire
+# (was hardcoded as SOLAR_BANK_SOC_MIN = 95).
+CONF_HVAC_SOLAR_BANK_SOC_MIN: Final = "hvac_solar_bank_soc_min"
+DEFAULT_HVAC_SOLAR_BANK_SOC_MIN: Final = 95  # %
+
+# Pre-cool / pre-heat forecast triggers
+# (was hardcoded in hvac_predict.py as PRECOOL_FORECAST_HIGH = 90.0,
+#  PREHEAT_FORECAST_LOW = 35.0).
+CONF_HVAC_PRECOOL_FORECAST_HIGH: Final = "hvac_precool_forecast_high"
+DEFAULT_HVAC_PRECOOL_FORECAST_HIGH: Final = 90.0  # °F
+CONF_HVAC_PREHEAT_FORECAST_LOW: Final = "hvac_preheat_forecast_low"
+DEFAULT_HVAC_PREHEAT_FORECAST_LOW: Final = 35.0  # °F
+
+# v4.5.10: Hysteresis safety floor — Cover Open Temp must be at least
+# this many °F below Cover Close Temp to prevent solar-gain flapping.
+COVER_HYSTERESIS_MIN_GAP: Final = 3.0  # °F
 CONF_HVAC_ARRESTER_ENABLED: Final = "hvac_arrester_enabled"
 CONF_HVAC_AC_RESET_ENABLED: Final = "hvac_ac_reset_enabled"
 CONF_HVAC_FAN_CONTROL_ENABLED: Final = "hvac_fan_control_enabled"

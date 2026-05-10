@@ -1,6 +1,6 @@
 # URA — VibeMemo (ojiudezue)
 
-*Last updated: 2026-05-07 | Version 1 | Contributors: ojiudezue*
+*Last updated: 2026-05-09 | Version 1 | Contributors: ojiudezue*
 
 ## DB Write Architecture: Why Single-Threaded and Why That's Right
 
@@ -60,6 +60,15 @@ Built `.claude/skills/transition-doc/` (with both `SKILL.md` and a publishable `
 Establishes a three-layer model for cross-session knowledge: durable memory (cross-cutting principles), VibeMemo (load-bearing decisions with structured rationale), transition docs (per-cycle session narrative). Different shapes for different jobs.
 → [007](entries/007_transition_doc_skill_pattern.json)
 
+## Solar-Gain Cover Controller (v3.8.4-H3) — Retroactive WHY
+
+The HVAC coordinator's `CoverController` (`hvac_covers.py`) was shipped in v3.8.4-H3 (Mar 2025) to close common-area blinds during peak afternoon solar hours in cooling season — Apr-Oct, 13:00-18:00 local, close at 85F outdoor / open at 80F (5F hysteresis), 2hr manual override respect, 120s command-window dedup. README_v3.8.4 documented the WHAT in 41 lines but the WHY was never written down: the constants are calibrated to a Texas climate + west-facing windows + the user's cover hardware movement times, and the dual-controller design (this one + per-room cover automation) was a deliberate boundary that requires every per-room cover behavior to be ALSO applied in `hvac_covers.py` or the two paths drift.
+
+The drift bit hard on 2026-05-09: v4.5.0.4 made the per-room cover dispatch tilt-aware for venetian blinds, v4.5.6 made the per-room "already in target" gate helpers tilt-aware too, but neither cycle threaded `CONF_COVER_TYPE` through `hvac_covers.py:_command_covers`. So when HVAC reopened the covers at 18:00 today (solar window over), it called `cover.open_cover` on Study A and Master Bedroom — and venetian blinds raised the whole blind to position=100 with slats stuck at tilt=0 instead of tilting slats open at position=0. Same Bug Class #33 (Partial Fix — Sibling Helpers Skipped) that's already in QUALITY_CONTEXT.md, third hit. v4.5.9 (forthcoming) closes the gap.
+
+The retroactive capture preserves four decisions: (1) house-level controller separate from per-room because the trigger conditions are house-level and cooling-season AC is the largest controllable load on a Texas tariff; (2) outdoor-temp trigger over solar-irradiance forecast for simplicity and because heat already accumulating is what AC must remove; (3) bulk-transition single-bool state machine because per-cover state would just produce identical decisions at higher complexity; (4) dual-source cover discovery (CM-level explicit list + room-derived) so the user neither has to enumerate every cover nor is limited to room covers. Constants live in `hvac_const.py` as a single source of truth.
+→ [008](entries/008_solar_gain_cover_controller_v384_h3.json)
+
 ## Open Questions
 
 - After 2-4 weeks of B-Lite divergence data, is automatic prediction source switching (B3) safe for financial predictions?
@@ -69,3 +78,4 @@ Establishes a three-layer model for cross-session knowledge: durable memory (cro
 - v4.5.0 calibration: does `arbitrage_charge_lead_time_min=360` produce the right safety margin? Adjust in v4.5.1 based on observed charge durations + HOLD efficacy.
 - Does barneyonline charge-rate-control HACS work on user's Enphase firmware? If yes, v4.6.x rewrites D4 to allow concurrent battery + EV charging.
 - After 3-4 transition docs, is the pattern producing artifacts future sessions actually consume? If not, replace with embedded rationale or more aggressive vibememo entries.
+- The retroactive WHY pattern (entry 008) — should we systematically backfill the rest of pre-vibememo URA? Candidates: per-room cover automation (v3.6.39 5-mode redesign + v3.6.40 mapping fix), HVAC override arrester (Bug Class avoidance), URA mirror pattern (RestoreEntity = runtime, entry.options = seed only — already in feedback memory but not in vibememo). Backfill is cheap when triggered by a lookback like today's; expensive to do as a standalone exercise.

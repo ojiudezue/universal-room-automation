@@ -92,6 +92,17 @@ class HVACCoordinator(BaseCoordinator):
         fan_control_enabled: bool = True,
         # v4.5.9.2: occupancy-aware solar-gain cover-close threshold (was hardcoded)
         occupied_cover_close_delta: float = 2.0,
+        # v4.5.10: HVAC tunables — master + 5 cover thresholds + 4 predictor thresholds
+        solar_gain_cover_enabled: bool = True,
+        cover_close_temp: float = 85.0,
+        cover_open_temp: float = 80.0,
+        cover_override_hours: float = 2.0,
+        solar_bank_floor: float = 72.0,
+        cover_solar_start_hour: int = 13,
+        cover_solar_end_hour: int = 18,
+        solar_bank_soc_min: int = 95,
+        precool_forecast_high: float = 90.0,
+        preheat_forecast_low: float = 35.0,
     ) -> None:
         """Initialize HVAC Coordinator."""
         super().__init__(
@@ -118,10 +129,22 @@ class HVACCoordinator(BaseCoordinator):
         self._cover_controller = CoverController(
             hass, self._zone_manager,
             occupied_close_delta=occupied_cover_close_delta,
+            # v4.5.10: master + 5 tunables forwarded to CoverController
+            solar_gain_enabled=solar_gain_cover_enabled,
+            cover_close_temp=cover_close_temp,
+            cover_open_temp=cover_open_temp,
+            cover_override_hours=cover_override_hours,
+            solar_start_hour=cover_solar_start_hour,
+            solar_end_hour=cover_solar_end_hour,
         )
         self._predictor = HVACPredictor(
             hass, self._zone_manager, self._preset_manager, self._override_arrester,
             net_power_entity=net_power_entity,
+            # v4.5.10: 4 predictor tunables (banking + pre-cool + pre-heat)
+            solar_bank_floor=solar_bank_floor,
+            solar_bank_soc_min=solar_bank_soc_min,
+            precool_forecast_high=precool_forecast_high,
+            preheat_forecast_low=preheat_forecast_low,
         )
 
         # v4.0.15: Fan control toggle

@@ -1,0 +1,88 @@
+{
+  "format_version": "2.0",
+  "entry_id": "008",
+  "author": "ojiudezue",
+  "session_id": "claude_20260509_lookback_solar_gain_covers",
+  "timestamp": "2026-05-09T23:30:00Z",
+  "type": "decision",
+  "weight": "significant",
+
+  "title": "v3.8.4-H3 — solar-gain cover controller: WHY (retroactive capture)",
+
+  "summary": "Retroactive WHY capture for `domain_coordinators/hvac_covers.py` (CoverController class), shipped in v3.8.4-H3 alongside the FanController. README_v3.8.4 documented the WHAT (Apr-Oct, 1PM-6PM, 85F close / 80F open hysteresis, 2hr manual override, garage exclusion) but said nothing about the constraint set those numbers were derived from, the cost calculation that justified the feature, or the integration boundary that left venetian-blind handling latent for ~5 cycles until v4.5.0.4. v4.5.9 (forthcoming) will close the venetian dispatch gap; this entry preserves the original architectural reasoning so future cycles don't re-derive the same calibration from scratch.",
+
+  "decisions": [
+    {
+      "id": "008.1",
+      "category": "product",
+      "decision": "Add a house-level cover controller to the HVAC coordinator that closes south/west-facing common-area blinds during peak solar hours in cooling season, separate from per-room cover automation",
+      "alternatives_considered": [
+        "Per-room solar-gain logic configured in each room entry's options (parallel to per-room timed open/close)",
+        "Manual user automations (HA blueprints) that read the same outdoor temp + hour conditions",
+        "Skip entirely — let the AC do the cooling work and accept the energy hit",
+        "Use Bayesian forecast of solar irradiance instead of outdoor temp as the trigger"
+      ],
+      "why": "Cooling-season AC load on a Texas-style climate (40-50%+ of summer kWh in many setups) makes solar gain on west-facing windows during 1-6 PM the single largest controllable contributor. Closing blinds during that window measurably reduces cooling load — third-party studies cite 20-40% AC reduction on direct-sun windows. Per-room automation was rejected because (a) the relevant window orientations are house-level facts that don't change, (b) the temperature trigger is also house-level (one outdoor sensor), (c) maintaining the same logic in N room entries' options would drift, and (d) HVAC coord already owns the energy/comfort optimization, so co-locating cover-for-thermal-purposes there matches the abstraction. Outdoor-temperature trigger over solar-irradiance forecast was chosen for simplicity (no dependency on Solcast or a configured pyranometer) and because the heat already accumulating in masonry/glazing is what AC must remove — temperature is a better proxy for the load-shed opportunity than incident watts.",
+      "implications": "The CoverController operates ON TOP OF per-room cover automation — a room's own timed open/close still runs, AND HVAC may close+reopen the same covers for solar gain. Both paths must coexist without flapping (current safeguards: per-room does NOT issue close commands within COVER_COMMAND_WINDOW_SECONDS=120s of HVAC commands, and HVAC respects manual overrides for 2hr). The two-controller pattern is correct but means EVERY new dispatch behavior added to per-room cover code (e.g., v4.5.0.4 venetian tilt awareness) must ALSO be applied to hvac_covers.py — that's exactly the sibling-helper-skipped class (#33) bug that bit on 2026-05-09 when v4.5.6 fixed the per-room path but missed hvac_covers. The boundary needs a doc note, and ideally a test that asserts feature parity between the two dispatchers.",
+      "confidence": "high",
+      "revisit_trigger": "If the user installs more cover-supporting integrations whose cover_type / tilt-vs-shade differs (e.g., motorized awnings vs interior shades vs venetians coexisting), or if a different cooling tariff (demand charges, dynamic pricing) makes solar irradiance forecast more valuable than outdoor temp as the trigger."
+    },
+    {
+      "id": "008.2",
+      "category": "calibration",
+      "decision": "Numerical calibration: COVER_SOLAR_MONTHS={4..10}, COVER_SOLAR_HOUR_START=13, COVER_SOLAR_HOUR_END=18, COVER_CLOSE_TEMP=85F, COVER_OPEN_TEMP=80F, COVER_MANUAL_OVERRIDE_HOURS=2, COVER_COMMAND_WINDOW_SECONDS=120",
+      "alternatives_considered": [
+        "Hour window 14-17 (narrower, peak-only)",
+        "Hour window 11-19 (wider, full sunlit period)",
+        "Single threshold at 82F with no hysteresis",
+        "Dynamic threshold tied to forecast high (e.g., close if forecast > 90F regardless of current)",
+        "Manual override = 4hr (longer respect for user intent)"
+      ],
+      "why": "13-18 captures west-facing direct-sun on the user's house orientation (afternoon sun is the hottest gain). Apr-Oct is the cooling season for north Texas (heating is May-Mar but May/Oct are mixed — the conservative call was to include them). 85F close / 80F open with 5F hysteresis is wide enough to avoid flapping when outdoor temp wobbles around the threshold late in the afternoon, narrow enough that it kicks in on actually-hot days (summer days routinely cross 85F in the early afternoon). 2hr manual override balances 'don't fight the user' against 'don't permanently abdicate after one user touch' — anything shorter felt nagging in dev testing, anything longer surrendered too much value. 120s command window was sized for the slowest cover the user has (~90s movement time) plus a margin to avoid mistaking the cover's own settling state-changes as manual touches.",
+      "implications": "These numbers are calibrated to the user's specific climate, panel orientation, and cover hardware. Re-deriving them for a different installation requires (a) west-vs-east orientation knowledge, (b) cover movement-time data, (c) the local cooling tariff structure, (d) outdoor temperature sensor accuracy. Any change to these constants without the corresponding regression-against-real-bills evidence risks regressing the AC-savings benefit, which is invisible in the test suite (energy savings show up only in monthly bills). The constants live in hvac_const.py (single source of truth) — no scatter, easy to tune.",
+      "confidence": "medium",
+      "revisit_trigger": "After a full cooling season post-v4.5.9 (Sep 2026), check whether the user's cooling-season kWh deviates from forecast by an amount consistent with the controller doing its job. If banking didn't help (or hurt), tune downward. Also revisit if the user adds shade structures, awnings, or films that change the natural solar gain baseline."
+    },
+    {
+      "id": "008.3",
+      "category": "architecture",
+      "decision": "Single-bool state machine (`self._covers_closed`) for the whole controller — bulk close-all and bulk open-all transitions, not per-cover decisions",
+      "alternatives_considered": [
+        "Per-cover state with independent close/open decisions",
+        "Zone-aware state (close only covers in zones with high outdoor temp)"
+      ],
+      "why": "The trigger conditions (outdoor temp, hour, month) are house-level — they don't differ per-cover. So per-cover state would just produce identical decisions at higher complexity. The bulk-transition design also means the dispatch loop fires close+verify on a manageable number of service calls (one per cover) within a short window, avoiding the 'partial close' state where some covers close and others don't due to interleaved manual override cycles. Trade: if a single cover is in manual override during the close-all transition, it stays open while its siblings close. Acceptable — the state machine flips `_covers_closed=True` because the global decision was made; manual-override covers will just be skipped at next reopen too (no oscillation).",
+      "implications": "The single bool means a cover that fails to close (manual override, RF straggler, integration glitch) creates an inconsistent global state: the controller thinks 'covers are closed' but visually some are open. Reopen at 18:00 then issues open commands to ALL covers including ones that never actually closed — harmless in cover semantics (open command on already-open cover is no-op) but pollutes logs. A future per-cover state-tracking layer would be cleaner but adds complexity disproportionate to the visible benefit.",
+      "confidence": "high",
+      "revisit_trigger": "If the user reports 'partial' state issues (e.g., some covers consistently open during banking when others close) — that suggests a manual-override or integration-flake pattern that warrants per-cover tracking."
+    },
+    {
+      "id": "008.4",
+      "category": "architecture",
+      "decision": "Discover covers from BOTH a CM-level explicit list (CONF_HVAC_COVER_ENTITIES) AND room entries (CONF_COVERS for rooms in HVAC zones), unioned with garage exclusion",
+      "alternatives_considered": [
+        "Only CM-level explicit list (user has to enumerate every solar-relevant cover)",
+        "Only room-derived (no override capacity for non-room covers like exterior awnings)"
+      ],
+      "why": "Two failure modes the dual-source design avoids: (a) requiring the user to enumerate every cover in a CM-level list creates a config burden + drift risk (user adds a new cover to a room but forgets the CM list); (b) limiting to room covers excludes covers that don't belong to any URA room (exterior awnings, hallway-only covers). Garage exclusion via device_class is the obvious safety check — opening the garage door to 'reduce solar gain' would be both wrong and dangerous.",
+      "implications": "When v4.5.9 makes the dispatch tilt-aware, cover_type lookup is straightforward for room-sourced covers (read from the room's entry's CONF_COVER_TYPE) but undefined for CM-level covers (no per-cover type metadata in CONF_HVAC_COVER_ENTITIES). The conservative default is shade; users with venetian covers in CONF_HVAC_COVER_ENTITIES will need to either (a) move them to a room entry with cover_type=tilt OR (b) we'd add a parallel CONF_HVAC_COVER_ENTITIES_TILT later. v4.5.9 will probably default-to-shade with a TODO for the explicit-tilt config option.",
+      "confidence": "high",
+      "revisit_trigger": "If a user has tilt-capable covers in their CM-level list and reports the venetian-as-roller bug returning post-v4.5.9 — that's the signal to add the explicit tilt config or auto-detect via supported_features bitmask."
+    }
+  ],
+
+  "refs": {
+    "what_prompted_this": "Lookback during v4.5.9 hotfix prep on 2026-05-09. User observed Study A and Master Bedroom blinds physically raising at 18:00 CDT instead of slats opening — the v4.5.0.4 venetian-blind tilt fix didn't reach hvac_covers.py because that's a separate dispatch path. While digging into the design to size v4.5.9, user explicitly asked for retroactive WHY-capture of features that predate vibememo: 'this is exactly why I invented vibememo — the WHY. The READMEs still do a good job on the WHAT.' README_v3.8.4 documents WHAT in 41 lines but says nothing about the cooling-season cost arithmetic, the orientation-specific calibration, or the dual-controller integration boundary that's now bitten.",
+    "tools_in_use": ["claude_code"],
+    "files_affected": [
+      "custom_components/universal_room_automation/domain_coordinators/hvac_covers.py",
+      "custom_components/universal_room_automation/domain_coordinators/hvac_const.py"
+    ],
+    "related_entries": [],
+    "memory_keys": [],
+    "external_refs": [
+      "docs/readmes/README_v3.8.4.md",
+      "docs/QUALITY_CONTEXT.md (Bug Class #33 — Partial Fix: Sibling Helpers Skipped)"
+    ]
+  }
+}

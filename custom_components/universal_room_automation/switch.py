@@ -1,6 +1,6 @@
 """Switch platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.5.9.2
+# Universal Room Automation vv4.5.10
 # Build: 2026-01-02
 # File: switch.py
 #
@@ -158,6 +158,8 @@ async def async_setup_entry(
             HVACPreArrivalSwitch(hass, entry),
             # v4.0.15: Fan Control toggle
             HVACFanControlSwitch(hass, entry),
+            # v4.5.10: Solar Cover Management master toggle
+            HVACSolarCoverSwitch(hass, entry),
             # v3.21.1 D1: Observation mode toggles for Safety, Security, Presence
             SafetyObservationModeSwitch(hass, entry),
             SecurityObservationModeSwitch(hass, entry),
@@ -1222,7 +1224,9 @@ class HVACZoneIntelligenceSwitch(SwitchEntity, RestoreEntity):
         self.hass = hass
         self._entry = entry
         self._attr_unique_id = f"{DOMAIN}_hvac_zone_intelligence"
-        self._attr_name = "Zone Intelligence"
+        # v4.5.10: friendlier label. Underlying CONF + entity_id stay the
+        # same to preserve dashboards and existing automations.
+        self._attr_name = "Per-Zone HVAC Control"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, "hvac_coordinator")},
             name="URA: HVAC Coordinator",
@@ -1299,7 +1303,9 @@ class HVACZoneSweepSwitch(SwitchEntity, RestoreEntity):
         self._entry = entry
         self._is_on = True  # Default on
         self._attr_unique_id = f"{DOMAIN}_hvac_zone_sweep"
-        self._attr_name = "Zone Sweep"
+        # v4.5.10: friendlier label. Underlying CONF + entity_id stay the
+        # same to preserve dashboards.
+        self._attr_name = "Vacancy Auto-Off"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, "hvac_coordinator")},
             name="URA: HVAC Coordinator",
@@ -1366,6 +1372,87 @@ class HVACZoneSweepSwitch(SwitchEntity, RestoreEntity):
     def available(self) -> bool:
         """Only available when HVAC coordinator is active."""
         return self._get_hvac() is not None
+
+
+class HVACSolarCoverSwitch(SwitchEntity, RestoreEntity):
+    """v4.5.10: Master toggle for the solar-gain cover management feature.
+
+    When ON (default): CoverController runs its full v4.5.9 logic —
+    discovers covers from rooms in HVAC zones (respecting per-room
+    `cover_hvac_managed` opt-out), closes covers during peak solar
+    hours, reopens at end of solar window. Tilt-aware dispatch.
+
+    When OFF: CoverController.update() early-returns. No close or open
+    commands fire from HVAC. Per-room cover automation (timed open/close,
+    exit close) is unaffected — only the solar-gain feature is gated.
+
+    Entity: switch.ura_hvac_solar_cover
+    Device: URA: HVAC Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:weather-sunny-alert"
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        self.hass = hass
+        self._entry = entry
+        self._attr_unique_id = f"{DOMAIN}_hvac_solar_cover"
+        self._attr_name = "Solar Cover Management"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "hvac_coordinator")},
+            name="URA: HVAC Coordinator",
+            manufacturer="Universal Room Automation",
+            model="HVAC Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+
+    def _get_cover_controller(self):
+        """Get the CoverController instance via HVAC coord."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        hvac = manager.coordinators.get("hvac")
+        return getattr(hvac, "_cover_controller", None) if hvac else None
+
+    @property
+    def is_on(self) -> bool:
+        """Return True if Solar Cover Management is enabled."""
+        cc = self._get_cover_controller()
+        if cc is None:
+            return True  # default on
+        return getattr(cc, "_solar_gain_enabled", True)
+
+    async def async_turn_on(self, **kwargs) -> None:
+        """Enable Solar Cover Management."""
+        cc = self._get_cover_controller()
+        if cc is not None:
+            cc._solar_gain_enabled = True
+            self.async_write_ha_state()
+
+    async def async_turn_off(self, **kwargs) -> None:
+        """Disable Solar Cover Management. CoverController.update() will
+        early-return on the next decision tick."""
+        cc = self._get_cover_controller()
+        if cc is not None:
+            cc._solar_gain_enabled = False
+            self.async_write_ha_state()
+
+    async def async_added_to_hass(self) -> None:
+        """Restore previous state on startup."""
+        await super().async_added_to_hass()
+        last_state = await self.async_get_last_state()
+        if last_state is not None:
+            cc = self._get_cover_controller()
+            if cc is not None:
+                cc._solar_gain_enabled = last_state.state == "on"
+
+    @property
+    def available(self) -> bool:
+        """Only available when CoverController is active."""
+        return self._get_cover_controller() is not None
 
 
 class HVACPreArrivalSwitch(SwitchEntity, RestoreEntity):
