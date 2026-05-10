@@ -1,6 +1,6 @@
 """Number platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.5.11
+# Universal Room Automation vv4.5.11.1
 # Build: 2026-01-02
 # File: number.py
 #
@@ -1127,7 +1127,15 @@ def _hvac_zone_kwh_threshold_factory(
             from .const import VERSION
             self.hass = hass
             self._entry = entry
+            # Store both the local zone_id (for unique_id stability across
+            # restarts) AND the climate_entity (for runtime lookup against
+            # ZoneManager.zones — see _get_zone). ZoneManager derives its
+            # zone_ids via _zone_id_from_thermostat which extracts "zone_N"
+            # from the climate entity name; the local derivation here used
+            # the full sanitized name. Looking up by climate_entity bridges
+            # the two without forcing convergence on a single scheme.
             self._zone_id = zone_id
+            self._climate_entity = climate_entity
             self._attr_unique_id = f"{DOMAIN}_hvac_ac_kwh_threshold_{zone_id}"
             self._attr_name = f"AC kWh Rate Threshold ({zone_name})"
             self._attr_device_info = DeviceInfo(
@@ -1141,6 +1149,14 @@ def _hvac_zone_kwh_threshold_factory(
             self._value: float = float(DEFAULT_HVAC_AC_KWH_RATE_THRESHOLD)
 
         def _get_zone(self):
+            """Look up ZoneState by climate_entity (stable across naming
+            conventions). Critical fix from slice-1 review: previously
+            this lookup used self._zone_id which is derived locally as
+            `thermostat.replace("climate.", "").replace(".", "_")` —
+            different from ZoneManager._zone_id_from_thermostat which
+            extracts `zone_N` from the climate entity name. Matching by
+            climate_entity (unique + stable) avoids the convention drift.
+            """
             manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
             if manager is None:
                 return None
@@ -1150,7 +1166,10 @@ def _hvac_zone_kwh_threshold_factory(
             zm = getattr(hvac, "_zone_manager", None)
             if zm is None:
                 return None
-            return zm.zones.get(self._zone_id)
+            for zone in zm.zones.values():
+                if zone.climate_entity == self._climate_entity:
+                    return zone
+            return None
 
         @property
         def native_value(self) -> float:
