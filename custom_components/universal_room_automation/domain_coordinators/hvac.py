@@ -1453,6 +1453,15 @@ class HVACCoordinator(BaseCoordinator):
         cover_status = self._cover_controller.get_cover_status()
         attrs["covers_closed"] = cover_status.get("covers_closed", False)
         attrs["managed_covers"] = cover_status.get("managed_covers", 0)
+        # v4.5.9.1: surface the new D6 diagnostic attributes from
+        # CoverController.get_cover_status() — v4.5.9 added them to the
+        # dict but this picker missed them, so the mode sensor only
+        # carried the two pre-v4.5.9 keys. Now exposes the full
+        # tilt/shade breakdown + the per-cover HVAC-closed set.
+        attrs["managed_tilt_covers"] = cover_status.get("managed_tilt_covers", 0)
+        attrs["managed_shade_covers"] = cover_status.get("managed_shade_covers", 0)
+        attrs["hvac_closed_set"] = cover_status.get("hvac_closed_set", [])
+        attrs["hvac_closed_count"] = cover_status.get("hvac_closed_count", 0)
         attrs["pre_cool_likelihood"] = self._predictor.pre_cool_likelihood
         attrs["comfort_risk"] = self._predictor.comfort_violation_risk
         attrs["pre_cool_active"] = self._predictor.pre_cool_active
