@@ -584,3 +584,37 @@ class TestSourceContract:
             "v4.5.9: get_cover_status must surface hvac_closed_set diagnostic"
         )
         assert "hvac_closed_count" in body
+
+    def test_hvac_mode_sensor_picks_up_v459_attrs(self):
+        """v4.5.9.1: mode sensor's attribute picker must surface the new
+        cover diagnostic keys.
+
+        v4.5.9 added hvac_closed_set / hvac_closed_count /
+        managed_tilt_covers / managed_shade_covers to
+        CoverController.get_cover_status(). Live validation post-restart
+        showed only the two pre-v4.5.9 keys (covers_closed, managed_covers)
+        on the mode sensor — hvac.py:1453-1455 had a manual key picker
+        that missed the new keys. This test guards against the gap
+        recurring.
+        """
+        with open("custom_components/universal_room_automation/domain_coordinators/hvac.py") as f:
+            hvac_src = f.read()
+        # Find the cover_status pick block
+        idx = hvac_src.find("cover_status = self._cover_controller.get_cover_status()")
+        assert idx > 0, (
+            "Mode sensor must call cover_controller.get_cover_status()"
+        )
+        # Within the next ~50 lines (or until next major attr-build section)
+        block = hvac_src[idx:idx + 2000]
+        for key in (
+            "hvac_closed_set",
+            "hvac_closed_count",
+            "managed_tilt_covers",
+            "managed_shade_covers",
+        ):
+            assert f'"{key}"' in block, (
+                f"Mode sensor's cover_status pick block must surface "
+                f"`{key}` (v4.5.9 D6 diagnostic). Without it, "
+                f"users can't see HVAC's per-cover tracking from the "
+                f"mode sensor and the v4.5.9.1 fix would silently regress."
+            )
