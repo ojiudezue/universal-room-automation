@@ -3181,6 +3181,9 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             DEFAULT_PRE_ARRIVAL_SOURCES,
             CONF_HVAC_ZONE_ENTRY_DWELL,
             DEFAULT_ZONE_ENTRY_DWELL_MINUTES,
+            # v4.5.9.2: occupancy-aware cover-close threshold
+            CONF_HVAC_OCCUPIED_COVER_CLOSE_DELTA,
+            DEFAULT_HVAC_OCCUPIED_COVER_CLOSE_DELTA,
         )
 
         if user_input is not None:
@@ -3249,6 +3252,24 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     min=1, max=30, step=1,
                     unit_of_measurement="min",
                     mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
+            # v4.5.9.2: Per-house occupancy-aware solar-gain cover close
+            # threshold. When a room is occupied, HVAC only closes its
+            # covers if room temp is at least this many °F above the
+            # zone's cooling setpoint. Prevents closing covers in an
+            # occupied room that's still comfortable.
+            vol.Optional(
+                CONF_HVAC_OCCUPIED_COVER_CLOSE_DELTA,
+                default=self._get_current(
+                    CONF_HVAC_OCCUPIED_COVER_CLOSE_DELTA,
+                    DEFAULT_HVAC_OCCUPIED_COVER_CLOSE_DELTA,
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0.5, max=5, step=0.5,
+                    unit_of_measurement="°F",
+                    mode=selector.NumberSelectorMode.SLIDER,
                 )
             ),
             # v4.0.15: Fan control toggle

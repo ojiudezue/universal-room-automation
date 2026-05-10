@@ -112,8 +112,14 @@ class CoverController:
         self,
         hass: HomeAssistant,
         zone_manager: ZoneManager,
+        occupied_close_delta: float = OCCUPIED_CLOSE_TEMP_DELTA,
     ) -> None:
-        """Initialize cover controller."""
+        """Initialize cover controller.
+
+        v4.5.9.2: occupied_close_delta accepted as constructor arg
+        (was hardcoded module constant). Wired through from
+        HVACCoordinator → CM-level CONF_HVAC_OCCUPIED_COVER_CLOSE_DELTA.
+        """
         self.hass = hass
         self._zone_manager = zone_manager
         self._covers: dict[str, ManagedCover] = {}
@@ -122,6 +128,8 @@ class CoverController:
         # branch to scope reopens to ONLY what HVAC closed (not every cover
         # the controller manages).
         self._hvac_closed: set[str] = set()
+        # v4.5.9.2: per-house occupancy-aware close threshold (configurable)
+        self._occupied_close_delta: float = float(occupied_close_delta)
         self._state_listener_unsub: CALLBACK_TYPE | None = None
         self._outdoor_temp_entity: str = ""
 
@@ -446,9 +454,13 @@ class CoverController:
 
         Returns True (allow close) when:
           - Room is vacant, OR
-          - Room temp >= zone.target_temp_high + OCCUPIED_CLOSE_TEMP_DELTA
+          - Room temp >= zone.target_temp_high + self._occupied_close_delta
           - Or insufficient data to make a decision (default-allow; the close
             is still gated by everything else above)
+
+        v4.5.9.2: threshold is now `self._occupied_close_delta`, configurable
+        per-house via CONF_HVAC_OCCUPIED_COVER_CLOSE_DELTA. Was hardcoded to
+        OCCUPIED_CLOSE_TEMP_DELTA = 2.0°F in v4.5.9.
         """
         data = getattr(room_coord, "data", None) or {}
         is_occupied = bool(data.get(STATE_OCCUPIED, False))
@@ -469,7 +481,7 @@ class CoverController:
                 except (TypeError, ValueError):
                     return True
                 # Allow close only when meaningfully above setpoint
-                return delta >= OCCUPIED_CLOSE_TEMP_DELTA
+                return delta >= self._occupied_close_delta
         # No zone match (shouldn't happen for room-discovered covers) — allow
         return True
 
