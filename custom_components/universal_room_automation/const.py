@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv4.5.8
+# Universal Room Automation vv4.5.9
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v4.5.8"
+VERSION: Final = "v4.5.9"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -329,6 +329,11 @@ CONF_FANS: Final = "fans"
 CONF_HUMIDITY_FANS: Final = "humidity_fans"
 CONF_COVERS: Final = "covers"
 CONF_COVER_TYPE: Final = "cover_type"
+# v4.5.9: per-room opt-out from HVAC solar-gain cover management. Default True
+# preserves pre-v4.5.9 behavior; setting to False removes the room's covers
+# from CoverController's discovery so HVAC won't close/open them. Per-room
+# automation (timed open/close, exit close, entry open) is unaffected.
+CONF_COVER_HVAC_MANAGED: Final = "cover_hvac_managed"
 
 # v3.2.8.2: Multi-domain auto/manual devices (backward compatible)
 CONF_AUTO_SWITCHES: Final = "auto_switches"  # Legacy - still supported

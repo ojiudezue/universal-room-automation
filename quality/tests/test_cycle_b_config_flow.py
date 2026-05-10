@@ -616,14 +616,21 @@ class TestD3SplitOptionsStep:
         assert CONF_LIGHT_TRANSITION_OFF in keys
 
     @pytest.mark.asyncio
-    async def test_options_covers_has_10_fields(self):
-        """Covers step has exactly 10 fields (all cover-related)."""
+    async def test_options_covers_has_11_fields(self):
+        """Covers step has exactly 11 fields (all cover-related).
+
+        v3.x D3 originally split the form to keep each step ≤ 10 fields
+        for HA UI density. v4.5.9 added CONF_COVER_HVAC_MANAGED (per-room
+        HVAC solar-gain opt-out toggle) — 11 total. Single boolean
+        addition is below the threshold that would warrant another split.
+        Bump if this grows further.
+        """
         flow = _make_options_flow(data={CONF_ENTRY_TYPE: ENTRY_TYPE_ROOM})
         result = await flow.async_step_options_covers(user_input=None)
         assert result["type"] == "form"
         assert result["step_id"] == "options_covers"
         keys = _schema_keys(result)
-        assert len(keys) == 10
+        assert len(keys) == 11
         assert CONF_COVER_TYPE in keys
         assert CONF_COVER_OPEN_MODE in keys
 
@@ -656,13 +663,18 @@ class TestD3SplitOptionsStep:
         assert result["data"][CONF_COVER_OPEN_MODE] == COVER_OPEN_NONE
 
     @pytest.mark.asyncio
-    async def test_neither_step_exceeds_10_fields(self):
-        """Both steps stay within the 10-field limit."""
+    async def test_neither_step_exceeds_11_fields(self):
+        """Both steps stay within the 11-field soft limit.
+
+        v4.5.9: bumped from 10 to 11 when CONF_COVER_HVAC_MANAGED was
+        added. If a future cycle pushes covers to 12, do another step
+        split rather than bumping further.
+        """
         flow = _make_options_flow(data={CONF_ENTRY_TYPE: ENTRY_TYPE_ROOM})
         lighting = await flow.async_step_options_lighting(user_input=None)
         covers = await flow.async_step_options_covers(user_input=None)
-        assert len(_schema_keys(lighting)) <= 10
-        assert len(_schema_keys(covers)) <= 10
+        assert len(_schema_keys(lighting)) <= 11
+        assert len(_schema_keys(covers)) <= 11
 
 
 # ============================================================================

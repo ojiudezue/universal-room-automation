@@ -134,6 +134,7 @@ from .const import (
     CONF_SUNRISE_OFFSET,
     CONF_SUNSET_OFFSET,
     CONF_TIMED_CLOSE_ENABLED,
+    CONF_COVER_HVAC_MANAGED,
     # v3.6.39: New cover config
     CONF_COVER_OPEN_MODE,
     COVER_OPEN_NONE,
@@ -1090,6 +1091,8 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
             vol.Optional(CONF_SUNSET_OFFSET, default=DEFAULT_SUNSET_OFFSET): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=-60, max=120, step=15, unit_of_measurement="min", mode=selector.NumberSelectorMode.BOX)
             ),
+            # v4.5.9: HVAC solar-gain cover management opt-out (default ON)
+            vol.Optional(CONF_COVER_HVAC_MANAGED, default=True): selector.BooleanSelector(),
         })
 
         return self.async_show_form(
@@ -5126,6 +5129,11 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=-60, max=120, step=15, unit_of_measurement="min", mode=selector.NumberSelectorMode.BOX)
             ),
+            # v4.5.9: HVAC solar-gain cover management opt-out (default ON)
+            vol.Optional(
+                CONF_COVER_HVAC_MANAGED,
+                default=self._get_current(CONF_COVER_HVAC_MANAGED, True)
+            ): selector.BooleanSelector(),
         })
 
         return self.async_show_form(
