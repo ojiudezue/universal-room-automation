@@ -1237,21 +1237,45 @@ comment.
 
 **Hits to date:**
 
-- **`CONF_COVER_TYPE` v4.5.0.4 → v4.5.6.** v4.5.0.4 added tilt-aware
-  branches to `_send_covers_with_verify` (dispatch) and
-  `_cover_at_target` (verify). It missed the gate helpers
-  `_are_covers_already_open` / `_are_covers_already_closed` (still
-  comparing on `state.state`). Symptom: tilt blinds with position=0
-  + tilt=97 (slats wide open, blind lowered) reported `state="closed"`
-  → gate returned True → timed-close runner silently skipped → user's
-  Study A and Master Bedroom blinds stayed open all evening past their
-  configured automation time. Fixed in v4.5.6 by (a) dropping the gate
-  from the deterministic timed paths entirely (schedules should fire
-  whether the blinds *look* in-target or not — verify resolves a no-op
-  in zero retries) and (b) making both gate helpers cover_type-aware
-  for the entry/exit paths, with thresholds matching the verify path
-  (≤5 = closed, ≥95 = open) so all four sites agree on "closed" /
-  "open" semantics for tilt blinds.
+- **`CONF_COVER_TYPE` v4.5.0.4 → v4.5.6 → v4.5.9 (THREE hits).**
+  - v4.5.0.4 added tilt-aware branches to `_send_covers_with_verify`
+    (dispatch) and `_cover_at_target` (verify). It missed the gate
+    helpers `_are_covers_already_open` / `_are_covers_already_closed`
+    (still comparing on `state.state`). Symptom: tilt blinds with
+    position=0 + tilt=97 (slats wide open, blind lowered) reported
+    `state="closed"` → gate returned True → timed-close runner
+    silently skipped → user's Study A and Master Bedroom blinds
+    stayed open all evening past their configured automation time.
+    Fixed in v4.5.6 by (a) dropping the gate from the deterministic
+    timed paths entirely (schedules should fire whether the blinds
+    *look* in-target or not — verify resolves a no-op in zero retries)
+    and (b) making both gate helpers cover_type-aware for the
+    entry/exit paths, with thresholds matching the verify path
+    (≤5 = closed, ≥95 = open) so all four sites agree on "closed" /
+    "open" semantics for tilt blinds.
+  - **v4.5.9 — third hit, in `hvac_covers.py`.** v4.5.6 fixed the
+    per-room cover paths but didn't audit the HVAC coordinator's
+    SEPARATE cover-dispatch path at `hvac_covers.py:_command_covers`.
+    Symptom on 2026-05-09 18:00 CDT: HVAC's solar-gain controller
+    reopened all closed covers via `cover.open_cover` — Study A and
+    Master Bedroom (venetian) raised the blind to position=100 with
+    slats stuck at tilt=0 instead of tilting slats open at position=0.
+    Same v4.5.0.4 venetian-as-roller symptom in a different code
+    path. Fixed in v4.5.9 by adding `cover_type` to the `ManagedCover`
+    dataclass, three-tier resolution (room CONF → entity feature
+    bitmask → "shade") in `discover_covers`, and tilt-aware dispatch
+    + already-in-target check in the new `_command_close_one` /
+    `_command_open_one` helpers.
+
+**Lesson learned across the three hits:** when a config field gets a
+new runtime branch, **find every dispatch path in the same domain**
+before calling the fix done. Per-room and HVAC-coord cover dispatch
+were two separate code paths a grep on the new constant wouldn't
+catch — they share the cover service domain but no shared helper.
+The detection one-liner under "Detection (one-liner per CONF)" above
+must also include grepping the same SERVICE namespace
+(`hass.services.async_call("cover", …)`) for sibling dispatchers
+that don't reference the new CONF.
 
 **Prevention:**
 

@@ -943,6 +943,50 @@ class RoomAutomation:
             return COVER_OPEN_ON_ENTRY
         return COVER_OPEN_ON_ENTRY_AFTER_TIME
 
+    def is_cover_currently_intended_open(self, now: datetime | None = None) -> bool:
+        """v4.5.9: Per-room intent predicate for HVAC cover management.
+
+        Returns True if the room's CONF_COVER_OPEN_MODE policy says the
+        room's covers SHOULD be in the open state at this moment. HVAC's
+        solar-gain controller consults this before deciding whether it's
+        legitimate to close a cover for solar-gain (don't close what the
+        room never intended to be open) or reopen one after the solar
+        window (don't open what the room intends closed).
+
+        Mapping by mode:
+          - COVER_OPEN_NONE             → False (manual-only; HVAC must not touch)
+          - COVER_OPEN_ON_ENTRY         → False (occupancy-driven; HVAC can't predict
+                                            future occupancy, so be conservative)
+          - COVER_OPEN_AT_TIME          → True iff in time window
+          - COVER_OPEN_ON_ENTRY_AFTER_TIME → True iff in time window
+          - COVER_OPEN_AT_TIME_OR_ON_ENTRY → True iff in time window
+        """
+        if now is None:
+            now = dt_util.now()
+        mode = self._get_cover_open_mode()
+        if mode == COVER_OPEN_NONE:
+            return False
+        if mode == COVER_OPEN_ON_ENTRY:
+            # Room only opens on occupancy — HVAC can't second-guess that.
+            return False
+        # The three time-bearing modes: open during open-time, closed after.
+        if mode in (
+            COVER_OPEN_AT_TIME,
+            COVER_OPEN_ON_ENTRY_AFTER_TIME,
+            COVER_OPEN_AT_TIME_OR_ON_ENTRY,
+        ):
+            try:
+                in_open_window = self._is_cover_open_time(now)
+                past_close = self._is_cover_close_time(now)
+            except Exception:
+                # Defensive — if either check throws (config drift, missing
+                # location for sunset calc, etc.), fall back to "not intended
+                # open" so HVAC doesn't act.
+                return False
+            return in_open_window and not past_close
+        # Unknown mode — defensive default
+        return False
+
     def _is_cover_open_time(self, now: datetime | None = None) -> bool:
         """Check if the configured open time has been reached.
 

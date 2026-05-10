@@ -1,0 +1,111 @@
+{
+  "format_version": "2.0",
+  "entry_id": "009",
+  "author": "ojiudezue",
+  "session_id": "claude_20260509_v459_hvac_cover_intent",
+  "timestamp": "2026-05-10T01:50:00Z",
+  "type": "decision",
+  "weight": "significant",
+
+  "title": "v4.5.9 — HVAC cover dispatch tilt-awareness + intent-respecting management",
+
+  "summary": "Two distinct fixes shipped in one cycle because they share the same dataclass + dispatch loop in `domain_coordinators/hvac_covers.py`. (1) Bug Class #33 third hit: v4.5.0.4 made per-room cover dispatch tilt-aware, v4.5.6 made the per-room gate helpers tilt-aware, but neither cycle audited the HVAC coordinator's SEPARATE cover-dispatch path. Live confirmed on 2026-05-09 when HVAC's solar-window-end open command raised Study A and Master Bedroom venetian blinds (position 0→100, slats stuck at tilt=0) instead of tilting slats open at position=0. (2) Indiscriminate intent: pre-v4.5.9 the controller treated discovered covers as a homogeneous bulk — closed every cover when conditions converged, reopened every cover at end-of-window via a single `_covers_closed: bool`. User flagged this as a livability issue: HVAC was opening covers the room never intended to be open, ignoring per-room `cover_open_mode` policy entirely. v4.5.9 redesigns the controller around per-cover intent + closed-set tracking.",
+
+  "decisions": [
+    {
+      "id": "009.1",
+      "category": "architecture",
+      "decision": "Replace single-bool `_covers_closed` with `_hvac_closed: set[str]` of entity IDs HVAC explicitly closed in the current solar window",
+      "alternatives_considered": [
+        "Keep the single bool and add a 'managed at this time' filter to the open phase (smaller change but doesn't track which specific covers were touched)",
+        "Per-cover `closed_by_hvac: bool` field on ManagedCover (equivalent to the set but scattered)",
+        "Persist the closed-set across restarts in entry data (rejected as unnecessary complexity for a window-bounded ephemeral state)"
+      ],
+      "why": "User's complaint was 'HVAC opens every cover at 18:00, including covers it didn't close, including covers the room doesn't want open.' The single bool is the structural cause — it tracks 'has HVAC entered closed-state?' not 'which covers did HVAC close?' so the open phase has no choice but to fire bulk-open. The set-based design lets the open phase iterate the exact covers HVAC touched. Also enables: dropping covers from the set when the user manually re-opens during the window (HVAC's claim becomes invalid), gracefully handling cover-removed-from-discovery (drop on `cover is None`), exposing `hvac_closed_set` as a diagnostic attribute on the mode sensor. The persistence question (in-memory vs entry-data) was settled by 'window-bounded ephemeral' — a restart inside the close window re-evaluates conditions and re-closes anyway; restart after window leaves covers in their current state until next per-room schedule (acceptable).",
+      "implications": "The diagnostic surface improves: users can see exactly which covers HVAC has closed at any moment. Future debugging when 'a cover I didn't close got opened' will be a one-attribute lookup. Restart edge case (manual override during close window lost on restart) documented in v4.5.9 review doc as LOW severity. Pattern is the precedent for Bug Class #34 candidate ('indiscriminate bulk action without per-item intent'); other URA controllers that manage discovered sets (energy_pool's EVSE management, energy_circuits' breaker tracking) should be audited for the same shape if symptoms surface.",
+      "confidence": "high",
+      "revisit_trigger": "If users report 'HVAC re-closed a cover I opened post-restart,' the manual-override persistence pass becomes a real fix. Or if a different controller in URA exhibits the same indiscriminate-bulk pattern, factor out the closed-set tracking into a shared utility."
+    },
+    {
+      "id": "009.2",
+      "category": "architecture",
+      "decision": "Per-room intent gate via new `RoomAutomation.is_cover_currently_intended_open(now)` method consulted by HVAC's `_should_hvac_close`",
+      "alternatives_considered": [
+        "Inline the intent logic in HVAC (duplicates the cover_open_mode interpretation, drifts from per-room logic)",
+        "Make HVAC subscribe to per-room cover-intent signals (over-engineered for a single boolean check)",
+        "Skip intent gating entirely — let HVAC operate on all covers and let manual override be the only escape hatch (current pre-v4.5.9 behavior; doesn't respect cover_open_mode=none rooms)"
+      ],
+      "why": "The right abstraction places policy where state lives. The room owns its cover_open_mode policy and already has the time-window helpers (`_is_cover_open_time`, `_is_cover_close_time`). Putting the intent predicate on RoomAutomation lets HVAC ask 'should this cover be open right now per the room's policy?' without HVAC re-implementing the mode interpretation. Cross-coordinator coupling is one method call, no signal traffic. The five mode mappings are explicit: `none` and `on_entry` always return False (manual-only and occupancy-driven respectively; HVAC must not act); the three time-bearing modes return `in_open_window AND not past_close`. CM-level explicit covers (no owning room) bypass the gate — user added them deliberately to the HVAC list.",
+      "implications": "Rooms with `cover_open_mode = on_entry` get NO HVAC solar-gain protection (HVAC can't predict future occupancy). Documented in the predicate's docstring; user can switch to `at_time_or_on_entry` if they want HVAC management. The predicate is reusable — future features that want 'is this cover supposed to be open right now' (e.g., a 'reopen on user arrival if HVAC closed' feature) call the same method. Defensive try/except around the time checks because `_is_after_sunrise` can fail if location not configured (per v3.20.0 fix); falls back to 'not intended open' so HVAC stays out.",
+      "confidence": "high",
+      "revisit_trigger": "If users report a room with `cover_open_mode = on_entry` wishing HVAC would still close-for-heat in their absence — design conversation about whether to add a 'manage even if mode=on_entry' opt-in toggle, or whether the right answer is for the user to switch modes."
+    },
+    {
+      "id": "009.3",
+      "category": "product",
+      "decision": "Add `CONF_COVER_HVAC_MANAGED` per-room toggle (default True) for explicit opt-out of HVAC cover management",
+      "alternatives_considered": [
+        "Rely solely on cover_open_mode=none for opt-out (mixes 'this room has manual cover policy' with 'HVAC don't touch'; awkward)",
+        "Single house-level toggle disabling the entire HVAC cover controller (too coarse — user wants HVAC managing most rooms but not specific ones like a kid's bedroom)",
+        "Use HA labels or area metadata as the opt-out signal (introduces dependency on HA registry conventions; brittle)"
+      ],
+      "why": "Different rooms have different needs. Master bedroom where someone naps, kid's room where light matters for sensory regulation, library with light-sensitive art — these are real use cases that justify a per-room HVAC opt-out separate from the cover_open_mode policy. Default True preserves pre-v4.5.9 behavior. Single-user no-back-compat means no migration shim needed; missing key reads as True via `.get(CONF_COVER_HVAC_MANAGED, True)`. The toggle is read at `discover_covers` time, so toggling takes effect on next reload (acceptable per the same model as every other room CONF).",
+      "implications": "The cover_behavior step in the room form now has 11 fields (was 10) — bumped past the v3.x D3 'soft 10-field UX limit.' Documented in test_cycle_b_config_flow.py with comment that next cycle to push past 11 should do a step split rather than bumping again. Adds a new 'form field with runtime reader' point that satisfies Bug Class #32 on its first instance.",
+      "confidence": "high",
+      "revisit_trigger": "If users add many more cover-related CONFs (12+), do another step split rather than bumping the soft limit further."
+    },
+    {
+      "id": "009.4",
+      "category": "architecture",
+      "decision": "Three-tier cover_type resolution for ManagedCover: room CONF_COVER_TYPE → entity supported_features bitmask → 'shade' default",
+      "alternatives_considered": [
+        "Default to shade for CM-level covers (CONF_HVAC_COVER_ENTITIES) and add a parallel CONF_HVAC_COVER_ENTITIES_TILT field for tilt covers (more config surface)",
+        "Detect tilt purely via entity attributes at runtime each call (unnecessary repetition)",
+        "Require user to explicitly declare cover_type for every CM-level cover in a separate CONF (more config burden)"
+      ],
+      "why": "Room-derived is the strongest signal — user already declared cover_type per room. Auto-detect via supported_features bitmask is a valid fallback because tilt-capable integrations advertise `OPEN_TILT=128, CLOSE_TILT=256, SET_TILT_POSITION=64` bits. Conservative belt-and-suspenders: also require `current_tilt_position` to be present in attributes (some integrations advertise tilt support but don't actually report tilt position, in which case the verify path can't confirm the action). Default 'shade' preserves pre-v4.5.9 dispatch semantics. The three-tier pattern mirrors v3.2.4's three-tier scanner resolution for person-tracking, which has held up well.",
+      "implications": "CM-level explicit covers in CONF_HVAC_COVER_ENTITIES that happen to be tilt-capable get correct dispatch via auto-detect — no config burden on the user. The conservative tilt-pos-must-be-present requirement could mis-classify a quirky integration as shade, leading to position-based dispatch on a tilt blind. Acceptable: that's the existing pre-v4.5.9 behavior; user notices and moves the cover to a room entry with explicit cover_type=tilt OR we add an explicit per-cover override later.",
+      "confidence": "high",
+      "revisit_trigger": "If a quirky cover integration is mis-classified, the explicit per-cover-type config CONF_HVAC_COVER_ENTITIES_TILT can be added without breaking the existing auto-detect."
+    },
+    {
+      "id": "009.5",
+      "category": "product",
+      "decision": "Occupancy-aware close skip: don't close covers in occupied rooms unless temp is meaningfully above setpoint (default 2°F threshold)",
+      "alternatives_considered": [
+        "Always close regardless of occupancy (simpler; ignores user's livability complaint)",
+        "Never close if room is occupied (too restrictive; sacrifices solar-gain savings whenever someone's home)",
+        "Per-room configurable threshold (more config surface; defer until needed)"
+      ],
+      "why": "User's livability complaint: 'closing covers in an occupied living room while watching TV would be annoying.' But occupied + uncomfortable temp DOES warrant a close (banking the AC load helps the occupant too). 2°F is the same threshold v3.8.4's fan controller uses for `fan_activation_delta` — symmetric with the existing comfort tolerance. Vacant rooms always allow close (no comfort cost). Missing data (room temp or setpoint unavailable) defers to other gates rather than blocking — partial information shouldn't disable the feature.",
+      "implications": "The close phase now reads room state from each owning room's coordinator + zone setpoint via the zone manager. This is one extra cross-coordinator read per cover per close-decision — manageable since the close decision runs every 5 minutes max. If users report 'HVAC closed my window while I was sitting next to it at 73°F (setpoint 71°F)' that's the threshold being a bit loose; could tighten to 1.5°F or make it configurable. If 'HVAC didn't close while I was uncomfortable in the kitchen at 78°F (setpoint 75°F)' that's the threshold doing its job — close fires at delta>=2.",
+      "confidence": "medium",
+      "revisit_trigger": "After a full cooling season, if the threshold is wrong (too loose or too tight), make it a CONF_HVAC_OCCUPIED_CLOSE_DELTA at CM level."
+    }
+  ],
+
+  "refs": {
+    "what_prompted_this": "Three-track conversation on 2026-05-09: (a) user observed Study A and Master Bedroom blinds physically raising at 18:00 CDT instead of slats opening — Bug Class #33 third hit; (b) user explicitly flagged HVAC cover behavior as 'too blunt' and asked for intent-respecting + opt-out controls; (c) user prompted vibememo capture of the v3.8.4 cover controller history (entry 008) which surfaced the dual-controller integration boundary as a known design fault that hadn't been documented. v4.5.9 closes the dispatch bug + adds the intent layer in one cycle so the entry-008 lookback's 'this needs work' becomes 'done.'",
+    "tools_in_use": ["claude_code"],
+    "files_affected": [
+      "custom_components/universal_room_automation/domain_coordinators/hvac_covers.py",
+      "custom_components/universal_room_automation/automation.py",
+      "custom_components/universal_room_automation/const.py",
+      "custom_components/universal_room_automation/config_flow.py",
+      "quality/tests/test_v459_hvac_cover_intent.py",
+      "quality/tests/test_cycle_b_config_flow.py",
+      "docs/QUALITY_CONTEXT.md",
+      "docs/planning/PLANNING_v4.5.9_hvac_cover_intent.md",
+      "docs/reviews/code-review/v4.5.9_review.md",
+      "docs/readmes/README_v4.5.9.md"
+    ],
+    "related_entries": ["008"],
+    "memory_keys": [],
+    "external_refs": [
+      "Bug Class #33 in docs/QUALITY_CONTEXT.md",
+      "Bug Class #32 in docs/QUALITY_CONTEXT.md",
+      "v4.5.6 README — per-room gate-helpers tilt-awareness fix",
+      "v4.5.0.4 README — per-room dispatcher tilt-awareness fix"
+    ]
+  }
+}
