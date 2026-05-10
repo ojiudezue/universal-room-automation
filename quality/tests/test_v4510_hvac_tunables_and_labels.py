@@ -206,13 +206,25 @@ class TestHVACTunableNumberFactory:
                 )
 
     def test_seven_v4510_numbers_built(self, number_src):
-        """The build function must produce exactly 7 Number classes."""
+        """The build function must produce exactly 7 Number classes.
+
+        Scope: read from `def _build_hvac_v4510_numbers` up to the next
+        top-level `def ` to avoid spanning into sibling builders (e.g.,
+        v4.5.11's `_build_hvac_v4511_numbers` added after this one).
+        """
         idx = number_src.find("def _build_hvac_v4510_numbers")
         assert idx > 0
-        body = number_src[idx:idx + 6000]
-        # Count factory calls inside the build function
+        # Find the end of this function — the next top-level def
+        rest = number_src[idx + len("def _build_hvac_v4510_numbers"):]
+        next_def = rest.find("\ndef ")
+        end = (idx + len("def _build_hvac_v4510_numbers") + next_def
+               if next_def > 0 else len(number_src))
+        body = number_src[idx:end]
         n = body.count("_hvac_tunable_number_factory(")
-        assert n == 7, f"Expected 7 v4.5.10 Number entities; build function makes {n}"
+        assert n == 7, (
+            f"Expected 7 v4.5.10 Number entities; "
+            f"build function makes {n}"
+        )
 
     @pytest.mark.parametrize("expected_name", [
         "Cover Close Threshold",

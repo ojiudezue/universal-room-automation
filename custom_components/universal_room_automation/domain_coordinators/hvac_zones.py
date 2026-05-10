@@ -28,7 +28,12 @@ from ..const import (
     ENTRY_TYPE_ZONE,
     ENTRY_TYPE_ZONE_MANAGER,
 )
-from .hvac_const import DUTY_CYCLE_WINDOW_SECONDS
+from .hvac_const import (
+    CONF_HVAC_AC_LOAD_SENSOR,
+    CONF_HVAC_AC_RAMP_ZONE_ENABLED,
+    DEFAULT_HVAC_AC_RAMP_ZONE_ENABLED,
+    DUTY_CYCLE_WINDOW_SECONDS,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -93,6 +98,30 @@ class ZoneState:
 
     # v4.2.2: Zone entry dwell — when current occupancy session started
     current_session_start: datetime | None = None
+
+    # v4.5.11: AC ramp-down (energy-aware) — per-zone runtime state
+    # ac_load_sensor: entity_id of the kW sensor watching this AC's draw.
+    #   "" = unset = feature OFF for this zone (graceful degrade).
+    # kwh_rate_threshold: per-zone slider value, defaults to 0.8 kW (3-ton
+    #   heuristic). Tune up for larger units.
+    # ramp_zone_enabled: per-zone opt-out (master ON + zone OFF = skip).
+    # kwh_samples_above_threshold: 3-sample debounce counter.
+    # last_overshoot_started: ISO timestamp of first sample in current
+    #   overshoot window — gates the time-sustained check.
+    # ramp_state: state-machine label exposed via D7 sensor.
+    # last_kwh_rate / last_kwh_rate_ts: latest reading for D7 sensor.
+    # nudge_kwh_rate_before: captured at nudge fire for D8 kWh-avoided math.
+    # last_kwh_stale_warned_ts: rate-limit stale-sensor warnings.
+    ac_load_sensor: str = ""
+    kwh_rate_threshold: float = 0.8
+    ramp_zone_enabled: bool = True
+    kwh_samples_above_threshold: int = 0
+    last_overshoot_started: str = ""
+    ramp_state: str = "idle"
+    last_kwh_rate: float | None = None
+    last_kwh_rate_ts: str = ""
+    nudge_kwh_rate_before: float | None = None
+    last_kwh_stale_warned_ts: str = ""
 
     @property
     def any_room_occupied(self) -> bool:
@@ -229,6 +258,14 @@ class ZoneManager:
                 sweep_enabled = zone_cfg.get(CONF_ZONE_VACANCY_SWEEP_ENABLED, True)
                 zone_persons = zone_cfg.get(CONF_ZONE_PERSONS, [])
                 zone_cameras = zone_cfg.get(CONF_ZONE_CAMERAS, [])
+                # v4.5.11: AC ramp-down per-zone form fields (imports at
+                # module-level so the legacy ENTRY_TYPE_ZONE fallback below
+                # can use them too — Bug Class #33 prevention).
+                ac_load_sensor = zone_cfg.get(CONF_HVAC_AC_LOAD_SENSOR, "") or ""
+                ac_ramp_zone_enabled = zone_cfg.get(
+                    CONF_HVAC_AC_RAMP_ZONE_ENABLED,
+                    DEFAULT_HVAC_AC_RAMP_ZONE_ENABLED,
+                )
 
                 # If thermostat already assigned, merge rooms into existing zone
                 existing_zone_id = thermostat_to_zone_id.get(thermostat)
@@ -248,6 +285,15 @@ class ZoneManager:
                     for c in zone_cameras:
                         if c not in existing.zone_cameras:
                             existing.zone_cameras.append(c)
+                    # v4.5.11: prefer first non-empty ac_load_sensor; ramp-zone
+                    # enabled if either zone wants it. (When two ZM zones share
+                    # a thermostat, they share the same physical AC — same
+                    # circuit on Span — so any non-empty sensor wins.)
+                    if not existing.ac_load_sensor and ac_load_sensor:
+                        existing.ac_load_sensor = ac_load_sensor
+                    existing.ramp_zone_enabled = (
+                        existing.ramp_zone_enabled or bool(ac_ramp_zone_enabled)
+                    )
                     _LOGGER.info(
                         "HVAC: Merged %s into %s (%s) — now %d rooms",
                         zm_zone_name, existing_zone_id,
@@ -270,6 +316,8 @@ class ZoneManager:
                     vacancy_sweep_enabled=sweep_enabled,
                     zone_persons=zone_persons,
                     zone_cameras=zone_cameras,
+                    ac_load_sensor=ac_load_sensor,
+                    ramp_zone_enabled=bool(ac_ramp_zone_enabled),
                 )
                 # Initialize never-occupied zones as eligible for vacancy
                 zone_state.last_occupied_time = (
@@ -321,11 +369,25 @@ class ZoneManager:
             zone_name = merged.get("zone_name", f"Zone {zone_id.split('_')[-1]}")
             thermostat_to_zone_id[thermostat] = zone_id
 
+            # v4.5.11: legacy fallback path also reads ramp-down fields,
+            # to avoid Bug Class #33 (partial fix — sibling helper skipped).
+            # Single-user URA installs don't use this path today, but
+            # consistency matters if anyone ever migrates back.
+            legacy_ac_load_sensor = merged.get(
+                CONF_HVAC_AC_LOAD_SENSOR, ""
+            ) or ""
+            legacy_ramp_zone_enabled = merged.get(
+                CONF_HVAC_AC_RAMP_ZONE_ENABLED,
+                DEFAULT_HVAC_AC_RAMP_ZONE_ENABLED,
+            )
+
             zone_state = ZoneState(
                 zone_id=zone_id,
                 zone_name=zone_name,
                 climate_entity=thermostat,
                 rooms=room_names,
+                ac_load_sensor=legacy_ac_load_sensor,
+                ramp_zone_enabled=bool(legacy_ramp_zone_enabled),
             )
             zone_state.last_occupied_time = (
                 dt_util.utcnow()

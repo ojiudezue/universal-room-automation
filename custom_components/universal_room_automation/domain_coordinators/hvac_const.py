@@ -146,10 +146,100 @@ OVERRIDE_SEVERE_GRACE_MINUTES: Final = 2  # grace before reverting severe
 OVERRIDE_NORMAL_GRACE_MINUTES: Final = 5  # grace before compromise on normal
 OVERRIDE_COAST_TOLERANCE_BONUS: Final = 1.0  # F — widen tolerance during energy coast
 
-# AC Reset
+# AC Reset (legacy v3.8.3 — preserved for hard-reset escalation path)
 AC_RESET_MAX_PER_DAY: Final = 2  # max resets per zone per day
 AC_RESET_STUCK_MINUTES: Final = 10  # minutes past setpoint before reset
 AC_RESET_OFF_DURATION_SECONDS: Final = 60  # seconds to hold off during reset
+
+# ============================================================================
+# v4.5.11 — AC Energy-Aware Ramp-Down
+# ----------------------------------------------------------------------------
+# Detects "AC reached setpoint, kept cooling, kept burning kWh" — the dominant
+# Texas-summer waste pattern that v3.8.3 AC Reset doesn't catch (it only fires
+# when current > target). Soft nudge (target + Δ°F for N min) tries to coax a
+# variable-speed compressor to ramp down before falling back to the existing
+# hard reset. kWh-rate is the primary gate; sustained-time is secondary
+# debounce. Master switch defaults OFF (opt-in).
+# ============================================================================
+
+# Master toggle for the entire AC ramp-down feature. House-wide kill-switch.
+# Default OFF on first install (feature is invasive — user opts in after
+# they've seen the controls and configured per-zone ac_load_sensor).
+CONF_HVAC_AC_RAMP_MASTER_ENABLED: Final = "hvac_ac_ramp_master_enabled"
+DEFAULT_HVAC_AC_RAMP_MASTER_ENABLED: Final = False
+
+# House-wide tunables (Number sliders on URA: HVAC Coordinator device)
+CONF_HVAC_AC_NUDGE_SIZE: Final = "hvac_ac_nudge_size"
+DEFAULT_HVAC_AC_NUDGE_SIZE: Final = 1.5  # °F — added to target_temp_high
+
+CONF_HVAC_AC_NUDGE_DURATION: Final = "hvac_ac_nudge_duration"
+DEFAULT_HVAC_AC_NUDGE_DURATION: Final = 5  # minutes nudge held before restore
+
+CONF_HVAC_AC_SUSTAINED_SAMPLES: Final = "hvac_ac_sustained_samples"
+DEFAULT_HVAC_AC_SUSTAINED_SAMPLES: Final = 3  # consecutive samples > threshold
+
+CONF_HVAC_AC_DETECTION_TIME_GATE: Final = "hvac_ac_detection_time_gate"
+DEFAULT_HVAC_AC_DETECTION_TIME_GATE: Final = 10  # minutes overshoot before action
+
+CONF_HVAC_AC_HARD_RESET_DAILY_LIMIT: Final = "hvac_ac_hard_reset_daily_limit"
+DEFAULT_HVAC_AC_HARD_RESET_DAILY_LIMIT: Final = 2  # compressor protection cap
+
+CONF_HVAC_AC_HARD_RESET_MIN_INTERVAL: Final = "hvac_ac_hard_reset_min_interval"
+DEFAULT_HVAC_AC_HARD_RESET_MIN_INTERVAL: Final = 120  # minutes between hard resets
+
+# Per-zone tunable (one Number slider per AC zone — kwh threshold scales
+# with AC tonnage, the only variable that does, so house-wide would force
+# a 4-ton unit to use the 3-ton threshold or vice versa). Stored on
+# ZoneState.kwh_rate_threshold.
+CONF_HVAC_AC_KWH_RATE_THRESHOLD: Final = "hvac_ac_kwh_rate_threshold"
+DEFAULT_HVAC_AC_KWH_RATE_THRESHOLD: Final = 0.8  # kW (3-ton heuristic; 4-ton ≈ 1.0)
+
+# Per-zone form field — entity_id of the kW/kWh sensor for this zone's AC
+# (Span panel circuit, Emporia Vue, etc.). Optional. When unset, the ramp-
+# down feature is OFF for that zone (graceful degrade — no false triggers).
+CONF_HVAC_AC_LOAD_SENSOR: Final = "hvac_ac_load_sensor"
+
+# Per-zone form field — opt-out at zone level even when master is ON.
+CONF_HVAC_AC_RAMP_ZONE_ENABLED: Final = "hvac_ac_ramp_zone_enabled"
+DEFAULT_HVAC_AC_RAMP_ZONE_ENABLED: Final = True
+
+# Internal constants (not user-facing)
+AC_NUDGE_OVERSHOOT_GAP: Final = 0.5            # °F — current <= target - this
+AC_NUDGE_EVALUATION_DELAY_S: Final = 600       # seconds after restore = evaluate
+AC_KWH_SENSOR_STALENESS_S: Final = 600         # 10 min stale = treat as None
+AC_KWH_STALE_WARN_INTERVAL_S: Final = 21600    # 6 hr — rate-limit stale warnings
+AC_KWH_AVOIDED_PROJECTION_CAP_MIN: Final = 30  # max minutes to project savings
+
+# Ramp state-machine state strings (D7 sensor enumeration)
+AC_RAMP_STATE_IDLE: Final = "idle"
+AC_RAMP_STATE_DETECTING: Final = "detecting"
+AC_RAMP_STATE_NUDGING: Final = "nudging"
+AC_RAMP_STATE_AWAITING_EVAL: Final = "awaiting_evaluation"
+AC_RAMP_STATE_ESCALATING: Final = "escalating"
+AC_RAMP_STATE_LOCKED_OUT: Final = "locked_out"
+AC_RAMP_STATE_DISABLED: Final = "disabled"
+
+AC_RAMP_STATES: Final = (
+    AC_RAMP_STATE_IDLE,
+    AC_RAMP_STATE_DETECTING,
+    AC_RAMP_STATE_NUDGING,
+    AC_RAMP_STATE_AWAITING_EVAL,
+    AC_RAMP_STATE_ESCALATING,
+    AC_RAMP_STATE_LOCKED_OUT,
+    AC_RAMP_STATE_DISABLED,
+)
+
+# Event-log event_type strings
+AC_RAMP_EVENT_DETECTION_FIRED: Final = "detection_fired"
+AC_RAMP_EVENT_NUDGE_STARTED: Final = "nudge_started"
+AC_RAMP_EVENT_NUDGE_RESTORED: Final = "nudge_restored"
+AC_RAMP_EVENT_NUDGE_EVALUATED: Final = "nudge_evaluated"
+AC_RAMP_EVENT_HARD_RESET_STARTED: Final = "hard_reset_started"
+AC_RAMP_EVENT_HARD_RESET_COMPLETED: Final = "hard_reset_completed"
+AC_RAMP_EVENT_LOCKOUT_ENGAGED: Final = "lockout_engaged"
+AC_RAMP_EVENT_MANUAL_OVERRIDE: Final = "manual_override"
+AC_RAMP_EVENT_CANCEL_INVOKED: Final = "cancel_invoked"
+AC_RAMP_EVENT_STARTUP_RESTORE: Final = "startup_restore"
 
 # Fan speed scaling (above cooling setpoint)
 FAN_SPEED_LOW_PCT: Final = 33

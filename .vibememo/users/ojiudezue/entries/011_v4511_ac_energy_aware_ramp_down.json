@@ -1,0 +1,149 @@
+{
+  "format_version": "2.0",
+  "entry_id": "011",
+  "author": "ojiudezue",
+  "session_id": "claude_20260510_v4511_ac_ramp_down",
+  "timestamp": "2026-05-10T18:00:00Z",
+  "type": "decision",
+  "weight": "critical",
+
+  "title": "v4.5.11 — AC Energy-Aware Ramp-Down (slice 1) + slice/2 split decision",
+
+  "summary": "Tier 2 cycle that replaces the v3.8.3 'still hot despite cooling' AC reset trigger with an energy-aware overshoot detector (current <= target - 0.5°F AND kWh-rate sustained > zone-specific threshold). Adds a soft setpoint nudge action before hard reset escalation. Compressor protection: persistent daily cap + global min-interval gate that survives HA restart (Bug Class #11 + #33 caught in review). Master switch defaults OFF on first install — feature is invasive. Per-zone kWh threshold (3-ton defaults to 0.8 kW; user manually raises 4-ton's to 1.0). Shipped as 'slice 1' — observability sensors (D7, D8), diagnostic dump button (D10), and HC/EC user manuals (D11) deferred to v4.5.12 to get compressor protection live faster while observability is wrapped around 1 week of real-world data.",
+
+  "decisions": [
+    {
+      "id": "011.1",
+      "category": "architecture",
+      "decision": "Detection trigger flipped from 'current > target (still hot)' to 'current <= target - 0.5°F AND sustained kWh > threshold (overshoot + waste)'",
+      "alternatives_considered": [
+        "Keep existing trigger and add kWh-rate as ADDITIONAL gate (would still miss the dominant Texas failure mode)",
+        "Use time-only sustained detection without kWh awareness (false positives on legit modulation)",
+        "Use kWh rate alone without overshoot gate (would fire during normal high-load cooling-toward-setpoint)"
+      ],
+      "why": "User's manual observation 2026-05-10: AC2 reached cooling setpoint, kept drawing >2 kWh past setpoint before manual off→on intervention restored normal cycling. The v3.8.3 detection (current > target) NEVER fires for this mode because the room is already cool. kWh as PRIMARY gate is what makes the detection meaningful — time-only triggers would false-positive on variable-speed Bryant's natural modulation near setpoint. The 0.5°F gap prevents flap when current_temp == target_temp_high during legit cycling (Bryant rounds to 0.5°F). 3-sample debounce + 10-min sustained gate eliminates noise.",
+      "implications": "The legacy 'AC can't reach setpoint' failure mode (undersized AC, refrigerant low) is no longer detected automatically. That's acceptable for this single-user Texas install — the dominant failure is overcooling waste, not undercooling. If a future user reports the legacy mode, we'd add it back as a second detector path (different threshold semantics, different action).",
+      "confidence": "high",
+      "revisit_trigger": "If field data after 1 week shows the detection never fires despite known waste (user observation of AC behavior vs detection log), lower kWh threshold default OR drop the gap to 0°F. If false-positive rate >40% after threshold tuning, narrow the overshoot gap to 1°F."
+    },
+    {
+      "id": "011.2",
+      "category": "safety",
+      "decision": "Soft + hard action ladder with hard reset gated by daily cap (2/day) AND global min-interval (2hr) — both required",
+      "alternatives_considered": [
+        "Soft-only (no hard reset ever) — removes safety net if controller deeply hangs",
+        "Hard-only (skip soft nudge) — wastes compressor starts when soft would have worked",
+        "Single gate (daily cap only) — leaves day-rollover compressor-cycling vulnerability",
+        "Single gate (min-interval only) — no per-day cap means a stuck controller could fire 12+ resets/day"
+      ],
+      "why": "User direction: 'Actually soft + hard but I think if we do hard we have to klimit. how many times it can do it in a 24 hour period. The worst thing we can do is rapidly cycle a compressor because of an error'. Two gates AND together because each handles a different failure mode: daily cap = 'this controller is having a bad day, don't make it worse'; min-interval = 'never two starts within 2 hours, no matter what date the calendar says'. The min-interval gate's no-date-filter MAX query is the critical R2 mitigation — without it, a reset at 23:55 + day rollover + reset at 00:02 = 7-min compressor short cycle (warranty-voiding).",
+      "implications": "Even worst-case 'feature broken, escalates every time' cannot produce more than 2 hard resets per day per zone, and never 2 within 2 hours. That's well within Bryant's published cycle-rate spec. Lockout flag + persistent notification surfaces the failure for human investigation when cap is hit. Tests assert the min-interval query has no `AND date =` clause.",
+      "confidence": "high",
+      "revisit_trigger": "If user reports lockout firing routinely (more than 1x/week), the kWh threshold is too sensitive — tune up before changing the cap. If a Bryant firmware update changes the compressor's safe cycle rate, revisit the 2-hour min-interval."
+    },
+    {
+      "id": "011.3",
+      "category": "data",
+      "decision": "Persistent state in SQLite (ac_reset_state + ac_ramp_events tables) — daily counters + in-flight nudge state survive HA restart",
+      "alternatives_considered": [
+        "In-memory only (existing ac_reset_count_today pattern from v3.8.3) — restart loop bypasses caps",
+        "HA Storage helper JSON — simpler but not queryable for diagnostic reads",
+        "Single key-value table — wouldn't support the date-keyed rollover or efficient per-zone reads"
+      ],
+      "why": "User explicitly flagged: 'This all needs to survive restarts or we will not achieve the limits goal.' If `hard_reset_count_today` lives only in RAM, an HA restart at 11pm resets it to 0 — we could fire 2 more hard resets before midnight = 4 in 24h. Compressor protection requires durable state. SQLite already exists in URA (35+ tables in database.py), follows the established `CREATE TABLE IF NOT EXISTS` pattern — no migration framework needed. Date-keyed primary key (zone_id, date) means rollover is automatic (new-day query returns 0 counter). Event log table enables future analytics + diagnostic dump (deferred to slice 2).",
+      "implications": "Establishes ac_reset_state as the authoritative source for daily counters; ZoneState fields keep an in-memory mirror for legacy sensor compatibility but DB is source-of-truth. Future features that need per-zone-per-day persistence (vacancy stats, occupancy duration) should follow the same date-keyed pattern.",
+      "confidence": "high",
+      "revisit_trigger": "If ac_ramp_events table grows beyond reasonable for diagnostics (e.g., 50k+ rows during stress testing), tighten retention from 30 to 14 days. If SQLite write queue ever shows backlog warnings, batch the 3-writes-per-cycle into a single executemany."
+    },
+    {
+      "id": "011.4",
+      "category": "safety",
+      "decision": "DB write happens BEFORE the climate.set_temperature service call in _perform_soft_nudge (R1 ordering)",
+      "alternatives_considered": [
+        "Setpoint first, then DB write (more intuitive in code reading order)",
+        "Wrap both in a try/except with rollback on failure (still leaves Bryant at +1.5°F if process dies between)"
+      ],
+      "why": "If HA crashes between the DB write and the service call: DB says 'nudge in flight, original=73' but Bryant is still at 73. Next startup audit reads DB, calls 'restore to 73' — which equals current target. No-op. Safe.\\n\\nIf we did setpoint first, then DB: Bryant is now at 74.5, then we crash before DB write. Next startup has no DB record. Bryant sits at 74.5 indefinitely until next nudge or manual intervention. Orphan drift.\\n\\nDB-first ordering trades a tiny window of 'DB lies about state' for a much larger guarantee 'thermostat never silently drifts'. The lie-window is closed by the immediate-next-step (service call) which makes DB accurate. This is the canonical write-ahead pattern.",
+      "implications": "Every future v4.5.x feature that issues HA service calls with persistent state implications must follow the same ordering: DB-first, service-second. Test asserts this ordering explicitly (test_db_write_BEFORE_setpoint_change).",
+      "confidence": "critical",
+      "revisit_trigger": "Never. This is foundational. If someone proposes reordering 'for clarity' in a future review, reject and point them at this entry."
+    },
+    {
+      "id": "011.5",
+      "category": "process",
+      "decision": "Ship as 'slice 1' with detection + actions + persistence + master switch + buttons, defer observability (D7, D8) + diagnostic dump + user manuals (D11) to v4.5.12",
+      "alternatives_considered": [
+        "Ship single mega-cycle with all 11 deliverables (~1400 LoC + ~6000-10000 words of docs + ~70 tests)",
+        "Ship slice 1 as just D1-D4 + master, defer all D5+ to next cycle (loses ability to USE the feature)"
+      ],
+      "why": "User direction: 'Option 2 is fine. I'm relying on the 2x review to spot check so just follow our quality protocols and don't skimp.' The compressor-protection critical path is the safety-essential piece; observability is critical for tuning but not safety. Splitting lets us: (a) deploy safety faster, (b) collect 1 week of field data before deciding observability defaults, (c) write user manuals against the REAL behavior we observe, not the hypothetical behavior we modeled. Slice 2 is informed by data, not assumed. This is the 'minimum viable safety + iterate on observability' pattern.",
+      "implications": "v4.5.11 ships compressor protection. v4.5.12 wraps observability around what we learn. User cannot answer 'how often did this fire today?' from the UI in slice 1 — they SQL-query ac_ramp_events table for now. Acceptable for 1 week. Slice 2 is committed (not vague 'someday'), tracked in PLANNING_v4.5.11 'Out of Scope' section + a new follow-up task for v4.5.12 plan creation. README lists what's deferred + when it ships.",
+      "confidence": "high",
+      "revisit_trigger": "If slice 1 field data shows nudges firing rarely OR misclassifying frequently, accelerate slice 2 observability (need false_positive_rate sensor to tune). If field data validates the design cleanly, slice 2 can take its time."
+    },
+    {
+      "id": "011.6",
+      "category": "ux",
+      "decision": "Per-zone kWh rate threshold slider (one per AC zone), everything else house-wide",
+      "alternatives_considered": [
+        "All 7 sliders per-zone × N zones = 21 sliders (UX punishment)",
+        "All house-wide including threshold (forces 4-ton to use 3-ton threshold or vice versa)"
+      ],
+      "why": "User specified per-zone after I proposed it: 'Per zone. Two 3 tons. One 4 ton.' Threshold is the ONLY variable tightly coupled to AC tonnage (compressor minimum-modulation floor scales with rated kW). Nudge size, sustained samples, time gates, daily caps, min-intervals — those are algorithm/safety tuning that should be uniform house-wide. Making everything per-zone × 3 ACs = 21 sliders for marginal flexibility. Per-zone threshold = 3 sliders for the variable that actually varies.",
+      "implications": "Per-zone storage lives on ZoneState.kwh_rate_threshold (not OverrideArrester instance attr). Factory pattern differs from house-wide factory — separate _hvac_zone_kwh_threshold_factory(zone_id, zone_name) that pushes to zone manager. Future per-zone tunables (if any) follow the same pattern. Defaults: 3-ton zones use 0.8 kW (25-30% of rated); user manually raises 4-ton's to 1.0 kW post-deploy via slider (no redeploy).",
+      "confidence": "high",
+      "revisit_trigger": "If user reports tuning struggles or wants to share AC tonnage at config time, add an AC tonnage form field that auto-suggests threshold (or computes threshold = tonnage × 0.25). Likely overkill for single-user."
+    },
+    {
+      "id": "011.7",
+      "category": "process",
+      "decision": "AST-walk import resolution test catches v4.5.10.1-class bugs during build (caught one during this cycle)",
+      "alternatives_considered": [
+        "Only test that import statements look textually correct (v4.5.10's original approach — DIDN'T catch SIGNAL_HVAC_ENTITIES_UPDATE)",
+        "Skip import tests entirely (let runtime catch it on live HA)",
+        "Per-symbol targeted tests (v4.5.10.1's approach — works but doesn't generalize)"
+      ],
+      "why": "During v4.5.11 build, I imported CONF_ZONE_THERMOSTAT from domain_coordinators.hvac_const in _discover_ac_zones (both number.py + button.py). The constant actually lives in const.py. Test failed immediately, I fixed it. Without the AST-walk this would have shipped silently — same shape as v4.5.10 SIGNAL_HVAC_ENTITIES_UPDATE ImportError that DID ship to live HA. The pattern verifies 'imports RESOLVE, not just that they're textually present'. Worth promoting beyond test_v4511 — recommend adding to QUALITY_CONTEXT.md Bug Class #32 as the validated regression pattern. Could become a project-wide hook for all PRs.",
+      "implications": "All future cycles get this protection automatically by adding the target file to the TestImportResolution suite. Establishes a pattern that scales: AST-walk every from-relative-import, follow to target module, source-grep for symbol definition. Three test methods in v4.5.11 already cover number.py + switch.py + button.py + hvac_override.py.",
+      "confidence": "high",
+      "revisit_trigger": "If a 3rd v4.5.x ImportError-class bug ships despite this test, the test has a false-negative — investigate. Until then, the test pattern is sound."
+    }
+  ],
+
+  "refs": {
+    "what_prompted_this": "User manual observation 2026-05-10: AC2 reached cooling setpoint, kept drawing >2 kWh past setpoint before user manually forced off→on. v3.8.3 AC Reset detection ('current > target') never fires for this mode. User pushback on initial design ('This seems wrong. What we need is: it hit the setpoint. And then keeps running...') forced a complete failure-mode re-think. Decision trail captured the design conversation: critique → react → critique → final calls (soft+hard, per-zone threshold, kWh primary gate, restart persistence).",
+    "tools_in_use": ["claude_code", "ura-sqlite"],
+    "files_affected": [
+      "custom_components/universal_room_automation/database.py",
+      "custom_components/universal_room_automation/domain_coordinators/hvac_const.py",
+      "custom_components/universal_room_automation/domain_coordinators/hvac_override.py",
+      "custom_components/universal_room_automation/domain_coordinators/hvac_zones.py",
+      "custom_components/universal_room_automation/domain_coordinators/hvac.py",
+      "custom_components/universal_room_automation/number.py",
+      "custom_components/universal_room_automation/switch.py",
+      "custom_components/universal_room_automation/button.py",
+      "custom_components/universal_room_automation/config_flow.py",
+      "custom_components/universal_room_automation/strings.json",
+      "custom_components/universal_room_automation/translations/en.json",
+      "quality/tests/test_v4511_ac_energy_aware_ramp_down.py",
+      "quality/tests/test_v4510_hvac_tunables_and_labels.py",
+      "docs/planning/PLANNING_v4.5.11_ac_energy_aware_ramp_down.md",
+      "docs/reviews/code-review/v4.5.11_review.md",
+      "docs/readmes/README_v4.5.11.md",
+      "docs/TECH_DEBT.md"
+    ],
+    "related_entries": ["010", "008", "009"],
+    "memory_keys": [
+      "feedback_ura_mirror_pattern",
+      "feedback_migration_helper_imports",
+      "project_single_user_no_backcompat"
+    ],
+    "external_refs": [
+      "Bug Class #11 (UTC vs Local TZ) in QUALITY_CONTEXT.md — caught HIGH-1 in review",
+      "Bug Class #33 (Partial Fix — Sibling Helpers Skipped) in QUALITY_CONTEXT.md — caught MEDIUM-1",
+      "v3.8.3 README — legacy AC Reset (still hot)",
+      "v3.18.x — _perform_ac_reset verify+retry (reused as hard-reset backend)",
+      "v4.5.10.1 README — SIGNAL_HVAC_ENTITIES_UPDATE ImportError class that inspired AST-walk regression test"
+    ]
+  }
+}

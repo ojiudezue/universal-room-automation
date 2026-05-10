@@ -1,6 +1,6 @@
 """Switch platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.5.10.1
+# Universal Room Automation vv4.5.11
 # Build: 2026-01-02
 # File: switch.py
 #
@@ -160,6 +160,7 @@ async def async_setup_entry(
             HVACFanControlSwitch(hass, entry),
             # v4.5.10: Solar Cover Management master toggle
             HVACSolarCoverSwitch(hass, entry),
+            HVACACRampMasterSwitch(hass, entry),
             # v3.21.1 D1: Observation mode toggles for Safety, Security, Presence
             SafetyObservationModeSwitch(hass, entry),
             SecurityObservationModeSwitch(hass, entry),
@@ -1453,6 +1454,83 @@ class HVACSolarCoverSwitch(SwitchEntity, RestoreEntity):
     def available(self) -> bool:
         """Only available when CoverController is active."""
         return self._get_cover_controller() is not None
+
+
+class HVACACRampMasterSwitch(SwitchEntity, RestoreEntity):
+    """v4.5.11: Master toggle for the AC energy-aware ramp-down feature.
+
+    When ON: detection cycle runs (per-zone gates still apply — needs
+    ac_load_sensor configured + ramp_zone_enabled). Soft nudges and hard
+    resets fire under their respective gates.
+
+    When OFF: no detections, no nudges, no resets. Any in-flight nudges
+    are cancelled and original setpoints restored (via the
+    ramp_master_enabled.setter on OverrideArrester).
+
+    Default OFF on first install — feature is invasive (changes setpoints,
+    can cycle compressors). User must explicitly opt in after configuring
+    per-zone ac_load_sensor.
+
+    Entity: switch.ura_hvac_ac_ramp_master
+    Device: URA: HVAC Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:air-conditioner"
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        self.hass = hass
+        self._entry = entry
+        self._attr_unique_id = f"{DOMAIN}_hvac_ac_ramp_master"
+        self._attr_name = "AC Ramp-Down (Energy-Aware)"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "hvac_coordinator")},
+            name="URA: HVAC Coordinator",
+            manufacturer="Universal Room Automation",
+            model="HVAC Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+
+    def _get_arrester(self):
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        hvac = manager.coordinators.get("hvac")
+        return getattr(hvac, "_override_arrester", None) if hvac else None
+
+    @property
+    def is_on(self) -> bool:
+        arr = self._get_arrester()
+        if arr is None:
+            return False
+        return getattr(arr, "_ramp_master_enabled", False)
+
+    async def async_turn_on(self, **kwargs) -> None:
+        arr = self._get_arrester()
+        if arr is not None:
+            arr.ramp_master_enabled = True
+            self.async_write_ha_state()
+
+    async def async_turn_off(self, **kwargs) -> None:
+        arr = self._get_arrester()
+        if arr is not None:
+            arr.ramp_master_enabled = False  # setter cancels in-flight nudges
+            self.async_write_ha_state()
+
+    async def async_added_to_hass(self) -> None:
+        """Restore previous state. Default OFF on first install."""
+        await super().async_added_to_hass()
+        last_state = await self.async_get_last_state()
+        if last_state is not None:
+            arr = self._get_arrester()
+            if arr is not None:
+                arr.ramp_master_enabled = last_state.state == "on"
+
+    @property
+    def available(self) -> bool:
+        return self._get_arrester() is not None
 
 
 class HVACPreArrivalSwitch(SwitchEntity, RestoreEntity):

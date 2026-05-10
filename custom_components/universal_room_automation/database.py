@@ -1,7 +1,7 @@
 """Database for Universal Room Automation."""
 from __future__ import annotations
 #
-# Universal Room Automation vv4.5.10.1
+# Universal Room Automation vv4.5.11
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors
@@ -1048,6 +1048,60 @@ class UniversalRoomDatabase:
                     ON room_power_profiles(room_id)""",
                 ]):
                     failed_tables.append("room_power_profiles")
+
+                # -- v4.5.11: AC ramp-down per-zone-per-day state -------------
+                # Compressor protection requires daily counters + min-interval
+                # gates that survive HA restart. Otherwise restart loops bypass
+                # the cap and could fire 3+ hard resets in minutes (warranty-
+                # voiding short-cycling). One row per (zone_id, date).
+                # Min-interval gate queries MAX(last_hard_reset_ts) without
+                # date filter to catch the 23:59 -> 00:01 day-rollover edge.
+                if not await self._create_table_safe(db, "ac_reset_state", [
+                    """CREATE TABLE IF NOT EXISTS ac_reset_state (
+                        zone_id TEXT NOT NULL,
+                        date TEXT NOT NULL,
+                        soft_nudge_count INTEGER NOT NULL DEFAULT 0,
+                        hard_reset_count INTEGER NOT NULL DEFAULT 0,
+                        last_soft_nudge_ts TEXT,
+                        last_hard_reset_ts TEXT,
+                        last_overshoot_ts TEXT,
+                        in_flight_nudge_original_target REAL,
+                        in_flight_nudge_started_ts TEXT,
+                        in_flight_nudge_duration_s INTEGER,
+                        lockout_flag INTEGER NOT NULL DEFAULT 0,
+                        PRIMARY KEY (zone_id, date)
+                    )""",
+                    """CREATE INDEX IF NOT EXISTS idx_ac_reset_state_zone
+                    ON ac_reset_state(zone_id, date DESC)""",
+                ]):
+                    failed_tables.append("ac_reset_state")
+
+                # -- v4.5.11: AC ramp-down append-only event log --------------
+                # Every state transition logged for offline analysis. 30-day
+                # rolling retention (auto-prune during day rollover).
+                if not await self._create_table_safe(db, "ac_ramp_events", [
+                    """CREATE TABLE IF NOT EXISTS ac_ramp_events (
+                        event_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        zone_id TEXT NOT NULL,
+                        timestamp TEXT NOT NULL,
+                        event_type TEXT NOT NULL,
+                        triggered_by TEXT NOT NULL DEFAULT 'auto',
+                        current_temp REAL,
+                        target_high REAL,
+                        kwh_rate_before REAL,
+                        kwh_rate_after REAL,
+                        action_taken TEXT,
+                        soft_nudge_count_today INTEGER,
+                        hard_reset_count_today INTEGER,
+                        lockout_triggered INTEGER NOT NULL DEFAULT 0,
+                        notes TEXT
+                    )""",
+                    """CREATE INDEX IF NOT EXISTS idx_ac_ramp_events_zone_ts
+                    ON ac_ramp_events(zone_id, timestamp)""",
+                    """CREATE INDEX IF NOT EXISTS idx_ac_ramp_events_ts
+                    ON ac_ramp_events(timestamp)""",
+                ]):
+                    failed_tables.append("ac_ramp_events")
 
                 # ============================================================
                 # Schema migrations (per-table, safe)
@@ -4170,3 +4224,410 @@ class UniversalRoomDatabase:
         except Exception as e:
             _LOGGER.error("Error getting uncomfortable minutes: %s", e)
             return 0
+
+    # =========================================================================
+    # v4.5.11: AC RAMP-DOWN STATE + EVENT LOG
+    # =========================================================================
+    # ac_reset_state: per-zone-per-day counters + in-flight nudge state.
+    # Survives HA restart so the daily caps + min-interval gates can't be
+    # bypassed by a restart loop. Min-interval gate intentionally queries
+    # MAX(last_hard_reset_ts) without a date filter to protect against
+    # the 23:59 -> 00:01 day-rollover edge.
+    # =========================================================================
+
+    @staticmethod
+    def _today_key() -> str:
+        """Return today's date in YYYY-MM-DD (HA local time)."""
+        return dt_util.now().date().isoformat()
+
+    async def get_ac_reset_state(self, zone_id: str, date: str | None = None) -> dict:
+        """Return today's ac_reset_state row for a zone, or fresh defaults.
+
+        Defaults represent a fresh-day row (no DB row yet) so callers can
+        treat the result as authoritative without checking for None.
+        """
+        date_key = date or self._today_key()
+        defaults = {
+            "zone_id": zone_id,
+            "date": date_key,
+            "soft_nudge_count": 0,
+            "hard_reset_count": 0,
+            "last_soft_nudge_ts": None,
+            "last_hard_reset_ts": None,
+            "last_overshoot_ts": None,
+            "in_flight_nudge_original_target": None,
+            "in_flight_nudge_started_ts": None,
+            "in_flight_nudge_duration_s": None,
+            "lockout_flag": 0,
+        }
+        try:
+            async with self._db_read() as db:
+                cursor = await db.execute(
+                    "SELECT * FROM ac_reset_state WHERE zone_id = ? AND date = ?",
+                    (zone_id, date_key),
+                )
+                row = await cursor.fetchone()
+                if row is None:
+                    return defaults
+                columns = [d[0] for d in cursor.description]
+                return dict(zip(columns, row))
+        except Exception as err:
+            _LOGGER.warning(
+                "ac_reset_state read failed for %s/%s: %s",
+                zone_id, date_key, err,
+            )
+            return defaults
+
+    async def save_ac_reset_state(self, state: dict) -> None:
+        """Upsert a full ac_reset_state row.
+
+        Caller is responsible for setting the date field (typically today).
+        """
+        try:
+            async with self._db() as db:
+                await db.execute(
+                    """INSERT OR REPLACE INTO ac_reset_state (
+                        zone_id, date,
+                        soft_nudge_count, hard_reset_count,
+                        last_soft_nudge_ts, last_hard_reset_ts, last_overshoot_ts,
+                        in_flight_nudge_original_target,
+                        in_flight_nudge_started_ts,
+                        in_flight_nudge_duration_s,
+                        lockout_flag
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        state["zone_id"],
+                        state["date"],
+                        int(state.get("soft_nudge_count", 0)),
+                        int(state.get("hard_reset_count", 0)),
+                        state.get("last_soft_nudge_ts"),
+                        state.get("last_hard_reset_ts"),
+                        state.get("last_overshoot_ts"),
+                        state.get("in_flight_nudge_original_target"),
+                        state.get("in_flight_nudge_started_ts"),
+                        state.get("in_flight_nudge_duration_s"),
+                        1 if state.get("lockout_flag") else 0,
+                    ),
+                )
+                await db.commit()
+        except Exception as err:
+            _LOGGER.warning(
+                "ac_reset_state save failed for %s: %s",
+                state.get("zone_id"), err,
+            )
+
+    async def get_global_last_hard_reset_ts(self, zone_id: str) -> str | None:
+        """Return the most recent hard-reset ISO timestamp for a zone across
+        all dates (no date filter).
+
+        Critical for the min-interval gate: a daily-cap counter resets at
+        midnight, but the compressor doesn't care what day it is. If the
+        last hard reset was 7 minutes ago at 23:55, attempting another at
+        00:02 would bypass the daily cap (new date row) — but the global
+        MAX query catches it.
+        """
+        try:
+            async with self._db_read() as db:
+                cursor = await db.execute(
+                    """SELECT MAX(last_hard_reset_ts) FROM ac_reset_state
+                       WHERE zone_id = ?""",
+                    (zone_id,),
+                )
+                row = await cursor.fetchone()
+                return row[0] if row and row[0] else None
+        except Exception as err:
+            _LOGGER.warning(
+                "ac_reset_state global last_hard_reset_ts read failed for %s: %s",
+                zone_id, err,
+            )
+            return None
+
+    async def set_ac_in_flight_nudge(
+        self,
+        zone_id: str,
+        original_target: float,
+        started_ts: str,
+        duration_s: int,
+    ) -> None:
+        """Mark a nudge in-flight before issuing the setpoint change.
+
+        MUST be called BEFORE the climate.set_temperature call so a crash
+        between this write and the setpoint change leaves a benign DB
+        record (restore-to-original = no-op) rather than orphan drift.
+        """
+        date_key = self._today_key()
+        state = await self.get_ac_reset_state(zone_id, date_key)
+        state["in_flight_nudge_original_target"] = float(original_target)
+        state["in_flight_nudge_started_ts"] = started_ts
+        state["in_flight_nudge_duration_s"] = int(duration_s)
+        await self.save_ac_reset_state(state)
+
+    async def clear_ac_in_flight_nudge(self, zone_id: str) -> None:
+        """Clear in-flight nudge state after a successful restore.
+
+        Looks up by zone_id alone (no date) because a nudge that started
+        before midnight and restores after midnight needs both rows
+        addressed.
+        """
+        try:
+            async with self._db() as db:
+                await db.execute(
+                    """UPDATE ac_reset_state
+                       SET in_flight_nudge_original_target = NULL,
+                           in_flight_nudge_started_ts = NULL,
+                           in_flight_nudge_duration_s = NULL
+                       WHERE zone_id = ?
+                         AND in_flight_nudge_original_target IS NOT NULL""",
+                    (zone_id,),
+                )
+                await db.commit()
+        except Exception as err:
+            _LOGGER.warning(
+                "ac_reset_state clear in-flight failed for %s: %s",
+                zone_id, err,
+            )
+
+    async def get_zones_with_in_flight_nudge(self) -> list[dict]:
+        """Return all rows where a nudge is in-flight (any date).
+
+        Called by OverrideArrester.async_startup_audit so a crash mid-nudge
+        doesn't leave the thermostat at the nudged setpoint forever.
+        """
+        try:
+            async with self._db_read() as db:
+                cursor = await db.execute(
+                    """SELECT zone_id, date, in_flight_nudge_original_target,
+                              in_flight_nudge_started_ts, in_flight_nudge_duration_s
+                       FROM ac_reset_state
+                       WHERE in_flight_nudge_original_target IS NOT NULL""",
+                )
+                rows = await cursor.fetchall()
+                return [
+                    {
+                        "zone_id": r[0],
+                        "date": r[1],
+                        "original_target": r[2],
+                        "started_ts": r[3],
+                        "duration_s": r[4],
+                    }
+                    for r in rows
+                ]
+        except Exception as err:
+            _LOGGER.warning("ac_reset_state in-flight scan failed: %s", err)
+            return []
+
+    async def set_ac_lockout(self, zone_id: str, locked: bool) -> None:
+        """Set or clear the lockout flag for today's row."""
+        date_key = self._today_key()
+        state = await self.get_ac_reset_state(zone_id, date_key)
+        state["lockout_flag"] = 1 if locked else 0
+        await self.save_ac_reset_state(state)
+
+    async def clear_ac_zone_today(self, zone_id: str) -> None:
+        """Reset today's counters + lockout for a zone (clear_lockout button)."""
+        date_key = self._today_key()
+        try:
+            async with self._db() as db:
+                await db.execute(
+                    """UPDATE ac_reset_state
+                       SET soft_nudge_count = 0,
+                           hard_reset_count = 0,
+                           lockout_flag = 0
+                       WHERE zone_id = ? AND date = ?""",
+                    (zone_id, date_key),
+                )
+                await db.commit()
+        except Exception as err:
+            _LOGGER.warning(
+                "ac_reset_state clear-zone-today failed for %s: %s",
+                zone_id, err,
+            )
+
+    async def log_ac_ramp_event(
+        self,
+        zone_id: str,
+        event_type: str,
+        triggered_by: str = "auto",
+        current_temp: float | None = None,
+        target_high: float | None = None,
+        kwh_rate_before: float | None = None,
+        kwh_rate_after: float | None = None,
+        action_taken: str | None = None,
+        soft_nudge_count_today: int | None = None,
+        hard_reset_count_today: int | None = None,
+        lockout_triggered: bool = False,
+        notes: str | None = None,
+    ) -> None:
+        """Append an event row to the ramp-down log."""
+        try:
+            async with self._db() as db:
+                await db.execute(
+                    """INSERT INTO ac_ramp_events (
+                        zone_id, timestamp, event_type, triggered_by,
+                        current_temp, target_high,
+                        kwh_rate_before, kwh_rate_after, action_taken,
+                        soft_nudge_count_today, hard_reset_count_today,
+                        lockout_triggered, notes
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        zone_id,
+                        dt_util.now().isoformat(),
+                        event_type,
+                        triggered_by,
+                        current_temp,
+                        target_high,
+                        kwh_rate_before,
+                        kwh_rate_after,
+                        action_taken,
+                        soft_nudge_count_today,
+                        hard_reset_count_today,
+                        1 if lockout_triggered else 0,
+                        notes,
+                    ),
+                )
+                await db.commit()
+        except Exception as err:
+            _LOGGER.warning(
+                "ac_ramp_events log failed for %s/%s: %s",
+                zone_id, event_type, err,
+            )
+
+    async def get_ac_ramp_events_recent(
+        self, days: int = 7, zone_id: str | None = None,
+    ) -> list[dict]:
+        """Return recent ramp-down events, newest first.
+
+        Used by the diagnostic-dump button (D10) and by impact sensors (D8).
+        """
+        cutoff = (dt_util.now() - timedelta(days=days)).isoformat()
+        try:
+            async with self._db_read() as db:
+                if zone_id:
+                    cursor = await db.execute(
+                        """SELECT * FROM ac_ramp_events
+                           WHERE timestamp >= ? AND zone_id = ?
+                           ORDER BY timestamp DESC""",
+                        (cutoff, zone_id),
+                    )
+                else:
+                    cursor = await db.execute(
+                        """SELECT * FROM ac_ramp_events
+                           WHERE timestamp >= ?
+                           ORDER BY timestamp DESC""",
+                        (cutoff,),
+                    )
+                rows = await cursor.fetchall()
+                columns = [d[0] for d in cursor.description]
+                return [dict(zip(columns, r)) for r in rows]
+        except Exception as err:
+            _LOGGER.warning("ac_ramp_events recent read failed: %s", err)
+            return []
+
+    async def get_ac_ramp_kwh_avoided(
+        self, days: int | None = None,
+    ) -> tuple[float, int, int]:
+        """Compute (kwh_avoided, total_nudge_evals, false_positive_count).
+
+        Aggregates from `nudge_evaluated` events. Manual-triggered events
+        excluded from false-positive math (R6) since user testing isn't
+        a real false positive.
+
+        kwh_avoided per event = max(0, before - after) * (capped projected
+        remaining minutes / 60). Caller passes the projected-minutes via
+        the action_taken JSON-ish notes field — for v4.5.11 we store a
+        pre-computed kwh_avoided in `notes` column to keep the math close
+        to where the data is fresh.
+
+        Returns:
+          (sum_kwh_avoided, count_evaluated, count_false_positive)
+        """
+        where_clauses = ["event_type = 'nudge_evaluated'", "triggered_by != 'manual'"]
+        params: list = []
+        if days is not None:
+            where_clauses.append("timestamp >= ?")
+            params.append((dt_util.now() - timedelta(days=days)).isoformat())
+        where_sql = " AND ".join(where_clauses)
+        try:
+            async with self._db_read() as db:
+                cursor = await db.execute(
+                    f"""SELECT kwh_rate_before, kwh_rate_after, notes
+                        FROM ac_ramp_events
+                        WHERE {where_sql}""",
+                    params,
+                )
+                rows = await cursor.fetchall()
+        except Exception as err:
+            _LOGGER.warning("ac_ramp_events aggregate read failed: %s", err)
+            return (0.0, 0, 0)
+
+        kwh_total = 0.0
+        false_pos = 0
+        for before, after, notes in rows:
+            if before is None or after is None:
+                continue
+            if after >= before:
+                false_pos += 1
+                continue
+            # Notes carries pre-computed kwh_avoided; if missing, fall back
+            # to a flat 10-minute projection (better than zero credit).
+            kwh_event = None
+            if notes:
+                try:
+                    # notes format: "kwh_avoided=0.42;..."
+                    for part in notes.split(";"):
+                        k, _, v = part.partition("=")
+                        if k.strip() == "kwh_avoided":
+                            kwh_event = float(v)
+                            break
+                except (ValueError, AttributeError):
+                    kwh_event = None
+            if kwh_event is None:
+                kwh_event = max(0.0, (before - after)) * (10.0 / 60.0)
+            kwh_total += kwh_event
+        return (kwh_total, len(rows), false_pos)
+
+    async def cleanup_ac_ramp_events(
+        self, retention_days: int = 30, batch_size: int = 1000,
+    ) -> int:
+        """Prune ramp-down events older than retention_days.
+
+        Called once per day on the first detection cycle of a new date
+        (no separate cron — piggybacks on the rollover read of
+        ac_reset_state). Bounded growth, no unbounded log file.
+
+        Tier 2 review fix: cutoff uses dt_util.now() to match the
+        timezone of timestamps written by log_ac_ramp_event (also
+        dt_util.now()). Mixing dt_util.utcnow() vs dt_util.now() across
+        the writer/cleaner would cause edge-rows to be wrongly classified
+        — see QUALITY_CONTEXT.md Bug Class #11.
+        """
+        cutoff = (dt_util.now() - timedelta(days=retention_days)).isoformat()
+        total_deleted = 0
+        _batch_count = 0
+        while True:
+            _batch_count += 1
+            if _batch_count > 500:
+                _LOGGER.warning("ac_ramp_events cleanup hit max batch limit")
+                break
+            try:
+                async with self._db() as db:
+                    cursor = await db.execute(
+                        "DELETE FROM ac_ramp_events WHERE rowid IN ("
+                        "SELECT rowid FROM ac_ramp_events WHERE timestamp < ? LIMIT ?)",
+                        (cutoff, batch_size),
+                    )
+                    await db.commit()
+                    deleted = cursor.rowcount
+                    total_deleted += deleted
+            except Exception as err:
+                _LOGGER.error("ac_ramp_events cleanup failed: %s", err)
+                break
+            if deleted < batch_size:
+                break
+            await asyncio.sleep(0.1)
+        if total_deleted > 0:
+            _LOGGER.info(
+                "ac_ramp_events cleanup: deleted %d rows older than %d days",
+                total_deleted, retention_days,
+            )
+        return total_deleted
