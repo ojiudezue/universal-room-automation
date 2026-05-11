@@ -981,6 +981,161 @@ class TestZoneHVACFormFields:
 # ===========================================================================
 
 
+class TestNoLocalImportShadowsModuleImport:
+    """v4.5.11.2 regression guard for Bug Class #34 — function-local
+    `from X import Y` that shadows a module-level `from X import Y`,
+    causing UnboundLocalError on the FIRST reference to Y inside that
+    function (because Python promotes Y to a local at function-compile
+    time, but the local isn't bound until the import statement executes).
+
+    The v4.5.11 deploy crashed HVAC coord setup at:
+        File hvac.py line 356:
+            for ce in self.hass.config_entries.async_entries(DOMAIN):
+            UnboundLocalError: cannot access local variable 'DOMAIN'
+                where it is not associated with a value
+
+    Because v4.5.11 added inside async_setup (line 459):
+            from ..const import DOMAIN
+    while DOMAIN was already imported at module level (line 27).
+
+    This test AST-walks every function body, collects local `from X
+    import Y` statements, and flags any Y that's also in the module's
+    top-level imports.
+    """
+
+    def _module_level_imports(self, tree: ast.Module) -> set[str]:
+        """Collect all names imported at module level."""
+        names: set[str] = set()
+        for node in tree.body:
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    names.add((alias.asname or alias.name).split(".")[0])
+            elif isinstance(node, ast.ImportFrom):
+                for alias in node.names:
+                    names.add(alias.asname or alias.name)
+        return names
+
+    def _local_imports_per_function(
+        self, tree: ast.Module,
+    ) -> dict[str, list[tuple[int, str]]]:
+        """Return {function_name: [(line, imported_name), ...]} for every
+        function-local `from X import Y` or `import X`.
+        """
+        out: dict[str, list[tuple[int, str]]] = {}
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            func_name = node.name
+            for child in ast.walk(node):
+                if isinstance(child, ast.ImportFrom):
+                    for alias in child.names:
+                        if alias.name == "*":
+                            continue
+                        name = alias.asname or alias.name
+                        out.setdefault(func_name, []).append((child.lineno, name))
+                elif isinstance(child, ast.Import):
+                    for alias in child.names:
+                        name = (alias.asname or alias.name).split(".")[0]
+                        out.setdefault(func_name, []).append((child.lineno, name))
+        return out
+
+    def _name_used_before_line(
+        self, func_node, name, before_line,
+    ):
+        """Check if `name` appears in any AST node strictly BEFORE
+        `before_line` inside the function body. Returns the earliest
+        line number where it's used, or None if not used before.
+
+        Excludes the import statement that lives at `before_line`.
+        """
+        earliest = None
+        for child in ast.walk(func_node):
+            if isinstance(child, ast.Name) and child.id == name:
+                if child.lineno < before_line:
+                    if earliest is None or child.lineno < earliest:
+                        earliest = child.lineno
+            elif isinstance(child, ast.Attribute):
+                # Catch foo.bar attribute access where foo == name
+                v = child.value
+                if isinstance(v, ast.Name) and v.id == name:
+                    if v.lineno < before_line:
+                        if earliest is None or v.lineno < earliest:
+                            earliest = v.lineno
+        return earliest
+
+    def _check_file(self, path: str) -> list[str]:
+        """Return a list of violation descriptions for the given file.
+
+        Flags ONLY the actual UnboundLocalError-causing pattern:
+        function-local `from X import Y` AND `Y` is used earlier in the
+        same function body. Pre-existing local imports where Y is only
+        used after the import statement are redundant-but-safe.
+        """
+        with open(path) as f:
+            src = f.read()
+        tree = ast.parse(src)
+        module_names = self._module_level_imports(tree)
+
+        violations: list[str] = []
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            func_name = node.name
+            # Walk imports in this function
+            for child in ast.walk(node):
+                if not isinstance(child, (ast.Import, ast.ImportFrom)):
+                    continue
+                names: list[str] = []
+                if isinstance(child, ast.ImportFrom):
+                    for alias in child.names:
+                        if alias.name == "*":
+                            continue
+                        names.append(alias.asname or alias.name)
+                else:
+                    for alias in child.names:
+                        names.append((alias.asname or alias.name).split(".")[0])
+                for name in names:
+                    if name not in module_names:
+                        continue
+                    used_at = self._name_used_before_line(
+                        node, name, child.lineno,
+                    )
+                    if used_at is not None:
+                        violations.append(
+                            f"{path}:{child.lineno} function `{func_name}` "
+                            f"re-imports '{name}' (already imported at module "
+                            f"level), but `{name}` is used earlier at line "
+                            f"{used_at} in the same function — UnboundLocalError "
+                            f"at runtime. Delete the local import."
+                        )
+        return violations
+
+    @pytest.mark.parametrize(
+        "path",
+        [
+            "custom_components/universal_room_automation/"
+            "domain_coordinators/hvac.py",
+            "custom_components/universal_room_automation/"
+            "domain_coordinators/hvac_override.py",
+            "custom_components/universal_room_automation/"
+            "domain_coordinators/hvac_zones.py",
+            "custom_components/universal_room_automation/"
+            "domain_coordinators/hvac_const.py",
+            "custom_components/universal_room_automation/number.py",
+            "custom_components/universal_room_automation/switch.py",
+            "custom_components/universal_room_automation/button.py",
+        ],
+    )
+    def test_no_function_local_imports_shadow_module_imports(self, path):
+        """Flag only the bug-causing pattern: name used BEFORE local import."""
+        violations = self._check_file(path)
+        assert not violations, (
+            "Bug Class #34 — function-local import shadows module-level "
+            "import AND name is used before the local import:\n"
+            + "\n".join(violations)
+        )
+
+
 class TestZoneResolutionAcrossSchemes:
     """v4.5.11 slice-1 review-2 caught a critical bug: button + Number
     factories derived zone_id locally as

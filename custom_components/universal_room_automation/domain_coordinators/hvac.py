@@ -456,7 +456,11 @@ class HVACCoordinator(BaseCoordinator):
         # + lockout flags + event log have a place to live. Without this,
         # the ramp-down feature is inert (caps not enforced, no events
         # logged) — graceful degrade, not a crash.
-        from ..const import DOMAIN
+        # v4.5.11.2 fix: DOMAIN is already imported at module-level (line 27).
+        # Re-importing it here would make DOMAIN a function-local variable
+        # for the entire async_setup body, which would shadow the module
+        # name and break the EARLIER line `async_entries(DOMAIN)` at the
+        # top of this method with UnboundLocalError. Bug Class #34.
         db = self.hass.data.get(DOMAIN, {}).get("database")
         if db is not None:
             self._override_arrester.set_database(db)
