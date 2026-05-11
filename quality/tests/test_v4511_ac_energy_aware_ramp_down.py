@@ -891,6 +891,51 @@ class TestMasterSwitch:
         assert '"master_off"' in body
 
 
+class TestButtonAutoRefresh:
+    """v4.5.11.3 regression — buttons must subscribe to
+    SIGNAL_HVAC_ENTITIES_UPDATE so `available` is re-evaluated on each
+    decision cycle.
+
+    Without this, a button that initialized BEFORE the HVAC coord's
+    `_override_arrester` was reachable would cache `available=False`
+    forever. HA doesn't auto-refresh button state without explicit
+    update_entity. v4.5.11/.1/.2 shipped with this defect; v4.5.11.3
+    fixes it.
+    """
+
+    def test_button_has_async_added_to_hass(self, button_src):
+        idx = button_src.find("class _ACRampButton(")
+        body = button_src[idx:idx + 5000]
+        assert "async def async_added_to_hass(self)" in body
+
+    def test_button_subscribes_to_hvac_signal(self, button_src):
+        idx = button_src.find("class _ACRampButton(")
+        body = button_src[idx:idx + 5000]
+        assert "SIGNAL_HVAC_ENTITIES_UPDATE" in body
+        assert "async_dispatcher_connect" in body
+
+    def test_button_uses_async_on_remove(self, button_src):
+        """Subscription must be cleaned up on entity removal."""
+        idx = button_src.find("class _ACRampButton(")
+        body = button_src[idx:idx + 5000]
+        assert "self.async_on_remove(" in body
+
+    def test_button_signal_handler_schedules_state_update(self, button_src):
+        """The dispatcher callback must trigger a HA state re-evaluation
+        (which re-runs the `available` property)."""
+        idx = button_src.find("class _ACRampButton(")
+        body = button_src[idx:idx + 5000]
+        assert "async_schedule_update_ha_state" in body
+
+    def test_button_handler_is_callback_decorated(self, button_src):
+        """The handler must be @callback (sync, runs in event loop)."""
+        idx = button_src.find("class _ACRampButton(")
+        body = button_src[idx:idx + 5000]
+        # @callback decorator immediately before the handler def
+        assert "@callback" in body
+        assert "def _handle_hvac_update(" in body
+
+
 class TestPerZoneButtons:
 
     def test_button_factory_exists(self, button_src):
@@ -916,8 +961,11 @@ class TestPerZoneButtons:
             assert f'"{action}"' in body
 
     def test_button_routes_to_arrester_method(self, button_src):
+        # Scope to the class body — class ends at next top-level def/class
+        # at column 0. Use a wide window since the class grew with
+        # v4.5.11.3's async_added_to_hass + signal subscription.
         idx = button_src.find("class _ACRampButton(")
-        body = button_src[idx:idx + 4000]
+        body = button_src[idx:idx + 8000]
         assert "self._method_name" in body
         assert "getattr(arr, self._method_name" in body
 
@@ -1208,7 +1256,7 @@ class TestZoneResolutionAcrossSchemes:
 
     def test_button_press_passes_climate_entity_not_zone_id(self, button_src):
         idx = button_src.find("class _ACRampButton(")
-        body = button_src[idx:idx + 4000]
+        body = button_src[idx:idx + 8000]
         # The runtime call to OverrideArrester methods should use
         # climate_entity (which _resolve_zone handles) — NOT the
         # locally-derived zone_id.
