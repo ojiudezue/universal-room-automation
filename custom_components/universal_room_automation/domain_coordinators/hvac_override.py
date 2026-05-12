@@ -136,6 +136,79 @@ class OverrideArrester:
         # Track today's date so we can detect day-rollover and prune events.
         self._last_rollover_date: str = ""
 
+        # v4.5.12 D8: house-wide impact aggregates cached for sensor reads.
+        # DB queries are async; sensor.native_value is sync — so we run the
+        # aggregates once per decision cycle (5 min) and stash the result.
+        # Sensors read this dict and return values synchronously.
+        # Keys: nudges_today, resets_today, kwh_avoided_today,
+        #       kwh_avoided_total, false_positive_rate, fp_sample_size.
+        self._impact_cache: dict = {
+            "nudges_today": 0,
+            "resets_today": 0,
+            "kwh_avoided_today": 0.0,
+            "kwh_avoided_total": 0.0,
+            "false_positive_rate": None,  # None until sample_size >= 5
+            "fp_sample_size": 0,
+            "last_refresh_ts": None,
+        }
+
+    async def _refresh_impact_cache(self) -> None:
+        """v4.5.12 D8: pull house-wide aggregates from DB once per
+        decision cycle. Sensors read the cache sync.
+
+        Cheap — six small SQL queries against indexed tables. Runs at
+        the end of `check_ac_reset` so it's bounded by the decision-cycle
+        cadence (every 5 min, regardless of whether anything fired).
+        """
+        if self._db is None:
+            return
+        try:
+            # Today's counts — sum across all zones for today's row
+            today = dt_util.now().date().isoformat()
+            zones = list(self._zone_manager.zones.keys())
+            nudges_today = 0
+            resets_today = 0
+            for zone_id in zones:
+                state = await self._db.get_ac_reset_state(zone_id, today)
+                nudges_today += int(state.get("soft_nudge_count", 0))
+                resets_today += int(state.get("hard_reset_count", 0))
+
+            # kWh-avoided + false-positive math (excludes manual triggers
+            # per the slice-1 R6 mitigation already in get_ac_ramp_kwh_avoided)
+            (
+                kwh_avoided_today,
+                evals_today,
+                fp_today,
+            ) = await self._db.get_ac_ramp_kwh_avoided(days=1)
+            (
+                kwh_avoided_total,
+                evals_total,
+                fp_total,
+            ) = await self._db.get_ac_ramp_kwh_avoided(days=None)
+
+            # Risk R3: false-positive rate is meaningless until we have
+            # a real sample. Hide it (None → "unavailable") until N >= 5.
+            fp_rate: float | None
+            if evals_total >= 5:
+                fp_rate = round(100.0 * fp_total / evals_total, 1)
+            else:
+                fp_rate = None
+
+            self._impact_cache.update({
+                "nudges_today": nudges_today,
+                "resets_today": resets_today,
+                "kwh_avoided_today": round(kwh_avoided_today, 3),
+                "kwh_avoided_total": round(kwh_avoided_total, 3),
+                "false_positive_rate": fp_rate,
+                "fp_sample_size": evals_total,
+                "last_refresh_ts": dt_util.now().isoformat(),
+            })
+        except Exception as e:
+            _LOGGER.warning(
+                "AC ramp impact cache refresh failed: %s "
+                "(sensors will show stale values until next cycle)", e,
+            )
+
     def set_database(self, db) -> None:
         """Wire UniversalRoomDatabase reference (v4.5.11).
 
@@ -164,6 +237,28 @@ class OverrideArrester:
             "AC ramp-down master %s",
             "enabled" if self._ramp_master_enabled else "disabled",
         )
+
+    def _track_zone_action(
+        self,
+        zone,
+        event_type: str,
+        triggered_by: str = "auto",
+        kwh_before: float | None = None,
+        kwh_after: float | None = None,
+    ) -> None:
+        """v4.5.12 D7: stamp last-action fields on ZoneState so the
+        `sensor.ura_hvac_ac_ramp_last_action_<zone>` sensor can read
+        in-memory state. Mirrors what we log to ac_ramp_events but
+        in-memory only — no DB hit on the sensor read path.
+
+        Call this alongside `db.log_ac_ramp_event(...)` at every action
+        site. Cheap (sets 5 instance attrs).
+        """
+        zone.last_action_type = event_type
+        zone.last_action_ts = dt_util.now().isoformat()
+        zone.last_action_triggered_by = triggered_by
+        zone.last_action_kwh_before = kwh_before
+        zone.last_action_kwh_after = kwh_after
 
     # Slider write-throughs (called by Number entity factory on slider change)
     def set_nudge_size(self, value: float) -> None:
@@ -862,6 +957,11 @@ class OverrideArrester:
             # All gates passed — dispatch action
             await self._handle_overshoot_detected(zone, kwh_rate, now, elapsed_min)
 
+        # v4.5.12 D8: refresh impact aggregates once per cycle. Runs after
+        # the zone-iteration so any actions that fired this tick are
+        # reflected in the next sensor read.
+        await self._refresh_impact_cache()
+
     async def _perform_ac_reset(self, zone: ZoneState) -> None:
         """Perform AC reset: off -> wait -> restore mode."""
         original_mode = zone.hvac_mode
@@ -1015,6 +1115,12 @@ class OverrideArrester:
             # Defensive: shouldn't happen (hard reset is post-eval),
             # but if it did, clear in-flight to avoid stranded state.
             self._nudge_in_flight.discard(zone_id)
+        # v4.5.12: track action for D7 last_action sensor
+        zone_for_track = self._zone_manager.zones.get(zone_id)
+        if zone_for_track is not None:
+            self._track_zone_action(
+                zone_for_track, AC_RAMP_EVENT_HARD_RESET_COMPLETED, "auto",
+            )
         if self._db is not None:
             await self._db.log_ac_ramp_event(
                 zone_id=zone_id,
@@ -1096,6 +1202,10 @@ class OverrideArrester:
     ) -> None:
         """All detection gates passed — log + dispatch to soft nudge."""
         zone_id = zone.zone_id
+        self._track_zone_action(
+            zone, AC_RAMP_EVENT_DETECTION_FIRED, "auto",
+            kwh_before=kwh_rate,
+        )
         if self._db is not None:
             await self._db.log_ac_ramp_event(
                 zone_id=zone_id,
@@ -1177,6 +1287,10 @@ class OverrideArrester:
             state["soft_nudge_count"] = int(state.get("soft_nudge_count", 0)) + 1
             state["last_soft_nudge_ts"] = started_ts
             await self._db.save_ac_reset_state(state)
+            self._track_zone_action(
+                zone, AC_RAMP_EVENT_NUDGE_STARTED, triggered_by,
+                kwh_before=kwh_rate_before,
+            )
             await self._db.log_ac_ramp_event(
                 zone_id=zone_id,
                 event_type=AC_RAMP_EVENT_NUDGE_STARTED,
@@ -1237,6 +1351,10 @@ class OverrideArrester:
                 zone.climate_entity, e,
             )
 
+        self._track_zone_action(
+            zone, AC_RAMP_EVENT_NUDGE_RESTORED, "auto",
+            kwh_before=zone.nudge_kwh_rate_before,
+        )
         if self._db is not None:
             await self._db.clear_ac_in_flight_nudge(zone_id)
             await self._db.log_ac_ramp_event(
@@ -1282,6 +1400,11 @@ class OverrideArrester:
             delta = kwh_rate_before - kwh_rate_after
             kwh_avoided = delta * (AC_KWH_AVOIDED_PROJECTION_CAP_MIN / 60.0)
 
+        self._track_zone_action(
+            zone, AC_RAMP_EVENT_NUDGE_EVALUATED, "auto",
+            kwh_before=kwh_rate_before,
+            kwh_after=kwh_rate_after,
+        )
         if self._db is not None:
             await self._db.log_ac_ramp_event(
                 zone_id=zone_id,
@@ -1368,6 +1491,10 @@ class OverrideArrester:
         state["hard_reset_count"] = int(state.get("hard_reset_count", 0)) + 1
         state["last_hard_reset_ts"] = now.isoformat()
         await self._db.save_ac_reset_state(state)
+        self._track_zone_action(
+            zone, AC_RAMP_EVENT_HARD_RESET_STARTED, "auto",
+            kwh_before=kwh_rate_now,
+        )
         await self._db.log_ac_ramp_event(
             zone_id=zone_id,
             event_type=AC_RAMP_EVENT_HARD_RESET_STARTED,
@@ -1387,6 +1514,9 @@ class OverrideArrester:
         zone_id = zone.zone_id
         state["lockout_flag"] = 1
         await self._db.save_ac_reset_state(state)
+        self._track_zone_action(
+            zone, AC_RAMP_EVENT_LOCKOUT_ENGAGED, "auto",
+        )
         await self._db.log_ac_ramp_event(
             zone_id=zone_id,
             event_type=AC_RAMP_EVENT_LOCKOUT_ENGAGED,
@@ -1483,6 +1613,9 @@ class OverrideArrester:
                     zone.climate_entity, e,
                 )
 
+        self._track_zone_action(
+            zone, AC_RAMP_EVENT_CANCEL_INVOKED, triggered_by,
+        )
         if self._db is not None:
             await self._db.clear_ac_in_flight_nudge(zone_id)
             await self._db.log_ac_ramp_event(
