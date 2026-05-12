@@ -1487,6 +1487,49 @@ The runtime ZoneManager dedupes correctly (`hvac_zones.py:282-313`): zones shari
 
 ---
 
+### Bug Class #37: API Contract Change Without Caller Signature Audit ⚠️
+
+**Pattern:** A function's return-value shape (or a constructor's accepted-parameter shape) is changed — e.g., a helper that used to return `{a, b, c}` is extended to return `{a, b, c, d, e}` — without auditing every call site for keyword-unpack compatibility. Call sites using `func(**returned_dict)` against a fixed-signature receiver raise `TypeError: got an unexpected keyword argument 'd'` at runtime, AFTER deploy.
+
+This is a special case of "API contract change broke a consumer" but with a sharp tooth: unlike a renamed key or removed field (which fails noisily at the access point), an extra key only fails when a downstream `**kwargs` spread hits a fixed-signature receiver. The caller looks correct; the receiver looks correct; the bug only shows up at the spread boundary.
+
+**Why source-grep + AST tests typically miss this:** the structural pattern is fine (caller calls helper, gets dict, passes to receiver). The bug is a semantic gap between "helper returns N keys" and "receiver accepts M kwargs." Both are independently correct.
+
+**Impact:**
+- Platform setup raises TypeError at integration load time
+- Affected entities are `unavailable` after restart (the platform's setup didn't complete for them)
+- Other entities on the same platform may load fine if the failure is partial (Python's async_setup_platform handles per-entity failures gracefully in some HA versions)
+- Easy to miss in unit tests if those tests only exercise the helper's output, not the integration with the receiver
+
+**Detection (AST):**
+```python
+# In any platform setup file, look for `func(**returned_dict)` where
+# `returned_dict` was assigned from a recently-changed helper.
+# Heuristic: AST-walk every Call node; flag any with keywords spread
+# (kw.arg is None) where the spread variable is named after a known
+# helper output (e.g., zone_spec, config_dict, etc.).
+# See test_no_kwarg_unpack_of_zone_spec_in_platforms in
+# quality/tests/test_v4513_1_zone_dedup.py
+```
+
+**Detection (review):**
+When changing a helper's return shape, grep every call site, then read each receiver's signature. Mental-execute the spread.
+
+**Historical Example:**
+- **v4.5.13.1 → v4.5.13.1.1:** `iter_canonical_hvac_zones` helper was extended from returning 3 keys `(zone_id, zone_name, climate_entity)` to 5 keys (adding `ac_load_sensor` and `ramp_zone_enabled` for future use). `number.py:71` had `cls = _hvac_zone_kwh_threshold_factory(**zone_spec)` — fixed 3-param signature. Platform setup raised TypeError on restart; all 3 per-zone kWh threshold sliders went `unavailable`. button.py's call site passed `zone_spec` positionally (not unpacked) so it was unaffected. The bug shipped because the review walked helper-correctness and unique_id alignment but didn't grep call sites for `**zone_spec`.
+
+**Prevention:**
+- [ ] **Before changing a helper's return shape (adding fields, renaming fields, removing fields):** grep every call site. For each, identify what happens at the receiver — positional pass, keyword spread, attribute access. Audit each.
+- [ ] **For helpers used across multiple modules:** add an AST regression test asserting no caller does `**helper_output` against a fixed-signature receiver. The pattern `func(**varname)` for known helper-output variable names should be either blocked or pinned to specific receivers that accept `**kwargs`.
+- [ ] **In Tier 1 reviews of helper changes:** include "call-site signature audit" as a mental-execution step alongside the usual edge-case walk. Source-grep tests are not sufficient.
+- [ ] **When extending a helper:** prefer adding new fields with default values + only-when-asked semantics over changing the universal return shape. If extending the universal shape, ensure every caller can ignore the extras.
+
+**Discovered:** v4.5.13.1 (live validation post-deploy) — micro-hotfix shipped v4.5.13.1.1
+**Impact:** Per-zone tunable sliders unavailable; AC ramp-down feature loses per-zone configurability
+**Severity:** HIGH (broken feature affecting tunability; user must roll back or hotfix the same day)
+
+---
+
 ## ✅ MANDATORY VALIDATION CHECKLIST
 
 **Before EVERY deployment, complete this checklist:**

@@ -1,6 +1,6 @@
 """Number platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.5.13.1
+# Universal Room Automation vv4.5.13.1.1
 # Build: 2026-01-02
 # File: number.py
 #
@@ -68,7 +68,15 @@ async def async_setup_entry(
         for cls in _build_hvac_v4511_numbers():
             entities.append(cls(hass, entry))
         for zone_spec in _discover_ac_zones(hass):
-            cls = _hvac_zone_kwh_threshold_factory(**zone_spec)
+            # v4.5.13.1.1: helper returns 5 keys (zone_id, zone_name,
+            # climate_entity, ac_load_sensor, ramp_zone_enabled); the
+            # threshold factory only accepts the first 3. Filter here
+            # to keep the factory's signature minimal and stable.
+            cls = _hvac_zone_kwh_threshold_factory(
+                zone_id=zone_spec["zone_id"],
+                zone_name=zone_spec["zone_name"],
+                climate_entity=zone_spec["climate_entity"],
+            )
             entities.append(cls(hass, entry))
         async_add_entities(entities)
         _LOGGER.info("Set up %d CM number entities", len(entities))

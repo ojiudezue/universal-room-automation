@@ -403,6 +403,41 @@ def test_helper_defined_in_hvac_zones(hvac_zones_src: str):
     )
 
 
+def test_no_kwarg_unpack_of_zone_spec_in_platforms(
+    sensor_src: str, button_src: str, number_src: str,
+):
+    """v4.5.13.1.1 regression: `**zone_spec` unpacking into a factory or
+    constructor breaks when the helper adds new keys. Helper returns 5
+    keys (zone_id, zone_name, climate_entity, ac_load_sensor,
+    ramp_zone_enabled); old callers expecting 3 will raise TypeError on
+    extra keyword arguments.
+
+    Routes: callers must either (a) pass the dict positionally, (b)
+    select specific keys, or (c) accept **kwargs and ignore extras.
+    Direct `**zone_spec` to a fixed-signature function is the bug shape.
+    """
+    for name, src in [
+        ("sensor.py", sensor_src),
+        ("button.py", button_src),
+        ("number.py", number_src),
+    ]:
+        # AST: look for `func(**zone_spec)` pattern
+        tree = ast.parse(src)
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            for kw in node.keywords:
+                # keyword=None marks **kwargs spread
+                if kw.arg is None and isinstance(kw.value, ast.Name) and \
+                        kw.value.id == "zone_spec":
+                    pytest.fail(
+                        f"{name} has `**zone_spec` unpack pattern. "
+                        "Helper returns 5 keys; if the callee's signature "
+                        "doesn't accept all of them, this raises TypeError "
+                        "at runtime. v4.5.13.1.1 regression."
+                    )
+
+
 def test_no_orphan_seen_thermostat_dedup_in_platforms(
     sensor_src: str, button_src: str, number_src: str,
 ):
