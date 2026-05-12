@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.5.17
+# Universal Room Automation vv4.5.18
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -8944,6 +8944,17 @@ class BayesianDataQualitySensor(AggregationEntity, SensorEntity):
                 "duplicate_timestamps": report.duplicate_timestamps,
                 "unknown_rooms": report.unknown_rooms,
                 "low_confidence": report.low_confidence,
+                # v4.5.18: visibility metric — count of "same person +
+                # same second + DIFFERENT (from, to)" rows (legitimate
+                # multi-step path inside one PersonCoordinator cycle
+                # that captured `now` once). Previously these were
+                # over-counted in the `duplicate_timestamps` bucket,
+                # inflating it and producing the misleading ~91%
+                # data-quality reading. REPORTING-ONLY fix —
+                # `_build_priors_from_transitions` never timestamp-
+                # deduped, so Bayesian priors have ALWAYS included
+                # these rows. Prediction quality unchanged.
+                "same_second_distinct": report.same_second_distinct,
             })
         return attrs
 
