@@ -794,13 +794,32 @@ class AnomalyDetector:
         return (worst.metric_name, worst.z_score)
 
     def get_status_summary(self, scope: str = "house") -> dict:
-        """Return a summary of anomaly detection status for diagnostics."""
+        """Return a summary of anomaly detection status for diagnostics.
+
+        v4.5.14: top-level `metrics_active_ratio` (e.g. "2/4") and
+        `metrics_silent` (list of metric names with 0 samples) make the
+        dead-metric reality visible at a glance. The gate relaxation in
+        v4.5.13 lets the detector report `active` when only some metrics
+        have baselines; without these summary fields, a consumer
+        couldn't tell which metrics were silently dead.
+        """
         self._maybe_reset_daily_counter()
+        active_count = 0
+        silent_metrics: list[str] = []
+        for metric_name in self.metric_names:
+            baseline = self._get_baseline(metric_name, scope)
+            if baseline.sample_count >= self.minimum_samples:
+                active_count += 1
+            elif baseline.sample_count == 0:
+                silent_metrics.append(metric_name)
+        total = len(self.metric_names) or 1  # avoid "0/0" if empty
         summary: Dict[str, Any] = {
             "coordinator_id": self.coordinator_id,
             "scope": scope,
             "learning_status": self.get_learning_status(scope),
             "minimum_samples": self.minimum_samples,
+            "metrics_active_ratio": f"{active_count}/{total}",
+            "metrics_silent": silent_metrics,
             "active_anomalies": len(self._active_anomalies),
             "anomalies_today": self._anomalies_today,
             "metrics": {},

@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.5.13.1.1
+# Universal Room Automation vv4.5.14
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -3559,6 +3559,20 @@ class PresenceAnomalySensor(AggregationEntity, SensorEntity):
             return learning.value
         return presence.anomaly_detector.get_worst_severity().value
 
+    @property
+    def extra_state_attributes(self) -> dict:
+        """v4.5.14: surface AnomalyDetector status summary (learning_status,
+        metrics_active_ratio, per-metric sample counts) so dead-metric
+        coverage is visible at a glance.
+        """
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return {}
+        presence = manager.coordinators.get("presence")
+        if presence is None or presence.anomaly_detector is None:
+            return {}
+        return presence.anomaly_detector.get_status_summary()
+
 
 class PresenceComplianceSensor(AggregationEntity, SensorEntity):
     """Presence compliance rate.
@@ -3964,6 +3978,32 @@ class SafetyAnomalySensor(AggregationEntity, SensorEntity):
             return learning.value
         return safety.anomaly_detector.get_worst_severity().value
 
+    @property
+    def extra_state_attributes(self) -> dict:
+        """v4.5.14: surface AnomalyDetector status summary."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return {}
+        safety = manager.coordinators.get("safety")
+        if safety is None or safety.anomaly_detector is None:
+            return {}
+        return safety.anomaly_detector.get_status_summary()
+
+    async def async_added_to_hass(self) -> None:
+        """v4.5.14: subscribe to safety entity updates for refresh."""
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_SAFETY_ENTITIES_UPDATE
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_SAFETY_ENTITIES_UPDATE, self._handle_update,
+            )
+        )
+
+    @callback
+    def _handle_update(self) -> None:
+        self.async_schedule_update_ha_state()
+
 
 class SafetyComplianceSensor(AggregationEntity, SensorEntity):
     """Safety compliance rate.
@@ -4176,6 +4216,17 @@ class SecurityAnomalySensor(AggregationEntity, SensorEntity):
         if security is None:
             return "disabled"
         return security.get_anomaly_status()
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """v4.5.14: surface AnomalyDetector status summary."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return {}
+        security = manager.coordinators.get("security")
+        if security is None or security.anomaly_detector is None:
+            return {}
+        return security.anomaly_detector.get_status_summary()
 
     async def async_added_to_hass(self) -> None:
         """Subscribe to security entity updates."""
@@ -4584,6 +4635,22 @@ class MusicFollowingAnomalySensor(AggregationEntity, SensorEntity):
         if hasattr(learning, 'value') and learning.value in ("insufficient_data", "learning"):
             return learning.value
         return mf_coord.anomaly_detector.get_worst_severity().value
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """v4.5.14: surface AnomalyDetector status summary.
+
+        Note: no SIGNAL_MUSIC_FOLLOWING_ENTITIES_UPDATE exists, so this
+        sensor relies on HA's natural state-write path for refresh.
+        Adding a refresh signal for music_following is filed in BACKLOG.
+        """
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return {}
+        mf_coord = manager.coordinators.get("music_following")
+        if mf_coord is None or mf_coord.anomaly_detector is None:
+            return {}
+        return mf_coord.anomaly_detector.get_status_summary()
 
 
 class MusicFollowingTransfersTodaySensor(AggregationEntity, SensorEntity):
