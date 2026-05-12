@@ -1,6 +1,6 @@
 """Data coordinator for Universal Room Automation."""
 #
-# Universal Room Automation vv4.5.15
+# Universal Room Automation vv4.5.16
 # Build: 2026-01-02
 # File: coordinator.py
 # v3.2.8: Support for active state change listeners in aggregation sensors
@@ -1406,22 +1406,64 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         # bathroom default to 60 min (lazy auto-off — typical use never
         # exceeds an hour; catches stuck-sensor / fan-as-motion / "light
         # left on" patterns). All other room types use 4 hr default.
+        #
+        # v4.5.16: failsafe now also requires a Tier 1 sensor (PIR or mmWave)
+        # to be stale before firing. Previously a sleeping person whose
+        # mmWave/sensor_presence stayed on through the night still hit the
+        # 4-hour ceiling and got force-marked vacant for 30-60 sec before
+        # the next cycle re-occupied them. That fired nightly per bedroom
+        # and disrupted any automation gated on vacancy transitions.
+        # `_last_motion_time` is updated by motion + mmWave + occupancy
+        # sensors every cycle (coordinator.py:1353), so it's the universal
+        # Tier 1 freshness timestamp. If it's fresh, occupancy is real and
+        # we skip the failsafe. If it's stale, we're in the original
+        # stuck-sensor / forgotten-light territory and the failsafe fires.
         if (data.get(STATE_OCCUPIED)
                 and self._became_occupied_time):
             duration = (now - self._became_occupied_time).total_seconds()
             failsafe_seconds = self._get_failsafe_duration_seconds()
             if duration > failsafe_seconds:
-                _LOGGER.warning(
-                    "Room %s (%s): Forcing vacancy after %.1f min "
-                    "(failsafe — limit %.0f min)",
-                    room_name, self._room_type,
-                    duration / 60, failsafe_seconds / 60,
-                )
-                data[STATE_OCCUPIED] = False
-                data[STATE_OCCUPANCY_SOURCE] = "failsafe"
-                data[STATE_TIMEOUT_REMAINING] = 0
-                self._last_motion_time = None
-                self._failsafe_fired = True
+                signal_stale = True
+                signal_age = None
+                if self._last_motion_time:
+                    signal_age = (
+                        now - self._last_motion_time
+                    ).total_seconds()
+                    # Stale-threshold = 2x the room's motion timeout. Bedroom
+                    # 30 min, closet 4 min, etc. Wide enough for natural
+                    # idle pauses; narrow enough that a truly stuck sensor
+                    # still trips the failsafe.
+                    #
+                    # Clock-skew defense: a negative signal_age means
+                    # _last_motion_time is in the future (NTP jump, manual
+                    # clock change). Fall through to signal_stale=True so
+                    # the failsafe still fires — better to recover from a
+                    # spurious vacancy than to silently silence the
+                    # failsafe forever on a pathological timestamp.
+                    if 0 <= signal_age < 2 * self._occupancy_timeout:
+                        signal_stale = False
+                if signal_stale:
+                    _LOGGER.warning(
+                        "Room %s (%s): Forcing vacancy after %.1f min "
+                        "(failsafe — limit %.0f min, signal stale)",
+                        room_name, self._room_type,
+                        duration / 60, failsafe_seconds / 60,
+                    )
+                    data[STATE_OCCUPIED] = False
+                    data[STATE_OCCUPANCY_SOURCE] = "failsafe"
+                    data[STATE_TIMEOUT_REMAINING] = 0
+                    self._last_motion_time = None
+                    self._failsafe_fired = True
+                else:
+                    # Skip failsafe — a Tier 1 sensor is still active.
+                    # Debug-level because this is the common case for
+                    # legitimately-occupied bedrooms during sleep.
+                    _LOGGER.debug(
+                        "Room %s (%s): skipping failsafe at %.1f min — "
+                        "signal fresh (%.0fs ago, threshold %.0fs)",
+                        room_name, self._room_type, duration / 60,
+                        signal_age, 2 * self._occupancy_timeout,
+                    )
 
         # === v3.5.1: Camera extends room occupancy ===
         # If motion/mmWave have timed out but a camera in this room's area still

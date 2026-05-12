@@ -410,6 +410,117 @@ Tier 1 quality protocol:
 
 Adjacent finding from the same incident: 5 EC switches (`grid_import_cap`, `load_shedding`, `excess_solar`, `arbitrage`, `ev_tou_management`) gave up waiting for EC after ~3 min and fell back to constructor-seeded values. When EC eventually recovered ~30 min later, switches did NOT re-restore. **Probably worth folding into v4.5.13.2:** when EC becomes available, switches should re-attempt restore-from-DB if they previously gave up. Or: their retry budget should be longer / unbounded with a backoff.
 
+## v4.5.18 — Failsafe occupancy-freshness gate (real bug, HIGH priority — fires nightly)
+
+**Status:** Filed during v4.5.15 live validation. Bug existed since RESILIENCE-001 was introduced; surfaced when user pushed back on the initial diagnosis. Tier 1 cycle.
+
+**SEVERITY UPGRADED (2026-05-12 after history verification):** This fires **every night for every bedroom with continuous 4+ hour occupancy**. Verified via HA history for Ziri Bedroom (2026-05-11 night) — motion went stale at 03:55 UTC, `sensor_presence` (mmWave) remained continuously ON for the next 2.5 hours through the failsafe firing at 06:19:42. Room was correctly occupied; failsafe was wrong. Same pattern observed earlier in session for Master Bedroom. Likely affects all 4 family bedrooms nightly.
+
+User-visible damage: brief (30-60s) vacant transition fires automation side effects (lights off, HVAC vacancy mode, security checks) which then revert. Sleep protection toggle does NOT prevent this — that toggle only throttles motion-driven automation, not the failsafe.
+
+**Finding (2026-05-12):** Failsafe at `coordinator.py:1409` checks only `duration > failsafe_seconds` where `duration = now - _became_occupied_time`. `_became_occupied_time` is set on vacant→occupied transition and NEVER refreshed by ongoing motion. Result: a legitimately occupied room (person sleeping, motion sensor working) hits the failsafe at the duration limit.
+
+Observed:
+- `Room Ziri Bedroom (Bedroom 5) (bedroom): Forcing vacancy after 240.5 min (failsafe — limit 240 min)` — kid sleeping, motion sensors functioning
+- `Room Master Bedroom: Forcing vacancy after 4.0 hours (failsafe)` — same pattern, observed earlier in session
+
+The failsafe is meant to catch:
+- Stuck motion sensor (battery dying / hardware fault)
+- Forgotten light (light turned on manually, no occupancy source)
+- Motion sensor false-positive from environmental factors (HVAC vents, sunlight)
+
+In NONE of those does motion stay fresh — a stuck sensor reports its frozen state, a forgotten light has no motion at all, and false positives are intermittent.
+
+In LEGITIMATE long occupancy (sleeping person, working-from-home all day, watching long movie), motion IS fresh because the sensor IS being triggered.
+
+**Sleep mode interaction:** `CONF_SLEEP_PROTECTION_ENABLED` + `automation.is_sleep_mode_active()` exist to throttle motion-driven automation overnight. But the failsafe doesn't consult sleep mode. Even with sleep protection ON, the failsafe still fires and forces vacancy — disrupting any automation that depends on the room being "occupied" through the night.
+
+### Fix design (use the existing universal-signal timestamp)
+
+**Refined after coordinator re-read:** `_last_motion_time` is misleadingly named — it's actually the **universal Tier 1 (PIR + mmWave + occupancy sensor) "any sensor active" timestamp** at `coordinator.py:1352-1353`:
+
+```python
+elif any_sensor_active:   # any_sensor_active = motion OR mmwave OR occupancy
+    self._last_motion_time = now
+```
+
+So for motion-and-mmWave rooms (most bedrooms), `_last_motion_time` already stays fresh as long as ANY Tier 1 sensor is active. The failsafe just needs to USE it.
+
+The failsafe should require BOTH conditions to fire:
+1. `duration > failsafe_seconds` (existing — total continuous occupancy)
+2. **NEW:** `_last_motion_time` is stale — no signal within `2 * occupancy_timeout`
+
+Pseudo-code at the failsafe check (`coordinator.py:1394`):
+
+```python
+if duration > failsafe_seconds:
+    if self._last_motion_time:
+        signal_age = (now - self._last_motion_time).total_seconds()
+        stale_threshold = 2 * self._occupancy_timeout  # bedroom: 30 min
+        if signal_age < stale_threshold:
+            # Tier 1 sensor still firing → legitimate occupancy → skip failsafe
+            _LOGGER.debug(
+                "Room %s: skipping failsafe — signal fresh (%.0fs ago)",
+                room_name, signal_age,
+            )
+            return
+    # genuinely stuck → fire failsafe (preserve existing behavior)
+    ...
+```
+
+### Companion clean-up — DROPPED (risk-avoidant decision 2026-05-12 CDT)
+
+Initial sketch proposed changing camera + BLE override branches from "set `_last_motion_time = now` only if None" to "always set". Audit revealed THREE downstream risks that don't justify the limited juice (camera-only / BLE-only rooms — rare on this install):
+
+1. **Breaks Sparse BLE hardening (`coordinator.py:1480-1483`).** The Tier 2 BLE gate requires `_last_motion_time` to be fresh as PROOF OF MOTION corroboration. If BLE override starts updating `_last_motion_time` itself, the gate becomes self-confirming — shared-scanner BLE false positives persist forever.
+2. **`STATE_TIME_SINCE_MOTION` sensor (`coordinator.py:1391-1392`) becomes a lie.** Reports "0 seconds since motion" when only camera/BLE fired.
+3. **Hidden behavioral drift across all downstream readers** of `_last_motion_time` — anything semantically expecting "PIR/mmWave last fired" would now sometimes mean "any-source last fired."
+
+The right fix IF someone ever hits this edge case is a NEW `_last_occupancy_signal_time` field separate from `_last_motion_time` (preserving Tier 1 semantics for sensors / displays / Sparse BLE corroboration). **Cut for now (2026-05-12 CDT)** — juice is limited, blast radius of the always-set shortcut is real, and the proper fix is more work than the rare edge case justifies.
+
+### Pre-fix verification (5 min)
+
+- Confirm `_last_motion_time` IS updated by mmWave on every cycle: re-read `coordinator.py:840-870` and trace `any_sensor_active = self._evaluate_sensor_logic()` (or equivalent — verify the function returns True when mmWave alone is on)
+- For Ziri Bedroom: confirm `sensor_presence` IS in the room's `CONF_MMWAVE_SENSORS` config, not some other field
+
+No new attribute tracking needed. No new signal subscriptions. No camera/BLE branch touches. Pure logic gate.
+
+### Edge cases to handle in design
+
+- Room with NO motion sensor (manual switch / camera / person tracking only): `_last_motion_time` is None — check other sources first.
+- Room with NO presence sensor: `_last_presence_time` is None — check motion + camera + person tracking.
+- Person tracking-only room (BLE Bermuda): `_last_person_seen` is the gate.
+- Truly nothing-fresh room: failsafe fires (this is the correct stuck-sensor / forgotten-light case).
+
+### Cost (final, risk-minimized scope)
+
+- Production: **~20 LoC** — single signal-freshness gate at coordinator.py:1394. Zero touches to camera/BLE branches, displays, or downstream consumers.
+- Tests: ~30 LoC — isolated decision-helper tests mirroring v4.5.15 pattern (fresh signal + over duration = no fire; stale signal + over duration = fire; under duration regardless = no fire; missing `_last_motion_time` = treat as stale, fire)
+- Tier 1 review (one staff-engineer pass)
+
+### Promotion criteria — escalate from Tier 1 to feature cycle if:
+- Adding presence-timestamp tracking requires touching multiple coordinator subscriptions (signal-listener wiring beyond a single source) — possible
+- Per-room stale-threshold needs config option (don't think so for v4.5.18; defaults are fine)
+- Tests need behavioral integration against full coordinator (probably should, but can pin with isolated decision-helper tests like we did in v4.5.15)
+
+### Reference material
+
+- Failsafe code: `coordinator.py:1394-1422`
+- `_became_occupied_time` setting sites: `coordinator.py:1366, 1778, 1796`
+- Sleep mode: `automation.py:486 is_sleep_mode_active()`, const `CONF_SLEEP_PROTECTION_ENABLED`
+- Camera path: `coordinator.py:1395-1415` (reads `hass.states.get(person_sensor).state == "on"`, no timestamp stamped)
+- Live evidence: HA history for `binary_sensor.ziri_bedroom_bedroom_5_motion` + `_sensor_presence` on 2026-05-11 21:19 CDT → 2026-05-12 01:19 CDT shows motion went stale 03:55 → 05:07 UTC (72 min) while presence stayed continuously ON. Failsafe fired at 06:19:42 UTC; presence was still ON at that moment.
+- Master Bedroom also observed failsafing earlier in same session — pattern confirmed across multiple bedrooms.
+
+## v4.5.16 Phase 2 carry-overs (after Phase 1 ships)
+
+Filed during v4.5.16 Tier 1 review. Non-blocking; fold into Phase 2 cycle when we make the prediction-scoring fix:
+
+1. **Demote empty-batch + success Bayesian logs** from WARNING/INFO to a quieter level once Phase 1 confirms the failure mode. Currently noisy at 6×/day per coord.
+2. **Min-floor on stale-threshold** in `coordinator.py:_get_failsafe_duration_seconds` callers. A user-customized very-low `_occupancy_timeout` (e.g. 30s) collapses the failsafe gate's stale threshold to 60s — burst-detect mmWave devices with `off_delay` near 60s could legitimately silence. Suggest `max(2 * occupancy_timeout, 180)`.
+3. **Max-cap on stale-threshold.** A user-customized very-high `_occupancy_timeout` (e.g. 7200s) gives a 4-hr threshold equal to the failsafe ceiling — effectively never-fires. Suggest cap at `failsafe_seconds / 2`.
+4. **Parallel clock-skew clamp at `coordinator.py:1517`** — Tier 2 BLE hardening (`motion_age = (now - self._last_motion_time).total_seconds()`) has the same `negative < positive` pathology. The v4.5.16 clamp at the failsafe gate defends that one site; do the same here.
+
 ## Anomaly sensor refresh signals (UX polish, no slot)
 
 **Status:** Filed during v4.5.14 cycle. Pre-existing gap surfaced when adding `extra_state_attributes` to anomaly sensors.
