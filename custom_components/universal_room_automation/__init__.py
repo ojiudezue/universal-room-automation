@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv4.5.15
+# Universal Room Automation vv4.5.16
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -1211,9 +1211,41 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                                     database = hass.data.get(DOMAIN, {}).get("database")
                                     if database is not None:
                                         await database.save_prediction_results_batch(batch_rows)
+                                        _LOGGER.info(
+                                            "Bayesian accuracy eval: wrote %d "
+                                            "prediction rows to DB",
+                                            len(batch_rows),
+                                        )
+                                    else:
+                                        _LOGGER.warning(
+                                            "Bayesian accuracy eval: %d rows "
+                                            "ready but database handle is None — "
+                                            "rows DROPPED (Phase 2 fix needed)",
+                                            len(batch_rows),
+                                        )
+                                else:
+                                    _LOGGER.warning(
+                                        "Bayesian accuracy eval fired but "
+                                        "produced 0 rows — likely room_id "
+                                        "mismatch or no predictions resolved "
+                                        "(v4.5.16 diagnostic; Phase 2 fix needed)"
+                                    )
                             except Exception as exc:
-                                _LOGGER.debug(
-                                    "Bayesian accuracy eval failed: %s", exc
+                                # v4.5.16: was _LOGGER.debug — escalated to
+                                # warning + exc_info so the silent-swallow
+                                # that hid the "0 prediction rows in 7d" bug
+                                # is no longer invisible. Traceback at WARNING
+                                # level (not ERROR via .exception()) keeps the
+                                # noise level proportional to the diagnostic
+                                # phase. After one decision bin (~6h) of
+                                # these logs, we know whether eval (a) never
+                                # fires, (b) fires-but-empty, or (c) fires
+                                # but writes fail. Phase 2 fix follows.
+                                _LOGGER.warning(
+                                    "Bayesian accuracy eval failed: %s "
+                                    "(type=%s)",
+                                    exc, type(exc).__name__,
+                                    exc_info=True,
                                 )
 
                         # Fire at minute=5 of each bin-boundary hour
