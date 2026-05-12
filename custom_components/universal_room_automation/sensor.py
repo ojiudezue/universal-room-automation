@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.5.12
+# Universal Room Automation vv4.5.13
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -7449,12 +7449,20 @@ class HVACACRampLastActionSensor(
 class HVACACRampKwhRateSensor(
     _ACRampZoneSensorMixin, AggregationEntity, SensorEntity,
 ):
-    """v4.5.12 D7: live kW reading from this zone's `ac_load_sensor`.
+    """v4.5.12 D7 (v4.5.13 fix): live kW reading from this zone's `ac_load_sensor`.
 
-    Read from ZoneState.last_kwh_rate which OverrideArrester populates
-    on every successful read in `_read_kwh_rate`. The `stale` attribute
-    is True when the source sensor's last_updated is older than
-    AC_KWH_SENSOR_STALENESS_S (default 10 min).
+    Reads directly from `hass.states.get(zone.ac_load_sensor)` and converts
+    W -> kW based on the source unit. Independent of the AC ramp-down master
+    switch — a diagnostic sensor should reflect the source's reality whether
+    or not the ramp feature is gating writes to internal state.
+
+    v4.5.12 read from `ZoneState.last_kwh_rate` which OverrideArrester only
+    populates while the master switch is ON. With the switch OFF, the field
+    stayed None and the sensor was stuck `unknown` even when the AC was
+    drawing several kW. v4.5.13 removes that gate.
+
+    The `stale` attribute is True when the source's last_updated is older
+    than AC_KWH_SENSOR_STALENESS_S (default 10 min).
 
     Entity: sensor.ura_hvac_ac_ramp_kwh_rate_<zone_id>
     Device: URA: HVAC Coordinator
@@ -7479,35 +7487,87 @@ class HVACACRampKwhRateSensor(
         self._attr_name = f"AC kWh Rate ({zone_name})"
         self._attr_device_info = _hvac_device_info()
 
-    @property
-    def native_value(self):
+    # Sanity bounds for residential AC compressor draw. Outside this band
+    # the source sensor is almost certainly glitching (battery_power
+    # kW/W glitch class — see TECH_DEBT history). We reject rather than
+    # publish, so HA long-term statistics don't integrate the glitch.
+    _MAX_PLAUSIBLE_KW = 50.0
+    _MIN_PLAUSIBLE_KW = 0.0  # negative draw = sensor bug, not export
+
+    def _read_source_kw(self):
+        """Read the source AC load sensor and return kW as float, or None.
+
+        Returns None when:
+          - zone unknown / source unset / source state unknown/unavailable
+          - non-numeric source state
+          - unit_of_measurement not explicitly W or kW (empty unit is
+            rejected — too easy to misinterpret a template sensor that
+            forgot to declare units)
+          - parsed value outside [_MIN_PLAUSIBLE_KW, _MAX_PLAUSIBLE_KW]
+            (sensor glitch protection)
+
+        Centralized so native_value and attribute computation share one
+        parse path (and one set of edge-case guards).
+        """
         zone = self._get_zone()
         if zone is None:
-            return None
-        return getattr(zone, "last_kwh_rate", None)
+            return None, None
+        source_entity = getattr(zone, "ac_load_sensor", None)
+        if not source_entity:
+            return zone, None
+        state = self.hass.states.get(source_entity)
+        if state is None or state.state in ("unknown", "unavailable", ""):
+            return zone, None
+        try:
+            value = float(state.state)
+        except (ValueError, TypeError):
+            return zone, None
+        unit = (state.attributes.get("unit_of_measurement") or "").strip()
+        if unit == "W":
+            value = value / 1000.0
+        elif unit != "kW":
+            # Unknown / missing unit — refuse to guess. A template sensor
+            # without unit_of_measurement gets None rather than a
+            # potentially-W-but-labeled-kW reading.
+            return zone, None
+        if value < self._MIN_PLAUSIBLE_KW or value > self._MAX_PLAUSIBLE_KW:
+            return zone, None
+        return zone, round(value, 3)
+
+    @property
+    def native_value(self):
+        _zone, kw = self._read_source_kw()
+        return kw
 
     @property
     def extra_state_attributes(self) -> dict:
-        from datetime import datetime, timedelta
+        from datetime import timezone
         from .domain_coordinators.hvac_const import AC_KWH_SENSOR_STALENESS_S
-        zone = self._get_zone()
+        zone, _kw = self._read_source_kw()
         if zone is None:
             return {}
-        last_ts = getattr(zone, "last_kwh_rate_ts", "")
-        stale = True  # default to True if we have no ts
+        source_entity = getattr(zone, "ac_load_sensor", "") or ""
+        last_ts = None
         age_s = None
-        if last_ts:
-            try:
-                last = datetime.fromisoformat(last_ts)
-                age_s = (datetime.now(last.tzinfo) - last).total_seconds()
-                stale = age_s > AC_KWH_SENSOR_STALENESS_S
-            except (ValueError, TypeError):
-                pass
+        stale = True
+        source_unit = None
+        if source_entity:
+            state = self.hass.states.get(source_entity)
+            if state is not None:
+                last_updated = getattr(state, "last_updated", None)
+                if last_updated is not None:
+                    last_ts = last_updated.isoformat()
+                    age_s = (
+                        datetime.now(timezone.utc) - last_updated
+                    ).total_seconds()
+                    stale = age_s > AC_KWH_SENSOR_STALENESS_S
+                source_unit = state.attributes.get("unit_of_measurement")
         return {
             "zone_name": self._zone_name,
             "climate_entity": self._climate_entity,
-            "source_entity": getattr(zone, "ac_load_sensor", "") or "unset",
-            "last_updated": last_ts or None,
+            "source_entity": source_entity or "unset",
+            "source_unit": source_unit,
+            "last_updated": last_ts,
             "age_seconds": int(age_s) if age_s is not None else None,
             "stale": stale,
             "kwh_threshold": getattr(zone, "kwh_rate_threshold", 0.8),
