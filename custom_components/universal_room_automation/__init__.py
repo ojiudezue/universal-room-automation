@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv4.5.16
+# Universal Room Automation vv4.5.17
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -1160,6 +1160,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         async def _bayesian_accuracy_eval(_now):
                             """Record prediction accuracy at bin boundaries."""
                             try:
+                                # v4.5.17: dt_util was never imported in this
+                                # closure's scope, causing every Bayesian eval
+                                # since the feature was added (v4.0.0-B2) to
+                                # silently die with NameError. The bare
+                                # `_LOGGER.debug` swallow at the bottom of this
+                                # try block hid the failure for months until
+                                # v4.5.16 escalated it to WARNING. Phase 1
+                                # surfaced the bug; this is Phase 2's one-line
+                                # fix. Same pattern as `__init__.py:2375`.
+                                from homeassistant.util import dt as dt_util
                                 bp = hass.data.get(DOMAIN, {}).get("bayesian_predictor")
                                 if bp is None:
                                     return

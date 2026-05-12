@@ -512,6 +512,29 @@ No new attribute tracking needed. No new signal subscriptions. No camera/BLE bra
 - Live evidence: HA history for `binary_sensor.ziri_bedroom_bedroom_5_motion` + `_sensor_presence` on 2026-05-11 21:19 CDT → 2026-05-12 01:19 CDT shows motion went stale 03:55 → 05:07 UTC (72 min) while presence stayed continuously ON. Failsafe fired at 06:19:42 UTC; presence was still ON at that moment.
 - Master Bedroom also observed failsafing earlier in same session — pattern confirmed across multiple bedrooms.
 
+## Debug-swallow audit (after v4.5.17, no slot)
+
+**Status:** Filed during v4.5.17 review. Same bug-shape audit, broader scope.
+
+**Finding:** `__init__.py` has ~15 `_LOGGER.debug` calls in `except` blocks — the same shape that hid the v4.5.16 Phase 1 NameError for ~6 months. Most are migration/prune paths where debug-level swallow is appropriate (one-time cleanups where failure is recoverable). But periodic closures with debug-swallow are a known risk shape.
+
+### Audit scope (~30 min)
+
+1. Grep `__init__.py` for `_LOGGER.debug` inside `except` blocks
+2. For each, classify:
+   - **Periodic closure** (registered with `async_track_time_change`, `async_track_time_interval`, or similar) → ESCALATE to warning + exc_info (matching v4.5.16 Phase 1 pattern)
+   - **One-shot migration/prune** → leave as debug (intentional silence is correct here)
+   - **Event handler** (registered on hass.bus) → escalate to warning if event misses are user-visible; debug if event is purely best-effort
+3. Same audit on other periodic-closure files: `coordinator.py`, `aggregation.py`, `domain_coordinators/*.py`
+
+### Cost
+
+~50 LoC across multiple files (changing log level + adding exc_info). Tests: AST regression assertions that no `_LOGGER.debug(...)` is the SOLE handler in an `except Exception` block of a periodic closure. ~30 LoC tests.
+
+Tier 1.
+
+**Promotion criteria:** if audit reveals more than 5 sites needing escalation, scope as a feature cycle and review each escalation individually. Otherwise minor.
+
 ## v4.5.16 Phase 2 carry-overs (after Phase 1 ships)
 
 Filed during v4.5.16 Tier 1 review. Non-blocking; fold into Phase 2 cycle when we make the prediction-scoring fix:
