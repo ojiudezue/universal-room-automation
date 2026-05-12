@@ -123,6 +123,17 @@ class ZoneState:
     nudge_kwh_rate_before: float | None = None
     last_kwh_stale_warned_ts: str = ""
 
+    # v4.5.12 D7: per-zone last-action tracking for the
+    # `sensor.ura_hvac_ac_ramp_last_action_<zone>` sensor. Updated by
+    # OverrideArrester action methods (_perform_soft_nudge, _restore_*,
+    # _evaluate_nudge_outcome, _engage_lockout, etc.) so the sensor can
+    # read in-memory state without per-tick DB queries.
+    last_action_type: str = ""
+    last_action_ts: str = ""
+    last_action_triggered_by: str = ""
+    last_action_kwh_before: float | None = None
+    last_action_kwh_after: float | None = None
+
     @property
     def any_room_occupied(self) -> bool:
         """Return True if any room in this zone is occupied."""

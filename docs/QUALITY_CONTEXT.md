@@ -1,10 +1,12 @@
 # Quality Context
 
-**Version:** 7.1
-**Last Updated:** May 5, 2026
-**Current Production:** v4.2.26
+**Version:** 7.2
+**Last Updated:** May 10, 2026 (v4.5.11.3 cycle aftermath)
+**Current Production:** v4.5.11.3
 **Status:** Active quality standards
-**Bug Classes:** 29 documented (7 original + 13 from Jan–Mar 2026 + 2 from v3.20–v3.22 hardening + 1 from v4.1.1 lambda scope + 1 from v4.2.5 closure escape + 3 from v4.2.8–v4.2.11 DB performance + 1 from v4.2.24 sync update_listener + 1 from v4.2.9 maintenance budgeting)
+**Bug Classes:** 31 documented (7 original + 13 from Jan–Mar 2026 + 2 from v3.20–v3.22 hardening + 1 from v4.1.1 lambda scope + 1 from v4.2.5 closure escape + 3 from v4.2.8–v4.2.11 DB performance + 1 from v4.2.24 sync update_listener + 1 from v4.2.9 maintenance budgeting + 2 from v4.5.11.x AC ramp-down cycle)
+
+**Quality bar — read every cycle:** Two independent staff-engineer-level code reviews using software engineering best practices. The bug-class catalog below is a regression-prevention reference, NOT the review framework. See `CLAUDE.md` § Review Protocol for the canonical statement.
 
 ---
 
@@ -1340,6 +1342,107 @@ hass.data[DOMAIN]["_nightly_start_idx"] = (_idx + 1) % n  # Rotate
 **Discovered:** v4.2.9
 **Impact:** Starvation of later cleanup operations, unbounded event loop blocking
 **Severity:** HIGH
+
+---
+
+### Bug Class #34: Function-Local Import Shadows Module-Level Import ⚠️
+
+**Pattern:** A function-local `from X import Y` statement creates `Y` as a local variable for the **entire** function body. If `Y` is also imported at module level AND referenced earlier in the same function than the local import statement, `UnboundLocalError` is raised at runtime — Python's lexical-scope rule promotes `Y` to local at compile time, but the local binding doesn't exist until the import executes.
+
+This is a pure Python scoping gotcha. Syntactically valid. Passes `py_compile`. Passes source-grep tests. **Crashes the moment the function is called.**
+
+**Impact:** Whatever coordinator/handler/setup contains the function fails with `UnboundLocalError` at runtime. If it's a domain coordinator's `async_setup`, the coordinator never starts; its entities load as `unavailable`; dependent platforms (Number, Switch, Button) appear in the UI but their `_get_arrester()` / `_get_zone()` lookups return None.
+
+The user-visible symptom is "all the new entities are greyed out / disabled" — easy to misdiagnose as a config issue when the actual cause is a scoping bug 100+ lines away from the entity registration.
+
+**Detection (AST-walk):**
+```python
+# Pseudocode — see TestNoLocalImportShadowsModuleImport in
+# quality/tests/test_v4511_ac_energy_aware_ramp_down.py
+for func in ast.walk(tree):
+    if not isinstance(func, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        continue
+    for import_node in walk_imports(func):
+        for name in imported_names(import_node):
+            if name in module_level_imports:
+                used_at = earliest_use_of(name, func, before=import_node.lineno)
+                if used_at is not None:
+                    flag(f"{func.name} re-imports '{name}' at line "
+                         f"{import_node.lineno}; '{name}' is used at line "
+                         f"{used_at} → UnboundLocalError at runtime")
+```
+
+The earlier-use check is critical: not all function-local re-imports cause this bug. Only the ones where the name is referenced before the local import statement executes. Pre-existing safe patterns (deferred-import-at-end-of-function for activity_logger access) are unaffected.
+
+**Historical Example:**
+- **v4.5.11:** Added `from ..const import DOMAIN` inside `HVACCoordinator.async_setup` at line 459 to wire database access for the AC ramp-down feature. `DOMAIN` was already imported at module level (line 27) and used earlier in the same function at line 356 (`for ce in self.hass.config_entries.async_entries(DOMAIN)`). HVAC coord crashed during setup with `UnboundLocalError`. All v4.5.11 entities loaded but stayed `unavailable` because their `_get_arrester()` lookups returned None (the arrester was never set up). Decision cycle never ran. User experienced ~hours of confusion before traceback was extracted from the log buffer.
+
+**Discovered:** v4.5.11.2 (the hotfix)
+**Impact:** Coordinator setup crashes, dependent entities never become operational, user-visible as "feature broken / greyed out"
+**Severity:** HIGH (silent at code-review time, immediately fatal at runtime)
+
+**Prevention:**
+- [ ] AST-walk regression test in every quality test file that scans critical platform files (sensor.py, number.py, switch.py, button.py, every domain coordinator). Test pattern matches the structural detection above.
+- [ ] In review: when adding any function-local `from X import Y`, mentally check whether `Y` is already imported at module level. If yes, delete the local import.
+- [ ] Default to module-level imports. Function-local imports are only justified for genuine circular-import or lazy-load reasons.
+
+---
+
+### Bug Class #35: Button Entity Missing Refresh Signal ⚠️
+
+**Pattern:** A `ButtonEntity` whose `available` property depends on a runtime-mutable resource (coordinator lookup, attribute presence on a manager, etc.) does NOT subscribe to any refresh signal. Unlike Number / Switch / Sensor entities — which HA re-evaluates on natural state-polling cycles — Button entities only refresh when:
+
+1. They fire (user presses or service call), OR
+2. Something explicitly triggers `async_schedule_update_ha_state()`, OR
+3. The integration reloads.
+
+If at platform `async_added_to_hass` time the runtime resource isn't ready yet, HA caches `available: False` and the button stays greyed-out **forever** until manual intervention.
+
+**Impact:** A button that conceptually should work (the underlying coord IS available a few seconds later) appears permanently broken in the UI. User assumes the feature is broken; runs `homeassistant.update_entity` to recover; restarts again the next day and the same thing happens. Compounds confusion.
+
+**Detection (source-grep + AST):**
+```python
+# Pseudocode — see TestButtonAutoRefresh in
+# quality/tests/test_v4511_ac_energy_aware_ramp_down.py
+for cls in walk_classes(tree):
+    if not inherits_from(cls, "ButtonEntity"):
+        continue
+    has_available_property = has_method(cls, "available")
+    has_signal_subscription = any(
+        "async_dispatcher_connect" in body
+        for method in cls.methods
+        for body in [unparse(method)]
+    )
+    if has_available_property and not has_signal_subscription:
+        flag(f"{cls.name}.available depends on runtime resource but "
+             f"no refresh signal subscription; risks the stuck-unavailable "
+             f"pattern after restart")
+```
+
+**Historical Example:**
+- **v4.5.11.3:** 9 per-zone AC Ramp buttons (Force / Cancel / Clear Lockout × 3 zones) cached `available: False` after every restart. Numbers/Switch on the same device worked because HA polls their state naturally. Buttons stuck until a manual `homeassistant.update_entity` was issued. Fix: add `async_added_to_hass` to the button class that subscribes to `SIGNAL_HVAC_ENTITIES_UPDATE`; on each signal fire, call `async_schedule_update_ha_state()` which forces HA to re-query `available`. Same pattern HVAC sensors already used.
+
+**Prevention:**
+- [ ] Any Button entity whose `available` property depends on a non-static resource (coord lookup, manager attribute, registry walk) MUST subscribe to a refresh signal in `async_added_to_hass`. Pattern:
+      ```python
+      async def async_added_to_hass(self) -> None:
+          await super().async_added_to_hass()
+          self.async_on_remove(
+              async_dispatcher_connect(
+                  self.hass, SIGNAL_X, self._handle_refresh,
+              )
+          )
+
+      @callback
+      def _handle_refresh(self, *_a, **_kw) -> None:
+          self.async_schedule_update_ha_state()
+      ```
+- [ ] Buttons whose `available` is always True (a static button on an always-loaded coord) don't need this — flag in review only when `available` is dynamic.
+- [ ] Test fixture: after `async_setup`, simulate a dispatcher fire and assert that the button's `available` re-evaluates.
+
+**Discovered:** v4.5.11.3
+**Impact:** Permanent UI greyed-out state until manual intervention; user assumes feature is broken
+**Severity:** MEDIUM (the underlying action still works via service call; only the UI is degraded — but user trust is degraded by every restart that recurs)
 
 ---
 

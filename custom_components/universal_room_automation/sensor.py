@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.5.11.3
+# Universal Room Automation vv4.5.12
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -248,6 +248,12 @@ async def async_setup_entry(
             HVACOverrideFrequencySensor(hass, entry),
             HVACPreCoolLikelihoodSensor(hass, entry),
             HVACComfortRiskSensor(hass, entry),
+            # v4.5.12 D8: 5 house-wide AC ramp-down impact sensors
+            HVACACNudgesTodaySensor(hass, entry),
+            HVACACResetsTodaySensor(hass, entry),
+            HVACACKwhAvoidedTodaySensor(hass, entry),
+            HVACACKwhAvoidedTotalSensor(hass, entry),
+            HVACACFalsePositiveRateSensor(hass, entry),
             # v3.9.0: HVAC transparency sensors
             HVACArresterStateSensor(hass, entry),
             # v3.17.0: Zone Intelligence sensor
@@ -280,7 +286,8 @@ async def async_setup_entry(
                 continue
             merged = {**zm_entry.data, **zm_entry.options}
             for _zname, zcfg in merged.get("zones", {}).items():
-                if zcfg.get(CONF_ZONE_THERMOSTAT):
+                _thermostat = zcfg.get(CONF_ZONE_THERMOSTAT)
+                if _thermostat:
                     zone_num += 1
                     zone_id = f"zone_{zone_num}"
                     coordinator_sensors.append(
@@ -288,6 +295,22 @@ async def async_setup_entry(
                     )
                     coordinator_sensors.append(
                         HVACZonePresetSensor(hass, entry, zone_id)
+                    )
+                    # v4.5.12 D7: per-zone AC ramp-down sensors (3 per zone)
+                    coordinator_sensors.append(
+                        HVACACRampStateSensor(
+                            hass, entry, zone_id, _zname, _thermostat,
+                        )
+                    )
+                    coordinator_sensors.append(
+                        HVACACRampLastActionSensor(
+                            hass, entry, zone_id, _zname, _thermostat,
+                        )
+                    )
+                    coordinator_sensors.append(
+                        HVACACRampKwhRateSensor(
+                            hass, entry, zone_id, _zname, _thermostat,
+                        )
                     )
         async_add_entities(coordinator_sensors)
         return
@@ -7252,6 +7275,506 @@ class HVACZonePresetSensor(AggregationEntity, SensorEntity):
     @callback
     def _handle_preset_update(self) -> None:
         self.async_schedule_update_ha_state()
+
+
+# ============================================================================
+# v4.5.12 D7: Per-zone AC ramp-down state sensors (3 per AC zone)
+# ============================================================================
+# These surface what slice 1's OverrideArrester is doing for each AC zone:
+#   - state machine state (idle/detecting/nudging/awaiting_eval/escalating/
+#                          locked_out/disabled)
+#   - last action timestamp + attrs (what happened most recently)
+#   - live kWh-rate from the configured ac_load_sensor (with staleness)
+#
+# All three look up the zone by climate_entity (not by zone_id) to bridge
+# the v4.5.11.2 naming-convention drift — ZoneManager uses `zone_N` zone_ids
+# while the platform-side derivation produces `<thermostat_name>` strings.
+# Look up by climate_entity (stable, unique) instead.
+
+
+class _ACRampZoneSensorMixin:
+    """Shared lookup + refresh wiring for D7 per-zone sensors."""
+
+    def _get_zone(self):
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        hvac = manager.coordinators.get("hvac") if hasattr(manager, "coordinators") else None
+        if hvac is None:
+            return None
+        zm = getattr(hvac, "_zone_manager", None) or getattr(hvac, "zone_manager", None)
+        if zm is None:
+            return None
+        for z in zm.zones.values():
+            if z.climate_entity == self._climate_entity:
+                return z
+        return None
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to SIGNAL_HVAC_ENTITIES_UPDATE so the sensor refreshes
+        on every HVAC decision tick (Bug Class #35 prevention pattern)."""
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.hvac_const import SIGNAL_HVAC_ENTITIES_UPDATE
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_HVAC_ENTITIES_UPDATE, self._handle_hvac_tick,
+            )
+        )
+
+    @callback
+    def _handle_hvac_tick(self, *_a, **_kw) -> None:
+        self.async_schedule_update_ha_state()
+
+
+class HVACACRampStateSensor(_ACRampZoneSensorMixin, AggregationEntity, SensorEntity):
+    """v4.5.12 D7: per-zone AC ramp-down state machine label.
+
+    Returns one of: idle / detecting / nudging / awaiting_evaluation /
+    escalating / locked_out / disabled. The seven legal values are
+    enumerated in `AC_RAMP_STATES` (hvac_const.py).
+
+    Entity: sensor.ura_hvac_ac_ramp_state_<zone_id>
+    Device: URA: HVAC Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:state-machine"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(
+        self, hass: HomeAssistant, entry: ConfigEntry,
+        zone_id: str, zone_name: str, climate_entity: str,
+    ) -> None:
+        super().__init__(hass, entry)
+        self._zone_id = zone_id
+        self._zone_name = zone_name
+        self._climate_entity = climate_entity
+        self._attr_unique_id = f"{DOMAIN}_hvac_ac_ramp_state_{zone_id}"
+        self._attr_name = f"AC Ramp State ({zone_name})"
+        self._attr_device_info = _hvac_device_info()
+
+    @property
+    def native_value(self) -> str:
+        zone = self._get_zone()
+        if zone is None:
+            return "unavailable"
+        # ramp_state is maintained by OverrideArrester slice 1 logic.
+        # Always one of AC_RAMP_STATES values.
+        return getattr(zone, "ramp_state", "idle") or "idle"
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        zone = self._get_zone()
+        if zone is None:
+            return {}
+        return {
+            "zone_name": self._zone_name,
+            "climate_entity": self._climate_entity,
+            "kwh_samples_above_threshold": getattr(
+                zone, "kwh_samples_above_threshold", 0,
+            ),
+            "last_overshoot_started": getattr(
+                zone, "last_overshoot_started", "",
+            ),
+            "ac_load_sensor": getattr(zone, "ac_load_sensor", ""),
+            "ramp_zone_enabled": getattr(zone, "ramp_zone_enabled", True),
+        }
+
+
+class HVACACRampLastActionSensor(
+    _ACRampZoneSensorMixin, AggregationEntity, SensorEntity,
+):
+    """v4.5.12 D7: ISO timestamp of the most recent ramp-down action on
+    this zone. Attrs carry the action type, triggered_by (auto/manual),
+    and the kWh before/after if known.
+
+    Read from ZoneState in-memory fields populated by OverrideArrester's
+    `_track_zone_action` helper at every event-log site. No DB query
+    on the read path (sensor would otherwise stress the write queue).
+
+    Entity: sensor.ura_hvac_ac_ramp_last_action_<zone_id>
+    Device: URA: HVAC Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:history"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+
+    def __init__(
+        self, hass: HomeAssistant, entry: ConfigEntry,
+        zone_id: str, zone_name: str, climate_entity: str,
+    ) -> None:
+        super().__init__(hass, entry)
+        self._zone_id = zone_id
+        self._zone_name = zone_name
+        self._climate_entity = climate_entity
+        self._attr_unique_id = f"{DOMAIN}_hvac_ac_ramp_last_action_{zone_id}"
+        self._attr_name = f"AC Ramp Last Action ({zone_name})"
+        self._attr_device_info = _hvac_device_info()
+
+    @property
+    def native_value(self):
+        zone = self._get_zone()
+        if zone is None:
+            return None
+        ts = getattr(zone, "last_action_ts", "")
+        if not ts:
+            return None
+        try:
+            # SensorDeviceClass.TIMESTAMP requires a datetime
+            from datetime import datetime
+            return datetime.fromisoformat(ts)
+        except (ValueError, TypeError):
+            return None
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        zone = self._get_zone()
+        if zone is None:
+            return {}
+        return {
+            "zone_name": self._zone_name,
+            "climate_entity": self._climate_entity,
+            "action_type": getattr(zone, "last_action_type", "") or "none",
+            "triggered_by": getattr(
+                zone, "last_action_triggered_by", "",
+            ) or "none",
+            "kwh_rate_before": getattr(zone, "last_action_kwh_before", None),
+            "kwh_rate_after": getattr(zone, "last_action_kwh_after", None),
+        }
+
+
+class HVACACRampKwhRateSensor(
+    _ACRampZoneSensorMixin, AggregationEntity, SensorEntity,
+):
+    """v4.5.12 D7: live kW reading from this zone's `ac_load_sensor`.
+
+    Read from ZoneState.last_kwh_rate which OverrideArrester populates
+    on every successful read in `_read_kwh_rate`. The `stale` attribute
+    is True when the source sensor's last_updated is older than
+    AC_KWH_SENSOR_STALENESS_S (default 10 min).
+
+    Entity: sensor.ura_hvac_ac_ramp_kwh_rate_<zone_id>
+    Device: URA: HVAC Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:flash"
+    _attr_native_unit_of_measurement = "kW"
+    _attr_device_class = SensorDeviceClass.POWER
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(
+        self, hass: HomeAssistant, entry: ConfigEntry,
+        zone_id: str, zone_name: str, climate_entity: str,
+    ) -> None:
+        super().__init__(hass, entry)
+        self._zone_id = zone_id
+        self._zone_name = zone_name
+        self._climate_entity = climate_entity
+        self._attr_unique_id = f"{DOMAIN}_hvac_ac_ramp_kwh_rate_{zone_id}"
+        self._attr_name = f"AC kWh Rate ({zone_name})"
+        self._attr_device_info = _hvac_device_info()
+
+    @property
+    def native_value(self):
+        zone = self._get_zone()
+        if zone is None:
+            return None
+        return getattr(zone, "last_kwh_rate", None)
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        from datetime import datetime, timedelta
+        from .domain_coordinators.hvac_const import AC_KWH_SENSOR_STALENESS_S
+        zone = self._get_zone()
+        if zone is None:
+            return {}
+        last_ts = getattr(zone, "last_kwh_rate_ts", "")
+        stale = True  # default to True if we have no ts
+        age_s = None
+        if last_ts:
+            try:
+                last = datetime.fromisoformat(last_ts)
+                age_s = (datetime.now(last.tzinfo) - last).total_seconds()
+                stale = age_s > AC_KWH_SENSOR_STALENESS_S
+            except (ValueError, TypeError):
+                pass
+        return {
+            "zone_name": self._zone_name,
+            "climate_entity": self._climate_entity,
+            "source_entity": getattr(zone, "ac_load_sensor", "") or "unset",
+            "last_updated": last_ts or None,
+            "age_seconds": int(age_s) if age_s is not None else None,
+            "stale": stale,
+            "kwh_threshold": getattr(zone, "kwh_rate_threshold", 0.8),
+        }
+
+
+# ============================================================================
+# v4.5.12 D8: House-wide AC ramp-down impact sensors (5)
+# ============================================================================
+# These surface the cumulative effect of the AC ramp-down feature:
+#   - nudges_today / resets_today (count of soft + hard interventions)
+#   - kwh_avoided_today / _total (rough estimate — see TECH_DEBT.md)
+#   - false_positive_rate (% of nudges where kwh_rate didn't drop)
+#
+# All read from `OverrideArrester._impact_cache`, refreshed once per
+# decision cycle (5 min) at the end of check_ac_reset. Sync read path
+# from the sensor — no DB query on every state poll.
+#
+# All five subscribe to SIGNAL_HVAC_ENTITIES_UPDATE (Bug Class #35
+# prevention) so they auto-refresh per cycle without needing manual
+# update_entity calls.
+
+
+class _ACRampImpactSensorMixin:
+    """Shared cache lookup + refresh signal for D8 house-wide sensors."""
+
+    def _get_cache(self) -> dict | None:
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        hvac = manager.coordinators.get("hvac") if hasattr(manager, "coordinators") else None
+        if hvac is None:
+            return None
+        arr = getattr(hvac, "_override_arrester", None)
+        if arr is None:
+            return None
+        return getattr(arr, "_impact_cache", None)
+
+    async def async_added_to_hass(self) -> None:
+        """Refresh on every HVAC tick (Bug Class #35 prevention)."""
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.hvac_const import SIGNAL_HVAC_ENTITIES_UPDATE
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_HVAC_ENTITIES_UPDATE, self._handle_hvac_tick,
+            )
+        )
+
+    @callback
+    def _handle_hvac_tick(self, *_a, **_kw) -> None:
+        self.async_schedule_update_ha_state()
+
+
+class HVACACNudgesTodaySensor(
+    _ACRampImpactSensorMixin, AggregationEntity, SensorEntity,
+):
+    """v4.5.12 D8: count of soft nudges fired today (across all zones).
+
+    Resets at midnight via the DB's date-keyed ac_reset_state table.
+
+    Entity: sensor.ura_hvac_ac_nudges_today
+    Device: URA: HVAC Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:thermometer-chevron-up"
+    _attr_state_class = SensorStateClass.TOTAL_INCREASING
+    _attr_native_unit_of_measurement = "nudges"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_hvac_ac_nudges_today"
+        self._attr_name = "AC Nudges Today"
+        self._attr_device_info = _hvac_device_info()
+
+    @property
+    def native_value(self) -> int:
+        cache = self._get_cache()
+        if cache is None:
+            return 0
+        return int(cache.get("nudges_today", 0))
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        cache = self._get_cache()
+        if cache is None:
+            return {}
+        return {"last_refresh_ts": cache.get("last_refresh_ts")}
+
+
+class HVACACResetsTodaySensor(
+    _ACRampImpactSensorMixin, AggregationEntity, SensorEntity,
+):
+    """v4.5.12 D8: count of hard resets fired today (across all zones).
+
+    Hard resets are the compressor-protection escalation path. Daily
+    cap is 2 per zone — so 6 max house-wide (3 zones × 2). If this
+    sensor approaches the cap, investigate.
+
+    Entity: sensor.ura_hvac_ac_resets_today
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:restart-alert"
+    _attr_state_class = SensorStateClass.TOTAL_INCREASING
+    _attr_native_unit_of_measurement = "resets"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_hvac_ac_resets_today"
+        self._attr_name = "AC Hard Resets Today"
+        self._attr_device_info = _hvac_device_info()
+
+    @property
+    def native_value(self) -> int:
+        cache = self._get_cache()
+        if cache is None:
+            return 0
+        return int(cache.get("resets_today", 0))
+
+
+class HVACACKwhAvoidedTodaySensor(
+    _ACRampImpactSensorMixin, AggregationEntity, SensorEntity,
+):
+    """v4.5.12 D8: rough estimate of kWh avoided by AC ramp-down today.
+
+    **NOT a precision instrument.** See docs/TECH_DEBT.md for the math
+    (point-in-time delta × capped 30-min projection). Use for trend-
+    watching, NOT for billing accuracy.
+
+    Entity: sensor.ura_hvac_ac_kwh_avoided_today
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:flash-off"
+    _attr_device_class = SensorDeviceClass.ENERGY
+    _attr_state_class = SensorStateClass.TOTAL_INCREASING
+    _attr_native_unit_of_measurement = "kWh"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_hvac_ac_kwh_avoided_today"
+        self._attr_name = "AC kWh Avoided Today"
+        self._attr_device_info = _hvac_device_info()
+
+    @property
+    def native_value(self) -> float:
+        cache = self._get_cache()
+        if cache is None:
+            return 0.0
+        return float(cache.get("kwh_avoided_today", 0.0))
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        return {
+            "accuracy": "rough_estimate",
+            "accuracy_note": (
+                "Point-in-time kW-delta × capped 30-min projection. "
+                "Trend-watching only; not billing-grade. See docs/TECH_DEBT.md."
+            ),
+        }
+
+
+class HVACACKwhAvoidedTotalSensor(
+    _ACRampImpactSensorMixin, AggregationEntity, SensorEntity, RestoreEntity,
+):
+    """v4.5.12 D8: cumulative kWh avoided since the AC ramp-down feature
+    was first enabled. Persists across HA restart (RestoreEntity).
+
+    Same rough-estimate caveat as the today sensor.
+
+    Entity: sensor.ura_hvac_ac_kwh_avoided_total
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:flash-off-outline"
+    _attr_device_class = SensorDeviceClass.ENERGY
+    _attr_state_class = SensorStateClass.TOTAL_INCREASING
+    _attr_native_unit_of_measurement = "kWh"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_hvac_ac_kwh_avoided_total"
+        self._attr_name = "AC kWh Avoided (Total)"
+        self._attr_device_info = _hvac_device_info()
+        self._restored_value: float | None = None
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        last_state = await self.async_get_last_state()
+        if (
+            last_state is not None
+            and last_state.state not in (None, "unknown", "unavailable")
+        ):
+            try:
+                self._restored_value = float(last_state.state)
+            except (ValueError, TypeError):
+                self._restored_value = None
+
+    @property
+    def native_value(self) -> float:
+        cache = self._get_cache()
+        if cache is None:
+            # Fall back to the last persisted value while coord is starting
+            return self._restored_value if self._restored_value is not None else 0.0
+        # Live cache wins once it's populated
+        return float(cache.get("kwh_avoided_total", 0.0))
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        return {
+            "accuracy": "rough_estimate",
+            "accuracy_note": (
+                "Cumulative since feature enable. Trend-watching only; "
+                "not billing-grade. See docs/TECH_DEBT.md."
+            ),
+        }
+
+
+class HVACACFalsePositiveRateSensor(
+    _ACRampImpactSensorMixin, AggregationEntity, SensorEntity,
+):
+    """v4.5.12 D8: percentage of nudges where kWh rate did NOT drop
+    after the action (rough effectiveness signal).
+
+    **Manual force_nudge events are excluded** from the math (Risk R6
+    from v4.5.11 plan) — testing-triggered nudges shouldn't pollute
+    the metric.
+
+    Returns `unavailable` until sample_size >= 5 (Risk R3 — small N
+    is meaningless).
+
+    Entity: sensor.ura_hvac_ac_false_positive_rate
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:chart-line-variant"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = "%"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_hvac_ac_false_positive_rate"
+        self._attr_name = "AC Nudge False-Positive Rate"
+        self._attr_device_info = _hvac_device_info()
+
+    @property
+    def native_value(self):
+        cache = self._get_cache()
+        if cache is None:
+            return None  # → "unavailable" until coord ready
+        rate = cache.get("false_positive_rate")
+        # rate is None when sample_size < 5; HA renders as "unavailable"
+        return rate
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        cache = self._get_cache()
+        if cache is None:
+            return {}
+        return {
+            "sample_size": cache.get("fp_sample_size", 0),
+            "min_sample_for_display": 5,
+            "excludes": "manual force_nudge events",
+        }
 
 
 class HVACZoneIntelligenceSensor(AggregationEntity, SensorEntity):

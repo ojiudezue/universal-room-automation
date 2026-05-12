@@ -1,6 +1,6 @@
 """Button platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.5.11.3
+# Universal Room Automation vv4.5.12
 # Build: 2026-01-04
 # File: button.py
 #
@@ -42,6 +42,8 @@ async def async_setup_entry(
         cm_entities: list[ButtonEntity] = [
             NMAcknowledgeButton(hass, entry),
             ClearBayesianBeliefsButton(hass, entry),
+            # v4.5.12 D10: diagnostic dump button (house-wide, on HVAC device)
+            HVACACRampDiagnosticDumpButton(hass, entry),
         ]
         # v4.5.11: 3 buttons per AC zone (force_nudge / cancel_nudge /
         # clear_lockout). Discovers zones from Zone Manager entries — same
@@ -730,3 +732,153 @@ class _ACRampButton(ButtonEntity):
             "AC ramp button pressed: %s (zone=%s)",
             self._action, self._zone_id,
         )
+
+
+# ============================================================================
+# v4.5.12 D10: Diagnostic dump button — exports last 7 days of AC ramp events
+# ============================================================================
+# Writes JSON to /config/ura_diagnostics/ac_ramp_<ISO_timestamp>.json so the
+# user (or a future debugging session) can inspect the full event history
+# offline. Reuses get_ac_ramp_events_recent() from slice 1's DB layer.
+#
+# Applies Bug Class #35 pattern: subscribes to SIGNAL_HVAC_ENTITIES_UPDATE in
+# async_added_to_hass so `available` re-evaluates per HVAC tick. (For this
+# button `available` is always True since it doesn't depend on the arrester
+# being up — but the pattern is documented as the standard for ALL new
+# buttons, so applying it consistently here.)
+
+
+class HVACACRampDiagnosticDumpButton(ButtonEntity):
+    """Press to dump the last 7 days of `ac_ramp_events` to a JSON file
+    under `/config/ura_diagnostics/`. Fires a persistent_notification
+    with the file path.
+
+    Entity: button.ura_hvac_ac_ramp_diagnostic_dump
+    Device: URA: HVAC Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:file-download-outline"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .const import VERSION
+
+        self.hass = hass
+        self._entry = entry
+        self._attr_unique_id = f"{DOMAIN}_hvac_ac_ramp_diagnostic_dump"
+        self._attr_name = "AC Ramp Diagnostic Dump"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "hvac_coordinator")},
+            name="URA: HVAC Coordinator",
+            manufacturer="Universal Room Automation",
+            model="HVAC Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+
+    def _get_db(self):
+        return self.hass.data.get(DOMAIN, {}).get("database")
+
+    @property
+    def available(self) -> bool:
+        # Always operable when the URA DB is available
+        return self._get_db() is not None
+
+    async def async_added_to_hass(self) -> None:
+        """v4.5.11.3 / Bug Class #35: subscribe to SIGNAL_HVAC_ENTITIES_UPDATE
+        so `available` re-evaluates per HVAC tick even though this button's
+        dependency (the DB) is more stable than the arrester."""
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.hvac_const import SIGNAL_HVAC_ENTITIES_UPDATE
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_HVAC_ENTITIES_UPDATE, self._handle_hvac_update,
+            )
+        )
+
+    @callback
+    def _handle_hvac_update(self, *_a, **_kw) -> None:
+        self.async_schedule_update_ha_state()
+
+    async def async_press(self) -> None:
+        db = self._get_db()
+        if db is None:
+            _LOGGER.warning(
+                "AC ramp diagnostic dump: URA database not available"
+            )
+            return
+
+        # Query last 7 days of events. Reuses the slice 1 method.
+        try:
+            events = await db.get_ac_ramp_events_recent(days=7)
+        except Exception as e:
+            _LOGGER.error(
+                "AC ramp diagnostic dump: DB query failed: %s", e,
+            )
+            return
+
+        # Build dump payload
+        timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        diagnostics_dir = Path(self.hass.config.config_dir) / "ura_diagnostics"
+        diagnostics_dir.mkdir(parents=True, exist_ok=True)
+        filepath = diagnostics_dir / f"ac_ramp_{timestamp}.json"
+
+        # Pull aggregate context too (so the dump is self-contained for
+        # offline analysis without needing the DB to interpret it)
+        try:
+            (
+                kwh_total, evals_total, fp_total,
+            ) = await db.get_ac_ramp_kwh_avoided(days=None)
+        except Exception:
+            kwh_total = evals_total = fp_total = 0
+
+        payload = {
+            "dump_metadata": {
+                "generated_at": datetime.now().isoformat(),
+                "window_days": 7,
+                "event_count": len(events),
+            },
+            "aggregates": {
+                "kwh_avoided_total": round(kwh_total, 3),
+                "nudge_evaluations_total": evals_total,
+                "false_positives_total": fp_total,
+            },
+            "events": events,
+        }
+
+        try:
+            with open(filepath, "w", encoding="utf-8") as f:
+                json.dump(payload, f, indent=2, default=str)
+        except Exception as e:
+            _LOGGER.error(
+                "AC ramp diagnostic dump: write to %s failed: %s",
+                filepath, e,
+            )
+            return
+
+        _LOGGER.info(
+            "AC ramp diagnostic dump created: %s (%d events, %d bytes)",
+            filepath, len(events), filepath.stat().st_size,
+        )
+
+        # User-visible notification with the file path
+        try:
+            await self.hass.services.async_call(
+                "persistent_notification", "create",
+                {
+                    "title": "AC Ramp Diagnostic Dump",
+                    "message": (
+                        f"Wrote {len(events)} events to:\n`{filepath}`\n\n"
+                        f"Size: {filepath.stat().st_size:,} bytes."
+                    ),
+                    "notification_id": "ura_ac_ramp_diagnostic_dump",
+                },
+                blocking=False,
+            )
+        except Exception as e:
+            _LOGGER.warning(
+                "AC ramp diagnostic dump notification failed: %s", e,
+            )
