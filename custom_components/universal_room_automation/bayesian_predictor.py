@@ -100,6 +100,16 @@ class DataQualityReport:
     unknown_rooms: int = 0
     low_confidence: int = 0
     passed: int = 0
+    # v4.5.18: same person, same second, DIFFERENT from/to rooms. Counted
+    # for visibility. Previously these were lumped into
+    # `duplicate_timestamps`, inflating that bucket and producing the
+    # misleading ~91% data-quality reading. NOTE: this fix is
+    # REPORTING-ONLY — the prior-building path at
+    # `_build_priors_from_transitions:243` does NOT timestamp-dedup,
+    # so these rows were ALWAYS included in Bayesian priors. v4.5.18
+    # corrects the operator-facing reporting; it does NOT change
+    # prediction quality.
+    same_second_distinct: int = 0
 
     def summary(self) -> str:
         """Return human-readable summary."""
@@ -109,7 +119,8 @@ class DataQualityReport:
             f"{self.passed} passed ({pct:.1f}%), "
             f"excluded: null={self.null_rooms}, self={self.self_transitions}, "
             f"duration={self.impossible_durations}, dup={self.duplicate_timestamps}, "
-            f"unknown={self.unknown_rooms}, low_conf={self.low_confidence}"
+            f"unknown={self.unknown_rooms}, low_conf={self.low_confidence}, "
+            f"same_second_distinct={self.same_second_distinct}"
         )
 
 
@@ -684,13 +695,55 @@ class BayesianPredictor:
                     continue
 
             # Check 4: Duplicate timestamps
+            # v4.5.18: dedup key widened from (person, second-truncated-ts)
+            # to (person, second-truncated-ts, from_room, to_room).
+            #
+            # IMPORTANT SCOPE NOTE: this is a REPORTING-ONLY fix.
+            # `seen_timestamps` is local to this method and never leaves.
+            # On cold start, the same `rows` argument feeds both this
+            # scan and `_build_priors_from_transitions` (line 243),
+            # which iterates `rows` WITHOUT any timestamp dedup. On warm
+            # restart, priors come from the saved beliefs table — the
+            # scan re-fetches its own rows independently and prior
+            # construction is bypassed entirely. Either way, this scan's
+            # set never affects prior construction. The 11k rows
+            # previously flagged as duplicates HAVE ALWAYS been included
+            # in Bayesian priors. v4.5.18 corrects the operator-facing
+            # reporting bucket (which inflated the "91% data quality"
+            # reading) and adds a visibility metric; prediction quality
+            # is unchanged.
+            #
+            # Why the dedup was over-counting: PersonCoordinator captures
+            # `now = dt_util.now()` ONCE per coordinator cycle at
+            # person_coordinator.py:131. When a cycle processes a
+            # multi-step path (e.g., genuine A→B→C transitions in
+            # <30s, or on HA restart when Bermuda re-emits stale + current
+            # state in close succession), the rows share the cycle's
+            # `now` timestamp but have distinct (from, to) tuples. The
+            # old narrow key flagged each subsequent row as a duplicate.
+            #
+            # The widened key still catches true duplicate writes (same
+            # person + same second + same room pair).
+            #
+            # `same_second_distinct` counts the legitimate multi-step
+            # pattern as a visibility metric — if it grows fast,
+            # that's evidence to investigate writer paths (separate
+            # concern from this reporting fix).
             if person_id not in seen_timestamps:
                 seen_timestamps[person_id] = set()
             ts_key = str(ts_str)[:19]  # Truncate to seconds
-            if ts_key in seen_timestamps[person_id]:
+            dedup_key = (ts_key, from_room, to_room)
+            if dedup_key in seen_timestamps[person_id]:
                 report.duplicate_timestamps += 1
                 continue
-            seen_timestamps[person_id].add(ts_key)
+            # Visibility: track when same person+second has DIFFERENT
+            # room pairs (legitimate multi-step within a cycle). Compare
+            # against the set of ts_keys already seen for this person
+            # WITHOUT the room-pair component.
+            seen_ts_keys = {k[0] for k in seen_timestamps[person_id]}
+            if ts_key in seen_ts_keys:
+                report.same_second_distinct += 1
+            seen_timestamps[person_id].add(dedup_key)
 
             # Check 5: Unknown rooms
             if to_room.lower() in EXCLUDED_ROOMS or from_room.lower() in EXCLUDED_ROOMS:

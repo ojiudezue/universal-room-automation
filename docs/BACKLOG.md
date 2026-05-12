@@ -285,11 +285,13 @@ Deliberate asymmetry. On HC, the device context already implies AC; the shorter 
 
 ## v4.5.16 — Duplicate-timestamp investigation (minor, after v4.5.15)
 
-**Status:** Investigation spike, not yet scoped. Scheduled as a minor after v4.5.14 unless investigation surfaces architectural issues.
+**Status:** SUPERSEDED by v4.5.18 (2026-05-12). Original narrative was incorrect — see correction below. The duplicate-timestamp metric was a REPORTING-ONLY bucket; no data was being lost from the Bayesian prior-building path. v4.5.18 shipped the reporting correction.
 
-**Finding (2026-05-11, post-v4.5.12 deploy):** `sensor.ura_coordinator_manager_bayesian_data_quality` reports 11,284 duplicate-timestamp rejections out of 133,912 total rows (8.4% of ingest discarded). The Data Quality sensor has hovered at 90-91% for weeks because duplicates accumulate proportionally to total rows.
+**Original finding (2026-05-11, post-v4.5.12 deploy):** `sensor.ura_coordinator_manager_bayesian_data_quality` reports 11,284 duplicate-timestamp "rejections" out of 133,912 total rows (8.4%). The data quality reading hovered at 90-91% for weeks.
 
-**Hypothesis:** Two writers (likely `person_coordinator` + `presence_coordinator` or their sensor mirror paths) are inserting on the same timestamp tick for the same (person, room) key. URA's dedup window may be too tight, or both code paths may be writing without checking the other.
+**Narrative correction (2026-05-12, during v4.5.18 review):** `scan_data_quality`'s dedup is REPORTING-ONLY. Its `seen_timestamps` set is local to that method. `_build_priors_from_transitions` at `bayesian_predictor.py:243` iterates the SAME row set and does NOT timestamp-dedup. So the 11k rows have ALWAYS been included in priors. Nothing was "discarded." The bucket was over-counting legitimate multi-step transitions (PersonCoordinator captures `now` ONCE per cycle, so distinct A→B→C transitions in one cycle share the timestamp).
+
+**Hypothesis (corrected):** ~~Two writers colliding~~ → Single writer pattern. PersonCoordinator's per-cycle timestamp capture is the source. Multi-step paths within one cycle (genuine user transitions or BLE re-emit at startup) produce rows sharing a second but with distinct (from, to) tuples. The OLD narrow dedup key flagged them. v4.5.18 widens the key.
 
 ### Investigation goals (do BEFORE scoping a fix)
 
@@ -544,24 +546,113 @@ Filed during v4.5.16 Tier 1 review. Non-blocking; fold into Phase 2 cycle when w
 3. **Max-cap on stale-threshold.** A user-customized very-high `_occupancy_timeout` (e.g. 7200s) gives a 4-hr threshold equal to the failsafe ceiling — effectively never-fires. Suggest cap at `failsafe_seconds / 2`.
 4. **Parallel clock-skew clamp at `coordinator.py:1517`** — Tier 2 BLE hardening (`motion_age = (now - self._last_motion_time).total_seconds()`) has the same `negative < positive` pathology. The v4.5.16 clamp at the failsafe gate defends that one site; do the same here.
 
-## Anomaly sensor refresh signals (UX polish, no slot)
+## Anomaly sensor refresh signals (Presence + MF) — ready to ship
 
-**Status:** Filed during v4.5.14 cycle. Pre-existing gap surfaced when adding `extra_state_attributes` to anomaly sensors.
+**Status:** Detailed plan completed during v4.5.18 prep (2026-05-12 CDT). Supersedes the prior rough sketch. Ready for a Tier 1 slot.
 
-**Finding:** `PresenceAnomalySensor` and `MusicFollowingAnomalySensor` lack `async_added_to_hass` subscriptions to a refresh signal. No `SIGNAL_PRESENCE_ENTITIES_UPDATE` or `SIGNAL_MUSIC_FOLLOWING_ENTITIES_UPDATE` exists in `domain_coordinators/signals.py`. The sensors render correctly on first registration but don't refresh on coordinator decision cycles — they update only when HA happens to re-query their native_value (e.g., on entity card refresh, dashboard reload).
+**Why now:** `MusicFollowingAnomalySensor.extra_state_attributes` docstring at sensor.py:4643-4645 explicitly acknowledges the gap. Anomaly status from `get_worst_severity()` / `get_learning_status()` / `get_status_summary()` can shift mid-cycle and never re-renders until HA re-queries.
 
-This is the Bug Class #35 pattern for sensors (not buttons). For HVAC, Safety, Security, the equivalent signals DO exist and are used. Presence and Music Following coordinators don't dispatch a per-cycle signal at all.
+### Pattern audit
+- **HVAC:** `SIGNAL_HVAC_ENTITIES_UPDATE` in `domain_coordinators/hvac_const.py:333` (outlier — NOT in signals.py; mistake that already cost v4.5.10.1 ImportError). Fired at `hvac.py:606`.
+- **Safety:** `SIGNAL_SAFETY_ENTITIES_UPDATE` in `signals.py:16`. Fired at `safety.py:2116` end of evaluate.
+- **Security:** `SIGNAL_SECURITY_ENTITIES_UPDATE` in `signals.py:18`. Fired at ~12 state-mutation sites.
+- **Subscriber pattern** (use HVACAnomalySensor at sensor.py:7378-7392): `async_added_to_hass` → function-local import of signal → `async_on_remove(async_dispatcher_connect(...))` → `_handle_update` calls `async_schedule_update_ha_state()`.
 
-### Scope for a future cycle (~30 LoC + 10 tests)
+### Implementation sketch (5 steps)
+1. **signals.py:** add `SIGNAL_PRESENCE_ENTITIES_UPDATE` and `SIGNAL_MUSIC_FOLLOWING_ENTITIES_UPDATE` (mirror Safety/Security convention, NOT HVAC outlier).
+2. **presence.py:** at end of `_run_inference` (line ~1515, after `_check_zone_anomalies()`), add `async_dispatcher_send(self.hass, SIGNAL_PRESENCE_ENTITIES_UPDATE)`. `async_dispatcher_send` already imported.
+3. **music_following.py:** at end of `_on_transfer_outcome` (line ~168, after `record_observation`), add `async_dispatcher_send(self.hass, SIGNAL_MUSIC_FOLLOWING_ENTITIES_UPDATE)`. MF is event-driven — no periodic tick — so dispatch fires on every transfer outcome.
+4. **sensor.py subscribers:**
+   - `PresenceAnomalySensor` (3519) → SIGNAL_PRESENCE_ENTITIES_UPDATE
+   - `PresenceComplianceSensor` (3577) → SIGNAL_PRESENCE_ENTITIES_UPDATE
+   - `MusicFollowingAnomalySensor` (4604) → SIGNAL_MUSIC_FOLLOWING_ENTITIES_UPDATE
+   - DO NOT subscribe MF Health/TransfersToday/ActiveRooms/LastTransfer — they already use MF's internal `add_diagnostic_listener` push pattern; double-subscription would double-fire on every transfer.
+5. **Cleanup:** remove the stale comment at sensor.py:4643-4645 explicitly saying "no SIGNAL_MUSIC_FOLLOWING_ENTITIES_UPDATE exists".
 
-1. Add `SIGNAL_PRESENCE_ENTITIES_UPDATE` and `SIGNAL_MUSIC_FOLLOWING_ENTITIES_UPDATE` to `domain_coordinators/signals.py`
-2. Fire them at the end of each coordinator's decision cycle (mirror what HVAC does at end of `check_ac_reset`)
-3. Subscribe PresenceAnomaly + MusicFollowingAnomaly + (any other affected) sensors to the new signals
-4. Audit: walk every AggregationEntity in sensor.py whose native_value depends on a coordinator, add subscription if missing
+### Test plan
+- AST: each new subscriber class defines `async_added_to_hass` + body contains `async_dispatcher_connect(..., SIGNAL_*)` for the expected constant
+- Source-grep: new signal constants present in signals.py; dispatches at the expected lines
+- Import-resolves test: AST-walk `from .domain_coordinators.signals import SIGNAL_*` references and assert each is defined (Bug Class #32 prevention — same shape as v4.5.10.1 footgun)
+- Behavioral: stub coordinator, fire signal via `async_dispatcher_send`, assert `async_schedule_update_ha_state` invoked
 
-**Promotion criteria:** schedule as part of v4.5.x cycle when a user notices a presence/music-following anomaly sensor isn't updating, OR when a new feature wants per-cycle anomaly visibility.
+### Cost
+- Production: ~30 LoC (2 constants, 2 dispatches + imports, 4-6 sensor `async_added_to_hass` blocks)
+- Tests: ~25 LoC
+- Tier 1
 
-**Reference:** existing pattern at HVACAnomalySensor in `sensor.py` (line ~6831) and SafetyAnomalySensor (post-v4.5.14).
+### Risks
+- **Symbol-collision audit (CRITICAL):** `rg "ura_presence_entities_update|ura_music_following_entities_update"` must return empty before merge. Bug Class #32 shape if either name pre-exists.
+- **HVAC-outlier import temptation:** do NOT mirror HVAC by adding a `presence_const.py`. Put both new constants in `signals.py`.
+- **Cleanup on reload:** use `async_on_remove(async_dispatcher_connect(...))`, never bare `async_dispatcher_connect` — same pattern as HVAC subscribers.
+- **MF cold path:** if MF never fires (no transfers since startup), MF anomaly sensor never refreshes. Acceptable — its state can't have changed either.
+- **Observation mode:** these dispatches do NOT need observation-mode gating (only refresh attributes; no side effects).
+
+### Promotion criteria
+- User report that an anomaly sensor "looks stuck" despite known anomaly events in DB, OR
+- Bundle with any v4.5.x cycle touching presence.py or music_following.py to amortize harness work
+
+### Files touched
+- `domain_coordinators/signals.py` (+2 constants)
+- `domain_coordinators/presence.py` (+1 dispatch in `_run_inference`)
+- `domain_coordinators/music_following.py` (+1 dispatch in `_on_transfer_outcome`)
+- `sensor.py` (+4 `async_added_to_hass` blocks; remove stale comment 4643-4645)
+- `quality/tests/test_v4_5_x_anomaly_refresh_signals.py` (new)
+
+## Device-page ordering — HC experiment plan (test → revert → sweep)
+
+**Status:** Plan complete (2026-05-12 CDT). Ready for a small Tier 1 experimental cycle.
+
+### Confirmed mechanism
+- HA frontend sorts entities by `stateName` (friendly_name), locale-aware, within each EntityCategory cluster (CONFIG / DIAGNOSTIC / no-category). With `has_entity_name = True`, HA strips the device-name prefix → sort effectively operates on `_attr_name` alone.
+- Source: `home-assistant/frontend/src/panels/config/devices/ha-config-device-page.ts` (researched earlier this session).
+
+### Prefix scheme
+- **Format:** `"NN · Name"` — two ASCII digits + space + middle-dot (U+00B7) + space + original name.
+- **Rationale:** zero-padded digits → `"01" < "02" < ... < "10" < "20"` correctly under locale compare (no `"1"` vs `"10"` mis-sort). Middle-dot is the least visually ugly delimiter; comma/dot/em-dash all look worse.
+- **Gap = 10** between adjacent entries; per-zone clusters use sub-gap of 1-2 so new zones slot in. Reserves room without renumber churn.
+
+### Proposed HC scan order (3 clusters)
+
+**Sensors cluster** (no category):
+- 10 Mode · 30 Comfort Risk · 40 Pre-Cool Likelihood · 50 AC Nudges Today · 60 AC Hard Resets Today · 70 AC kWh Avoided Today · 80 AC kWh Avoided (Total)
+
+**CONFIG cluster** (master → toggles → tunables → per-zone):
+- 10 Observation Mode · 15 AC Ramp-Down · 20 Override Arrester · 25 AC Reset · 30 Per-Zone HVAC Control · 35 Pre-Arrival · 40 Fan Control · 45 Solar Cover · 50 Vacancy Auto-Off · 60-66 v4.5.10 tunables · 70-75 v4.5.11 AC tunables · 80 Zone Entry Dwell · 90 AC kWh Rate Threshold (per zone) · 95 Clear AC Ramp Lockout (per zone)
+
+**DIAGNOSTIC cluster** (top-level health → state → per-zone → debug):
+- 10 HVAC Anomaly · 15 Compliance · 20 Override Frequency · 25 Arrester State · 30 Arrester Status · 35 Zone Intelligence · 40 Pre-Arrival Status · 45 AC Nudge False-Positive Rate · 50/55 Zone Status/Preset (per zone) · 60-64 D7 (state/last_action/kwh_rate, per AC zone) · 80/82 Force/Cancel Nudge (per zone) · 90 AC Ramp Diagnostic Dump
+
+### Test + revert procedure
+1. `git tag pre-prefix-hc-v4.5.x` baseline
+2. Screenshot HC device page (all clusters expanded) BEFORE
+3. Apply `_attr_name` prefixes per the plan — touch only sensor.py / switch.py / number.py / button.py; **no unique_id / entity_id / device_info changes**
+4. Deploy as `4.5.x` tiny cycle (~50 LoC + 30 tests)
+5. After HACS download + restart, new screenshot. Compare.
+6. If happy → keep, plan sweep. If unhappy → `git revert <commit>` (zero side effects since only `_attr_name` changed)
+
+### Sweep order (after HC validates)
+1. **Coordinator-Manager** (singleton, low entity count, proves pattern on another coord)
+2. **House device** (~12 entities, single instance, high user visibility)
+3. **Zone device** (per-zone, modest scale)
+4. **Other Coordinators batched** (NM, EC, Safety, Security, Music Following)
+5. **Room device LAST** (74+ × 31 rooms ≈ 2300+ entities — highest dashboard-card consumer risk; validate one room first before sweep)
+
+### Risks
+- **Voice assistants** speak friendly_name: `"10 · Override Arrester"` reads as "ten middle-dot override arrester". HA does not strip prefixes for voice. Tolerable; the user can always rename specific entities via UI for voice-heavy use.
+- **Logbook + history graphs** render friendly_name; prefix appears there.
+- **Lovelace cards** that read `name:` from friendly_name will display the prefix unless they override `name`.
+- **Locale-compare edge case:** if HA user locale ever uses non-Western digit collation, order could break. Low-risk mitigation: stay on ASCII digits.
+
+### Cost
+- Production: ~50 LoC across 4 files (only `_attr_name =` lines for HC entities)
+- Tests: ~30 LoC asserting every HC entity's `_attr_name` matches `r"^\d{2} · "` regex
+- Tier 1, single deploy
+
+### Key files
+- `sensor.py` (HVAC sensor classes 6749-8200; `_hvac_device_info` helper at 6735)
+- `switch.py` (9 HVAC switches at 688-1700)
+- `number.py` (factories at 775, 920, 1019, 1112; ZoneEntryDwell at 250)
+- `button.py` (`_ACRampButton` at 597; specs at 553; DiagnosticDumpButton at 735)
 
 ## Device-page entity ordering (UX polish, no slot)
 
