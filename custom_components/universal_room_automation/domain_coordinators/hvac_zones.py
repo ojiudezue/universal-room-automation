@@ -238,6 +238,13 @@ class ZoneManager:
         # Master Suite both served by StudyB Zone 1). When this happens,
         # merge their rooms into a single HVAC zone so occupancy in ANY
         # of the mapped zones keeps the thermostat active.
+        #
+        # LOCKSTEP NOTE (Bug Class #36): the module-level helper
+        # `iter_canonical_hvac_zones` at module-end replicates this
+        # merge logic for use during platform setup (before coordinator
+        # init). Any change to merge semantics here MUST be replicated
+        # there. The lockstep equivalence test in
+        # test_v4513_1_zone_dedup.py asserts both code paths agree.
         thermostat_to_zone_id: dict[str, str] = {}
         for entry in self.hass.config_entries.async_entries(DOMAIN):
             if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ZONE_MANAGER:
@@ -638,3 +645,140 @@ class ZoneManager:
             zone.override_count_today = 0
             zone.ac_reset_count_today = 0
             zone.camera_face_arrivals_today = 0
+
+
+# ============================================================================
+# Module-level helpers — usable from platform setup BEFORE coordinator init
+# ============================================================================
+#
+# Bug Class #36 prevention. v4.5.12 shipped a regression where per-zone
+# sensors were created from Zone Manager config WITHOUT applying the
+# thermostat-keyed dedup that ZoneManager.async_discover_zones does. Two
+# home zones sharing one AC produced two parallel sets of D7 sensors
+# pointing at the same physical zone — see v4.5.13.1 review notes.
+#
+# All per-zone platform setup paths MUST call iter_canonical_hvac_zones
+# rather than rolling their own iteration. Cross-platform consistency is
+# enforced by quality/tests/test_v4513_1_zone_dedup.py.
+
+
+def _zone_id_from_thermostat_pure(
+    climate_entity: str,
+    fallback_num: int,
+    assigned_ids: set[str],
+) -> str:
+    """Pure variant of ZoneManager._zone_id_from_thermostat.
+
+    Same logic; takes the set of already-assigned zone_ids explicitly
+    instead of reading self._zones. Lets us derive consistent zone_ids
+    during platform setup before the coordinator (and thus ZoneManager)
+    exists.
+
+    Returns zone_id matching `zone_N` pattern from the thermostat
+    entity_id when possible (e.g., `climate.up_hallway_zone_2` → `zone_2`),
+    falling back to `zone_<fallback_num>` and auto-incrementing past any
+    collision.
+    """
+    match = re.search(r"(?:^|[_.\s])zone[_\s]?(\d+)", climate_entity)
+    if match:
+        candidate = f"zone_{match.group(1)}"
+        if candidate not in assigned_ids:
+            return candidate
+    n = fallback_num
+    while f"zone_{n}" in assigned_ids:
+        n += 1
+    return f"zone_{n}"
+
+
+def iter_canonical_hvac_zones(hass: HomeAssistant) -> list[dict]:
+    """Return canonical HVAC zones (thermostat-deduplicated).
+
+    Mirrors `ZoneManager.async_discover_zones` dedup semantics — but ONLY
+    for the primary `ENTRY_TYPE_ZONE_MANAGER` path. The legacy
+    `ENTRY_TYPE_ZONE` fallback at the bottom of `async_discover_zones`
+    (hvac_zones.py:346) is intentionally NOT mirrored here because
+    URA's canonical install (single-user policy) doesn't use it. If the
+    fallback path is ever re-activated, extend this helper to cover it
+    AND add a coverage test in test_v4513_1_zone_dedup.py.
+
+    Returns a list of dicts, each with:
+      - zone_id (str): matches ZoneManager's runtime assignment
+        (`zone_N` derived from thermostat suffix when matchable, else
+        auto-numbered with collision avoidance)
+      - zone_name (str): merged display name when multiple home zones
+        share a thermostat (e.g., "Entertainment + Master Suite")
+      - climate_entity (str): the shared thermostat entity_id
+      - ac_load_sensor (str): first non-empty among merged home zones
+      - ramp_zone_enabled (bool): OR across merged home zones
+
+    NOTE: fields that ZoneManager tracks but per-zone platform setup
+    doesn't need yet (vacancy_sweep_enabled, zone_persons, zone_cameras)
+    are NOT returned here. Extend the result schema if a future per-zone
+    entity surface needs them — keep this helper as the single source
+    of truth for "what zones exist."
+
+    Layer 3 of the Bug Class #36 prevention strategy. See
+    docs/QUALITY_CONTEXT.md "Bug Class #36: Per-Zone Entity Registration
+    Bypasses ZoneManager Dedup" for the full prevention narrative.
+
+    LOCKSTEP REQUIREMENT: any change to the merge semantics in
+    `ZoneManager.async_discover_zones` (lines ~282-313) MUST be
+    replicated here. The lockstep equivalence test in
+    test_v4513_1_zone_dedup.py exercises both code paths against the
+    same fixture and asserts identical outputs.
+    """
+    from ..const import (
+        CONF_ENTRY_TYPE,
+        CONF_ZONE_THERMOSTAT,
+        ENTRY_TYPE_ZONE_MANAGER,
+    )
+
+    out: list[dict] = []
+    thermostat_to_idx: dict[str, int] = {}
+    assigned_ids: set[str] = set()
+    next_zone_num = 0
+
+    for entry in hass.config_entries.async_entries(DOMAIN):
+        if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ZONE_MANAGER:
+            continue
+        merged = {**entry.data, **entry.options}
+        for zm_zone_name, zone_cfg in merged.get("zones", {}).items():
+            thermostat = zone_cfg.get(CONF_ZONE_THERMOSTAT)
+            if not thermostat:
+                continue
+
+            ac_load_sensor = zone_cfg.get(CONF_HVAC_AC_LOAD_SENSOR, "") or ""
+            ac_ramp_zone_enabled = bool(zone_cfg.get(
+                CONF_HVAC_AC_RAMP_ZONE_ENABLED,
+                DEFAULT_HVAC_AC_RAMP_ZONE_ENABLED,
+            ))
+
+            if thermostat in thermostat_to_idx:
+                # Merge into existing entry (mirror ZoneManager dedup)
+                existing = out[thermostat_to_idx[thermostat]]
+                existing["zone_name"] = (
+                    f"{existing['zone_name']} + {zm_zone_name}"
+                )
+                if not existing["ac_load_sensor"] and ac_load_sensor:
+                    existing["ac_load_sensor"] = ac_load_sensor
+                existing["ramp_zone_enabled"] = (
+                    existing["ramp_zone_enabled"] or ac_ramp_zone_enabled
+                )
+                continue
+
+            zone_id = _zone_id_from_thermostat_pure(
+                thermostat, next_zone_num, assigned_ids,
+            )
+            if zone_id == f"zone_{next_zone_num}":
+                next_zone_num += 1
+            assigned_ids.add(zone_id)
+            thermostat_to_idx[thermostat] = len(out)
+            out.append({
+                "zone_id": zone_id,
+                "zone_name": zm_zone_name,
+                "climate_entity": thermostat,
+                "ac_load_sensor": ac_load_sensor,
+                "ramp_zone_enabled": ac_ramp_zone_enabled,
+            })
+
+    return out

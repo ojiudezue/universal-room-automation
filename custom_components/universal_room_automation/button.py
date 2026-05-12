@@ -1,6 +1,6 @@
 """Button platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.5.13
+# Universal Room Automation vv4.5.13.1
 # Build: 2026-01-04
 # File: button.py
 #
@@ -533,37 +533,21 @@ class ClearBayesianBeliefsButton(ButtonEntity):
 
 
 def _discover_ac_zones(hass: HomeAssistant) -> list[dict]:
-    """Mirror of number._discover_ac_zones — kept local to avoid cross-platform
-    imports. Enumerates (zone_id, zone_name, climate_entity) tuples from
-    Zone Manager entries.
-    """
-    from .const import (
-        CONF_ENTRY_TYPE,
-        CONF_ZONE_THERMOSTAT,
-        ENTRY_TYPE_ZONE_MANAGER,
-    )
+    """Enumerate canonical HVAC zones for per-zone button registration.
 
-    out: list[dict] = []
-    seen: set[str] = set()
-    for entry in hass.config_entries.async_entries(DOMAIN):
-        if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ZONE_MANAGER:
-            continue
-        merged = {**entry.data, **entry.options}
-        zones_dict = merged.get("zones", {})
-        for zone_name, zone_cfg in zones_dict.items():
-            thermostat = zone_cfg.get(CONF_ZONE_THERMOSTAT)
-            if not thermostat or thermostat in seen:
-                continue
-            seen.add(thermostat)
-            zone_id = thermostat.replace("climate.", "").replace(".", "_")
-            out.append(
-                {
-                    "zone_id": zone_id,
-                    "zone_name": zone_name,
-                    "climate_entity": thermostat,
-                }
-            )
-    return out
+    v4.5.13.1: thin wrapper around `iter_canonical_hvac_zones` so all
+    per-zone platform setup paths share identical dedup + zone_id
+    derivation logic. Bug Class #36 prevention.
+
+    The earlier in-place version had two issues we needed to retire:
+      1. Used `thermostat.replace("climate.","")...` for zone_id, which
+         produced different ids than ZoneManager runtime (`zone_N`),
+         creating cross-platform inconsistency.
+      2. Did not surface the merged display name when two home zones
+         shared a thermostat.
+    """
+    from .domain_coordinators.hvac_zones import iter_canonical_hvac_zones
+    return iter_canonical_hvac_zones(hass)
 
 
 _AC_RAMP_BUTTON_SPECS: dict[str, dict] = {

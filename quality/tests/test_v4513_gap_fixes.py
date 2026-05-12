@@ -197,17 +197,23 @@ def _load_anomaly_detector():
         mod = sys.modules["ura_anomaly_detector_under_test"]
         return mod.AnomalyDetector, mod.LearningStatus
 
-    # Stub homeassistant surface
+    # Stub homeassistant surface — additive, idempotent, cooperates with
+    # other test files' loaders. Each branch checks the specific submodule
+    # it sets up so a partial stub from a prior test gets completed here.
     if "homeassistant" not in sys.modules:
-        ha = types.ModuleType("homeassistant"); ha.__path__ = []
+        sys.modules["homeassistant"] = types.ModuleType("homeassistant")
+        sys.modules["homeassistant"].__path__ = []
+    if "homeassistant.core" not in sys.modules:
         ha_core = types.ModuleType("homeassistant.core")
         ha_core.HomeAssistant = type("HomeAssistant", (), {})
-        ha_helpers = types.ModuleType("homeassistant.helpers"); ha_helpers.__path__ = []
+        sys.modules["homeassistant.core"] = ha_core
+    if "homeassistant.helpers" not in sys.modules:
+        ha_helpers = types.ModuleType("homeassistant.helpers")
+        ha_helpers.__path__ = []
+        sys.modules["homeassistant.helpers"] = ha_helpers
+    if "homeassistant.helpers.event" not in sys.modules:
         ha_helpers_event = types.ModuleType("homeassistant.helpers.event")
         ha_helpers_event.async_call_later = lambda *a, **kw: None
-        sys.modules["homeassistant"] = ha
-        sys.modules["homeassistant.core"] = ha_core
-        sys.modules["homeassistant.helpers"] = ha_helpers
         sys.modules["homeassistant.helpers.event"] = ha_helpers_event
 
     # Stub the relative `..const` parent that coordinator_diagnostics imports.

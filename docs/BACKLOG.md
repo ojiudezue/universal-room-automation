@@ -346,6 +346,107 @@ Deliberate asymmetry. On HC, the device context already implies AC; the shorter 
 
 **Reference:** Bayesian Prediction Accuracy sensor at `sensor.py` (search `BayesianPredictionAccuracy`). Likely-next-room sensor logic at `sensor.py:2400` per the existing B6 BACKLOG entry. May share infrastructure with the regime-shift work proposed in B7/v4.6.0.
 
+## v4.5.13.2 — Envoy validation startup race fix
+
+**Status:** Filed for immediate-next hotfix slot (after v4.5.13.1 zone dedup). Tier 1.
+
+**Finding (2026-05-12, live-validated):** On HA restart, URA's `async_setup_entry` can run BEFORE the Enphase Envoy integration finishes its own setup. URA's `validate_envoy_config` calls `hass.states.get(envoy_eid)` and gets None — V2 (`ENVOY_ERR_ENTITY_MISSING`) fires. EC refuses to start. The configured entity is correct; it just isn't registered yet.
+
+Bootstrap log proof (2026-05-12 04:15 UTC):
+```
+homeassistant.bootstrap | Waiting for integrations to complete setup:
+  {('enphase_envoy', '01KNYRAGVP5XESS6N8PD6BVQP2'): ...}     [04:15:30]
+URA | Energy Coordinator NOT started — envoy_entity_missing    [04:15:56]
+```
+
+URA recovered when the Coordinator Manager Energy options form was opened ~37 min later, which re-ran `async_setup_entry` with Enphase fully loaded.
+
+### Design (state-added subscription, NOT polling-retry)
+
+Approach: keep V2 hard-fail behavior for "entity truly missing from config" but distinguish from "entity not yet registered" via async state tracking.
+
+1. **In `__init__.py` (or extracted helper):** when `validate_envoy_config` returns V2 failure AND `_energy_enabled`, do NOT immediately log error + raise repair issue. Instead:
+   - Log a single INFO-level message: "Envoy entity not yet present; waiting for Enphase integration to finish setup"
+   - Subscribe via `homeassistant.helpers.event.async_track_state_added_domain` for `sensor` domain
+   - When the configured `envoy_eid` shows up in the added states, fire a one-shot retry: re-run `validate_envoy_config` and on success, reload the EC entry (or directly invoke the EC registration path)
+   - Set a timeout (e.g., 5 minutes) after which, if the entity never appears, fall back to the current hard-fail behavior — log ERROR + raise repair issue
+
+2. **Preserve current behavior for V1 (unparseable) and V4 (derived entities missing).** Those are config errors, not race conditions. Hard-fail immediately remains correct.
+
+3. **Cleanup discipline.** Track the dispatcher unsub via `entry.async_on_unload` (or `hass.bus.async_listen` if needed). Race-fix should not leak listeners on entry unload.
+
+### Tests required
+
+Tier 1 quality protocol:
+
+- **Behavior test:** stub Enphase entity to NOT exist initially, then add it 2 sec later. Assert that URA's listener picks it up and re-validates successfully.
+- **Behavior test:** stub Enphase entity to never appear. Assert that after the 5-min timeout, URA falls back to hard-fail (error log + repair issue raised).
+- **Behavior test:** V1 (bad serial format) still hard-fails immediately, no listener subscribed.
+- **Lifecycle test:** entry unload tears down the state-added listener.
+- **Source-grep:** no module-level imports of `async_track_state_added_domain` that could trigger Bug Class #34. Function-local imports OK per file convention.
+- **AST test:** confirm the listener is registered via `entry.async_on_unload` (not orphaned).
+
+### Promotion criteria — escalate from Tier 1 to feature cycle if:
+
+- Investigation reveals more than the envoy entity gates on integration-load timing (other `hass.states.get` probes early in setup_entry may have the same shape — broader audit needed)
+- Fix interacts with EC restore-switch behavior (the 30-min "deferred restore exhausted retries" finding suggests EC switches also need treatment)
+- Timeout design becomes contentious (5 min? 10 min? exponential? — if these decisions need user input, scope as feature cycle)
+
+### Reference material
+
+- Hard-fail logic: `__init__.py:1530-1593` — gate at 1593 is `if _energy_enabled and _envoy_validation_ok`
+- Validation function: `domain_coordinators/energy_const.py:513` (`validate_envoy_config`)
+- V2 failure code: `ENVOY_ERR_ENTITY_MISSING` at `energy_const.py:435`
+- HA helper: `homeassistant.helpers.event.async_track_state_added_domain`
+- v4.2.29 was the cycle that introduced the hard-fail; predecessor was silent-fallback (which had its own correctness problems)
+
+### Cost
+
+- Production: ~50 LoC across `__init__.py` + (optional) helper extraction to `energy_const.py`
+- Tests: ~80 LoC
+- Tier 1 review (1 staff-engineer pass, mental execution required)
+
+### Companion: EC switch deferred-restore retry budget
+
+Adjacent finding from the same incident: 5 EC switches (`grid_import_cap`, `load_shedding`, `excess_solar`, `arbitrage`, `ev_tou_management`) gave up waiting for EC after ~3 min and fell back to constructor-seeded values. When EC eventually recovered ~30 min later, switches did NOT re-restore. **Probably worth folding into v4.5.13.2:** when EC becomes available, switches should re-attempt restore-from-DB if they previously gave up. Or: their retry budget should be longer / unbounded with a backoff.
+
+## Device-page entity ordering (UX polish, no slot)
+
+**Status:** Filed for future UX cycle. No urgency; user-visible papercut.
+
+**Finding (2026-05-12, research-confirmed):** HA frontend sorts entities on the device-detail page by **friendly_name** (`stateName`), locale-aware string compare — NOT by entity_id. Source: `home-assistant/frontend` `src/panels/config/devices/ha-config-device-page.ts` (`_entities` memoized function, ~lines 270-323). Fallback is `"zzz" + entity_id` so unnamed entities sink to the bottom. Confirmed via deep web research; no HA-blessed first-class ordering mechanism exists, and the HA architecture repo has no ADR on the topic.
+
+### Workarounds, ranked
+
+1. **Numeric prefix on `_attr_name`** (`"01 Mode"`, `"10 Battery SOC"`, `"50 …"`). The only mechanism that affects the actual device-page renderer. Visible cruft but controllable. ESPHome has a `sorting_weight` field but it doesn't propagate to HA's device page — even ESPHome's own infrastructure can't reach HA.
+2. **Cluster-aware grouping by name prefix** (`"Nudge …"`, `"Reset …"`, `"Ramp …"`). Doesn't give arbitrary order, gives clustering. Often the *real* UX issue is that related entities are scattered alphabetically.
+3. **Custom Lovelace card shipped via integration.** Supported HA path. Only affects dashboards, not device pages. Already a partial-solution per the v4.5.12 HC user manual.
+4. **Sections-view dashboard YAML.** Modern HA (2024.03+) feature. Ship pre-built YAML files in `docs/dashboards/` for users to import.
+
+### Workarounds that DON'T work
+
+- Labels — filtering/grouping metadata only; not in the sort comparator
+- `translation_key` — resolves to localized string but is not itself the sort key
+- `EntityCategory` sub-ordering — doesn't exist
+- entity_id renames — break every existing dashboard/automation/template reference
+
+### Recommended scope for a UX cycle
+
+**Phase 1 (cheap, internal):** Add a `_sort_prefix` field to URA's `AggregationEntity` base class (or similar). Coordinators declare order via the prefix (e.g., `"01"`, `"10"`, `"50"`). The base class prepends to `_attr_name`. One bit of cruft, controllable everywhere, no entity_id churn, no dashboard breakage. ~50 LoC + 20 tests.
+
+**Phase 2 (richer):** Ship pre-built Sections-view dashboard YAML files for HC, EC, NM in `docs/dashboards/`. Users import them and get a curated UX bypassing the device page entirely. ~3 hours of YAML work; no code.
+
+**Phase 3 (longest, lowest ROI):** Custom Lovelace cards shipped via the integration's frontend module. Only worth doing if Phase 2's static YAML doesn't address the need.
+
+### Reference material
+
+- `home-assistant/frontend` `src/panels/config/devices/ha-config-device-page.ts`
+- HA community thread: https://community.home-assistant.io/t/ordering-entities-in-the-device-page-on-ha/990211
+- HA Custom Card docs: https://developers.home-assistant.io/docs/frontend/custom-ui/custom-card/
+- Research conducted post-v4.5.12 deploy; full research output in conversation log
+
+**Promotion criteria:** schedule as a UX cycle when (a) the user explicitly asks for it, (b) URA gets a second user, or (c) the device-page sprawl crosses some "too much friction" threshold subjectively.
+
 ## Other Tracked Items
 
 - **Jaya + Ziri bedrooms** — need motion sensors added via config flow (options saved, blocked by bug #1)
