@@ -283,6 +283,69 @@ Deliberate asymmetry. On HC, the device context already implies AC; the shorter 
 - Plan context: `docs/planning/PLANNING_v4.5.12_ac_ramp_observability.md` — Deferred section
 - VibeMemo entry: `.vibememo/users/ojiudezue/entries/012_v4512_observability_and_quality_bar_reset.json`
 
+## v4.5.15 — Duplicate-timestamp investigation (minor, after v4.5.14)
+
+**Status:** Investigation spike, not yet scoped. Scheduled as a minor after v4.5.14 unless investigation surfaces architectural issues.
+
+**Finding (2026-05-11, post-v4.5.12 deploy):** `sensor.ura_coordinator_manager_bayesian_data_quality` reports 11,284 duplicate-timestamp rejections out of 133,912 total rows (8.4% of ingest discarded). The Data Quality sensor has hovered at 90-91% for weeks because duplicates accumulate proportionally to total rows.
+
+**Hypothesis:** Two writers (likely `person_coordinator` + `presence_coordinator` or their sensor mirror paths) are inserting on the same timestamp tick for the same (person, room) key. URA's dedup window may be too tight, or both code paths may be writing without checking the other.
+
+### Investigation goals (do BEFORE scoping a fix)
+
+1. **Which table?** Confirm it's `person_visits` (most likely) vs `bayesian_observations` vs `room_state_history`. Check the data quality sensor's source query to identify the table it audits.
+2. **Which writers?** Grep for `INSERT INTO <table>` and `write_queue.add` call sites. Likely candidates: `person_coordinator.py`, `presence_coordinator.py`, anything firing on `state_changed` for person entities.
+3. **Pattern of collisions:** Sample 50 rows of duplicates and inspect the (person, room, timestamp) tuples — same person+room same tick (true duplicate write race) vs same timestamp + different rooms (legitimate concurrent events being lost to PK constraint).
+4. **Dedup-window check:** What is the current dedup window? Is it microsecond-precise or second-precise? HA dispatches typically resolve within a few ms, so a second-precise dedup will reject legitimate events.
+
+### Promotion criteria — escalate from minor to feature cycle if:
+
+- Investigation reveals more than 2 writer call sites colliding (architectural problem — coordinator-write protocol needs rethinking)
+- Investigation reveals legitimate data is being lost (not just true duplicates) — that changes the Bayesian model's accuracy estimate and may invalidate observations the predictor has been trained on
+- Fix requires a schema migration
+
+### Otherwise — minor cycle scope (~50 LoC + 20 tests)
+
+- Add a write-side dedup check at the single collision point
+- OR widen the dedup window from second-precise to (e.g.) 5-second precise for person events
+- Add a sensor attribute `duplicates_in_last_24h` so the trend is visible
+- Tier 1 review
+
+**Reference:** Bayesian Data Quality sensor at `sensor.py` (search `BayesianDataQualitySensor`). Audit query lives in `coordinator_diagnostics.py` or similar. v4.5.12 live validation found the 11k duplicate count.
+
+## v4.5.16 — Bayesian prediction-scoring pipeline investigation (minor, after v4.5.14)
+
+**Status:** Investigation spike, not yet scoped. Scheduled as a minor after v4.5.14 unless investigation surfaces architectural issues.
+
+**Finding (2026-05-11, post-v4.5.12 deploy):** `sensor.ura_coordinator_manager_bayesian_prediction_accuracy` shows `state: unknown` with `total_predictions_7d: 0, brier_score: null, hit_rate_pct: null`. No predictions are being scored over 7-day windows despite 133k observation rows and 48 active belief cells.
+
+**Hypothesis (2-3 candidates worth checking):**
+- (a) Prediction-logging path was never wired — the Bayesian engine emits predictions live but nothing persists them for later validation.
+- (b) Logging path exists but the scoring loop (nightly?) was never enabled or has a guard that's never true.
+- (c) Both paths exist but write to a table the accuracy sensor doesn't read from (schema mismatch from a refactor).
+
+### Investigation goals (do BEFORE scoping a fix)
+
+1. **Find the accuracy sensor's source query.** Search `BayesianPredictionAccuracy` class — what table does it read? What predicate? (Likely a JOIN of predictions vs. actual observations within a time window.)
+2. **Find the prediction-logging call site.** Where do `*_likely_next_room` sensors compute their value, and does that call site persist `(person, predicted_room, timestamp, confidence)` to a table?
+3. **Find the scoring loop.** Is there a nightly task that walks predictions, looks up the actual room the person was in at `prediction_ts + horizon`, and writes a score row? If yes, when did it last run? Logs.
+4. **Check for table emptiness.** Use `mcp__ura-sqlite` to count rows in any `bayesian_predictions` or `prediction_scores` table — empty? Has it ever had rows?
+
+### Promotion criteria — escalate from minor to feature cycle if:
+
+- The logging path doesn't exist at all (have to design persistence schema + writer + scorer from scratch)
+- The scorer requires non-trivial design choices (which horizon? top-1 vs top-3 accuracy? Brier across all rooms or just predicted room?)
+- Findings expose that the predictor was producing predictions all along but nobody could validate them — that's a quality narrative beat worth its own cycle
+
+### Otherwise — minor cycle scope (~80 LoC + 25 tests)
+
+- Wire missing call site (logger OR scorer OR both)
+- Backfill nothing — 7-day rolling window will populate naturally
+- Add a sensor attribute disclosing what the score actually measures so users don't misread it
+- Tier 1 review
+
+**Reference:** Bayesian Prediction Accuracy sensor at `sensor.py` (search `BayesianPredictionAccuracy`). Likely-next-room sensor logic at `sensor.py:2400` per the existing B6 BACKLOG entry. May share infrastructure with the regime-shift work proposed in B7/v4.6.0.
+
 ## Other Tracked Items
 
 - **Jaya + Ziri bedrooms** — need motion sensors added via config flow (options saved, blocked by bug #1)

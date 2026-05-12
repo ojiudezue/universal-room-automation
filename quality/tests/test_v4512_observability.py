@@ -198,20 +198,40 @@ class TestACRampKwhRateSensor:
 
     def test_is_power_device_class_in_kw(self, sensor_src):
         idx = sensor_src.find("class HVACACRampKwhRateSensor(")
-        body = sensor_src[idx:idx + 4000]
+        end = sensor_src.find("\nclass ", idx + 1)
+        body = sensor_src[idx:end if end > 0 else None]
         assert "SensorDeviceClass.POWER" in body
         assert 'unit_of_measurement = "kW"' in body
 
-    def test_native_value_reads_zone_last_kwh_rate(self, sensor_src):
+    def test_native_value_reads_source_directly_not_zone_field(self, sensor_src):
+        """v4.5.13 supersedes v4.5.12's read-from-zone path.
+
+        The original v4.5.12 native_value returned `zone.last_kwh_rate`,
+        which was gated by the AC ramp master switch. v4.5.13 reads
+        `hass.states.get(zone.ac_load_sensor)` directly. The v4.5.13 test
+        suite (`test_v4513_gap_fixes.py`) pins this in detail. This test
+        retains the regression guard that the sensor exists and reaches
+        the source via hass.states.get.
+        """
         idx = sensor_src.find("class HVACACRampKwhRateSensor(")
-        body = sensor_src[idx:idx + 4000]
-        assert 'getattr(zone, "last_kwh_rate"' in body
+        end = sensor_src.find("\nclass ", idx + 1)
+        body = sensor_src[idx:end if end > 0 else None]
+        # New v4.5.13 behavior: must reach hass.states.get
+        assert "hass.states.get" in body, (
+            "HVACACRampKwhRateSensor must read the source state directly "
+            "(v4.5.13 fix)."
+        )
+        # Old v4.5.12 behavior: must NOT be back to reading zone.last_kwh_rate
+        assert 'getattr(zone, "last_kwh_rate"' not in body, (
+            "Regression: v4.5.13 removed the dependency on zone.last_kwh_rate."
+        )
 
     def test_exposes_stale_flag_with_threshold(self, sensor_src):
         """Risk R3 mitigation: sensor must surface staleness so user
         can see when the Span sensor stops reporting."""
         idx = sensor_src.find("class HVACACRampKwhRateSensor(")
-        body = sensor_src[idx:idx + 4000]
+        end = sensor_src.find("\nclass ", idx + 1)
+        body = sensor_src[idx:end if end > 0 else None]
         assert '"stale"' in body
         assert "AC_KWH_SENSOR_STALENESS_S" in body
         # Threshold should be exposed so user can see the per-zone setpoint

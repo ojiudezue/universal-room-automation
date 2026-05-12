@@ -732,7 +732,27 @@ class AnomalyDetector:
         return AnomalySeverity.NOMINAL
 
     def get_learning_status(self, scope: str = "house") -> str:
-        """Return the learning status for a given scope."""
+        """Return the learning status for a given scope.
+
+        v4.5.13: ACTIVE when at least floor(n/2) metrics have a complete
+        baseline (sample_count >= minimum_samples), with a floor of 1. For
+        4-metric detectors this is a true majority (2 of 4); for 2- and
+        3-metric detectors it degenerates to "any one metric complete" —
+        which is the deliberate choice for small metric counts where
+        requiring multiple complete baselines would leave the detector
+        stuck. The aggregate label is a hint; per-metric anomaly raising
+        in record_observation:696 still gates on each baseline's own
+        sample_count, so dead metrics never produce false anomalies.
+
+        Why the relaxation: previously required ALL metrics, which left
+        coordinators (HVAC, presence, safety, security, NM) stuck in
+        LEARNING for weeks because some metrics were never being
+        recorded — either the record_observation call sites for those
+        metrics weren't wired, or the underlying events never fire on
+        this install. Dead metrics still show active=False in the
+        per-metric details (get_status_summary), so the gap remains
+        visible to operators.
+        """
         active_metrics = 0
         learning_metrics = 0
         for metric_name in self.metric_names:
@@ -742,7 +762,8 @@ class AnomalyDetector:
             elif baseline.sample_count > 0:
                 learning_metrics += 1
 
-        if active_metrics == len(self.metric_names):
+        threshold = max(1, len(self.metric_names) // 2)
+        if active_metrics >= threshold:
             return LearningStatus.ACTIVE
         elif active_metrics > 0 or learning_metrics > 0:
             return LearningStatus.LEARNING
