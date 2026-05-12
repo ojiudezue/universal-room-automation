@@ -283,7 +283,7 @@ Deliberate asymmetry. On HC, the device context already implies AC; the shorter 
 - Plan context: `docs/planning/PLANNING_v4.5.12_ac_ramp_observability.md` — Deferred section
 - VibeMemo entry: `.vibememo/users/ojiudezue/entries/012_v4512_observability_and_quality_bar_reset.json`
 
-## v4.5.15 — Duplicate-timestamp investigation (minor, after v4.5.14)
+## v4.5.16 — Duplicate-timestamp investigation (minor, after v4.5.15)
 
 **Status:** Investigation spike, not yet scoped. Scheduled as a minor after v4.5.14 unless investigation surfaces architectural issues.
 
@@ -313,7 +313,7 @@ Deliberate asymmetry. On HC, the device context already implies AC; the shorter 
 
 **Reference:** Bayesian Data Quality sensor at `sensor.py` (search `BayesianDataQualitySensor`). Audit query lives in `coordinator_diagnostics.py` or similar. v4.5.12 live validation found the 11k duplicate count.
 
-## v4.5.16 — Bayesian prediction-scoring pipeline investigation (minor, after v4.5.14)
+## v4.5.17 — Bayesian prediction-scoring pipeline investigation (minor, after v4.5.16)
 
 **Status:** Investigation spike, not yet scoped. Scheduled as a minor after v4.5.14 unless investigation surfaces architectural issues.
 
@@ -409,6 +409,25 @@ Tier 1 quality protocol:
 ### Companion: EC switch deferred-restore retry budget
 
 Adjacent finding from the same incident: 5 EC switches (`grid_import_cap`, `load_shedding`, `excess_solar`, `arbitrage`, `ev_tou_management`) gave up waiting for EC after ~3 min and fell back to constructor-seeded values. When EC eventually recovered ~30 min later, switches did NOT re-restore. **Probably worth folding into v4.5.13.2:** when EC becomes available, switches should re-attempt restore-from-DB if they previously gave up. Or: their retry budget should be longer / unbounded with a backoff.
+
+## Anomaly sensor refresh signals (UX polish, no slot)
+
+**Status:** Filed during v4.5.14 cycle. Pre-existing gap surfaced when adding `extra_state_attributes` to anomaly sensors.
+
+**Finding:** `PresenceAnomalySensor` and `MusicFollowingAnomalySensor` lack `async_added_to_hass` subscriptions to a refresh signal. No `SIGNAL_PRESENCE_ENTITIES_UPDATE` or `SIGNAL_MUSIC_FOLLOWING_ENTITIES_UPDATE` exists in `domain_coordinators/signals.py`. The sensors render correctly on first registration but don't refresh on coordinator decision cycles — they update only when HA happens to re-query their native_value (e.g., on entity card refresh, dashboard reload).
+
+This is the Bug Class #35 pattern for sensors (not buttons). For HVAC, Safety, Security, the equivalent signals DO exist and are used. Presence and Music Following coordinators don't dispatch a per-cycle signal at all.
+
+### Scope for a future cycle (~30 LoC + 10 tests)
+
+1. Add `SIGNAL_PRESENCE_ENTITIES_UPDATE` and `SIGNAL_MUSIC_FOLLOWING_ENTITIES_UPDATE` to `domain_coordinators/signals.py`
+2. Fire them at the end of each coordinator's decision cycle (mirror what HVAC does at end of `check_ac_reset`)
+3. Subscribe PresenceAnomaly + MusicFollowingAnomaly + (any other affected) sensors to the new signals
+4. Audit: walk every AggregationEntity in sensor.py whose native_value depends on a coordinator, add subscription if missing
+
+**Promotion criteria:** schedule as part of v4.5.x cycle when a user notices a presence/music-following anomaly sensor isn't updating, OR when a new feature wants per-cycle anomaly visibility.
+
+**Reference:** existing pattern at HVACAnomalySensor in `sensor.py` (line ~6831) and SafetyAnomalySensor (post-v4.5.14).
 
 ## Device-page entity ordering (UX polish, no slot)
 
