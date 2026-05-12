@@ -1,6 +1,6 @@
 """Data coordinator for Universal Room Automation."""
 #
-# Universal Room Automation vv4.5.14
+# Universal Room Automation vv4.5.15
 # Build: 2026-01-02
 # File: coordinator.py
 # v3.2.8: Support for active state change listeners in aggregation sensors
@@ -125,7 +125,9 @@ from .automation import RoomAutomation
 
 _LOGGER = logging.getLogger(__name__)
 
-MAX_OCCUPANCY_DURATION_SECONDS = 4 * 3600  # 4-hour failsafe
+# v4.5.15: 4-hour failsafe constant moved to const.DEFAULT_FAILSAFE_DURATION_SECONDS.
+# Room-type-keyed durations in const.ROOM_TYPE_FAILSAFE_DURATIONS;
+# resolved at runtime by `_get_failsafe_duration_seconds`.
 
 
 class UniversalRoomCoordinator(DataUpdateCoordinator):
@@ -158,6 +160,7 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         # v4.2.0: Infrastructure room flag (always-on equipment rooms)
         merged_config = {**entry.data, **entry.options}
         room_type = merged_config.get("room_type", "generic")
+        self._room_type: str = room_type  # v4.5.15: failsafe lookup
         self._infrastructure_room: bool = (room_type == "infrastructure")
 
         # v4.2.6: Shared timestamp for deferring first-cycle DB operations.
@@ -282,7 +285,7 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
     
     def _get_config(self, key: str, default: Any = None) -> Any:
         """Get config value from options with data fallback.
-        
+
         This follows the HA pattern:
         1. First check entry.options (changed via options flow)
         2. Then check entry.data (initial config)
@@ -290,6 +293,26 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         """
         return self.entry.options.get(
             key, self.entry.data.get(key, default)
+        )
+
+    def _get_failsafe_duration_seconds(self) -> int:
+        """v4.5.15: Return the max occupancy duration before this room's
+        failsafe forces vacancy.
+
+        Closet + bathroom: 60 min (lazy auto-off; catches stuck sensor
+        / fan-as-motion / forgotten light). All other room types: 4 hr
+        (the original RESILIENCE-001 default).
+
+        Pure lookup against ROOM_TYPE_FAILSAFE_DURATIONS in const.py.
+        No config option introduced — keep cycle scope minimal; if
+        per-room override is wanted later, add via options flow.
+        """
+        from .const import (
+            ROOM_TYPE_FAILSAFE_DURATIONS,
+            DEFAULT_FAILSAFE_DURATION_SECONDS,
+        )
+        return ROOM_TYPE_FAILSAFE_DURATIONS.get(
+            self._room_type, DEFAULT_FAILSAFE_DURATION_SECONDS,
         )
     
     # =========================================================================
@@ -1378,13 +1401,21 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
 
         # RESILIENCE-001: Maximum active duration failsafe
         # Uses _became_occupied_time so legitimate motion doesn't reset the timer
+        #
+        # v4.5.15: failsafe duration is now room-type-keyed. Closet +
+        # bathroom default to 60 min (lazy auto-off — typical use never
+        # exceeds an hour; catches stuck-sensor / fan-as-motion / "light
+        # left on" patterns). All other room types use 4 hr default.
         if (data.get(STATE_OCCUPIED)
                 and self._became_occupied_time):
             duration = (now - self._became_occupied_time).total_seconds()
-            if duration > MAX_OCCUPANCY_DURATION_SECONDS:
+            failsafe_seconds = self._get_failsafe_duration_seconds()
+            if duration > failsafe_seconds:
                 _LOGGER.warning(
-                    "Room %s: Forcing vacancy after %.1f hours (failsafe)",
-                    room_name, duration / 3600,
+                    "Room %s (%s): Forcing vacancy after %.1f min "
+                    "(failsafe — limit %.0f min)",
+                    room_name, self._room_type,
+                    duration / 60, failsafe_seconds / 60,
                 )
                 data[STATE_OCCUPIED] = False
                 data[STATE_OCCUPANCY_SOURCE] = "failsafe"

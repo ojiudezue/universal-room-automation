@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv4.5.14
+# Universal Room Automation vv4.5.15
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v4.5.14"
+VERSION: Final = "v4.5.15"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -530,6 +530,24 @@ ROOM_TYPE_TIMEOUTS: Final = {
     ROOM_TYPE_COMMON_AREA: 900,  # 15 minutes
     ROOM_TYPE_GENERIC: 300,      # 5 minutes
     ROOM_TYPE_INFRASTRUCTURE: 120,  # 2 minutes (rarely visited)
+}
+
+# v4.5.15: Room-type-specific failsafe durations. Caps the maximum time
+# a room can stay "occupied" before URA forces vacancy, regardless of
+# motion sensor state. Distinct from ROOM_TYPE_TIMEOUTS (which is the
+# normal motion-clear delay) — this is the upper bound that fires even
+# when motion sensors continuously trigger (stuck sensor, false
+# positive, fan-driven air movement reading as motion, etc.).
+#
+# Rooms NOT in this dict use DEFAULT_FAILSAFE_DURATION_SECONDS (4 hr).
+# Closet + bathroom get 60-min lazy auto-off per v4.5.15 — typical
+# usage of these spaces never approaches an hour, and the failsafe
+# catches the "light left on with fan running" + "stuck sensor"
+# patterns that motion-clear can miss.
+DEFAULT_FAILSAFE_DURATION_SECONDS: Final = 4 * 3600  # 4 hours
+ROOM_TYPE_FAILSAFE_DURATIONS: Final = {
+    ROOM_TYPE_CLOSET: 3600,    # 60 min lazy auto-off
+    ROOM_TYPE_BATHROOM: 3600,  # 60 min lazy auto-off
 }
 
 # ============================================================================
