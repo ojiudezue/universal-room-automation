@@ -1,6 +1,6 @@
 """Number platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.5.13
+# Universal Room Automation vv4.5.13.1
 # Build: 2026-01-02
 # File: number.py
 #
@@ -1240,39 +1240,11 @@ def _hvac_zone_kwh_threshold_factory(
 
 
 def _discover_ac_zones(hass: HomeAssistant) -> list[dict]:
-    """Enumerate (zone_id, zone_name, climate_entity) tuples for all
-    HVAC zones — used at CM setup to instantiate one threshold slider
-    per zone.
+    """Enumerate canonical HVAC zones for per-zone threshold slider setup.
 
-    Reads from the Zone Manager entry's `zones` dict (matches how
-    HVAC ZoneManager.discover_zones works at runtime).
+    v4.5.13.1: thin wrapper around `iter_canonical_hvac_zones`. See
+    button.py:_discover_ac_zones for the same rationale — sharing the
+    helper eliminates cross-platform zone_id drift (Bug Class #36).
     """
-    from .const import (
-        CONF_ENTRY_TYPE,
-        CONF_ZONE_THERMOSTAT,
-        ENTRY_TYPE_ZONE_MANAGER,
-    )
-
-    out: list[dict] = []
-    seen: set[str] = set()
-    for entry in hass.config_entries.async_entries(DOMAIN):
-        if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ZONE_MANAGER:
-            continue
-        merged = {**entry.data, **entry.options}
-        zones_dict = merged.get("zones", {})
-        for zone_name, zone_cfg in zones_dict.items():
-            thermostat = zone_cfg.get(CONF_ZONE_THERMOSTAT)
-            if not thermostat or thermostat in seen:
-                continue
-            seen.add(thermostat)
-            # Mirror ZoneManager._zone_id_from_thermostat: derive a stable
-            # zone_id from the climate entity_id.
-            zone_id = thermostat.replace("climate.", "").replace(".", "_")
-            out.append(
-                {
-                    "zone_id": zone_id,
-                    "zone_name": zone_name,
-                    "climate_entity": thermostat,
-                }
-            )
-    return out
+    from .domain_coordinators.hvac_zones import iter_canonical_hvac_zones
+    return iter_canonical_hvac_zones(hass)

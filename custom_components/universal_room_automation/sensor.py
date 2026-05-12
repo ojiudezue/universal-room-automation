@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.5.13
+# Universal Room Automation vv4.5.13.1
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -277,41 +277,39 @@ async def async_setup_entry(
             URAMemoryDeltaSensor(hass, entry),
         ]
         # v3.8.0-H1: Add per-zone HVAC sensors dynamically
-        # Read zone IDs from Zone Manager config entry (not coordinator)
-        # to avoid race condition where coordinator_manager isn't ready yet
-        from .const import ENTRY_TYPE_ZONE_MANAGER as _ZM, CONF_ZONE_THERMOSTAT
-        zone_num = 0
-        for zm_entry in hass.config_entries.async_entries(DOMAIN):
-            if zm_entry.data.get(CONF_ENTRY_TYPE) != _ZM:
-                continue
-            merged = {**zm_entry.data, **zm_entry.options}
-            for _zname, zcfg in merged.get("zones", {}).items():
-                _thermostat = zcfg.get(CONF_ZONE_THERMOSTAT)
-                if _thermostat:
-                    zone_num += 1
-                    zone_id = f"zone_{zone_num}"
-                    coordinator_sensors.append(
-                        HVACZoneStatusSensor(hass, entry, zone_id)
-                    )
-                    coordinator_sensors.append(
-                        HVACZonePresetSensor(hass, entry, zone_id)
-                    )
-                    # v4.5.12 D7: per-zone AC ramp-down sensors (3 per zone)
-                    coordinator_sensors.append(
-                        HVACACRampStateSensor(
-                            hass, entry, zone_id, _zname, _thermostat,
-                        )
-                    )
-                    coordinator_sensors.append(
-                        HVACACRampLastActionSensor(
-                            hass, entry, zone_id, _zname, _thermostat,
-                        )
-                    )
-                    coordinator_sensors.append(
-                        HVACACRampKwhRateSensor(
-                            hass, entry, zone_id, _zname, _thermostat,
-                        )
-                    )
+        # v4.5.13.1: Use canonical-zone helper for thermostat-keyed dedup
+        # (Bug Class #36 prevention). Two URA home zones sharing a single
+        # thermostat now collapse into one HVAC zone with merged name, so
+        # we don't create parallel sets of D7 sensors pointing at the same
+        # physical AC. Helper lives in domain_coordinators/hvac_zones.py
+        # to keep dedup semantics aligned with ZoneManager.async_discover_zones.
+        from .domain_coordinators.hvac_zones import iter_canonical_hvac_zones
+        for _z in iter_canonical_hvac_zones(hass):
+            zone_id = _z["zone_id"]
+            _zname = _z["zone_name"]
+            _thermostat = _z["climate_entity"]
+            coordinator_sensors.append(
+                HVACZoneStatusSensor(hass, entry, zone_id)
+            )
+            coordinator_sensors.append(
+                HVACZonePresetSensor(hass, entry, zone_id)
+            )
+            # v4.5.12 D7: per-zone AC ramp-down sensors (3 per zone)
+            coordinator_sensors.append(
+                HVACACRampStateSensor(
+                    hass, entry, zone_id, _zname, _thermostat,
+                )
+            )
+            coordinator_sensors.append(
+                HVACACRampLastActionSensor(
+                    hass, entry, zone_id, _zname, _thermostat,
+                )
+            )
+            coordinator_sensors.append(
+                HVACACRampKwhRateSensor(
+                    hass, entry, zone_id, _zname, _thermostat,
+                )
+            )
         async_add_entities(coordinator_sensors)
         return
 

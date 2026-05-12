@@ -1446,6 +1446,47 @@ for cls in walk_classes(tree):
 
 ---
 
+### Bug Class #36: Per-Zone Entity Registration Bypasses ZoneManager Dedup ⚠️
+
+**Pattern:** A platform's `async_setup_entry` iterates the Zone Manager config entry's `zones` dict and creates one entity per home-zone — WITHOUT applying the thermostat-keyed dedup that `ZoneManager.async_discover_zones` does at runtime. When two home zones share a single physical thermostat (common in URA installs where one AC serves multiple "URA zones"), the platform creates parallel sets of per-zone entities pointing at the same physical HVAC zone.
+
+The runtime ZoneManager dedupes correctly (`hvac_zones.py:282-313`): zones sharing a thermostat merge into one `ZoneState` with name `"X + Y"`, union of `ac_load_sensor`, OR of `ramp_zone_enabled`. But platform setup runs BEFORE the coordinator is instantiated, so it can't ask the ZoneManager for the resolved view — it must replicate the dedup logic itself. If it doesn't, the entity surface is wrong.
+
+**Impact:**
+- Duplicate per-zone sensors (state, last_action, kwh_rate) for shared-thermostat home zones — same data appears twice
+- Zone-ID drift: phantom `zone_4` entities show `unknown` because they reference a zone that ZoneManager never created
+- Cross-platform inconsistency: button/number platforms may use a different zone_id derivation than sensor/ZoneManager, breaking unique_id alignment
+
+**Detection (source-grep + AST):**
+```python
+# AST scan: any platform whose async_setup_entry contains
+# `<zm_data_var>.get("zones", {}).items()` for a zm_data_var named
+# `merged`, `zm`, `zm_data`, `entry_data` etc. is suspect.
+# See _count_zones_dict_loops in test_v4513_1_zone_dedup.py.
+```
+
+**Historical Example:**
+- **v4.5.12 D7:** Sensor platform iterated Zone Manager `zones` dict and created 4 sets of D7 sensors (state, last_action, kwh_rate) for an install where 2 home zones (Entertainment + Master Suite) shared one thermostat. Live install showed `Zone 4 Status: unknown` (phantom zone). v4.5.13 confirmed the duplication via direct `hass.states.get` output. button.py + number.py also had local dedup helpers but with different zone_id derivations than ZoneManager, creating cross-platform unique_id drift.
+
+**Prevention (Layer 3 — eliminate by construction):**
+- A single shared helper `iter_canonical_hvac_zones(hass)` in `domain_coordinators/hvac_zones.py` encapsulates dedup + zone_id derivation. All per-zone platform setup paths MUST call it instead of looping over Zone Manager config independently.
+- The helper mirrors ZoneManager's runtime dedup exactly. If runtime dedup ever changes, helper changes too — keep them in lockstep.
+
+**Prevention (Layer 2 — backstop the helper):**
+- [ ] AST regression test asserts no platform iterates `<zm_data_var>.get("zones", {})` directly
+- [ ] AST regression test asserts every per-zone platform setup contains `iter_canonical_hvac_zones`
+- [ ] Source-grep regression test asserts no platform has its own `seen.add(thermostat)` pattern (in-place dedup the helper supersedes)
+
+**Prevention (Layer 1 — review checklist):**
+- [ ] When adding a NEW per-zone entity surface (e.g., a future v4.6.x feature adds per-zone binary_sensor), route it through `iter_canonical_hvac_zones` and add a coverage test in `test_v4513_1_zone_dedup.py`
+- [ ] Reviewer mentally executes the loop with a 2-home-zones-1-thermostat install case and confirms only 1 set of entities is created
+
+**Discovered:** v4.5.12 (live validation post-deploy) — fix shipped v4.5.13.1
+**Impact:** Duplicate per-zone entities, phantom zones with `unknown` state, cross-platform unique_id drift
+**Severity:** MEDIUM (no incorrect actions taken — the duplicate sensors read the same source — but UX confused and entity registry polluted)
+
+---
+
 ## ✅ MANDATORY VALIDATION CHECKLIST
 
 **Before EVERY deployment, complete this checklist:**
