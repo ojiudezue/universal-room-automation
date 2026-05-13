@@ -1,6 +1,6 @@
 """Binary sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.6.0
+# Universal Room Automation vv4.6.1
 # Build: 2026-01-02
 # File: binary_sensor.py
 # v3.2.6: Renamed "Presence" to "Sensor Presence" for clarity
@@ -1739,6 +1739,10 @@ class OccupancyAnomalyBinarySensor(UniversalRoomEntity, BinarySensorEntity):
             },
         )
 
+        # v4.6.1 canary: persist to unified anomaly_log via AnomalyEvent.
+        # Parallel write — existing signal dispatch and NM alert unchanged.
+        await self._store_bayesian_anomaly_event(room_name)
+
         # NM alert — severity based on time of day
         is_night = now.hour < 6 or now.hour >= 22
         severity = "high" if is_night else "medium"
@@ -1757,3 +1761,32 @@ class OccupancyAnomalyBinarySensor(UniversalRoomEntity, BinarySensorEntity):
                 )
             except Exception as e:
                 _LOGGER.debug("NM alert for occupancy anomaly failed: %s", e)
+
+    async def _store_bayesian_anomaly_event(self, room_name: str) -> None:
+        """Persist bayesian occupancy anomaly to unified anomaly_log.
+
+        v4.6.1 canary migration: proves AnomalyEvent shape for an existing
+        frequent emitter. Existing NM + signal paths remain unchanged.
+        """
+        from .domain_coordinators.anomaly_event import AnomalyEvent, AnomalySeverity
+
+        db = self.hass.data.get(DOMAIN, {}).get("database")
+        if db is None:
+            return
+
+        event = AnomalyEvent(
+            coordinator="bayesian",
+            type="bayesian.prediction_anomaly",
+            severity=AnomalySeverity.WARNING,
+            event_class="point_in_time",
+            detected_at=dt_util.utcnow().isoformat(),
+            payload={
+                "room_id": room_name,
+                "predicted_probability": self._anomaly_data.get("predicted_probability"),
+                "time_bin": self._anomaly_data.get("time_bin"),
+                "day_type": self._anomaly_data.get("day_type"),
+                "learning_status": self._anomaly_data.get("learning_status"),
+            },
+            room_id=room_name,
+        )
+        await db.save_anomaly_event(event)

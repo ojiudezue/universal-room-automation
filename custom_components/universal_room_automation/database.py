@@ -1,7 +1,7 @@
 """Database for Universal Room Automation."""
 from __future__ import annotations
 #
-# Universal Room Automation vv4.6.0
+# Universal Room Automation vv4.6.1
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors
@@ -1170,6 +1170,59 @@ class UniversalRoomDatabase:
                         _LOGGER.info("Added person_id column to prediction_results")
                 except Exception as e:
                     _LOGGER.warning("prediction_results person_id migration failed: %s", e)
+
+                # v4.6.1 D0: Add unified AnomalyEvent columns to anomaly_log.
+                # Existing rows get DEFAULT values automatically; no backfill
+                # required on this single-user install.
+                try:
+                    cursor = await db.execute("PRAGMA table_info(anomaly_log)")
+                    al_columns = {row[1] for row in await cursor.fetchall()}
+                    new_al_cols = [
+                        ("event_class", "TEXT DEFAULT 'point_in_time'"),
+                        ("recovery_at", "TEXT NULL"),
+                        ("correlation_id", "TEXT NULL"),
+                        ("entity_id", "TEXT NULL"),
+                        ("room_id", "TEXT NULL"),
+                        ("person_id", "TEXT NULL"),
+                    ]
+                    for col_name, col_def in new_al_cols:
+                        if col_name not in al_columns:
+                            await db.execute(
+                                f"ALTER TABLE anomaly_log ADD COLUMN {col_name} {col_def}"
+                            )
+                    await db.commit()
+                    _LOGGER.info("anomaly_log v4.6.1 columns verified/added")
+                except Exception as e:
+                    _LOGGER.warning("anomaly_log v4.6.1 migration failed: %s", e)
+
+                # v4.6.1 D1 (review fix F3): backfill old TEXT severity values
+                # to numeric-string equivalents matching the unified IntEnum
+                # {INFO=0, WARNING=1, CRITICAL=2}. Without this, v4.6.2 sensor
+                # queries with `severity >= 1` would coerce "advisory"/"alert"
+                # to 0 via SQLite numeric-prefix rules and silently exclude
+                # them. Match is by literal value so the UPDATE is idempotent
+                # (second run finds 0 matching rows). Single transaction, safe
+                # on empty tables.
+                try:
+                    cursor = await db.execute(
+                        """UPDATE anomaly_log
+                           SET severity = CASE severity
+                               WHEN 'nominal'  THEN '0'
+                               WHEN 'advisory' THEN '1'
+                               WHEN 'alert'    THEN '1'
+                               WHEN 'critical' THEN '2'
+                               ELSE severity
+                           END
+                           WHERE severity IN ('nominal','advisory','alert','critical')"""
+                    )
+                    await db.commit()
+                    if cursor.rowcount > 0:
+                        _LOGGER.info(
+                            "Backfilled %d legacy TEXT severity values to numeric IntEnum",
+                            cursor.rowcount,
+                        )
+                except Exception as e:
+                    _LOGGER.warning("anomaly_log severity backfill failed: %s", e)
 
                 if failed_tables:
                     _LOGGER.warning(
@@ -3620,6 +3673,58 @@ class UniversalRoomDatabase:
         return total_deleted
 
     # ====================================================================
+    # v4.6.1 D2: Anomaly log cleanup with dual retention windows
+    # ====================================================================
+
+    async def cleanup_anomaly_log(
+        self,
+        retention_days_point_in_time: int = 90,
+        retention_days_regime_shift: int = 365,
+    ) -> int:
+        """Delete old anomaly_log rows using per-class retention windows.
+
+        Branches on event_class so historically significant regime_shift events
+        are kept for a full year while point_in_time events cycle out at 90 days.
+        Batched (LIMIT 1000 + asyncio.sleep(0.1)) matching the
+        cleanup_room_energy_baselines pattern (Bug Class #27 prevention).
+        Returns total rows deleted across all passes.
+        """
+        from datetime import timedelta as _td
+        from homeassistant.util import dt as _dtu
+
+        now = _dtu.utcnow()
+        cutoff_pit = (now - _td(days=retention_days_point_in_time)).isoformat()
+        cutoff_rs = (now - _td(days=retention_days_regime_shift)).isoformat()
+        total_deleted = 0
+
+        try:
+            while True:
+                async with self._db() as db:
+                    cursor = await db.execute(
+                        """DELETE FROM anomaly_log
+                        WHERE rowid IN (
+                            SELECT rowid FROM anomaly_log
+                            WHERE (
+                                (COALESCE(event_class, 'point_in_time') = 'regime_shift'
+                                    AND timestamp < ?)
+                                OR (COALESCE(event_class, 'point_in_time') != 'regime_shift'
+                                    AND timestamp < ?)
+                            )
+                            LIMIT 1000
+                        )""",
+                        (cutoff_rs, cutoff_pit),
+                    )
+                    await db.commit()
+                    deleted = cursor.rowcount
+                    total_deleted += deleted
+                if deleted < 1000:
+                    break
+                await asyncio.sleep(0.1)
+        except Exception as err:
+            _LOGGER.warning("cleanup_anomaly_log failed: %s", err, exc_info=True)
+        return total_deleted
+
+    # ====================================================================
     # v4.3.0 D4: Arbitrage cycle accounting
     # ====================================================================
 
@@ -4073,6 +4178,63 @@ class UniversalRoomDatabase:
                 await db.commit()
         except Exception as e:
             _LOGGER.error("Error saving next_room prediction result: %s", e)
+
+    async def save_anomaly_event(self, event) -> Optional[int]:
+        """Single-path writer for AnomalyEvent rows (v4.6.1 D0 / review fix B2).
+
+        Called by AnomalyDetector.store_event() AND by emitter sites that
+        don't hold an AnomalyDetector reference (energy coord, binary sensor
+        canaries, future B7 regime detector). Keeps the anomaly_log INSERT
+        in exactly one place so v4.6.2's 12-touchpoint migration can route
+        every emit through this DAO without copy-paste.
+
+        Accepts a structurally-duck-typed AnomalyEvent; no runtime isinstance
+        check to avoid the circular-import dance (database is lower in the
+        import graph than domain_coordinators.anomaly_event).
+        """
+        import json as _json
+        try:
+            async with self._db() as db:
+                cursor = await db.execute(
+                    """INSERT INTO anomaly_log
+                       (timestamp, coordinator_id, scope,
+                        metric_name, observed_value,
+                        expected_mean, expected_std, z_score,
+                        severity, sample_size, house_state,
+                        context_json, resolved, resolution_notes,
+                        event_class, recovery_at, correlation_id,
+                        entity_id, room_id, person_id)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        event.detected_at,
+                        event.coordinator,
+                        "",
+                        event.type,
+                        None, None, None, None,
+                        int(event.severity),
+                        None, None,
+                        _json.dumps(event.payload),
+                        0, None,
+                        event.event_class,
+                        event.recovery_at,
+                        event.correlation_id,
+                        event.entity_id,
+                        event.room_id,
+                        event.person_id,
+                    ),
+                )
+                await db.commit()
+                return cursor.lastrowid
+        except Exception as e:
+            _LOGGER.warning(
+                "Error saving AnomalyEvent (coordinator=%s type=%s class=%s): %s",
+                getattr(event, "coordinator", "?"),
+                getattr(event, "type", "?"),
+                getattr(event, "event_class", "?"),
+                e,
+                exc_info=True,
+            )
+            return None
 
     async def save_prediction_results_batch(self, rows: list[tuple]) -> None:
         """Batch-insert prediction results in a single transaction.

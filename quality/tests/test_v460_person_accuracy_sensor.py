@@ -269,3 +269,21 @@ def test_d4_uses_async_schedule_update(sensor_src: str):
     assert "async_create_task" not in class_body, (
         "D4: must not spawn untracked tasks from _handle_update"
     )
+
+
+# ===========================================================================
+# UX fix: percent unit on state (live deploy showed bare numbers like "22.2")
+# ===========================================================================
+
+
+def test_d4_carries_percentage_unit(sensor_src: str):
+    """D4 must declare PERCENTAGE as native_unit_of_measurement so HA renders
+    state as "22.2%" not bare "22.2". Without the unit, users misread the
+    value as a raw count.
+    """
+    class_start = sensor_src.find("class PersonNextRoomAccuracySensor(")
+    class_end = sensor_src.find("\nclass ", class_start + 1)
+    class_body = sensor_src[class_start:class_end]
+    assert "_attr_native_unit_of_measurement = PERCENTAGE" in class_body, (
+        "D4: must declare _attr_native_unit_of_measurement = PERCENTAGE"
+    )
