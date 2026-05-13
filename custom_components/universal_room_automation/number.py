@@ -1,6 +1,6 @@
 """Number platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.5.20
+# Universal Room Automation vv4.5.21
 # Build: 2026-01-02
 # File: number.py
 #
@@ -276,7 +276,7 @@ class ZoneEntryDwellNumber(NumberEntity):
         self.hass = hass
         self._entry = entry
         self._attr_unique_id = f"{DOMAIN}_hvac_zone_entry_dwell"
-        self._attr_name = "Zone Entry Dwell"
+        self._attr_name = "48 · Zone Entry Dwell"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, "hvac_coordinator")},
             name="URA: HVAC Coordinator",
@@ -938,7 +938,7 @@ def _build_hvac_v4510_numbers():
     return [
         _hvac_tunable_number_factory(
             suffix="cover_close_threshold",
-            name="Cover Close Threshold",
+            name="60 · Cover Close Threshold",
             icon="mdi:thermometer-chevron-up",
             sub_controller_attr="_cover_controller",
             runtime_field="_occupied_close_delta",
@@ -948,7 +948,7 @@ def _build_hvac_v4510_numbers():
         ),
         _hvac_tunable_number_factory(
             suffix="cover_close_temp",
-            name="Cover Close Temp",
+            name="61 · Cover Close Temp",
             icon="mdi:weather-sunny",
             sub_controller_attr="_cover_controller",
             runtime_field="_cover_close_temp",
@@ -958,7 +958,7 @@ def _build_hvac_v4510_numbers():
         ),
         _hvac_tunable_number_factory(
             suffix="cover_open_temp",
-            name="Cover Open Temp",
+            name="62 · Cover Open Temp",
             icon="mdi:weather-partly-cloudy",
             sub_controller_attr="_cover_controller",
             runtime_field="_cover_open_temp",
@@ -968,7 +968,7 @@ def _build_hvac_v4510_numbers():
         ),
         _hvac_tunable_number_factory(
             suffix="cover_override_duration",
-            name="Cover Override Duration",
+            name="63 · Cover Override Duration",
             icon="mdi:timer-sand",
             sub_controller_attr="_cover_controller",
             runtime_field="_cover_override_hours",
@@ -978,7 +978,7 @@ def _build_hvac_v4510_numbers():
         ),
         _hvac_tunable_number_factory(
             suffix="solar_bank_floor",
-            name="Solar Banking Cool Floor",
+            name="64 · Solar Banking Cool Floor",
             icon="mdi:thermometer-low",
             sub_controller_attr="_predictor",
             runtime_field="_solar_bank_floor",
@@ -988,7 +988,7 @@ def _build_hvac_v4510_numbers():
         ),
         _hvac_tunable_number_factory(
             suffix="fan_on_threshold",
-            name="Fan On Threshold",
+            name="65 · Fan On Threshold",
             icon="mdi:fan-plus",
             sub_controller_attr="_fan_controller",
             runtime_field="_activation_delta",
@@ -998,7 +998,7 @@ def _build_hvac_v4510_numbers():
         ),
         _hvac_tunable_number_factory(
             suffix="fan_off_hysteresis",
-            name="Fan Off Hysteresis",
+            name="66 · Fan Off Hysteresis",
             icon="mdi:fan-minus",
             sub_controller_attr="_fan_controller",
             runtime_field="_deactivation_delta",
@@ -1035,7 +1035,7 @@ def _build_hvac_v4511_numbers():
     return [
         _hvac_tunable_number_factory(
             suffix="ac_nudge_size",
-            name="AC Nudge Size",
+            name="70 · AC Nudge Size",
             icon="mdi:thermometer-plus",
             sub_controller_attr="_override_arrester",
             runtime_field="_nudge_size_f",
@@ -1045,7 +1045,7 @@ def _build_hvac_v4511_numbers():
         ),
         _hvac_tunable_number_factory(
             suffix="ac_nudge_duration",
-            name="AC Nudge Duration",
+            name="71 · AC Nudge Duration",
             icon="mdi:timer-sand",
             sub_controller_attr="_override_arrester",
             runtime_field="_nudge_duration_min",
@@ -1056,7 +1056,7 @@ def _build_hvac_v4511_numbers():
         ),
         _hvac_tunable_number_factory(
             suffix="ac_sustained_samples",
-            name="AC Sustained Samples",
+            name="72 · AC Sustained Samples",
             icon="mdi:counter",
             sub_controller_attr="_override_arrester",
             runtime_field="_sustained_samples",
@@ -1067,7 +1067,7 @@ def _build_hvac_v4511_numbers():
         ),
         _hvac_tunable_number_factory(
             suffix="ac_detection_time_gate",
-            name="AC Detection Time Gate",
+            name="73 · AC Detection Time Gate",
             icon="mdi:timer-outline",
             sub_controller_attr="_override_arrester",
             runtime_field="_detection_time_gate_min",
@@ -1078,7 +1078,7 @@ def _build_hvac_v4511_numbers():
         ),
         _hvac_tunable_number_factory(
             suffix="ac_hard_reset_daily_limit",
-            name="AC Hard Reset Daily Limit",
+            name="74 · AC Hard Reset Daily Limit",
             icon="mdi:calendar-alert",
             sub_controller_attr="_override_arrester",
             runtime_field="_hard_reset_daily_limit",
@@ -1089,7 +1089,7 @@ def _build_hvac_v4511_numbers():
         ),
         _hvac_tunable_number_factory(
             suffix="ac_hard_reset_min_interval",
-            name="AC Hard Reset Min Interval",
+            name="75 · AC Hard Reset Min Interval",
             icon="mdi:timer-lock-outline",
             sub_controller_attr="_override_arrester",
             runtime_field="_hard_reset_min_interval_min",
@@ -1145,7 +1145,7 @@ def _hvac_zone_kwh_threshold_factory(
             self._zone_id = zone_id
             self._climate_entity = climate_entity
             self._attr_unique_id = f"{DOMAIN}_hvac_ac_kwh_threshold_{zone_id}"
-            self._attr_name = f"AC kWh Rate Threshold ({zone_name})"
+            self._attr_name = f"90 · AC kWh Rate Threshold ({zone_name})"
             self._attr_device_info = DeviceInfo(
                 identifiers={(DOMAIN, "hvac_coordinator")},
                 name="URA: HVAC Coordinator",

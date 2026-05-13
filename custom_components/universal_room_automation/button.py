@@ -1,6 +1,6 @@
 """Button platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.5.20
+# Universal Room Automation vv4.5.21
 # Build: 2026-01-04
 # File: button.py
 #
@@ -48,15 +48,25 @@ async def async_setup_entry(
         # v4.5.11: 3 buttons per AC zone (force_nudge / cancel_nudge /
         # clear_lockout). Discovers zones from Zone Manager entries — same
         # pattern as number.py per-zone kWh threshold sliders.
-        for zone_spec in _discover_ac_zones(hass):
+        # v4.5.21: pass 1-based zone_index so the Controls-cluster Force/
+        # Cancel buttons get linearly-growing numeric prefixes (20/22 ->
+        # 30/32 -> 40/42). `iter_canonical_hvac_zones` provides a stable
+        # iteration order that pins these prefixes across restarts.
+        for zone_index, zone_spec in enumerate(_discover_ac_zones(hass), start=1):
             cm_entities.append(
-                _make_ac_ramp_button(hass, entry, zone_spec, "force_nudge")
+                _make_ac_ramp_button(
+                    hass, entry, zone_spec, "force_nudge", zone_index,
+                )
             )
             cm_entities.append(
-                _make_ac_ramp_button(hass, entry, zone_spec, "cancel_nudge")
+                _make_ac_ramp_button(
+                    hass, entry, zone_spec, "cancel_nudge", zone_index,
+                )
             )
             cm_entities.append(
-                _make_ac_ramp_button(hass, entry, zone_spec, "clear_lockout")
+                _make_ac_ramp_button(
+                    hass, entry, zone_spec, "clear_lockout", zone_index,
+                )
             )
         async_add_entities(cm_entities)
         return
@@ -552,24 +562,52 @@ def _discover_ac_zones(hass: HomeAssistant) -> list[dict]:
 
 _AC_RAMP_BUTTON_SPECS: dict[str, dict] = {
     "force_nudge": {
+        # v4.5.21: device-page ordering experiment — `label` carries the
+        # bare entity name. The numeric prefix is computed at construction
+        # time from (cluster, zone_index) so per-zone buttons grow linearly
+        # (zone 1=20/22, zone 2=30/32, zone 3=40/42 in the Controls
+        # cluster). `clear_lockout` uses a fixed CONFIG-cluster prefix (95)
+        # regardless of zone.
         "label": "Force AC Nudge",
         "icon": "mdi:thermometer-chevron-up",
         "method": "force_nudge",
         "category": None,  # primary user-facing action
+        # Controls cluster, even prefix (force = base, cancel = base + 2)
+        "cluster": "controls",
+        "action_offset": 0,
     },
     "cancel_nudge": {
         "label": "Cancel AC Nudge",
         "icon": "mdi:cancel",
         "method": "cancel_nudge",
         "category": None,
+        "cluster": "controls",
+        "action_offset": 2,
     },
     "clear_lockout": {
         "label": "Clear AC Ramp Lockout",
         "icon": "mdi:lock-reset",
         "method": "clear_zone_lockout",
         "category": EntityCategory.CONFIG,
+        # CONFIG cluster: fixed prefix 95 shared across per-zone instances.
+        "cluster": "config",
+        "fixed_prefix": 95,
     },
 }
+
+
+def _ac_ramp_prefix(spec: dict, zone_index: int) -> int:
+    """Compute the numeric device-page-ordering prefix for a ramp button.
+
+    Controls-cluster Force/Cancel buttons grow linearly per zone:
+      zone_index=1 -> Force=20, Cancel=22
+      zone_index=2 -> Force=30, Cancel=32
+      zone_index=3 -> Force=40, Cancel=42
+    CONFIG-cluster Clear Lockout uses a fixed prefix (95) for all zones.
+    """
+    if "fixed_prefix" in spec:
+        return int(spec["fixed_prefix"])
+    return 10 + zone_index * 10 + int(spec.get("action_offset", 0))
 
 
 def _make_ac_ramp_button(
@@ -577,9 +615,15 @@ def _make_ac_ramp_button(
     entry: ConfigEntry,
     zone_spec: dict,
     action: str,
+    zone_index: int = 1,
 ) -> "_ACRampButton":
-    """Construct one button entity for a (zone, action) pair."""
+    """Construct one button entity for a (zone, action) pair.
+
+    `zone_index` is 1-based and drives the Controls-cluster numeric prefix.
+    """
     spec = _AC_RAMP_BUTTON_SPECS[action]
+    prefix = _ac_ramp_prefix(spec, zone_index)
+    prefixed_label = f"{prefix:02d} · {spec['label']}"
     return _ACRampButton(
         hass=hass,
         entry=entry,
@@ -587,7 +631,7 @@ def _make_ac_ramp_button(
         zone_name=zone_spec["zone_name"],
         climate_entity=zone_spec["climate_entity"],
         action=action,
-        label=spec["label"],
+        label=prefixed_label,
         icon=spec["icon"],
         method_name=spec["method"],
         category=spec["category"],
@@ -752,7 +796,7 @@ class HVACACRampDiagnosticDumpButton(ButtonEntity):
         self.hass = hass
         self._entry = entry
         self._attr_unique_id = f"{DOMAIN}_hvac_ac_ramp_diagnostic_dump"
-        self._attr_name = "AC Ramp Diagnostic Dump"
+        self._attr_name = "90 · AC Ramp Diagnostic Dump"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, "hvac_coordinator")},
             name="URA: HVAC Coordinator",
