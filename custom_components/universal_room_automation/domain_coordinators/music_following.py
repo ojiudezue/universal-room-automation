@@ -192,8 +192,29 @@ class MusicFollowingCoordinator(BaseCoordinator):
             self.anomaly_detector.record_observation(
                 "cooldown_frequency", "house", cooldown_rate,
             )
+
+            # v4.5.20: fire refresh signal so MusicFollowingAnomalySensor
+            # re-renders attrs after each transfer. MF is event-driven
+            # (no periodic tick), so this dispatch only fires when a
+            # transfer outcome happens — matches the natural cadence.
+            try:
+                from homeassistant.helpers.dispatcher import async_dispatcher_send
+                from .signals import SIGNAL_MUSIC_FOLLOWING_ENTITIES_UPDATE
+                async_dispatcher_send(
+                    self.hass, SIGNAL_MUSIC_FOLLOWING_ENTITIES_UPDATE,
+                )
+            except Exception:
+                _LOGGER.warning(
+                    "MF: failed to dispatch "
+                    "SIGNAL_MUSIC_FOLLOWING_ENTITIES_UPDATE",
+                    exc_info=True,
+                )
         except Exception:
-            pass
+            # v4.5.20 also: was bare `pass` — soft escalate.
+            _LOGGER.warning(
+                "MF: _on_transfer_outcome stats processing failed",
+                exc_info=True,
+            )
 
     async def evaluate(
         self,
