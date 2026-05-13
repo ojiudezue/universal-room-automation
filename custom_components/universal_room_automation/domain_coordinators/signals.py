@@ -35,6 +35,12 @@ SIGNAL_OCCUPANCY_ANOMALY: Final = "ura_occupancy_anomaly"
 SIGNAL_PRESENCE_ENTITIES_UPDATE: Final = "ura_presence_entities_update"
 SIGNAL_MUSIC_FOLLOWING_ENTITIES_UPDATE: Final = "ura_music_following_entities_update"
 
+# v4.6.0: dispatched from TransitionDetector._score_prediction() each time a
+# next-room prediction result is written to prediction_results. Accuracy sensors
+# (D4/D5) subscribe here so they refresh attrs on every score event, not on a
+# polling timer — mirrors the SIGNAL_PRESENCE_/_MUSIC_FOLLOWING_ pattern above.
+SIGNAL_NEXT_ROOM_PREDICTION_UPDATE: Final = "ura_next_room_prediction_update"
+
 
 # ============================================================================
 # Shared data classes for inter-coordinator communication

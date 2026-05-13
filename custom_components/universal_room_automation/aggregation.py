@@ -257,11 +257,21 @@ async def async_setup_aggregation_sensors(
             ])
 
             # v3.3.0: Pattern learning sensors
-            from .sensor import PersonLikelyNextRoomSensor, PersonCurrentPathSensor
+            from .sensor import (
+                PersonLikelyNextRoomSensor,
+                PersonCurrentPathSensor,
+                PersonNextRoomAccuracySensor,
+            )
             entities.extend([
                 PersonLikelyNextRoomSensor(hass, entry, person_id),
                 PersonCurrentPathSensor(hass, entry, person_id),
+                # v4.6.0: D4 — per-person next-room accuracy sensor
+                PersonNextRoomAccuracySensor(hass, entry, person_id),
             ])
+
+    # v4.6.0: D5 — single house-aggregate next-room accuracy sensor
+    from .sensor import HouseNextRoomAccuracySensor
+    entities.append(HouseNextRoomAccuracySensor(hass, entry))
 
     async_add_entities(entities)
     _LOGGER.info("Set up %d whole-house aggregation sensors", len(entities))
