@@ -439,7 +439,19 @@ class CoordinatorManager:
                             location=action.location or None,
                         )
                     except Exception:
-                        _LOGGER.debug("NM routing failed (non-fatal)")
+                        # v4.5.20: was debug, with no exc captured —
+                        # HIGH-severity. This is the central dispatch
+                        # path for EVERY coordinator-issued notification
+                        # (safety hazards, security armed-state, energy
+                        # alerts). Silent failure kills every operator-
+                        # visible URA notification. "Non-fatal" is a
+                        # misnomer — NM IS the operator's eye.
+                        _LOGGER.warning(
+                            "NM routing failed for %s (%s)",
+                            coordinator.coordinator_id,
+                            action.description,
+                            exc_info=True,
+                        )
                 _LOGGER.info(
                     "Notification from %s: %s (severity=%s)",
                     coordinator.coordinator_id,
@@ -489,9 +501,14 @@ class CoordinatorManager:
                 ),
             )
         except Exception:
-            _LOGGER.debug(
-                "Failed to log decision for %s (non-fatal)",
+            # v4.5.20: was debug. Decision audit trail to DB. If schema
+            # drifts or DB locks, decisions sensor + history reports go
+            # blank with no warning. Doesn't break operation, but the
+            # audit-trail feature silently disappears.
+            _LOGGER.warning(
+                "Failed to log decision for %s — audit-trail row dropped",
                 coordinator.coordinator_id,
+                exc_info=True,
             )
 
     def get_summary(self) -> dict[str, Any]:

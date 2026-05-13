@@ -1201,9 +1201,14 @@ class SecurityCoordinator(BaseCoordinator):
                         commanded_state={"state": "locked"},
                     )
                 except Exception:
-                    _LOGGER.debug(
-                        "Compliance check scheduling failed for %s (non-fatal)",
+                    # v4.5.20: was debug. Lock action still queues; only
+                    # the audit/compliance trail is at risk. Soft escalate
+                    # with exc_info for observability.
+                    _LOGGER.warning(
+                        "Compliance check scheduling failed for %s "
+                        "(non-fatal — lock action still queued)",
                         entity_id,
+                        exc_info=True,
                     )
 
         return actions

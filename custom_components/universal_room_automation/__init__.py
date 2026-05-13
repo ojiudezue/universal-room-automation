@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv4.5.18
+# Universal Room Automation vv4.5.19
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -2262,19 +2262,36 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if "person_coordinator" in hass.data[DOMAIN]:
             del hass.data[DOMAIN]["person_coordinator"]
         
-        # Clean up cross-room coordination
-        for key in ["transition_detector", "pattern_learner", "music_following"]:
-            if key in hass.data[DOMAIN]:
-                del hass.data[DOMAIN][key]
-
-        # v4.0.0-B1: Remove Bayesian transition listener before cleanup
-        bayesian_listener = hass.data[DOMAIN].pop("bayesian_transition_listener", None)
+        # v4.5.19: tear down TransitionDetector BEFORE removing from
+        # hass.data so its event-bus listener + cleanup timer are
+        # released. Without teardown, every reload leaks one listener
+        # → N+1 duplicate INSERTs into room_transitions per event,
+        # biasing Bayesian priors. See transitions.py:async_teardown.
+        # Also fixes a latent ordering bug here: the old code at
+        # lines 2270-2277 fetched transition_det AFTER deleting it
+        # from hass.data, so the Bayesian-listener removal was dead
+        # code that always saw None. Reorder: pop bayesian listener
+        # → drop it from transition_det._listeners → teardown → delete.
         transition_det = hass.data[DOMAIN].get("transition_detector")
+        bayesian_listener = hass.data[DOMAIN].pop("bayesian_transition_listener", None)
         if bayesian_listener and transition_det and hasattr(transition_det, "_listeners"):
             try:
                 transition_det._listeners.remove(bayesian_listener)
             except ValueError:
                 pass  # Already removed
+        if transition_det is not None and hasattr(transition_det, "async_teardown"):
+            try:
+                await transition_det.async_teardown()
+            except Exception:
+                _LOGGER.warning(
+                    "TransitionDetector teardown failed during unload",
+                    exc_info=True,
+                )
+
+        # Clean up cross-room coordination
+        for key in ["transition_detector", "pattern_learner", "music_following"]:
+            if key in hass.data[DOMAIN]:
+                del hass.data[DOMAIN][key]
 
         # v4.0.0-B1: Save and clean up Bayesian predictor
         bayesian_predictor = hass.data[DOMAIN].pop("bayesian_predictor", None)
