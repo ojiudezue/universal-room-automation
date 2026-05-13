@@ -106,8 +106,11 @@ SENSOR_HC_CLASSES: dict[str, int] = {
 
 
 # switch.py — CONFIG cluster (HVACOverrideArresterSwitch et al.).
-# CoordinatorEnabledSwitch is deliberately untouched (it's shared across
-# all coordinators) — documented in the implementation notes.
+# CoordinatorEnabledSwitch is shared across all coordinators; v4.5.21.1
+# branches its `_attr_name` on `coordinator_id == "hvac"` to apply a
+# `"00 · "` prefix that sorts the Enabled switch to the top of the HVAC
+# Coordinator Controls cluster. Other coordinators keep bare "Enabled"
+# until their sweep cycle. See test_enabled_switch_hvac_prefix below.
 SWITCH_HC_CLASSES: dict[str, int] = {
     "HVACObservationModeSwitch": 10,
     "HVACACRampMasterSwitch": 15,
@@ -507,4 +510,30 @@ def test_cluster_prefixes_unique(cluster: str):
     duplicates = {p for p in prefixes if prefixes.count(p) > 1}
     assert not duplicates, (
         f"Cluster {cluster!r} has duplicate prefixes: {sorted(duplicates)!r}"
+    )
+
+
+# ===========================================================================
+# v4.5.21.1 — CoordinatorEnabledSwitch HVAC-only "00 · Enabled" branch
+# ===========================================================================
+
+
+def test_enabled_switch_hvac_prefix(switch_src: str):
+    """CoordinatorEnabledSwitch.__init__ branches on coordinator_id == 'hvac'
+    and assigns `"00 · Enabled"` to `_attr_name`; non-HVAC instances keep
+    bare `"Enabled"`. Source-grep is sufficient — the construction order
+    is a deterministic if/else right after the unique_id assignment.
+    """
+    assert 'if coordinator_id == "hvac"' in switch_src, (
+        "Expected an explicit `coordinator_id == 'hvac'` branch in "
+        "CoordinatorEnabledSwitch.__init__ to scope the prefix to HC only."
+    )
+    assert '"00 · Enabled"' in switch_src, (
+        "Expected `\"00 · Enabled\"` literal in switch.py for the HVAC "
+        "branch of CoordinatorEnabledSwitch.__init__."
+    )
+    # Bare-Enabled fallback must still exist for non-HVAC coordinators.
+    assert re.search(r'self\._attr_name\s*=\s*"Enabled"', switch_src), (
+        "Expected the bare `self._attr_name = \"Enabled\"` else-branch to "
+        "remain so non-HVAC coordinators are not affected."
     )

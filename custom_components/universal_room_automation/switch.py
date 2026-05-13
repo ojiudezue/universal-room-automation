@@ -1,6 +1,6 @@
 """Switch platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.5.21
+# Universal Room Automation vv4.5.21.1
 # Build: 2026-01-02
 # File: switch.py
 #
@@ -282,7 +282,10 @@ class CoordinatorEnabledSwitch(SwitchEntity):
         self._coordinator_id = coordinator_id
         self._conf_key = conf_key
         self._attr_unique_id = f"{DOMAIN}_{coordinator_id}_coordinator_enabled"
-        self._attr_name = f"Enabled"
+        if coordinator_id == "hvac":
+            self._attr_name = "00 · Enabled"
+        else:
+            self._attr_name = "Enabled"
         self._attr_icon = icon
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, device_id)},
