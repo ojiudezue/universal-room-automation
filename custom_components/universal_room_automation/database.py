@@ -1,7 +1,7 @@
 """Database for Universal Room Automation."""
 from __future__ import annotations
 #
-# Universal Room Automation vv4.6.1.1
+# Universal Room Automation vv4.6.2
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors
@@ -1223,6 +1223,81 @@ class UniversalRoomDatabase:
                         )
                 except Exception as e:
                     _LOGGER.warning("anomaly_log severity backfill failed: %s", e)
+
+                # v4.6.2 D4: regime_cell_state tracks consecutive-run counter
+                # per (person, time_bin, day_type) cell. Required by the 2-run
+                # persistence guard before emitting a regime-shift AnomalyEvent.
+                # PRAGMA-checked for idempotency — safe to run on every startup.
+                try:
+                    cursor = await db.execute("PRAGMA table_info(regime_cell_state)")
+                    rcs_cols = {row[1] for row in await cursor.fetchall()}
+                    if not rcs_cols:
+                        await db.execute(
+                            """CREATE TABLE IF NOT EXISTS regime_cell_state (
+                                person_id TEXT NOT NULL,
+                                time_bin INTEGER NOT NULL,
+                                day_type INTEGER NOT NULL,
+                                unacknowledged_consecutive INTEGER NOT NULL DEFAULT 0,
+                                last_evaluated_at TEXT NOT NULL,
+                                last_magnitude_bucket TEXT,
+                                PRIMARY KEY (person_id, time_bin, day_type)
+                            )"""
+                        )
+                        await db.commit()
+                        _LOGGER.info("Created regime_cell_state table")
+                except Exception as e:
+                    _LOGGER.warning("regime_cell_state table creation failed: %s", e)
+
+                # v4.6.2 D6: event-mode per-cell cooldown tracker.
+                # PRIMARY KEY (person_id, time_bin, day_type) so one UPSERT
+                # records the last notified timestamp without row proliferation.
+                try:
+                    cursor = await db.execute(
+                        "PRAGMA table_info(regime_event_notification_log)"
+                    )
+                    renl_cols = {row[1] for row in await cursor.fetchall()}
+                    if not renl_cols:
+                        await db.execute(
+                            """CREATE TABLE IF NOT EXISTS regime_event_notification_log (
+                                person_id TEXT NOT NULL,
+                                time_bin INTEGER NOT NULL,
+                                day_type INTEGER NOT NULL,
+                                last_notified_at TEXT NOT NULL,
+                                PRIMARY KEY (person_id, time_bin, day_type)
+                            )"""
+                        )
+                        await db.commit()
+                        _LOGGER.info("Created regime_event_notification_log table")
+                except Exception as e:
+                    _LOGGER.warning(
+                        "regime_event_notification_log table creation failed: %s", e
+                    )
+
+                # v4.6.2 D6: weekly digest queue — rows enqueued when
+                # notification_mode='weekly_digest'; flushed Sunday 09:00.
+                # FOREIGN KEY references anomaly_log.id for traceability.
+                try:
+                    cursor = await db.execute(
+                        "PRAGMA table_info(regime_weekly_digest_queue)"
+                    )
+                    rwdq_cols = {row[1] for row in await cursor.fetchall()}
+                    if not rwdq_cols:
+                        await db.execute(
+                            """CREATE TABLE IF NOT EXISTS regime_weekly_digest_queue (
+                                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                anomaly_log_id INTEGER NOT NULL,
+                                queued_at TEXT NOT NULL,
+                                person_id TEXT NOT NULL,
+                                severity INTEGER NOT NULL,
+                                FOREIGN KEY (anomaly_log_id) REFERENCES anomaly_log(id)
+                            )"""
+                        )
+                        await db.commit()
+                        _LOGGER.info("Created regime_weekly_digest_queue table")
+                except Exception as e:
+                    _LOGGER.warning(
+                        "regime_weekly_digest_queue table creation failed: %s", e
+                    )
 
                 if failed_tables:
                     _LOGGER.warning(
@@ -4179,6 +4254,75 @@ class UniversalRoomDatabase:
         except Exception as e:
             _LOGGER.error("Error saving next_room prediction result: %s", e)
 
+    # -----------------------------------------------------------------------
+    # v4.6.2 D4 — regime_cell_state DAOs
+    # -----------------------------------------------------------------------
+
+    async def get_regime_cell_state(
+        self,
+        person_id: str,
+        time_bin: int,
+        day_type: int,
+    ) -> dict | None:
+        """Return the current state row for a (person, time_bin, day_type) cell,
+        or None if no row exists yet."""
+        try:
+            async with self._db_read() as db:
+                cursor = await db.execute(
+                    """SELECT unacknowledged_consecutive, last_evaluated_at,
+                              last_magnitude_bucket
+                       FROM regime_cell_state
+                       WHERE person_id = ? AND time_bin = ? AND day_type = ?""",
+                    (person_id, time_bin, day_type),
+                )
+                row = await cursor.fetchone()
+                if row is None:
+                    return None
+                return {
+                    "unacknowledged_consecutive": row[0],
+                    "last_evaluated_at": row[1],
+                    "last_magnitude_bucket": row[2],
+                }
+        except Exception as e:
+            _LOGGER.warning(
+                "get_regime_cell_state failed (person=%s tb=%d dt=%d): %s",
+                person_id, time_bin, day_type, e,
+                exc_info=True,
+            )
+            return None
+
+    async def upsert_regime_cell_state(
+        self,
+        person_id: str,
+        time_bin: int,
+        day_type: int,
+        counter: int,
+        magnitude_bucket: str | None,
+    ) -> None:
+        """Insert or replace the regime_cell_state row for a cell.
+
+        Uses INSERT OR REPLACE so the caller does not need to distinguish
+        first-write from update. The PRIMARY KEY constraint on
+        (person_id, time_bin, day_type) ensures idempotency within a run.
+        """
+        try:
+            async with self._db() as db:
+                await db.execute(
+                    """INSERT OR REPLACE INTO regime_cell_state
+                       (person_id, time_bin, day_type,
+                        unacknowledged_consecutive, last_evaluated_at,
+                        last_magnitude_bucket)
+                       VALUES (?, ?, ?, ?, datetime('now'), ?)""",
+                    (person_id, time_bin, day_type, counter, magnitude_bucket),
+                )
+                await db.commit()
+        except Exception as e:
+            _LOGGER.warning(
+                "upsert_regime_cell_state failed (person=%s tb=%d dt=%d): %s",
+                person_id, time_bin, day_type, e,
+                exc_info=True,
+            )
+
     async def save_anomaly_event(self, event) -> Optional[int]:
         """Single-path writer for AnomalyEvent rows (v4.6.1 D0 / review fix B2).
 
@@ -4252,6 +4396,147 @@ class UniversalRoomDatabase:
                 exc_info=True,
             )
             return None
+
+    # -----------------------------------------------------------------------
+    # v4.6.2 D5 — anomaly_log acknowledge (bulk recovery_at UPDATE)
+    # -----------------------------------------------------------------------
+
+    async def acknowledge_all_routine_shifts(self) -> int:
+        """Mark every unacknowledged routine-shift event as recovered.
+
+        Sets recovery_at = datetime('now') on all anomaly_log rows where
+        coordinator_id='bayesian', metric_name='bayesian.routine_shift',
+        and recovery_at IS NULL. Called by AcknowledgeRoutineChangesButton.
+
+        Returns the number of rows updated.
+        """
+        try:
+            async with self._db() as db:
+                cursor = await db.execute(
+                    """UPDATE anomaly_log
+                       SET recovery_at = datetime('now')
+                       WHERE coordinator_id = 'bayesian'
+                         AND metric_name = 'bayesian.routine_shift'
+                         AND recovery_at IS NULL""",
+                )
+                await db.commit()
+                rows_updated = cursor.rowcount if cursor.rowcount >= 0 else 0
+                _LOGGER.info(
+                    "acknowledge_all_routine_shifts: %d rows updated", rows_updated
+                )
+                return rows_updated
+        except Exception as e:
+            _LOGGER.warning(
+                "acknowledge_all_routine_shifts failed: %s", e, exc_info=True
+            )
+            return 0
+
+    # -----------------------------------------------------------------------
+    # v4.6.2 D6 — regime event notification log DAOs
+    # -----------------------------------------------------------------------
+
+    async def get_regime_last_notified(
+        self, person_id: str, time_bin: int, day_type: int
+    ) -> str | None:
+        """Return ISO timestamp of last notification for this cell, or None."""
+        try:
+            async with self._db_read() as db:
+                cursor = await db.execute(
+                    """SELECT last_notified_at
+                       FROM regime_event_notification_log
+                       WHERE person_id = ? AND time_bin = ? AND day_type = ?""",
+                    (person_id, time_bin, day_type),
+                )
+                row = await cursor.fetchone()
+                return row[0] if row else None
+        except Exception as e:
+            _LOGGER.warning(
+                "get_regime_last_notified failed (%s, tb=%d, dt=%d): %s",
+                person_id, time_bin, day_type, e,
+                exc_info=True,
+            )
+            return None
+
+    async def upsert_regime_last_notified(
+        self, person_id: str, time_bin: int, day_type: int, notified_at: str
+    ) -> None:
+        """Record or update the last notification timestamp for this cell."""
+        try:
+            async with self._db() as db:
+                await db.execute(
+                    """INSERT OR REPLACE INTO regime_event_notification_log
+                       (person_id, time_bin, day_type, last_notified_at)
+                       VALUES (?, ?, ?, ?)""",
+                    (person_id, time_bin, day_type, notified_at),
+                )
+                await db.commit()
+        except Exception as e:
+            _LOGGER.warning(
+                "upsert_regime_last_notified failed (%s, tb=%d, dt=%d): %s",
+                person_id, time_bin, day_type, e,
+                exc_info=True,
+            )
+
+    async def enqueue_regime_weekly_digest(
+        self,
+        anomaly_log_id: int,
+        person_id: str,
+        severity: int,
+        queued_at: str,
+    ) -> None:
+        """Add one event to the weekly digest queue.
+
+        Called when notification_mode='weekly_digest' and a regime-shift
+        event arrives. The queue is flushed Sunday 09:00 by the NM handler.
+        """
+        try:
+            async with self._db() as db:
+                await db.execute(
+                    """INSERT INTO regime_weekly_digest_queue
+                       (anomaly_log_id, queued_at, person_id, severity)
+                       VALUES (?, ?, ?, ?)""",
+                    (anomaly_log_id, queued_at, person_id, severity),
+                )
+                await db.commit()
+        except Exception as e:
+            _LOGGER.warning(
+                "enqueue_regime_weekly_digest failed (anomaly_id=%s, person=%s): %s",
+                anomaly_log_id, person_id, e,
+                exc_info=True,
+            )
+
+    async def flush_regime_weekly_digest_queue(self) -> list[dict]:
+        """Return and delete all rows in regime_weekly_digest_queue.
+
+        Called once per Sunday 09:00 flush. Returns rows as dicts before
+        deleting so the caller can compose the digest message.
+        """
+        try:
+            async with self._db() as db:
+                cursor = await db.execute(
+                    """SELECT id, anomaly_log_id, queued_at, person_id, severity
+                       FROM regime_weekly_digest_queue
+                       ORDER BY queued_at ASC"""
+                )
+                rows = await cursor.fetchall()
+                if rows:
+                    await db.execute("DELETE FROM regime_weekly_digest_queue")
+                    await db.commit()
+                return [
+                    {
+                        "id": r[0],
+                        "anomaly_log_id": r[1],
+                        "queued_at": r[2],
+                        "person_id": r[3],
+                        "severity": r[4],
+                    }
+                    for r in rows
+                ]
+        except Exception as e:
+            _LOGGER.warning(
+                "flush_regime_weekly_digest_queue failed: %s", e, exc_info=True
+            )
+            return []
 
     async def save_prediction_results_batch(self, rows: list[tuple]) -> None:
         """Batch-insert prediction results in a single transaction.

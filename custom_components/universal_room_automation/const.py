@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv4.6.1.1
+# Universal Room Automation vv4.6.2
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v4.6.1.1"
+VERSION: Final = "v4.6.2"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -1226,6 +1226,23 @@ TABLET_HOSTNAME_PREFIXES: Final = (
 # ============================================================================
 # These toggles control whether coordinators react to cross-system signals.
 # Stored in Coordinator Manager entry options, read via BaseCoordinator._get_signal_config().
+
+# ============================================================================
+# v4.6.2 D5/D6: Routine Awareness config keys
+# ============================================================================
+
+# D6: Notification mode select (silent | weekly_digest | event)
+CONF_ROUTINE_CHANGE_NOTIFICATION_MODE: Final = "routine_change_notification_mode"
+
+# D6: Event-mode cooldown (days per cell before re-notifying)
+CONF_ROUTINE_EVENT_COOLDOWN_DAYS: Final = "routine_event_cooldown_days"
+
+# D6: Minimum severity floor (0=INFO, 1=WARNING, 2=CRITICAL)
+CONF_ROUTINE_EVENT_MIN_SEVERITY: Final = "routine_event_min_severity"
+
+# D6: Advanced tunables for D4 JS-divergence algorithm
+CONF_ROUTINE_REGIME_BASELINE_WINDOW_DAYS: Final = "routine_regime_baseline_window_days"
+CONF_ROUTINE_REGIME_RECENT_WINDOW_DAYS: Final = "routine_regime_recent_window_days"
 
 CONF_HVAC_ON_HAZARD_STOP_FANS: Final = "hvac_on_hazard_stop_fans"
 CONF_HVAC_ON_HAZARD_EMERGENCY_HEAT: Final = "hvac_on_hazard_emergency_heat"

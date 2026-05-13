@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.6.1.1
+# Universal Room Automation vv4.6.2
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -310,6 +310,13 @@ async def async_setup_entry(
                     hass, entry, zone_id, _zname, _thermostat,
                 )
             )
+        # v4.6.0 D4/D5 accuracy sensors + v4.6.2 D5 routine_status sensors
+        # are registered via aggregation.async_setup_aggregation_sensors
+        # (Integration entry), NOT here in the CM entry path — they bind to
+        # the CM device via _cm_device_info() but live alongside the other
+        # per-person aggregate sensors. Single registration site avoids
+        # unique_id collisions on restart.
+
         async_add_entities(coordinator_sensors)
         return
 
@@ -2454,6 +2461,67 @@ class PersonLikelyNextRoomSensor(AggregationEntity, SensorEntity):
                 "Bayesian prediction failed for %s, falling back: %s",
                 self._person_id, e,
             )
+
+        # v4.6.2 D3: B6 away_typical — when Bayesian has no usable cell data,
+        # check geofence + cell-staleness before falling to frequency learner.
+        # "away_typical" is returned instead of "unknown" when the person is
+        # geofence-away AND the cell is empty or stale — school/work-day cells,
+        # seasonal transitions, etc. Returns early so native_value reflects it.
+        if self._cached_prediction is None:
+            try:
+                from .bayesian_predictor import (
+                    is_cell_stale as _is_cell_stale,
+                    _hour_to_time_bin as _h2tb,
+                    _day_type as _dt,
+                )
+                person_coordinator = self.hass.data.get(DOMAIN, {}).get("person_coordinator")
+                database = self.hass.data.get(DOMAIN, {}).get("database")
+                geofence_away = False
+                if person_coordinator is not None:
+                    loc = person_coordinator.data.get(self._person_id, {}).get("location")
+                    geofence_away = loc == "away"
+                if geofence_away and database is not None:
+                    now_local = dt_util.now()
+                    time_bin = _h2tb(now_local.hour)
+                    day_type = _dt(now_local)
+                    # v4.6.2 review fix B#3: read the live Number entity
+                    # state, NOT entry.options. The Number is a RestoreEntity
+                    # (URA Mirror Pattern) — user changes update the entity
+                    # state and persist across restarts via RestoreEntity, but
+                    # they DO NOT write back to entry.options. Reading options
+                    # gives the install-time seed forever, making the slider
+                    # dead config.
+                    staleness_days = 14
+                    try:
+                        _staleness_state = self.hass.states.get(
+                            f"number.ura_coordinator_manager_bayesian_cell_staleness_days"
+                        )
+                        if _staleness_state is not None and _staleness_state.state not in (
+                            "unknown", "unavailable", None,
+                        ):
+                            staleness_days = int(float(_staleness_state.state))
+                    except Exception:
+                        pass
+                    stale = await _is_cell_stale(
+                        database, self._person_id, time_bin, day_type, staleness_days
+                    )
+                    if stale:
+                        _LOGGER.debug(
+                            "D3: %s is geofence-away and cell (%d,%d) is stale (%dd) — away_typical",
+                            self._person_id, time_bin, day_type, staleness_days,
+                        )
+                        self._cached_prediction = {
+                            "next_room": "away_typical",
+                            "confidence": None,
+                            "sample_size": None,
+                            "reliability": "away_typical",
+                            "alternatives": [],
+                            "predicted_path": None,
+                            "current_room": "",
+                        }
+                        self._prediction_source = "away_typical"
+            except Exception as e:
+                _LOGGER.debug("D3 away_typical check failed for %s: %s", self._person_id, e)
 
         # Fallback to frequency-based pattern_learner
         if self._cached_prediction is None:
@@ -9542,6 +9610,300 @@ class HouseNextRoomAccuracySensor(AggregationEntity, SensorEntity):
             "brier_score": self._cached_stats.get("brier_score"),
             "oldest_prediction_ts": self._cached_stats.get("oldest_prediction_ts"),
         }
+
+
+# v4.6.2 D5 — per-person routine status sensor
+
+# Mapping from worst unacknowledged severity integer to state string.
+_SEVERITY_TO_ROUTINE_STATE: dict[int | None, str] = {
+    None: "stable",   # no unacknowledged rows
+    0: "drifting",    # AnomalySeverity.INFO
+    1: "shifted",     # AnomalySeverity.WARNING
+    2: "major_shift", # AnomalySeverity.CRITICAL
+}
+
+
+class PersonRoutineStatusSensor(AggregationEntity, SensorEntity):
+    """Per-person routine status sensor.
+
+    Entity: sensor.ura_coordinator_manager_{person_id}_routine_status
+    Device: URA: Coordinator Manager
+    State: "stable" | "drifting" | "shifted" | "major_shift"
+
+    Derives state from the worst-severity unacknowledged anomaly_log row
+    for this person (coordinator_id='bayesian', type='bayesian.routine_shift',
+    recovery_at IS NULL). Returns "stable" when zero rows; None (HA unknown)
+    when the query itself fails.
+
+    Refreshes on SIGNAL_ROUTINE_STATUS_UPDATE (signal-driven, no polling).
+    30-second query cache prevents DB hammering when multiple signals fire.
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:account-clock"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_entity_registry_enabled_default = True
+
+    def __init__(
+        self, hass: HomeAssistant, entry: ConfigEntry, person_id: str
+    ) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._person_id = person_id
+        person_slug = person_id.lower().replace(" ", "_")
+        self._attr_unique_id = f"{DOMAIN}_person_{person_slug}_routine_status"
+        self._attr_name = f"{person_id} Routine Status"
+        self._attr_device_info = _cm_device_info()
+        self._cached_state: str | None = None
+        self._cached_attrs: dict = {}
+        self._last_query_time: float = 0
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to routine status update signal (Bug Class #38)."""
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_ROUTINE_STATUS_UPDATE
+
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass,
+                SIGNAL_ROUTINE_STATUS_UPDATE,
+                self._handle_update,
+            )
+        )
+
+    @callback
+    def _handle_update(self) -> None:
+        """Schedule a state refresh — called on the event loop, no await here."""
+        self.async_schedule_update_ha_state(force_refresh=True)
+
+    async def async_update(self) -> None:
+        """Query anomaly_log for unacknowledged routine shifts (cached 30 sec)."""
+        import time
+
+        now = time.monotonic()
+        if now - self._last_query_time < 30:
+            return
+
+        database = self.hass.data.get(DOMAIN, {}).get("database")
+        if database is None:
+            return
+
+        try:
+            async with database._db_read() as db:
+                cursor = await db.execute(
+                    """SELECT severity, timestamp, context_json
+                       FROM anomaly_log
+                       WHERE coordinator_id = 'bayesian'
+                         AND metric_name = 'bayesian.routine_shift'
+                         AND person_id = ?
+                         AND recovery_at IS NULL
+                       ORDER BY timestamp DESC""",
+                    (self._person_id,),
+                )
+                rows = await cursor.fetchall()
+
+            if not rows:
+                self._cached_state = "stable"
+                self._cached_attrs = {
+                    "unacknowledged_events": 0,
+                    "max_magnitude": None,
+                    "max_magnitude_cell": None,
+                    "top_changes": [],
+                    "last_check_at": dt_util.utcnow().isoformat(),
+                }
+                self._last_query_time = now
+                return
+
+            max_sev = max(int(r[0]) for r in rows)
+            self._cached_state = _SEVERITY_TO_ROUTINE_STATE.get(max_sev, "shifted")
+
+            # Build top_changes from the most severe rows (cap at 5)
+            import json as _json
+            top_changes = []
+            for row in rows[:5]:
+                try:
+                    payload = _json.loads(row[2]) if row[2] else {}
+                except (ValueError, TypeError):
+                    payload = {}
+                cell = payload.get("cell", {})
+                top_changes.append({
+                    "cell": cell,
+                    "magnitude": payload.get("magnitude"),
+                    "top_movers": payload.get("top_movers", []),
+                })
+
+            max_row_payload: dict = {}
+            try:
+                max_row_payload = _json.loads(rows[0][2]) if rows[0][2] else {}
+            except (ValueError, TypeError):
+                pass
+
+            self._cached_attrs = {
+                "unacknowledged_events": len(rows),
+                "max_magnitude": max_row_payload.get("magnitude"),
+                "max_magnitude_cell": max_row_payload.get("cell"),
+                "top_changes": top_changes,
+                "last_check_at": dt_util.utcnow().isoformat(),
+            }
+            _LOGGER.debug(
+                "PersonRoutineStatusSensor %s: state=%s unack=%d",
+                self._person_id,
+                self._cached_state,
+                len(rows),
+            )
+        except Exception as e:
+            _LOGGER.warning(
+                "PersonRoutineStatusSensor %s update failed: %s",
+                self._person_id, e,
+                exc_info=True,
+            )
+            # Leave cached_state as-is; will return None (unknown) if never set
+        finally:
+            self._last_query_time = now
+
+    @property
+    def native_value(self) -> str | None:
+        """Return routine status string, or None (HA unknown) when query failed."""
+        return self._cached_state
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return anomaly detail attributes."""
+        return self._cached_attrs
+
+
+# v4.6.2 D5 — house-aggregate routine status sensor
+
+
+class HouseRoutineStatusSensor(AggregationEntity, SensorEntity):
+    """House-wide routine status sensor.
+
+    Entity: sensor.ura_coordinator_manager_household_routine_status
+    Device: URA: Coordinator Manager
+    State: worst-case across all persons.
+
+    Attributes include per-person breakdown and total unacknowledged events.
+    Subscribes to SIGNAL_ROUTINE_STATUS_UPDATE (same as PersonRoutineStatusSensor).
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:home-clock"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_entity_registry_enabled_default = True
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_household_routine_status"
+        self._attr_name = "Household Routine Status"
+        self._attr_device_info = _cm_device_info()
+        self._cached_state: str | None = None
+        self._cached_attrs: dict = {}
+        self._last_query_time: float = 0
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to routine status update signal (Bug Class #38)."""
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_ROUTINE_STATUS_UPDATE
+
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass,
+                SIGNAL_ROUTINE_STATUS_UPDATE,
+                self._handle_update,
+            )
+        )
+
+    @callback
+    def _handle_update(self) -> None:
+        """Schedule a state refresh."""
+        self.async_schedule_update_ha_state(force_refresh=True)
+
+    async def async_update(self) -> None:
+        """Query anomaly_log grouped by person (cached 30 sec)."""
+        import time
+
+        now = time.monotonic()
+        if now - self._last_query_time < 30:
+            return
+
+        database = self.hass.data.get(DOMAIN, {}).get("database")
+        if database is None:
+            return
+
+        try:
+            async with database._db_read() as db:
+                cursor = await db.execute(
+                    """SELECT person_id, MAX(severity) as max_sev, COUNT(*) as cnt
+                       FROM anomaly_log
+                       WHERE coordinator_id = 'bayesian'
+                         AND metric_name = 'bayesian.routine_shift'
+                         AND recovery_at IS NULL
+                         AND person_id IS NOT NULL
+                       GROUP BY person_id"""
+                )
+                rows = await cursor.fetchall()
+
+            persons_stable: list[str] = []
+            persons_drifting: list[str] = []
+            persons_shifted: list[str] = []
+            persons_major_shift: list[str] = []
+            total_unack = 0
+
+            for row in rows:
+                pid, max_sev, cnt = row[0], int(row[1]), int(row[2])
+                total_unack += cnt
+                state = _SEVERITY_TO_ROUTINE_STATE.get(max_sev, "shifted")
+                if state == "stable":
+                    persons_stable.append(pid)
+                elif state == "drifting":
+                    persons_drifting.append(pid)
+                elif state == "shifted":
+                    persons_shifted.append(pid)
+                else:
+                    persons_major_shift.append(pid)
+
+            if not rows:
+                self._cached_state = "stable"
+            elif persons_major_shift:
+                self._cached_state = "major_shift"
+            elif persons_shifted:
+                self._cached_state = "shifted"
+            elif persons_drifting:
+                self._cached_state = "drifting"
+            else:
+                self._cached_state = "stable"
+
+            self._cached_attrs = {
+                "persons_stable": persons_stable,
+                "persons_drifting": persons_drifting,
+                "persons_shifted": persons_shifted,
+                "persons_major_shift": persons_major_shift,
+                "total_unacknowledged_events": total_unack,
+            }
+            _LOGGER.debug(
+                "HouseRoutineStatusSensor: state=%s total_unack=%d",
+                self._cached_state,
+                total_unack,
+            )
+        except Exception as e:
+            _LOGGER.warning(
+                "HouseRoutineStatusSensor update failed: %s", e, exc_info=True
+            )
+        finally:
+            self._last_query_time = now
+
+    @property
+    def native_value(self) -> str | None:
+        """Return worst-case house routine status."""
+        return self._cached_state
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return per-person breakdown."""
+        return self._cached_attrs
 
 
 class OccupancyPercentageTodaySensor(UniversalRoomEntity, SensorEntity):

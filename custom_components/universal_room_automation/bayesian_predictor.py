@@ -964,3 +964,55 @@ def _hour_to_time_bin(hour: int) -> int:
 def _day_type(dt: datetime) -> int:
     """Return 0 for weekday, 1 for weekend."""
     return 1 if dt.weekday() >= 5 else 0
+
+
+async def is_cell_stale(
+    database: Any,
+    person_id: str,
+    time_bin: int,
+    day_type: int,
+    days: int,
+) -> bool:
+    """Return True when a (person, time_bin, day_type) cell has no observations
+    within the last `days` days in person_visits.
+
+    time_bin maps hour ranges: 0=night(0-5), 1=morning(6-8), 2=midday(9-11),
+    3=afternoon(12-16), 4=evening(17-20), 5=late(21-23).
+    day_type: 0=weekday (strftime('%w') in 1-5), 1=weekend (0 or 6).
+    Uses _db_read() for WAL-concurrent access. Returns True (stale) on any
+    exception so callers default to the safer "away_typical" path rather than
+    showing a spurious prediction.
+    """
+    # SQLite strftime('%H', ...) returns 00-23; %w returns 0=Sun..6=Sat.
+    _TIME_BIN_HOUR_RANGES = {
+        0: (0, 5),   # NIGHT
+        1: (6, 8),   # MORNING
+        2: (9, 11),  # MIDDAY
+        3: (12, 16), # AFTERNOON
+        4: (17, 20), # EVENING
+        5: (21, 23), # LATE
+    }
+    try:
+        from datetime import timedelta as _td
+        cutoff = dt_util.utcnow() - _td(days=days)
+        cutoff_iso = cutoff.isoformat()
+        hour_min, hour_max = _TIME_BIN_HOUR_RANGES.get(time_bin, (0, 23))
+        # day_type 0=weekday (%w in 1-5), day_type 1=weekend (%w in 0,6)
+        if day_type == 0:
+            dow_clause = "CAST(strftime('%w', entry_time) AS INTEGER) BETWEEN 1 AND 5"
+        else:
+            dow_clause = "CAST(strftime('%w', entry_time) AS INTEGER) IN (0, 6)"
+        async with database._db_read() as db:
+            cursor = await db.execute(
+                f"""SELECT 1 FROM person_visits
+                   WHERE person_id = ?
+                     AND entry_time >= ?
+                     AND CAST(strftime('%H', entry_time) AS INTEGER) BETWEEN ? AND ?
+                     AND {dow_clause}
+                   LIMIT 1""",
+                (person_id, cutoff_iso, hour_min, hour_max),
+            )
+            row = await cursor.fetchone()
+            return row is None
+    except Exception:
+        return True

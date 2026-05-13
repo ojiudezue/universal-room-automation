@@ -1,6 +1,6 @@
 """Number platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.6.1.1
+# Universal Room Automation vv4.6.2
 # Build: 2026-01-02
 # File: number.py
 #
@@ -56,6 +56,13 @@ async def async_setup_entry(
             ArbitrageChargeLeadTimeNumber(hass, entry),
             # v4.3.3: EV battery drain SOC slider
             EVBatteryDrainSOCNumber(hass, entry, 50),
+            # v4.6.2 D3: Bayesian cell staleness window (default 14 days)
+            BayesianCellStalenessNumber(hass, entry),
+            # v4.6.2 D6: routine notification tunables
+            RoutineEventCooldownDaysNumber(hass, entry),
+            RoutineEventMinSeverityNumber(hass, entry),
+            RoutineRegimeBaselineWindowNumber(hass, entry),
+            RoutineRegimeRecentWindowNumber(hass, entry),
         ]
         # v4.5.10: 7 HVAC tunable Number entities on the HVAC Coordinator device.
         # Each is a runtime slider; form values seed install-time only,
@@ -760,6 +767,253 @@ class EVBatteryDrainSOCNumber(NumberEntity, RestoreEntity):
         self._push_to_coordinator()
         self.async_write_ha_state()
         _LOGGER.info("EV battery drain SOC threshold set to %d%%", int(value))
+
+
+# ===========================================================================
+# v4.6.2 D3 — Bayesian cell staleness window (Coordinator Manager device)
+# ===========================================================================
+
+
+class BayesianCellStalenessNumber(NumberEntity, RestoreEntity):
+    """Days of inactivity after which a Bayesian cell is considered stale.
+
+    v4.6.2 D3: PersonLikelyNextRoomSensor checks this before the frequency
+    learner fallback. If the cell has had no person_visits observations within
+    this many days AND geofence says away, the sensor returns "away_typical"
+    instead of "unknown". Covers school/work absences, seasonal transitions,
+    vacations.
+
+    Default 14 — two weeks captures most school/work-week patterns without
+    being so long it suppresses the detector during genuine routine changes.
+    Range 7-90 covers one-week to three-month transitions.
+
+    RestoreEntity is the canonical runtime store per feedback_ura_mirror_pattern.
+    entry.options value is the install-time seed only.
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:calendar-clock"
+    _attr_native_min_value = 7
+    _attr_native_max_value = 90
+    _attr_native_step = 1
+    _attr_native_unit_of_measurement = UnitOfTime.DAYS
+    _attr_mode = NumberMode.BOX
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        from homeassistant.helpers.device_registry import DeviceInfo
+        self.hass = hass
+        self._entry = entry
+        self._attr_unique_id = f"{DOMAIN}_bayesian_cell_staleness_days"
+        self._attr_name = "Bayesian Cell Staleness Days"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "coordinator_manager")},
+            name="URA: Coordinator Manager",
+            manufacturer="Universal Room Automation",
+            model="Coordinator Manager",
+            sw_version=VERSION,
+        )
+        config = {**entry.data, **entry.options}
+        self._value = int(config.get("bayesian_cell_staleness_days", 14))
+
+    @property
+    def native_value(self) -> float:
+        return self._value
+
+    @property
+    def available(self) -> bool:
+        return True
+
+    async def async_added_to_hass(self) -> None:
+        """Restore last value on startup."""
+        await super().async_added_to_hass()
+        last_state = await self.async_get_last_state()
+        if last_state is not None and last_state.state not in ("unknown", "unavailable"):
+            try:
+                self._value = int(float(last_state.state))
+            except (ValueError, TypeError):
+                pass
+
+    async def async_set_native_value(self, value: float) -> None:
+        """Persist new staleness window."""
+        self._value = int(value)
+        self.async_write_ha_state()
+        _LOGGER.info("Bayesian cell staleness window set to %d days", int(value))
+
+
+# ===========================================================================
+# v4.6.2 D6 — Routine notification + algorithm tunable Number entities
+# ===========================================================================
+# Four Number entities on the Coordinator Manager device. All use
+# RestoreEntity as the runtime store (feedback_ura_mirror_pattern: entry.options
+# is the install-time seed, not the live source of truth).
+# Two advanced window tunables are entity_registry_enabled_default=False so
+# they don't clutter the device page but are accessible when needed.
+
+
+class _RoutineNumberBase(NumberEntity, RestoreEntity):
+    """Shared base for D6 routine Number entities.
+
+    Subclasses declare class-level _attr_* values and provide:
+      _conf_key   — key in entry.options / const.py CONF_*
+      _default    — fallback if no entry option and no restored state
+      _log_label  — human-readable name for _LOGGER.info
+    """
+
+    _attr_has_entity_name = True
+    _attr_mode = NumberMode.BOX
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_entity_registry_enabled_default = True  # may be overridden in subclass
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .const import VERSION
+        self.hass = hass
+        self._entry = entry
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "coordinator_manager")},
+            name="URA: Coordinator Manager",
+            manufacturer="Universal Room Automation",
+            model="Coordinator Manager",
+            sw_version=VERSION,
+        )
+        merged = {**entry.data, **entry.options}
+        self._value: int = int(merged.get(self._conf_key, self._default))
+
+    @property
+    def native_value(self) -> float:
+        return self._value
+
+    @property
+    def available(self) -> bool:
+        return True
+
+    async def async_added_to_hass(self) -> None:
+        """Restore last value on startup (RestoreEntity mirror pattern)."""
+        await super().async_added_to_hass()
+        last_state = await self.async_get_last_state()
+        if (
+            last_state is not None
+            and last_state.state not in ("unknown", "unavailable")
+        ):
+            try:
+                self._value = int(float(last_state.state))
+            except (ValueError, TypeError):
+                pass
+
+    async def async_set_native_value(self, value: float) -> None:
+        self._value = int(value)
+        self.async_write_ha_state()
+        _LOGGER.info("%s set to %d", self._log_label, int(value))
+
+
+class RoutineEventCooldownDaysNumber(_RoutineNumberBase):
+    """Per-cell cooldown before re-notifying in event mode (days).
+
+    Default 30. Range 1-365. Prevents alert fatigue for slowly-changing cells.
+    Read by NotificationManager at dispatch time.
+    """
+
+    _attr_icon = "mdi:timer-outline"
+    _attr_native_min_value = 1
+    _attr_native_max_value = 365
+    _attr_native_step = 1
+    _attr_native_unit_of_measurement = UnitOfTime.DAYS
+    _conf_key = "routine_event_cooldown_days"
+    _default = 30
+    _log_label = "Routine event cooldown days"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        self._conf_key = "routine_event_cooldown_days"
+        self._default = 30
+        self._log_label = "Routine event cooldown days"
+        super().__init__(hass, entry)
+        from .const import DOMAIN
+        self._attr_unique_id = f"{DOMAIN}_routine_event_cooldown_days"
+        self._attr_name = "Routine Event Cooldown Days"
+
+
+class RoutineEventMinSeverityNumber(_RoutineNumberBase):
+    """Minimum severity floor for event-mode notifications.
+
+    0=INFO, 1=WARNING (default), 2=CRITICAL. Maps to AnomalySeverity IntEnum.
+    Events below the floor are silently dropped even in event mode.
+    """
+
+    _attr_icon = "mdi:alert-circle-outline"
+    _attr_native_min_value = 0
+    _attr_native_max_value = 2
+    _attr_native_step = 1
+    _attr_native_unit_of_measurement = None
+    _conf_key = "routine_event_min_severity"
+    _default = 1
+    _log_label = "Routine event min severity"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        self._conf_key = "routine_event_min_severity"
+        self._default = 1
+        self._log_label = "Routine event min severity"
+        super().__init__(hass, entry)
+        from .const import DOMAIN
+        self._attr_unique_id = f"{DOMAIN}_routine_event_min_severity"
+        self._attr_name = "Routine Event Min Severity"
+
+
+class RoutineRegimeBaselineWindowNumber(_RoutineNumberBase):
+    """Baseline observation window for JS-divergence algorithm (days).
+
+    Default 56 (8 weeks). Range 28-180. Advanced tunable; disabled by default
+    so it does not appear on the CM device page unless explicitly enabled.
+    Consumed by RegimeDetector._window_days() at run_nightly time.
+    """
+
+    _attr_icon = "mdi:calendar-range"
+    _attr_native_min_value = 28
+    _attr_native_max_value = 180
+    _attr_native_step = 1
+    _attr_native_unit_of_measurement = UnitOfTime.DAYS
+    _attr_entity_registry_enabled_default = False  # advanced tunable
+    _conf_key = "routine_regime_baseline_window_days"
+    _default = 56
+    _log_label = "Regime baseline window days"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        self._conf_key = "routine_regime_baseline_window_days"
+        self._default = 56
+        self._log_label = "Regime baseline window days"
+        super().__init__(hass, entry)
+        from .const import DOMAIN
+        self._attr_unique_id = f"{DOMAIN}_routine_regime_baseline_window_days"
+        self._attr_name = "Regime Baseline Window Days"
+
+
+class RoutineRegimeRecentWindowNumber(_RoutineNumberBase):
+    """Recent observation window for JS-divergence algorithm (days).
+
+    Default 14 (2 weeks). Range 3-56. Advanced tunable; disabled by default.
+    Consumed by RegimeDetector._window_days() at run_nightly time.
+    """
+
+    _attr_icon = "mdi:calendar-today"
+    _attr_native_min_value = 3
+    _attr_native_max_value = 56
+    _attr_native_step = 1
+    _attr_native_unit_of_measurement = UnitOfTime.DAYS
+    _attr_entity_registry_enabled_default = False  # advanced tunable
+    _conf_key = "routine_regime_recent_window_days"
+    _default = 14
+    _log_label = "Regime recent window days"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        self._conf_key = "routine_regime_recent_window_days"
+        self._default = 14
+        self._log_label = "Regime recent window days"
+        super().__init__(hass, entry)
+        from .const import DOMAIN
+        self._attr_unique_id = f"{DOMAIN}_routine_regime_recent_window_days"
+        self._attr_name = "Regime Recent Window Days"
 
 
 # ===========================================================================

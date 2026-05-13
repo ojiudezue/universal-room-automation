@@ -1,6 +1,6 @@
 """Button platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.6.1.1
+# Universal Room Automation vv4.6.2
 # Build: 2026-01-04
 # File: button.py
 #
@@ -44,6 +44,8 @@ async def async_setup_entry(
             ClearBayesianBeliefsButton(hass, entry),
             # v4.5.12 D10: diagnostic dump button (house-wide, on HVAC device)
             HVACACRampDiagnosticDumpButton(hass, entry),
+            # v4.6.2 D5: acknowledge all unacknowledged routine shift events
+            AcknowledgeRoutineChangesButton(hass, entry),
         ]
         # v4.5.11: 3 buttons per AC zone (force_nudge / cancel_nudge /
         # clear_lockout). Discovers zones from Zone Manager entries — same
@@ -910,3 +912,68 @@ class HVACACRampDiagnosticDumpButton(ButtonEntity):
             _LOGGER.warning(
                 "AC ramp diagnostic dump notification failed: %s", e,
             )
+
+
+# ============================================================================
+# v4.6.2 D5 — Acknowledge Routine Changes Button
+# ============================================================================
+
+
+class AcknowledgeRoutineChangesButton(ButtonEntity):
+    """Acknowledge all unacknowledged routine-shift events house-wide.
+
+    Entity: button.ura_coordinator_manager_acknowledge_routine_changes
+    Device: URA: Coordinator Manager
+
+    Press → sets recovery_at=now on every unacknowledged bayesian.routine_shift
+    row in anomaly_log. Dispatches SIGNAL_ROUTINE_STATUS_UPDATE so D5 sensors
+    immediately reflect the cleared state.
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:check-circle-outline"
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        self.hass = hass
+        self._entry = entry
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .const import VERSION
+        self._attr_unique_id = f"{DOMAIN}_acknowledge_routine_changes"
+        self._attr_name = "Acknowledge Routine Changes"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "coordinator_manager")},
+            name="URA: Coordinator Manager",
+            manufacturer="Universal Room Automation",
+            model="Coordinator Manager",
+            sw_version=VERSION,
+        )
+
+    @property
+    def available(self) -> bool:
+        """Available when the database is reachable."""
+        return self.hass.data.get(DOMAIN, {}).get("database") is not None
+
+    async def async_press(self) -> None:
+        """Mark all unacknowledged routine shifts as recovered, then refresh sensors."""
+        database = self.hass.data.get(DOMAIN, {}).get("database")
+        if database is None:
+            _LOGGER.warning("AcknowledgeRoutineChangesButton: database not available")
+            return
+        try:
+            rows_updated = await database.acknowledge_all_routine_shifts()
+            _LOGGER.info(
+                "Routine changes acknowledged: %d events cleared", rows_updated
+            )
+        except Exception as e:
+            _LOGGER.warning(
+                "AcknowledgeRoutineChangesButton: acknowledge failed: %s",
+                e, exc_info=True,
+            )
+            return
+
+        # Refresh D5 sensors immediately — function-local import (Bug Class #34)
+        from homeassistant.helpers.dispatcher import async_dispatcher_send
+        from .domain_coordinators.signals import SIGNAL_ROUTINE_STATUS_UPDATE
+        async_dispatcher_send(self.hass, SIGNAL_ROUTINE_STATUS_UPDATE)
