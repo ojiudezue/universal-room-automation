@@ -1346,6 +1346,15 @@ class EnergyCoordinator(BaseCoordinator):
             # v4.3.0 D6: surface the anomaly to EnvoyStatusSensor so it can
             # flip from "online" to "stale" even when state objects are fresh.
             self._envoy_data_anomaly_at = dt_util.now().isoformat()
+            # v4.6.1 canary: also persist to unified anomaly_log via AnomalyEvent.
+            # Parallel write — existing in-memory flag and sensor derivation unchanged.
+            self.hass.async_create_task(
+                self._store_crosscheck_anomaly_event(
+                    envoy_today_kwh=envoy_today_kwh,
+                    our_delta_kwh=our_delta_kwh,
+                    divergence_pct=divergence_pct,
+                )
+            )
         elif divergence_pct < 5 and self._envoy_data_anomaly_at is not None:
             # v4.3.0 Review M15 fix: clear anomaly on recovery so the sensor
             # reflects current reality, not a stale 1-hour stale window.
@@ -1379,6 +1388,40 @@ class EnergyCoordinator(BaseCoordinator):
                 cbd = self._get_lifetime_battery_discharged()
                 if cbd is not None:
                     self._lifetime_battery_discharged_snapshot = cbd
+
+    async def _store_crosscheck_anomaly_event(
+        self,
+        envoy_today_kwh: float,
+        our_delta_kwh: float,
+        divergence_pct: float,
+    ) -> None:
+        """Persist energy cross-check divergence as a unified AnomalyEvent.
+
+        v4.6.1 canary migration: parallel write alongside the existing
+        in-memory _envoy_data_anomaly_at flag. The sensor's stale-derivation
+        logic is unaffected — this only adds DB persistence.
+        """
+        from .anomaly_event import AnomalyEvent, AnomalySeverity
+        from homeassistant.util import dt as _dt_util
+
+        db = self.hass.data.get(_DOMAIN, {}).get("database")
+        if db is None:
+            return
+
+        event = AnomalyEvent(
+            coordinator="energy",
+            type="energy.crosscheck_divergence",
+            severity=AnomalySeverity.WARNING,
+            event_class="point_in_time",
+            detected_at=_dt_util.utcnow().isoformat(),
+            payload={
+                "envoy_today_kwh": envoy_today_kwh,
+                "our_delta_kwh": our_delta_kwh,
+                "divergence_pct": round(divergence_pct, 2),
+            },
+            entity_id=self._entity_consumption_today,
+        )
+        await db.save_anomaly_event(event)
 
     # =========================================================================
     # v3.11.0 D1/D2: Energy History + External Conditions Logging

@@ -223,3 +223,18 @@ def test_d5_uses_async_schedule_update(sensor_src: str):
     assert "async_create_task" not in class_body, (
         "D5: must not spawn untracked tasks from _handle_update"
     )
+
+
+# ===========================================================================
+# UX fix: percent unit on state
+# ===========================================================================
+
+
+def test_d5_carries_percentage_unit(sensor_src: str):
+    """D5 must declare PERCENTAGE as native_unit_of_measurement."""
+    class_start = sensor_src.find("class HouseNextRoomAccuracySensor(")
+    class_end = sensor_src.find("\nclass ", class_start + 1)
+    class_body = sensor_src[class_start:class_end] if class_end > class_start else sensor_src[class_start:]
+    assert "_attr_native_unit_of_measurement = PERCENTAGE" in class_body, (
+        "D5: must declare _attr_native_unit_of_measurement = PERCENTAGE"
+    )

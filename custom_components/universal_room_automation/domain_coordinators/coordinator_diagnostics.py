@@ -834,43 +834,63 @@ class AnomalyDetector:
             }
         return summary
 
-    async def store_anomaly(self, anomaly: AnomalyRecord) -> Optional[int]:
-        """Store an anomaly record in the database."""
+    async def store_event(self, event: "AnomalyEvent") -> Optional[int]:
+        """Canonical writer for AnomalyEvent — delegates to the single
+        database DAO so callers without an AnomalyDetector ref can use
+        the same write path (v4.6.1 D0 / review fix B2).
+        """
         database = self._database
         if database is None:
             return None
+        row_id = await database.save_anomaly_event(event)
+        if row_id is not None:
+            _LOGGER.info(
+                "Stored AnomalyEvent: coordinator=%s type=%s severity=%s class=%s",
+                event.coordinator, event.type, event.severity.name, event.event_class,
+            )
+        return row_id
 
-        try:
-            async with database._db() as db:
-                cursor = await db.execute("""
-                    INSERT INTO anomaly_log
-                    (timestamp, coordinator_id, scope,
-                     metric_name, observed_value,
-                     expected_mean, expected_std, z_score,
-                     severity, sample_size, house_state,
-                     context_json, resolved, resolution_notes)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """, (
-                    anomaly.timestamp.isoformat(),
-                    anomaly.coordinator_id,
-                    anomaly.scope,
-                    anomaly.metric_name,
-                    anomaly.observed_value,
-                    anomaly.expected_mean,
-                    anomaly.expected_std,
-                    anomaly.z_score,
-                    anomaly.severity.value,
-                    anomaly.sample_size,
-                    anomaly.house_state,
-                    json.dumps(anomaly.context),
-                    anomaly.resolved,
-                    anomaly.resolution_notes,
-                ))
-                await db.commit()
-                return cursor.lastrowid
-        except Exception as e:
-            _LOGGER.error("Error storing anomaly: %s", e)
-            return None
+    async def store_anomaly(self, anomaly: AnomalyRecord) -> Optional[int]:
+        """Store an anomaly record in the database.
+
+        Thin wrapper: constructs an AnomalyEvent with event_class='point_in_time'
+        and delegates to store_event() for a single write path (v4.6.1 D0).
+        The legacy AnomalyRecord fields that have no AnomalyEvent equivalent
+        (expected_mean, expected_std, z_score, sample_size) are preserved in
+        the payload so existing callers lose no data.
+        """
+        from .anomaly_event import AnomalyEvent, AnomalySeverity as _NewSeverity
+
+        # Map old 4-level severity to new 3-level IntEnum
+        _severity_map = {
+            AnomalySeverity.NOMINAL: _NewSeverity.INFO,
+            AnomalySeverity.ADVISORY: _NewSeverity.WARNING,
+            AnomalySeverity.ALERT: _NewSeverity.WARNING,
+            AnomalySeverity.CRITICAL: _NewSeverity.CRITICAL,
+        }
+        new_severity = _severity_map.get(anomaly.severity, _NewSeverity.WARNING)
+
+        event = AnomalyEvent(
+            coordinator=anomaly.coordinator_id,
+            type=f"{anomaly.coordinator_id}.{anomaly.metric_name}",
+            severity=new_severity,
+            event_class="point_in_time",
+            detected_at=anomaly.timestamp.isoformat(),
+            payload={
+                "scope": anomaly.scope,
+                "metric_name": anomaly.metric_name,
+                "observed_value": anomaly.observed_value,
+                "expected_mean": anomaly.expected_mean,
+                "expected_std": anomaly.expected_std,
+                "z_score": anomaly.z_score,
+                "sample_size": anomaly.sample_size,
+                "house_state": anomaly.house_state,
+                "context": anomaly.context,
+                "resolved": anomaly.resolved,
+                "resolution_notes": anomaly.resolution_notes,
+            },
+        )
+        return await self.store_event(event)
 
     async def get_anomaly_count(self, days: int = 1) -> int:
         """Get count of anomalies in recent period."""

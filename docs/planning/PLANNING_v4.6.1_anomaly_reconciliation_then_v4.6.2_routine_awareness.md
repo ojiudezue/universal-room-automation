@@ -227,9 +227,18 @@ Press → marks all current unacknowledged events for that person as `recovery_a
 
 ### D6 — B7 notification surface (Phase 2, opt-in)
 
-**File:** `domain_coordinators/notification_manager.py`, `config_flow.py`
+**File:** `domain_coordinators/notification_manager.py`, `select.py`, `number.py`
 
-**CM option**: `routine_change_notification_mode`: `silent` (default) | `weekly_digest` | `event` (cooldown 30d per cell)
+**LOCKED 2026-05-13: Select + Number entities on CM device, NOT config_flow option.** Discoverability wins; user feedback was "I will forget in those timeframes" if it's hidden behind ⋮ Configure on the integration card.
+
+- `select.ura_coordinator_manager_routine_change_notification_mode` — options `silent` (default) | `weekly_digest` | `event`
+- `number.ura_coordinator_manager_routine_event_cooldown_days` — default 30 (event-mode per-cell cooldown)
+- `number.ura_coordinator_manager_routine_event_min_severity` — default 1 (1=WARNING floor, 2=CRITICAL floor)
+- Two advanced tunables (`entity_registry_enabled_default=False`) for D4 calibration:
+  - `number.ura_coordinator_manager_regime_baseline_window_days` (default 56)
+  - `number.ura_coordinator_manager_regime_recent_window_days` (default 14)
+
+All on Coordinator Manager device, matches v4.6.0 accuracy-sensor placement precedent.
 
 **Privacy**: notification copy is neutral ("routine pattern shift detected for {person} in {time_bin}"). Not alarming. Not diagnostic.
 
@@ -241,11 +250,25 @@ Press → marks all current unacknowledged events for that person as `recovery_a
 - **Test**: `test_weekly_digest_aggregates_per_week`
 - **Live**: post-warm-up, weekly_digest produces a sensible report after one week of stable data
 
-## Open questions
+## Open questions — CLOSED 2026-05-13
 
-1. **`bayesian_cell_staleness_days`** default (currently 14) — survey didn't address. Should it be configurable per-person? (Probably no — single global setting.)
-2. **D2 retention period** (default 90 days) — should regime-shift events have a longer retention than point-in-time? (Probably yes — they're rarer and more historically interesting.)
-3. **D4 baseline window 56 days** vs recent 14 days — calibration depends on actual obs density. Should be tuned during the silent warm-up. Worth surfacing as a config option to allow user-driven adjustment.
+1. **`bayesian_cell_staleness_days`** default — **CLOSED: 14 days, single global config** (Number entity on CM Configuration cluster). 2 weeks captures school/work routine staleness; per-person is over-engineering for a single-user household.
+2. **D2 retention period** — **CLOSED: 90 days for point-in-time; 365 days for `event_class='regime_shift'`.** D2 cleanup query branches on event_class. Regime shifts are rare + historically interesting (multi-month context); year-long retention is cheap.
+3. **D4 baseline window 56d vs recent 14d** — **CLOSED: ship 56/14 defaults; surface BOTH as Number entities** with `entity_registry_enabled_default=False` (advanced tunables). Academic JS-divergence defaults are reasonable starting point; tunable without code change post-soak.
+
+## Renumbering and ship sequence — UPDATED 2026-05-13
+
+Original plan said "Phases 1+2 ship as v4.6.0, Phase 3 as v4.6.1." v4.6.0 was used by the **per-person `likely_next_room` accuracy pipeline** (separate cycle, shipped 2026-05-12). Routine Awareness reshuffled:
+
+- **v4.6.1 — D0/D1/D2 reconciliation only.** ~260 prod / ~150 test LOC. Ships silent (no user-visible change). Validates `AnomalyEvent` unified shape via two canary migrations.
+- **v4.6.2 — D3 + D4 + D5 + D6 features bundled.** ~630 prod / ~430 test LOC. D6 defaults to `silent` mode — notifications shipped-but-dormant until user opts in. This avoids the multi-week calibration gate that risks being forgotten.
+
+D7 add-in (NEW, 2026-05-13): the v4.6.0 accuracy data is now a complementary regime-shift signal. D4 SHOULD also fire on sharp accuracy drops (e.g., 7-day rolling top-1 hit rate drops > 30 pp from 30-day baseline) per `(person, time_bin, day_type)` cell where computable. Estimate +50 prod / +30 test LOC folded into v4.6.2.
+
+## Schema citations closed
+
+- `person_visits` table: `database.py:472-487`. Has `person_id`, `room_id`, `entry_time`. `time_bin` / `day_type` derived in Python via `bayesian_predictor._hour_to_time_bin()` + `_day_type()` (existing helpers). No new migration needed.
+- `prediction_results` table: `database.py:1018+`. `person_id TEXT` column added by v4.6.0. D7 reads `prediction_type='next_room'` rows to compute accuracy delta.
 
 ## Migration of legacy anomaly touchpoints (canaries)
 
