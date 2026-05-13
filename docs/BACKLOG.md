@@ -514,28 +514,67 @@ No new attribute tracking needed. No new signal subscriptions. No camera/BLE bra
 - Live evidence: HA history for `binary_sensor.ziri_bedroom_bedroom_5_motion` + `_sensor_presence` on 2026-05-11 21:19 CDT → 2026-05-12 01:19 CDT shows motion went stale 03:55 → 05:07 UTC (72 min) while presence stayed continuously ON. Failsafe fired at 06:19:42 UTC; presence was still ON at that moment.
 - Master Bedroom also observed failsafing earlier in same session — pattern confirmed across multiple bedrooms.
 
-## Debug-swallow audit (after v4.5.17, no slot)
+## v4.5.x — Periodic-closure swallow audit (wider scope)
 
-**Status:** Filed during v4.5.17 review. Same bug-shape audit, broader scope.
+**Status:** Filed during v4.5.17 review, REFINED 2026-05-12 CDT after grepping `__init__.py` showed only 5 real swallow sites, all one-shot migrations/prunes (low value). The original audit scope is mostly already clean. **The actual hunt is in the OTHER files** — periodic closures elsewhere in the codebase are where the next v4.5.17-shape silent killer is most likely hiding.
 
-**Finding:** `__init__.py` has ~15 `_LOGGER.debug` calls in `except` blocks — the same shape that hid the v4.5.16 Phase 1 NameError for ~6 months. Most are migration/prune paths where debug-level swallow is appropriate (one-time cleanups where failure is recoverable). But periodic closures with debug-swallow are a known risk shape.
+### Scope (revised)
 
-### Audit scope (~30 min)
+Audit periodic-closure (`async_track_time_change`, `async_track_time_interval`, `async_track_state_change`, dispatcher subscriptions in `DataUpdateCoordinator._async_update_data`) call sites in:
 
-1. Grep `__init__.py` for `_LOGGER.debug` inside `except` blocks
-2. For each, classify:
-   - **Periodic closure** (registered with `async_track_time_change`, `async_track_time_interval`, or similar) → ESCALATE to warning + exc_info (matching v4.5.16 Phase 1 pattern)
-   - **One-shot migration/prune** → leave as debug (intentional silence is correct here)
-   - **Event handler** (registered on hass.bus) → escalate to warning if event misses are user-visible; debug if event is purely best-effort
-3. Same audit on other periodic-closure files: `coordinator.py`, `aggregation.py`, `domain_coordinators/*.py`
+1. **`coordinator.py`** (room coordinator, runs every 30s — periodic)
+2. **`domain_coordinators/*.py`** (each runs every 5 min — periodic)
+   - hvac.py, energy.py, presence.py, safety.py, security.py, music_following.py, notification_manager.py
+3. **`aggregation.py`** (whole-house sensors, may register periodic timers)
+4. **`bayesian_predictor.py`** (already audited and fixed)
+
+For each periodic closure, look for `except Exception:` blocks containing `_LOGGER.debug(...)` as the SOLE handler. That's the v4.5.17 shape — every fire that throws is invisible.
+
+### Why this is higher value than the `__init__.py` audit
+
+`__init__.py` is mostly setup code — it runs once at startup. A failure there is usually visible (something didn't initialize, integration won't load, etc.).
+
+Periodic closures fire continuously for the lifetime of HA. A `_LOGGER.debug` swallow can hide a NameError, KeyError, AttributeError, ImportError, etc. that fires every cycle and silently breaks the feature for **months** (as the Bayesian eval bug did).
+
+### Audit procedure
+
+1. Grep each file for `async_track_time_*` and `async_dispatcher_connect` registrations
+2. Trace the registered callback to its definition
+3. Inside each callback, find `except` blocks
+4. Classify the `_LOGGER` level in the handler:
+   - `_LOGGER.error` + traceback → fine
+   - `_LOGGER.warning` + exc_info → fine
+   - `_LOGGER.exception` → fine (auto-traceback)
+   - `_LOGGER.warning` no exc_info → recommend adding `exc_info=True`
+   - `_LOGGER.info` → flag
+   - **`_LOGGER.debug` → ESCALATE** (the v4.5.17 shape — silent killer)
+   - no log at all (bare `pass` or `continue`) → also flag
+
+### Expected outcome
+
+Probably 0-5 sites needing escalation. Bayesian eval was the canonical case; URA's other periodic paths tend to use warning or error already. The audit is preventative.
+
+If even one new silent-NameError-class bug surfaces from this audit, the cycle pays for itself.
 
 ### Cost
 
-~50 LoC across multiple files (changing log level + adding exc_info). Tests: AST regression assertions that no `_LOGGER.debug(...)` is the SOLE handler in an `except Exception` block of a periodic closure. ~30 LoC tests.
+- Audit (read-only): ~45 min across ~10 files
+- Fixes (escalations): ~20 LoC (1-3 LoC per escalation)
+- Tests: AST regression asserting no periodic-closure callback has a sole `_LOGGER.debug` handler in its `except` clause. ~40 LoC.
+- Tier 1 (single staff-engineer review).
 
-Tier 1.
+**Promotion criteria:** if audit reveals more than 5 sites OR any site looks behaviorally questionable beyond log-level (e.g., the except catches too broadly, the cycle calls async-unsafe code in the except, etc.), promote to feature cycle.
 
-**Promotion criteria:** if audit reveals more than 5 sites needing escalation, scope as a feature cycle and review each escalation individually. Otherwise minor.
+### Note on the narrower `__init__.py` audit
+
+After grepping during v4.5.18 prep, the original "~15 sites" estimate was high. Real classification:
+- ~10 sites: "normal-skip" debug logs (informational; not exception swallows)
+- ~4 sites: init sequence trace logs (not exception swallows)
+- 2 sites: v4.5.16/17 fix sites already at WARNING + exc_info
+- **0 sites: periodic closures with debug-swallow** (the dangerous shape)
+- ~5 sites: one-shot migration/prune exception swallows (lower stakes — failures recur every startup or daily and eventually surface)
+
+The 5 one-shot sites could be escalated as a low-priority polish item rolled into the next `__init__.py` touch. Not worth a standalone cycle.
 
 ## v4.5.16 Phase 2 carry-overs (after Phase 1 ships)
 
@@ -545,6 +584,20 @@ Filed during v4.5.16 Tier 1 review. Non-blocking; fold into Phase 2 cycle when w
 2. **Min-floor on stale-threshold** in `coordinator.py:_get_failsafe_duration_seconds` callers. A user-customized very-low `_occupancy_timeout` (e.g. 30s) collapses the failsafe gate's stale threshold to 60s — burst-detect mmWave devices with `off_delay` near 60s could legitimately silence. Suggest `max(2 * occupancy_timeout, 180)`.
 3. **Max-cap on stale-threshold.** A user-customized very-high `_occupancy_timeout` (e.g. 7200s) gives a 4-hr threshold equal to the failsafe ceiling — effectively never-fires. Suggest cap at `failsafe_seconds / 2`.
 4. **Parallel clock-skew clamp at `coordinator.py:1517`** — Tier 2 BLE hardening (`motion_age = (now - self._last_motion_time).total_seconds()`) has the same `negative < positive` pathology. The v4.5.16 clamp at the failsafe gate defends that one site; do the same here.
+
+## v4.5.x — Post-v4.5.19 follow-ups (filed during Tier 2 review)
+
+**Status:** Non-blocking carry-overs from v4.5.19 review. Both observability/hardening — small.
+
+1. **Bayesian prior recomputation from deduplicated transitions.** v4.5.19 stops the duplicate-write bleed but the 11k existing duplicate rows in `room_transitions` continue to inflate priors until they age out of the 90-day window. Options:
+   - Accept gradual decay (priors self-correct over ~90 days as fresh deduplicated rows accumulate)
+   - Force a one-time prior rebuild that dedups the 90-day window (~50 LoC + DB migration)
+   - Add a UNIQUE constraint on `(person_id, second_truncated_ts, from_room, to_room)` to belt-and-braces the schema (separate, larger scope)
+2. **Chaotic-unload test coverage.** v4.5.19's `async_teardown` defensively handles teardown-before-init and unsub-raises-during-call, but the existing 11 tests don't explicitly exercise those paths. Add 2 small behavior tests:
+   - Construct detector, do NOT call async_init, call teardown — assert no crash
+   - Stub `_unsub_bus` to raise on call, call teardown — assert warning log fires and `_unsub_cleanup` still runs
+
+Promotion: ship as part of any v4.5.x cycle that touches `transitions.py` or as a small standalone cycle when noticed.
 
 ## Anomaly sensor refresh signals (Presence + MF) — ready to ship
 

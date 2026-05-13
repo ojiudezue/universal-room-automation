@@ -1530,6 +1530,61 @@ When changing a helper's return shape, grep every call site, then read each rece
 
 ---
 
+### Bug Class #38: Discarded `async_listen` Unsubscribe → Listener Leak Across Reload ⚠️
+
+**Pattern:** A class registers an event-bus listener (`hass.bus.async_listen(...)`) or a periodic timer (`async_track_time_interval(...)`, `async_track_time_change(...)`) and **DISCARDS the unsubscribe callable** that the helper returns. The integration's unload path deletes the class instance from `hass.data` but never calls a teardown method that invokes the captured unsub.
+
+After N reloads of the URA config entry, there are N+1 active listeners — every reload adds one, none get removed. Each fires the same callback for each event, producing N+1 calls per logical event.
+
+**Why it's invisible:** the leak is silent — listeners are bound objects living inside HA's internal `_listeners` dict, with no count exposed to operators. The user only notices via secondary effects (duplicate DB writes, multiple downstream actions per event, etc.) that take weeks or months to surface.
+
+**Impact (TransitionDetector case — v4.5.19):**
+- Every reload leaked one `_on_location_change` handler
+- Each leaked handler called `_log_transition` → `database.log_transition` → `INSERT INTO room_transitions`
+- 11,284 byte-identical duplicate rows out of 134,569 (8.4%) over 90 days
+- `_build_priors_from_transitions` aggregates counts WITHOUT timestamp dedup, so duplicates inflated Bayesian priors
+- Predictions skewed toward recent transitions (more accumulated reloads = more weight)
+
+**Detection (AST + source-grep):**
+
+```python
+# RED FLAG patterns:
+self.hass.bus.async_listen("event_name", self._on_event)  # return discarded
+async_track_time_interval(self.hass, self._cleanup, delta)  # return discarded
+async_track_time_change(self.hass, self._tick, ...)  # return discarded
+
+# CORRECT shape:
+self._unsub_bus = self.hass.bus.async_listen("event_name", self._on_event)
+# ... plus an async_teardown(self) method that calls self._unsub_bus()
+# ... plus the integration's async_unload_entry calls await obj.async_teardown()
+
+# OR for entities (preferred when the registration's lifecycle matches an entity's):
+self.async_on_remove(
+    self.hass.bus.async_listen("event_name", self._on_event)
+)
+```
+
+**Detection (audit):**
+For every class outside `Entity` subclasses that calls `async_listen`/`async_track_*`, verify:
+1. Return value captured into a `self._unsub_*` field
+2. Class has an `async_teardown` (or similar release method)
+3. The integration's `async_unload_entry` calls teardown for that instance BEFORE removing the instance from `hass.data`
+
+**Historical Example:**
+- **v4.5.19:** `TransitionDetector.async_init` at `transitions.py:74` called `self.hass.bus.async_listen(...)` and discarded the return. `__init__.py:2266-2268` deleted the detector from `hass.data` without teardown. Latent for 6+ months across countless reloads. Caught by the v4.5.18 dedup-key widening (which falsified the multi-step hypothesis and pointed at "true duplicate writes" — leading to the listener-leak diagnosis).
+
+**Prevention:**
+- [ ] In code review of any class that calls `hass.bus.async_listen`, `async_track_time_*`, or `async_dispatcher_connect`, confirm the return value is captured.
+- [ ] In code review of integration unload paths (`async_unload_entry`), confirm every captured unsub is called via a teardown method.
+- [ ] If a class is short-lived (matches a single entity's lifecycle), prefer `async_on_remove(...)` to capture cleanup automatically.
+- [ ] Test fixture: spin the integration up, reload it N times, assert `len(hass.bus.async_listeners().get("event_name", []))` stays at 1 (or at the expected steady-state count). Mirror the `test_reload_simulation_no_listener_leak` pattern in `test_v4519_transition_detector_teardown.py`.
+
+**Discovered:** v4.5.19
+**Impact:** 8.4% byte-identical duplicate DB writes; biased Bayesian priors; could silently affect prediction accuracy on any URA install
+**Severity:** HIGH (latent prediction-quality bug; invisible without DB inspection)
+
+---
+
 ## ✅ MANDATORY VALIDATION CHECKLIST
 
 **Before EVERY deployment, complete this checklist:**

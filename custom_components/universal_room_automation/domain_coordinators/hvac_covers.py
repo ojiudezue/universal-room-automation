@@ -452,10 +452,17 @@ class CoverController:
                 if automation is not None and hasattr(automation, "is_cover_currently_intended_open"):
                     try:
                         intended_open = automation.is_cover_currently_intended_open(now)
-                    except Exception as e:
-                        _LOGGER.debug(
-                            "HVAC Covers: intent check failed for %s (%s) — "
-                            "defaulting to skip", entity_id, e,
+                    except Exception:
+                        # v4.5.20: was debug. If is_cover_currently_intended_open
+                        # raises (e.g., method renamed during refactor, room
+                        # automation schema change), every owned cover gets
+                        # silently skipped permanently. HVAC cover automation
+                        # dies invisibly; user assumes feature is off.
+                        _LOGGER.warning(
+                            "HVAC Covers: intent check failed for %s — "
+                            "defaulting to skip (cover will not move)",
+                            entity_id,
+                            exc_info=True,
                         )
                         return False
                     if not intended_open:

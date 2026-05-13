@@ -1734,8 +1734,15 @@ class EnergyCoordinator(BaseCoordinator):
                             hour=0, minute=0, second=0, microsecond=0,
                         )
                         cycle_start_iso = dt_util.as_utc(cycle_start_local).isoformat()
-            except Exception as exc:
-                _LOGGER.debug("cycle_start parse fell through: %s", exc)
+            except Exception:
+                # v4.5.20: was debug. Inner step inside _refresh_arbitrage_status_cache.
+                # Falling through to today_utc_iso is the recoverable default,
+                # so this stays at WARNING (caller can still compute cycle stats
+                # with the fallback timestamp).
+                _LOGGER.warning(
+                    "Arbitrage: cycle_start parse fell through",
+                    exc_info=True,
+                )
 
             today = await database.query_arbitrage_savings_since(today_utc_iso)
             cycle = await database.query_arbitrage_savings_since(cycle_start_iso)
@@ -1754,8 +1761,16 @@ class EnergyCoordinator(BaseCoordinator):
                 "Arbitrage cache refresh: %.3fs (5 queries)",
                 time.monotonic() - _t_start,
             )
-        except Exception as err:
-            _LOGGER.debug("Arbitrage status cache refresh failed: %s", err)
+        except Exception:
+            # v4.5.20: was debug — HIGH-severity periodic-closure shape per
+            # the v4.5.17 audit. If this throws, every subsequent arbitrage
+            # status sensor reading is stale; user can't tell anything's wrong
+            # without DB inspection. Escalate to WARNING + exc_info.
+            _LOGGER.warning(
+                "Arbitrage status cache refresh failed — sensors will read "
+                "stale until next successful refresh",
+                exc_info=True,
+            )
 
     @property
     def arbitrage_status(self) -> dict[str, Any]:
@@ -1860,8 +1875,17 @@ class EnergyCoordinator(BaseCoordinator):
             try:
                 await self._account_arbitrage_cycle(decision, period, season)
                 await self._refresh_arbitrage_status_cache()
-            except Exception as exc:  # never let accounting break the cycle
-                _LOGGER.debug("Arbitrage cycle accounting skipped: %s", exc)
+            except Exception:  # never let accounting break the cycle
+                # v4.5.20: was debug — HIGH-severity periodic-closure shape.
+                # This is the exact function signature the v4.5.17 NameError
+                # lived in. A failure here silently breaks arbitrage savings
+                # accounting; user-visible only via savings sensor reading
+                # zero/stale for weeks. Escalate to WARNING + exc_info.
+                _LOGGER.warning(
+                    "Arbitrage cycle accounting skipped — savings sensors "
+                    "may not reflect this cycle's activity",
+                    exc_info=True,
+                )
 
             # C1: EVSE battery hold — if any EVSE is charging, override battery
             # reserve to captured SOC so battery doesn't discharge to cover EV load.
@@ -2605,7 +2629,15 @@ class EnergyCoordinator(BaseCoordinator):
                 location=location or None,
             )
         except Exception:
-            _LOGGER.debug("Energy: NM alert failed (non-fatal): %s", title)
+            # v4.5.20: was debug. Soft-escalate — NM alert failure means
+            # operator may miss a notification, but core energy logic
+            # continues. Warning + exc_info gives observability without
+            # alarming on benign NM-not-loaded states.
+            _LOGGER.warning(
+                "Energy: NM alert failed (non-fatal): %s",
+                title,
+                exc_info=True,
+            )
 
     # =========================================================================
     # v3.13.1: DATA PIPELINE HELPERS
@@ -2647,7 +2679,16 @@ class EnergyCoordinator(BaseCoordinator):
                         except (ValueError, TypeError):
                             pass
         except Exception:
-            pass
+            # v4.5.20: was bare `pass`. Energy decision cycle calls this
+            # every ~15 min; silent failure means house-climate context
+            # missing from history snapshots with zero log signal.
+            # Caller accepts (None, None) gracefully, so we still pass
+            # but log first.
+            _LOGGER.warning(
+                "Energy: _get_house_avg_climate iteration failed — "
+                "history snapshots will use None for climate",
+                exc_info=True,
+            )
 
         avg_temp = sum(temps) / len(temps) if temps else None
         avg_humidity = sum(humids) / len(humids) if humids else None
@@ -2679,8 +2720,14 @@ class EnergyCoordinator(BaseCoordinator):
                     self._power_profiles.update(
                         room_id, time_bin, day_type, float(power), is_occupied
                     )
-        except Exception as e:
-            _LOGGER.debug("Power profile update error: %s", e)
+        except Exception:
+            # v4.5.20: was debug. Iterates hass.data registry — mutation
+            # during iteration or coord-data shape changes can silently
+            # halt B4 L2 power profile learning indefinitely. Escalate.
+            _LOGGER.warning(
+                "Power profile update error — B4 L2 learning skipped this cycle",
+                exc_info=True,
+            )
 
     def _collect_room_ids(self) -> list[str]:
         """Collect room names from room config entries.

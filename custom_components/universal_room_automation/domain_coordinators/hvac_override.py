@@ -1861,7 +1861,14 @@ class OverrideArrester:
                 hazard_type="hvac_override",
             )
         except Exception:
-            _LOGGER.debug("HVAC Override: NM alert failed (non-fatal): %s", title)
+            # v4.5.20: was debug. Soft-escalate matching the energy.py NM
+            # alert pattern. Notification miss is non-critical; warning +
+            # exc_info gives observability without alarming.
+            _LOGGER.warning(
+                "HVAC Override: NM alert failed (non-fatal): %s",
+                title,
+                exc_info=True,
+            )
 
     # =========================================================================
     # Status for sensors

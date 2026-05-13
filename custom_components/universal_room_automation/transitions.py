@@ -66,27 +66,79 @@ class TransitionDetector:
         # dict[person_id, list[tuple[from_room, to_room, timestamp]]]
         self._recent_transitions: dict[str, list[tuple[str, str, datetime]]] = {}
 
+        # v4.5.19: track lifecycle handles so async_teardown can release
+        # them on reload. Bug Class candidate: discarded async_listen
+        # unsubscribe → listener leak across reload. The pre-v4.5.19
+        # listener registration discarded its return value; after N
+        # reloads, N+1 _on_location_change handlers fired per event,
+        # producing N+1 INSERT INTO room_transitions for one logical
+        # transition. Verified via DB metric: 11,284 / 134,569 = 8.4%
+        # byte-identical duplicate rows (same person+second+from+to).
+        # The duplicate counts inflated Bayesian priors over time,
+        # biasing predictions toward post-reload-rich periods.
+        self._unsub_bus: Callable | None = None
+        self._unsub_cleanup: Callable | None = None
+
         _LOGGER.info("TransitionDetector initialized")
-    
+
     async def async_init(self) -> None:
         """Initialize detector and subscribe to location changes."""
-        # Subscribe to person location change events via event bus
-        self.hass.bus.async_listen(
+        # v4.5.19: capture the unsub callables so async_teardown can
+        # release the listener registrations on reload. See __init__
+        # docstring for the listener-leak bug class.
+        self._unsub_bus = self.hass.bus.async_listen(
             "ura_person_location_change",
             self._on_location_change
         )
-        
+
         # Start periodic cleanup of old location history
-        async_track_time_interval(
+        self._unsub_cleanup = async_track_time_interval(
             self.hass,
             self._async_cleanup_history,
             timedelta(minutes=5)
         )
-        
+
         _LOGGER.info(
             "TransitionDetector initialized: "
             "Listening for 'ura_person_location_change' events, "
             "cleanup interval=5min"
+        )
+
+    async def async_teardown(self) -> None:
+        """v4.5.19: release listener + timer registrations.
+
+        Called from __init__.py's unload path before the detector is
+        removed from hass.data. Without this, every URA reload leaks
+        an additional _on_location_change handler on the event bus —
+        each leaked handler produces a duplicate INSERT for every
+        transition. See __init__ docstring for the full bug shape.
+
+        Idempotent: safe to call multiple times. After the first call,
+        both unsub references are None.
+        """
+        if self._unsub_bus is not None:
+            try:
+                self._unsub_bus()
+            except Exception:
+                _LOGGER.warning(
+                    "TransitionDetector: bus unsubscribe failed",
+                    exc_info=True,
+                )
+            finally:
+                self._unsub_bus = None
+        if self._unsub_cleanup is not None:
+            try:
+                self._unsub_cleanup()
+            except Exception:
+                _LOGGER.warning(
+                    "TransitionDetector: cleanup-timer unsubscribe failed",
+                    exc_info=True,
+                )
+            finally:
+                self._unsub_cleanup = None
+        _LOGGER.info(
+            "TransitionDetector torn down — event bus listener and "
+            "cleanup timer released"
         )
     
     def set_transit_validator(self, validator) -> None:

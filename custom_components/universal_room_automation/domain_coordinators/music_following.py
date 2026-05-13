@@ -376,10 +376,12 @@ class MusicFollowingCoordinator(BaseCoordinator):
         if self.anomaly_detector is not None:
             try:
                 await self.anomaly_detector.save_baselines()
-            except Exception as exc:
-                _LOGGER.debug(
-                    "MusicFollowingCoordinator: failed to save anomaly baselines: %s",
-                    exc,
+            except Exception:
+                # v4.5.20: was debug. Periodic save; non-critical because
+                # recoverable next save. Soft escalate with exc_info.
+                _LOGGER.warning(
+                    "MusicFollowingCoordinator: failed to save anomaly baselines",
+                    exc_info=True,
                 )
         self._music_following = None
         _LOGGER.info("MusicFollowingCoordinator torn down")
