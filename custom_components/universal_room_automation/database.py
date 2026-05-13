@@ -1,7 +1,7 @@
 """Database for Universal Room Automation."""
 from __future__ import annotations
 #
-# Universal Room Automation vv4.6.1
+# Universal Room Automation vv4.6.1.1
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors
@@ -4193,6 +4193,19 @@ class UniversalRoomDatabase:
         import graph than domain_coordinators.anomaly_event).
         """
         import json as _json
+        # v4.6.1.1 hotfix: anomaly_log legacy schema declares observed_value /
+        # expected_mean / expected_std / z_score / sample_size as NOT NULL.
+        # Legacy callers (via store_anomaly wrapper) pack them into payload;
+        # new AnomalyEvent-style emitters (canaries, regime detector) have no
+        # natural metric value — use 0.0 sentinel to satisfy NOT NULL until
+        # v4.6.2 relaxes the schema via table-rebuild.
+        payload_dict = event.payload if isinstance(event.payload, dict) else {}
+        observed_value = payload_dict.get("observed_value", 0.0)
+        expected_mean = payload_dict.get("expected_mean", 0.0)
+        expected_std = payload_dict.get("expected_std", 0.0)
+        z_score = payload_dict.get("z_score", 0.0)
+        sample_size = payload_dict.get("sample_size", 0)
+        house_state = payload_dict.get("house_state")
         try:
             async with self._db() as db:
                 cursor = await db.execute(
@@ -4210,9 +4223,13 @@ class UniversalRoomDatabase:
                         event.coordinator,
                         "",
                         event.type,
-                        None, None, None, None,
+                        observed_value,
+                        expected_mean,
+                        expected_std,
+                        z_score,
                         int(event.severity),
-                        None, None,
+                        sample_size,
+                        house_state,
                         _json.dumps(event.payload),
                         0, None,
                         event.event_class,

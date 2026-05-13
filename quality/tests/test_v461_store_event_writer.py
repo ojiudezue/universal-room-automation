@@ -204,3 +204,38 @@ def test_store_anomaly_maps_old_severity_to_new():
     assert "NOMINAL" in block or "_severity_map" in block, (
         "store_anomaly must handle severity mapping from old 4-level to new 3-level"
     )
+
+
+# ===========================================================================
+# v4.6.1.1 hotfix — NOT NULL constraint handling
+# ===========================================================================
+
+
+def test_save_anomaly_event_handles_legacy_not_null_columns():
+    """v4.6.1.1 hotfix: anomaly_log schema declares observed_value/
+    expected_mean/expected_std/z_score/sample_size as NOT NULL. The DAO
+    must satisfy these constraints by extracting from event.payload when
+    legacy callers pack them there, or using 0.0/0 sentinels for new
+    AnomalyEvent emitters. Production warning surfaced as:
+    "NOT NULL constraint failed: anomaly_log.observed_value"
+    """
+    src = Path(
+        "custom_components/universal_room_automation/database.py"
+    ).read_text()
+    idx = src.find("async def save_anomaly_event(self, event)")
+    assert idx >= 0
+    next_method = src.find("\n    async def ", idx + 1)
+    block = src[idx: next_method if next_method > 0 else idx + 4000]
+    for field in ("observed_value", "expected_mean", "expected_std", "z_score", "sample_size"):
+        assert f'payload_dict.get("{field}"' in block, (
+            f"v4.6.1.1: save_anomaly_event must extract {field} from payload "
+            f"with a non-None default to satisfy the legacy NOT NULL schema"
+        )
+    # And the INSERT VALUES must reference the locals, not None
+    assert "                        observed_value," in block, (
+        "v4.6.1.1: INSERT VALUES tuple must pass `observed_value` local, "
+        "not None — None violates NOT NULL"
+    )
+    assert "                        sample_size," in block, (
+        "v4.6.1.1: INSERT VALUES tuple must pass `sample_size` local"
+    )
