@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.5.21.1
+# Universal Room Automation vv4.6.0
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -2474,6 +2474,40 @@ class PersonLikelyNextRoomSensor(AggregationEntity, SensorEntity):
             except Exception as e:
                 _LOGGER.error(
                     "Error updating PersonLikelyNextRoomSensor for %s: %s",
+                    self._person_id, e,
+                )
+
+        # v4.6.0: Write successful prediction to shared cache so
+        # TransitionDetector._score_prediction() can read it at transition time.
+        # Only written when a prediction exists; stale entries are fine
+        # (scorer applies its own 30-min staleness gate).
+        if self._cached_prediction is not None:
+            try:
+                raw_alts = self._cached_prediction.get("alternatives") or []
+                # Bayesian path returns [str, ...]; frequency path returns
+                # [{"room": str, "confidence": float}, ...].  Normalise to [str, ...].
+                alt_rooms: list[str] = []
+                for a in raw_alts:
+                    if isinstance(a, str):
+                        alt_rooms.append(a)
+                    elif isinstance(a, dict):
+                        room = a.get("room")
+                        if room:
+                            alt_rooms.append(room)
+                if DOMAIN not in self.hass.data:
+                    return
+                self.hass.data[DOMAIN].setdefault(
+                    "next_room_predictions", {}
+                )[self._person_id] = {
+                    "top": self._cached_prediction.get("next_room"),
+                    "alternatives": alt_rooms[:2],
+                    "confidence": self._cached_prediction.get("confidence") or 0.0,
+                    "source": self._prediction_source,
+                    "timestamp": dt_util.utcnow().isoformat(),
+                }
+            except Exception as e:
+                _LOGGER.debug(
+                    "Next-room prediction cache write failed for %s: %s",
                     self._person_id, e,
                 )
 
@@ -9122,6 +9156,391 @@ class BayesianPredictionAccuracySensor(AggregationEntity, SensorEntity):
             "total_predictions_7d": self._cached_stats.get("total_predictions"),
             "window_days": 7,
         }
+
+# v4.6.0: D4 — per-person next-room accuracy sensor
+
+
+class PersonNextRoomAccuracySensor(AggregationEntity, SensorEntity):
+    """Per-person next-room prediction accuracy sensor.
+
+    Entity: sensor.ura_person_{person_id}_next_room_accuracy
+    Device: URA: Coordinator Manager
+    State: top-1 hit rate (7-day rolling, percent, 1 decimal).
+    Returns None when no predictions exist to avoid a "0% accuracy" misread
+    during the initial learning window.
+    Refreshes on SIGNAL_NEXT_ROOM_PREDICTION_UPDATE (signal-driven, no polling).
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:crosshairs-gps"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_entity_registry_enabled_default = True
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(
+        self, hass: HomeAssistant, entry: ConfigEntry, person_id: str
+    ) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._person_id = person_id
+        self._attr_unique_id = (
+            f"{DOMAIN}_person_{person_id.lower()}_next_room_accuracy"
+        )
+        self._attr_name = f"{person_id} Next Room Accuracy"
+        self._attr_device_info = _cm_device_info()
+        self._cached_stats: dict = {
+            "top1_hit_rate": None,
+            "top3_hit_rate": None,
+            "brier_score": None,
+            "predictions_7d": 0,
+            "predictions_24h": 0,
+            "most_recent_prediction_ts": None,
+        }
+        self._last_query_time: float = 0
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to next-room prediction update signal."""
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_NEXT_ROOM_PREDICTION_UPDATE
+
+        # Bug Class #38: capture unsubscribe into async_on_remove so it fires
+        # when the entity is removed, preventing a listener leak.
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass,
+                SIGNAL_NEXT_ROOM_PREDICTION_UPDATE,
+                self._handle_update,
+            )
+        )
+
+    @callback
+    def _handle_update(self, person_id: str) -> None:
+        """Refresh only when the signal is for this person."""
+        if person_id != self._person_id:
+            return
+        self.async_schedule_update_ha_state(force_refresh=True)
+
+    async def async_update(self) -> None:
+        """Query prediction_results for this person (cached 30 sec)."""
+        import time
+        import json
+
+        now = time.monotonic()
+        if now - self._last_query_time < 30:
+            return
+
+        database = self.hass.data.get(DOMAIN, {}).get("database")
+        if database is None:
+            return
+
+        try:
+            cutoff_7d = (
+                dt_util.utcnow() - timedelta(days=7)
+            ).strftime("%Y-%m-%d %H:%M:%S")
+            cutoff_24h = (
+                dt_util.utcnow() - timedelta(hours=24)
+            ).strftime("%Y-%m-%d %H:%M:%S")
+
+            import aiosqlite
+
+            async with database._db_read() as db:
+                db.row_factory = aiosqlite.Row
+                cursor = await db.execute(
+                    """SELECT predicted_value, actual_value, error_value,
+                              confidence, prediction_timestamp
+                       FROM prediction_results
+                       WHERE prediction_type = 'next_room'
+                         AND person_id = ?
+                         AND prediction_timestamp >= ?
+                       ORDER BY prediction_timestamp DESC""",
+                    (self._person_id, cutoff_7d),
+                )
+                rows = await cursor.fetchall()
+
+                cursor24 = await db.execute(
+                    """SELECT count(*) as cnt
+                       FROM prediction_results
+                       WHERE prediction_type = 'next_room'
+                         AND person_id = ?
+                         AND prediction_timestamp >= ?""",
+                    (self._person_id, cutoff_24h),
+                )
+                row24 = await cursor24.fetchone()
+
+            total = len(rows)
+            if total == 0:
+                self._cached_stats = {
+                    "top1_hit_rate": None,
+                    "top3_hit_rate": None,
+                    "brier_score": None,
+                    "predictions_7d": 0,
+                    "predictions_24h": int(row24["cnt"]) if row24 else 0,
+                    "most_recent_prediction_ts": None,
+                }
+                self._last_query_time = now
+                return
+
+            top1_hits = 0
+            top3_hits = 0
+            brier_sum = 0.0
+            most_recent_ts = None
+
+            for row in rows:
+                actual = row["actual_value"]
+                error_val = row["error_value"]
+
+                # top-1: error_value encodes the Brier component; a hit is when
+                # (1 - confidence)^2 < confidence^2, i.e. predicted_top == actual.
+                # We reconstruct from predicted_value JSON which is authoritative.
+                try:
+                    pred_data = json.loads(row["predicted_value"])
+                    predicted_top = pred_data.get("top")
+                    alternatives = pred_data.get("alternatives", [])
+                except (TypeError, ValueError):
+                    pred_data = {}
+                    predicted_top = None
+                    alternatives = []
+
+                is_top1_hit = predicted_top is not None and predicted_top == actual
+                if is_top1_hit:
+                    top1_hits += 1
+
+                top3_rooms = {predicted_top} | set(alternatives)
+                if actual in top3_rooms:
+                    top3_hits += 1
+
+                if error_val is not None:
+                    brier_sum += float(error_val)
+
+                if most_recent_ts is None and row["prediction_timestamp"]:
+                    most_recent_ts = row["prediction_timestamp"]
+
+            self._cached_stats = {
+                "top1_hit_rate": round(top1_hits / total * 100, 1),
+                "top3_hit_rate": round(top3_hits / total * 100, 1),
+                "brier_score": round(brier_sum / total, 4),
+                "predictions_7d": total,
+                "predictions_24h": int(row24["cnt"]) if row24 else 0,
+                "most_recent_prediction_ts": most_recent_ts,
+            }
+            _LOGGER.debug(
+                "PersonNextRoomAccuracySensor %s: %d predictions, top1=%.1f%%",
+                self._person_id,
+                total,
+                self._cached_stats["top1_hit_rate"],
+            )
+        except Exception as e:
+            _LOGGER.error(
+                "Error updating PersonNextRoomAccuracySensor for %s: %s",
+                self._person_id, e,
+            )
+        finally:
+            self._last_query_time = now
+
+    @property
+    def native_value(self) -> float | None:
+        """Return top-1 hit rate as percent, or None when no data."""
+        return self._cached_stats.get("top1_hit_rate")
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return accuracy breakdown attributes."""
+        return {
+            "top3_hit_rate_pct": self._cached_stats.get("top3_hit_rate"),
+            "brier_score": self._cached_stats.get("brier_score"),
+            "predictions_7d": self._cached_stats.get("predictions_7d"),
+            "predictions_24h": self._cached_stats.get("predictions_24h"),
+            "most_recent_prediction_ts": self._cached_stats.get(
+                "most_recent_prediction_ts"
+            ),
+        }
+
+
+# v4.6.0: D5 — house-aggregate next-room accuracy sensor
+
+
+class HouseNextRoomAccuracySensor(AggregationEntity, SensorEntity):
+    """House-wide next-room prediction accuracy sensor.
+
+    Entity: sensor.ura_coordinator_manager_house_next_room_accuracy
+    Device: URA: Coordinator Manager
+    State: aggregate top-1 hit rate across all persons (7-day rolling).
+    Aggregate = sum(hits) / sum(predictions), NOT mean(per-person rates),
+    to avoid small-n bias from a person with very few predictions.
+    Refreshes on SIGNAL_NEXT_ROOM_PREDICTION_UPDATE for any person.
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:home-analytics"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_entity_registry_enabled_default = True
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_house_next_room_accuracy"
+        self._attr_name = "House Next Room Accuracy"
+        self._attr_device_info = _cm_device_info()
+        self._cached_stats: dict = {
+            "top1_hit_rate": None,
+            "per_person_accuracy": {},
+            "total_predictions_7d": 0,
+            "total_predictions_24h": 0,
+            "brier_score": None,
+            "oldest_prediction_ts": None,
+        }
+        self._last_query_time: float = 0
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to next-room prediction update signal (all persons)."""
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_NEXT_ROOM_PREDICTION_UPDATE
+
+        # Bug Class #38: wrap with async_on_remove so unsubscribe fires on removal.
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass,
+                SIGNAL_NEXT_ROOM_PREDICTION_UPDATE,
+                self._handle_update,
+            )
+        )
+
+    @callback
+    def _handle_update(self, person_id: str) -> None:
+        """Refresh on any person's score event — house sensor aggregates all."""
+        self.async_schedule_update_ha_state(force_refresh=True)
+
+    async def async_update(self) -> None:
+        """Query prediction_results across all persons (cached 30 sec)."""
+        import time
+        import json
+
+        now = time.monotonic()
+        if now - self._last_query_time < 30:
+            return
+
+        database = self.hass.data.get(DOMAIN, {}).get("database")
+        if database is None:
+            return
+
+        try:
+            cutoff_7d = (
+                dt_util.utcnow() - timedelta(days=7)
+            ).strftime("%Y-%m-%d %H:%M:%S")
+            cutoff_24h = (
+                dt_util.utcnow() - timedelta(hours=24)
+            ).strftime("%Y-%m-%d %H:%M:%S")
+
+            import aiosqlite
+
+            async with database._db_read() as db:
+                db.row_factory = aiosqlite.Row
+                cursor = await db.execute(
+                    """SELECT person_id, predicted_value, actual_value,
+                              error_value, prediction_timestamp
+                       FROM prediction_results
+                       WHERE prediction_type = 'next_room'
+                         AND prediction_timestamp >= ?
+                       ORDER BY prediction_timestamp ASC""",
+                    (cutoff_7d,),
+                )
+                rows = await cursor.fetchall()
+
+                cursor24 = await db.execute(
+                    """SELECT count(*) as cnt
+                       FROM prediction_results
+                       WHERE prediction_type = 'next_room'
+                         AND prediction_timestamp >= ?""",
+                    (cutoff_24h,),
+                )
+                row24 = await cursor24.fetchone()
+
+            total_hits = 0
+            total_predictions = 0
+            total_brier = 0.0
+            person_hits: dict[str, int] = {}
+            person_preds: dict[str, int] = {}
+            oldest_ts: str | None = None
+
+            for row in rows:
+                pid = row["person_id"] or "unknown"
+                actual = row["actual_value"]
+                error_val = row["error_value"]
+
+                try:
+                    pred_data = json.loads(row["predicted_value"])
+                    predicted_top = pred_data.get("top")
+                except (TypeError, ValueError):
+                    predicted_top = None
+
+                is_hit = predicted_top is not None and predicted_top == actual
+
+                person_preds[pid] = person_preds.get(pid, 0) + 1
+                person_hits[pid] = person_hits.get(pid, 0) + (1 if is_hit else 0)
+                total_predictions += 1
+                if is_hit:
+                    total_hits += 1
+                if error_val is not None:
+                    total_brier += float(error_val)
+
+                if oldest_ts is None and row["prediction_timestamp"]:
+                    oldest_ts = row["prediction_timestamp"]
+
+            if total_predictions == 0:
+                self._cached_stats = {
+                    "top1_hit_rate": None,
+                    "per_person_accuracy": {},
+                    "total_predictions_7d": 0,
+                    "total_predictions_24h": int(row24["cnt"]) if row24 else 0,
+                    "brier_score": None,
+                    "oldest_prediction_ts": None,
+                }
+                self._last_query_time = now
+                return
+
+            # Aggregate: sum(hits) / sum(predictions) — not mean of rates.
+            per_person: dict[str, float | None] = {}
+            for pid, n in person_preds.items():
+                h = person_hits.get(pid, 0)
+                per_person[pid] = round(h / n * 100, 1) if n > 0 else None
+
+            self._cached_stats = {
+                "top1_hit_rate": round(total_hits / total_predictions * 100, 1),
+                "per_person_accuracy": per_person,
+                "total_predictions_7d": total_predictions,
+                "total_predictions_24h": int(row24["cnt"]) if row24 else 0,
+                "brier_score": round(total_brier / total_predictions, 4),
+                "oldest_prediction_ts": oldest_ts,
+            }
+            _LOGGER.info(
+                "HouseNextRoomAccuracySensor: %d predictions, top1=%.1f%%",
+                total_predictions,
+                self._cached_stats["top1_hit_rate"],
+            )
+        except Exception as e:
+            _LOGGER.error("Error updating HouseNextRoomAccuracySensor: %s", e)
+        finally:
+            self._last_query_time = now
+
+    @property
+    def native_value(self) -> float | None:
+        """Return aggregate top-1 hit rate as percent, or None when no data."""
+        return self._cached_stats.get("top1_hit_rate")
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return house-wide accuracy breakdown."""
+        return {
+            "per_person_accuracy": self._cached_stats.get("per_person_accuracy"),
+            "total_predictions_7d": self._cached_stats.get("total_predictions_7d"),
+            "total_predictions_24h": self._cached_stats.get("total_predictions_24h"),
+            "brier_score": self._cached_stats.get("brier_score"),
+            "oldest_prediction_ts": self._cached_stats.get("oldest_prediction_ts"),
+        }
+
 
 class OccupancyPercentageTodaySensor(UniversalRoomEntity, SensorEntity):
     """Percentage of today the room has been occupied.

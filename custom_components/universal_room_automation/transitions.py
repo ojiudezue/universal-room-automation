@@ -394,9 +394,81 @@ class TransitionDetector:
                 confidence=transition.confidence,
                 via_room=transition.via_room
             )
+            await self._score_prediction(transition.person_id, transition.to_room)
         except Exception as e:
             _LOGGER.error("Failed to log transition: %s", e)
-    
+
+    async def _score_prediction(self, person_id: str, actual_room: str) -> None:
+        """Score the cached next-room prediction against the actual transition.
+
+        Called immediately after every transition insert so the prediction
+        is evaluated against the immediate next transition (Q2: Option X).
+        Failures are WARNING-level and never block transition logging — the
+        try/except wraps the entire body (v4.5.20 swallow-escalation pattern).
+        """
+        try:
+            from .const import DOMAIN  # noqa: PLC0415 — function-local to avoid circular import risk
+            from homeassistant.util import dt as dt_util  # noqa: PLC0415
+            import json  # noqa: PLC0415
+
+            cache = (
+                self.hass.data.get(DOMAIN, {})
+                .get("next_room_predictions", {})
+                .get(person_id)
+            )
+            if cache is None:
+                return
+
+            try:
+                ts = dt_util.parse_datetime(cache["timestamp"])
+            except Exception:
+                return
+            if ts is None:
+                return
+            age_seconds = (dt_util.utcnow() - ts).total_seconds()
+            if age_seconds > 1800:
+                _LOGGER.debug(
+                    "Skipping stale next-room prediction for %s (age=%.0fs)",
+                    person_id, age_seconds,
+                )
+                return
+
+            top1_hit = 1.0 if cache["top"] == actual_room else 0.0
+            top3_hit = 1.0 if actual_room in [cache["top"], *cache["alternatives"]] else 0.0
+            brier = (cache["confidence"] - top1_hit) ** 2
+
+            predicted_value_json = json.dumps({
+                "top": cache["top"],
+                "alternatives": cache["alternatives"],
+                "source": cache["source"],
+            })
+
+            await self.database.save_next_room_prediction_result(
+                person_id=person_id,
+                predicted_room=cache["top"],
+                predicted_value_json=predicted_value_json,
+                confidence=cache["confidence"],
+                actual_room=actual_room,
+                error_value=brier,
+                prediction_timestamp=cache["timestamp"],
+            )
+
+            _LOGGER.debug(
+                "Scored next-room prediction for %s: top1=%.0f top3=%.0f brier=%.4f",
+                person_id, top1_hit, top3_hit, brier,
+            )
+
+            from homeassistant.helpers.dispatcher import async_dispatcher_send  # noqa: PLC0415
+            from .domain_coordinators.signals import SIGNAL_NEXT_ROOM_PREDICTION_UPDATE  # noqa: PLC0415
+            async_dispatcher_send(self.hass, SIGNAL_NEXT_ROOM_PREDICTION_UPDATE, person_id)
+
+        except Exception:
+            _LOGGER.warning(
+                "next-room prediction scoring failed for %s — transition logging unaffected",
+                person_id,
+                exc_info=True,
+            )
+
     async def _update_transition_confidence(self, transition: RoomTransition, validation) -> None:
         """Update the confidence of the most recently logged transition.
 

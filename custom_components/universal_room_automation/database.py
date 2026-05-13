@@ -1,7 +1,7 @@
 """Database for Universal Room Automation."""
 from __future__ import annotations
 #
-# Universal Room Automation vv4.5.21.1
+# Universal Room Automation vv4.6.0
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors
@@ -1154,6 +1154,22 @@ class UniversalRoomDatabase:
                         _LOGGER.info("Added tou_period column to energy_history")
                 except Exception as e:
                     _LOGGER.warning("energy_history tou_period migration failed: %s", e)
+
+                # v4.6.0: Add person_id column to prediction_results for
+                # per-person next-room scoring rows. Existing rows
+                # (prediction_type='bayesian_occupancy') keep NULL person_id —
+                # no backfill required (single-user install).
+                try:
+                    cursor = await db.execute("PRAGMA table_info(prediction_results)")
+                    pr_columns = {row[1] for row in await cursor.fetchall()}
+                    if "person_id" not in pr_columns:
+                        await db.execute(
+                            "ALTER TABLE prediction_results ADD COLUMN person_id TEXT"
+                        )
+                        await db.commit()
+                        _LOGGER.info("Added person_id column to prediction_results")
+                except Exception as e:
+                    _LOGGER.warning("prediction_results person_id migration failed: %s", e)
 
                 if failed_tables:
                     _LOGGER.warning(
@@ -4016,6 +4032,47 @@ class UniversalRoomDatabase:
                 await db.commit()
         except Exception as e:
             _LOGGER.error("Error saving prediction result: %s", e)
+
+    async def save_next_room_prediction_result(
+        self,
+        person_id: str,
+        predicted_room: str,
+        predicted_value_json: str,
+        confidence: float,
+        actual_room: str,
+        error_value: float,
+        prediction_timestamp: str,
+    ) -> None:
+        """Insert a next-room prediction result into prediction_results.
+
+        Mirrors save_prediction_result() structure but targets the new
+        person_id column and uses prediction_type='next_room'. The
+        predicted_value column holds JSON (top room + alternatives + source)
+        so downstream accuracy sensors can reconstruct the full prediction
+        without a separate table.
+        """
+        try:
+            async with self._db() as db:
+                await db.execute(
+                    """INSERT INTO prediction_results
+                       (room_id, prediction_timestamp, prediction_type,
+                        predicted_value, confidence, actual_value, error_value,
+                        person_id)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        predicted_room,
+                        prediction_timestamp,
+                        "next_room",
+                        predicted_value_json,
+                        round(confidence, 6),
+                        actual_room,
+                        round(error_value, 6),
+                        person_id,
+                    ),
+                )
+                await db.commit()
+        except Exception as e:
+            _LOGGER.error("Error saving next_room prediction result: %s", e)
 
     async def save_prediction_results_batch(self, rows: list[tuple]) -> None:
         """Batch-insert prediction results in a single transaction.
