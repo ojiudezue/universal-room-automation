@@ -41,6 +41,16 @@ SIGNAL_MUSIC_FOLLOWING_ENTITIES_UPDATE: Final = "ura_music_following_entities_up
 # polling timer — mirrors the SIGNAL_PRESENCE_/_MUSIC_FOLLOWING_ pattern above.
 SIGNAL_NEXT_ROOM_PREDICTION_UPDATE: Final = "ura_next_room_prediction_update"
 
+# v4.6.2 D5/D6: routine status signals.
+# SIGNAL_ROUTINE_STATUS_UPDATE — dispatched by RegimeDetector after a successful
+# _emit_regime_event() AND by the acknowledge button after the recovery_at UPDATE.
+# D5 sensors subscribe to refresh their state.
+# SIGNAL_REGIME_EVENT_EMITTED — dispatched by RegimeDetector immediately after
+# save_anomaly_event() succeeds. Payload: dict with person_id, severity, cell.
+# NotificationManager subscribes to trigger event/digest dispatch.
+SIGNAL_ROUTINE_STATUS_UPDATE: Final = "ura_routine_status_update"
+SIGNAL_REGIME_EVENT_EMITTED: Final = "ura_regime_event_emitted"
+
 
 # ============================================================================
 # Shared data classes for inter-coordinator communication

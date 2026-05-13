@@ -251,6 +251,10 @@ class NotificationManager:
         self._hourly_counts: list[int] = [0] * 24
         self._current_hour_idx: int = -1
 
+        # v4.6.2 D6: routine-shift notification state
+        self._regime_event_unsub: CALLBACK_TYPE | None = None
+        self._regime_digest_unsub: CALLBACK_TYPE | None = None
+
         # C4b: Inbound handling
         self._wa_unsub: CALLBACK_TYPE | None = None
         self._webhook_unsub: bool = False
@@ -542,6 +546,27 @@ class NotificationManager:
             except Exception as e:
                 _LOGGER.warning("Failed to register BlueBubbles webhook: %s", e)
 
+        # v4.6.2 D6: subscribe to regime-shift events for optional notification.
+        # async_dispatcher_connect is fire-and-safe from the event loop —
+        # capture unsubscribe so async_teardown can clean it up (Bug Class #38).
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .signals import SIGNAL_REGIME_EVENT_EMITTED
+
+        self._regime_event_unsub = async_dispatcher_connect(
+            self.hass,
+            SIGNAL_REGIME_EVENT_EMITTED,
+            self._handle_regime_event,
+        )
+
+        # Weekly digest flush: Sunday (weekday=6) at 09:00 local time.
+        self._regime_digest_unsub = async_track_time_change(
+            self.hass,
+            self._flush_regime_weekly_digest,
+            hour=9,
+            minute=0,
+            second=0,
+        )
+
         _LOGGER.info(
             "Notification Manager ready (state=%s, today=%d)",
             self._alert_state,
@@ -564,6 +589,14 @@ class NotificationManager:
         for unsub in self._digest_unsubs:
             unsub()
         self._digest_unsubs.clear()
+
+        # v4.6.2 D6: cancel regime-event subscription and digest timer
+        if self._regime_event_unsub:
+            self._regime_event_unsub()
+            self._regime_event_unsub = None
+        if self._regime_digest_unsub:
+            self._regime_digest_unsub()
+            self._regime_digest_unsub = None
 
         # Cancel countdown task
         if self._countdown_task and not self._countdown_task.done():
@@ -2099,3 +2132,272 @@ class NotificationManager:
             self._current_hour_idx = hour_idx
             self._hourly_counts[hour_idx] = 0
         self._hourly_counts[hour_idx] += 1
+
+    # =========================================================================
+    # v4.6.2 D6: Routine shift notification handlers
+    # =========================================================================
+
+    @callback
+    def _handle_regime_event(self, payload: dict) -> None:
+        """Dispatch notification for a regime-shift event.
+
+        Called synchronously on the event loop when SIGNAL_REGIME_EVENT_EMITTED
+        fires. Uses entry.async_create_background_task to move the async work
+        off the callback (Bug Class #19 — untracked tasks).
+        """
+        from ..const import DOMAIN as _DOMAIN
+        cm_entry = self.hass.config_entries.async_get_entry(
+            next(
+                (
+                    e.entry_id
+                    for e in self.hass.config_entries.async_entries(_DOMAIN)
+                    if e.data.get("entry_type") == "coordinator_manager"
+                ),
+                "",
+            )
+        )
+        if cm_entry is None:
+            # Fallback: create background task on hass (untracked but acceptable
+            # here since NM lifecycle is tied to CoordinatorManager which holds
+            # the CM entry — the task completes quickly).
+            self.hass.async_create_background_task(
+                self._dispatch_regime_notification(payload),
+                "ura_regime_notification",
+            )
+        else:
+            cm_entry.async_create_background_task(
+                self.hass,
+                self._dispatch_regime_notification(payload),
+                "ura_regime_notification",
+            )
+
+    async def _dispatch_regime_notification(self, payload: dict) -> None:
+        """Async body for regime-shift notification routing.
+
+        Reads current notification_mode from CM entry.options at dispatch time
+        so changes to the Select entity take effect without a restart.
+        """
+        from ..const import (
+            CONF_ROUTINE_CHANGE_NOTIFICATION_MODE,
+            CONF_ROUTINE_EVENT_COOLDOWN_DAYS,
+            CONF_ROUTINE_EVENT_MIN_SEVERITY,
+            DOMAIN as _DOMAIN,
+        )
+
+        # Read live mode from CM entry options
+        cm_opts: dict = {}
+        for entry in self.hass.config_entries.async_entries(_DOMAIN):
+            if entry.data.get("entry_type") == "coordinator_manager":
+                cm_opts = {**entry.data, **entry.options}
+                break
+
+        mode = cm_opts.get(CONF_ROUTINE_CHANGE_NOTIFICATION_MODE, "silent")
+
+        if mode == "silent":
+            _LOGGER.debug(
+                "Regime event suppressed (mode=silent, person=%s)",
+                payload.get("person_id"),
+            )
+            return
+
+        person_id = payload.get("person_id", "unknown")
+        severity = int(payload.get("severity", 0))
+        time_bin = payload.get("time_bin")
+        day_type = payload.get("day_type")
+
+        if mode == "event":
+            # v4.6.2 review fix B#3 (extended): RoutineEventMinSeverityNumber +
+            # RoutineEventCooldownDaysNumber follow the URA Mirror Pattern
+            # (RestoreEntity, no write-back to entry.options). Reading
+            # entry.options would only return the install-time seed.
+            # Read the live entity state instead.
+            _ms = self.hass.states.get(
+                "number.ura_coordinator_manager_routine_event_min_severity"
+            )
+            try:
+                min_sev = (
+                    int(float(_ms.state))
+                    if _ms is not None and _ms.state not in ("unknown", "unavailable", None)
+                    else int(cm_opts.get(CONF_ROUTINE_EVENT_MIN_SEVERITY, 1))
+                )
+            except (ValueError, TypeError):
+                min_sev = int(cm_opts.get(CONF_ROUTINE_EVENT_MIN_SEVERITY, 1))
+            if severity < min_sev:
+                _LOGGER.debug(
+                    "Regime event below severity floor (severity=%d < floor=%d, person=%s)",
+                    severity, min_sev, person_id,
+                )
+                return
+
+            database = self.hass.data.get(_DOMAIN, {}).get("database")
+            # v4.6.2 review fix B#3 (extended): read cooldown from live entity
+            # state (URA Mirror Pattern — Number doesn't write to entry.options).
+            _cd = self.hass.states.get(
+                "number.ura_coordinator_manager_routine_event_cooldown_days"
+            )
+            try:
+                cooldown_days = (
+                    int(float(_cd.state))
+                    if _cd is not None and _cd.state not in ("unknown", "unavailable", None)
+                    else int(cm_opts.get(CONF_ROUTINE_EVENT_COOLDOWN_DAYS, 30))
+                )
+            except (ValueError, TypeError):
+                cooldown_days = int(cm_opts.get(CONF_ROUTINE_EVENT_COOLDOWN_DAYS, 30))
+            if database is not None and time_bin is not None and day_type is not None:
+                try:
+                    last_notified = await database.get_regime_last_notified(
+                        person_id, time_bin, day_type
+                    )
+                    if last_notified:
+                        from datetime import timedelta as _td
+                        last_dt = dt_util.parse_datetime(last_notified)
+                        if last_dt and (dt_util.utcnow() - last_dt) < _td(days=cooldown_days):
+                            _LOGGER.debug(
+                                "Regime event in cooldown (person=%s, last=%s)",
+                                person_id, last_notified,
+                            )
+                            return
+                    # Record this notification for future cooldown checks
+                    await database.upsert_regime_last_notified(
+                        person_id,
+                        time_bin,
+                        day_type,
+                        dt_util.utcnow().isoformat(),
+                    )
+                except Exception as e:
+                    _LOGGER.warning(
+                        "Regime cooldown check failed (person=%s): %s",
+                        person_id, e, exc_info=True,
+                    )
+
+            _SEVERITY_NAMES = {0: "low", 1: "moderate", 2: "significant"}
+            _TB_NAMES = {
+                0: "overnight", 1: "early morning", 2: "morning",
+                3: "afternoon", 4: "evening", 5: "night",
+            }
+            _DT_NAMES = {0: "weekday", 1: "weekend"}
+            sev_name = _SEVERITY_NAMES.get(severity, str(severity))
+            tb_name = _TB_NAMES.get(time_bin, f"bin {time_bin}")
+            dt_name = _DT_NAMES.get(day_type, "")
+
+            message = (
+                f"Routine pattern shift detected for {person_id} "
+                f"in {tb_name} {dt_name}. Severity: {sev_name}."
+            )
+            _LOGGER.info("Routine shift notification: %s", message)
+            await self.async_notify(
+                coordinator_id="bayesian",
+                severity=Severity.LOW,
+                title="Routine Pattern Shift",
+                message=message,
+                hazard_type=None,
+                location=None,
+            )
+
+        elif mode == "weekly_digest":
+            database = self.hass.data.get(_DOMAIN, {}).get("database")
+            if database is not None:
+                try:
+                    anomaly_log_id = payload.get("anomaly_log_id", 0) or 0
+                    await database.enqueue_regime_weekly_digest(
+                        anomaly_log_id=anomaly_log_id,
+                        person_id=person_id,
+                        severity=severity,
+                        queued_at=dt_util.utcnow().isoformat(),
+                    )
+                    _LOGGER.debug(
+                        "Regime event queued for weekly digest (person=%s)", person_id
+                    )
+                except Exception as e:
+                    _LOGGER.warning(
+                        "Failed to enqueue regime weekly digest (person=%s): %s",
+                        person_id, e, exc_info=True,
+                    )
+
+    @callback
+    def _flush_regime_weekly_digest(self, _now: Any) -> None:
+        """Trigger the weekly digest flush every Sunday at 09:00.
+
+        async_track_time_change fires every day at 09:00; the weekday guard
+        (weekday==6 for Sunday) ensures the digest only sends once per week.
+        Background task so the @callback doesn't block the event loop.
+        """
+        from homeassistant.util import dt as _dt_util
+        now = _dt_util.now()
+        if now.weekday() != 6:  # 6 = Sunday
+            return
+
+        from ..const import DOMAIN as _DOMAIN
+        cm_entry = None
+        cm_opts: dict = {}
+        for entry in self.hass.config_entries.async_entries(_DOMAIN):
+            if entry.data.get("entry_type") == "coordinator_manager":
+                cm_entry = entry
+                cm_opts = {**entry.data, **entry.options}
+                break
+
+        from ..const import CONF_ROUTINE_CHANGE_NOTIFICATION_MODE
+        mode = cm_opts.get(CONF_ROUTINE_CHANGE_NOTIFICATION_MODE, "silent")
+        if mode != "weekly_digest":
+            return
+
+        # v4.6.2 review fix B#5: track the flush task against the CM entry so
+        # it gets cancelled on entry unload (Bug Class #19). Falls back to
+        # the untracked hass.async_create_background_task only when the CM
+        # entry can't be resolved (shouldn't happen in practice).
+        if cm_entry is not None:
+            cm_entry.async_create_background_task(
+                self.hass,
+                self._send_regime_weekly_digest(),
+                "ura_regime_weekly_digest",
+            )
+        else:
+            _LOGGER.warning(
+                "_flush_regime_weekly_digest: CM entry not found, using "
+                "untracked task (will not cancel cleanly on unload)"
+            )
+            self.hass.async_create_background_task(
+                self._send_regime_weekly_digest(),
+                "ura_regime_weekly_digest",
+            )
+
+    async def _send_regime_weekly_digest(self) -> None:
+        """Flush the weekly digest queue and send a single notification."""
+        from ..const import DOMAIN as _DOMAIN
+        database = self.hass.data.get(_DOMAIN, {}).get("database")
+        if database is None:
+            return
+        try:
+            rows = await database.flush_regime_weekly_digest_queue()
+        except Exception as e:
+            _LOGGER.warning(
+                "Failed to flush regime weekly digest queue: %s", e, exc_info=True
+            )
+            return
+
+        if not rows:
+            _LOGGER.debug("Weekly regime digest: queue empty, nothing to send")
+            return
+
+        person_counts: dict[str, int] = {}
+        for row in rows:
+            pid = row.get("person_id", "unknown")
+            person_counts[pid] = person_counts.get(pid, 0) + 1
+
+        summary_parts = [
+            f"{pid} ({cnt} change{'s' if cnt > 1 else ''})"
+            for pid, cnt in sorted(person_counts.items())
+        ]
+        message = (
+            f"Weekly routine digest: {', '.join(summary_parts)}. "
+            f"Total events: {len(rows)}."
+        )
+        _LOGGER.info("Sending weekly routine digest: %s", message)
+        await self.async_notify(
+            coordinator_id="bayesian",
+            severity=Severity.LOW,
+            title="Weekly Routine Digest",
+            message=message,
+            hazard_type=None,
+            location=None,
+        )

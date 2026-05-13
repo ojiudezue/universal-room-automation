@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv4.6.1.1
+# Universal Room Automation vv4.6.2
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -823,6 +823,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                                 await asyncio.sleep(1.0)
                             hass.data[DOMAIN]["_nightly_start_idx"] = (_idx + 1) % n
 
+                            # v4.6.2 D4: fire regime detector after cleanup ops.
+                            # entry.async_create_background_task ensures the task is
+                            # tracked and cancelled on entry unload (Bug Class #19).
+                            _regime_det = hass.data.get(DOMAIN, {}).get("regime_detector")
+                            _bayesian = hass.data.get(DOMAIN, {}).get("bayesian_predictor")
+                            if _regime_det is not None and _bayesian is not None:
+                                entry.async_create_background_task(
+                                    hass,
+                                    _regime_det.run_nightly(),
+                                    "ura_regime_detector_nightly",
+                                )
+
                         unsub_nightly = async_track_time_change(
                             hass, _nightly_db_maintenance, hour=2, minute=30, second=0
                         )
@@ -909,6 +921,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         _LOGGER.warning("Nightly %s cleanup failed: %s", name, exc)
                     await asyncio.sleep(1.0)
                 hass.data.get(DOMAIN, {})["_nightly_start_idx"] = (_idx + 1) % n
+
+                # v4.6.2 D4: fire regime detector (deferred path, same as primary)
+                _regime_det = hass.data.get(DOMAIN, {}).get("regime_detector")
+                _bayesian = hass.data.get(DOMAIN, {}).get("bayesian_predictor")
+                if _regime_det is not None and _bayesian is not None:
+                    entry.async_create_background_task(
+                        hass,
+                        _regime_det.run_nightly(),
+                        "ura_regime_detector_nightly",
+                    )
 
             unsub_n = _attc_d(hass, _nightly_maintenance_deferred, hour=2, minute=30, second=0)
             hass.data[DOMAIN]["unsub_nightly_maintenance"] = unsub_n
@@ -1094,6 +1116,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         # are available even if DB load fails (empty beliefs,
                         # learns from live transitions).
                         hass.data[DOMAIN]["bayesian_predictor"] = bayesian_predictor
+
+                        # v4.6.2 D4: instantiate RegimeDetector now that both
+                        # database and bayesian_predictor are available.
+                        try:
+                            from .domain_coordinators.regime_detector import RegimeDetector
+                            # v4.6.2 review fix B#2/A#1: pass `entry` so
+                            # _window_days() actually reads the D6 Number
+                            # tunables instead of falling through to the
+                            # hardcoded 56/14 defaults.
+                            regime_detector = RegimeDetector(
+                                hass, database, bayesian_predictor, entry,
+                            )
+                            hass.data[DOMAIN]["regime_detector"] = regime_detector
+                            _LOGGER.info("RegimeDetector instantiated")
+                        except Exception as _rde:
+                            _LOGGER.warning("RegimeDetector init failed: %s", _rde)
+
                         try:
                             await bayesian_predictor.initialize(database)
                         except Exception as init_exc:

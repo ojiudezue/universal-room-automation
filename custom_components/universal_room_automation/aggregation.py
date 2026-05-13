@@ -257,21 +257,29 @@ async def async_setup_aggregation_sensors(
             ])
 
             # v3.3.0: Pattern learning sensors
+            # v4.6.2: D5 routine_status sensors co-located here for symmetry
+            # with v4.6.0 accuracy sensors — both bind to CM device but
+            # register via the Integration entry's aggregation setup.
             from .sensor import (
                 PersonLikelyNextRoomSensor,
                 PersonCurrentPathSensor,
                 PersonNextRoomAccuracySensor,
+                PersonRoutineStatusSensor,
             )
             entities.extend([
                 PersonLikelyNextRoomSensor(hass, entry, person_id),
                 PersonCurrentPathSensor(hass, entry, person_id),
                 # v4.6.0: D4 — per-person next-room accuracy sensor
                 PersonNextRoomAccuracySensor(hass, entry, person_id),
+                # v4.6.2: D5 — per-person routine status sensor
+                PersonRoutineStatusSensor(hass, entry, person_id),
             ])
 
     # v4.6.0: D5 — single house-aggregate next-room accuracy sensor
-    from .sensor import HouseNextRoomAccuracySensor
+    # v4.6.2: D5 — single house-aggregate routine status sensor (same site)
+    from .sensor import HouseNextRoomAccuracySensor, HouseRoutineStatusSensor
     entities.append(HouseNextRoomAccuracySensor(hass, entry))
+    entities.append(HouseRoutineStatusSensor(hass, entry))
 
     async_add_entities(entities)
     _LOGGER.info("Set up %d whole-house aggregation sensors", len(entities))

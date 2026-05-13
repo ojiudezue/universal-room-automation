@@ -1,6 +1,6 @@
 """Select platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.6.1.1
+# Universal Room Automation vv4.6.2
 # File: select.py
 # v3.6.0-c1: Added house state override and zone presence mode selects
 #
@@ -51,6 +51,8 @@ async def async_setup_entry(
         entities = [
             CMHouseStateOverrideSelect(hass, entry),
             PresenceHouseStateOverrideSelect(hass, entry),
+            # v4.6.2 D6: routine notification mode select
+            RoutineNotificationModeSelect(hass, entry),
         ]
         async_add_entities(entities)
         return
@@ -326,3 +328,62 @@ class ZonePresenceModeSelect(SelectEntity):
             "Zone %s presence mode set to: %s",
             self._zone_name, option,
         )
+
+
+# ============================================================================
+# v4.6.2 D6 — Routine Notification Mode Select
+# ============================================================================
+
+
+class RoutineNotificationModeSelect(SelectEntity):
+    """Select entity controlling how routine shift events are notified.
+
+    Entity: select.ura_coordinator_manager_routine_change_notification_mode
+    Device: URA: Coordinator Manager
+
+    Options:
+      silent       — no notifications (default; use during 4-6 week warm-up)
+      weekly_digest — enqueue events; flush in one digest Sunday 09:00
+      event        — notify per-event subject to cooldown + severity floor
+
+    The chosen mode is persisted to entry.options under
+    CONF_ROUTINE_CHANGE_NOTIFICATION_MODE so it survives restart. The
+    NotificationManager reads this at signal-dispatch time; no restart needed
+    after a mode change.
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:bell-ring-outline"
+    _attr_options = ["silent", "weekly_digest", "event"]
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        self.hass = hass
+        self._entry = entry
+        from .const import CONF_ROUTINE_CHANGE_NOTIFICATION_MODE, VERSION
+        self._conf_key = CONF_ROUTINE_CHANGE_NOTIFICATION_MODE
+        self._attr_unique_id = f"{DOMAIN}_routine_change_notification_mode"
+        self._attr_name = "Routine Change Notification Mode"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "coordinator_manager")},
+            name="URA: Coordinator Manager",
+            manufacturer="Universal Room Automation",
+            model="Coordinator Manager",
+            sw_version=VERSION,
+        )
+        merged = {**entry.data, **entry.options}
+        self._current = merged.get(self._conf_key, "silent")
+
+    @property
+    def current_option(self) -> str:
+        """Return current notification mode."""
+        return self._current
+
+    async def async_select_option(self, option: str) -> None:
+        """Persist mode change to entry.options and update HA state."""
+        from .const import CONF_ROUTINE_CHANGE_NOTIFICATION_MODE
+        self._current = option
+        new_options = {**self._entry.options, CONF_ROUTINE_CHANGE_NOTIFICATION_MODE: option}
+        self.hass.config_entries.async_update_entry(self._entry, options=new_options)
+        self.async_write_ha_state()
+        _LOGGER.info("Routine change notification mode set to: %s", option)
