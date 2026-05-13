@@ -1514,6 +1514,21 @@ class PresenceCoordinator(BaseCoordinator):
         # Zone-scoped anomaly detection (runs every inference, not just on transition)
         await self._check_zone_anomalies()
 
+        # v4.5.20: fire per-cycle refresh signal so PresenceAnomalySensor
+        # (and any other sensor subscribed) re-renders attrs without
+        # waiting for HA to naturally re-query. Mirrors HVAC/Safety/
+        # Security pattern. Function-local import keeps Presence's
+        # import surface minimal.
+        try:
+            from homeassistant.helpers.dispatcher import async_dispatcher_send
+            from .signals import SIGNAL_PRESENCE_ENTITIES_UPDATE
+            async_dispatcher_send(self.hass, SIGNAL_PRESENCE_ENTITIES_UPDATE)
+        except Exception:
+            _LOGGER.warning(
+                "Presence: failed to dispatch SIGNAL_PRESENCE_ENTITIES_UPDATE",
+                exc_info=True,
+            )
+
     async def _check_zone_anomalies(self) -> None:
         """Record zone-level anomaly observations.
 

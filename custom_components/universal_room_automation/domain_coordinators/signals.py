@@ -24,6 +24,17 @@ SIGNAL_ACTIVITY_LOGGED: Final = "ura_activity_logged"
 SIGNAL_BAYESIAN_UPDATED: Final = "ura_bayesian_updated"
 SIGNAL_OCCUPANCY_ANOMALY: Final = "ura_occupancy_anomaly"
 
+# v4.5.20: per-coord refresh signals for Presence + MF anomaly sensors.
+# Pre-v4.5.20, PresenceAnomalySensor and MusicFollowingAnomalySensor had
+# no `async_added_to_hass` subscription to any refresh signal — their
+# attrs only refreshed when HA naturally re-queried. Filed at v4.5.14
+# when anomaly visibility shipped; addressed here. Convention matches
+# SIGNAL_SAFETY_/_SECURITY_/_NM_ENTITIES_UPDATE (centralized in this
+# file, NOT in domain-specific const files — the v4.5.10.1 import-fail
+# precedent argues against the HVAC-style outlier).
+SIGNAL_PRESENCE_ENTITIES_UPDATE: Final = "ura_presence_entities_update"
+SIGNAL_MUSIC_FOLLOWING_ENTITIES_UPDATE: Final = "ura_music_following_entities_update"
+
 
 # ============================================================================
 # Shared data classes for inter-coordinator communication

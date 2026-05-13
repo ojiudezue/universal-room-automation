@@ -1651,7 +1651,14 @@ class EnergyCoordinator(BaseCoordinator):
             # (would corrupt counterfactual math). Baseline already advanced.
             return
 
-        database = self.hass.data.get(DOMAIN, {}).get("database")
+        # v4.5.20: bare `DOMAIN` was undefined — module-level import is
+        # aliased as `_DOMAIN` (line 30, for lambda closures). Use the
+        # alias here. This bug had been silently swallowed at debug level
+        # in the outer _async_decision_cycle since the arbitrage feature
+        # shipped — every cycle threw NameError, arbitrage savings rows
+        # never landed in DB. Caught by v4.5.20 swallow escalation on
+        # the FIRST cycle after deploy. Two affected sites (here + line 1694).
+        database = self.hass.data.get(_DOMAIN, {}).get("database")
         if database is not None:
             from homeassistant.util import dt as dt_util
             await database.save_arbitrage_cycle(
@@ -1691,7 +1698,10 @@ class EnergyCoordinator(BaseCoordinator):
         v4.3.0 Review M12: log refresh latency at DEBUG so future reviews can
         see if it grows beyond the decision-tick budget.
         """
-        database = self.hass.data.get(DOMAIN, {}).get("database")
+        # v4.5.20: use module-level _DOMAIN alias (line 30) instead of
+        # bare `DOMAIN` which was undefined. See _account_arbitrage_cycle
+        # for the full bug story.
+        database = self.hass.data.get(_DOMAIN, {}).get("database")
         if database is None:
             return
         import time
