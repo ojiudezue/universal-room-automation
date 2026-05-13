@@ -501,10 +501,12 @@ class TestDiagnosticDumpButton:
         assert "HVACACRampDiagnosticDumpButton(hass, entry)" in body
 
     def test_unique_id_and_label(self, button_src):
+        # v4.5.21 device-page ordering: prefix `90 · ` in DIAGNOSTIC
+        # cluster (just below 95 · Clear AC Ramp Lockout per zone).
         idx = button_src.find("class HVACACRampDiagnosticDumpButton(")
         body = button_src[idx:idx + 4000]
         assert 'f"{DOMAIN}_hvac_ac_ramp_diagnostic_dump"' in body
-        assert '_attr_name = "AC Ramp Diagnostic Dump"' in body
+        assert '_attr_name = "90 · AC Ramp Diagnostic Dump"' in body
 
     def test_writes_to_ura_diagnostics_dir(self, button_src):
         """Dump must land in /config/ura_diagnostics/ with a timestamped

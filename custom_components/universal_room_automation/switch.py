@@ -1,6 +1,6 @@
 """Switch platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.5.20
+# Universal Room Automation vv4.5.21
 # Build: 2026-01-02
 # File: switch.py
 #
@@ -704,7 +704,7 @@ class HVACOverrideArresterSwitch(SwitchEntity, RestoreEntity):
         self.hass = hass
         self._entry = entry
         self._attr_unique_id = f"{DOMAIN}_hvac_override_arrester"
-        self._attr_name = "Override Arrester"
+        self._attr_name = "20 · Override Arrester"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, "hvac_coordinator")},
             name="URA: HVAC Coordinator",
@@ -779,7 +779,7 @@ class HVACACResetSwitch(SwitchEntity, RestoreEntity):
         self.hass = hass
         self._entry = entry
         self._attr_unique_id = f"{DOMAIN}_hvac_ac_reset"
-        self._attr_name = "AC Reset"
+        self._attr_name = "25 · AC Reset"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, "hvac_coordinator")},
             name="URA: HVAC Coordinator",
@@ -853,7 +853,7 @@ class HVACObservationModeSwitch(SwitchEntity, RestoreEntity):
         self.hass = hass
         self._entry = entry
         self._attr_unique_id = f"{DOMAIN}_hvac_observation_mode"
-        self._attr_name = "HVAC Observation Mode"
+        self._attr_name = "10 · HVAC Observation Mode"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, "hvac_coordinator")},
             name="URA: HVAC Coordinator",
@@ -1227,7 +1227,7 @@ class HVACZoneIntelligenceSwitch(SwitchEntity, RestoreEntity):
         self._attr_unique_id = f"{DOMAIN}_hvac_zone_intelligence"
         # v4.5.10: friendlier label. Underlying CONF + entity_id stay the
         # same to preserve dashboards and existing automations.
-        self._attr_name = "Per-Zone HVAC Control"
+        self._attr_name = "30 · Per-Zone HVAC Control"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, "hvac_coordinator")},
             name="URA: HVAC Coordinator",
@@ -1306,7 +1306,7 @@ class HVACZoneSweepSwitch(SwitchEntity, RestoreEntity):
         self._attr_unique_id = f"{DOMAIN}_hvac_zone_sweep"
         # v4.5.10: friendlier label. Underlying CONF + entity_id stay the
         # same to preserve dashboards.
-        self._attr_name = "Vacancy Auto-Off"
+        self._attr_name = "50 · Vacancy Auto-Off"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, "hvac_coordinator")},
             name="URA: HVAC Coordinator",
@@ -1400,7 +1400,7 @@ class HVACSolarCoverSwitch(SwitchEntity, RestoreEntity):
         self.hass = hass
         self._entry = entry
         self._attr_unique_id = f"{DOMAIN}_hvac_solar_cover"
-        self._attr_name = "Solar Cover Management"
+        self._attr_name = "45 · Solar Cover Management"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, "hvac_coordinator")},
             name="URA: HVAC Coordinator",
@@ -1483,7 +1483,7 @@ class HVACACRampMasterSwitch(SwitchEntity, RestoreEntity):
         self.hass = hass
         self._entry = entry
         self._attr_unique_id = f"{DOMAIN}_hvac_ac_ramp_master"
-        self._attr_name = "AC Ramp-Down (Energy-Aware)"
+        self._attr_name = "15 · AC Ramp-Down (Energy-Aware)"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, "hvac_coordinator")},
             name="URA: HVAC Coordinator",
@@ -1555,7 +1555,7 @@ class HVACPreArrivalSwitch(SwitchEntity, RestoreEntity):
         self.hass = hass
         self._entry = entry
         self._attr_unique_id = f"{DOMAIN}_hvac_pre_arrival"
-        self._attr_name = "Pre-Arrival Conditioning"
+        self._attr_name = "35 · Pre-Arrival Conditioning"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, "hvac_coordinator")},
             name="URA: HVAC Coordinator",
@@ -1632,7 +1632,7 @@ class HVACFanControlSwitch(SwitchEntity, RestoreEntity):
         self.hass = hass
         self._entry = entry
         self._attr_unique_id = f"{DOMAIN}_hvac_fan_control"
-        self._attr_name = "Fan Control"
+        self._attr_name = "40 · Fan Control"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, "hvac_coordinator")},
             name="URA: HVAC Coordinator",

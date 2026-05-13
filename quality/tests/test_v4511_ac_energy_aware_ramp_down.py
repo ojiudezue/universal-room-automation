@@ -866,9 +866,12 @@ class TestMasterSwitch:
         assert "class HVACACRampMasterSwitch" in switch_src
 
     def test_master_switch_friendly_name(self, switch_src):
+        # v4.5.21 device-page ordering prefixes CONFIG-cluster label with
+        # `15 · ` (between Observation Mode at 10 and Override Arrester
+        # at 20).
         idx = switch_src.find("class HVACACRampMasterSwitch")
         body = switch_src[idx:idx + 3000]
-        assert '_attr_name = "AC Ramp-Down (Energy-Aware)"' in body
+        assert '_attr_name = "15 · AC Ramp-Down (Energy-Aware)"' in body
 
     def test_master_switch_registered(self, switch_src):
         assert "HVACACRampMasterSwitch(hass, entry)" in switch_src

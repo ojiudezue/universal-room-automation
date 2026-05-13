@@ -52,9 +52,13 @@ class TestMasterSwitch:
     def test_switch_friendly_name(self, switch_src):
         idx = switch_src.find("class HVACSolarCoverSwitch")
         body = switch_src[idx:idx + 3000]
-        assert '_attr_name = "Solar Cover Management"' in body, (
-            "Master switch must show as 'Solar Cover Management' on the "
-            "device — that's the user-facing rename per v4.5.10 plan"
+        # v4.5.21: device-page ordering experiment prefixes the rename
+        # with the `45 · ` cluster ordinal (CONFIG cluster, between
+        # Fan Control and Vacancy Auto-Off).
+        assert '_attr_name = "45 · Solar Cover Management"' in body, (
+            "Master switch must show as '45 · Solar Cover Management' on the "
+            "device — that's the user-facing rename per v4.5.10 plan, "
+            "with the v4.5.21 ordering prefix"
         )
 
     def test_switch_registered_in_setup(self, switch_src):
@@ -227,18 +231,19 @@ class TestHVACTunableNumberFactory:
         )
 
     @pytest.mark.parametrize("expected_name", [
-        "Cover Close Threshold",
-        "Cover Close Temp",
-        "Cover Open Temp",
-        "Cover Override Duration",
-        "Solar Banking Cool Floor",
-        "Fan On Threshold",
-        "Fan Off Hysteresis",
+        # v4.5.21 device-page ordering: 60-66 cluster prefixes
+        "60 · Cover Close Threshold",
+        "61 · Cover Close Temp",
+        "62 · Cover Open Temp",
+        "63 · Cover Override Duration",
+        "64 · Solar Banking Cool Floor",
+        "65 · Fan On Threshold",
+        "66 · Fan Off Hysteresis",
     ])
     def test_each_number_has_friendly_name(self, number_src, expected_name):
         assert f'name="{expected_name}"' in number_src, (
             f"v4.5.10 must surface a Number entity with friendly name "
-            f"'{expected_name}'"
+            f"'{expected_name}' (v4.5.21 ordering prefix included)"
         )
 
     def test_setup_entry_includes_v4510_numbers(self, number_src):
@@ -522,11 +527,16 @@ class TestLabelRenames:
             return json.load(f)
 
     def test_zone_intelligence_renamed(self, switch_src):
-        """HVACZoneIntelligenceSwitch._attr_name → "Per-Zone HVAC Control"."""
+        """HVACZoneIntelligenceSwitch._attr_name → "30 · Per-Zone HVAC Control".
+
+        v4.5.21 device-page ordering experiment prepends `30 · ` to the
+        v4.5.10 rename. The substring "Per-Zone HVAC Control" still
+        appears in the assignment.
+        """
         idx = switch_src.find("class HVACZoneIntelligenceSwitch")
         assert idx > 0
         body = switch_src[idx:idx + 2000]
-        assert '_attr_name = "Per-Zone HVAC Control"' in body
+        assert '_attr_name = "30 · Per-Zone HVAC Control"' in body
         # The OLD name must be gone (check the same body slice)
         assert '_attr_name = "Zone Intelligence"' not in body
 
@@ -540,10 +550,11 @@ class TestLabelRenames:
         )
 
     def test_zone_sweep_renamed(self, switch_src):
+        # v4.5.21 device-page ordering: prefix `50 · ` (CONFIG cluster).
         idx = switch_src.find("class HVACZoneSweepSwitch")
         assert idx > 0
         body = switch_src[idx:idx + 2000]
-        assert '_attr_name = "Vacancy Auto-Off"' in body
+        assert '_attr_name = "50 · Vacancy Auto-Off"' in body
         assert '_attr_name = "Zone Sweep"' not in body
 
     def test_zone_sweep_unique_id_unchanged(self, switch_src):

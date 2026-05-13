@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.5.20
+# Universal Room Automation vv4.5.21
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -6795,7 +6795,7 @@ class HVACModeSensor(AggregationEntity, SensorEntity):
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         super().__init__(hass, entry)
         self._attr_unique_id = f"{DOMAIN}_hvac_coordinator_mode"
-        self._attr_name = "Mode"
+        self._attr_name = "10 · Mode"
         self._attr_device_info = _hvac_device_info()
 
     @property
@@ -6850,7 +6850,7 @@ class HVACZoneStatusSensor(AggregationEntity, SensorEntity):
         self._zone_id = zone_id
         zone_num = zone_id.split("_")[-1] if "_" in zone_id else zone_id
         self._attr_unique_id = f"{DOMAIN}_hvac_coordinator_{zone_id}_status"
-        self._attr_name = f"Zone {zone_num} Status"
+        self._attr_name = f"50 · Zone {zone_num} Status"
         self._attr_icon = "mdi:thermostat"
         self._attr_device_info = _hvac_device_info()
 
@@ -6906,7 +6906,7 @@ class HVACAnomalySensor(AggregationEntity, SensorEntity):
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         super().__init__(hass, entry)
         self._attr_unique_id = f"{DOMAIN}_hvac_coordinator_anomaly"
-        self._attr_name = "HVAC Anomaly"
+        self._attr_name = "10 · HVAC Anomaly"
         self._attr_device_info = _hvac_device_info()
 
     @property
@@ -6960,7 +6960,7 @@ class HVACComplianceSensor(AggregationEntity, SensorEntity):
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         super().__init__(hass, entry)
         self._attr_unique_id = f"{DOMAIN}_hvac_coordinator_compliance"
-        self._attr_name = "HVAC Compliance"
+        self._attr_name = "15 · HVAC Compliance"
         self._attr_device_info = _hvac_device_info()
 
     @property
@@ -7013,7 +7013,7 @@ class HVACOverrideFrequencySensor(AggregationEntity, SensorEntity):
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         super().__init__(hass, entry)
         self._attr_unique_id = f"{DOMAIN}_hvac_coordinator_override_frequency"
-        self._attr_name = "HVAC Override Frequency"
+        self._attr_name = "20 · HVAC Override Frequency"
         self._attr_device_info = _hvac_device_info()
 
     @property
@@ -7066,7 +7066,7 @@ class HVACPreCoolLikelihoodSensor(AggregationEntity, SensorEntity):
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         super().__init__(hass, entry)
         self._attr_unique_id = f"{DOMAIN}_hvac_coordinator_pre_cool_likelihood"
-        self._attr_name = "HVAC Pre-Cool Likelihood"
+        self._attr_name = "40 · HVAC Pre-Cool Likelihood"
         self._attr_device_info = _hvac_device_info()
 
     @property
@@ -7117,7 +7117,7 @@ class HVACComfortRiskSensor(AggregationEntity, SensorEntity):
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         super().__init__(hass, entry)
         self._attr_unique_id = f"{DOMAIN}_hvac_coordinator_comfort_risk"
-        self._attr_name = "HVAC Comfort Risk"
+        self._attr_name = "30 · HVAC Comfort Risk"
         self._attr_device_info = _hvac_device_info()
 
     @property
@@ -7263,7 +7263,7 @@ class HVACArresterStateSensor(AggregationEntity, SensorEntity):
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         super().__init__(hass, entry)
         self._attr_unique_id = f"{DOMAIN}_hvac_arrester_state"
-        self._attr_name = "Override Arrester State"
+        self._attr_name = "25 · Override Arrester State"
         self._attr_device_info = _hvac_device_info()
 
     @property
@@ -7316,7 +7316,7 @@ class HVACZonePresetSensor(AggregationEntity, SensorEntity):
         super().__init__(hass, entry)
         self._zone_id = zone_id
         self._attr_unique_id = f"{DOMAIN}_hvac_zone_preset_{zone_id}"
-        self._attr_name = f"HVAC Zone Preset {zone_id.replace('_', ' ').title()}"
+        self._attr_name = f"55 · HVAC Zone Preset {zone_id.replace('_', ' ').title()}"
         self._attr_device_info = _hvac_device_info()
 
     @property
@@ -7452,7 +7452,7 @@ class HVACACRampStateSensor(_ACRampZoneSensorMixin, AggregationEntity, SensorEnt
         self._zone_name = zone_name
         self._climate_entity = climate_entity
         self._attr_unique_id = f"{DOMAIN}_hvac_ac_ramp_state_{zone_id}"
-        self._attr_name = f"AC Ramp State ({zone_name})"
+        self._attr_name = f"60 · AC Ramp State ({zone_name})"
         self._attr_device_info = _hvac_device_info()
 
     @property
@@ -7512,7 +7512,7 @@ class HVACACRampLastActionSensor(
         self._zone_name = zone_name
         self._climate_entity = climate_entity
         self._attr_unique_id = f"{DOMAIN}_hvac_ac_ramp_last_action_{zone_id}"
-        self._attr_name = f"AC Ramp Last Action ({zone_name})"
+        self._attr_name = f"62 · AC Ramp Last Action ({zone_name})"
         self._attr_device_info = _hvac_device_info()
 
     @property
@@ -7585,7 +7585,7 @@ class HVACACRampKwhRateSensor(
         self._zone_name = zone_name
         self._climate_entity = climate_entity
         self._attr_unique_id = f"{DOMAIN}_hvac_ac_ramp_kwh_rate_{zone_id}"
-        self._attr_name = f"AC kWh Rate ({zone_name})"
+        self._attr_name = f"64 · AC kWh Rate ({zone_name})"
         self._attr_device_info = _hvac_device_info()
 
     # Sanity bounds for residential AC compressor draw. Outside this band
@@ -7742,7 +7742,7 @@ class HVACACNudgesTodaySensor(
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         super().__init__(hass, entry)
         self._attr_unique_id = f"{DOMAIN}_hvac_ac_nudges_today"
-        self._attr_name = "AC Nudges Today"
+        self._attr_name = "50 · AC Nudges Today"
         self._attr_device_info = _hvac_device_info()
 
     @property
@@ -7780,7 +7780,7 @@ class HVACACResetsTodaySensor(
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         super().__init__(hass, entry)
         self._attr_unique_id = f"{DOMAIN}_hvac_ac_resets_today"
-        self._attr_name = "AC Hard Resets Today"
+        self._attr_name = "60 · AC Hard Resets Today"
         self._attr_device_info = _hvac_device_info()
 
     @property
@@ -7812,7 +7812,7 @@ class HVACACKwhAvoidedTodaySensor(
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         super().__init__(hass, entry)
         self._attr_unique_id = f"{DOMAIN}_hvac_ac_kwh_avoided_today"
-        self._attr_name = "AC kWh Avoided Today"
+        self._attr_name = "70 · AC kWh Avoided Today"
         self._attr_device_info = _hvac_device_info()
 
     @property
@@ -7853,7 +7853,7 @@ class HVACACKwhAvoidedTotalSensor(
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         super().__init__(hass, entry)
         self._attr_unique_id = f"{DOMAIN}_hvac_ac_kwh_avoided_total"
-        self._attr_name = "AC kWh Avoided (Total)"
+        self._attr_name = "80 · AC kWh Avoided (Total)"
         self._attr_device_info = _hvac_device_info()
         self._restored_value: float | None = None
 
@@ -7914,7 +7914,7 @@ class HVACACFalsePositiveRateSensor(
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         super().__init__(hass, entry)
         self._attr_unique_id = f"{DOMAIN}_hvac_ac_false_positive_rate"
-        self._attr_name = "AC Nudge False-Positive Rate"
+        self._attr_name = "45 · AC Nudge False-Positive Rate"
         self._attr_device_info = _hvac_device_info()
 
     @property
@@ -7953,7 +7953,7 @@ class HVACZoneIntelligenceSensor(AggregationEntity, SensorEntity):
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         super().__init__(hass, entry)
         self._attr_unique_id = f"{DOMAIN}_hvac_coordinator_zone_intelligence"
-        self._attr_name = "HVAC Zone Intelligence"
+        self._attr_name = "35 · HVAC Zone Intelligence"
         self._attr_device_info = _hvac_device_info()
 
     @property
@@ -8032,7 +8032,7 @@ class HVACPreArrivalDiagnosticSensor(AggregationEntity, SensorEntity):
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         super().__init__(hass, entry)
         self._attr_unique_id = f"{DOMAIN}_hvac_pre_arrival_status"
-        self._attr_name = "HVAC Pre-Arrival Status"
+        self._attr_name = "40 · HVAC Pre-Arrival Status"
         self._attr_device_info = _hvac_device_info()
 
     def _get_hvac(self):
@@ -8114,7 +8114,7 @@ class HVACArresterStatusSensor(AggregationEntity, SensorEntity):
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         super().__init__(hass, entry)
         self._attr_unique_id = f"{DOMAIN}_hvac_arrester_status"
-        self._attr_name = "HVAC Arrester Status"
+        self._attr_name = "30 · HVAC Arrester Status"
         self._attr_device_info = _hvac_device_info()
 
     def _get_arrester(self):
