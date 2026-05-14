@@ -1120,14 +1120,18 @@ class PresenceCoordinator(BaseCoordinator):
             self._census_confidence = str(
                 census_data.get("confidence", "none") or "none"
             )
-        except Exception:
+        except (TypeError, ValueError, KeyError, AttributeError):
+            # Tolerate malformed signal payload (legacy subscribers or test stubs).
+            _LOGGER.debug("Malformed census payload: could not read confidence field")
             self._census_confidence = "none"
 
         try:
             self._census_source_agreement = str(
                 census_data.get("source_agreement", "single_source") or "single_source"
             )
-        except Exception:
+        except (TypeError, ValueError, KeyError, AttributeError):
+            # Tolerate malformed signal payload (legacy subscribers or test stubs).
+            _LOGGER.debug("Malformed census payload: could not read source_agreement field")
             self._census_source_agreement = "single_source"
 
         _LOGGER.debug(
@@ -1917,7 +1921,7 @@ class PresenceCoordinator(BaseCoordinator):
             self._retry_unsub()
             self._retry_unsub = None
 
-        # v4.6.2.2: Cancel guest persistence recheck timer on teardown (Bug Class #20)
+        # v4.6.2.2: Cancel guest persistence recheck timer on teardown (Bug Class #19)
         self._disarm_guest_gate()
 
         self._cancel_listeners()
