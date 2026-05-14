@@ -8,9 +8,14 @@ Covers D1–D6 deliverables:
   D5: _handle_census_update propagates confidence to _census_confidence
   D6: AST/source-grep regressions
 
+v4.6.2.3 additions:
+  D4 (v4.6.2.3): confidence-only change triggers _run_inference
+  D5 (v4.6.2.3): _census_source_agreement removed (dead field)
+  D6 (v4.6.2.3): _make_coordinator refactored to use real PresenceCoordinator
+
 Test categories:
   - Source-grep: verify symbols exist in source without HA runtime
-  - Unit: directly instantiate StateInferenceEngine / PresenceCoordinator stubs
+  - Unit: directly instantiate PresenceCoordinator with mocked hass
   - AST: parse source and verify structural invariants
 
 No HA runtime is required. All tests run via PYTHONPATH=quality.
@@ -19,12 +24,14 @@ No HA runtime is required. All tests run via PYTHONPATH=quality.
 from __future__ import annotations
 
 import ast
+import importlib.util
 import re
+import sys
 import types
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Optional
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, AsyncMock, patch, call
 
 import pytest
 
@@ -35,12 +42,149 @@ import pytest
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 PKG = REPO_ROOT / "custom_components" / "universal_room_automation"
+DC_PATH = PKG / "domain_coordinators"
 
-PRESENCE_SRC = (PKG / "domain_coordinators" / "presence.py").read_text()
+PRESENCE_SRC = (DC_PATH / "presence.py").read_text()
 CAMERA_CENSUS_SRC = (PKG / "camera_census.py").read_text()
 CONST_SRC = (PKG / "const.py").read_text()
 INIT_SRC = (PKG / "__init__.py").read_text()
 CONFIG_FLOW_SRC = (PKG / "config_flow.py").read_text()
+
+
+# ---------------------------------------------------------------------------
+# HA module mocking + PresenceCoordinator loading
+# ---------------------------------------------------------------------------
+
+def _mock_module(name, **attrs):
+    mod = types.ModuleType(name)
+    mod.__path__ = []
+    for k, v in attrs.items():
+        setattr(mod, k, v)
+    return mod
+
+
+_identity = lambda fn: fn  # noqa: E731
+_mock_cls = MagicMock
+
+_ha_mods = {
+    "homeassistant": {},
+    "homeassistant.core": {
+        "HomeAssistant": _mock_cls,
+        "callback": _identity,
+        "Event": _mock_cls,
+        "State": _mock_cls,
+    },
+    "homeassistant.config_entries": {"ConfigEntry": _mock_cls},
+    "homeassistant.const": MagicMock(),
+    "homeassistant.helpers": {},
+    "homeassistant.helpers.device_registry": {"DeviceInfo": dict},
+    "homeassistant.helpers.entity": {
+        "DeviceInfo": dict,
+        "EntityCategory": _mock_cls(),
+    },
+    "homeassistant.helpers.entity_platform": {"AddEntitiesCallback": _mock_cls},
+    "homeassistant.helpers.event": {
+        "async_track_state_change_event": _mock_cls(),
+        "async_track_time_interval": lambda hass, cb, interval: _mock_cls(),
+        "async_call_later": lambda hass, delay, cb: _mock_cls(),
+    },
+    "homeassistant.helpers.dispatcher": {
+        "async_dispatcher_connect": lambda hass, signal, cb: _mock_cls(),
+        "async_dispatcher_send": lambda hass, signal, data=None: None,
+    },
+    "homeassistant.helpers.update_coordinator": {
+        "DataUpdateCoordinator": _mock_cls,
+        "UpdateFailed": Exception,
+    },
+    "homeassistant.helpers.selector": _mock_cls(),
+    "homeassistant.helpers.entity_registry": {"async_get": _mock_cls()},
+    "homeassistant.helpers.sun": {},
+    "homeassistant.util": {},
+    "homeassistant.util.dt": {
+        "utcnow": lambda: datetime.utcnow(),
+        "now": lambda: datetime.now(),
+        "as_local": lambda dt: dt,
+    },
+    "homeassistant.components": {},
+    "homeassistant.components.sensor": {
+        "SensorEntity": type("SensorEntity", (), {}),
+        "SensorDeviceClass": _mock_cls(),
+        "SensorStateClass": _mock_cls(),
+    },
+    "homeassistant.components.binary_sensor": {
+        "BinarySensorEntity": type("BinarySensorEntity", (), {}),
+        "BinarySensorDeviceClass": _mock_cls(),
+    },
+    "homeassistant.components.button": {
+        "ButtonEntity": type("ButtonEntity", (), {}),
+    },
+}
+
+for _name, _attrs in _ha_mods.items():
+    if isinstance(_attrs, dict):
+        _existing = sys.modules.get(_name)
+        if _existing is None:
+            sys.modules[_name] = _mock_module(_name, **_attrs)
+        else:
+            for _k, _v in _attrs.items():
+                if not hasattr(_existing, _k):
+                    setattr(_existing, _k, _v)
+    else:
+        sys.modules.setdefault(_name, _attrs)
+
+sys.modules.setdefault("aiosqlite", MagicMock())
+
+
+def _load_module(full_name: str, filepath) -> types.ModuleType:
+    spec = importlib.util.spec_from_file_location(full_name, str(filepath))
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[full_name] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+# Set up package stubs if not already present
+_cc_pkg_name = "custom_components"
+if _cc_pkg_name not in sys.modules:
+    sys.modules[_cc_pkg_name] = _mock_module(_cc_pkg_name)
+
+_ura_pkg_name = "custom_components.universal_room_automation"
+if _ura_pkg_name not in sys.modules:
+    _ura_pkg = _mock_module(_ura_pkg_name)
+    _ura_pkg.__file__ = str(PKG / "__init__.py")
+    sys.modules[_ura_pkg_name] = _ura_pkg
+
+_dc_pkg_name = "custom_components.universal_room_automation.domain_coordinators"
+if _dc_pkg_name not in sys.modules:
+    _dc_pkg = _mock_module(_dc_pkg_name)
+    _dc_pkg.__file__ = str(DC_PATH / "__init__.py")
+    sys.modules[_dc_pkg_name] = _dc_pkg
+
+# Load const, then domain_coordinator submodules presence depends on
+for _submod in ("const", ):
+    _full = f"custom_components.universal_room_automation.{_submod}"
+    if _full not in sys.modules:
+        _load_module(_full, PKG / f"{_submod}.py")
+
+for _submod in ("signals", "house_state", "base", "coordinator_diagnostics", "presence"):
+    _full = f"custom_components.universal_room_automation.domain_coordinators.{_submod}"
+    if _full not in sys.modules:
+        _load_module(_full, DC_PATH / f"{_submod}.py")
+
+from custom_components.universal_room_automation.domain_coordinators.presence import (  # noqa: E402
+    PresenceCoordinator,
+)
+
+
+def _make_hass() -> MagicMock:
+    """Build a minimal mock hass for PresenceCoordinator instantiation."""
+    hass = MagicMock()
+    hass.data = {}
+    hass.states = MagicMock()
+    hass.states.async_all.return_value = []
+    hass.config_entries = MagicMock()
+    hass.config_entries.async_entries.return_value = []
+    return hass
 
 
 # ===========================================================================
@@ -181,80 +325,24 @@ def test_guest_mode_config_round_trip():
 def _make_coordinator(
     persistence_seconds: int = 300,
     require_confidence: str = "medium",
-) -> Any:
-    """Build a minimal PresenceCoordinator-like object for gate testing.
+) -> PresenceCoordinator:
+    """Build a real PresenceCoordinator for gate testing.
 
-    We avoid importing PresenceCoordinator directly (HA runtime dependency)
-    and instead extract the relevant methods by AST + exec into a minimal stub.
+    v4.6.2.3: Refactored from stub re-implementation to real PresenceCoordinator
+    (D6 — test stub drift fix). Using the real class ensures that if _guest_gate_armed,
+    _disarm_guest_gate, or _confidence_at_least evolve, tests catch the drift.
 
-    Note: min_unidentified parameter has been dropped per orchestrator corrections.
-    The effective threshold is unidentified_count > 0 (existence check only).
+    _schedule_guest_persistence_recheck uses async_call_later from HA helpers,
+    which is already mocked in sys.modules as a lambda returning a MagicMock.
+    The returned handle is stored on _guest_persistence_check_handle.
     """
-    # Build a stub class that carries the gate fields and the two methods
-    class _Stub:
-        def __init__(self):
-            self._guest_persistence_seconds = persistence_seconds
-            self._guest_require_confidence = require_confidence
-            self._unidentified_first_seen: Optional[datetime] = None
-            self._guest_persistence_check_handle = None
-            self.hass = MagicMock()
-            self._scheduled_delays: list = []
-
-        # Copy the rank map
-        _CONFIDENCE_RANK = {"none": 0, "low": 1, "medium": 2, "high": 3}
-
-        def _confidence_at_least(self, observed: str, required: str) -> bool:
-            observed_rank = self._CONFIDENCE_RANK.get(observed, 0)
-            required_rank = self._CONFIDENCE_RANK.get(required, 0)
-            return observed_rank >= required_rank
-
-        def _disarm_guest_gate(self) -> None:
-            self._unidentified_first_seen = None
-            if self._guest_persistence_check_handle is not None:
-                self._guest_persistence_check_handle()
-                self._guest_persistence_check_handle = None
-
-        def _schedule_guest_persistence_recheck(self, persistence_secs: int) -> None:
-            # In stub: record the scheduled delay instead of calling async_call_later
-            self._scheduled_delays.append(persistence_secs + 5)
-            # Set a no-op cancellable handle
-            self._guest_persistence_check_handle = lambda: None
-
-        def _guest_gate_armed(
-            self,
-            unidentified_count: int,
-            census_confidence: str,
-            now: datetime,
-        ) -> bool:
-            # Direct copy of the implementation logic (no threshold — existence only)
-            if unidentified_count <= 0:
-                self._disarm_guest_gate()
-                return False
-
-            if not self._confidence_at_least(census_confidence, self._guest_require_confidence):
-                self._disarm_guest_gate()
-                return False
-
-            persistence_secs = self._guest_persistence_seconds
-            if persistence_secs <= 0:
-                self._disarm_guest_gate()
-                return True
-
-            if self._unidentified_first_seen is None:
-                self._unidentified_first_seen = now
-                self._schedule_guest_persistence_recheck(persistence_secs)
-                return False
-
-            elapsed = (now - self._unidentified_first_seen).total_seconds()
-            if elapsed >= persistence_secs:
-                if self._guest_persistence_check_handle is not None:
-                    self._guest_persistence_check_handle()
-                    self._guest_persistence_check_handle = None
-                return True
-
-            return False
-
-    return _Stub()
+    hass = _make_hass()
+    coord = PresenceCoordinator(
+        hass=hass,
+        guest_persistence_seconds=persistence_seconds,
+        guest_require_confidence=require_confidence,
+    )
+    return coord
 
 
 def test_guest_gate_confidence_blocks_low_census():
@@ -306,16 +394,27 @@ def test_guest_gate_persistence_arms_on_first_qualifying_tick():
         require_confidence="medium", persistence_seconds=300
     )
     now = datetime(2026, 5, 14, 10, 0, 0)
-    result = coord._guest_gate_armed(
-        unidentified_count=2,
-        census_confidence="high",
-        now=now,
+
+    # Capture the delay passed to async_call_later to verify it's persistence+5=305
+    captured_delays: list[float] = []
+    original = sys.modules["homeassistant.helpers.event"].async_call_later
+    sys.modules["homeassistant.helpers.event"].async_call_later = (
+        lambda hass, delay, cb: captured_delays.append(delay) or (lambda: None)
     )
+    try:
+        result = coord._guest_gate_armed(
+            unidentified_count=2,
+            census_confidence="high",
+            now=now,
+        )
+    finally:
+        sys.modules["homeassistant.helpers.event"].async_call_later = original
+
     assert result is False, "Gate should not fire on first qualifying tick (persistence not met)"
     assert coord._unidentified_first_seen == now, (
         "_unidentified_first_seen should be set to 'now' on first qualifying tick"
     )
-    assert coord._scheduled_delays == [305], (
+    assert captured_delays == [305], (
         "Recheck should be scheduled for persistence_seconds+5=305s"
     )
 
@@ -489,10 +588,20 @@ def test_persistence_handle_scheduled_on_arm():
         require_confidence="medium", persistence_seconds=300
     )
     now = datetime(2026, 5, 14, 10, 0, 0)
-    coord._guest_gate_armed(unidentified_count=2, census_confidence="high", now=now)
-    # _scheduled_delays should have been populated
-    assert coord._scheduled_delays, "Recheck must be scheduled on first qualifying arm"
-    assert coord._scheduled_delays[0] == 305, (
+
+    # Capture delay and return a callable handle so we can track scheduling
+    captured_delays: list[float] = []
+    original = sys.modules["homeassistant.helpers.event"].async_call_later
+    sys.modules["homeassistant.helpers.event"].async_call_later = (
+        lambda hass, delay, cb: captured_delays.append(delay) or (lambda: None)
+    )
+    try:
+        coord._guest_gate_armed(unidentified_count=2, census_confidence="high", now=now)
+    finally:
+        sys.modules["homeassistant.helpers.event"].async_call_later = original
+
+    assert captured_delays, "Recheck must be scheduled on first qualifying arm"
+    assert captured_delays[0] == 305, (
         "Recheck delay should be persistence_seconds + 5 = 305"
     )
 
@@ -580,24 +689,6 @@ def test_census_confidence_propagated_to_presence():
     )
 
 
-def test_census_source_agreement_propagated_to_presence():
-    """_handle_census_update must read 'source_agreement' into _census_source_agreement."""
-    idx = PRESENCE_SRC.find("def _handle_census_update(")
-    assert idx >= 0
-    next_def = PRESENCE_SRC.find("\n    @callback\n    def ", idx + 1)
-    next_def2 = PRESENCE_SRC.find("\n    @callback\n    async def ", idx + 1)
-    if next_def < 0 or (next_def2 > 0 and next_def2 < next_def):
-        next_def = next_def2
-    block = PRESENCE_SRC[idx: next_def if next_def > 0 else idx + 2000]
-
-    assert '_census_source_agreement' in block, (
-        "_handle_census_update must store source_agreement in self._census_source_agreement"
-    )
-    assert 'census_data.get("source_agreement"' in block, (
-        "_handle_census_update must read 'source_agreement' from census_data"
-    )
-
-
 def test_census_confidence_defaults_to_none_on_missing_key():
     """If 'confidence' key is absent from payload, _census_confidence must default to 'none'."""
     # Source-grep: default value in get() call
@@ -606,6 +697,69 @@ def test_census_confidence_defaults_to_none_on_missing_key():
     block = PRESENCE_SRC[idx: idx + 100]
     assert '"none"' in block or "'none'" in block, (
         "confidence key must default to 'none' when missing"
+    )
+
+
+# ===========================================================================
+# v4.6.2.3 D4 — Confidence-only change triggers _run_inference
+# ===========================================================================
+
+
+def test_confidence_only_change_triggers_inference():
+    """A confidence-only upgrade (same counts, different confidence) must schedule
+    _run_inference. Without the v4.6.2.3 fix, a low→high confidence change with
+    unchanged counts would silently wait up to 60s for the periodic tick.
+
+    Strategy: instantiate a real PresenceCoordinator, seed count fields, then call
+    _handle_census_update twice — first with confidence='low', second with
+    confidence='high' (count unchanged). Assert that hass.async_create_task is
+    called on the second dispatch.
+    """
+    coord = _make_coordinator(persistence_seconds=0, require_confidence="low")
+
+    # Seed the coordinator with an initial count so the second dispatch is not
+    # the first call (where count change would trigger inference regardless).
+    coord._census_count = 2
+    coord._unidentified_count = 0
+    coord._census_confidence = "low"
+
+    # Track async_create_task calls
+    task_calls: list = []
+    coord.hass.async_create_task = lambda coro: task_calls.append(coro)
+
+    # Second dispatch: same counts, but confidence upgrades low → high
+    coord._handle_census_update({
+        "interior_count": 2,
+        "unidentified_count": 0,
+        "confidence": "high",
+    })
+
+    assert task_calls, (
+        "hass.async_create_task must be called when confidence changes low→high "
+        "even when counts are unchanged (v4.6.2.3 D4 fix)"
+    )
+
+
+def test_no_extra_inference_when_nothing_changes():
+    """When counts and confidence are identical, no inference task must be scheduled."""
+    coord = _make_coordinator(persistence_seconds=0, require_confidence="low")
+
+    coord._census_count = 2
+    coord._unidentified_count = 0
+    coord._census_confidence = "high"
+
+    task_calls: list = []
+    coord.hass.async_create_task = lambda coro: task_calls.append(coro)
+
+    # Dispatch with identical values
+    coord._handle_census_update({
+        "interior_count": 2,
+        "unidentified_count": 0,
+        "confidence": "high",
+    })
+
+    assert not task_calls, (
+        "No inference task should be scheduled when counts and confidence are unchanged"
     )
 
 
