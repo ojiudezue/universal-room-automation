@@ -2451,6 +2451,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         """Configure Presence Coordinator settings.
 
         v3.6.0-c2.1: Sleep hours and geofence entity selection.
+        v4.6.2.2: Guest mode false-positive hardening knobs.
         Settings stored in CM entry options, read by __init__.py during
         coordinator setup.
         """
@@ -2460,6 +2461,12 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             CONF_GEOFENCE_ENTITIES,
             DEFAULT_SLEEP_START_HOUR,
             DEFAULT_SLEEP_END_HOUR,
+            CONF_GUEST_MODE_PERSISTENCE_SECONDS,
+            CONF_GUEST_MODE_MIN_UNIDENTIFIED,
+            CONF_GUEST_MODE_REQUIRE_CONFIDENCE,
+            DEFAULT_GUEST_PERSISTENCE_SECONDS,
+            DEFAULT_GUEST_MIN_UNIDENTIFIED,
+            DEFAULT_GUEST_REQUIRE_CONFIDENCE,
         )
 
         if user_input is not None:
@@ -2495,6 +2502,43 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             ): selector.EntitySelector(
                 selector.EntitySelectorConfig(
                     domain="device_tracker", multiple=True
+                )
+            ),
+            # v4.6.2.2: Guest mode hardening knobs
+            vol.Optional(
+                CONF_GUEST_MODE_PERSISTENCE_SECONDS,
+                default=self._get_current(
+                    CONF_GUEST_MODE_PERSISTENCE_SECONDS,
+                    DEFAULT_GUEST_PERSISTENCE_SECONDS,
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0, max=1800, step=30, unit_of_measurement="s",
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
+            vol.Optional(
+                CONF_GUEST_MODE_MIN_UNIDENTIFIED,
+                default=self._get_current(
+                    CONF_GUEST_MODE_MIN_UNIDENTIFIED,
+                    DEFAULT_GUEST_MIN_UNIDENTIFIED,
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=1, max=5, step=1,
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
+            vol.Optional(
+                CONF_GUEST_MODE_REQUIRE_CONFIDENCE,
+                default=self._get_current(
+                    CONF_GUEST_MODE_REQUIRE_CONFIDENCE,
+                    DEFAULT_GUEST_REQUIRE_CONFIDENCE,
+                ),
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=["low", "medium", "high"],
+                    mode=selector.SelectSelectorMode.LIST,
                 )
             ),
         })

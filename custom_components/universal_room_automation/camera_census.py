@@ -809,6 +809,9 @@ class PersonCensus:
                 "unidentified_count": house_result.unidentified_count,
                 "property_count": property_result.total_persons,
                 "total_on_property": total_on_property,
+                # v4.6.2.2: Census confidence fields for guest-mode hardening gate
+                "confidence": house_result.confidence,
+                "source_agreement": house_result.source_agreement,
             },
         )
 

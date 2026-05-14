@@ -350,10 +350,16 @@ class StateInferenceEngine:
         any_zone_occupied: bool,
         now: Optional[datetime] = None,
         unidentified_count: int = 0,
+        guest_gate_armed: bool = False,
     ) -> Optional[HouseState]:
         """Infer the appropriate house state.
 
         Returns the inferred state, or None if no change is warranted.
+
+        v4.6.2.2: guest_gate_armed replaces the raw unidentified_count > 0
+        check for guest entry. It is pre-evaluated by PresenceCoordinator via
+        _guest_gate_armed() which applies threshold, confidence, and persistence
+        guards before passing the armed flag in.
         """
         if now is None:
             now = dt_util.now()
@@ -402,10 +408,12 @@ class StateInferenceEngine:
             self._confidence = 0.85
             return HouseState.HOME_DAY
 
-        # v3.15.0: Guest detection — unidentified persons while home
+        # v3.15.0 / v4.6.2.2: Guest detection — unidentified persons while home.
+        # v4.6.2.2: guest_gate_armed pre-applies threshold + confidence +
+        # persistence guards (see PresenceCoordinator._guest_gate_armed).
         # NOTE: ARRIVING excluded — must transition to HOME_* first (GUEST is
         # not a valid transition from ARRIVING). Guest detection fires next cycle.
-        if unidentified_count > 0 and current_state in (
+        if guest_gate_armed and current_state in (
             HouseState.HOME_DAY,
             HouseState.HOME_EVENING,
             HouseState.HOME_NIGHT,
@@ -414,6 +422,7 @@ class StateInferenceEngine:
                 self._confidence = 0.8
                 return HouseState.GUEST
         # Guest mode exit — unidentified gone, return to time-based home
+        # Exit is immediate (no persistence guard — cheaper to leave than to enter).
         if current_state == HouseState.GUEST and unidentified_count == 0:
             self._confidence = 0.75
             return self._time_based_home(hour)
@@ -479,6 +488,9 @@ class PresenceCoordinator(BaseCoordinator):
         hass: HomeAssistant,
         sleep_start_hour: int = 23,
         sleep_end_hour: int = 6,
+        guest_persistence_seconds: int = 300,
+        guest_min_unidentified: int = 2,
+        guest_require_confidence: str = "medium",
     ) -> None:
         super().__init__(
             hass=hass,
@@ -516,6 +528,19 @@ class PresenceCoordinator(BaseCoordinator):
         # Initialized as None here; created in async_setup() to ensure it
         # binds to the correct event loop (review fix F3).
         self._ready_event: asyncio.Event | None = None
+
+        # v4.6.2.2: Guest mode false-positive hardening
+        # Census confidence fields — updated by _handle_census_update
+        self._census_confidence: str = "none"
+        self._census_source_agreement: str = "single_source"
+        # Persistence arm: timestamp of first qualifying unidentified tick
+        self._unidentified_first_seen: Optional[datetime] = None
+        # Deferred recheck handle — cancelled on disarm, gate fire, and unload
+        self._guest_persistence_check_handle: Optional[Any] = None
+        # Guest mode config knobs
+        self._guest_persistence_seconds: int = guest_persistence_seconds
+        self._guest_min_unidentified: int = guest_min_unidentified
+        self._guest_require_confidence: str = guest_require_confidence
 
     @property
     def inference_engine(self) -> StateInferenceEngine:
@@ -1091,6 +1116,27 @@ class PresenceCoordinator(BaseCoordinator):
         except (ValueError, TypeError):
             self._unidentified_count = 0
 
+        # v4.6.2.2: Read confidence fields for guest gate — default to "none"
+        # if not present (backward compat with any caller not yet sending them).
+        try:
+            self._census_confidence = str(
+                census_data.get("confidence", "none") or "none"
+            )
+        except Exception:
+            self._census_confidence = "none"
+
+        try:
+            self._census_source_agreement = str(
+                census_data.get("source_agreement", "single_source") or "single_source"
+            )
+        except Exception:
+            self._census_source_agreement = "single_source"
+
+        _LOGGER.debug(
+            "Census update: count=%d unidentified=%d confidence=%s",
+            self._census_count, self._unidentified_count, self._census_confidence,
+        )
+
         if old_count != self._census_count or old_unidentified != self._unidentified_count:
             self.hass.async_create_task(self._run_inference("census_update"))
 
@@ -1363,6 +1409,137 @@ class PresenceCoordinator(BaseCoordinator):
             "Deferred retry scheduled in %.0fs", delay_seconds,
         )
 
+    # ------------------------------------------------------------------
+    # v4.6.2.2: Guest mode hardening helpers
+    # ------------------------------------------------------------------
+
+    # Confidence level rank map — strict ordering for gate compare.
+    # NEVER compare confidence strings lexicographically.
+    _CONFIDENCE_RANK: dict = {"none": 0, "low": 1, "medium": 2, "high": 3}
+
+    def _confidence_at_least(self, observed: str, required: str) -> bool:
+        """Return True iff observed census confidence >= required level.
+
+        Uses the private rank map to avoid lexicographic comparison bugs.
+        Unknown values are treated as 'none' (rank 0) — safest default.
+        """
+        observed_rank = self._CONFIDENCE_RANK.get(observed, 0)
+        required_rank = self._CONFIDENCE_RANK.get(required, 0)
+        return observed_rank >= required_rank
+
+    def _disarm_guest_gate(self) -> None:
+        """Clear all guest gate arm state and cancel any pending recheck timer.
+
+        Call on: disarm (count drops / confidence regresses), gate fire,
+        house state change away from HOME_*, coordinator unload.
+        """
+        self._unidentified_first_seen = None
+        if self._guest_persistence_check_handle is not None:
+            self._guest_persistence_check_handle()
+            self._guest_persistence_check_handle = None
+
+    def _guest_gate_armed(
+        self,
+        unidentified_count: int,
+        census_confidence: str,
+        now: datetime,
+    ) -> bool:
+        """Evaluate all three guest-mode entry guards.
+
+        Guards (short-circuit on first failure):
+        1. Threshold: unidentified_count >= _guest_min_unidentified
+        2. Confidence: census_confidence >= _guest_require_confidence
+        3. Persistence: unidentified has been seen for >= _guest_persistence_seconds
+
+        On first qualifying tick: arms the gate (sets _unidentified_first_seen)
+        and schedules a recheck after persistence_seconds + 5s.
+        On non-qualifying tick: disarms (clears state + cancels timer).
+        Returns True only when all three guards pass.
+        """
+        # Guard 1: Threshold
+        if unidentified_count < self._guest_min_unidentified:
+            _LOGGER.debug(
+                "Guest gate: threshold not met (count=%d < min=%d) — disarming",
+                unidentified_count, self._guest_min_unidentified,
+            )
+            self._disarm_guest_gate()
+            return False
+
+        # Guard 2: Confidence
+        if not self._confidence_at_least(census_confidence, self._guest_require_confidence):
+            _LOGGER.debug(
+                "Guest gate: confidence too low (observed=%s < required=%s) — disarming",
+                census_confidence, self._guest_require_confidence,
+            )
+            self._disarm_guest_gate()
+            return False
+
+        # Guard 3: Persistence
+        persistence_secs = self._guest_persistence_seconds
+        if persistence_secs <= 0:
+            # Persistence disabled — fire immediately
+            _LOGGER.debug("Guest gate: persistence disabled — firing immediately")
+            self._disarm_guest_gate()
+            return True
+
+        if self._unidentified_first_seen is None:
+            # First qualifying tick — arm the gate
+            self._unidentified_first_seen = now
+            _LOGGER.info(
+                "Guest gate armed: unidentified=%d, confidence=%s — "
+                "waiting %ds before firing",
+                unidentified_count, census_confidence, persistence_secs,
+            )
+            # Schedule a forced recheck so we don't depend on census jitter
+            self._schedule_guest_persistence_recheck(persistence_secs)
+            return False
+
+        elapsed = (now - self._unidentified_first_seen).total_seconds()
+        if elapsed >= persistence_secs:
+            _LOGGER.info(
+                "Guest gate fires: unidentified=%d persisted for %.0fs (>= %ds)",
+                unidentified_count, elapsed, persistence_secs,
+            )
+            # Cancel pending recheck handle — gate is firing now
+            if self._guest_persistence_check_handle is not None:
+                self._guest_persistence_check_handle()
+                self._guest_persistence_check_handle = None
+            return True
+
+        _LOGGER.debug(
+            "Guest gate: persistence not yet met (%.0f / %d s)",
+            elapsed, persistence_secs,
+        )
+        return False
+
+    def _schedule_guest_persistence_recheck(self, persistence_secs: int) -> None:
+        """Schedule a one-shot recheck after the persistence window + 5s buffer.
+
+        Cancelled on disarm, gate fire, or coordinator unload.
+        The +5s buffer ensures we always fire AFTER the window, never at its edge.
+        """
+        from homeassistant.helpers.event import async_call_later
+
+        # Cancel any existing handle first (e.g. if re-armed after partial disarm)
+        if self._guest_persistence_check_handle is not None:
+            self._guest_persistence_check_handle()
+            self._guest_persistence_check_handle = None
+
+        @callback
+        def _recheck_callback(_now: datetime) -> None:
+            self._guest_persistence_check_handle = None
+            self.hass.async_create_task(
+                self._run_inference("guest_persistence_recheck")
+            )
+
+        self._guest_persistence_check_handle = async_call_later(
+            self.hass, persistence_secs + 5, _recheck_callback,
+        )
+        _LOGGER.debug(
+            "Guest persistence recheck scheduled in %ds",
+            persistence_secs + 5,
+        )
+
     async def _run_inference(self, trigger: str) -> None:
         """Run state inference and apply transitions.
 
@@ -1386,11 +1563,43 @@ class PresenceCoordinator(BaseCoordinator):
         )
 
         current_state = manager.house_state_machine.state
+
+        # v4.6.2.2: Evaluate guest gate (threshold + confidence + persistence)
+        # before calling the inference engine. Also clear the arm state when
+        # house leaves HOME_* so we don't carry stale arm across state changes.
+        now = dt_util.now()
+        _home_like_states = (
+            HouseState.HOME_DAY,
+            HouseState.HOME_EVENING,
+            HouseState.HOME_NIGHT,
+        )
+        if current_state not in _home_like_states and current_state != HouseState.GUEST:
+            # House is not in a HOME/GUEST state — disarm any pending gate
+            if self._unidentified_first_seen is not None:
+                _LOGGER.debug(
+                    "Guest gate disarmed: house left HOME_* (current=%s)",
+                    current_state.value,
+                )
+                self._disarm_guest_gate()
+
+        # Only evaluate the guest gate entry when the house is in a HOME_* state.
+        # When already in GUEST state, skip gate evaluation (already fired;
+        # inference engine handles exit via unidentified_count==0 check).
+        if current_state in _home_like_states:
+            guest_armed = self._guest_gate_armed(
+                unidentified_count=self._unidentified_count,
+                census_confidence=self._census_confidence,
+                now=now,
+            )
+        else:
+            guest_armed = False
+
         new_state = self._inference_engine.infer(
             census_count=self._census_count,
             current_state=current_state,
             any_zone_occupied=any_zone_occupied,
             unidentified_count=self._unidentified_count,
+            guest_gate_armed=guest_armed,
         )
 
         if new_state is not None:
@@ -1402,6 +1611,16 @@ class PresenceCoordinator(BaseCoordinator):
                 if self._retry_unsub is not None:
                     self._retry_unsub()
                     self._retry_unsub = None
+
+                # v4.6.2.2: If we just transitioned INTO guest mode, clear the
+                # arm state (gate fired successfully — no need to keep the timer).
+                if new_state == HouseState.GUEST:
+                    self._disarm_guest_gate()
+                # If we just transitioned OUT of guest mode (exit path),
+                # also clear any residual arm state.
+                elif current_state == HouseState.GUEST:
+                    self._disarm_guest_gate()
+
                 self._count_transition()
 
                 # Propagate sleep state to zones
@@ -1699,6 +1918,9 @@ class PresenceCoordinator(BaseCoordinator):
         if self._retry_unsub is not None:
             self._retry_unsub()
             self._retry_unsub = None
+
+        # v4.6.2.2: Cancel guest persistence recheck timer on teardown (Bug Class #20)
+        self._disarm_guest_gate()
 
         self._cancel_listeners()
 

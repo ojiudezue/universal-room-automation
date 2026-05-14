@@ -681,12 +681,18 @@
         "data": {
           "sleep_start_hour": "Sleep Start Hour",
           "sleep_end_hour": "Sleep End Hour",
-          "geofence_entities": "Geofence Device Trackers"
+          "geofence_entities": "Geofence Device Trackers",
+          "guest_mode_persistence_seconds": "Guest Mode Persistence (seconds)",
+          "guest_mode_min_unidentified": "Guest Mode Min Unidentified",
+          "guest_mode_require_confidence": "Guest Mode Min Census Confidence"
         },
         "data_description": {
           "sleep_start_hour": "Hour (0–23) when the house enters sleep mode. Default: 23 (11 PM).",
           "sleep_end_hour": "Hour (0–23) when the house exits sleep mode. Default: 6 (6 AM).",
-          "geofence_entities": "Device tracker entities used for geofence-based arrival/departure detection. Select person device trackers that report home/not_home zones."
+          "geofence_entities": "Device tracker entities used for geofence-based arrival/departure detection. Select person device trackers that report home/not_home zones.",
+          "guest_mode_persistence_seconds": "How long an unidentified person must persist before the house enters Guest mode. Filters transient ID failures (face DB miss, BLE coverage gap). Set to 0 to disable persistence (instant trigger). Default: 300s (5 min).",
+          "guest_mode_min_unidentified": "Minimum number of unidentified people to trigger Guest mode. Set to 1 for sensitive detection (more false positives); 2+ filters single-person ID failures. Default: 2.",
+          "guest_mode_require_confidence": "Minimum census confidence required to trigger Guest mode. 'medium' refuses to fire when cameras disagree or no camera data. 'high' requires both camera platforms agree. Default: medium."
         }
       },
       "coordinator_safety": {
