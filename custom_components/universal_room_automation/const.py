@@ -1153,9 +1153,6 @@ DEFAULT_GUEST_VLAN_SSID: Final = ""  # Empty = auto-detect via is_guest flag
 # Persistence: how long an unidentified person must be seen before guest mode fires
 CONF_GUEST_MODE_PERSISTENCE_SECONDS: Final = "guest_mode_persistence_seconds"
 DEFAULT_GUEST_PERSISTENCE_SECONDS: Final = 300  # 5 min; set 0 to disable
-# Minimum unidentified count: filters single-person ID failures (face DB miss / BLE gap)
-CONF_GUEST_MODE_MIN_UNIDENTIFIED: Final = "guest_mode_min_unidentified"
-DEFAULT_GUEST_MIN_UNIDENTIFIED: Final = 2  # require at least 2 unidentified
 # Confidence gate: minimum census confidence level required to fire guest mode
 CONF_GUEST_MODE_REQUIRE_CONFIDENCE: Final = "guest_mode_require_confidence"
 DEFAULT_GUEST_REQUIRE_CONFIDENCE: Final = "medium"  # blocks low/none confidence

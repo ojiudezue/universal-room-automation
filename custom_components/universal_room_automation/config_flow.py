@@ -2462,10 +2462,8 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             DEFAULT_SLEEP_START_HOUR,
             DEFAULT_SLEEP_END_HOUR,
             CONF_GUEST_MODE_PERSISTENCE_SECONDS,
-            CONF_GUEST_MODE_MIN_UNIDENTIFIED,
             CONF_GUEST_MODE_REQUIRE_CONFIDENCE,
             DEFAULT_GUEST_PERSISTENCE_SECONDS,
-            DEFAULT_GUEST_MIN_UNIDENTIFIED,
             DEFAULT_GUEST_REQUIRE_CONFIDENCE,
         )
 
@@ -2514,18 +2512,6 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(
                     min=0, max=1800, step=30, unit_of_measurement="s",
-                    mode=selector.NumberSelectorMode.BOX,
-                )
-            ),
-            vol.Optional(
-                CONF_GUEST_MODE_MIN_UNIDENTIFIED,
-                default=self._get_current(
-                    CONF_GUEST_MODE_MIN_UNIDENTIFIED,
-                    DEFAULT_GUEST_MIN_UNIDENTIFIED,
-                ),
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=1, max=5, step=1,
                     mode=selector.NumberSelectorMode.BOX,
                 )
             ),

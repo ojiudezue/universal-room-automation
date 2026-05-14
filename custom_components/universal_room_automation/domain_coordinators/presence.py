@@ -489,7 +489,6 @@ class PresenceCoordinator(BaseCoordinator):
         sleep_start_hour: int = 23,
         sleep_end_hour: int = 6,
         guest_persistence_seconds: int = 300,
-        guest_min_unidentified: int = 2,
         guest_require_confidence: str = "medium",
     ) -> None:
         super().__init__(
@@ -539,7 +538,6 @@ class PresenceCoordinator(BaseCoordinator):
         self._guest_persistence_check_handle: Optional[Any] = None
         # Guest mode config knobs
         self._guest_persistence_seconds: int = guest_persistence_seconds
-        self._guest_min_unidentified: int = guest_min_unidentified
         self._guest_require_confidence: str = guest_require_confidence
 
     @property
@@ -1444,23 +1442,23 @@ class PresenceCoordinator(BaseCoordinator):
         census_confidence: str,
         now: datetime,
     ) -> bool:
-        """Evaluate all three guest-mode entry guards.
+        """Evaluate all guest-mode entry guards.
 
         Guards (short-circuit on first failure):
-        1. Threshold: unidentified_count >= _guest_min_unidentified
+        1. Existence: unidentified_count > 0
         2. Confidence: census_confidence >= _guest_require_confidence
         3. Persistence: unidentified has been seen for >= _guest_persistence_seconds
 
         On first qualifying tick: arms the gate (sets _unidentified_first_seen)
         and schedules a recheck after persistence_seconds + 5s.
         On non-qualifying tick: disarms (clears state + cancels timer).
-        Returns True only when all three guards pass.
+        Returns True only when all guards pass.
         """
-        # Guard 1: Threshold
-        if unidentified_count < self._guest_min_unidentified:
+        # Guard 1: Existence
+        if unidentified_count <= 0:
             _LOGGER.debug(
-                "Guest gate: threshold not met (count=%d < min=%d) — disarming",
-                unidentified_count, self._guest_min_unidentified,
+                "Guest gate: no unidentified persons (count=%d) — disarming",
+                unidentified_count,
             )
             self._disarm_guest_gate()
             return False
