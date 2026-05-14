@@ -177,6 +177,7 @@ from .const import (
     CONF_FAN_SPEED_HIGH_TEMP,
     CONF_HUMIDITY_FAN_THRESHOLD,
     CONF_HUMIDITY_FAN_TIMEOUT,
+    CONF_HUMIDITY_FAN_MAX_RUNTIME,
     DEFAULT_TARGET_TEMP_COOL,
     DEFAULT_TARGET_TEMP_HEAT,
     DEFAULT_FAN_TEMP_THRESHOLD,
@@ -185,6 +186,7 @@ from .const import (
     DEFAULT_FAN_SPEED_HIGH,
     DEFAULT_HUMIDITY_THRESHOLD,
     DEFAULT_HUMIDITY_FAN_TIMEOUT,
+    DEFAULT_HUMIDITY_FAN_MAX_RUNTIME,
     # Sleep protection
     CONF_SLEEP_PROTECTION_ENABLED,
     CONF_SLEEP_START_HOUR,
@@ -1575,6 +1577,9 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
             ),
             vol.Optional(CONF_HUMIDITY_FAN_TIMEOUT, default=DEFAULT_HUMIDITY_FAN_TIMEOUT): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=60, max=3600, unit_of_measurement="s", mode=selector.NumberSelectorMode.BOX)
+            ),
+            vol.Optional(CONF_HUMIDITY_FAN_MAX_RUNTIME, default=DEFAULT_HUMIDITY_FAN_MAX_RUNTIME): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=600, max=14400, unit_of_measurement="s", mode=selector.NumberSelectorMode.BOX)
             ),
         })
 
@@ -5478,6 +5483,12 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 default=self._get_current(CONF_HUMIDITY_FAN_TIMEOUT, DEFAULT_HUMIDITY_FAN_TIMEOUT)
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(min=60, max=3600, unit_of_measurement="s", mode=selector.NumberSelectorMode.BOX)
+            ),
+            vol.Optional(
+                CONF_HUMIDITY_FAN_MAX_RUNTIME,
+                default=self._get_current(CONF_HUMIDITY_FAN_MAX_RUNTIME, DEFAULT_HUMIDITY_FAN_MAX_RUNTIME)
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=600, max=14400, unit_of_measurement="s", mode=selector.NumberSelectorMode.BOX)
             ),
         })
 

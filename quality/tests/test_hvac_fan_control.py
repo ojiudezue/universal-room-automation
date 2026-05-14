@@ -101,6 +101,11 @@ _ura_const.CONF_ENTRY_TYPE = "entry_type"
 _ura_const.CONF_ROOM_NAME = "room_name"
 _ura_const.CONF_FANS = "fans"
 _ura_const.CONF_HUMIDITY_FANS = "humidity_fans"
+_ura_const.CONF_HUMIDITY_FAN_THRESHOLD = "humidity_fan_threshold"
+_ura_const.CONF_HUMIDITY_FAN_MAX_RUNTIME = "humidity_fan_max_runtime"
+_ura_const.DEFAULT_HUMIDITY_THRESHOLD = 60
+_ura_const.DEFAULT_HUMIDITY_FAN_MAX_RUNTIME = 3600
+_ura_const.DEFAULT_HUMIDITY_FAN_HYSTERESIS = 10
 _ura_const.ENTRY_TYPE_ROOM = "room"
 sys.modules["custom_components.universal_room_automation.const"] = _ura_const
 

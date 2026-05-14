@@ -440,6 +440,7 @@ CONF_FAN_SPEED_MED_TEMP: Final = "fan_speed_med_temp"
 CONF_FAN_SPEED_HIGH_TEMP: Final = "fan_speed_high_temp"
 CONF_HUMIDITY_FAN_THRESHOLD: Final = "humidity_fan_threshold"
 CONF_HUMIDITY_FAN_TIMEOUT: Final = "humidity_fan_timeout"
+CONF_HUMIDITY_FAN_MAX_RUNTIME: Final = "humidity_fan_max_runtime"
 CONF_FAN_VACANCY_HOLD: Final = "fan_vacancy_hold"
 
 # --- Step 6: Sleep Protection ---
@@ -501,7 +502,9 @@ DEFAULT_FAN_SPEED_LOW: Final = 69  # °F
 DEFAULT_FAN_SPEED_MED: Final = 72  # °F
 DEFAULT_FAN_SPEED_HIGH: Final = 75  # °F
 DEFAULT_HUMIDITY_THRESHOLD: Final = 60  # %
-DEFAULT_HUMIDITY_FAN_TIMEOUT: Final = 600  # 10 minutes
+DEFAULT_HUMIDITY_FAN_TIMEOUT: Final = 600  # 10 minutes (min-runtime gate — not an off-delay)
+DEFAULT_HUMIDITY_FAN_MAX_RUNTIME: Final = 3600  # 60 minutes — force-off cap for stuck sensors
+DEFAULT_HUMIDITY_FAN_HYSTERESIS: Final = 10  # % RH — OFF threshold = ON threshold − hysteresis
 DEFAULT_FAN_VACANCY_HOLD: Final = 300  # 5 minutes extra after occupancy timeout
 
 # Cover defaults
