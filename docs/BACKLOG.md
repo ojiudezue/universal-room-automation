@@ -1,5 +1,29 @@
 # URA Backlog — As of v4.2.6 (Apr 19, 2026)
 
+## v4.6.2.3 — Review carry-overs from v4.6.2.1 + v4.6.2.2 (queued, Tier 1)
+
+**Status:** Filed 2026-05-14 from Tier 1 reviews of v4.6.2.1 + v4.6.2.2. Both cycles shipped; these items were intentionally deferred to keep the hotfixes tight. Bundle into one short cycle.
+
+### From v4.6.2.1 review (`docs/reviews/code-review/v4.6.2.1_humidity_fan_hardening.md`)
+
+1. **MEDIUM #1, #2 — Reload-mid-cycle state-anchor loss.** Both paths share the shape: on options-flow reload while a humidity fan is running, `_humidity_on_since` resets to `None`. If humidity is in the hysteresis band on next eval, neither activate nor off branch fires and the anchor never re-seeds → max-runtime cap silently disables until the fan fully cycles off→on. Reviewer's proposed 5-line patch per path: seed `humidity_on_since = now` when we observe the fan entity already on at evaluation time. Add at least one behavioral test that drives `handle_humidity_based_fan_control` end-to-end (replacing the v4.6.2.1 source-grep tests).
+2. **LOW #3 — Sleep-policy clear of suppression.** Cap-fire + sleep onset within minutes leaks the "require humidity to drop before re-fire" contract. Small fix: don't reset `_humidity_cap_suppressed` in the sleep branch.
+3. **LOW #4 — HVAC-managing transition leaves stale Path A state.** When HVAC stops managing later, Path A wakes with stale `_humidity_on_since`. Clear Path A state on HVAC-managing entry.
+4. **LOW #5 — Cap-fire clears `_humidity_fan_triggered_time`.** Intentional but undocumented. Comment-only.
+5. **LOW #8, #9 — Behavioral test gap.** Path A tests are source-grep, not behavioral. Replace with end-to-end driver tests.
+
+### From v4.6.2.2 review (`docs/reviews/code-review/v4.6.2.2_guest_mode_hardening.md`)
+
+6. **MEDIUM #1 — Signal-reactivity gap on confidence-only change.** `_handle_census_update` only triggers `_run_inference` on count change. Confidence upgrade (e.g. low→high) with counts unchanged waits up to one 60s periodic cycle. Fix: add `old_confidence != self._census_confidence` to the trigger condition.
+7. **LOW #2 — Dead state `_census_source_agreement`.** Captured in `_handle_census_update` but never read. Either wire it into the gate (e.g. require `both_agree` for high-confidence trust) or remove the field.
+8. **LOW #7 — Test-stub re-implementation of `_guest_gate_armed`.** Tests construct a stub that mirrors the production method; production-code drift risk. Refactor tests to call the real method.
+
+### Cost (estimated)
+
+- Production: ~30 LoC across `automation.py`, `hvac_fans.py`, `presence.py`
+- Tests: ~100 LoC (behavioral tests for humidity fan + reactivity for confidence change)
+- Tier 1 review
+
 ## Bugs (fix first)
 
 1. **Config flow save timeout** — Options persist to disk but `async_reload` from options flow update listener times out. Manual reload works.

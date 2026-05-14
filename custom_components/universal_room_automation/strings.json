@@ -333,7 +333,8 @@
           "fan_control_enabled": "Enable Fan Control",
           "fan_temp_threshold": "Fan Start Temperature",
           "humidity_fan_threshold": "Humidity Fan Threshold",
-          "humidity_fan_timeout": "Humidity Fan Timeout"
+          "humidity_fan_timeout": "Humidity Fan Min Runtime",
+          "humidity_fan_max_runtime": "Humidity Fan Max Runtime"
         },
         "data_description": {
           "climate_entity": "Your thermostat or HVAC controller (auto-detected from area if available)",
@@ -343,7 +344,8 @@
           "fan_control_enabled": "Automatically control fans based on temperature (speed thresholds in next step)",
           "fan_temp_threshold": "Temperature above which fans turn on",
           "humidity_fan_threshold": "Humidity % above which exhaust fans turn on",
-          "humidity_fan_timeout": "Seconds to run exhaust fan after humidity drops"
+          "humidity_fan_timeout": "Minimum continuous runtime before the fan is allowed to turn off after humidity drops below threshold. Prevents short-cycling.",
+          "humidity_fan_max_runtime": "Maximum continuous humidity-fan runtime. Forces off if humidity stays elevated longer than this — protects against stuck humidity sensors and runaway runs. Set higher for laundry rooms; lower for bathrooms."
         }
       },
       "fan_speeds": {
@@ -1368,7 +1370,8 @@
           "fan_speed_med_temp": "Medium Speed Temperature",
           "fan_speed_high_temp": "High Speed Temperature",
           "humidity_fan_threshold": "Humidity Fan Threshold (%)",
-          "humidity_fan_timeout": "Humidity Fan Timeout (s)"
+          "humidity_fan_timeout": "Humidity Fan Min Runtime (s)",
+          "humidity_fan_max_runtime": "Humidity Fan Max Runtime (s)"
         }
       },
       "sleep_protection": {
