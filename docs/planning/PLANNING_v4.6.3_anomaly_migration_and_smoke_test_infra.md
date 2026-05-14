@@ -230,3 +230,147 @@ After v4.6.3, the following items from the v4.6.x close-out narrative remain:
 - v4.7.x Advanced Energy Mgt (still deferred; planning doc complete)
 
 These remain in `docs/BACKLOG.md` and the v4.6.x roadmap memory.
+
+---
+
+## SCOPE EXPANSION (2026-05-14, user-directed)
+
+After initial plan review, user requested adding configurability, observability, and standardized data shape into the same cycle. v4.6.3 ships **all-in-one** (no phasing) per user direction.
+
+### D10 — Per-coordinator anomaly sensitivity (CONFIG + RECONFIG only, clear labels)
+
+**Design constraint from user:** "limit to config and reconfig and use clear labels". So this is NOT a Number entity (those are technical/advanced). It's a single dropdown per coordinator in the options flow.
+
+Add `CONF_<COORD>_ANOMALY_SENSITIVITY` per coordinator (HVAC, presence, energy, safety, security, music_following). Select dropdown with 5 named buckets:
+
+| Selection | Multiplier applied to z-thresholds | Label + helper text |
+|---|---|---|
+| `very_quiet` | 2.0× (z=4/6/8) | "Very Quiet — only the loudest anomalies get flagged" |
+| `quiet` | 1.5× (z=3/4.5/6) | "Quiet — fewer notifications, accepts more variability as normal" |
+| `normal` | 1.0× (z=2/3/4, default) | "Normal — standard sensitivity, recommended for most homes" |
+| `sensitive` | 0.75× (z=1.5/2.25/3) | "Sensitive — catches subtler anomalies, more notifications" |
+| `very_sensitive` | 0.5× (z=1/1.5/2) | "Very Sensitive — flags small deviations; expect frequent advisories" |
+
+Default `normal`. Internal mapping in `coordinator_diagnostics.AnomalyDetector.__init__` applies the multiplier to the default `(advisory=2, alert=3, critical=4)` z-thresholds. No runtime entity, no live tuning — set-it-and-forget-it via options flow.
+
+**Acceptance Criteria**
+- **Verify:** Each coordinator's options flow shows the new "Anomaly Sensitivity" dropdown with the 5 labeled options and the helper text.
+- **Verify:** Selecting `sensitive` lowers z-thresholds to 1.5/2.25/3 for that coordinator. Confirm via direct read of `AnomalyDetector` instance after entry reload.
+- **Test:** `test_anomaly_sensitivity_dropdown_labels_present`, `test_sensitivity_multiplier_applies_to_thresholds`.
+
+### D11 — Standardize `context_json` keys (NO schema change)
+
+For every anomaly emit, build `context_json` with a canonical key set:
+
+```python
+context = {
+    "zone_id": <str | None>,
+    "room_id": <str | None>,
+    "person_id": <str | None>,
+    "linked_event_id": <int | None>,  # FK into anomaly_log for correlations (D5)
+    "source_signal": <str | None>,    # e.g. "SIGNAL_SAFETY_HAZARD"
+    # ...plus coordinator-specific extra keys allowed under "extra": {...}
+}
+```
+
+Document the canonical shape in `domain_coordinators/anomaly_event.py` (the `AnomalyEvent` dataclass docstring). No schema change required — JSON column accepts everything. Future cycle can promote these to first-class columns during the NOT NULL relaxation table-rebuild.
+
+**Acceptance Criteria**
+- **Verify:** Every migrated emit site (D2–D6) builds `context_json` containing applicable canonical keys.
+- **Verify:** Behavioral test reads back a written row's `context_json`, parses JSON, asserts canonical keys present.
+- **Test:** `test_context_json_canonical_shape_<emit_site>` per emit site.
+
+### D12 — Reuse ActivityLogger for anomaly emit, add house-level "Recent Anomalies" sensor
+
+**User direction:** "make sure this is well aligned with our activity stream work that plugged into HA if relevant. Mostly not trying to rebuild infra if we have it."
+
+**ActivityLogger reuse (no new log infra):** Every anomaly emit site calls `activity_logger.log()` alongside `save_anomaly_event()`:
+
+```python
+await save_anomaly_event(event)
+await self.activity_logger.log(
+    coordinator=<coord_name>,
+    action="anomaly",
+    description=<short human-readable summary>,
+    importance=<severity>,  # advisory/alert/critical maps to activity importance
+    room=<room_name>,
+    zone=<zone_name>,
+    entity_id=<related_entity_id>,
+    details={"type": <type>, "z_score": ..., "metric_name": ..., ...},
+)
+```
+
+This automatically:
+- Writes to `ura_activity_log` DB table via existing write queue (`activity_logger.py:88`)
+- Fires `ura_action` HA event → visible in HA Logbook (`activity_logger.py:117`)
+- Dispatches `SIGNAL_ACTIVITY_LOGGED` → existing activity-stream sensors update
+- Dedup is handled by ActivityLogger's existing cache
+
+**`sensor.ura_recent_anomalies` (new, house-level):**
+
+| Aspect | Value |
+|---|---|
+| Entity | `sensor.ura_coordinator_manager_recent_anomalies` |
+| State | Count of anomalies in last 24h (across all coordinators) |
+| Attributes | `top_10` (list of recent events: timestamp, coord, severity, summary), `by_coordinator` (`{hvac: N, ...}`), `by_severity` (`{advisory: N, alert: N, critical: N}`), `by_type` (`{point_in_time: N, regime_shift: N, ...}`) |
+| Source | Queries `anomaly_log` directly (uses existing `idx_anomaly_timestamp` index) |
+| Refresh | On `SIGNAL_ACTIVITY_LOGGED` (so it picks up new anomalies immediately when ActivityLogger fires) |
+
+**Acceptance Criteria**
+- **Verify:** Every migrated emit site fires `activity_logger.log(action="anomaly", ...)`.
+- **Verify:** `ura_action` events with `action="anomaly"` appear in HA Logbook after a synthetic anomaly emit.
+- **Verify:** `sensor.ura_coordinator_manager_recent_anomalies` reports count + populated attributes.
+- **Test:** `test_anomaly_emit_writes_activity_log`, `test_recent_anomalies_sensor_refresh_on_signal`, `test_recent_anomalies_sensor_distributions`.
+
+### D13 — Anomaly subsystem diagnostic-dump button
+
+Extends the existing HVAC diagnostic-dump pattern (`button.ura_hvac_coordinator_ac_ramp_diagnostic_dump`). New button:
+
+| Aspect | Value |
+|---|---|
+| Entity | `button.ura_coordinator_manager_anomaly_diagnostic_dump` |
+| Category | DIAGNOSTIC |
+| On press | Builds a dump dict (recent 50 anomaly_log rows, per-coordinator baseline counts, write queue depth, ActivityLogger dedup cache size) and writes a single ERROR-level log line so it's grep-friendly + visible in Logbook |
+
+Reuses the existing diagnostic-dump button pattern; no new infra.
+
+**Acceptance Criteria**
+- **Verify:** Button entity exists, category DIAGNOSTIC.
+- **Verify:** Pressing it produces a log line containing recent anomalies + baselines.
+- **Test:** `test_anomaly_diagnostic_dump_button_exists`, `test_diagnostic_dump_log_contents`.
+
+### Cost adjustment for expanded scope
+
+| Component | Production | Test |
+|---|---|---|
+| Existing D1–D9 | ~600 | ~500 |
+| **D10 (5 select-dropdown fields)** | ~60 | ~30 |
+| **D11 (canonical context_json)** | ~30 | ~30 |
+| **D12 (ActivityLogger reuse + recent-anomalies sensor)** | ~110 | ~50 |
+| **D13 (diagnostic dump button)** | ~50 | ~20 |
+| **Total** | **~850** | **~630** |
+
+Still Tier 2. ~1500 LoC total.
+
+### Three targeted reviews (aligned to all-in-one risk profile)
+
+- **Review A — Data integrity + DB architecture preservation.** Existing `anomaly_log` rows preserved. Write queue unchanged. Indexes still cover read paths. No silent data loss across migration. (User's stated #1 concern.)
+- **Review B — Migration correctness + signal chain integrity.** Every emit site produces equivalent rows AND fires ActivityLogger AND preserves any existing signal/dispatch wiring (SIGNAL_SAFETY_HAZARD, NM dispatch, etc.). End-to-end trace per emit site.
+- **Review C — New surfaces + configurability.** Sensitivity dropdowns save+restore through options flow; multiplier applies to live thresholds on reload; `sensor.ura_recent_anomalies` distribution attributes correct; diagnostic dump output well-formed; canonical `context_json` shape pinned by tests.
+
+### Expanded post-deploy protocols
+
+1. **Pre-deploy baseline:** `SELECT coordinator_id, severity, COUNT(*) FROM anomaly_log WHERE timestamp >= datetime('now', '-24 hours') GROUP BY 1,2` — save snapshot.
+2. **Per emit-site smoke test:** safety (smoke alarm test mode), presence (force invalid transition), circuit (controlled), NM (synthetic). For each, verify (a) `anomaly_log` row appears with expected shape + canonical `context_json` keys, (b) corresponding `ura_action` event with `action="anomaly"` fires (visible in Logbook), (c) `sensor.ura_coordinator_manager_recent_anomalies` count increments.
+3. **24h drift check:** re-query baseline. Each coordinator's row rate within ±25% of baseline. NM correlation rows = NM dispatch count ±1.
+4. **DB write queue health:** depth + age metrics — no new contention. (Existing memory: ~10-min startup warmup is accepted; this should NOT extend it.)
+5. **Sensor freshness sweep:** every anomaly-consuming sensor (HVAC anomaly, presence anomaly, MF anomaly, recent-anomalies, etc.) updates within one URA cycle of a synthetic emit.
+6. **Runtime config verification:** open each coordinator's options flow; confirm "Anomaly Sensitivity" dropdown saves; flip one coordinator to `sensitive` and verify z-thresholds shift on next AnomalyDetector init.
+7. **Diagnostic dump audit:** press the new button; confirm log line contains recent emits + baselines + queue depth.
+8. **48h soak before declaring shipped:** monitor `sensor.ura_recent_anomalies` for any unexpected spike (>3× pre-deploy baseline) or coordinator absence (one of the migrated coords stops emitting entirely).
+
+### Risks added by scope expansion
+
+7. **Sensitivity multiplier interaction with existing baselines.** If a user has been running with z=2 advisory threshold and then dials to `sensitive` (z=1.5), historical baselines unchanged — but more new observations will flag as advisory. This is the INTENDED behavior; document in helper text.
+8. **`sensor.ura_recent_anomalies` query performance.** If `anomaly_log` table is large (thousands of rows), the 24h LIMIT query must use the existing `idx_anomaly_timestamp` index. Verify EXPLAIN QUERY PLAN at build time.
+9. **ActivityLogger dedup interaction with anomaly emit.** ActivityLogger dedups identical (coordinator, action, room, description, importance) within a window. Anomaly emits with identical descriptions across the dedup window will silently coalesce. Mitigation: include z_score or timestamp in description so descriptions remain unique.
