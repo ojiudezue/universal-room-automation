@@ -1409,6 +1409,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     CONF_MUSIC_FOLLOWING_COORDINATOR_ENABLED,
                     DEFAULT_SLEEP_START_HOUR,
                     DEFAULT_SLEEP_END_HOUR,
+                    # v4.6.2.2: Guest mode hardening knobs
+                    CONF_GUEST_MODE_PERSISTENCE_SECONDS,
+                    CONF_GUEST_MODE_REQUIRE_CONFIDENCE,
+                    DEFAULT_GUEST_PERSISTENCE_SECONDS,
+                    DEFAULT_GUEST_REQUIRE_CONFIDENCE,
                 )
 
                 # v3.6.0-c2.1: Read coordinator settings from CM entry options.
@@ -1460,6 +1465,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                             merged_config.get(
                                 CONF_SLEEP_END_HOUR, DEFAULT_SLEEP_END_HOUR
                             ),
+                        )),
+                        # v4.6.2.2: Guest mode false-positive hardening
+                        guest_persistence_seconds=int(cm_config.get(
+                            CONF_GUEST_MODE_PERSISTENCE_SECONDS,
+                            DEFAULT_GUEST_PERSISTENCE_SECONDS,
+                        )),
+                        guest_require_confidence=str(cm_config.get(
+                            CONF_GUEST_MODE_REQUIRE_CONFIDENCE,
+                            DEFAULT_GUEST_REQUIRE_CONFIDENCE,
                         )),
                     )
                     coordinator_manager.register_coordinator(presence)

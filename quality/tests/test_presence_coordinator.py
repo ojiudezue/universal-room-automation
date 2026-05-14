@@ -335,7 +335,13 @@ class TestStateInferenceEngine:
         assert result == HouseState.HOME_DAY
 
     def test_home_with_unidentified_transitions_to_guest(self):
-        """After ARRIVING→HOME_DAY, unidentified persons trigger GUEST."""
+        """After ARRIVING→HOME_DAY, unidentified persons trigger GUEST.
+
+        v4.6.2.2: The inference engine now requires guest_gate_armed=True;
+        the gate evaluation (threshold + confidence + persistence) is
+        handled by PresenceCoordinator._guest_gate_armed before calling infer().
+        This test verifies that infer() transitions to GUEST when the gate is armed.
+        """
         engine = StateInferenceEngine()
         result = engine.infer(
             census_count=6,
@@ -343,6 +349,7 @@ class TestStateInferenceEngine:
             any_zone_occupied=True,
             now=datetime(2026, 3, 1, 14, 0),
             unidentified_count=2,
+            guest_gate_armed=True,  # v4.6.2.2: gate pre-evaluated by coordinator
         )
         assert result == HouseState.GUEST
 
