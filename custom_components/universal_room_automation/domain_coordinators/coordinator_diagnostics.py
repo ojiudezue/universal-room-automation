@@ -400,6 +400,12 @@ class ComplianceTracker:
         )
 
         await self._store_compliance(record)
+
+        # v4.6.3 D6/D11/D12: emit anomaly only on compliance violation (not
+        # every decision — that would flood the table per the plan).
+        if not compliant and record.override_detected:
+            await self._emit_compliance_violation_anomaly(record)
+
         return record
 
     def _compare_states(
@@ -513,6 +519,72 @@ class ComplianceTracker:
             )
         except Exception as e:
             _LOGGER.error("Error storing compliance record: %s", e)
+
+    async def _emit_compliance_violation_anomaly(self, record: "ComplianceRecord") -> None:
+        """Emit AnomalyEvent for compliance violations (D6 / D11 / D12).
+
+        Called only when `not compliant and override_detected` — NOT for
+        every decision, so the table is not flooded.  Never raises.
+        """
+        try:
+            from .anomaly_event import (  # noqa: PLC0415
+                AnomalyEvent,
+                AnomalySeverity,
+                EVENT_CLASS_POINT_IN_TIME,
+                build_context_json,
+            )
+            _ctx = build_context_json(
+                zone_id=record.scope if record.scope.startswith("zone:") else None,
+                room_id=record.scope if record.scope.startswith("room:") else None,
+                source_signal="compliance_check",
+                extra={
+                    "decision_id": record.decision_id,
+                    "scope": record.scope,
+                    "device_type": record.device_type,
+                    "device_id": record.device_id,
+                    "override_source": record.override_source,
+                    "override_duration_minutes": record.override_duration_minutes,
+                    "deviation": record.deviation_details,
+                },
+            )
+            _event = AnomalyEvent(
+                coordinator="compliance",
+                type="compliance.override_detected",
+                severity=AnomalySeverity.WARNING,
+                event_class=EVENT_CLASS_POINT_IN_TIME,
+                detected_at=record.timestamp.isoformat(),
+                payload=_ctx,
+                entity_id=record.device_id,
+            )
+            database = self._database
+            if database is not None:
+                await database.save_anomaly_event(_event)
+                _LOGGER.info(
+                    "Compliance violation anomaly emitted: scope=%s device=%s",
+                    record.scope, record.device_id,
+                )
+            # D12: fire activity_logger
+            activity_logger = self.hass.data.get(DOMAIN, {}).get("activity_logger")
+            if activity_logger:
+                self.hass.async_create_task(
+                    activity_logger.log(
+                        coordinator="compliance",
+                        action="anomaly",
+                        description=(
+                            f"Compliance violation: {record.device_type} {record.device_id} "
+                            f"overridden at {record.scope}"
+                        ),
+                        importance="notable",
+                        entity_id=record.device_id,
+                        details={
+                            "type": "compliance.override_detected",
+                            "scope": record.scope,
+                            "override_source": record.override_source,
+                        },
+                    )
+                )
+        except Exception:
+            _LOGGER.debug("_emit_compliance_violation_anomaly failed (swallowed)", exc_info=True)
 
     async def get_compliance_rate(
         self,
@@ -646,11 +718,27 @@ class AnomalyDetector:
         coordinator_id: str,
         metric_names: List[str],
         minimum_samples: Optional[int] = None,
+        sensitivity_multiplier: float = 1.0,
     ) -> None:
+        """Initialize the anomaly detector.
+
+        Args:
+            sensitivity_multiplier: Multiplies the default z-score thresholds.
+                > 1.0 = quieter (fewer flags); < 1.0 = more sensitive (more flags).
+                Applied once at init from the user's options-flow sensitivity bucket.
+                See ANOMALY_SENSITIVITY_MULTIPLIERS in const.py.
+        """
         self.hass = hass
         self.coordinator_id = coordinator_id
         self.metric_names = metric_names
         self.minimum_samples = minimum_samples or self.MINIMUM_SAMPLES
+        # v4.6.3 D10: Apply sensitivity multiplier to z-thresholds at init time.
+        # Reload the coordinator entry to change sensitivity (no live tuning).
+        m = max(0.1, float(sensitivity_multiplier))  # guard against zero/negative
+        self.Z_SCORE_ADVISORY = self.__class__.Z_SCORE_ADVISORY * m
+        self.Z_SCORE_ALERT = self.__class__.Z_SCORE_ALERT * m
+        self.Z_SCORE_CRITICAL = self.__class__.Z_SCORE_CRITICAL * m
+        self._sensitivity_multiplier = m
         self._baselines: Dict[tuple, MetricBaseline] = {}
         self._active_anomalies: list[AnomalyRecord] = []
         self._anomalies_today: int = 0
@@ -850,47 +938,9 @@ class AnomalyDetector:
             )
         return row_id
 
-    async def store_anomaly(self, anomaly: AnomalyRecord) -> Optional[int]:
-        """Store an anomaly record in the database.
-
-        Thin wrapper: constructs an AnomalyEvent with event_class='point_in_time'
-        and delegates to store_event() for a single write path (v4.6.1 D0).
-        The legacy AnomalyRecord fields that have no AnomalyEvent equivalent
-        (expected_mean, expected_std, z_score, sample_size) are preserved in
-        the payload so existing callers lose no data.
-        """
-        from .anomaly_event import AnomalyEvent, AnomalySeverity as _NewSeverity
-
-        # Map old 4-level severity to new 3-level IntEnum
-        _severity_map = {
-            AnomalySeverity.NOMINAL: _NewSeverity.INFO,
-            AnomalySeverity.ADVISORY: _NewSeverity.WARNING,
-            AnomalySeverity.ALERT: _NewSeverity.WARNING,
-            AnomalySeverity.CRITICAL: _NewSeverity.CRITICAL,
-        }
-        new_severity = _severity_map.get(anomaly.severity, _NewSeverity.WARNING)
-
-        event = AnomalyEvent(
-            coordinator=anomaly.coordinator_id,
-            type=f"{anomaly.coordinator_id}.{anomaly.metric_name}",
-            severity=new_severity,
-            event_class="point_in_time",
-            detected_at=anomaly.timestamp.isoformat(),
-            payload={
-                "scope": anomaly.scope,
-                "metric_name": anomaly.metric_name,
-                "observed_value": anomaly.observed_value,
-                "expected_mean": anomaly.expected_mean,
-                "expected_std": anomaly.expected_std,
-                "z_score": anomaly.z_score,
-                "sample_size": anomaly.sample_size,
-                "house_state": anomaly.house_state,
-                "context": anomaly.context,
-                "resolved": anomaly.resolved,
-                "resolution_notes": anomaly.resolution_notes,
-            },
-        )
-        return await self.store_event(event)
+    # v4.6.3 D7: store_anomaly() wrapper removed — all call sites migrated to
+    # store_event(AnomalyEvent(...)) with canonical payload shape.
+    # grep "store_anomaly" should return 0 hits in production code.
 
     async def get_anomaly_count(self, days: int = 1) -> int:
         """Get count of anomalies in recent period."""

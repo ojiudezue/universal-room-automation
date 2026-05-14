@@ -2087,6 +2087,9 @@ class EnergyCoordinator(BaseCoordinator):
                     hazard_type="circuit_anomaly",
                     location=anomaly.get("circuit", ""),
                 )
+                # v4.6.3 D4/D11/D12: Emit canonical AnomalyEvent for circuit
+                # anomalies alongside existing SIGNAL_SAFETY_HAZARD dispatch.
+                await self._emit_circuit_anomaly_event(anomaly)
 
             # E3: Generator alerts
             gen_alerts = self._generator.check_alerts()
@@ -2691,6 +2694,75 @@ class EnergyCoordinator(BaseCoordinator):
                 title,
                 exc_info=True,
             )
+
+    async def _emit_circuit_anomaly_event(self, anomaly: dict) -> None:
+        """Emit canonical AnomalyEvent for a circuit anomaly (D4 / D11 / D12).
+
+        Called for each new circuit anomaly alongside the existing NM alert
+        path. Never raises — exceptions are swallowed so energy processing
+        continues unaffected.
+        """
+        try:
+            from ..const import DOMAIN  # noqa: PLC0415
+            from homeassistant.util import dt as dt_util  # noqa: PLC0415
+            from .anomaly_event import (  # noqa: PLC0415
+                AnomalyEvent,
+                AnomalySeverity,
+                EVENT_CLASS_POINT_IN_TIME,
+                build_context_json,
+            )
+
+            anomaly_type = anomaly.get("type", "tripped_breaker")
+            circuit_name = anomaly.get("circuit", "unknown")
+            entity_id = anomaly.get("entity_id")
+
+            _ctx = build_context_json(
+                source_signal="SIGNAL_SAFETY_HAZARD",
+                extra={k: v for k, v in anomaly.items() if k != "entity_id"},
+            )
+            severity = (
+                AnomalySeverity.CRITICAL
+                if anomaly_type == "tripped_breaker"
+                else AnomalySeverity.WARNING
+            )
+            _event = AnomalyEvent(
+                coordinator="energy",
+                type=f"energy.circuit_{anomaly_type}",
+                severity=severity,
+                event_class=EVENT_CLASS_POINT_IN_TIME,
+                detected_at=dt_util.utcnow().isoformat(),
+                payload=_ctx,
+                entity_id=entity_id,
+            )
+            database = self.hass.data.get(DOMAIN, {}).get("database")
+            if database is not None:
+                await database.save_anomaly_event(_event)
+                _LOGGER.info(
+                    "Circuit anomaly event emitted: type=%s circuit=%s",
+                    anomaly_type, circuit_name,
+                )
+            # D12: fire activity_logger
+            activity_logger = self.hass.data.get(DOMAIN, {}).get("activity_logger")
+            if activity_logger:
+                self.hass.async_create_task(
+                    activity_logger.log(
+                        coordinator="energy",
+                        action="anomaly",
+                        description=(
+                            f"Circuit {anomaly_type} on {circuit_name} "
+                            f"z={anomaly.get('z_score', 0.0):.2f}"
+                        ),
+                        importance="critical" if anomaly_type == "tripped_breaker" else "notable",
+                        entity_id=entity_id,
+                        details={
+                            "type": f"energy.circuit_{anomaly_type}",
+                            "circuit": circuit_name,
+                            "z_score": anomaly.get("z_score", 0.0),
+                        },
+                    )
+                )
+        except Exception:
+            _LOGGER.debug("_emit_circuit_anomaly_event failed (swallowed)", exc_info=True)
 
     # =========================================================================
     # v3.13.1: DATA PIPELINE HELPERS

@@ -590,9 +590,29 @@ class SecurityCoordinator(BaseCoordinator):
 
         # Anomaly detection setup
         from .coordinator_diagnostics import AnomalyDetector
+        from ..const import (  # noqa: PLC0415
+            CONF_SECURITY_ANOMALY_SENSITIVITY,
+            DEFAULT_ANOMALY_SENSITIVITY,
+            ANOMALY_SENSITIVITY_MULTIPLIERS,
+            CONF_ENTRY_TYPE,
+            ENTRY_TYPE_COORDINATOR_MANAGER,
+        )
 
+        # v4.6.3 D10: Read sensitivity bucket from CM entry options.
+        _security_sensitivity = DEFAULT_ANOMALY_SENSITIVITY
+        try:
+            for _ce in self.hass.config_entries.async_entries(DOMAIN):
+                if _ce.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_COORDINATOR_MANAGER:
+                    _security_sensitivity = {**_ce.data, **_ce.options}.get(
+                        CONF_SECURITY_ANOMALY_SENSITIVITY, DEFAULT_ANOMALY_SENSITIVITY
+                    )
+                    break
+        except Exception:
+            pass
+        _security_sensitivity_mult = ANOMALY_SENSITIVITY_MULTIPLIERS.get(_security_sensitivity, 1.0)
         self.anomaly_detector = AnomalyDetector(
-            self.hass, self.COORDINATOR_ID, SECURITY_METRICS
+            self.hass, self.COORDINATOR_ID, SECURITY_METRICS,
+            sensitivity_multiplier=_security_sensitivity_mult,
         )
         try:
             await self.anomaly_detector.load_baselines()

@@ -3,6 +3,9 @@
 v4.6.1 D0: Replaces per-coordinator ad-hoc anomaly shapes with a single
 queryable schema. Two canary emitters (energy crosscheck + bayesian anomaly
 score) prove the shape before full 12-touchpoint migration in later cycles.
+
+v4.6.3 D11: Canonical context_json key set defined here so all emit sites
+build consistent payloads.  Extra coordinator-specific keys go under "extra".
 """
 
 from __future__ import annotations
@@ -76,3 +79,47 @@ class AnomalyEvent:
 
     correlation_id: str | None = None
     """Optional UUID linking related cross-coordinator anomalies."""
+
+
+# ============================================================================
+# v4.6.3 D11 — Canonical context_json helper
+# ============================================================================
+
+def build_context_json(
+    *,
+    zone_id: str | None = None,
+    room_id: str | None = None,
+    person_id: str | None = None,
+    linked_event_id: int | None = None,
+    source_signal: str | None = None,
+    extra: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Build a canonical context_json payload for an anomaly emit.
+
+    All emit sites (D2-D6) call this helper so the key set is consistent.
+    Coordinator-specific fields go under "extra"; top-level keys are reserved.
+
+    Canonical keys (all optional — None values omitted from output):
+        zone_id          — zone identifier for location-scoped anomalies
+        room_id          — room identifier
+        person_id        — person identifier (person-scoped anomalies)
+        linked_event_id  — FK into anomaly_log for cross-coordinator correlation
+        source_signal    — HA dispatcher signal that triggered this emit,
+                           e.g. "SIGNAL_SAFETY_HAZARD"
+
+    Returns a plain dict; caller passes it to AnomalyEvent.payload.
+    """
+    ctx: dict[str, Any] = {}
+    if zone_id is not None:
+        ctx["zone_id"] = zone_id
+    if room_id is not None:
+        ctx["room_id"] = room_id
+    if person_id is not None:
+        ctx["person_id"] = person_id
+    if linked_event_id is not None:
+        ctx["linked_event_id"] = linked_event_id
+    if source_signal is not None:
+        ctx["source_signal"] = source_signal
+    if extra:
+        ctx["extra"] = extra
+    return ctx

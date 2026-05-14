@@ -1,10 +1,10 @@
 """v4.6.1 D1 — Severity vocabulary unification.
+v4.6.3 D7/D9 update: store_anomaly() wrapper deleted; tests updated.
 
 Tests that:
 1. The new AnomalySeverity IntEnum is the canonical 3-level scale.
-2. Old coordinator_diagnostics AnomalySeverity (NOMINAL/ADVISORY/ALERT/CRITICAL)
-   is mapped correctly in store_anomaly() wrapper.
-3. store_anomaly() severity map covers all 4 old values.
+2. Old coordinator_diagnostics z-score classifier uses NOMINAL/ADVISORY/ALERT/CRITICAL.
+3. v4.6.3: store_anomaly() wrapper is deleted; callers construct AnomalyEvent directly.
 4. INT storage round-trips correctly.
 """
 
@@ -81,43 +81,51 @@ def test_old_severity_alert_still_exists():
 
 
 # ---------------------------------------------------------------------------
-# Mapping in store_anomaly() wrapper
+# v4.6.3 D7/D9: store_anomaly() wrapper deleted; severity mapping is now
+# each emit site's responsibility when constructing AnomalyEvent.
 # ---------------------------------------------------------------------------
 
-def test_severity_map_covers_all_four_old_values():
-    """store_anomaly() must explicitly map NOMINAL, ADVISORY, ALERT, CRITICAL."""
-    src = _diag_src()
-    idx = src.find("async def store_anomaly(")
-    assert idx >= 0
-    next_method = src.find("\n    async def ", idx + 1)
-    block = src[idx: next_method if next_method > 0 else idx + 2000]
-    for old_val in ("NOMINAL", "ADVISORY", "ALERT", "CRITICAL"):
-        assert old_val in block, (
-            f"store_anomaly severity map must cover AnomalySeverity.{old_val}"
-        )
+def test_severity_map_wrapper_deleted_v463():
+    """v4.6.3 D7: store_anomaly() wrapper is deleted; no centralized severity mapping.
 
-
-def test_severity_map_nominal_maps_to_info():
+    v4.6.1 tested that store_anomaly() mapped NOMINAL→INFO/ADVISORY/ALERT→WARNING.
+    v4.6.3 deleted that wrapper — each emit site now constructs AnomalyEvent with
+    the correct AnomalySeverity directly.  The canonical 3-level scale
+    (INFO/WARNING/CRITICAL) is defined by AnomalySeverity in anomaly_event.py.
+    """
     src = _diag_src()
-    idx = src.find("async def store_anomaly(")
-    next_method = src.find("\n    async def ", idx + 1)
-    block = src[idx: next_method if next_method > 0 else idx + 2000]
-    # NOMINAL should map to INFO
-    # Look for the pair in the block
-    assert "NOMINAL" in block and "INFO" in block, (
-        "NOMINAL must map to INFO in store_anomaly severity mapping"
+    assert "async def store_anomaly(" not in src, (
+        "v4.6.3 D7: store_anomaly() wrapper must be deleted from coordinator_diagnostics.py"
     )
 
 
-def test_severity_map_alert_maps_to_warning():
-    """ALERT (z≥3) maps to WARNING — not CRITICAL — per planning doc decision."""
+def test_classifier_uses_old_severity_internally():
+    """_classify_severity() uses NOMINAL/ADVISORY/ALERT/CRITICAL for z-score thresholds.
+
+    These internal constants survive D7 — they're used by the z-score classifier,
+    not by the store_anomaly() wrapper which is now gone.
+    """
     src = _diag_src()
-    idx = src.find("async def store_anomaly(")
-    next_method = src.find("\n    async def ", idx + 1)
-    block = src[idx: next_method if next_method > 0 else idx + 2000]
-    assert "ALERT" in block and "WARNING" in block, (
-        "ALERT must map to WARNING in store_anomaly (survey §2 decision)"
+    # _classify_severity or z-score logic still references these constants
+    assert "ADVISORY" in src, (
+        "coordinator_diagnostics must still define/use ADVISORY for z-score classification"
     )
+    assert "ALERT" in src, (
+        "coordinator_diagnostics must still define/use ALERT for z-score classification"
+    )
+
+
+def test_new_severity_scale_has_info_warning_critical():
+    """The new AnomalySeverity scale (INFO/WARNING/CRITICAL) is defined in anomaly_event.py.
+
+    Callers use this when constructing AnomalyEvent — they map from their domain
+    context (e.g., ALERT z-score → WARNING severity) when constructing the event.
+    """
+    mod = _load_anomaly_event_module()
+    sev = mod.AnomalySeverity
+    assert sev.INFO == 0
+    assert sev.WARNING == 1
+    assert sev.CRITICAL == 2
 
 
 def test_severity_int_round_trip():

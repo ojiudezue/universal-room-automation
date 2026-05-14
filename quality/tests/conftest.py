@@ -4,6 +4,11 @@ import pytest
 from unittest.mock import MagicMock, Mock
 from datetime import datetime, time, timedelta
 
+# v4.6.3 D1: Register real-schema sqlite conftest as a pytest plugin.
+# pytest only auto-discovers conftest.py by name; conftest_db.py fixtures
+# (real_schema_db, real_schema_db_session) must be registered explicitly.
+pytest_plugins = ["conftest_db"]
+
 # v4.5.2 D2: aiosqlite is now a hard test dep (quality/requirements_test.txt).
 # Pre-fix, this file did `sys.modules.setdefault("aiosqlite", MagicMock())`
 # which made every `await db.execute(...)` a MagicMock no-op — `db.initialize()`

@@ -840,6 +840,22 @@ class NotificationManager:
                 )
             )
 
+        # v4.6.3 D5/D11/D12: Emit anomaly correlation event for NM alert dispatch.
+        # This is NOT a re-write of the source anomaly — it records that an alert
+        # was dispatched, enabling "alert dispatch rate" queries without double-counting
+        # the original anomaly.
+        if channels_fired:  # Only emit if alert actually went through a channel
+            self.hass.async_create_task(
+                self._emit_nm_dispatch_anomaly(
+                    coordinator_id=coordinator_id,
+                    severity_str=severity_str,
+                    title=title,
+                    channels_fired=channels_fired,
+                    hazard_type=hazard_type,
+                    location=location,
+                )
+            )
+
         # Update sensor caches
         self._last_notification = {
             "severity": severity_str,
@@ -866,6 +882,83 @@ class NotificationManager:
                 coordinator_id, severity_str, title, message,
                 hazard_type, location,
             )
+
+    async def _emit_nm_dispatch_anomaly(
+        self,
+        coordinator_id: str,
+        severity_str: str,
+        title: str,
+        channels_fired: list,
+        hazard_type: str | None,
+        location: str | None,
+    ) -> None:
+        """Emit AnomalyEvent for NM alert dispatch correlation (D5 / D11 / D12).
+
+        Writes a distinct 'nm_alert_dispatched' event so alert-dispatch rate
+        can be queried without conflating it with the source anomaly.
+        Never raises — exceptions are swallowed.
+        """
+        try:
+            from homeassistant.util import dt as dt_util  # noqa: PLC0415
+            from .anomaly_event import (  # noqa: PLC0415
+                AnomalyEvent,
+                AnomalySeverity,
+                EVENT_CLASS_POINT_IN_TIME,
+                build_context_json,
+            )
+
+            _severity_map = {
+                "critical": AnomalySeverity.CRITICAL,
+                "high": AnomalySeverity.WARNING,
+                "medium": AnomalySeverity.INFO,
+                "low": AnomalySeverity.INFO,
+            }
+            _ctx = build_context_json(
+                source_signal="nm_alert_dispatched",
+                extra={
+                    "source_coordinator": coordinator_id,
+                    "severity": severity_str,
+                    "title": title,
+                    "channels": channels_fired,
+                    "hazard_type": hazard_type,
+                    "location": location,
+                },
+            )
+            _event = AnomalyEvent(
+                coordinator="notification",
+                type="nm.alert_dispatched",
+                severity=_severity_map.get(severity_str, AnomalySeverity.WARNING),
+                event_class=EVENT_CLASS_POINT_IN_TIME,
+                detected_at=dt_util.utcnow().isoformat(),
+                payload=_ctx,
+            )
+            database = self.hass.data.get(DOMAIN, {}).get("database")
+            if database is not None:
+                await database.save_anomaly_event(_event)
+                _LOGGER.debug(
+                    "NM dispatch anomaly emitted: source=%s severity=%s channels=%s",
+                    coordinator_id, severity_str, channels_fired,
+                )
+            # D12: also log to activity_logger with action="anomaly"
+            activity_logger = self.hass.data.get(DOMAIN, {}).get("activity_logger")
+            if activity_logger:
+                await activity_logger.log(
+                    coordinator="notification",
+                    action="anomaly",
+                    description=(
+                        f"NM alert dispatched: {severity_str} from {coordinator_id} "
+                        f"via {', '.join(channels_fired)}"
+                    ),
+                    importance="notable" if severity_str != "critical" else "critical",
+                    details={
+                        "type": "nm.alert_dispatched",
+                        "source_coordinator": coordinator_id,
+                        "severity": severity_str,
+                        "channels": channels_fired,
+                    },
+                )
+        except Exception:
+            _LOGGER.debug("_emit_nm_dispatch_anomaly failed (swallowed)", exc_info=True)
 
     # =========================================================================
     # Channel dispatchers

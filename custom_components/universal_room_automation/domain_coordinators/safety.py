@@ -640,12 +640,31 @@ class SafetyCoordinator(BaseCoordinator):
         """
         # v3.6.0.3: Instantiate anomaly detector FIRST so it's always
         # available even if discovery fails.
+        # v4.6.3 D10: Read sensitivity bucket from CM entry options.
         from .coordinator_diagnostics import AnomalyDetector
+        from ..const import (  # noqa: PLC0415
+            CONF_SAFETY_ANOMALY_SENSITIVITY,
+            DEFAULT_ANOMALY_SENSITIVITY,
+            ANOMALY_SENSITIVITY_MULTIPLIERS,
+            ENTRY_TYPE_COORDINATOR_MANAGER,
+        )
+        _sensitivity_bucket = DEFAULT_ANOMALY_SENSITIVITY
+        try:
+            for _ce in self.hass.config_entries.async_entries(DOMAIN):
+                if _ce.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_COORDINATOR_MANAGER:
+                    _sensitivity_bucket = {**_ce.data, **_ce.options}.get(
+                        CONF_SAFETY_ANOMALY_SENSITIVITY, DEFAULT_ANOMALY_SENSITIVITY
+                    )
+                    break
+        except Exception:
+            pass
+        _sensitivity_mult = ANOMALY_SENSITIVITY_MULTIPLIERS.get(_sensitivity_bucket, 1.0)
         self.anomaly_detector = AnomalyDetector(
             hass=self.hass,
             coordinator_id="safety",
             metric_names=self.SAFETY_METRICS,
             minimum_samples=720,
+            sensitivity_multiplier=_sensitivity_mult,
         )
         try:
             await self.anomaly_detector.load_baselines()
@@ -1618,9 +1637,17 @@ class SafetyCoordinator(BaseCoordinator):
             except Exception:
                 pass
 
-        # v3.6.0-c2.9: Record hazard trigger as anomaly observation
+        # v4.6.3 D2/D11/D12: Record hazard trigger as canonical AnomalyEvent +
+        # ActivityLogger emit.  Replaces store_anomaly() wrapper with direct
+        # store_event() so payload shape is canonical.
         if self.anomaly_detector is not None:
             try:
+                from .anomaly_event import (
+                    AnomalyEvent,
+                    AnomalySeverity as _NewSev,
+                    EVENT_CLASS_HAZARD,
+                    build_context_json,
+                )
                 scope = hazard.location or "house"
                 anomaly = self.anomaly_detector.record_observation(
                     "hazard_trigger_frequency",
@@ -1628,7 +1655,53 @@ class SafetyCoordinator(BaseCoordinator):
                     1.0,  # Each trigger is a count observation
                 )
                 if anomaly:
-                    await self.anomaly_detector.store_anomaly(anomaly)
+                    _ctx = build_context_json(
+                        zone_id=None,
+                        room_id=scope if scope != "house" else None,
+                        source_signal="SIGNAL_SAFETY_HAZARD",
+                        extra={
+                            "hazard_type": hazard.type.value,
+                            "hazard_severity": hazard.severity.name,
+                            "observed_value": anomaly.observed_value,
+                            "expected_mean": anomaly.expected_mean,
+                            "expected_std": anomaly.expected_std,
+                            "z_score": round(anomaly.z_score, 3),
+                            "sample_size": anomaly.sample_size,
+                        },
+                    )
+                    _event = AnomalyEvent(
+                        coordinator="safety",
+                        type=f"safety.hazard_{hazard.type.value}",
+                        severity=_NewSev.CRITICAL if anomaly.severity.value == "critical" else _NewSev.WARNING,
+                        event_class=EVENT_CLASS_HAZARD,
+                        detected_at=anomaly.timestamp.isoformat(),
+                        payload=_ctx,
+                    )
+                    await self.anomaly_detector.store_event(_event)
+                    _LOGGER.info(
+                        "Safety hazard anomaly emitted: hazard=%s scope=%s z=%.2f",
+                        hazard.type.value, scope, anomaly.z_score,
+                    )
+                    # D12: fire activity_logger
+                    _activity_logger = self.hass.data.get(DOMAIN, {}).get("activity_logger")
+                    if _activity_logger:
+                        self.hass.async_create_task(
+                            _activity_logger.log(
+                                coordinator="safety",
+                                action="anomaly",
+                                description=(
+                                    f"Safety hazard {hazard.type.value} @ {scope} "
+                                    f"z={anomaly.z_score:.2f}"
+                                ),
+                                importance="critical",
+                                room=scope if scope != "house" else None,
+                                details={
+                                    "type": f"safety.hazard_{hazard.type.value}",
+                                    "z_score": round(anomaly.z_score, 3),
+                                    "metric_name": anomaly.metric_name,
+                                },
+                            )
+                        )
                 # Also record current active hazard count
                 anomaly2 = self.anomaly_detector.record_observation(
                     "active_hazard_count",
@@ -1636,7 +1709,30 @@ class SafetyCoordinator(BaseCoordinator):
                     float(len(self._active_hazards)),
                 )
                 if anomaly2:
-                    await self.anomaly_detector.store_anomaly(anomaly2)
+                    _ctx2 = build_context_json(
+                        source_signal="SIGNAL_SAFETY_HAZARD",
+                        extra={
+                            "observed_value": anomaly2.observed_value,
+                            "expected_mean": anomaly2.expected_mean,
+                            "expected_std": anomaly2.expected_std,
+                            "z_score": round(anomaly2.z_score, 3),
+                            "sample_size": anomaly2.sample_size,
+                            "active_hazard_count": len(self._active_hazards),
+                        },
+                    )
+                    _event2 = AnomalyEvent(
+                        coordinator="safety",
+                        type="safety.active_hazard_count",
+                        severity=_NewSev.WARNING,
+                        event_class=EVENT_CLASS_HAZARD,
+                        detected_at=anomaly2.timestamp.isoformat(),
+                        payload=_ctx2,
+                    )
+                    await self.anomaly_detector.store_event(_event2)
+                    _LOGGER.info(
+                        "Safety active_hazard_count anomaly emitted: count=%d z=%.2f",
+                        len(self._active_hazards), anomaly2.z_score,
+                    )
             except Exception:
                 _LOGGER.debug("Anomaly recording failed", exc_info=True)
 
