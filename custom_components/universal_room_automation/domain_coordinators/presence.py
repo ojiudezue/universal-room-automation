@@ -531,7 +531,6 @@ class PresenceCoordinator(BaseCoordinator):
         # v4.6.2.2: Guest mode false-positive hardening
         # Census confidence fields — updated by _handle_census_update
         self._census_confidence: str = "none"
-        self._census_source_agreement: str = "single_source"
         # Persistence arm: timestamp of first qualifying unidentified tick
         self._unidentified_first_seen: Optional[datetime] = None
         # Deferred recheck handle — cancelled on disarm, gate fire, and unload
@@ -1099,6 +1098,10 @@ class PresenceCoordinator(BaseCoordinator):
         """Handle Census update signal."""
         old_count = self._census_count
         old_unidentified = self._unidentified_count
+        # v4.6.2.3: Capture confidence BEFORE reassignment so the change-detection
+        # comparison below is valid. Without this, comparing self._census_confidence
+        # to self._census_confidence after the update would always be equal.
+        old_confidence = self._census_confidence
         try:
             self._census_count = int(census_data.get("interior_count", 0))
         except (ValueError, TypeError):
@@ -1125,21 +1128,19 @@ class PresenceCoordinator(BaseCoordinator):
             _LOGGER.debug("Malformed census payload: could not read confidence field")
             self._census_confidence = "none"
 
-        try:
-            self._census_source_agreement = str(
-                census_data.get("source_agreement", "single_source") or "single_source"
-            )
-        except (TypeError, ValueError, KeyError, AttributeError):
-            # Tolerate malformed signal payload (legacy subscribers or test stubs).
-            _LOGGER.debug("Malformed census payload: could not read source_agreement field")
-            self._census_source_agreement = "single_source"
-
         _LOGGER.debug(
             "Census update: count=%d unidentified=%d confidence=%s",
             self._census_count, self._unidentified_count, self._census_confidence,
         )
 
-        if old_count != self._census_count or old_unidentified != self._unidentified_count:
+        # v4.6.2.3: Also trigger inference on confidence-only changes (e.g., low→high
+        # with counts unchanged). Without this, a confidence upgrade waits up to the
+        # next 60s periodic tick before the guest gate re-evaluates.
+        if (
+            old_count != self._census_count
+            or old_unidentified != self._unidentified_count
+            or old_confidence != self._census_confidence
+        ):
             self.hass.async_create_task(self._run_inference("census_update"))
 
     @callback
