@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.6.2.3
+# Universal Room Automation vv4.6.3
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -275,6 +275,8 @@ async def async_setup_entry(
             # v4.2.10: Memory diagnostic sensors
             URAMemoryUsageSensor(hass, entry),
             URAMemoryDeltaSensor(hass, entry),
+            # v4.6.3 D12: Recent anomalies house-level sensor
+            URARecentAnomaliesSensor(hass, entry),
         ]
         # v3.8.0-H1: Add per-zone HVAC sensors dynamically
         # v4.5.13.1: Use canonical-zone helper for thermostat-keyed dedup
@@ -10259,3 +10261,173 @@ class URAMemoryDeltaSensor(AggregationEntity, SensorEntity):
     @property
     def native_value(self) -> float | None:
         return self._cached_delta
+
+
+# =============================================================================
+# v4.6.3 D12 — sensor.ura_coordinator_manager_recent_anomalies
+# =============================================================================
+
+
+class URARecentAnomaliesSensor(AggregationEntity, SensorEntity):
+    """House-level count of anomalies in the last 24 h across all coordinators.
+
+    Entity: sensor.ura_coordinator_manager_recent_anomalies
+    Device: URA: Coordinator Manager
+
+    Refreshes on SIGNAL_ACTIVITY_LOGGED so it picks up new anomaly emits
+    immediately when ActivityLogger fires (D12 integration).  Queries the
+    anomaly_log table using idx_anomaly_timestamp index.
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:alert-circle-outline"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = "anomalies"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_recent_anomalies"
+        self._attr_name = "Recent Anomalies"
+        self._attr_device_info = _cm_device_info()
+        self._count_24h: int = 0
+        self._top_10: list = []
+        self._by_coordinator: dict = {}
+        self._by_severity: dict = {}
+        self._by_type: dict = {}
+        self._unsub: object = None
+        # A3 fix: in-flight guard to prevent concurrent refresh tasks on burst
+        # of anomaly signals.  If a refresh is already running and another
+        # dispatch arrives, we set _refresh_pending=True so the running refresh
+        # will re-run once it completes instead of spawning a parallel task.
+        self._refresh_in_flight: bool = False
+        self._refresh_pending: bool = False
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        # Subscribe to SIGNAL_ACTIVITY_LOGGED to refresh when anomalies arrive.
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_ACTIVITY_LOGGED
+
+        def _handle_activity_logged(payload: dict) -> None:
+            # Only refresh if the logged action is "anomaly" so normal activity
+            # events don't trigger an expensive DB query every cycle.
+            # A3 fix: in-flight guard prevents burst of concurrent refresh tasks.
+            # If a refresh is already running, set pending so it re-runs once done.
+            if payload.get("action") == "anomaly":
+                if self._refresh_in_flight:
+                    self._refresh_pending = True
+                else:
+                    self.hass.async_create_task(self._async_refresh())
+
+        self._unsub = async_dispatcher_connect(
+            self.hass, SIGNAL_ACTIVITY_LOGGED, _handle_activity_logged
+        )
+        self.async_on_remove(lambda: self._unsub() if self._unsub else None)
+        # Initial load
+        await self._async_refresh()
+
+    async def _async_refresh(self) -> None:
+        """Query anomaly_log for last 24 h using idx_anomaly_timestamp index.
+
+        A3 fix: protected by an in-flight guard.  If called while a refresh is
+        already running (from a signal burst), the second call sets
+        _refresh_pending and returns immediately.  When the running refresh
+        finishes it checks _refresh_pending and re-runs once, ensuring at
+        most one queued follow-up regardless of burst size.
+        """
+        if self._refresh_in_flight:
+            self._refresh_pending = True
+            return
+        self._refresh_in_flight = True
+        try:
+            database = self.hass.data.get(DOMAIN, {}).get("database")
+            if database is None:
+                return
+
+            from homeassistant.util import dt as dt_util
+            from datetime import timedelta
+            cutoff = (dt_util.utcnow() - timedelta(hours=24)).isoformat()
+
+            async with database._db_read() as db:
+                # COUNT query — uses idx_anomaly_timestamp via WHERE timestamp >=
+                cursor = await db.execute(
+                    "SELECT COUNT(*) FROM anomaly_log WHERE timestamp >= ?",
+                    (cutoff,),
+                )
+                row = await cursor.fetchone()
+                self._count_24h = row[0] if row else 0
+
+                # Top-10 most recent
+                cursor = await db.execute(
+                    """SELECT timestamp, coordinator_id, severity, metric_name
+                       FROM anomaly_log
+                       WHERE timestamp >= ?
+                       ORDER BY timestamp DESC
+                       LIMIT 10""",
+                    (cutoff,),
+                )
+                rows = await cursor.fetchall()
+                self._top_10 = [
+                    {
+                        "timestamp": r[0],
+                        "coordinator": r[1],
+                        "severity": r[2],
+                        "metric": r[3],  # C8 fix: renamed from "type" to "metric"
+                    }
+                    for r in rows
+                ]
+
+                # By coordinator
+                cursor = await db.execute(
+                    """SELECT coordinator_id, COUNT(*) as n
+                       FROM anomaly_log
+                       WHERE timestamp >= ?
+                       GROUP BY coordinator_id""",
+                    (cutoff,),
+                )
+                self._by_coordinator = {r[0]: r[1] for r in await cursor.fetchall()}
+
+                # By severity
+                cursor = await db.execute(
+                    """SELECT severity, COUNT(*) as n
+                       FROM anomaly_log
+                       WHERE timestamp >= ?
+                       GROUP BY severity""",
+                    (cutoff,),
+                )
+                self._by_severity = {str(r[0]): r[1] for r in await cursor.fetchall()}
+
+                # By event_class (type bucket)
+                cursor = await db.execute(
+                    """SELECT COALESCE(event_class, 'point_in_time'), COUNT(*) as n
+                       FROM anomaly_log
+                       WHERE timestamp >= ?
+                       GROUP BY COALESCE(event_class, 'point_in_time')""",
+                    (cutoff,),
+                )
+                self._by_type = {r[0]: r[1] for r in await cursor.fetchall()}
+
+            self.async_write_ha_state()
+        except Exception:
+            _LOGGER.debug("RecentAnomaliesSensor refresh failed", exc_info=True)
+        finally:
+            self._refresh_in_flight = False
+            # If a dispatch arrived while we were running, do one follow-up refresh
+            if self._refresh_pending:
+                self._refresh_pending = False
+                self.hass.async_create_task(self._async_refresh())
+
+    @property
+    def native_value(self) -> int:
+        return self._count_24h
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        return {
+            "top_10": self._top_10,
+            "by_coordinator": self._by_coordinator,
+            "by_severity": self._by_severity,
+            "by_type": self._by_type,
+            "window_hours": 24,
+        }

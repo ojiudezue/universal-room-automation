@@ -122,10 +122,30 @@ class MusicFollowingCoordinator(BaseCoordinator):
             )
 
         # Anomaly detection setup — same pattern as safety/security/presence
+        # v4.6.3 D10: Read sensitivity bucket from CM entry options.
+        from ..const import (  # noqa: PLC0415
+            CONF_MUSIC_ANOMALY_SENSITIVITY,
+            DEFAULT_ANOMALY_SENSITIVITY,
+            ANOMALY_SENSITIVITY_MULTIPLIERS,
+            CONF_ENTRY_TYPE,
+            ENTRY_TYPE_COORDINATOR_MANAGER,
+        )
+        _music_sensitivity = DEFAULT_ANOMALY_SENSITIVITY
+        try:
+            for _ce in self.hass.config_entries.async_entries(DOMAIN):
+                if _ce.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_COORDINATOR_MANAGER:
+                    _music_sensitivity = {**_ce.data, **_ce.options}.get(
+                        CONF_MUSIC_ANOMALY_SENSITIVITY, DEFAULT_ANOMALY_SENSITIVITY
+                    )
+                    break
+        except Exception:
+            pass
+        _music_sensitivity_mult = ANOMALY_SENSITIVITY_MULTIPLIERS.get(_music_sensitivity, 1.0)
         self.anomaly_detector = AnomalyDetector(
             self.hass,
             "music_following",
             MUSIC_FOLLOWING_METRICS,
+            sensitivity_multiplier=_music_sensitivity_mult,
         )
         try:
             await self.anomaly_detector.load_baselines()

@@ -220,6 +220,9 @@ class TransitionDetector:
                         await self._update_transition_confidence(transition, validation)
                     # Attach validation result to transition for listeners
                     transition._validation = validation
+                    # v4.6.3 D3/D11/D12: emit AnomalyEvent for implausible paths
+                    if getattr(validation, "path_method", "") == "path_implausible":
+                        await self._emit_invalid_transition_anomaly(transition, validation)
                 except Exception as e:
                     _LOGGER.error("Transit validation error: %s", e)
 
@@ -381,6 +384,78 @@ class TransitionDetector:
         if len(self._location_history[person_id]) > 10:
             self._location_history[person_id] = self._location_history[person_id][-10:]
     
+    async def _emit_invalid_transition_anomaly(self, transition: RoomTransition, validation) -> None:
+        """Emit AnomalyEvent when transit validator flags a path as implausible.
+
+        v4.6.3 D3/D11/D12: wires invalid-transition rejections through the
+        canonical DAO.  Never raises — swallows exceptions so transit
+        processing continues unaffected.
+        """
+        try:
+            from .const import DOMAIN  # noqa: PLC0415
+            from homeassistant.util import dt as dt_util  # noqa: PLC0415
+            from .domain_coordinators.anomaly_event import (  # noqa: PLC0415
+                AnomalyEvent,
+                AnomalySeverity,
+                EVENT_CLASS_TRANSITION_INVALID,
+                build_context_json,
+            )
+
+            now_iso = dt_util.utcnow().isoformat()
+            _ctx = build_context_json(
+                person_id=transition.person_id,
+                source_signal="transit_validator",
+                extra={
+                    "from_room": transition.from_room,
+                    "to_room": transition.to_room,
+                    "path_method": getattr(validation, "path_method", "unknown"),
+                    "confidence_delta": getattr(validation, "path_confidence_delta", 0.0),
+                    "transition_confidence": transition.confidence,
+                    "duration_seconds": transition.duration_seconds,
+                },
+            )
+            _event = AnomalyEvent(
+                coordinator="transit",
+                type="transit.path_implausible",
+                severity=AnomalySeverity.WARNING,
+                event_class=EVENT_CLASS_TRANSITION_INVALID,
+                detected_at=now_iso,
+                payload=_ctx,
+                person_id=transition.person_id,
+            )
+            database = self.hass.data.get(DOMAIN, {}).get("database")
+            if database is not None:
+                await database.save_anomaly_event(_event)
+                _LOGGER.info(
+                    "Transit path_implausible anomaly: %s %s→%s (delta=%.2f)",
+                    transition.person_id,
+                    transition.from_room,
+                    transition.to_room,
+                    getattr(validation, "path_confidence_delta", 0.0),
+                )
+            # D12: fire activity_logger (awaited — A5 fix: avoid untracked task)
+            activity_logger = self.hass.data.get(DOMAIN, {}).get("activity_logger")
+            if activity_logger:
+                await activity_logger.log(
+                    coordinator="transit",
+                    action="anomaly",
+                    description=(
+                        f"Invalid transit {transition.person_id} "
+                        f"{transition.from_room}→{transition.to_room} "
+                        f"z=n/a confidence_delta="
+                        f"{getattr(validation, 'path_confidence_delta', 0.0):.2f}"
+                    ),
+                    importance="notable",
+                    details={
+                        "type": "transit.path_implausible",
+                        "from_room": transition.from_room,
+                        "to_room": transition.to_room,
+                        "path_method": getattr(validation, "path_method", "unknown"),
+                    },
+                )
+        except Exception:
+            _LOGGER.debug("_emit_invalid_transition_anomaly failed (swallowed)", exc_info=True)
+
     async def _log_transition(self, transition: RoomTransition) -> None:
         """Log transition to database."""
         try:
