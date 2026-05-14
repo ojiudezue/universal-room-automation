@@ -279,9 +279,10 @@ from .const import (
     CONF_GUEST_VLAN_SSID,
     DEFAULT_GUEST_VLAN_SSID,
     # v4.6.3 D10: Per-coordinator anomaly sensitivity dropdowns
+    # Note: CONF_ENERGY_ANOMALY_SENSITIVITY removed — energy uses cross-check
+    # detection (separate path), not AnomalyDetector.  See C7 fix.
     CONF_PRESENCE_ANOMALY_SENSITIVITY,
     CONF_SAFETY_ANOMALY_SENSITIVITY,
-    CONF_ENERGY_ANOMALY_SENSITIVITY,
     CONF_HVAC_ANOMALY_SENSITIVITY,
     CONF_SECURITY_ANOMALY_SENSITIVITY,
     CONF_MUSIC_ANOMALY_SENSITIVITY,
@@ -3221,24 +3222,11 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             ): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor", device_class="energy")
             ),
-            # v4.6.3 D10: Anomaly sensitivity
-            vol.Optional(
-                CONF_ENERGY_ANOMALY_SENSITIVITY,
-                default=self._get_current(
-                    CONF_ENERGY_ANOMALY_SENSITIVITY, DEFAULT_ANOMALY_SENSITIVITY
-                ),
-            ): selector.SelectSelector(
-                selector.SelectSelectorConfig(
-                    options=[
-                        {"value": "very_quiet", "label": "Very Quiet — only the loudest anomalies get flagged"},
-                        {"value": "quiet", "label": "Quiet — fewer notifications, accepts more variability as normal"},
-                        {"value": "normal", "label": "Normal — standard sensitivity, recommended for most homes"},
-                        {"value": "sensitive", "label": "Sensitive — catches subtler anomalies, more notifications"},
-                        {"value": "very_sensitive", "label": "Very Sensitive — flags small deviations; expect frequent advisories"},
-                    ],
-                    mode=selector.SelectSelectorMode.LIST,
-                )
-            ),
+            # Note: energy anomaly sensitivity dropdown removed (v4.6.3 C7 fix).
+            # The energy coordinator uses cross-check anomaly detection (a distinct
+            # path), not the z-score AnomalyDetector that the sensitivity multiplier
+            # feeds into.  Exposing a setting that has no runtime effect is
+            # misleading.  Re-introduce if an AnomalyDetector is added to energy.
         })
 
         # v4.2.29: surface envoy validation errors per-field.

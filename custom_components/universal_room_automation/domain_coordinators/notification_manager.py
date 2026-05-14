@@ -651,10 +651,19 @@ class NotificationManager:
         message: str,
         hazard_type: str | None = None,
         location: str | None = None,
+        source_anomaly_id: int | None = None,
     ) -> None:
         """Main notification entry point — called by coordinators.
 
         Routes to appropriate channels based on severity and config.
+
+        Args:
+            source_anomaly_id: Row id of the anomaly_log row that triggered
+                this notification.  When provided, it is threaded into the
+                D5 NM correlation row as ``linked_event_id`` so the two rows
+                can be joined analytically.  Callers that don't have a row id
+                at dispatch time (e.g., energy circuit NM alert, which fires
+                before the D4 circuit row is written) leave this as None.
         """
         if not self.enabled:
             return
@@ -845,15 +854,15 @@ class NotificationManager:
         # was dispatched, enabling "alert dispatch rate" queries without double-counting
         # the original anomaly.
         if channels_fired:  # Only emit if alert actually went through a channel
-            self.hass.async_create_task(
-                self._emit_nm_dispatch_anomaly(
-                    coordinator_id=coordinator_id,
-                    severity_str=severity_str,
-                    title=title,
-                    channels_fired=channels_fired,
-                    hazard_type=hazard_type,
-                    location=location,
-                )
+            # B2 fix: await directly (A5) and pass source_anomaly_id for linked_event_id
+            await self._emit_nm_dispatch_anomaly(
+                coordinator_id=coordinator_id,
+                severity_str=severity_str,
+                title=title,
+                channels_fired=channels_fired,
+                hazard_type=hazard_type,
+                location=location,
+                source_anomaly_id=source_anomaly_id,
             )
 
         # Update sensor caches
@@ -891,12 +900,24 @@ class NotificationManager:
         channels_fired: list,
         hazard_type: str | None,
         location: str | None,
+        source_anomaly_id: int | None = None,
     ) -> None:
         """Emit AnomalyEvent for NM alert dispatch correlation (D5 / D11 / D12).
 
         Writes a distinct 'nm_alert_dispatched' event so alert-dispatch rate
         can be queried without conflating it with the source anomaly.
         Never raises — exceptions are swallowed.
+
+        B2 fix: ``source_anomaly_id`` is threaded into ``linked_event_id`` in
+        context_json so the NM correlation row can be joined to the source
+        anomaly row.  Callers that don't have a row id at dispatch time pass
+        None, in which case the field is omitted from context_json (the
+        build_context_json helper drops None values).
+
+        Lookup strategy: the id comes from the caller via async_notify's
+        ``source_anomaly_id`` kwarg, which callers set to the return value of
+        save_anomaly_event() / store_event() when they have it.  No DB
+        round-trip is required here.
         """
         try:
             from homeassistant.util import dt as dt_util  # noqa: PLC0415
@@ -913,8 +934,10 @@ class NotificationManager:
                 "medium": AnomalySeverity.INFO,
                 "low": AnomalySeverity.INFO,
             }
+            now_iso = dt_util.utcnow().isoformat()
             _ctx = build_context_json(
-                source_signal="nm_alert_dispatched",
+                source_signal="SIGNAL_NM_DISPATCH",
+                linked_event_id=source_anomaly_id,  # B2 fix: FK to source anomaly row
                 extra={
                     "source_coordinator": coordinator_id,
                     "severity": severity_str,
@@ -929,17 +952,22 @@ class NotificationManager:
                 type="nm.alert_dispatched",
                 severity=_severity_map.get(severity_str, AnomalySeverity.WARNING),
                 event_class=EVENT_CLASS_POINT_IN_TIME,
-                detected_at=dt_util.utcnow().isoformat(),
+                detected_at=now_iso,
                 payload=_ctx,
+                # Binary correlation rows have no natural metric values — leave defaults (0.0/0)
+                observed_value=1.0,  # Sentinel: 1 dispatch occurred
+                sample_size=1,
             )
             database = self.hass.data.get(DOMAIN, {}).get("database")
             if database is not None:
                 await database.save_anomaly_event(_event)
                 _LOGGER.debug(
-                    "NM dispatch anomaly emitted: source=%s severity=%s channels=%s",
-                    coordinator_id, severity_str, channels_fired,
+                    "NM dispatch anomaly emitted: source=%s severity=%s channels=%s linked=%s",
+                    coordinator_id, severity_str, channels_fired, source_anomaly_id,
                 )
             # D12: also log to activity_logger with action="anomaly"
+            # A2 fix: include source_anomaly_id in description so distinct dispatches
+            # don't coalesce in the dedup window (same severity + channel → same static string).
             activity_logger = self.hass.data.get(DOMAIN, {}).get("activity_logger")
             if activity_logger:
                 await activity_logger.log(
@@ -947,7 +975,8 @@ class NotificationManager:
                     action="anomaly",
                     description=(
                         f"NM alert dispatched: {severity_str} from {coordinator_id} "
-                        f"via {', '.join(channels_fired)}"
+                        f"via {', '.join(channels_fired)} "
+                        f"(id={source_anomaly_id} t={now_iso[:19]})"
                     ),
                     importance="notable" if severity_str != "critical" else "critical",
                     details={
@@ -955,6 +984,7 @@ class NotificationManager:
                         "source_coordinator": coordinator_id,
                         "severity": severity_str,
                         "channels": channels_fired,
+                        "linked_event_id": source_anomaly_id,
                     },
                 )
         except Exception:

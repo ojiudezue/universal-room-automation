@@ -563,25 +563,25 @@ class ComplianceTracker:
                     "Compliance violation anomaly emitted: scope=%s device=%s",
                     record.scope, record.device_id,
                 )
-            # D12: fire activity_logger
+            # D12: fire activity_logger (awaited — A5 fix: avoid untracked task)
+            # A2 fix: include device_id + timestamp in description to avoid dedup
+            # masking distinct violations of the same device within the 60s window.
             activity_logger = self.hass.data.get(DOMAIN, {}).get("activity_logger")
             if activity_logger:
-                self.hass.async_create_task(
-                    activity_logger.log(
-                        coordinator="compliance",
-                        action="anomaly",
-                        description=(
-                            f"Compliance violation: {record.device_type} {record.device_id} "
-                            f"overridden at {record.scope}"
-                        ),
-                        importance="notable",
-                        entity_id=record.device_id,
-                        details={
-                            "type": "compliance.override_detected",
-                            "scope": record.scope,
-                            "override_source": record.override_source,
-                        },
-                    )
+                await activity_logger.log(
+                    coordinator="compliance",
+                    action="anomaly",
+                    description=(
+                        f"Compliance violation: {record.device_type} {record.device_id} "
+                        f"overridden at {record.scope} t={record.timestamp.isoformat()[:19]}"
+                    ),
+                    importance="notable",
+                    entity_id=record.device_id,
+                    details={
+                        "type": "compliance.override_detected",
+                        "scope": record.scope,
+                        "override_source": record.override_source,
+                    },
                 )
         except Exception:
             _LOGGER.debug("_emit_compliance_violation_anomaly failed (swallowed)", exc_info=True)

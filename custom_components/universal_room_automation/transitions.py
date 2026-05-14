@@ -433,27 +433,25 @@ class TransitionDetector:
                     transition.to_room,
                     getattr(validation, "path_confidence_delta", 0.0),
                 )
-            # D12: fire activity_logger
+            # D12: fire activity_logger (awaited — A5 fix: avoid untracked task)
             activity_logger = self.hass.data.get(DOMAIN, {}).get("activity_logger")
             if activity_logger:
-                self.hass.async_create_task(
-                    activity_logger.log(
-                        coordinator="transit",
-                        action="anomaly",
-                        description=(
-                            f"Invalid transit {transition.person_id} "
-                            f"{transition.from_room}→{transition.to_room} "
-                            f"z=n/a confidence_delta="
-                            f"{getattr(validation, 'path_confidence_delta', 0.0):.2f}"
-                        ),
-                        importance="notable",
-                        details={
-                            "type": "transit.path_implausible",
-                            "from_room": transition.from_room,
-                            "to_room": transition.to_room,
-                            "path_method": getattr(validation, "path_method", "unknown"),
-                        },
-                    )
+                await activity_logger.log(
+                    coordinator="transit",
+                    action="anomaly",
+                    description=(
+                        f"Invalid transit {transition.person_id} "
+                        f"{transition.from_room}→{transition.to_room} "
+                        f"z=n/a confidence_delta="
+                        f"{getattr(validation, 'path_confidence_delta', 0.0):.2f}"
+                    ),
+                    importance="notable",
+                    details={
+                        "type": "transit.path_implausible",
+                        "from_room": transition.from_room,
+                        "to_room": transition.to_room,
+                        "path_method": getattr(validation, "path_method", "unknown"),
+                    },
                 )
         except Exception:
             _LOGGER.debug("_emit_invalid_transition_anomaly failed (swallowed)", exc_info=True)

@@ -2741,25 +2741,23 @@ class EnergyCoordinator(BaseCoordinator):
                     "Circuit anomaly event emitted: type=%s circuit=%s",
                     anomaly_type, circuit_name,
                 )
-            # D12: fire activity_logger
+            # D12: fire activity_logger (awaited — A5 fix: avoid untracked task)
             activity_logger = self.hass.data.get(DOMAIN, {}).get("activity_logger")
             if activity_logger:
-                self.hass.async_create_task(
-                    activity_logger.log(
-                        coordinator="energy",
-                        action="anomaly",
-                        description=(
-                            f"Circuit {anomaly_type} on {circuit_name} "
-                            f"z={anomaly.get('z_score', 0.0):.2f}"
-                        ),
-                        importance="critical" if anomaly_type == "tripped_breaker" else "notable",
-                        entity_id=entity_id,
-                        details={
-                            "type": f"energy.circuit_{anomaly_type}",
-                            "circuit": circuit_name,
-                            "z_score": anomaly.get("z_score", 0.0),
-                        },
-                    )
+                await activity_logger.log(
+                    coordinator="energy",
+                    action="anomaly",
+                    description=(
+                        f"Circuit {anomaly_type} on {circuit_name} "
+                        f"z={anomaly.get('z_score', 0.0):.2f}"
+                    ),
+                    importance="critical" if anomaly_type == "tripped_breaker" else "notable",
+                    entity_id=entity_id,
+                    details={
+                        "type": f"energy.circuit_{anomaly_type}",
+                        "circuit": circuit_name,
+                        "z_score": anomaly.get("z_score", 0.0),
+                    },
                 )
         except Exception:
             _LOGGER.debug("_emit_circuit_anomaly_event failed (swallowed)", exc_info=True)

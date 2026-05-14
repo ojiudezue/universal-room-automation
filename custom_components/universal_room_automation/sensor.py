@@ -10296,6 +10296,12 @@ class URARecentAnomaliesSensor(AggregationEntity, SensorEntity):
         self._by_severity: dict = {}
         self._by_type: dict = {}
         self._unsub: object = None
+        # A3 fix: in-flight guard to prevent concurrent refresh tasks on burst
+        # of anomaly signals.  If a refresh is already running and another
+        # dispatch arrives, we set _refresh_pending=True so the running refresh
+        # will re-run once it completes instead of spawning a parallel task.
+        self._refresh_in_flight: bool = False
+        self._refresh_pending: bool = False
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
@@ -10306,8 +10312,13 @@ class URARecentAnomaliesSensor(AggregationEntity, SensorEntity):
         def _handle_activity_logged(payload: dict) -> None:
             # Only refresh if the logged action is "anomaly" so normal activity
             # events don't trigger an expensive DB query every cycle.
+            # A3 fix: in-flight guard prevents burst of concurrent refresh tasks.
+            # If a refresh is already running, set pending so it re-runs once done.
             if payload.get("action") == "anomaly":
-                self.hass.async_create_task(self._async_refresh())
+                if self._refresh_in_flight:
+                    self._refresh_pending = True
+                else:
+                    self.hass.async_create_task(self._async_refresh())
 
         self._unsub = async_dispatcher_connect(
             self.hass, SIGNAL_ACTIVITY_LOGGED, _handle_activity_logged
@@ -10317,7 +10328,18 @@ class URARecentAnomaliesSensor(AggregationEntity, SensorEntity):
         await self._async_refresh()
 
     async def _async_refresh(self) -> None:
-        """Query anomaly_log for last 24 h using idx_anomaly_timestamp index."""
+        """Query anomaly_log for last 24 h using idx_anomaly_timestamp index.
+
+        A3 fix: protected by an in-flight guard.  If called while a refresh is
+        already running (from a signal burst), the second call sets
+        _refresh_pending and returns immediately.  When the running refresh
+        finishes it checks _refresh_pending and re-runs once, ensuring at
+        most one queued follow-up regardless of burst size.
+        """
+        if self._refresh_in_flight:
+            self._refresh_pending = True
+            return
+        self._refresh_in_flight = True
         try:
             database = self.hass.data.get(DOMAIN, {}).get("database")
             if database is None:
@@ -10351,7 +10373,7 @@ class URARecentAnomaliesSensor(AggregationEntity, SensorEntity):
                         "timestamp": r[0],
                         "coordinator": r[1],
                         "severity": r[2],
-                        "type": r[3],
+                        "metric": r[3],  # C8 fix: renamed from "type" to "metric"
                     }
                     for r in rows
                 ]
@@ -10389,6 +10411,12 @@ class URARecentAnomaliesSensor(AggregationEntity, SensorEntity):
             self.async_write_ha_state()
         except Exception:
             _LOGGER.debug("RecentAnomaliesSensor refresh failed", exc_info=True)
+        finally:
+            self._refresh_in_flight = False
+            # If a dispatch arrived while we were running, do one follow-up refresh
+            if self._refresh_pending:
+                self._refresh_pending = False
+                self.hass.async_create_task(self._async_refresh())
 
     @property
     def native_value(self) -> int:

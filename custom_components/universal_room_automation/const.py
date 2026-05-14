@@ -931,7 +931,11 @@ CONF_BERMUDA_AREA_SENSORS: Final = "bermuda_area_sensors"
 
 CONF_PRESENCE_ANOMALY_SENSITIVITY: Final = "presence_anomaly_sensitivity"
 CONF_SAFETY_ANOMALY_SENSITIVITY: Final = "safety_anomaly_sensitivity"
-CONF_ENERGY_ANOMALY_SENSITIVITY: Final = "energy_anomaly_sensitivity"
+# CONF_ENERGY_ANOMALY_SENSITIVITY removed in v4.6.3 (C7 fix): the energy
+# coordinator uses cross-check anomaly detection (a separate path), not the
+# z-score AnomalyDetector.  The dropdown was a no-op — energy has no
+# AnomalyDetector instance to consume the multiplier.  Removed to avoid
+# surfacing a setting that has no runtime effect.
 CONF_HVAC_ANOMALY_SENSITIVITY: Final = "hvac_anomaly_sensitivity"
 CONF_SECURITY_ANOMALY_SENSITIVITY: Final = "security_anomaly_sensitivity"
 CONF_MUSIC_ANOMALY_SENSITIVITY: Final = "music_anomaly_sensitivity"

@@ -1662,11 +1662,6 @@ class SafetyCoordinator(BaseCoordinator):
                         extra={
                             "hazard_type": hazard.type.value,
                             "hazard_severity": hazard.severity.name,
-                            "observed_value": anomaly.observed_value,
-                            "expected_mean": anomaly.expected_mean,
-                            "expected_std": anomaly.expected_std,
-                            "z_score": round(anomaly.z_score, 3),
-                            "sample_size": anomaly.sample_size,
                         },
                     )
                     _event = AnomalyEvent(
@@ -1676,31 +1671,34 @@ class SafetyCoordinator(BaseCoordinator):
                         event_class=EVENT_CLASS_HAZARD,
                         detected_at=anomaly.timestamp.isoformat(),
                         payload=_ctx,
+                        observed_value=anomaly.observed_value,
+                        expected_mean=anomaly.expected_mean,
+                        expected_std=anomaly.expected_std,
+                        z_score=round(anomaly.z_score, 3),
+                        sample_size=anomaly.sample_size,
                     )
                     await self.anomaly_detector.store_event(_event)
                     _LOGGER.info(
                         "Safety hazard anomaly emitted: hazard=%s scope=%s z=%.2f",
                         hazard.type.value, scope, anomaly.z_score,
                     )
-                    # D12: fire activity_logger
+                    # D12: fire activity_logger (awaited — A5 fix: avoid untracked task)
                     _activity_logger = self.hass.data.get(DOMAIN, {}).get("activity_logger")
                     if _activity_logger:
-                        self.hass.async_create_task(
-                            _activity_logger.log(
-                                coordinator="safety",
-                                action="anomaly",
-                                description=(
-                                    f"Safety hazard {hazard.type.value} @ {scope} "
-                                    f"z={anomaly.z_score:.2f}"
-                                ),
-                                importance="critical",
-                                room=scope if scope != "house" else None,
-                                details={
-                                    "type": f"safety.hazard_{hazard.type.value}",
-                                    "z_score": round(anomaly.z_score, 3),
-                                    "metric_name": anomaly.metric_name,
-                                },
-                            )
+                        await _activity_logger.log(
+                            coordinator="safety",
+                            action="anomaly",
+                            description=(
+                                f"Safety hazard {hazard.type.value} @ {scope} "
+                                f"z={anomaly.z_score:.2f}"
+                            ),
+                            importance="critical",
+                            room=scope if scope != "house" else None,
+                            details={
+                                "type": f"safety.hazard_{hazard.type.value}",
+                                "z_score": round(anomaly.z_score, 3),
+                                "metric_name": anomaly.metric_name,
+                            },
                         )
                 # Also record current active hazard count
                 anomaly2 = self.anomaly_detector.record_observation(
@@ -1712,11 +1710,6 @@ class SafetyCoordinator(BaseCoordinator):
                     _ctx2 = build_context_json(
                         source_signal="SIGNAL_SAFETY_HAZARD",
                         extra={
-                            "observed_value": anomaly2.observed_value,
-                            "expected_mean": anomaly2.expected_mean,
-                            "expected_std": anomaly2.expected_std,
-                            "z_score": round(anomaly2.z_score, 3),
-                            "sample_size": anomaly2.sample_size,
                             "active_hazard_count": len(self._active_hazards),
                         },
                     )
@@ -1727,12 +1720,35 @@ class SafetyCoordinator(BaseCoordinator):
                         event_class=EVENT_CLASS_HAZARD,
                         detected_at=anomaly2.timestamp.isoformat(),
                         payload=_ctx2,
+                        observed_value=anomaly2.observed_value,
+                        expected_mean=anomaly2.expected_mean,
+                        expected_std=anomaly2.expected_std,
+                        z_score=round(anomaly2.z_score, 3),
+                        sample_size=anomaly2.sample_size,
                     )
                     await self.anomaly_detector.store_event(_event2)
                     _LOGGER.info(
                         "Safety active_hazard_count anomaly emitted: count=%d z=%.2f",
                         len(self._active_hazards), anomaly2.z_score,
                     )
+                    # B3 fix: D12 activity_logger call was missing from this emit site.
+                    # Every other migrated emit site fires activity_logger — add it here.
+                    _activity_logger2 = self.hass.data.get(DOMAIN, {}).get("activity_logger")
+                    if _activity_logger2:
+                        await _activity_logger2.log(
+                            coordinator="safety",
+                            action="anomaly",
+                            description=(
+                                f"Safety active_hazard_count anomaly: count={len(self._active_hazards)} "
+                                f"z={anomaly2.z_score:.2f}"
+                            ),
+                            importance="notable",
+                            details={
+                                "type": "safety.active_hazard_count",
+                                "z_score": round(anomaly2.z_score, 3),
+                                "active_hazard_count": len(self._active_hazards),
+                            },
+                        )
             except Exception:
                 _LOGGER.debug("Anomaly recording failed", exc_info=True)
 

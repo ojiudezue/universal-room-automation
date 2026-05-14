@@ -1732,11 +1732,6 @@ class PresenceCoordinator(BaseCoordinator):
                             source_signal="SIGNAL_CENSUS_UPDATED",
                             extra={
                                 "census_count": self._census_count,
-                                "observed_value": anomaly.observed_value,
-                                "expected_mean": anomaly.expected_mean,
-                                "expected_std": anomaly.expected_std,
-                                "z_score": round(anomaly.z_score, 3),
-                                "sample_size": anomaly.sample_size,
                             },
                         )
                         _event = AnomalyEvent(
@@ -1746,6 +1741,11 @@ class PresenceCoordinator(BaseCoordinator):
                             event_class=EVENT_CLASS_POINT_IN_TIME,
                             detected_at=anomaly.timestamp.isoformat(),
                             payload=_ctx,
+                            observed_value=anomaly.observed_value,
+                            expected_mean=anomaly.expected_mean,
+                            expected_std=anomaly.expected_std,
+                            z_score=round(anomaly.z_score, 3),
+                            sample_size=anomaly.sample_size,
                         )
                         await self.anomaly_detector.store_event(_event)
                         _LOGGER.info(
@@ -1754,21 +1754,20 @@ class PresenceCoordinator(BaseCoordinator):
                         )
                         _activity_logger = self.hass.data.get(DOMAIN, {}).get("activity_logger")
                         if _activity_logger:
-                            self.hass.async_create_task(
-                                _activity_logger.log(
-                                    coordinator="presence",
-                                    action="anomaly",
-                                    description=(
-                                        f"Presence census_count anomaly z={anomaly.z_score:.2f} "
-                                        f"count={self._census_count}"
-                                    ),
-                                    importance="notable",
-                                    details={
-                                        "type": "presence.census_count",
-                                        "z_score": round(anomaly.z_score, 3),
-                                        "census_count": self._census_count,
-                                    },
-                                )
+                            # A5 fix: await directly instead of untracked async_create_task
+                            await _activity_logger.log(
+                                coordinator="presence",
+                                action="anomaly",
+                                description=(
+                                    f"Presence census_count anomaly z={anomaly.z_score:.2f} "
+                                    f"count={self._census_count}"
+                                ),
+                                importance="notable",
+                                details={
+                                    "type": "presence.census_count",
+                                    "z_score": round(anomaly.z_score, 3),
+                                    "census_count": self._census_count,
+                                },
                             )
 
                 # Outcome measurement: record for accuracy tracking
@@ -1852,11 +1851,6 @@ class PresenceCoordinator(BaseCoordinator):
                     source_signal="SIGNAL_CENSUS_UPDATED",
                     extra={
                         "occupied_value": occupied_value,
-                        "observed_value": anomaly.observed_value,
-                        "expected_mean": anomaly.expected_mean,
-                        "expected_std": anomaly.expected_std,
-                        "z_score": round(anomaly.z_score, 3),
-                        "sample_size": anomaly.sample_size,
                     },
                 )
                 _event = AnomalyEvent(
@@ -1866,6 +1860,11 @@ class PresenceCoordinator(BaseCoordinator):
                     event_class=EVENT_CLASS_POINT_IN_TIME,
                     detected_at=anomaly.timestamp.isoformat(),
                     payload=_ctx,
+                    observed_value=anomaly.observed_value,
+                    expected_mean=anomaly.expected_mean,
+                    expected_std=anomaly.expected_std,
+                    z_score=round(anomaly.z_score, 3),
+                    sample_size=anomaly.sample_size,
                 )
                 await self.anomaly_detector.store_event(_event)
                 _LOGGER.info(
@@ -1874,22 +1873,21 @@ class PresenceCoordinator(BaseCoordinator):
                 )
                 _activity_logger = self.hass.data.get(DOMAIN, {}).get("activity_logger")
                 if _activity_logger:
-                    self.hass.async_create_task(
-                        _activity_logger.log(
-                            coordinator="presence",
-                            action="anomaly",
-                            description=(
-                                f"Zone {zone_name} occupancy anomaly z={anomaly.z_score:.2f}"
-                            ),
-                            importance="notable",
-                            zone=zone_name,
-                            details={
-                                "type": "presence.zone_occupancy",
-                                "zone": zone_name,
-                                "z_score": round(anomaly.z_score, 3),
-                                "occupied_value": occupied_value,
-                            },
-                        )
+                    # A5 fix: await directly instead of untracked async_create_task
+                    await _activity_logger.log(
+                        coordinator="presence",
+                        action="anomaly",
+                        description=(
+                            f"Zone {zone_name} occupancy anomaly z={anomaly.z_score:.2f}"
+                        ),
+                        importance="notable",
+                        zone=zone_name,
+                        details={
+                            "type": "presence.zone_occupancy",
+                            "zone": zone_name,
+                            "z_score": round(anomaly.z_score, 3),
+                            "occupied_value": occupied_value,
+                        },
                     )
 
     async def _log_zone_mode_change(
