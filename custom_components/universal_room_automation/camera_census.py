@@ -1,6 +1,6 @@
 """Camera integration and person census for Universal Room Automation v3.5.0."""
 #
-# Universal Room Automation vv4.6.2.1
+# Universal Room Automation vv4.6.2.2
 # Build: 2026-02-23
 # File: camera_census.py
 # Cycle 3: Camera Integration & Census Core
@@ -809,6 +809,9 @@ class PersonCensus:
                 "unidentified_count": house_result.unidentified_count,
                 "property_count": property_result.total_persons,
                 "total_on_property": total_on_property,
+                # v4.6.2.2: Census confidence fields for guest-mode hardening gate
+                "confidence": house_result.confidence,
+                "source_agreement": house_result.source_agreement,
             },
         )
 

@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv4.6.2.1
+# Universal Room Automation vv4.6.2.2
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v4.6.2.1"
+VERSION: Final = "v4.6.2.2"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -1151,6 +1151,14 @@ CENSUS_FACE_RECOGNITION_WINDOW_SECONDS: Final = 1800  # 30 minutes
 # WiFi guest VLAN detection
 CONF_GUEST_VLAN_SSID: Final = "guest_vlan_ssid"
 DEFAULT_GUEST_VLAN_SSID: Final = ""  # Empty = auto-detect via is_guest flag
+
+# v4.6.2.2: Guest mode false-positive hardening
+# Persistence: how long an unidentified person must be seen before guest mode fires
+CONF_GUEST_MODE_PERSISTENCE_SECONDS: Final = "guest_mode_persistence_seconds"
+DEFAULT_GUEST_PERSISTENCE_SECONDS: Final = 300  # 5 min; set 0 to disable
+# Confidence gate: minimum census confidence level required to fire guest mode
+CONF_GUEST_MODE_REQUIRE_CONFIDENCE: Final = "guest_mode_require_confidence"
+DEFAULT_GUEST_REQUIRE_CONFIDENCE: Final = "medium"  # blocks low/none confidence
 
 # Phone manufacturer allowlist (OUI values from UniFi device_tracker)
 PHONE_MANUFACTURERS: Final = frozenset({
