@@ -249,8 +249,8 @@ FAN_SPEED_LOW_DELTA: Final = 2.0  # +2-3F -> low
 FAN_SPEED_MED_DELTA: Final = 3.0  # +3-5F -> med
 FAN_SPEED_HIGH_DELTA: Final = 5.0  # >+5F -> high
 DEFAULT_FAN_VACANCY_HOLD: Final = 300  # 5 min hold after vacancy
-DEFAULT_HUMIDITY_FAN_ON: Final = 60  # % RH threshold to activate
-DEFAULT_HUMIDITY_FAN_OFF: Final = 50  # % RH threshold to deactivate (10% hysteresis)
+# v4.6.2.1: Humidity-fan on/off thresholds moved to ..const as
+# DEFAULT_HUMIDITY_THRESHOLD and DEFAULT_HUMIDITY_FAN_HYSTERESIS.
 
 # Cover Controller
 COVER_SOLAR_MONTHS: Final = frozenset({4, 5, 6, 7, 8, 9, 10})

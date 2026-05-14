@@ -20,7 +20,12 @@ from ..const import (
     CONF_ENTRY_TYPE,
     CONF_FANS,
     CONF_HUMIDITY_FANS,
+    CONF_HUMIDITY_FAN_MAX_RUNTIME,
+    CONF_HUMIDITY_FAN_THRESHOLD,
     CONF_ROOM_NAME,
+    DEFAULT_HUMIDITY_FAN_HYSTERESIS,
+    DEFAULT_HUMIDITY_FAN_MAX_RUNTIME,
+    DEFAULT_HUMIDITY_THRESHOLD,
     DOMAIN,
     ENTRY_TYPE_ROOM,
 )
@@ -29,8 +34,6 @@ from .hvac_const import (
     DEFAULT_FAN_HYSTERESIS,
     DEFAULT_FAN_MIN_RUNTIME,
     DEFAULT_FAN_VACANCY_HOLD,
-    DEFAULT_HUMIDITY_FAN_OFF,
-    DEFAULT_HUMIDITY_FAN_ON,
     FAN_SPEED_HIGH_DELTA,
     FAN_SPEED_HIGH_PCT,
     FAN_SPEED_LOW_DELTA,
@@ -58,6 +61,15 @@ class RoomFanState:
     last_on_time: str = ""
     vacancy_detected_time: str = ""
     manual_off_cooldown_until: str = ""  # ISO datetime — skip activation until this time
+    # v4.6.2.1: Humidity fan config pulled from room options at registration time
+    humidity_fan_threshold: float = DEFAULT_HUMIDITY_THRESHOLD
+    humidity_fan_max_runtime: int = DEFAULT_HUMIDITY_FAN_MAX_RUNTIME
+    # v4.6.2.1: Max-runtime gate — set on every off→on transition, cleared on on→off.
+    # Distinct from last_on_time which tracks temp-fan min-runtime.
+    humidity_on_since: datetime | None = None
+    # v4.6.2.1: Suppression flag — True after max-runtime force-off. Cleared only when
+    # humidity drops below OFF threshold, preventing immediate re-trigger.
+    humidity_cap_suppressed: bool = False
 
 
 class FanController:
@@ -128,6 +140,12 @@ class FanController:
                 zone_id=room_to_zone[room_name],
                 fan_entities=fan_list,
                 humidity_fan_entities=hfan_list,
+                humidity_fan_threshold=float(
+                    merged.get(CONF_HUMIDITY_FAN_THRESHOLD, DEFAULT_HUMIDITY_THRESHOLD)
+                ),
+                humidity_fan_max_runtime=int(
+                    merged.get(CONF_HUMIDITY_FAN_MAX_RUNTIME, DEFAULT_HUMIDITY_FAN_MAX_RUNTIME)
+                ),
             )
 
             _LOGGER.info(
@@ -234,14 +252,41 @@ class FanController:
 
             # Evaluate humidity fans
             if room_fan.humidity_fan_entities and humidity is not None:
-                h_on = self._evaluate_humidity_fan(humidity, room_fan)
                 h_currently_on = any(
                     self._is_entity_on(e) for e in room_fan.humidity_fan_entities
                 )
+
+                # v4.6.2.1: Max-runtime cap — force off if fan has run too long.
+                # Protects against stuck humidity sensors and runaway cycles.
+                if (
+                    h_currently_on
+                    and room_fan.humidity_on_since is not None
+                    and (now - room_fan.humidity_on_since).total_seconds()
+                    >= room_fan.humidity_fan_max_runtime
+                ):
+                    _LOGGER.info(
+                        "HVAC Fans: %s humidity_fan_max_runtime_exceeded"
+                        " — forcing off after %.0f s (cap %.0f s)",
+                        room_name,
+                        (now - room_fan.humidity_on_since).total_seconds(),
+                        room_fan.humidity_fan_max_runtime,
+                    )
+                    await self._set_fan_state(room_fan.humidity_fan_entities, False, 0)
+                    room_fan.humidity_on_since = None
+                    # Suppression: require humidity to drop below OFF threshold
+                    # before allowing re-activation (v4.5.18 stale-signal gate shape).
+                    room_fan.humidity_cap_suppressed = True
+                    h_currently_on = False
+
+                h_on = self._evaluate_humidity_fan(humidity, room_fan, h_currently_on)
                 if h_on != h_currently_on:
                     await self._set_fan_state(
                         room_fan.humidity_fan_entities, h_on, 100
                     )
+                    if h_on:
+                        room_fan.humidity_on_since = now
+                    else:
+                        room_fan.humidity_on_since = None
 
     def _evaluate_temp_fan(
         self,
@@ -319,16 +364,33 @@ class FanController:
         return False, "", 0
 
     def _evaluate_humidity_fan(
-        self, humidity: float, room_fan: RoomFanState,
+        self,
+        humidity: float,
+        room_fan: RoomFanState,
+        h_currently_on: bool,
     ) -> bool:
-        """Evaluate humidity fan with hysteresis."""
-        h_currently_on = any(
-            self._is_entity_on(e) for e in room_fan.humidity_fan_entities
-        )
-        if humidity >= DEFAULT_HUMIDITY_FAN_ON:
+        """Evaluate humidity fan with hysteresis and suppression.
+
+        v4.6.2.1: Uses user-configured threshold (not hardcoded 60%).
+        ON threshold: humidity >= room_fan.humidity_fan_threshold
+        OFF threshold: humidity <= threshold - DEFAULT_HUMIDITY_FAN_HYSTERESIS
+        Suppression: if humidity_cap_suppressed, block re-trigger until humidity
+        drops below OFF threshold.
+        """
+        threshold = room_fan.humidity_fan_threshold
+        off_threshold = threshold - DEFAULT_HUMIDITY_FAN_HYSTERESIS
+
+        # Clear suppression once humidity drops below OFF threshold
+        if room_fan.humidity_cap_suppressed:
+            if humidity <= off_threshold:
+                room_fan.humidity_cap_suppressed = False
+            else:
+                return False  # Still suppressed — do not re-trigger
+
+        if humidity >= threshold:
             return True
-        if h_currently_on and humidity > DEFAULT_HUMIDITY_FAN_OFF:
-            return True  # Still above off threshold
+        if h_currently_on and humidity > off_threshold:
+            return True  # Hysteresis: stay on until below OFF threshold
         return False
 
     def _compute_speed(self, delta: float) -> int:

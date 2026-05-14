@@ -92,8 +92,13 @@ from .const import (
     CONF_FAN_SPEED_HIGH_TEMP,
     CONF_HUMIDITY_FAN_THRESHOLD,
     CONF_HUMIDITY_FAN_TIMEOUT,
+    CONF_HUMIDITY_FAN_MAX_RUNTIME,
     CONF_FAN_VACANCY_HOLD,
     DEFAULT_FAN_VACANCY_HOLD,
+    DEFAULT_HUMIDITY_THRESHOLD,
+    DEFAULT_HUMIDITY_FAN_TIMEOUT,
+    DEFAULT_HUMIDITY_FAN_MAX_RUNTIME,
+    DEFAULT_HUMIDITY_FAN_HYSTERESIS,
     # Sleep protection
     CONF_SLEEP_PROTECTION_ENABLED,
     CONF_SLEEP_START_HOUR,
@@ -175,6 +180,11 @@ class RoomAutomation:
         self._sleep_motion_count = 0
         self.coordinator = coordinator
         self._humidity_fan_triggered_time: datetime | None = None
+        # v4.6.2.1: Max-runtime gate — set on fan on-transition, cleared on off.
+        # Separate from _humidity_fan_triggered_time (min-runtime gate).
+        self._humidity_on_since: datetime | None = None
+        # v4.6.2.1: Suppression after max-runtime cap fires.
+        self._humidity_cap_suppressed: bool = False
         # v3.1.0: Shared space - track last auto-off to prevent repeated triggers
         self._last_auto_off_date: str | None = None
         # v3.1.0: Alert light state tracking
@@ -1611,8 +1621,14 @@ class RoomAutomation:
         self, humidity: float | None
     ) -> None:
         """Control humidity fans/switches based on humidity level.
-        
-        v3.2.8.2: Supports both fan.* and switch.* domains for RF fans on outlets
+
+        v3.2.8.2: Supports both fan.* and switch.* domains for RF fans on outlets.
+        v4.6.2.1: Added max-runtime cap, hysteresis (Path A), and constant cleanup.
+          - _humidity_fan_triggered_time: min-runtime gate (fan must run >= timeout before
+            being allowed off after humidity drops). Unchanged semantics.
+          - _humidity_on_since: max-runtime gate (force off after max_runtime seconds).
+          - _humidity_cap_suppressed: suppression after cap fires — humidity must drop
+            below OFF threshold before re-activation is allowed.
         """
         humidity_fans = self.config.get(CONF_HUMIDITY_FANS, [])
         if not humidity_fans or humidity is None:
@@ -1631,15 +1647,53 @@ class RoomAutomation:
                     blocking=False,
                 )
                 self._humidity_fan_triggered_time = None
+                self._humidity_on_since = None
+                self._humidity_cap_suppressed = False
                 return
 
-        threshold = self.config.get(CONF_HUMIDITY_FAN_THRESHOLD, 60)
-        timeout = self.config.get(CONF_HUMIDITY_FAN_TIMEOUT, 600)
+        threshold = self.config.get(CONF_HUMIDITY_FAN_THRESHOLD, DEFAULT_HUMIDITY_THRESHOLD)
+        timeout = self.config.get(CONF_HUMIDITY_FAN_TIMEOUT, DEFAULT_HUMIDITY_FAN_TIMEOUT)
+        max_runtime = self.config.get(CONF_HUMIDITY_FAN_MAX_RUNTIME, DEFAULT_HUMIDITY_FAN_MAX_RUNTIME)
+        off_threshold = threshold - DEFAULT_HUMIDITY_FAN_HYSTERESIS
+        now = dt_util.now()
+
+        # v4.6.2.1: Max-runtime cap — check before normal logic.
+        if (
+            self._humidity_on_since is not None
+            and (now - self._humidity_on_since).total_seconds() >= max_runtime
+        ):
+            _LOGGER.info(
+                "humidity_fan_max_runtime_exceeded: forcing off after %.0f s (cap %.0f s)",
+                (now - self._humidity_on_since).total_seconds(),
+                max_runtime,
+            )
+            await self._safe_service_call(
+                "homeassistant", SERVICE_TURN_OFF, {"entity_id": humidity_fans},
+                blocking=False,
+            )
+            self._humidity_on_since = None
+            self._humidity_fan_triggered_time = None
+            # Suppression: require humidity to drop below OFF threshold before re-trigger.
+            self._humidity_cap_suppressed = True
+            return
+
+        # v4.6.2.1: Clear suppression once humidity drops below OFF threshold.
+        if self._humidity_cap_suppressed:
+            if humidity <= off_threshold:
+                self._humidity_cap_suppressed = False
+            else:
+                # Still suppressed — do not re-trigger
+                return
+
+        # v4.6.2.1: Hysteresis — derive ON/OFF thresholds from a single configured value.
+        # Fan is currently on if _humidity_fan_triggered_time is set.
+        fan_is_on = self._humidity_fan_triggered_time is not None
 
         if humidity >= threshold:
             # Turn on humidity fans/switches
-            if self._humidity_fan_triggered_time is None:
+            if not fan_is_on:
                 self._humidity_fan_triggered_time = dt_util.now()
+                self._humidity_on_since = now
 
             # Use homeassistant domain to support both fans and switches
             await self._safe_service_call(
@@ -1650,19 +1704,24 @@ class RoomAutomation:
             )
             _LOGGER.debug("Turned on humidity fans - humidity at %.1f%%", humidity)
 
-        elif humidity < threshold and self._humidity_fan_triggered_time:
-            # Check if timeout has passed
-            elapsed = (dt_util.now() - self._humidity_fan_triggered_time).total_seconds()
+        elif fan_is_on and humidity <= off_threshold:
+            # Humidity dropped below OFF threshold — check min-runtime gate
+            elapsed = (now - self._humidity_fan_triggered_time).total_seconds()
             if elapsed >= timeout:
-                # Use homeassistant domain to support both fans and switches
                 await self._safe_service_call(
                     "homeassistant",
                     SERVICE_TURN_OFF,
                     {"entity_id": humidity_fans},
                     blocking=False,
                 )
-                _LOGGER.debug("Turned off humidity fans after timeout")
+                _LOGGER.debug(
+                    "Turned off humidity fans — humidity %.1f%% < off threshold %.1f%%,"
+                    " ran %.0f s",
+                    humidity, off_threshold, elapsed,
+                )
                 self._humidity_fan_triggered_time = None
+                self._humidity_on_since = None
+        # else: fan is on and humidity is between off_threshold and threshold — hysteresis hold
 
     def should_coordinate_with_hvac(self) -> bool:
         """Check if HVAC coordination is enabled and HVAC is running."""
