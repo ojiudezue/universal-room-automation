@@ -256,6 +256,19 @@ class FanController:
                     self._is_entity_on(e) for e in room_fan.humidity_fan_entities
                 )
 
+                # v4.6.2.3: Reload-mid-cycle anchor seeding.
+                # If the fan is observed on but humidity_on_since is None (e.g., the
+                # coordinator reloaded while the fan was running), seed the anchor so
+                # the max-runtime cap has a valid reference point. Monotonic: only seed
+                # when the anchor is not yet set; subsequent ticks leave it unchanged.
+                if h_currently_on and room_fan.humidity_on_since is None:
+                    _LOGGER.info(
+                        "HVAC Fans: %s humidity_fan_reload_seeding — fan already on at"
+                        " startup, seeding anchor",
+                        room_name,
+                    )
+                    room_fan.humidity_on_since = now
+
                 # v4.6.2.1: Max-runtime cap — force off if fan has run too long.
                 # Protects against stuck humidity sensors and runaway cycles.
                 if (

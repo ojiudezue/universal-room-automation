@@ -1617,6 +1617,22 @@ class RoomAutomation:
             except Exception as e:
                 _LOGGER.error("Error controlling fans: %s", e)
 
+    def _fan_is_actually_on(self, fans: list[str]) -> bool:
+        """Return True if any entity in fans reports state 'on'.
+
+        Uses hass.states.get — synchronous in-memory lookup, safe from any context.
+        Called at the top of handle_humidity_based_fan_control to detect a fan that
+        was already running when the coordinator woke (post-reload or post-restart).
+        """
+        for entity_id in fans:
+            try:
+                state = self.hass.states.get(entity_id)
+                if state is not None and state.state == STATE_ON:
+                    return True
+            except Exception:  # noqa: BLE001
+                pass
+        return False
+
     async def handle_humidity_based_fan_control(
         self, humidity: float | None
     ) -> None:
@@ -1629,6 +1645,11 @@ class RoomAutomation:
           - _humidity_on_since: max-runtime gate (force off after max_runtime seconds).
           - _humidity_cap_suppressed: suppression after cap fires — humidity must drop
             below OFF threshold before re-activation is allowed.
+        v4.6.2.3: Reload-mid-cycle anchor seeding — if the fan is observed ON at startup
+          (post-reload/restart) but _humidity_on_since is None, seed it to now so the
+          max-runtime cap has a valid reference point. Seeding is monotonic: once set,
+          we do not overwrite until the fan turns off. Suppression state is left untouched
+          (a suppressed fan that is physically still on continues to be suppressed).
         """
         humidity_fans = self.config.get(CONF_HUMIDITY_FANS, [])
         if not humidity_fans or humidity is None:
@@ -1656,6 +1677,17 @@ class RoomAutomation:
         max_runtime = self.config.get(CONF_HUMIDITY_FAN_MAX_RUNTIME, DEFAULT_HUMIDITY_FAN_MAX_RUNTIME)
         off_threshold = threshold - DEFAULT_HUMIDITY_FAN_HYSTERESIS
         now = dt_util.now()
+
+        # v4.6.2.3: Reload-mid-cycle anchor seeding.
+        # If the fan is physically on but _humidity_on_since is None (e.g., the coordinator
+        # just reloaded or restarted mid-cycle), seed both anchor fields so that the
+        # max-runtime cap has a reference point. Monotonic: only seed when anchor is unset.
+        if self._humidity_on_since is None and self._fan_is_actually_on(humidity_fans):
+            _LOGGER.info(
+                "humidity_fan_reload_seeding: fan already on at startup — seeding anchor"
+            )
+            self._humidity_on_since = now
+            self._humidity_fan_triggered_time = now
 
         # v4.6.2.1: Max-runtime cap — check before normal logic.
         if (
