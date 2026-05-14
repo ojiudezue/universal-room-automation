@@ -491,14 +491,34 @@ class HVACCoordinator(BaseCoordinator):
             ComplianceTracker,
             DecisionLogger,
         )
+        from ..const import (  # noqa: PLC0415
+            CONF_HVAC_ANOMALY_SENSITIVITY,
+            DEFAULT_ANOMALY_SENSITIVITY,
+            ANOMALY_SENSITIVITY_MULTIPLIERS,
+            CONF_ENTRY_TYPE,
+            ENTRY_TYPE_COORDINATOR_MANAGER,
+        )
 
         self._decision_logger = DecisionLogger(self.hass)
         self._compliance = ComplianceTracker(self.hass)
+        # v4.6.3 D10: Read sensitivity bucket from CM entry options.
+        _hvac_sensitivity = DEFAULT_ANOMALY_SENSITIVITY
+        try:
+            for _ce in self.hass.config_entries.async_entries(DOMAIN):
+                if _ce.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_COORDINATOR_MANAGER:
+                    _hvac_sensitivity = {**_ce.data, **_ce.options}.get(
+                        CONF_HVAC_ANOMALY_SENSITIVITY, DEFAULT_ANOMALY_SENSITIVITY
+                    )
+                    break
+        except Exception:
+            pass
+        _hvac_sensitivity_mult = ANOMALY_SENSITIVITY_MULTIPLIERS.get(_hvac_sensitivity, 1.0)
         self.anomaly_detector = AnomalyDetector(
             hass=self.hass,
             coordinator_id=HVAC_COORDINATOR_ID,
             metric_names=HVAC_METRICS,
             minimum_samples=HVAC_ANOMALY_MIN_SAMPLES,
+            sensitivity_multiplier=_hvac_sensitivity_mult,
         )
         try:
             await self.anomaly_detector.load_baselines()

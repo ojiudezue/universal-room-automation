@@ -1,10 +1,10 @@
-"""v4.6.1 D0 — store_event() canonical writer and store_anomaly() wrapper.
+"""v4.6.1 D0 — store_event() canonical writer.
+v4.6.3 D7/D9 update: store_anomaly() wrapper was deleted; tests updated.
 
 Source-grep + AST tests verify:
 - store_event() exists on AnomalyDetector with correct signature
 - store_event() inserts all new AnomalyEvent columns
-- store_anomaly() is preserved as a thin wrapper
-- store_anomaly() delegates to store_event()
+- store_anomaly() wrapper is DELETED (v4.6.3 D7 migration complete)
 - store_event() uses local import for AnomalyEvent (Bug Class #34)
 """
 
@@ -93,24 +93,37 @@ def test_save_anomaly_event_inserts_new_columns():
         assert col in block, f"save_anomaly_event INSERT must reference column '{col}'"
 
 
-def test_store_anomaly_still_exists():
-    """Legacy store_anomaly() must be preserved for backward compatibility."""
+def test_store_anomaly_wrapper_deleted_v463():
+    """v4.6.3 D7: store_anomaly() wrapper must be deleted.
+
+    v4.6.1 preserved store_anomaly() as a backward-compat wrapper.
+    v4.6.3 D2-D6 migrated all callers to store_event(AnomalyEvent(...))
+    directly, so D7 deleted the wrapper.  This test enforces the deletion
+    is permanent — re-adding the wrapper would re-introduce the old
+    ad-hoc payload construction pattern the migration was meant to eliminate.
+    """
     src = _diag_src()
     body = _get_class_body(src, "AnomalyDetector")
-    assert "async def store_anomaly(" in body, (
-        "store_anomaly() must be kept as thin wrapper (backward compat)"
+    assert "async def store_anomaly(" not in body, (
+        "v4.6.3 D7: store_anomaly() wrapper must be deleted — "
+        "all callers migrated to store_event(AnomalyEvent(...)) in v4.6.3"
     )
 
 
-def test_store_anomaly_delegates_to_store_event():
-    """store_anomaly() must call store_event() — it is a wrapper, not independent."""
+def test_store_event_is_the_single_write_path():
+    """v4.6.3 D7: store_event() is now the ONLY write method on AnomalyDetector.
+
+    After D7 deletion, store_event() is no longer backed by store_anomaly().
+    It is the canonical entrypoint; callers must construct AnomalyEvent directly.
+    """
     src = _diag_src()
-    idx = src.find("async def store_anomaly(")
-    assert idx >= 0
-    next_method = src.find("\n    async def ", idx + 1)
-    block = src[idx: next_method if next_method > 0 else idx + 2000]
-    assert "store_event(" in block, (
-        "store_anomaly() must delegate to store_event() for single write path"
+    body = _get_class_body(src, "AnomalyDetector")
+    assert "async def store_event(" in body, (
+        "store_event() must still exist as the canonical anomaly write path after D7"
+    )
+    # The delegator chain is gone — no method definition for store_anomaly
+    assert "async def store_anomaly(" not in body, (
+        "store_anomaly() method must not exist on AnomalyDetector — deleted in D7"
     )
 
 
@@ -133,16 +146,26 @@ def test_store_event_is_thin_delegator():
     )
 
 
-def test_store_anomaly_uses_local_import_anomaly_event():
-    """Bug Class #34: store_anomaly() also uses local import."""
+def test_store_event_no_module_level_anomaly_event_import():
+    """Bug Class #34: coordinator_diagnostics must not module-level import anomaly_event.
+
+    v4.6.1: original test verified store_anomaly() used local import.
+    v4.6.3 D7/D9: store_anomaly() is deleted. store_event() accepts a duck-typed
+    AnomalyEvent — it doesn't need to import the class at all (the caller imports it).
+    The critical constraint is that coordinator_diagnostics must NOT import anomaly_event
+    at module level to avoid circular import risk.
+    """
     src = _diag_src()
-    idx = src.find("async def store_anomaly(")
-    assert idx >= 0
-    next_method = src.find("\n    async def ", idx + 1)
-    block = src[idx: next_method if next_method > 0 else idx + 2000]
-    assert "from .anomaly_event import" in block, (
-        "Bug Class #34: store_anomaly() must import AnomalyEvent locally"
-    )
+    lines = src.splitlines()
+    for i, line in enumerate(lines):
+        stripped = line.lstrip()
+        # Module-level import = line starts at column 0 (no indent) and imports anomaly_event
+        if ("from .anomaly_event import" in stripped or "import anomaly_event" in stripped):
+            indent = len(line) - len(stripped)
+            assert indent > 0, (
+                f"Bug Class #34: coordinator_diagnostics.py line {i+1} imports anomaly_event "
+                "at module level — must be function-local to prevent circular import"
+            )
 
 
 def test_save_anomaly_event_severity_stored_as_int():
@@ -193,16 +216,22 @@ def test_save_anomaly_event_warning_on_exception():
     )
 
 
-def test_store_anomaly_maps_old_severity_to_new():
-    """store_anomaly wrapper must map NOMINAL→INFO, ADVISORY/ALERT→WARNING, CRITICAL→CRITICAL."""
+def test_severity_mapping_now_callers_responsibility():
+    """v4.6.3 D7/D9: severity mapping is now each caller's responsibility.
+
+    v4.6.1: store_anomaly() wrapper handled NOMINAL→INFO severity mapping.
+    v4.6.3 D7: wrapper deleted; callers construct AnomalyEvent with the
+    correct AnomalySeverity directly (INFO/WARNING/CRITICAL).  The wrapper's
+    severity mapping is no longer needed — it was the source of ambiguity.
+
+    This test verifies the wrapper is gone (so its old mapping code can't
+    accidentally re-map severities from correctly-constructed AnomalyEvent calls).
+    """
     src = _diag_src()
-    idx = src.find("async def store_anomaly(")
-    assert idx >= 0
-    next_method = src.find("\n    async def ", idx + 1)
-    block = src[idx: next_method if next_method > 0 else idx + 2000]
-    # Must reference the old severity variants
-    assert "NOMINAL" in block or "_severity_map" in block, (
-        "store_anomaly must handle severity mapping from old 4-level to new 3-level"
+    # Wrapper is gone — no _severity_map in AnomalyDetector body anymore
+    body = _get_class_body(src, "AnomalyDetector")
+    assert "async def store_anomaly(" not in body, (
+        "v4.6.3 D7: store_anomaly() wrapper (and its severity mapping) must be deleted"
     )
 
 

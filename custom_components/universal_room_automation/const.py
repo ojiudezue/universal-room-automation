@@ -922,6 +922,43 @@ ZONE_PRESENCE_OVERRIDE_OPTIONS: Final = ["auto", "away", "occupied", "sleep"]
 # Bermuda area sensor config override (optional per-person dict)
 CONF_BERMUDA_AREA_SENSORS: Final = "bermuda_area_sensors"
 
+# ============================================================================
+# v4.6.3 Anomaly Sensitivity — D10
+# ============================================================================
+# Per-coordinator anomaly sensitivity dropdown (config/options flow only).
+# Five named buckets; each maps to a z-threshold multiplier applied at
+# AnomalyDetector init time.  No runtime entity — set-and-forget.
+
+CONF_PRESENCE_ANOMALY_SENSITIVITY: Final = "presence_anomaly_sensitivity"
+CONF_SAFETY_ANOMALY_SENSITIVITY: Final = "safety_anomaly_sensitivity"
+# CONF_ENERGY_ANOMALY_SENSITIVITY removed in v4.6.3 (C7 fix): the energy
+# coordinator uses cross-check anomaly detection (a separate path), not the
+# z-score AnomalyDetector.  The dropdown was a no-op — energy has no
+# AnomalyDetector instance to consume the multiplier.  Removed to avoid
+# surfacing a setting that has no runtime effect.
+CONF_HVAC_ANOMALY_SENSITIVITY: Final = "hvac_anomaly_sensitivity"
+CONF_SECURITY_ANOMALY_SENSITIVITY: Final = "security_anomaly_sensitivity"
+CONF_MUSIC_ANOMALY_SENSITIVITY: Final = "music_anomaly_sensitivity"
+
+DEFAULT_ANOMALY_SENSITIVITY: Final = "normal"
+
+# Bucket -> z-threshold multiplier mapping
+ANOMALY_SENSITIVITY_MULTIPLIERS: Final = {
+    "very_quiet":    2.0,
+    "quiet":         1.5,
+    "normal":        1.0,
+    "sensitive":     0.75,
+    "very_sensitive": 0.5,
+}
+
+ANOMALY_SENSITIVITY_OPTIONS: Final = [
+    "very_quiet",
+    "quiet",
+    "normal",
+    "sensitive",
+    "very_sensitive",
+]
+
 # Transfer cooldown (seconds) — blocks repeated transfers to same target
 MUSIC_TRANSFER_COOLDOWN_SECONDS: Final = 8
 

@@ -583,12 +583,30 @@ class PresenceCoordinator(BaseCoordinator):
         # v3.6.0.3: Instantiate anomaly detector FIRST so it's always available
         # even if discovery fails. Minimum 24 samples (~1 day of hourly
         # observations) before activation.
+        # v4.6.3 D10: sensitivity bucket from CM entry options.
         from .coordinator_diagnostics import AnomalyDetector
+        from ..const import (  # noqa: PLC0415
+            CONF_PRESENCE_ANOMALY_SENSITIVITY,
+            DEFAULT_ANOMALY_SENSITIVITY,
+            ANOMALY_SENSITIVITY_MULTIPLIERS,
+            ENTRY_TYPE_COORDINATOR_MANAGER,
+        )
+        _presence_sensitivity = DEFAULT_ANOMALY_SENSITIVITY
+        try:
+            for _ce in self.hass.config_entries.async_entries(DOMAIN):
+                if _ce.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_COORDINATOR_MANAGER:
+                    _presence_sensitivity = {**_ce.data, **_ce.options}.get(
+                        CONF_PRESENCE_ANOMALY_SENSITIVITY, DEFAULT_ANOMALY_SENSITIVITY
+                    )
+                    break
+        except Exception:
+            pass
         self.anomaly_detector = AnomalyDetector(
             hass=self.hass,
             coordinator_id="presence",
             metric_names=self.PRESENCE_METRICS,
             minimum_samples=24,
+            sensitivity_multiplier=ANOMALY_SENSITIVITY_MULTIPLIERS.get(_presence_sensitivity, 1.0),
         )
         try:
             await self.anomaly_detector.load_baselines()
@@ -1696,6 +1714,7 @@ class PresenceCoordinator(BaseCoordinator):
                         )
 
                 # House-level anomaly detection
+                # v4.6.3 D3/D11/D12: Use canonical AnomalyEvent + ActivityLogger.
                 if self.anomaly_detector is not None:
                     anomaly = self.anomaly_detector.record_observation(
                         "census_count",
@@ -1703,7 +1722,53 @@ class PresenceCoordinator(BaseCoordinator):
                         float(self._census_count),
                     )
                     if anomaly:
-                        await self.anomaly_detector.store_anomaly(anomaly)
+                        from .anomaly_event import (
+                            AnomalyEvent,
+                            AnomalySeverity as _NewSev,
+                            EVENT_CLASS_POINT_IN_TIME,
+                            build_context_json,
+                        )
+                        _ctx = build_context_json(
+                            source_signal="SIGNAL_CENSUS_UPDATED",
+                            extra={
+                                "census_count": self._census_count,
+                            },
+                        )
+                        _event = AnomalyEvent(
+                            coordinator="presence",
+                            type="presence.census_count",
+                            severity=_NewSev.CRITICAL if anomaly.severity.value == "critical" else _NewSev.WARNING,
+                            event_class=EVENT_CLASS_POINT_IN_TIME,
+                            detected_at=anomaly.timestamp.isoformat(),
+                            payload=_ctx,
+                            observed_value=anomaly.observed_value,
+                            expected_mean=anomaly.expected_mean,
+                            expected_std=anomaly.expected_std,
+                            z_score=round(anomaly.z_score, 3),
+                            sample_size=anomaly.sample_size,
+                        )
+                        await self.anomaly_detector.store_event(_event)
+                        _LOGGER.info(
+                            "Presence census_count anomaly: z=%.2f severity=%s",
+                            anomaly.z_score, anomaly.severity.value,
+                        )
+                        _activity_logger = self.hass.data.get(DOMAIN, {}).get("activity_logger")
+                        if _activity_logger:
+                            # A5 fix: await directly instead of untracked async_create_task
+                            await _activity_logger.log(
+                                coordinator="presence",
+                                action="anomaly",
+                                description=(
+                                    f"Presence census_count anomaly z={anomaly.z_score:.2f} "
+                                    f"count={self._census_count}"
+                                ),
+                                importance="notable",
+                                details={
+                                    "type": "presence.census_count",
+                                    "z_score": round(anomaly.z_score, 3),
+                                    "census_count": self._census_count,
+                                },
+                            )
 
                 # Outcome measurement: record for accuracy tracking
                 self._record_outcome(current_state, new_state, trigger)
@@ -1774,11 +1839,56 @@ class PresenceCoordinator(BaseCoordinator):
                 occupied_value,
             )
             if anomaly:
-                await self.anomaly_detector.store_anomaly(anomaly)
+                # v4.6.3 D3/D11/D12: canonical AnomalyEvent + ActivityLogger
+                from .anomaly_event import (
+                    AnomalyEvent,
+                    AnomalySeverity as _NewSev,
+                    EVENT_CLASS_POINT_IN_TIME,
+                    build_context_json,
+                )
+                _ctx = build_context_json(
+                    zone_id=zone_name,
+                    source_signal="SIGNAL_CENSUS_UPDATED",
+                    extra={
+                        "occupied_value": occupied_value,
+                    },
+                )
+                _event = AnomalyEvent(
+                    coordinator="presence",
+                    type="presence.zone_occupancy",
+                    severity=_NewSev.CRITICAL if anomaly.severity.value == "critical" else _NewSev.WARNING,
+                    event_class=EVENT_CLASS_POINT_IN_TIME,
+                    detected_at=anomaly.timestamp.isoformat(),
+                    payload=_ctx,
+                    observed_value=anomaly.observed_value,
+                    expected_mean=anomaly.expected_mean,
+                    expected_std=anomaly.expected_std,
+                    z_score=round(anomaly.z_score, 3),
+                    sample_size=anomaly.sample_size,
+                )
+                await self.anomaly_detector.store_event(_event)
                 _LOGGER.info(
                     "Zone %s anomaly detected: severity=%s, z_score=%.1f",
                     zone_name, anomaly.severity.value, anomaly.z_score,
                 )
+                _activity_logger = self.hass.data.get(DOMAIN, {}).get("activity_logger")
+                if _activity_logger:
+                    # A5 fix: await directly instead of untracked async_create_task
+                    await _activity_logger.log(
+                        coordinator="presence",
+                        action="anomaly",
+                        description=(
+                            f"Zone {zone_name} occupancy anomaly z={anomaly.z_score:.2f}"
+                        ),
+                        importance="notable",
+                        zone=zone_name,
+                        details={
+                            "type": "presence.zone_occupancy",
+                            "zone": zone_name,
+                            "z_score": round(anomaly.z_score, 3),
+                            "occupied_value": occupied_value,
+                        },
+                    )
 
     async def _log_zone_mode_change(
         self,

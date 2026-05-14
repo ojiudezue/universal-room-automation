@@ -46,6 +46,8 @@ async def async_setup_entry(
             HVACACRampDiagnosticDumpButton(hass, entry),
             # v4.6.2 D5: acknowledge all unacknowledged routine shift events
             AcknowledgeRoutineChangesButton(hass, entry),
+            # v4.6.3 D13: anomaly subsystem diagnostic dump button
+            AnomalyDiagnosticDumpButton(hass, entry),
         ]
         # v4.5.11: 3 buttons per AC zone (force_nudge / cancel_nudge /
         # clear_lockout). Discovers zones from Zone Manager entries — same
@@ -977,3 +979,121 @@ class AcknowledgeRoutineChangesButton(ButtonEntity):
         from homeassistant.helpers.dispatcher import async_dispatcher_send
         from .domain_coordinators.signals import SIGNAL_ROUTINE_STATUS_UPDATE
         async_dispatcher_send(self.hass, SIGNAL_ROUTINE_STATUS_UPDATE)
+
+
+# =============================================================================
+# v4.6.3 D13 — Anomaly Subsystem Diagnostic Dump Button
+# =============================================================================
+
+
+class AnomalyDiagnosticDumpButton(ButtonEntity):
+    """Dump recent anomaly_log rows + baselines to a single ERROR log line.
+
+    Entity: button.ura_coordinator_manager_anomaly_diagnostic_dump
+    Device: URA: Coordinator Manager
+    Category: DIAGNOSTIC
+
+    On press: queries the last 50 anomaly_log rows, per-coordinator baseline
+    counts, write queue depth, and ActivityLogger dedup cache size.  Writes
+    a single ERROR-level log line so the dump is grep-friendly and visible
+    in the HA Logbook.  No files written — log-only approach per D13 spec.
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:bug-outline"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .const import VERSION
+
+        self.hass = hass
+        self._entry = entry
+        self._attr_unique_id = f"{DOMAIN}_anomaly_diagnostic_dump"
+        self._attr_name = "90 · Anomaly Subsystem Diagnostic Dump"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "coordinator_manager")},
+            name="URA: Coordinator Manager",
+            manufacturer="Universal Room Automation",
+            model="Coordinator Manager",
+            sw_version=VERSION,
+        )
+
+    @property
+    def available(self) -> bool:
+        return self.hass.data.get(DOMAIN, {}).get("database") is not None
+
+    async def async_press(self) -> None:
+        """Build and emit anomaly subsystem dump."""
+        database = self.hass.data.get(DOMAIN, {}).get("database")
+        if database is None:
+            _LOGGER.warning("AnomalyDiagnosticDumpButton: database not available")
+            return
+
+        dump: dict = {}
+
+        # 1. Recent 50 anomaly_log rows
+        try:
+            async with database._db_read() as db:
+                cursor = await db.execute(
+                    """SELECT id, timestamp, coordinator_id, metric_name,
+                              severity, event_class, recovery_at
+                       FROM anomaly_log
+                       ORDER BY timestamp DESC LIMIT 50"""
+                )
+                rows = await cursor.fetchall()
+                dump["recent_50"] = [
+                    {
+                        "id": r[0], "timestamp": r[1], "coordinator": r[2],
+                        "type": r[3], "severity": r[4],
+                        "event_class": r[5], "recovery_at": r[6],
+                    }
+                    for r in rows
+                ]
+
+                # 2. Per-coordinator row counts (last 24 h + all time)
+                from homeassistant.util import dt as dt_util  # noqa: PLC0415
+                from datetime import timedelta  # noqa: PLC0415
+                cutoff_24h = (dt_util.utcnow() - timedelta(hours=24)).isoformat()
+                cursor = await db.execute(
+                    """SELECT coordinator_id, COUNT(*) as total_all,
+                              SUM(CASE WHEN timestamp >= ? THEN 1 ELSE 0 END) as last_24h
+                       FROM anomaly_log GROUP BY coordinator_id""",
+                    (cutoff_24h,),
+                )
+                dump["per_coordinator"] = {
+                    r[0]: {"total": r[1], "last_24h": r[2]}
+                    for r in await cursor.fetchall()
+                }
+        except Exception as e:
+            dump["db_error"] = str(e)
+
+        # 3. Write queue depth
+        try:
+            dump["write_queue_depth"] = database._write_queue.qsize()
+            dump["db_stats"] = database._db_stats
+        except Exception:
+            dump["write_queue_depth"] = "unavailable"
+
+        # 4. ActivityLogger dedup cache size
+        try:
+            al = self.hass.data.get(DOMAIN, {}).get("activity_logger")
+            if al is not None:
+                dump["activity_logger_dedup_cache_size"] = len(al._dedup_cache)
+            else:
+                dump["activity_logger_dedup_cache_size"] = "not_loaded"
+        except Exception:
+            dump["activity_logger_dedup_cache_size"] = "error"
+
+        # 5. AnomalyDetector baseline counts per coordinator
+        try:
+            manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+            if manager is not None and hasattr(manager, "get_anomaly_summary"):
+                dump["anomaly_summary"] = manager.get_anomaly_summary()
+        except Exception:
+            pass
+
+        _LOGGER.error(
+            "URA ANOMALY DIAGNOSTIC DUMP: %s",
+            json.dumps(dump, default=str, indent=None),
+        )

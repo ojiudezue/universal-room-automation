@@ -4337,18 +4337,56 @@ class UniversalRoomDatabase:
         import graph than domain_coordinators.anomaly_event).
         """
         import json as _json
-        # v4.6.1.1 hotfix: anomaly_log legacy schema declares observed_value /
-        # expected_mean / expected_std / z_score / sample_size as NOT NULL.
-        # Legacy callers (via store_anomaly wrapper) pack them into payload;
-        # new AnomalyEvent-style emitters (canaries, regime detector) have no
-        # natural metric value — use 0.0 sentinel to satisfy NOT NULL until
-        # v4.6.2 relaxes the schema via table-rebuild.
+        # v4.6.3 B1/A4 fix: metric values are now explicit top-level fields on
+        # AnomalyEvent (observed_value, expected_mean, expected_std, z_score,
+        # sample_size) so emit sites no longer bury them in payload["extra"].
+        #
+        # Resolution order per field:
+        #   1. Explicit AnomalyEvent dataclass field (v4.6.3+, non-zero/non-default)
+        #   2. payload top-level key (legacy store_anomaly() shape — pre-v4.6.3)
+        #   3. payload["extra"] key (intermediate shape during migration window)
+        #   4. 0.0 / 0 sentinel to satisfy NOT NULL constraint
         payload_dict = event.payload if isinstance(event.payload, dict) else {}
-        observed_value = payload_dict.get("observed_value", 0.0)
-        expected_mean = payload_dict.get("expected_mean", 0.0)
-        expected_std = payload_dict.get("expected_std", 0.0)
-        z_score = payload_dict.get("z_score", 0.0)
-        sample_size = payload_dict.get("sample_size", 0)
+        _payload_extra = (
+            payload_dict.get("extra", {})
+            if isinstance(payload_dict.get("extra"), dict)
+            else {}
+        )
+
+        # Priority 1: dataclass field (v4.6.3+ callers set these explicitly)
+        # Priority 2: payload top-level (legacy store_anomaly() shape)
+        # Priority 3: payload["extra"] (intermediate migration shape)
+        # Each field name is explicit so grep-based tests can verify presence.
+        _ev_observed_value = getattr(event, "observed_value", None)
+        observed_value = (
+            _ev_observed_value
+            if (_ev_observed_value is not None and _ev_observed_value != 0.0)
+            else (payload_dict.get("observed_value") or _payload_extra.get("observed_value") or 0.0)
+        )
+        _ev_expected_mean = getattr(event, "expected_mean", None)
+        expected_mean = (
+            _ev_expected_mean
+            if (_ev_expected_mean is not None and _ev_expected_mean != 0.0)
+            else (payload_dict.get("expected_mean") or _payload_extra.get("expected_mean") or 0.0)
+        )
+        _ev_expected_std = getattr(event, "expected_std", None)
+        expected_std = (
+            _ev_expected_std
+            if (_ev_expected_std is not None and _ev_expected_std != 0.0)
+            else (payload_dict.get("expected_std") or _payload_extra.get("expected_std") or 0.0)
+        )
+        _ev_z_score = getattr(event, "z_score", None)
+        z_score = (
+            _ev_z_score
+            if (_ev_z_score is not None and _ev_z_score != 0.0)
+            else (payload_dict.get("z_score") or _payload_extra.get("z_score") or 0.0)
+        )
+        _ev_sample_size = getattr(event, "sample_size", None)
+        sample_size = (
+            _ev_sample_size
+            if (_ev_sample_size is not None and _ev_sample_size != 0)
+            else (payload_dict.get("sample_size") or _payload_extra.get("sample_size") or 0)
+        )
         house_state = payload_dict.get("house_state")
         try:
             async with self._db() as db:
