@@ -862,6 +862,58 @@ def test_recent_anomalies_sensor_has_required_attributes():
         )
 
 
+def test_recent_anomalies_handler_uses_thread_safe_scheduling():
+    """v4.6.3.2 fix: _handle_activity_logged MUST use hass.add_job, NOT hass.async_create_task.
+
+    Background: SIGNAL_ACTIVITY_LOGGED fires on whichever thread invoked
+    async_dispatcher_send. ActivityLogger.log is async, but downstream callers
+    (recorder thread completions, sync worker tasks) can synchronously trigger
+    dispatch from non-event-loop threads. hass.async_create_task raises
+    RuntimeError when called from a non-event-loop thread under ReportBehavior.ERROR
+    for custom integrations — which we are.
+
+    Observed live in v4.6.3.1 wedge:
+      - 3× "Detected that custom integration 'universal_room_automation' calls
+        hass.async_create_task from a thread other than the event loop"
+      - Orphan coroutines surfaced as "coroutine 'URARecentAnomaliesSensor._async_refresh'
+        was never awaited" warnings at random GC sites (sqlalchemy, aiolifx)
+
+    Fix: hass.add_job is the canonical thread-safe scheduler.
+
+    This is a SOURCE-GREP test (Bug Class #34 prevention shape) — pinning the
+    fix at the call site. Behavioral verification of thread-safety would require
+    a real hass + multiprocessing harness which is out of scope.
+    """
+    src = _sensor_src()
+    idx = src.find("class URARecentAnomaliesSensor")
+    assert idx >= 0
+    class_block = src[idx: idx + 8000]
+
+    # Locate the _handle_activity_logged closure within the class
+    handler_idx = class_block.find("def _handle_activity_logged")
+    assert handler_idx >= 0, (
+        "v4.6.3.2: URARecentAnomaliesSensor must still define _handle_activity_logged"
+    )
+    # Body extraction: from def to the next async_dispatcher_connect call,
+    # which immediately follows the closure. Generous bound to survive docstring growth.
+    next_def_idx = class_block.find("self._unsub = async_dispatcher_connect", handler_idx)
+    if next_def_idx < 0:
+        next_def_idx = handler_idx + 2000
+    handler_body = class_block[handler_idx: next_def_idx]
+
+    # MUST NOT call hass.async_create_task — that's the v4.6.3.1 wedge bug
+    assert "self.hass.async_create_task(self._async_refresh" not in handler_body, (
+        "v4.6.3.2: _handle_activity_logged MUST NOT use self.hass.async_create_task "
+        "for _async_refresh — it's not thread-safe and raises RuntimeError on dispatchers "
+        "from sync worker threads. Use self.hass.add_job instead."
+    )
+    # MUST use the thread-safe alternative
+    assert "self.hass.add_job(self._async_refresh" in handler_body, (
+        "v4.6.3.2: _handle_activity_logged MUST use self.hass.add_job(self._async_refresh()) "
+        "for thread-safe scheduling regardless of which thread invoked the dispatcher"
+    )
+
+
 # ---------------------------------------------------------------------------
 # D13 — AnomalyDiagnosticDumpButton source shape
 # ---------------------------------------------------------------------------
