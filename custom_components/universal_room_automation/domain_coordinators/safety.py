@@ -1644,8 +1644,17 @@ class SafetyCoordinator(BaseCoordinator):
         # store_event() so payload shape is canonical.
         # v4.6.4 P2: hazard_trigger_frequency block removed — recorded constant
         # 1.0, baseline mean converged to 1.0, |value-mean|=0 → z=0 → NOMINAL →
-        # never emitted. Audit confirmed zero anomalies ever fired. The remaining
-        # active_hazard_count emit has real variance and is retained.
+        # never emitted. Audit confirmed zero anomalies ever fired in production.
+        # (v4.6.5 D4 audit had hypothesized this was Poisson-rate-suitable; that
+        # analysis was wrong — a constant 1.0 carries no rate information once
+        # the baseline learns. Resolved during v4.6.5 rebase in favor of v4.6.4's
+        # empirical evidence.)
+        # The remaining active_hazard_count emit has real 0..N variance and is
+        # retained. v4.6.5 audit note worth preserving: in homes where active
+        # hazards are sparse (0 most of the time, occasional 1), the metric
+        # approaches binary-shape and may produce v4.6.3.1-style over-emits.
+        # No suppression today — pre-existing v4.6.3 behavior; revisit with
+        # Bayesian time-bin distribution if over-emit shows up in soak.
         if self.anomaly_detector is not None:
             try:
                 from .anomaly_event import (

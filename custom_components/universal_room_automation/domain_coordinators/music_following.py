@@ -191,6 +191,15 @@ class MusicFollowingCoordinator(BaseCoordinator):
         Called by MusicFollowing._record_stat() after each transfer outcome.
         Computes transfer_success_rate and cooldown_frequency from the
         standalone class's running stats and records observations.
+
+        v4.6.5 D3: Schedules async persistence of detected anomalies via
+        hass.async_create_task (this callback is sync; store_event is async).
+
+        METRIC AUDIT (v4.6.5 binary-metric check per v4.6.3.1 doctrine):
+        - transfer_success_rate: proportion 0.0–1.0. Continuous float. WIRE.
+        - cooldown_frequency: proportion 0.0–1.0. Continuous float. WIRE.
+        Both are proportions derived from running transfer stats — NOT binary.
+        They vary continuously as transfer outcomes accumulate.
         """
         if self.anomaly_detector is None or self._music_following is None:
             return
@@ -203,15 +212,25 @@ class MusicFollowingCoordinator(BaseCoordinator):
 
             # transfer_success_rate: proportion of successes (0.0-1.0)
             success_rate = stats.get("success", 0) / total
-            self.anomaly_detector.record_observation(
+            anomaly = self.anomaly_detector.record_observation(
                 "transfer_success_rate", "house", success_rate,
             )
+            if anomaly:
+                self.hass.async_create_task(
+                    self._persist_mf_anomaly(anomaly, "transfer_success_rate", success_rate),
+                    name="ura_mf_persist_transfer_success_rate",
+                )
 
             # cooldown_frequency: proportion of cooldown-blocked transfers
             cooldown_rate = stats.get("cooldown_blocked", 0) / total
-            self.anomaly_detector.record_observation(
+            anomaly2 = self.anomaly_detector.record_observation(
                 "cooldown_frequency", "house", cooldown_rate,
             )
+            if anomaly2:
+                self.hass.async_create_task(
+                    self._persist_mf_anomaly(anomaly2, "cooldown_frequency", cooldown_rate),
+                    name="ura_mf_persist_cooldown_frequency",
+                )
 
             # v4.5.20: fire refresh signal so MusicFollowingAnomalySensor
             # re-renders attrs after each transfer. MF is event-driven
@@ -234,6 +253,62 @@ class MusicFollowingCoordinator(BaseCoordinator):
             _LOGGER.warning(
                 "MF: _on_transfer_outcome stats processing failed",
                 exc_info=True,
+            )
+
+    async def _persist_mf_anomaly(self, anomaly: Any, metric: str, observed: float) -> None:
+        """Persist a music_following AnomalyRecord to anomaly_log.
+
+        Called via hass.async_create_task from _on_transfer_outcome (which is
+        a sync callback and cannot directly await store_event).
+        """
+        try:
+            from .anomaly_event import (  # noqa: PLC0415
+                AnomalyEvent,
+                AnomalySeverity as _NewSev,
+                EVENT_CLASS_POINT_IN_TIME,
+                build_context_json,
+            )
+            _ctx = build_context_json(
+                source_signal="transfer_outcome_callback",
+                extra={"metric": metric, "observed": round(observed, 4)},
+            )
+            _event = AnomalyEvent(
+                coordinator="music_following",
+                type=f"music_following.{metric}",
+                severity=_NewSev.CRITICAL if anomaly.severity.value == "critical" else _NewSev.WARNING,
+                event_class=EVENT_CLASS_POINT_IN_TIME,
+                detected_at=anomaly.timestamp.isoformat(),
+                payload=_ctx,
+                observed_value=anomaly.observed_value,
+                expected_mean=anomaly.expected_mean,
+                expected_std=anomaly.expected_std,
+                z_score=round(anomaly.z_score, 3),
+                sample_size=anomaly.sample_size,
+            )
+            await self.anomaly_detector.store_event(_event)
+            _LOGGER.info(
+                "MusicFollowing %s anomaly persisted: observed=%.3f z=%.2f",
+                metric, observed, anomaly.z_score,
+            )
+            _activity_logger = self.hass.data.get(DOMAIN, {}).get("activity_logger")
+            if _activity_logger:
+                await _activity_logger.log(
+                    coordinator="music_following",
+                    action="anomaly",
+                    description=(
+                        f"MusicFollowing {metric} anomaly: "
+                        f"observed={observed:.3f} z={anomaly.z_score:.2f}"
+                    ),
+                    importance="notable",
+                    details={
+                        "type": f"music_following.{metric}",
+                        "z_score": round(anomaly.z_score, 3),
+                        "observed": round(observed, 4),
+                    },
+                )
+        except Exception:
+            _LOGGER.debug(
+                "MusicFollowing %s anomaly persist failed", metric, exc_info=True
             )
 
     async def evaluate(
