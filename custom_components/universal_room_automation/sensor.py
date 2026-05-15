@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.6.3.1
+# Universal Room Automation vv4.6.3.2
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -10314,11 +10314,20 @@ class URARecentAnomaliesSensor(AggregationEntity, SensorEntity):
             # events don't trigger an expensive DB query every cycle.
             # A3 fix: in-flight guard prevents burst of concurrent refresh tasks.
             # If a refresh is already running, set pending so it re-runs once done.
+            #
+            # v4.6.3.2 fix: SIGNAL_ACTIVITY_LOGGED fires on whichever thread
+            # invoked async_dispatcher_send (event loop OR sync worker). Use
+            # hass.add_job (thread-safe) instead of async_create_task — the
+            # latter raises RuntimeError when called from a non-event-loop
+            # thread under ReportBehavior.ERROR for custom integrations.
+            # Observed in v4.6.3.1 wedge: 3× dispatcher exceptions blocked
+            # sensor refresh and orphaned coroutines (which then surfaced
+            # via "coroutine never awaited" warnings at random GC sites).
             if payload.get("action") == "anomaly":
                 if self._refresh_in_flight:
                     self._refresh_pending = True
                 else:
-                    self.hass.async_create_task(self._async_refresh())
+                    self.hass.add_job(self._async_refresh())
 
         self._unsub = async_dispatcher_connect(
             self.hass, SIGNAL_ACTIVITY_LOGGED, _handle_activity_logged
