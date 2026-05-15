@@ -230,6 +230,45 @@ def test_presence_activity_logger_called():
     )
 
 
+def test_presence_zone_occupancy_persistence_suppressed():
+    """v4.6.3.1: _check_zone_anomalies must NOT call store_event/activity_logger for
+    zone_occupied_count anomalies.
+
+    Binary 0/1 occupancy is a degenerate input to z-score anomaly detection (mean
+    approaches occupancy ratio, std ≈ sqrt(p*(1-p)) → every "occupied=1.0" produces
+    z ≥ 4 for rarely-occupied zones). v4.6.3 D3 wired this through save_anomaly_event,
+    producing 2117 emits in 3 hours post-deploy on the live system.
+
+    Fix: in-memory tracking via record_observation() is preserved (per-coordinator
+    anomaly sensor still counts), but the persist + activity_logger.log calls inside
+    _check_zone_anomalies are removed.
+    """
+    src = _presence_src()
+    # Locate the _check_zone_anomalies function body
+    import re
+    m = re.search(
+        r"async def _check_zone_anomalies\(self\).*?(?=\n    (?:async )?def |\Z)",
+        src,
+        re.DOTALL,
+    )
+    assert m is not None, "Could not locate _check_zone_anomalies function body"
+    body = m.group(0)
+    # The function must NOT call store_event or activity_logger.log
+    assert "store_event(" not in body, (
+        "v4.6.3.1: _check_zone_anomalies must NOT call store_event — "
+        "binary occupancy z-score persistence floods anomaly_log"
+    )
+    assert "activity_logger.log" not in body, (
+        "v4.6.3.1: _check_zone_anomalies must NOT call activity_logger.log — "
+        "zone_occupancy emits are suppressed from the anomaly stream"
+    )
+    # The function MUST still call record_observation (in-memory tracking preserved)
+    assert "record_observation(" in body, (
+        "v4.6.3.1: _check_zone_anomalies must STILL call record_observation — "
+        "in-memory anomaly counting must be preserved"
+    )
+
+
 # ---------------------------------------------------------------------------
 # D3 — Transitions (transit-validator) invalid transition emit
 # ---------------------------------------------------------------------------

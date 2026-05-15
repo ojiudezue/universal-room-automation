@@ -1839,56 +1839,24 @@ class PresenceCoordinator(BaseCoordinator):
                 occupied_value,
             )
             if anomaly:
-                # v4.6.3 D3/D11/D12: canonical AnomalyEvent + ActivityLogger
-                from .anomaly_event import (
-                    AnomalyEvent,
-                    AnomalySeverity as _NewSev,
-                    EVENT_CLASS_POINT_IN_TIME,
-                    build_context_json,
-                )
-                _ctx = build_context_json(
-                    zone_id=zone_name,
-                    source_signal="SIGNAL_CENSUS_UPDATED",
-                    extra={
-                        "occupied_value": occupied_value,
-                    },
-                )
-                _event = AnomalyEvent(
-                    coordinator="presence",
-                    type="presence.zone_occupancy",
-                    severity=_NewSev.CRITICAL if anomaly.severity.value == "critical" else _NewSev.WARNING,
-                    event_class=EVENT_CLASS_POINT_IN_TIME,
-                    detected_at=anomaly.timestamp.isoformat(),
-                    payload=_ctx,
-                    observed_value=anomaly.observed_value,
-                    expected_mean=anomaly.expected_mean,
-                    expected_std=anomaly.expected_std,
-                    z_score=round(anomaly.z_score, 3),
-                    sample_size=anomaly.sample_size,
-                )
-                await self.anomaly_detector.store_event(_event)
-                _LOGGER.info(
-                    "Zone %s anomaly detected: severity=%s, z_score=%.1f",
+                # v4.6.3.1: SUPPRESS anomaly_log persistence + ActivityLogger emit for
+                # zone_occupied_count. Binary 0/1 occupancy is a degenerate input to
+                # z-score detection: a rarely-occupied zone develops mean ≈ occupancy_ratio
+                # and std ≈ sqrt(p*(1-p)), so every "occupied=1.0" observation produces
+                # z >= 4 → CRITICAL. v4.6.3 D3 wired this through save_anomaly_event,
+                # which produced 2117 emits in 3h post-deploy.
+                # In-memory tracking via record_observation() above is preserved, so the
+                # per-coordinator anomaly sensor (sensor.ura_presence_coordinator_presence_anomaly)
+                # still counts these. They just don't pollute anomaly_log.
+                # Proper fix (deferred to a future cycle): drop zone_occupied_count from
+                # PRESENCE_METRICS entirely; use Bayesian time-bin distributions for
+                # occupancy patterns instead (v4.6.2 routine-awareness already uses this
+                # shape for per-person routines).
+                _LOGGER.debug(
+                    "Zone %s in-memory anomaly only (zone_occupancy persistence suppressed): "
+                    "severity=%s z=%.2f",
                     zone_name, anomaly.severity.value, anomaly.z_score,
                 )
-                _activity_logger = self.hass.data.get(DOMAIN, {}).get("activity_logger")
-                if _activity_logger:
-                    # A5 fix: await directly instead of untracked async_create_task
-                    await _activity_logger.log(
-                        coordinator="presence",
-                        action="anomaly",
-                        description=(
-                            f"Zone {zone_name} occupancy anomaly z={anomaly.z_score:.2f}"
-                        ),
-                        importance="notable",
-                        zone=zone_name,
-                        details={
-                            "type": "presence.zone_occupancy",
-                            "zone": zone_name,
-                            "z_score": round(anomaly.z_score, 3),
-                            "occupied_value": occupied_value,
-                        },
-                    )
 
     async def _log_zone_mode_change(
         self,
