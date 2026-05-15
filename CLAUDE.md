@@ -41,6 +41,7 @@ Classify the change, then follow the matching review tier.
 ### Tier Classification
 - **Hotfix** (1-3 files, single bug/issue, no new features): 1 review
 - **Feature cycle** (new capability, multiple files, new sensors/entities): 2 reviews + live validation
+- **DB-sensitive feature cycle** (see Tier 2-DB trigger criteria below): **3 reviews targeted at different risks** + live validation
 - **When in doubt:** Use 2 reviews. Better to over-review than ship a regression.
 
 ### Pre-Review: Tag the Baseline
@@ -62,6 +63,34 @@ This lets you `git diff pre-review-v<version>..HEAD` to isolate review-fix chang
 3. **Fix all CRITICAL and HIGH issues**, re-run tests.
 4. **Deploy** via `/deploy` skill.
 5. **Live Validation (Review 3):** After HA restarts, run `@ura-validator` with live validation mode — checks entities, logs, DB state via MCP tools. This catches runtime wiring issues that static review misses.
+
+### Tier 2-DB: DB-Sensitive Feature Cycle (three targeted reviews + live validation)
+
+**User-coined rule:** *"We will need 3x staff end reviews that are targeted at diff risks."* — captured 2026-05-14 after v4.6.3 build shipped 6 CRITICAL findings to the first review pass that two generic reviewers would have converged on missing.
+
+**Trigger when ANY of:**
+- Cycle touches `database.py` DAO definitions
+- Cycle migrates ≥3 callers to a new DAO
+- Cycle changes payload shape of a dispatched event or persisted record
+- Cycle adds behavioral test infrastructure against real schemas
+- Cycle is followed within 1-2 versions by a planned schema migration that will depend on the new infra
+
+**Why three, framed differently:** Two reviewers using the same framing converge on the same blind spots. v4.6.3 needed Review A (data integrity), Review B (migration correctness), and Review C (new surfaces) because each frame surfaced findings the others missed:
+- Review B caught CRITICAL B1 (payload shape) that Review A had only flagged as MEDIUM
+- Review C caught CRITICAL test-infra defects (C1-C5) that A and B would not have looked for
+
+**Three parallel reviews, each framed by a different risk axis:**
+1. **Review A — Data integrity + DB architecture preservation.** Existing rows preserved, no schema regression, write queue unchanged, indexes still cover, existing readers unaffected, existing analytics queries return the same shape post-deploy.
+2. **Review B — Migration correctness + signal chain integrity.** Every migrated call site produces equivalent rows AND fires any downstream signals/dispatches AND no double-emit risk. End-to-end trace per migrated site. Field-by-field shape comparison vs the pre-migration emit.
+3. **Review C — New surfaces + test fixture authority.** New sensors / buttons / config knobs round-trip through options flow + RestoreEntity. Behavioral test fixtures extract schema from production source (never hand-copy DDL). Tests drive production code paths, not their own INSERT/UPDATE/DELETE.
+
+Run the three reviews in PARALLEL — different framings can't share blind spots.
+
+**Fix CRITICAL/HIGH from any review before deploy.** Re-verify after fix-up. If fix-up was substantial, spot-check the changed surfaces or run a focused fourth review pass.
+
+**Pre-deploy snapshot of affected table row rates** by `(coordinator, severity, type)` (or analogous shape for non-anomaly cycles). Without this, post-deploy ±25% comparison is impossible.
+
+**Live Validation (Review D):** Post-restart, verify real values flow through — at least one row in the affected table has non-zero NOT NULL columns within an hour of restart. **Sentinels-only = payload shape broken** (the v4.6.1.1 / v4.6.3-initial-build shape). This single check would have caught both prior incidents.
 
 ### Post-Review Documentation — MANDATORY
 After every review cycle, persist findings in `docs/reviews/code-review/v<version>_<name>.md`:

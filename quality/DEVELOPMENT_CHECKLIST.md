@@ -575,6 +575,43 @@ Fixes #[issue number if applicable]
 
 ---
 
+## 🗄️ DB-SENSITIVE CYCLE CHECKLIST (Tier 2-DB)
+
+Added 2026-05-14 after v4.6.3 Tier 2-DB cycle. Applies to any cycle that meets the Tier 2-DB trigger criteria in `CLAUDE.md` (touches `database.py` DAOs / migrates ≥3 callers / changes payload shape / adds behavioral test infra / precedes a planned schema migration).
+
+**The user-coined rule:** *"We will need 3x staff end reviews that are targeted at diff risks."* Reviews A/B/C in parallel, each framed differently. Run them — don't merge their findings into one generic review.
+
+### Before requesting reviews
+
+- [ ] Three independent reviewer briefs prepared, each framed by a different risk axis (Review A: data integrity + DB architecture; Review B: migration correctness + signal chain; Review C: new surfaces + test fixture authority).
+- [ ] Reviewer briefs spawn IN PARALLEL — different framings can't share blind spots if run together.
+
+### Behavioral test infrastructure (if cycle adds any)
+
+- [ ] Test fixtures extract schema from production source at runtime (regex over `database.py`, AST walk, or importable schema function). **NO hand-copied DDL.** (Bug Class #39)
+- [ ] Schema-equality regression test added: introspects fixture vs production via `PRAGMA table_info(...)`, asserts column-set + type equality per table.
+- [ ] Behavioral tests call the production DAO/function under test. **No `_insert_x()` test helpers that build their own INSERT.** (Bug Class #40)
+- [ ] Grep behavioral test files for raw `INSERT INTO` / `UPDATE` / `DELETE FROM`. Zero hits in `*_behavioral*` or `*_dao*` test files.
+
+### Payload shape boundary (if cycle changes event/record shape)
+
+- [ ] At least one behavioral test reads a row written via the new path and asserts every documented NOT NULL column has a real (non-sentinel) value.
+- [ ] Priority chain in the DAO (if any) documented in code with a brief comment naming the version that introduced the fallback layer.
+- [ ] Pre-deploy snapshot captured for affected table row rates by `(coordinator, severity, type)` so post-deploy ±25% drift comparison is possible.
+
+### Dedup-aware logging integration (if cycle wires into ActivityLogger or similar)
+
+- [ ] Emit descriptions include an event-unique distinguisher: `z_score`, `event_id`, `timestamp_iso[:19]`, source anomaly id. **No static `f"<event_type>: <device>"` descriptions.** (Bug Class #41)
+- [ ] Or better: dedup key construction excludes free-text description entirely; uses structured identity (coordinator + type + scope + bucketed-time).
+
+### Live validation post-deploy (Review D)
+
+- [ ] At least one row in the affected table has non-zero NOT NULL columns within an hour of restart. **Sentinels-only = payload shape broken.** This single check would have caught v4.6.1.1 and the v4.6.3-initial-build payload mismatch.
+- [ ] All migrated emit sites observed at least once in 48-hour soak window (the `by_coordinator` distribution covers every site). Coordinator absence over 48h = silently broken emit.
+- [ ] Pre/post baseline comparison: row rate by `(coordinator, severity)` within ±25% of pre-deploy snapshot (modulo expected new emit types from the cycle).
+
+---
+
 ## ✨ Final Thoughts
 
 **This checklist exists because:**

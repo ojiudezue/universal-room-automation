@@ -1,8 +1,46 @@
 # URA Backlog — As of v4.2.6 (Apr 19, 2026)
 
-## v4.6.2.3 — Review carry-overs from v4.6.2.1 + v4.6.2.2 (queued, Tier 1)
+## Quality Enforcement Hardening — ARCHIVED, build on degradation
 
-**Status:** Filed 2026-05-14 from Tier 1 reviews of v4.6.2.1 + v4.6.2.2. Both cycles shipped; these items were intentionally deferred to keep the hotfixes tight. Bundle into one short cycle.
+**Status:** Shelf-ready, NOT queued. Build only if quality signals degrade per documented trigger criteria.
+
+**Plan:** `docs/planning/archive/PLANNING_quality_enforcement_hardening.md`
+
+Codifies enforcement for the v4.6.3 Tier 2-DB directives (CLAUDE.md Tier 2-DB, QUALITY_CONTEXT.md Bug Classes #39/#40/#41, DEVELOPMENT_CHECKLIST.md DB-Sensitive Cycle Checklist). Four layers, build in priority order: (1) `validate-deploy.sh` + post-deploy sentinel check, (2) pytest meta-tests for the new bug classes, (3) pre-deploy baseline snapshot in `deploy.sh`, (4) Claude Code PostToolUse hook on `Agent` for commit verification.
+
+**Trigger criteria** (build when ANY fires):
+- CRITICAL bug ships to production despite review
+- Tier 2-DB cycle shipped with <3 independent reviews under pressure
+- Behavioral test fixture drifts from production schema
+- Build agent reports completion with uncommitted changes more than once in a quarter
+- Dedup-mask under-refresh observed in a sensor
+- Multi-developer expansion (URA gains a 2nd active contributor)
+
+**Cost:** ~5-6 hours for full build, partial builds supported (e.g., Layer 1 alone is ~2 hours).
+
+## v4.6.3.1 — Presence zone_occupancy persistence suppression — SHIPPING 2026-05-14
+
+Diagnosis (deeper than originally hypothesized): not "firing on every change" — `_check_zone_anomalies` records binary 0/1 occupancy into z-score AnomalyDetector for 5 zones on every `_run_inference` trigger (9+ triggers). Rarely-occupied zones produce z >= 4 → CRITICAL on every "occupied=1.0" observation. Net: 2117 emits in 3h.
+
+Fix: remove `store_event` + `activity_logger.log` calls inside `_check_zone_anomalies`. Keep `record_observation` so in-memory anomaly counting (per-coordinator sensor) is preserved. Code comment explains the v4.6.3.1 lesson: binary metrics don't belong in z-score persistence.
+
+**Lesson codified** in v4.6.5 plan (D5 meta-test) — future emit additions must audit metric continuity before wiring.
+
+## v4.6.5 — In-Memory Anomaly Persistence (queued, Tier 1)
+
+**Status:** Plan complete at `docs/planning/PLANNING_v4.6.5_in_memory_anomaly_persistence.md`. Ready to implement.
+
+**Symptom:** HVAC `sensor.ura_hvac_coordinator_hvac_anomaly` shows `state=advisory, anomalies_today=3`. But `by_coordinator.hvac` in `recent_anomalies` is 0. Same shape affects security, music_following, and the safety-detector path (distinct from safety hazards which migrated in v4.6.3 D2).
+
+**Root cause (pre-existing observability gap, NOT a v4.6.3 regression):** HVAC's `AnomalyDetector` tracks anomalies in an in-memory `_active_anomalies` list without writing to `anomaly_log`. v4.6.3's D7 wrapper deletion covered every call site that ALREADY emitted — but for coordinators that never emitted, there was nothing to migrate.
+
+**Fix:** add a NEW `save_anomaly_event` emit at the appropriate gate inside each affected AnomalyDetector consumer (4 deliverables + meta-test for the v4.6.3.1 degenerate-metric lesson).
+
+**Tier 1.** ~200 prod + ~200 test LoC across 4 coordinators. Recall hint: `"Resume URA roadmap — in-memory anomaly persistence v4.6.5"`.
+
+## v4.6.2.3 — Review carry-overs from v4.6.2.1 + v4.6.2.2 — SHIPPED 2026-05-14
+
+(retained here for historical context; remove on next BACKLOG cleanup sweep)
 
 ### From v4.6.2.1 review (`docs/reviews/code-review/v4.6.2.1_humidity_fan_hardening.md`)
 
