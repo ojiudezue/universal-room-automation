@@ -1585,6 +1585,54 @@ For every class outside `Entity` subclasses that calls `async_listen`/`async_tra
 
 ---
 
+### Bug Class #39: Schema Mirror Drift in Test Fixtures ⚠️
+
+**Shape:** A test fixture creates an in-memory database by hand-copying CREATE TABLE statements from production into the fixture file. Over time, production schema migrations land but the fixture isn't updated. "Behavioral" tests pass against the drifted fixture but would fail against production.
+
+**v4.6.3 example (Review C, CRITICAL):** `quality/tests/conftest_db.py` hand-typed DDL for `decision_log` and `compliance_log` tables to enable the new `real_schema_db` fixture (v4.6.3's flagship infra). By Tier 2 review the fixture had already drifted from `database.py`: `commanded_state` was renamed `commanded_state_json` in tests, `override_duration_minutes` declared REAL in tests but INTEGER in production, NOT NULL constraints partially missing. Tests using the fixture were validating the test-author's INSERT against the test-author's schema — pure self-consistency. **This is the exact bug class v4.6.3 was meant to prevent (v4.6.1.1-shape NOT NULL constraint mismatch), reproduced in the prevention infrastructure itself.**
+
+**Prevention:**
+- Behavioral test fixtures MUST extract schema from production source at runtime (regex over `database.py`, AST walk, or direct import of schema-creation functions).
+- Add a regression test that introspects fixture + production schemas via `PRAGMA table_info(...)` and asserts column-set + type equality per table. If anyone hand-edits the fixture to drift again, this test fires.
+- Never hand-copy DDL into tests. If extraction is hard, refactor production to expose its schema as an importable function — that's lower cost than the bug class it prevents.
+
+**Discovered:** v4.6.3 (caught by Tier 2-DB Review C before deploy)
+**Severity:** CRITICAL when shipping; would have invalidated v4.6.3's entire smoke-test premise
+
+---
+
+### Bug Class #40: Self-Validating Behavioral Tests ⚠️
+
+**Shape:** A test named "behavioral" or "end-to-end" constructs an `_insert_x()` or similar helper that builds its own SQL INSERT/UPDATE/DELETE statement and runs it against a test fixture, then reads back to verify. **The production DAO is never called.** The test validates the test author's INSERT against the test author's schema. Production code can drift in shape (column order, sentinel handling, payload extraction priority chain) and the test will continue to pass.
+
+**v4.6.3 example (Review C, CRITICAL):** `quality/tests/test_v463_behavioral_dao.py` originally defined `_insert_anomaly()` that built INSERT VALUES tuples in test code. The production `database.save_anomaly_event` has subtle priority-chain logic for reading metric fields (`event.observed_value` → `payload.get("observed_value")` → `payload["extra"].get("observed_value")`). The self-validating test could not catch the B1 CRITICAL where emit sites buried metric values under `payload["extra"]` and the DAO read from top-level — producing 0.0 sentinels in NOT NULL columns at the v4.6.3 boundary.
+
+**Prevention:**
+- Behavioral tests MUST call the production DAO/function under test. If the DAO is hard to instantiate without a real `hass`, refactor it to accept a connection parameter or expose a testable seam.
+- Grep behavioral test files for raw SQL (`INSERT INTO`, `UPDATE`, `DELETE FROM`). Any hits in a file named `*_behavioral*` or `*_dao*` are suspect.
+- Add a meta-test: `test_behavioral_tests_call_production_dao` that AST-walks the behavioral test files and asserts every test ends in a call to a production module's function.
+
+**Discovered:** v4.6.3
+**Severity:** CRITICAL — invalidates the test's claim to be "behavioral"; allows production drift to pass tests silently
+
+---
+
+### Bug Class #41: Dedup-Mask via Low-Cardinality Description ⚠️
+
+**Shape:** A logging or notification pathway dedups events by a key built from `(coordinator, action, room, description)`. When `description` is a static string for a given event type, distinct events of the same type within the dedup window silently coalesce. The original event is logged once; subsequent distinct events are dropped. **The underlying DB write may still succeed, but downstream signals (refresh dispatchers, NM hooks) do not fire** — sensors that consume those signals under-refresh.
+
+**v4.6.3 example (Review A, HIGH):** `activity_logger.py:147` builds dedup key from `(coordinator, action, room, description, importance)` over a 60-second window. The initial v4.6.3 build emitted compliance violations with description `"Compliance violation: <device>"` and NM dispatches with `"NM alert dispatched: <channel>"` — both static for a given device/channel. Burst violations of the same device within 60s coalesced silently. `anomaly_log` rows still wrote (different code path), but `SIGNAL_ACTIVITY_LOGGED` didn't fire for the deduped ones, so `URARecentAnomaliesSensor` under-refreshed and the HA Logbook missed entries.
+
+**Prevention:**
+- Descriptions for events that pass through a dedup layer MUST include an event-unique distinguisher: `z_score`, `event_id`, `timestamp_iso[:19]`, source anomaly id, or some other variable component.
+- Better: dedup keys for "notable" or "distinct event" pathways should NOT include `description` at all — dedup should be on structured event identity (coordinator + type + scope + bucketed-time), not free text.
+- Audit emit sites: grep for `_logger.log(...description=` and `activity_logger.log(...description=` in coordinator code; any static-string description in a high-frequency emit path is a dedup mask risk.
+
+**Discovered:** v4.6.3 (caught by Tier 2-DB Review A before deploy)
+**Severity:** HIGH — silent under-refresh of downstream signal consumers; sensors look stale without obvious cause
+
+---
+
 ## ✅ MANDATORY VALIDATION CHECKLIST
 
 **Before EVERY deployment, complete this checklist:**
