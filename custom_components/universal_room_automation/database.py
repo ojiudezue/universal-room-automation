@@ -1196,11 +1196,17 @@ class UniversalRoomDatabase:
                     _LOGGER.warning("anomaly_log v4.6.1 migration failed: %s", e)
 
                 # v4.6.1 D1 (review fix F3): backfill old TEXT severity values
-                # to numeric-string equivalents matching the unified IntEnum
-                # {INFO=0, WARNING=1, CRITICAL=2}. Without this, v4.6.2 sensor
-                # queries with `severity >= 1` would coerce "advisory"/"alert"
-                # to 0 via SQLite numeric-prefix rules and silently exclude
-                # them. Match is by literal value so the UPDATE is idempotent
+                # to numeric-string equivalents matching the unified IntEnum.
+                # v4.6.6 (Review A H1): `'critical' → '4'` (was → '2' pre-
+                # v4.6.6). AnomalySeverity.CRITICAL moved from value 2 to 4
+                # when the enum expanded from 3 to 5 buckets. Any TEXT
+                # 'critical' rows surfaced by a stale-DB import AFTER the
+                # one-shot D2 remap below has run must land at the new
+                # CRITICAL value '4' or they would read back as ADVISORY.
+                # ADVISORY/ALERT historical TEXT rows are still collapsed to
+                # WARNING ('1') — they were never distinguished pre-v4.6.6
+                # so there's no information to recover.
+                # Match is by literal value so the UPDATE is idempotent
                 # (second run finds 0 matching rows). Single transaction, safe
                 # on empty tables.
                 try:
@@ -1210,7 +1216,7 @@ class UniversalRoomDatabase:
                                WHEN 'nominal'  THEN '0'
                                WHEN 'advisory' THEN '1'
                                WHEN 'alert'    THEN '1'
-                               WHEN 'critical' THEN '2'
+                               WHEN 'critical' THEN '4'
                                ELSE severity
                            END
                            WHERE severity IN ('nominal','advisory','alert','critical')"""
@@ -1223,6 +1229,66 @@ class UniversalRoomDatabase:
                         )
                 except Exception as e:
                     _LOGGER.warning("anomaly_log severity backfill failed: %s", e)
+
+                # v4.6.6 D2: severity vocabulary remap.
+                # Pre-v4.6.6 the AnomalySeverity IntEnum had 3 buckets where
+                # CRITICAL = 2. v4.6.6 expanded to 5 buckets
+                # {INFO=0, WARNING=1, ADVISORY=2, ALERT=3, CRITICAL=4} so
+                # ADVISORY (z 2-3) and ALERT (z 3-4) persist as distinct
+                # integers instead of collapsing to WARNING. Historic CRITICAL
+                # rows MUST move from '2' → '4' or they will read back as
+                # ADVISORY (the new meaning of value 2) and silently misreport.
+                #
+                # CRITICAL: this migration is GATED via PRAGMA user_version
+                # because it is NOT safe to re-run after v4.6.6 ships. Post-
+                # v4.6.6 the WHERE clause `severity='2'` matches LEGITIMATE
+                # ADVISORY rows produced by `map_diag_severity('advisory')`
+                # in v4.6.6+ emit sites. Without the gate, every restart
+                # would silently rewrite ADVISORY rows as CRITICAL — a
+                # recurring data-corruption bug caught by v4.6.6 Tier 2-DB
+                # Review A (C1). PRAGMA user_version=466 sentinel prevents
+                # the second-run case.
+                try:
+                    cursor = await db.execute("PRAGMA user_version")
+                    row = await cursor.fetchone()
+                    current_user_version = row[0] if row else 0
+                    if current_user_version < 466:
+                        cursor = await db.execute(
+                            """UPDATE anomaly_log
+                               SET severity = '4'
+                               WHERE severity = '2'"""
+                        )
+                        rewritten = cursor.rowcount
+                        # Set the sentinel BEFORE the commit so a crash mid-
+                        # commit leaves the migration unmarked and we re-try
+                        # on next start (acceptable — UPDATE is purely
+                        # additive at the row level, no data loss possible).
+                        await db.execute("PRAGMA user_version = 466")
+                        await db.commit()
+                        if rewritten > 0:
+                            _LOGGER.info(
+                                "v4.6.6 D2 severity remap: rewrote %d historic "
+                                "CRITICAL rows from '2' to '4' "
+                                "(AnomalySeverity.CRITICAL moved from 2→4). "
+                                "user_version set to 466 — migration will not "
+                                "re-run.",
+                                rewritten,
+                            )
+                        else:
+                            _LOGGER.info(
+                                "v4.6.6 D2 severity remap: no historic CRITICAL "
+                                "rows to rewrite (DB is fresh or already remapped). "
+                                "user_version set to 466 — migration will not re-run."
+                            )
+                    else:
+                        _LOGGER.debug(
+                            "v4.6.6 D2 severity remap: user_version=%d ≥ 466, "
+                            "skipping (post-v4.6.6 ADVISORY rows would land at "
+                            "severity='2' legitimately).",
+                            current_user_version,
+                        )
+                except Exception as e:
+                    _LOGGER.warning("v4.6.6 severity remap failed: %s", e)
 
                 # v4.6.2 D4: regime_cell_state tracks consecutive-run counter
                 # per (person, time_bin, day_type) cell. Required by the 2-run

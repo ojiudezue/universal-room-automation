@@ -1696,6 +1696,12 @@ class SafetyCoordinator(BaseCoordinator):
                     _event2 = AnomalyEvent(
                         coordinator="safety",
                         type="safety.active_hazard_count",
+                        # v4.6.6 D1: intentionally constant WARNING (not
+                        # map_diag_severity) — `active_hazard_count` emits
+                        # are binary-hazard reports with no z-score
+                        # classifier band to translate. Per planning doc,
+                        # binary hazards stay at WARNING; only
+                        # classifier-driven sites need the 4-way mapping.
                         severity=_NewSev.WARNING,
                         event_class=EVENT_CLASS_HAZARD,
                         detected_at=anomaly2.timestamp.isoformat(),

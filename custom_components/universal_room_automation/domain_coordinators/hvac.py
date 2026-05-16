@@ -1567,6 +1567,7 @@ class HVACCoordinator(BaseCoordinator):
                     AnomalySeverity as _NewSev,
                     EVENT_CLASS_POINT_IN_TIME,
                     build_context_json,
+                    map_diag_severity,
                 )
                 _ctx2 = build_context_json(
                     source_signal="hvac_decision_cycle",
@@ -1578,7 +1579,10 @@ class HVACCoordinator(BaseCoordinator):
                 _event2 = AnomalyEvent(
                     coordinator="hvac",
                     type="hvac.override_frequency",
-                    severity=_NewSev.CRITICAL if anomaly2.severity.value == "critical" else _NewSev.WARNING,
+                    # v4.6.6 D1: 1:1 mapping via map_diag_severity preserves
+                    # ADVISORY (z 2-3) and ALERT (z 3-4) as distinct DB values
+                    # instead of collapsing both to WARNING.
+                    severity=map_diag_severity(anomaly2.severity),
                     event_class=EVENT_CLASS_POINT_IN_TIME,
                     detected_at=anomaly2.timestamp.isoformat(),
                     payload=_ctx2,

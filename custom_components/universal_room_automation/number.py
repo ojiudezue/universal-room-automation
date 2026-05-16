@@ -938,13 +938,22 @@ class RoutineEventCooldownDaysNumber(_RoutineNumberBase):
 class RoutineEventMinSeverityNumber(_RoutineNumberBase):
     """Minimum severity floor for event-mode notifications.
 
-    0=INFO, 1=WARNING (default), 2=CRITICAL. Maps to AnomalySeverity IntEnum.
-    Events below the floor are silently dropped even in event mode.
+    v4.6.6: Maps to AnomalySeverity IntEnum (now 5 buckets):
+      0=INFO, 1=WARNING (default), 2=ADVISORY, 3=ALERT, 4=CRITICAL.
+    Events with severity < floor are silently dropped even in event mode.
+
+    v4.6.6 review B-B1: max_value was 2 pre-v4.6.6. After the IntEnum
+    expanded from 3 to 5 buckets, CRITICAL moved from 2 → 4. A user who
+    previously set the floor to 2 ("CRITICAL only") would silently begin
+    receiving ADVISORY+ALERT+CRITICAL events post-deploy. Bumped max to 4
+    so CRITICAL-only is reachable; v4.6.6 also auto-migrates any stored
+    value of 2 to 4 to preserve original user intent (see _migrate_seed
+    below).
     """
 
     _attr_icon = "mdi:alert-circle-outline"
     _attr_native_min_value = 0
-    _attr_native_max_value = 2
+    _attr_native_max_value = 4
     _attr_native_step = 1
     _attr_native_unit_of_measurement = None
     _conf_key = "routine_event_min_severity"
@@ -955,6 +964,23 @@ class RoutineEventMinSeverityNumber(_RoutineNumberBase):
         self._conf_key = "routine_event_min_severity"
         self._default = 1
         self._log_label = "Routine event min severity"
+        # v4.6.6 B-B1: one-shot seed migration. If the entry options have a
+        # stored value of 2 (was "CRITICAL only" pre-v4.6.6), promote it to 4
+        # (new CRITICAL) so the user gets the volume they originally chose.
+        # Stored 0 and 1 still mean INFO and WARNING; stored 3 or 4 are new
+        # values that can only come from a post-v4.6.6 user action.
+        try:
+            stored = entry.options.get("routine_event_min_severity")
+            if stored == 2:
+                hass.config_entries.async_update_entry(
+                    entry,
+                    options={**entry.options, "routine_event_min_severity": 4},
+                )
+        except Exception:
+            # Non-fatal — fall back to defaults if anything in the options
+            # surface is misshapen. RestoreEntity will load the new value
+            # next cycle.
+            pass
         super().__init__(hass, entry)
         from .const import DOMAIN
         self._attr_unique_id = f"{DOMAIN}_routine_event_min_severity"
