@@ -632,7 +632,7 @@ class SecurityCoordinator(BaseCoordinator):
 
         for intent in intents:
             if intent.source == "state_change" and intent.entity_id in self._entry_sensors:
-                actions.extend(self._handle_entry_intent(intent, context))
+                actions.extend(await self._handle_entry_intent(intent, context))
             elif intent.source == "census_update":
                 actions.extend(self._handle_census_intent(intent, context))
             elif intent.source == "house_state_change" and self._auto_follow_house_state:
@@ -675,12 +675,30 @@ class SecurityCoordinator(BaseCoordinator):
     # Intent handlers
     # =========================================================================
 
-    def _handle_entry_intent(
+    async def _handle_entry_intent(
         self,
         intent: Intent,
         context: dict[str, Any],
     ) -> list[CoordinatorAction]:
-        """Handle an entry sensor state change intent."""
+        """Handle an entry sensor state change intent.
+
+        v4.6.5 D2: Made async to support save_anomaly_event persistence emit.
+
+        METRIC AUDIT (v4.6.5 binary-metric check per v4.6.3.1 doctrine):
+        - alert_trigger_frequency: recorded as a Severity score (LOW=1, MEDIUM=2,
+          HIGH=3, CRITICAL=4). Continuous ordinal — not binary. Each entry event
+          produces a real severity score value. Suitable for z-score. WIRE.
+        - entry_anomaly_score: defined in SECURITY_METRICS but never recorded via
+          record_observation (no call site exists). SUPPRESSED_FROM_PERSISTENCE —
+          metric is silent; z-score detection never fires for it.
+          Reference: v4.6.3.1 binary-metric doctrine — suppress silent metrics.
+        """
+        # v4.6.5: Metrics in SECURITY_METRICS that are NOT wired to record_observation
+        # and therefore must not be wired to persistence (no anomaly ever fires).
+        SUPPRESSED_FROM_PERSISTENCE = {
+            "entry_anomaly_score",  # no record_observation call site in security.py
+        }
+
         event = EntryEvent(
             entity_id=intent.entity_id,
             new_state=intent.data.get("new_state", "on"),
@@ -723,12 +741,68 @@ class SecurityCoordinator(BaseCoordinator):
             "timestamp": dt_util.utcnow().isoformat(),
         }
 
-        # Record anomaly observation
+        # Record anomaly observation and persist if anomaly detected
         if self.anomaly_detector is not None:
             severity_score = _VERDICT_SEVERITY.get(verdict, Severity.LOW).value
-            self.anomaly_detector.record_observation(
+            anomaly = self.anomaly_detector.record_observation(
                 "alert_trigger_frequency", "house", float(severity_score)
             )
+            if anomaly:
+                try:
+                    from .anomaly_event import (  # noqa: PLC0415
+                        AnomalyEvent,
+                        AnomalySeverity as _NewSev,
+                        EVENT_CLASS_POINT_IN_TIME,
+                        build_context_json,
+                    )
+                    _ctx = build_context_json(
+                        source_signal="entry_sensor_state_change",
+                        extra={
+                            "entity_id": intent.entity_id,
+                            "verdict": verdict.value,
+                        },
+                    )
+                    _event = AnomalyEvent(
+                        coordinator="security",
+                        type="security.alert_trigger_frequency",
+                        severity=_NewSev.CRITICAL if anomaly.severity.value == "critical" else _NewSev.WARNING,
+                        event_class=EVENT_CLASS_POINT_IN_TIME,
+                        detected_at=anomaly.timestamp.isoformat(),
+                        payload=_ctx,
+                        observed_value=anomaly.observed_value,
+                        expected_mean=anomaly.expected_mean,
+                        expected_std=anomaly.expected_std,
+                        z_score=round(anomaly.z_score, 3),
+                        sample_size=anomaly.sample_size,
+                    )
+                    await self.anomaly_detector.store_event(_event)
+                    _LOGGER.info(
+                        "Security alert_trigger_frequency anomaly persisted: "
+                        "entity=%s verdict=%s z=%.2f",
+                        intent.entity_id, verdict.value, anomaly.z_score,
+                    )
+                    _activity_logger = self.hass.data.get(DOMAIN, {}).get("activity_logger")
+                    if _activity_logger:
+                        await _activity_logger.log(
+                            coordinator="security",
+                            action="anomaly",
+                            description=(
+                                f"Security alert_trigger_frequency anomaly: "
+                                f"verdict={verdict.value} z={anomaly.z_score:.2f}"
+                            ),
+                            importance="notable",
+                            details={
+                                "type": "security.alert_trigger_frequency",
+                                "z_score": round(anomaly.z_score, 3),
+                                "verdict": verdict.value,
+                                "entity_id": intent.entity_id,
+                            },
+                        )
+                except Exception:
+                    _LOGGER.debug(
+                        "Security alert_trigger_frequency anomaly persist failed",
+                        exc_info=True,
+                    )
 
         actions = self._verdict_to_actions(verdict, intent.entity_id)
 
