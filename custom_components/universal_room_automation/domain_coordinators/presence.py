@@ -1722,53 +1722,25 @@ class PresenceCoordinator(BaseCoordinator):
                         float(self._census_count),
                     )
                     if anomaly:
-                        from .anomaly_event import (
-                            AnomalyEvent,
-                            AnomalySeverity as _NewSev,
-                            EVENT_CLASS_POINT_IN_TIME,
-                            build_context_json,
+                        # v4.6.3.3: SUPPRESS anomaly_log persistence + ActivityLogger emit for
+                        # census_count. Same degenerate-shape problem as v4.6.3.1's zone_occupancy
+                        # suppression: census_count is a low-cardinality integer (0-N people)
+                        # that is mostly 0 during sleep/away or 1-4 when occupied. With
+                        # minimum_samples=24 and Z_SCORE_ADVISORY=2.0, any "person appears"
+                        # tick during a mostly-empty period produces a high z-score on every
+                        # observation, so v4.6.3 D3's persistence path emitted 1825 anomalies
+                        # in 24h after v4.6.3.1 suppressed zone_occupancy.
+                        # In-memory tracking via record_observation() above is preserved, so the
+                        # per-coordinator anomaly sensor (sensor.ura_presence_coordinator_presence_anomaly)
+                        # still counts these. They just don't pollute anomaly_log.
+                        # Proper fix (deferred to a future cycle): drop census_count from
+                        # PRESENCE_METRICS entirely; use Bayesian time-bin distributions
+                        # for census patterns (mirrors the v4.6.2 routine-awareness shape).
+                        _LOGGER.debug(
+                            "Presence census_count in-memory anomaly only (persistence suppressed): "
+                            "severity=%s z=%.2f count=%d",
+                            anomaly.severity.value, anomaly.z_score, self._census_count,
                         )
-                        _ctx = build_context_json(
-                            source_signal="SIGNAL_CENSUS_UPDATED",
-                            extra={
-                                "census_count": self._census_count,
-                            },
-                        )
-                        _event = AnomalyEvent(
-                            coordinator="presence",
-                            type="presence.census_count",
-                            severity=_NewSev.CRITICAL if anomaly.severity.value == "critical" else _NewSev.WARNING,
-                            event_class=EVENT_CLASS_POINT_IN_TIME,
-                            detected_at=anomaly.timestamp.isoformat(),
-                            payload=_ctx,
-                            observed_value=anomaly.observed_value,
-                            expected_mean=anomaly.expected_mean,
-                            expected_std=anomaly.expected_std,
-                            z_score=round(anomaly.z_score, 3),
-                            sample_size=anomaly.sample_size,
-                        )
-                        await self.anomaly_detector.store_event(_event)
-                        _LOGGER.info(
-                            "Presence census_count anomaly: z=%.2f severity=%s",
-                            anomaly.z_score, anomaly.severity.value,
-                        )
-                        _activity_logger = self.hass.data.get(DOMAIN, {}).get("activity_logger")
-                        if _activity_logger:
-                            # A5 fix: await directly instead of untracked async_create_task
-                            await _activity_logger.log(
-                                coordinator="presence",
-                                action="anomaly",
-                                description=(
-                                    f"Presence census_count anomaly z={anomaly.z_score:.2f} "
-                                    f"count={self._census_count}"
-                                ),
-                                importance="notable",
-                                details={
-                                    "type": "presence.census_count",
-                                    "z_score": round(anomaly.z_score, 3),
-                                    "census_count": self._census_count,
-                                },
-                            )
 
                 # Outcome measurement: record for accuracy tracking
                 self._record_outcome(current_state, new_state, trigger)

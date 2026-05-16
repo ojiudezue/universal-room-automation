@@ -196,18 +196,28 @@ def test_presence_no_store_anomaly_calls():
     )
 
 
-def test_presence_uses_store_event_and_anomaly_event():
-    """[SOURCE-GREP] D3: presence.py must use store_event(AnomalyEvent(...)) for anomaly emits.
+def test_presence_no_live_store_event_or_anomaly_event():
+    """[SOURCE-GREP] v4.6.3.1 + v4.6.3.3: presence.py must have ZERO live anomaly emit paths.
 
-    Combined from two separate source-grep tests (redundant — both check the same migration).
-    Behavioral equivalent: test_anomaly_event_dataclass_instantiation loads the module directly.
+    Supersedes the prior D3 assertion ("presence.py must call store_event(AnomalyEvent(...))").
+    Both presence anomaly metrics are now suppressed at the persistence layer:
+      - zone_occupied_count: suppressed in v4.6.3.1 (binary 0/1 → degenerate z-score)
+      - census_count: suppressed in v4.6.3.3 (low-cardinality int → degenerate z-score)
+
+    record_observation() still runs for both (in-memory anomaly sensor counts preserved),
+    but store_event + activity_logger.log calls are stripped. Asserting the inverse here
+    protects against accidental re-introduction of either emit site.
     """
     src = _presence_src()
-    assert "store_event(" in src, (
-        "D3: presence.py must call store_event() for anomaly emits"
+    assert "store_event(" not in src, (
+        "v4.6.3.1 + v4.6.3.3: presence.py must NOT call store_event — "
+        "both census_count and zone_occupied_count emits are suppressed at the persistence layer. "
+        "If you intentionally added a new well-shaped (continuous) presence metric, update this test."
     )
-    assert "AnomalyEvent(" in src, (
-        "D3: presence.py must construct AnomalyEvent for census/zone anomaly emits"
+    assert "AnomalyEvent(" not in src, (
+        "v4.6.3.1 + v4.6.3.3: presence.py must NOT construct AnomalyEvent — "
+        "no live presence emit path exists post-suppression. "
+        "If you intentionally added a new well-shaped (continuous) presence metric, update this test."
     )
 
 
@@ -222,11 +232,68 @@ def test_presence_sensitivity_multiplier_wired():
     )
 
 
-def test_presence_activity_logger_called():
-    """D12: presence anomaly emits must call activity_logger.log(action='anomaly', ...)."""
+def test_presence_no_activity_logger_anomaly_calls():
+    """v4.6.3.1 + v4.6.3.3: presence.py must have ZERO activity_logger.log(action='anomaly', ...) calls.
+
+    Supersedes the prior D12 assertion. Both presence emit sites are suppressed; the
+    activity_logger.log emit was unconditional on the suppressed branches, so it's
+    also gone. In-memory anomaly tracking via record_observation() is preserved.
+    """
     src = _presence_src()
-    assert 'action="anomaly"' in src or "action='anomaly'" in src, (
-        "D12: presence.py must call activity_logger.log(action='anomaly', ...) at emit sites"
+    # Match only activity_logger.log calls — not the standalone string 'action="anomaly"'
+    # which could legitimately appear elsewhere in future code (e.g. routine logs).
+    import re
+    pattern = re.compile(
+        r"activity_logger\.log\([^)]*action=['\"]anomaly['\"]",
+        re.DOTALL,
+    )
+    matches = pattern.findall(src)
+    assert not matches, (
+        f"v4.6.3.1 + v4.6.3.3: presence.py must NOT call activity_logger.log(action='anomaly', ...) — "
+        f"both presence emit sites are suppressed. Found {len(matches)} call(s). "
+        "If you intentionally added a new well-shaped presence metric, update this test."
+    )
+
+
+def test_presence_census_count_persistence_suppressed():
+    """v4.6.3.3: census_count anomaly emit must NOT call store_event/activity_logger.
+
+    Same degenerate-shape problem as v4.6.3.1's zone_occupied_count: census_count is
+    a low-cardinality integer (0-N people) that is mostly 0 during sleep/away. With
+    minimum_samples=24 and Z_SCORE_ADVISORY=2.0, any "person appears" tick during a
+    mostly-empty period produces a high z-score, so v4.6.3 D3's persistence path
+    emitted 1825 anomalies in 24h after v4.6.3.1 suppressed zone_occupied_count.
+
+    Fix: in-memory tracking via record_observation() is preserved (per-coordinator
+    anomaly sensor still counts), but the persist + activity_logger.log calls
+    triggered by the census_count anomaly branch are removed.
+    """
+    src = _presence_src()
+    import re
+    # Find the record_observation("census_count", ...) call and assert the
+    # following ~50 lines contain no store_event or activity_logger.log.
+    m = re.search(
+        r'record_observation\(\s*"census_count"[^)]*\)(?P<after>.{0,2500}?)(?=\n                # Outcome measurement|\n                self\._record_outcome)',
+        src,
+        re.DOTALL,
+    )
+    assert m is not None, (
+        "Could not anchor census_count emit block in presence._run_inference"
+    )
+    body = m.group("after")
+    assert "store_event(" not in body, (
+        "v4.6.3.3: census_count branch must NOT call store_event — "
+        "low-cardinality int z-score persistence floods anomaly_log (1825/24h observed)"
+    )
+    assert "activity_logger.log" not in body, (
+        "v4.6.3.3: census_count branch must NOT call activity_logger.log — "
+        "census_count emits are suppressed from the anomaly stream"
+    )
+    # Belt-and-suspenders: the record_observation call itself must remain
+    # (in-memory tracking preserved).
+    assert 'record_observation(\n                        "census_count"' in src, (
+        "v4.6.3.3: record_observation('census_count', ...) must remain — "
+        "in-memory anomaly counting must be preserved"
     )
 
 
