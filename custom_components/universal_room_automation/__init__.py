@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv4.6.5.2
+# Universal Room Automation vv4.6.5.3
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -753,6 +753,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         await database.start_write_worker()
                         hass.data[DOMAIN]["database"] = database
                         _LOGGER.info("Database initialized successfully")
+
+                        # v4.6.5.3 M2: dispatch SIGNAL_DATABASE_READY so any
+                        # sensor that was set up before this point (e.g.
+                        # URARecentAnomaliesSensor on the CM entry — concurrent
+                        # setup race) can run its initial DB-dependent load
+                        # without polling. Replaces v4.6.5.2's retry-with-sleep.
+                        try:
+                            from homeassistant.helpers.dispatcher import async_dispatcher_send
+                            from .domain_coordinators.signals import SIGNAL_DATABASE_READY
+                            async_dispatcher_send(hass, SIGNAL_DATABASE_READY)
+                        except Exception:
+                            _LOGGER.debug(
+                                "SIGNAL_DATABASE_READY dispatch failed (non-fatal)",
+                                exc_info=True,
+                            )
 
                         # Activity logger — initialized immediately after DB
                         activity_logger = ActivityLogger(hass)
@@ -2164,6 +2179,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     await database.start_write_worker()
                     hass.data[DOMAIN]["database"] = database
                     _LOGGER.info("Database initialized successfully")
+                    # v4.6.5.3 M2: dispatch SIGNAL_DATABASE_READY so subscribed
+                    # sensors can run their initial DB-dependent load without
+                    # polling. (Second DB-init site — CM entry typically hits
+                    # the first one above; this branch is for entry-type
+                    # orderings where CM is not first.)
+                    try:
+                        from homeassistant.helpers.dispatcher import async_dispatcher_send
+                        from .domain_coordinators.signals import SIGNAL_DATABASE_READY
+                        async_dispatcher_send(hass, SIGNAL_DATABASE_READY)
+                    except Exception:
+                        _LOGGER.debug(
+                            "SIGNAL_DATABASE_READY dispatch failed (non-fatal)",
+                            exc_info=True,
+                        )
                 else:
                     _LOGGER.warning("Database initialization failed")
                     database = None  # Prevent use of uninitialized DB below

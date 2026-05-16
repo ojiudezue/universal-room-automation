@@ -41,6 +41,7 @@ from .hvac_const import (
     HVAC_COORDINATOR_NAME,
     HVAC_COORDINATOR_PRIORITY,
     HVAC_METRICS,
+    HVAC_SUPPRESSED_FROM_PERSISTENCE,
     PRE_ARRIVAL_TIMEOUT_MINUTES,
     SIGNAL_HVAC_ENTITIES_UPDATE,
 )
@@ -524,6 +525,10 @@ class HVACCoordinator(BaseCoordinator):
             metric_names=HVAC_METRICS,
             minimum_samples=HVAC_ANOMALY_MIN_SAMPLES,
             sensitivity_multiplier=_hvac_sensitivity_mult,
+            # v4.6.5.3 surface fix: persist-suppressed metrics don't count
+            # toward get_worst_severity() so the per-coordinator anomaly
+            # sensor reflects anomaly_log-eligible signal.
+            suppressed_metric_names=HVAC_SUPPRESSED_FROM_PERSISTENCE,
         )
         try:
             await self.anomaly_detector.load_baselines()
