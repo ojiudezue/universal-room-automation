@@ -663,18 +663,28 @@ class UniversalRoomDatabase:
 
                 # -- Anomaly log ---------------------------------------------
                 if not await self._create_table_safe(db, "anomaly_log", [
+                    # v4.6.7: 5 metric columns (observed_value, expected_mean,
+                    # expected_std, z_score, sample_size) relaxed from NOT NULL
+                    # to NULL. Pre-v4.6.7 the DAO synthesized 0.0 sentinel
+                    # values when the AnomalyEvent dataclass field was None —
+                    # caught and partially fixed in v4.6.3 B1, but the
+                    # sentinel masked the difference between a true
+                    # "baseline not yet learned" observation and a legitimate
+                    # 0.0 value. Now NULL is the honest "no baseline yet"
+                    # marker. Existing DBs are migrated via the rebuild
+                    # dance below (gated PRAGMA user_version=467).
                     """CREATE TABLE IF NOT EXISTS anomaly_log (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         timestamp TEXT NOT NULL,
                         coordinator_id TEXT NOT NULL,
                         scope TEXT NOT NULL,
                         metric_name TEXT NOT NULL,
-                        observed_value REAL NOT NULL,
-                        expected_mean REAL NOT NULL,
-                        expected_std REAL NOT NULL,
-                        z_score REAL NOT NULL,
+                        observed_value REAL,
+                        expected_mean REAL,
+                        expected_std REAL,
+                        z_score REAL,
                         severity TEXT NOT NULL,
-                        sample_size INTEGER NOT NULL,
+                        sample_size INTEGER,
                         house_state TEXT,
                         context_json TEXT,
                         resolved BOOLEAN NOT NULL DEFAULT 0,
@@ -1289,6 +1299,160 @@ class UniversalRoomDatabase:
                         )
                 except Exception as e:
                     _LOGGER.warning("v4.6.6 severity remap failed: %s", e)
+
+                # v4.6.7: anomaly_log NOT NULL relaxation for 5 metric
+                # columns. Pre-v4.6.7 schema required observed_value,
+                # expected_mean, expected_std, z_score, sample_size to be
+                # NOT NULL. The DAO synthesized 0.0/0 sentinels when the
+                # AnomalyEvent dataclass field was None (v4.6.1.1 / v4.6.3
+                # B1 history) — but sentinels mask the difference between
+                # "baseline not yet learned" and "legitimate 0.0 observation."
+                # NULL is the honest marker.
+                #
+                # SQLite can't ALTER COLUMN to remove NOT NULL, so this is
+                # the table-rebuild dance: create new table with relaxed
+                # schema, copy rows, drop old, rename, recreate indexes.
+                # Gated via PRAGMA user_version=467 — runs once, ever.
+                # The CREATE TABLE block above uses the relaxed schema for
+                # fresh DBs; this block handles existing DBs.
+                try:
+                    cursor = await db.execute("PRAGMA user_version")
+                    row = await cursor.fetchone()
+                    uv = row[0] if row else 0
+                    if uv < 467:
+                        # Pre-check: does the existing table have NOT NULL
+                        # on observed_value? (PRAGMA table_info returns 1
+                        # in column 3 for NOT NULL columns.)
+                        cursor = await db.execute("PRAGMA table_info(anomaly_log)")
+                        cols = await cursor.fetchall()
+                        notnull_cols = {row[1] for row in cols if row[3] == 1}
+                        relaxed_targets = {
+                            "observed_value", "expected_mean", "expected_std",
+                            "z_score", "sample_size",
+                        }
+                        if not relaxed_targets & notnull_cols:
+                            # Already relaxed (fresh DB created with v4.6.7+
+                            # DDL) — just bump the sentinel and skip.
+                            await db.execute("PRAGMA user_version = 467")
+                            await db.commit()
+                            _LOGGER.debug(
+                                "v4.6.7: anomaly_log NULL columns already "
+                                "relaxed (fresh DB). user_version → 467."
+                            )
+                        else:
+                            # Table rebuild dance.
+                            await db.execute("BEGIN")
+                            await db.execute(
+                                """CREATE TABLE anomaly_log_v467 (
+                                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                                    timestamp TEXT NOT NULL,
+                                    coordinator_id TEXT NOT NULL,
+                                    scope TEXT NOT NULL,
+                                    metric_name TEXT NOT NULL,
+                                    observed_value REAL,
+                                    expected_mean REAL,
+                                    expected_std REAL,
+                                    z_score REAL,
+                                    severity TEXT NOT NULL,
+                                    sample_size INTEGER,
+                                    house_state TEXT,
+                                    context_json TEXT,
+                                    resolved BOOLEAN NOT NULL DEFAULT 0,
+                                    resolution_notes TEXT,
+                                    event_class TEXT,
+                                    recovery_at TEXT,
+                                    correlation_id TEXT,
+                                    entity_id TEXT,
+                                    room_id TEXT,
+                                    person_id TEXT
+                                )"""
+                            )
+                            # v4.6.7 review M2: use an EXPLICIT column list
+                            # (NOT `SELECT *`) to handle column-order drift
+                            # safely. The v4.6.1 ALTER TABLE appended 6
+                            # columns at the end (event_class, recovery_at,
+                            # correlation_id, entity_id, room_id, person_id);
+                            # `SELECT *` would have been order-dependent and
+                            # would have caused silent data loss if column
+                            # ordering ever shifted (it has historically).
+                            cursor = await db.execute(
+                                """INSERT INTO anomaly_log_v467
+                                    (id, timestamp, coordinator_id, scope,
+                                     metric_name, observed_value, expected_mean,
+                                     expected_std, z_score, severity,
+                                     sample_size, house_state, context_json,
+                                     resolved, resolution_notes, event_class,
+                                     recovery_at, correlation_id, entity_id,
+                                     room_id, person_id)
+                                   SELECT id, timestamp, coordinator_id, scope,
+                                          metric_name, observed_value, expected_mean,
+                                          expected_std, z_score, severity,
+                                          sample_size, house_state, context_json,
+                                          resolved, resolution_notes, event_class,
+                                          recovery_at, correlation_id, entity_id,
+                                          room_id, person_id
+                                   FROM anomaly_log"""
+                            )
+                            copied = cursor.rowcount
+                            await db.execute("DROP TABLE anomaly_log")
+                            await db.execute(
+                                "ALTER TABLE anomaly_log_v467 RENAME TO anomaly_log"
+                            )
+                            # Recreate indexes — DROP TABLE removed them.
+                            await db.execute(
+                                "CREATE INDEX IF NOT EXISTS idx_anomaly_timestamp "
+                                "ON anomaly_log(timestamp)"
+                            )
+                            await db.execute(
+                                "CREATE INDEX IF NOT EXISTS idx_anomaly_coordinator "
+                                "ON anomaly_log(coordinator_id)"
+                            )
+                            await db.execute(
+                                "CREATE INDEX IF NOT EXISTS idx_anomaly_scope "
+                                "ON anomaly_log(scope)"
+                            )
+                            await db.execute(
+                                "CREATE INDEX IF NOT EXISTS idx_anomaly_severity "
+                                "ON anomaly_log(severity)"
+                            )
+                            await db.execute("PRAGMA user_version = 467")
+                            await db.commit()
+                            _LOGGER.info(
+                                "v4.6.7 anomaly_log NULL relaxation: rebuilt "
+                                "table with NULL on observed_value/expected_mean/"
+                                "expected_std/z_score/sample_size. Copied %d "
+                                "rows, recreated 4 indexes. user_version → 467.",
+                                copied,
+                            )
+                    else:
+                        _LOGGER.debug(
+                            "v4.6.7 anomaly_log NULL relaxation: user_version=%d "
+                            "≥ 467, skipping (already relaxed).",
+                            uv,
+                        )
+                except Exception as e:
+                    # v4.6.7 review H1: roll back the open transaction so
+                    # downstream migration blocks (regime_cell_state etc.)
+                    # don't execute against a leaked half-built rebuild
+                    # transaction. Without rollback, a CREATE TABLE failure
+                    # mid-rebuild would either commit the orphan table
+                    # `anomaly_log_v467` on the next `db.commit()`, OR cause
+                    # downstream `db.execute()` calls to operate inside the
+                    # failed transaction with surprising behavior.
+                    try:
+                        await db.rollback()
+                    except Exception:
+                        pass
+                    # Migration failure is logged but doesn't block startup.
+                    # If the rebuild partial-failed, an orphan table named
+                    # `anomaly_log_v467` may exist — operator should DROP it
+                    # manually and re-run with an investigation.
+                    _LOGGER.error(
+                        "v4.6.7 anomaly_log NULL relaxation FAILED: %s. "
+                        "DB may have an orphan `anomaly_log_v467` table — "
+                        "check manually, DROP it if present, then restart.",
+                        e,
+                    )
 
                 # v4.6.2 D4: regime_cell_state tracks consecutive-run counter
                 # per (person, time_bin, day_type) cell. Required by the 2-run
@@ -4432,15 +4596,18 @@ class UniversalRoomDatabase:
         import graph than domain_coordinators.anomaly_event).
         """
         import json as _json
-        # v4.6.3 B1/A4 fix: metric values are now explicit top-level fields on
-        # AnomalyEvent (observed_value, expected_mean, expected_std, z_score,
-        # sample_size) so emit sites no longer bury them in payload["extra"].
+        # v4.6.7: anomaly_log metric columns are now NULL-able. Pre-v4.6.7
+        # the DAO synthesized 0.0/0 sentinels when the AnomalyEvent dataclass
+        # field was None — caught by review B1 as silently masking the
+        # difference between "baseline not yet learned" and "legitimate 0.0
+        # observation." Now NULL passes through honestly.
         #
-        # Resolution order per field:
-        #   1. Explicit AnomalyEvent dataclass field (v4.6.3+, non-zero/non-default)
+        # Resolution order per field (preserves v4.6.3 B1 fallback for
+        # legacy callers that still bury fields in payload):
+        #   1. Explicit AnomalyEvent dataclass field if non-None
         #   2. payload top-level key (legacy store_anomaly() shape — pre-v4.6.3)
-        #   3. payload["extra"] key (intermediate shape during migration window)
-        #   4. 0.0 / 0 sentinel to satisfy NOT NULL constraint
+        #   3. payload["extra"] key (intermediate migration shape)
+        #   4. None (writes NULL to the column — no longer a sentinel 0.0)
         payload_dict = event.payload if isinstance(event.payload, dict) else {}
         _payload_extra = (
             payload_dict.get("extra", {})
@@ -4448,40 +4615,30 @@ class UniversalRoomDatabase:
             else {}
         )
 
-        # Priority 1: dataclass field (v4.6.3+ callers set these explicitly)
-        # Priority 2: payload top-level (legacy store_anomaly() shape)
-        # Priority 3: payload["extra"] (intermediate migration shape)
-        # Each field name is explicit so grep-based tests can verify presence.
-        _ev_observed_value = getattr(event, "observed_value", None)
-        observed_value = (
-            _ev_observed_value
-            if (_ev_observed_value is not None and _ev_observed_value != 0.0)
-            else (payload_dict.get("observed_value") or _payload_extra.get("observed_value") or 0.0)
-        )
-        _ev_expected_mean = getattr(event, "expected_mean", None)
-        expected_mean = (
-            _ev_expected_mean
-            if (_ev_expected_mean is not None and _ev_expected_mean != 0.0)
-            else (payload_dict.get("expected_mean") or _payload_extra.get("expected_mean") or 0.0)
-        )
-        _ev_expected_std = getattr(event, "expected_std", None)
-        expected_std = (
-            _ev_expected_std
-            if (_ev_expected_std is not None and _ev_expected_std != 0.0)
-            else (payload_dict.get("expected_std") or _payload_extra.get("expected_std") or 0.0)
-        )
-        _ev_z_score = getattr(event, "z_score", None)
-        z_score = (
-            _ev_z_score
-            if (_ev_z_score is not None and _ev_z_score != 0.0)
-            else (payload_dict.get("z_score") or _payload_extra.get("z_score") or 0.0)
-        )
-        _ev_sample_size = getattr(event, "sample_size", None)
-        sample_size = (
-            _ev_sample_size
-            if (_ev_sample_size is not None and _ev_sample_size != 0)
-            else (payload_dict.get("sample_size") or _payload_extra.get("sample_size") or 0)
-        )
+        def _resolve_metric(field_name: str):
+            """Resolve a metric field with the v4.6.3 B1 priority order.
+
+            Returns the dataclass-field value if non-None, else falls back
+            to payload top-level or payload["extra"], else None (v4.6.7:
+            no more 0.0 sentinel synthesis — schema relaxed to NULL-able).
+
+            v4.6.7 review M1: removed dead `zero_default` parameter; the
+            schema relaxation made the sentinel obsolete.
+            """
+            val = getattr(event, field_name, None)
+            if val is not None:
+                return val
+            return (
+                payload_dict.get(field_name)
+                if payload_dict.get(field_name) is not None
+                else _payload_extra.get(field_name)
+            )
+
+        observed_value = _resolve_metric("observed_value")
+        expected_mean = _resolve_metric("expected_mean")
+        expected_std = _resolve_metric("expected_std")
+        z_score = _resolve_metric("z_score")
+        sample_size = _resolve_metric("sample_size")
         house_state = payload_dict.get("house_state")
         try:
             async with self._db() as db:
