@@ -53,9 +53,11 @@ def test_new_severity_warning_is_one():
     assert mod.AnomalySeverity.WARNING == 1
 
 
-def test_new_severity_critical_is_two():
+def test_new_severity_critical_is_four():
+    """v4.6.6: CRITICAL moved from 2 to 4 to make room for ADVISORY=2 and ALERT=3.
+    Sort order (higher = more severe) preserved across all 5 buckets."""
     mod = _load_anomaly_event_module()
-    assert mod.AnomalySeverity.CRITICAL == 2
+    assert mod.AnomalySeverity.CRITICAL == 4
 
 
 # ---------------------------------------------------------------------------
@@ -115,17 +117,20 @@ def test_classifier_uses_old_severity_internally():
     )
 
 
-def test_new_severity_scale_has_info_warning_critical():
-    """The new AnomalySeverity scale (INFO/WARNING/CRITICAL) is defined in anomaly_event.py.
+def test_new_severity_scale_has_info_warning_advisory_alert_critical():
+    """The AnomalySeverity scale is defined in anomaly_event.py.
 
-    Callers use this when constructing AnomalyEvent — they map from their domain
-    context (e.g., ALERT z-score → WARNING severity) when constructing the event.
+    v4.6.6: expanded from 3 to 5 buckets so the 4-way internal classifier
+    (NOMINAL/ADVISORY/ALERT/CRITICAL in coordinator_diagnostics) maps 1:1
+    into the persisted enum. CRITICAL moved from 2 to 4 to keep sort order.
     """
     mod = _load_anomaly_event_module()
     sev = mod.AnomalySeverity
     assert sev.INFO == 0
     assert sev.WARNING == 1
-    assert sev.CRITICAL == 2
+    assert sev.ADVISORY == 2
+    assert sev.ALERT == 3
+    assert sev.CRITICAL == 4
 
 
 def test_severity_int_round_trip():

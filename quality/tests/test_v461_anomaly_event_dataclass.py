@@ -47,25 +47,33 @@ def test_anomaly_severity_is_intenum():
 
 
 def test_anomaly_severity_values():
-    """INFO=0, WARNING=1, CRITICAL=2 — locked decision from planning doc."""
+    """v4.6.6: 5-bucket scale INFO=0, WARNING=1, ADVISORY=2, ALERT=3, CRITICAL=4.
+
+    ADVISORY and ALERT were added between WARNING and CRITICAL so the
+    coordinator_diagnostics.AnomalySeverity (StrEnum) z-score classifier
+    maps 1:1 into the persisted IntEnum instead of collapsing ADVISORY+ALERT
+    into WARNING. Sort order preserved (higher int = more severe).
+    """
     mod = _load_anomaly_event_module()
     s = mod.AnomalySeverity
     assert s.INFO == 0
     assert s.WARNING == 1
-    assert s.CRITICAL == 2
+    assert s.ADVISORY == 2
+    assert s.ALERT == 3
+    assert s.CRITICAL == 4
 
 
-def test_anomaly_severity_three_levels_only():
-    """Exactly 3 levels — no extra members (e.g. not the old 4-level NOMINAL/ADVISORY/ALERT/CRITICAL)."""
+def test_anomaly_severity_five_levels():
+    """v4.6.6: exactly 5 levels (was 3 pre-v4.6.6)."""
     mod = _load_anomaly_event_module()
-    assert len(list(mod.AnomalySeverity)) == 3
+    assert len(list(mod.AnomalySeverity)) == 5
 
 
 def test_anomaly_severity_names():
-    """Members must be named INFO, WARNING, CRITICAL."""
+    """v4.6.6 members: INFO, WARNING, ADVISORY, ALERT, CRITICAL."""
     mod = _load_anomaly_event_module()
     names = {m.name for m in mod.AnomalySeverity}
-    assert names == {"INFO", "WARNING", "CRITICAL"}
+    assert names == {"INFO", "WARNING", "ADVISORY", "ALERT", "CRITICAL"}
 
 
 # ---------------------------------------------------------------------------
@@ -148,7 +156,14 @@ def test_event_class_constant_values():
 
 
 def test_severity_int_value_usable_in_db_insert():
-    """int(AnomalySeverity.WARNING) must be 1 — used raw in INSERT statements."""
+    """int(AnomalySeverity.*) must coerce to the canonical integer used in INSERTs.
+
+    v4.6.6: 5-bucket vocabulary. CRITICAL moved from 2 to 4 so ADVISORY=2
+    and ALERT=3 can sit between WARNING and CRITICAL with sort order preserved.
+    """
     mod = _load_anomaly_event_module()
+    assert int(mod.AnomalySeverity.INFO) == 0
     assert int(mod.AnomalySeverity.WARNING) == 1
-    assert int(mod.AnomalySeverity.CRITICAL) == 2
+    assert int(mod.AnomalySeverity.ADVISORY) == 2
+    assert int(mod.AnomalySeverity.ALERT) == 3
+    assert int(mod.AnomalySeverity.CRITICAL) == 4

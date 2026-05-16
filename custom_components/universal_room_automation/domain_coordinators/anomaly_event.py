@@ -20,11 +20,24 @@ class AnomalySeverity(IntEnum):
 
     Replaces 8 different severity vocabularies found in the v4.5.0 survey.
     Stored as integer in DB; human-readable label available via .name.
+
+    v4.6.6 — expanded from 3 buckets to 5 to preserve fidelity from the
+    internal coordinator_diagnostics.AnomalySeverity (NOMINAL / ADVISORY /
+    ALERT / CRITICAL) classifier through to the persisted anomaly_log row.
+    Previously every emit site collapsed ADVISORY and ALERT into WARNING,
+    making severity-grouped analytics unable to tell them apart.
+
+    Sort order is preserved: higher integer value = more severe. Code that
+    filters with `severity >= N` continues to work for INFO/WARNING; the
+    CRITICAL threshold moves from 2 to 4, so any caller hardcoding the
+    integer 2 to mean CRITICAL must use the enum symbol instead.
     """
 
-    INFO = 0      # Observation worth recording; no action required
-    WARNING = 1   # Unexpected; caller should act on this; cleanable
-    CRITICAL = 2  # Urgent; usually wires NM notification
+    INFO = 0       # Observation worth recording; no action required
+    WARNING = 1    # Unexpected; caller should act on this; cleanable
+    ADVISORY = 2   # z-score 2.0-3.0 — early signal, watch but no alert
+    ALERT = 3      # z-score 3.0-4.0 — notable, warrants attention
+    CRITICAL = 4   # z-score > 4.0 / urgent; usually wires NM notification
 
 
 # Valid event_class literal values. Enforced by convention; a StrEnum would
