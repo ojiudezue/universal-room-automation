@@ -964,11 +964,22 @@ class AnomalyDetector:
             return 0
 
     async def load_baselines(self) -> None:
-        """Load baseline statistics from the database."""
+        """Load baseline statistics from the database.
+
+        v4.6.5 (M2 fold-in from v4.6.4 review): filter loaded rows against the
+        coordinator's current `metric_names` registry. Rows for metrics that
+        have been removed (e.g. v4.6.4 P2 deleted `hazard_trigger_frequency`)
+        are skipped on load AND deleted from the table to keep DB hygiene.
+        Without this filter, orphaned baselines accumulate forever, are
+        unreferenced by anything (since the metric isn't in metric_names), and
+        cosmetically pollute the table.
+        """
         database = self._database
         if database is None:
             return
 
+        valid_metrics = set(self.metric_names)
+        orphan_keys: list[tuple[str, str]] = []
         try:
             async with database._db() as db:
                 db.row_factory = aiosqlite.Row
@@ -980,20 +991,51 @@ class AnomalyDetector:
                 """, (self.coordinator_id,))
                 rows = await cursor.fetchall()
 
+                loaded = 0
                 for row in rows:
-                    key = (row["metric_name"], row["scope"])
+                    metric_name = row["metric_name"]
+                    scope = row["scope"]
+                    if metric_name not in valid_metrics:
+                        orphan_keys.append((metric_name, scope))
+                        continue
+                    key = (metric_name, scope)
                     self._baselines[key] = MetricBaseline(
-                        metric_name=row["metric_name"],
+                        metric_name=metric_name,
                         coordinator_id=self.coordinator_id,
-                        scope=row["scope"],
+                        scope=scope,
                         mean=row["mean"],
                         variance=row["variance"],
                         sample_count=row["sample_count"],
                         last_updated=row["last_updated"],
                     )
+                    loaded += 1
+
+                if orphan_keys:
+                    _LOGGER.info(
+                        "Pruning %d orphaned baseline row(s) for %s: %s",
+                        len(orphan_keys),
+                        self.coordinator_id,
+                        [f"{m}@{s}" for m, s in orphan_keys],
+                    )
+                    # v4.6.5 review A-H1: batch the prune into a single DELETE
+                    # so we hold the write queue for one statement, not N.
+                    # The prune only runs when orphans exist (first restart
+                    # after a metric is removed), so this is a one-time cost
+                    # rather than ongoing — but keeping the writer slot tight
+                    # avoids contention with concurrent setup_entry on the
+                    # other AnomalyDetector coordinators.
+                    distinct_metrics = {m for m, _ in orphan_keys}
+                    placeholders = ",".join("?" for _ in distinct_metrics)
+                    await db.execute(
+                        f"DELETE FROM metric_baselines "
+                        f"WHERE coordinator_id = ? AND metric_name IN ({placeholders})",
+                        (self.coordinator_id, *distinct_metrics),
+                    )
+                    await db.commit()
+
                 _LOGGER.debug(
-                    "Loaded %d baselines for %s",
-                    len(rows), self.coordinator_id,
+                    "Loaded %d baselines for %s (skipped %d orphan)",
+                    loaded, self.coordinator_id, len(orphan_keys),
                 )
         except Exception as e:
             _LOGGER.debug(
