@@ -180,9 +180,26 @@ Fix: remove `store_event` + `activity_logger.log` calls inside `_check_zone_anom
 
 **Lesson codified** in v4.6.5 plan (D5 meta-test) — future emit additions must audit metric continuity before wiring.
 
-## v4.6.5 — In-Memory Anomaly Persistence (queued, Tier 1)
+## v4.6.5 — In-Memory Anomaly Persistence — IN REVIEW 2026-05-16
 
-**Status:** Plan complete at `docs/planning/PLANNING_v4.6.5_in_memory_anomaly_persistence.md`. Ready to implement.
+**Status:** Code complete on `feature/v4.6.5-in-memory-anomaly-persistence` (rebased onto develop, 1 conflict in safety.py resolved). 22 v4.6.5 tests + all 64 v4.6.3 tests pass. Cardinality audit done. Awaiting Tier 2-DB review (3 parallel) + deploy.
+
+**Pre-deploy cardinality audit findings (live data from in-memory baselines):**
+- `hvac.zone_call_frequency`: mean=0.378, std=0.678, sample_count=899 → **degenerate-shape (active_count=2 → z=2.39 ADVISORY); SUPPRESSED** from persistence in this cycle. Added to `SUPPRESSED_FROM_PERSISTENCE` set in hvac.py. record_observation kept for in-memory tracking. Same pattern as v4.6.3.1 zone_occupied_count + v4.6.3.3 census_count.
+- `hvac.override_frequency`: mean=3.234, std=3.436 → well-shaped continuous. **WIRED.**
+- `security.alert_trigger_frequency`: mean=1.0, std=0.1 (MIN_VARIANCE floor) → currently constant-1.0 (no higher-severity alerts observed). Will fire correctly if severity ever rises. **WIRED** (low risk).
+- `music_following.transfer_success_rate`: mean=0.0, std=0.1, sample_count=1594 → zero successful transfers in 1594 cycles. **WIRED but flagged for v4.6.5.1 polish:** verify MF stats collection isn't broken; metric direction may be inverted (alerting on success rather than failure is wrong-direction signal).
+- `music_following.cooldown_frequency`: mean=0.0 → directionally correct alert-on-first-cooldown. **WIRED.**
+- `safety.active_hazard_count`: kept wired per v4.6.3 D2; binary-shape risk noted in code comment for monitoring.
+- `safety.hazard_trigger_frequency`: **DELETED** in v4.6.4 P2 (pre-rebase). v4.6.5's D4 wire-it plan was structurally wrong; rebase resolved in favor of v4.6.4's empirical evidence. D4 test inverted to assert deletion.
+
+**Folded into this cycle (from v4.6.4 review):**
+- TBD — M2 (orphan baseline cleanup) and M3 (`_transitions_today` RestoreEntity hydration) decision still pending. Either fold or explicitly defer to v4.6.5.1.
+
+**Filed for v4.6.5.1 polish:**
+- Music Following stats instrumentation investigation (mean=0 success rate over 1594 samples is suspicious)
+- Music Following metric-direction review (success-rate-up should not be anomalous)
+- M2 / M3 carryovers from v4.6.4 review if not folded into this cycle
 
 **Symptom:** HVAC `sensor.ura_hvac_coordinator_hvac_anomaly` shows `state=advisory, anomalies_today=3`. But `by_coordinator.hvac` in `recent_anomalies` is 0. Same shape affects security, music_following, and the safety-detector path (distinct from safety hazards which migrated in v4.6.3 D2).
 

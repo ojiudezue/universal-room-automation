@@ -1462,11 +1462,22 @@ class HVACCoordinator(BaseCoordinator):
 
         v4.6.5 D1: Added save_anomaly_event persistence for continuous HVAC metrics.
 
-        METRIC AUDIT (v4.6.5 binary-metric check per v4.6.3.1 doctrine):
-        - zone_call_frequency: continuous integer count of zones actively cooling/heating.
-          Values: 0..N where N = zone count. Suitable for z-score. WIRE.
-        - override_frequency: continuous integer count of overrides today across zones.
-          Values: 0..N, grows throughout the day. Suitable for z-score. WIRE.
+        METRIC AUDIT (v4.6.5 binary-metric check per v4.6.3.1 doctrine,
+        revised pre-deploy after live cardinality audit):
+        - zone_call_frequency: integer count of zones actively cooling/heating
+          (0..N where N = HVAC zone count). LIVE BASELINE on a 3-zone install
+          showed mean=0.378, std=0.678 over 899 samples — degenerate-shape per
+          v4.6.3.1 doctrine. Z-score arithmetic: active_count=2 → z=2.39 →
+          ADVISORY fires; active_count=3 → z=3.87 → near CRITICAL. Same family
+          as the suppressed census_count (mean=0.64, std=1.39 → 1825 emits/24h).
+          In normal use, 2+ zones calling simultaneously happens routinely
+          during morning warm-up and evening cool-down → persistence would
+          flood anomaly_log. SUPPRESSED_FROM_PERSISTENCE. Long-term fix:
+          replace with a duty-cycle ratio (continuous 0..1) or per-zone Bayesian
+          time-bin distribution.
+        - override_frequency: integer count of overrides today across zones,
+          grows throughout day. Live mean=3.234, std=3.436 — well-shaped
+          continuous distribution. WIRE.
         - short_cycle_rate: defined in HVAC_METRICS but never recorded via
           record_observation (no call site exists). SUPPRESSED_FROM_PERSISTENCE —
           metric is silent; z-score detection never fires for it.
@@ -1474,11 +1485,11 @@ class HVACCoordinator(BaseCoordinator):
           record_observation (no call site exists). SUPPRESSED_FROM_PERSISTENCE —
           metric is silent; z-score detection never fires for it.
         """
-        # v4.6.5: Metrics in HVAC_METRICS that are NOT wired to record_observation
-        # and therefore must not be wired to persistence either (no anomaly ever fires).
-        # Reference: v4.6.3.1 binary-metric doctrine — only wire metrics that produce
-        # real z-score observations. Silent metrics produce no AnomalyRecord instances.
+        # v4.6.5: Metrics in HVAC_METRICS that are NOT wired to persistence.
+        # Reference: v4.6.3.1 binary-metric doctrine — only wire metrics whose
+        # distribution shape is suitable for z-score persistence.
         SUPPRESSED_FROM_PERSISTENCE = {
+            "zone_call_frequency",       # degenerate shape — live audit above
             "short_cycle_rate",          # no record_observation call site in hvac.py
             "comfort_deviation_hours",   # no record_observation call site in hvac.py
         }
@@ -1486,7 +1497,12 @@ class HVACCoordinator(BaseCoordinator):
         if self.anomaly_detector is None:
             return
 
-        # Zone call frequency: count zones currently actively heating/cooling
+        # Zone call frequency: count zones currently actively heating/cooling.
+        # record_observation kept so in-memory anomaly tracking (the per-coordinator
+        # anomaly sensor's active_anomalies / anomalies_today counters) continues
+        # to work. store_event + activity_logger.log path SUPPRESSED per the
+        # cardinality audit above — same pattern as v4.6.3.1 zone_occupied_count
+        # and v4.6.3.3 census_count suppression.
         active_count = sum(
             1
             for z in self._zone_manager.zones.values()
@@ -1496,53 +1512,11 @@ class HVACCoordinator(BaseCoordinator):
             "zone_call_frequency", "house", float(active_count)
         )
         if anomaly:
-            try:
-                from .anomaly_event import (  # noqa: PLC0415
-                    AnomalyEvent,
-                    AnomalySeverity as _NewSev,
-                    EVENT_CLASS_POINT_IN_TIME,
-                    build_context_json,
-                )
-                _ctx = build_context_json(
-                    source_signal="hvac_decision_cycle",
-                    extra={"active_zone_count": active_count},
-                )
-                _event = AnomalyEvent(
-                    coordinator="hvac",
-                    type="hvac.zone_call_frequency",
-                    severity=_NewSev.CRITICAL if anomaly.severity.value == "critical" else _NewSev.WARNING,
-                    event_class=EVENT_CLASS_POINT_IN_TIME,
-                    detected_at=anomaly.timestamp.isoformat(),
-                    payload=_ctx,
-                    observed_value=anomaly.observed_value,
-                    expected_mean=anomaly.expected_mean,
-                    expected_std=anomaly.expected_std,
-                    z_score=round(anomaly.z_score, 3),
-                    sample_size=anomaly.sample_size,
-                )
-                await self.anomaly_detector.store_event(_event)
-                _LOGGER.info(
-                    "HVAC zone_call_frequency anomaly persisted: active_zones=%d z=%.2f",
-                    active_count, anomaly.z_score,
-                )
-                _activity_logger = self.hass.data.get(DOMAIN, {}).get("activity_logger")
-                if _activity_logger:
-                    await _activity_logger.log(
-                        coordinator="hvac",
-                        action="anomaly",
-                        description=(
-                            f"HVAC zone_call_frequency anomaly: active_zones={active_count} "
-                            f"z={anomaly.z_score:.2f}"
-                        ),
-                        importance="notable",
-                        details={
-                            "type": "hvac.zone_call_frequency",
-                            "z_score": round(anomaly.z_score, 3),
-                            "active_zone_count": active_count,
-                        },
-                    )
-            except Exception:
-                _LOGGER.debug("HVAC zone_call_frequency anomaly persist failed", exc_info=True)
+            _LOGGER.debug(
+                "HVAC zone_call_frequency in-memory anomaly only "
+                "(persistence suppressed): active_zones=%d severity=%s z=%.2f",
+                active_count, anomaly.severity.value, anomaly.z_score,
+            )
 
         # Override frequency (per day, logged on each cycle)
         total_overrides = sum(

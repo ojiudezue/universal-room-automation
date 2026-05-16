@@ -40,19 +40,55 @@ def _read(filename: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def test_hvac_metrics_audit_continuous_wired():
-    """D1: HVAC continuous metrics (zone_call_frequency, override_frequency)
-    must have store_event call sites in hvac.py."""
+def test_hvac_override_frequency_wired_zone_call_frequency_suppressed():
+    """D1 (revised pre-deploy after live cardinality audit):
+    - override_frequency: WIRED (well-shaped continuous metric, mean=3.23
+      std=3.43 on live system → suitable for z-score persistence).
+    - zone_call_frequency: SUPPRESSED (degenerate shape, mean=0.38 std=0.68
+      on a 3-zone install → active_count=2 → z=2.39 ADVISORY, same family as
+      the suppressed census_count which produced 1825 emits/24h).
+
+    Asserts override_frequency reaches store_event with a type prefix while
+    zone_call_frequency is in SUPPRESSED_FROM_PERSISTENCE (record_observation
+    kept for in-memory tracking; no store_event/activity_logger emit).
+    """
     src = _read("hvac.py")
     assert "store_event(" in src, (
-        "D1: hvac.py must call store_event() for anomaly persistence"
-    )
-    # zone_call_frequency and override_frequency both appear in the emit blocks
-    assert "hvac.zone_call_frequency" in src, (
-        "D1: hvac.py must emit type='hvac.zone_call_frequency' to anomaly_log"
+        "D1: hvac.py must call store_event() (for override_frequency)"
     )
     assert "hvac.override_frequency" in src, (
         "D1: hvac.py must emit type='hvac.override_frequency' to anomaly_log"
+    )
+    # zone_call_frequency MUST be in SUPPRESSED_FROM_PERSISTENCE
+    assert "SUPPRESSED_FROM_PERSISTENCE" in src, (
+        "D1: hvac.py must define SUPPRESSED_FROM_PERSISTENCE"
+    )
+    # The suppression set must include zone_call_frequency
+    import re
+    suppression_block = re.search(
+        r"SUPPRESSED_FROM_PERSISTENCE\s*=\s*\{[^}]*\}",
+        src,
+        re.DOTALL,
+    )
+    assert suppression_block is not None, (
+        "D1: SUPPRESSED_FROM_PERSISTENCE must be a set literal in hvac.py"
+    )
+    assert "zone_call_frequency" in suppression_block.group(0), (
+        "D1: zone_call_frequency must be in SUPPRESSED_FROM_PERSISTENCE — "
+        "live cardinality audit (mean=0.378 std=0.678 on 3-zone install) "
+        "showed degenerate-shape risk per v4.6.3.1 doctrine"
+    )
+    # The store_event-related code for zone_call_frequency must not exist
+    # (the emit block was stripped; only record_observation + debug log remain).
+    # Check the non-comment lines so the comment can still cite it.
+    non_comment_lines = [
+        line for line in src.splitlines()
+        if not line.lstrip().startswith("#")
+    ]
+    non_comment_src = "\n".join(non_comment_lines)
+    assert '"hvac.zone_call_frequency"' not in non_comment_src, (
+        "D1: hvac.py must NOT have a live emit using type='hvac.zone_call_frequency' "
+        "(suppressed per cardinality audit)"
     )
 
 
@@ -301,17 +337,39 @@ def test_music_following_no_store_anomaly_calls():
 # ---------------------------------------------------------------------------
 
 
-def test_safety_detector_hazard_trigger_frequency_wired():
-    """D4: Safety continuous metric hazard_trigger_frequency must have store_event
-    call in safety.py (wired in v4.6.3 D2, verified here for regression prevention)."""
+def test_safety_detector_hazard_trigger_frequency_deleted():
+    """D4 (revised post-v4.6.4 P2 rebase): hazard_trigger_frequency must NOT be
+    actively wired in safety.py — it was deleted in v4.6.4 P2.
+
+    Original v4.6.5 D4 intent was "verify the existing v4.6.3 D2 wiring." But
+    v4.6.4 P2 audit proved the metric was dead (recorded constant 1.0 →
+    baseline mean=1.0 → z=0 → never emitted in months of production), so the
+    wire was removed. This test guards against accidental re-introduction.
+
+    Comments referencing the historical deletion are allowed (and expected —
+    see safety.py:1640+ explanation). Code-level wiring is forbidden.
+
+    If you want frequency detection for hazard triggers, add a NEW well-shaped
+    metric (e.g. `hazards_per_hour` from a sliding-window counter); don't
+    revive the constant-1.0 emit.
+    """
     src = _read("safety.py")
-    assert "store_event(" in src, (
-        "D4: safety.py must call store_event() for anomaly persistence"
+    # Filter out comment lines so the historical-mention comment doesn't trigger.
+    non_comment_lines = [
+        line for line in src.splitlines()
+        if not line.lstrip().startswith("#")
+    ]
+    non_comment_src = "\n".join(non_comment_lines)
+    assert '"hazard_trigger_frequency"' not in non_comment_src, (
+        "D4: hazard_trigger_frequency must not appear in any live code in "
+        "safety.py (only comments referencing the v4.6.4 P2 deletion are "
+        "allowed). Re-introduction is structurally wrong (constant 1.0 → z=0 "
+        "→ never emits). If you want frequency detection, add a sliding-window "
+        "metric instead."
     )
-    # The type is safety.hazard_{type.value} — verify store_event is called
-    # near the hazard_trigger_frequency record_observation
-    assert "hazard_trigger_frequency" in src, (
-        "D4: safety.py must record hazard_trigger_frequency observations"
+    # Sanity: safety.py should still contain a store_event call for active_hazard_count
+    assert "store_event(" in non_comment_src, (
+        "Sanity: safety.py should still contain a store_event call (for active_hazard_count)"
     )
 
 
