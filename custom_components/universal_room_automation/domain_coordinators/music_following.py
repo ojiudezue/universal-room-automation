@@ -94,6 +94,14 @@ class MusicFollowingCoordinator(BaseCoordinator):
         self._unjoin_delay = unjoin_delay
         self._position_offset = position_offset
         self._min_confidence = min_confidence
+        # v4.6.5.3 M4 (review note from v4.6.5.2): one-shot flag per metric so
+        # we log INFO on the FIRST post-deploy observation. The v4.6.5.2 Fix 1
+        # denominator change starts re-drifting the stale baseline from
+        # mean=0.0 — operators benefit from a discoverable signal that the
+        # new emit path is live. Without this, the only signal is the metric
+        # baseline slowly moving over weeks (visible only in the per-coord
+        # anomaly sensor's metrics dict).
+        self._first_emit_logged: set[str] = set()
         self._high_confidence_distance = high_confidence_distance
         self._music_following = None
         self._pending_tasks: set[asyncio.Task] = set()
@@ -155,6 +163,8 @@ class MusicFollowingCoordinator(BaseCoordinator):
             "music_following",
             MUSIC_FOLLOWING_METRICS,
             sensitivity_multiplier=_music_sensitivity_mult,
+            # v4.6.5.3 surface fix (set is empty today — both MF metrics wired)
+            suppressed_metric_names=MUSIC_FOLLOWING_SUPPRESSED_FROM_PERSISTENCE,
         )
         try:
             await self.anomaly_detector.load_baselines()
@@ -241,6 +251,18 @@ class MusicFollowingCoordinator(BaseCoordinator):
             if music_attempts > 0:
                 # transfer_success_rate: of music-involved attempts, fraction succeeded
                 success_rate = stats.get("success", 0) / music_attempts
+                # v4.6.5.3 M4: one-shot info-log so operators can spot when
+                # the v4.6.5.2 Fix 1 denominator change starts feeding the
+                # baseline. Logged on the FIRST post-deploy emit only.
+                if "transfer_success_rate" not in self._first_emit_logged:
+                    _LOGGER.info(
+                        "MusicFollowing transfer_success_rate first post-deploy "
+                        "emit: rate=%.3f music_attempts=%d (v4.6.5.2 Fix 1 — "
+                        "_TRANSFER_KEYS denominator now live; baseline drift "
+                        "begins from prior cumulative shape)",
+                        success_rate, music_attempts,
+                    )
+                    self._first_emit_logged.add("transfer_success_rate")
                 anomaly = self.anomaly_detector.record_observation(
                     "transfer_success_rate", "house", success_rate,
                 )
@@ -261,6 +283,15 @@ class MusicFollowingCoordinator(BaseCoordinator):
             post_confidence_total = music_attempts + stats.get("cooldown_blocked", 0)
             if post_confidence_total > 0:
                 cooldown_rate = stats.get("cooldown_blocked", 0) / post_confidence_total
+                # v4.6.5.3 M4: one-shot info-log (see transfer_success_rate above)
+                if "cooldown_frequency" not in self._first_emit_logged:
+                    _LOGGER.info(
+                        "MusicFollowing cooldown_frequency first post-deploy "
+                        "emit: rate=%.3f post_confidence_total=%d "
+                        "(v4.6.5.2 Fix 1 — post-confidence denominator now live)",
+                        cooldown_rate, post_confidence_total,
+                    )
+                    self._first_emit_logged.add("cooldown_frequency")
                 anomaly2 = self.anomaly_detector.record_observation(
                     "cooldown_frequency", "house", cooldown_rate,
                 )

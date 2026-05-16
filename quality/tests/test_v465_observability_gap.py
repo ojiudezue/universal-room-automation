@@ -1167,85 +1167,232 @@ def test_mf_cooldown_frequency_uses_post_confidence_denominator():
     )
 
 
-def test_recent_anomalies_sensor_retries_db_ready_on_startup():
-    """v4.6.5.2 Fix 2: URARecentAnomaliesSensor.async_added_to_hass must
-    defer the initial refresh until hass.data[DOMAIN]["database"] is ready.
+def test_recent_anomalies_sensor_subscribes_to_database_ready_signal():
+    """v4.6.5.3 M2: URARecentAnomaliesSensor's async_added_to_hass must use
+    SIGNAL_DATABASE_READY (event-driven) instead of the v4.6.5.2 polling
+    helper. Replaces test_recent_anomalies_sensor_retries_db_ready_on_startup.
 
-    Pre-v4.6.5.2 the initial refresh fired immediately in async_added_to_hass.
-    If the CM entry sets up before the room entry creates the database
-    (concurrent setup race), the refresh returns silently (database is None
-    at line 10355) and the sensor stays at 0 until a SIGNAL_ACTIVITY_LOGGED
-    dispatch arrives. Suppressed metrics don't fire that signal — so for
-    households with only suppressed metrics active, the sensor never updates.
+    v4.6.5.2 closed the bug (sensor populated correctly) with a 30s polling
+    loop. v4.6.5.3 M2 replaces the loop with a one-shot dispatcher
+    subscription that fires from __init__.py the moment the DB is assigned
+    to hass.data — deterministic and cheaper than polling.
 
-    Observed live post-v4.6.5 and v4.6.5.1: DB had 603 rows in the 24h
-    window, sensor showed 0.
-
-    Asserts (source-grep):
-      - The class has an _initial_load_with_db_retry helper
-      - The helper polls hass.data for database readiness
-      - async_added_to_hass schedules the helper (not the bare _async_refresh)
+    Asserts:
+      - URARecentAnomaliesSensor subscribes to SIGNAL_DATABASE_READY
+      - The polling helper _initial_load_with_db_retry is GONE
+      - async_added_to_hass either does immediate refresh (DB already
+        present) OR subscribes to the signal — no direct race
+      - SIGNAL_DATABASE_READY is dispatched from __init__.py at every DB-
+        assignment site (both setup paths)
     """
     src = (
         Path("custom_components/universal_room_automation/sensor.py")
     ).read_text()
-    # Locate the URARecentAnomaliesSensor class
     cls_start = src.find("class URARecentAnomaliesSensor(")
     assert cls_start >= 0, "Could not find URARecentAnomaliesSensor class"
-    # Find the next top-level class
     next_cls = src.find("\nclass ", cls_start + 1)
     cls_body = src[cls_start : next_cls if next_cls > 0 else len(src)]
     cls_body_live = _non_comment_src(cls_body)
 
-    assert "_initial_load_with_db_retry" in cls_body_live, (
-        "v4.6.5.2 Fix 2: URARecentAnomaliesSensor must define "
-        "_initial_load_with_db_retry to defer the initial refresh until "
-        "the DB is in hass.data"
+    # Subscribe to the new signal
+    assert "SIGNAL_DATABASE_READY" in cls_body_live, (
+        "v4.6.5.3 M2: URARecentAnomaliesSensor must reference "
+        "SIGNAL_DATABASE_READY to event-drive the initial load"
     )
-    assert "async def _initial_load_with_db_retry" in cls_body_live, (
-        "v4.6.5.2 Fix 2: _initial_load_with_db_retry must be async"
+    # The v4.6.5.2 polling helper is GONE
+    assert "_initial_load_with_db_retry" not in cls_body_live, (
+        "v4.6.5.3 M2: the v4.6.5.2 polling helper _initial_load_with_db_retry "
+        "must be removed (replaced by SIGNAL_DATABASE_READY subscription)"
     )
-    # The retry helper must check hass.data for the database
+    # async_added_to_hass body must reference SIGNAL_DATABASE_READY
     import re
-    assert re.search(
-        r'hass\.data\.get\(DOMAIN,\s*\{\}\)\.get\("database"\)\s*is not None',
-        cls_body_live,
-    ) is not None, (
-        "v4.6.5.2 Fix 2: retry helper must check "
-        "hass.data.get(DOMAIN, {}).get('database') is not None"
-    )
-    # async_added_to_hass must schedule the retry helper, not bare _async_refresh
     aath_match = re.search(
         r"async def async_added_to_hass\(self\).*?(?=\n    (?:async )?def )",
         cls_body_live,
         re.DOTALL,
     )
-    assert aath_match is not None, (
-        "Could not find async_added_to_hass body"
-    )
+    assert aath_match is not None, "Could not find async_added_to_hass body"
     aath_body = aath_match.group(0)
-    assert "_initial_load_with_db_retry" in aath_body, (
-        "v4.6.5.2 Fix 2: async_added_to_hass must schedule "
-        "_initial_load_with_db_retry (not call _async_refresh directly, which "
-        "race-loses to DB setup)"
+    assert "SIGNAL_DATABASE_READY" in aath_body, (
+        "v4.6.5.3 M2: async_added_to_hass must subscribe to "
+        "SIGNAL_DATABASE_READY when the DB isn't yet in hass.data"
     )
-    # v4.6.5.2 review L2 fix: semantic-intent check that catches the race
-    # regardless of where in the method body it gets reintroduced. The direct
-    # `await self._async_refresh()` call should not appear anywhere in
-    # async_added_to_hass — it must only be reachable via the retry helper.
-    assert "await self._async_refresh()" not in aath_body, (
-        "v4.6.5.2 Fix 2: async_added_to_hass must not call `await "
-        "self._async_refresh()` directly — that's the race we're fixing. "
-        "The call must only be reachable through _initial_load_with_db_retry."
+    # The signal must be defined in signals.py
+    signals_src = Path(
+        "custom_components/universal_room_automation/domain_coordinators/signals.py"
+    ).read_text()
+    assert "SIGNAL_DATABASE_READY" in signals_src, (
+        "v4.6.5.3 M2: SIGNAL_DATABASE_READY must be defined in signals.py"
     )
-    # v4.6.5.2 review H1 fix: the retry task must be cancellable on teardown
-    assert "_initial_load_task" in cls_body_live, (
-        "v4.6.5.2 review H1: URARecentAnomaliesSensor must keep a handle to "
-        "the initial-load task (`_initial_load_task`) so async_on_remove can "
-        "cancel it. Otherwise the task outlives entity teardown — v4.6.3 A5 "
-        "untracked-task bug class."
+    # The signal must be dispatched from __init__.py at every DB-assignment
+    # site so a sensor that subscribes after one site can still get notified
+    # by the second site (defensive — only one site should fire in practice).
+    init_src = Path(
+        "custom_components/universal_room_automation/__init__.py"
+    ).read_text()
+    # Count the dispatcher calls (must be >= number of DB-assignment sites)
+    db_assign_count = init_src.count('hass.data[DOMAIN]["database"] = database')
+    dispatch_count = init_src.count("async_dispatcher_send(hass, SIGNAL_DATABASE_READY)")
+    assert dispatch_count >= db_assign_count, (
+        f"v4.6.5.3 M2: __init__.py has {db_assign_count} DB-assignment "
+        f"site(s) but only {dispatch_count} SIGNAL_DATABASE_READY dispatch(es). "
+        "Each site must dispatch the signal so subscribers don't miss it."
     )
-    assert ".cancel()" in cls_body_live, (
-        "v4.6.5.2 review H1: an async_on_remove handler must cancel "
-        "_initial_load_task on teardown"
+    # v4.6.5.3 M2: the direct `await self._async_refresh()` is allowed in
+    # async_added_to_hass IFF gated by the "DB already present" branch
+    # (the alternative is the signal subscription). We assert the gate:
+    # any direct refresh must be preceded by a hass.data check in the body.
+    if "await self._async_refresh()" in aath_body:
+        assert 'hass.data.get(DOMAIN' in aath_body, (
+            "v4.6.5.3 M2: if async_added_to_hass calls _async_refresh "
+            "directly, it must first check the DB is present in hass.data. "
+            "Otherwise the race we fixed in v4.6.5.2 returns."
+        )
+
+
+# ---------------------------------------------------------------------------
+# v4.6.5.3 — Item 1 surface fix: per-coordinator severity ignores SUPPRESSED
+# ---------------------------------------------------------------------------
+
+
+def test_anomaly_detector_accepts_suppressed_metric_names():
+    """v4.6.5.3 surface fix: AnomalyDetector.__init__ must accept a
+    `suppressed_metric_names` parameter so get_worst_severity() can exclude
+    in-memory anomalies for metrics suppressed from persistence.
+
+    Pre-fix: per-coordinator anomaly sensor showed state=critical whenever
+    a degenerate-shape suppressed metric (e.g. hvac.zone_call_frequency)
+    fired in-memory. Misleading — the metric was suppressed precisely
+    BECAUSE its shape is degenerate; it shouldn't drive operator-facing
+    severity.
+    """
+    src = (
+        Path("custom_components/universal_room_automation/domain_coordinators/coordinator_diagnostics.py")
+    ).read_text()
+    live = _non_comment_src(src)
+    # Constructor parameter
+    assert "suppressed_metric_names" in live, (
+        "v4.6.5.3 surface fix: AnomalyDetector.__init__ must accept "
+        "suppressed_metric_names parameter"
+    )
+    # New helper that filters _active_anomalies
+    assert "_persisted_active_anomalies" in live, (
+        "v4.6.5.3 surface fix: AnomalyDetector must define "
+        "_persisted_active_anomalies() helper that filters out suppressed metrics"
+    )
+    # get_worst_severity must call the filtered helper
+    import re
+    gws_match = re.search(
+        r"def get_worst_severity\(self\).*?(?=\n    def )",
+        live,
+        re.DOTALL,
+    )
+    assert gws_match is not None, "Could not find get_worst_severity body"
+    assert "_persisted_active_anomalies" in gws_match.group(0), (
+        "v4.6.5.3 surface fix: get_worst_severity must use "
+        "_persisted_active_anomalies (not raw _active_anomalies) so suppressed "
+        "metrics don't drive the reported severity"
+    )
+    # get_status_summary should expose both counts
+    assert "suppressed_active_anomalies" in live, (
+        "v4.6.5.3 surface fix: get_status_summary must expose "
+        "suppressed_active_anomalies for operator visibility into in-memory-"
+        "only firings"
+    )
+
+
+def test_all_coordinators_pass_suppression_set_to_anomaly_detector():
+    """v4.6.5.3 surface fix: every coordinator that constructs an
+    AnomalyDetector must pass its module-level *_SUPPRESSED_FROM_PERSISTENCE
+    constant as `suppressed_metric_names`. Without this, the surface fix is
+    inert because the detector's filter set is empty by default.
+    """
+    coord_files_and_consts = [
+        ("hvac.py", "HVAC_SUPPRESSED_FROM_PERSISTENCE"),
+        ("security.py", "SECURITY_SUPPRESSED_FROM_PERSISTENCE"),
+        ("music_following.py", "MUSIC_FOLLOWING_SUPPRESSED_FROM_PERSISTENCE"),
+        ("presence.py", "PRESENCE_SUPPRESSED_FROM_PERSISTENCE"),
+        ("safety.py", "SAFETY_SUPPRESSED_FROM_PERSISTENCE"),
+    ]
+    failures: list[str] = []
+    for filename, const_name in coord_files_and_consts:
+        src = _read(filename)
+        live = _non_comment_src(src)
+        # Find AnomalyDetector( instantiation — balanced-paren walk so nested
+        # calls in keyword args don't truncate the body early
+        idx = live.find("AnomalyDetector(")
+        if idx < 0:
+            failures.append(f"{filename}: no AnomalyDetector( instantiation found")
+            continue
+        start = idx + len("AnomalyDetector(")
+        depth = 1
+        i = start
+        while i < len(live) and depth > 0:
+            ch = live[i]
+            if ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+            i += 1
+        body = live[start : i - 1]
+        if "suppressed_metric_names" not in body:
+            failures.append(
+                f"{filename}: AnomalyDetector instantiation missing "
+                f"`suppressed_metric_names=`"
+            )
+            continue
+        if const_name not in body:
+            failures.append(
+                f"{filename}: AnomalyDetector instantiation should pass "
+                f"`suppressed_metric_names={const_name}`"
+            )
+    assert not failures, (
+        "v4.6.5.3 surface fix — all 5 coordinators must wire their "
+        "*_SUPPRESSED_FROM_PERSISTENCE constant into AnomalyDetector init:\n"
+        "  - " + "\n  - ".join(failures)
+    )
+
+
+# ---------------------------------------------------------------------------
+# v4.6.5.3 — Item 3 M4: one-shot info-log on first MF emit
+# ---------------------------------------------------------------------------
+
+
+def test_mf_first_emit_info_log_one_shot():
+    """v4.6.5.3 M4 (review note from v4.6.5.2): MF coordinator must log INFO
+    on the FIRST post-deploy observation for each metric so operators can
+    spot when the v4.6.5.2 Fix 1 denominator change starts feeding the
+    baseline. Without this, the only signal is the baseline slowly moving
+    over weeks.
+
+    Asserts:
+      - `_first_emit_logged` set initialized in __init__
+      - Both metric names (transfer_success_rate, cooldown_frequency) have
+        a gated INFO log + add-to-set guard inside _on_transfer_outcome
+    """
+    src = _read("music_following.py")
+    live = _non_comment_src(src)
+    assert "_first_emit_logged" in live, (
+        "v4.6.5.3 M4: MusicFollowingCoordinator must initialize "
+        "`_first_emit_logged` set in __init__"
+    )
+    body = _on_transfer_outcome_body(live)
+    assert body, "Could not extract _on_transfer_outcome body"
+    # Both metric guards must be present
+    assert '"transfer_success_rate" not in self._first_emit_logged' in body, (
+        "v4.6.5.3 M4: _on_transfer_outcome must guard the first-emit info-log "
+        "for transfer_success_rate with `not in self._first_emit_logged`"
+    )
+    assert '"cooldown_frequency" not in self._first_emit_logged' in body, (
+        "v4.6.5.3 M4: _on_transfer_outcome must guard the first-emit info-log "
+        "for cooldown_frequency"
+    )
+    # The guards must add the metric name to the set after logging
+    assert 'self._first_emit_logged.add("transfer_success_rate")' in body, (
+        "v4.6.5.3 M4: after logging, transfer_success_rate must be added to "
+        "_first_emit_logged so the log fires once per restart"
+    )
+    assert 'self._first_emit_logged.add("cooldown_frequency")' in body, (
+        "v4.6.5.3 M4: after logging, cooldown_frequency must be added to "
+        "_first_emit_logged"
     )

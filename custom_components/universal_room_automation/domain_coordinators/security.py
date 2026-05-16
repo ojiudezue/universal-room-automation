@@ -624,6 +624,8 @@ class SecurityCoordinator(BaseCoordinator):
         self.anomaly_detector = AnomalyDetector(
             self.hass, self.COORDINATOR_ID, SECURITY_METRICS,
             sensitivity_multiplier=_security_sensitivity_mult,
+            # v4.6.5.3 surface fix
+            suppressed_metric_names=SECURITY_SUPPRESSED_FROM_PERSISTENCE,
         )
         try:
             await self.anomaly_detector.load_baselines()

@@ -628,6 +628,11 @@ class PresenceCoordinator(BaseCoordinator):
             metric_names=self.PRESENCE_METRICS,
             minimum_samples=24,
             sensitivity_multiplier=ANOMALY_SENSITIVITY_MULTIPLIERS.get(_presence_sensitivity, 1.0),
+            # v4.6.5.3 surface fix: census_count + zone_occupied_count fire
+            # in-memory (degenerate-shape per v4.6.3.1 / v4.6.3.3 doctrine) but
+            # are suppressed from persistence — exclude them from the sensor's
+            # severity calculation so it doesn't permanently show critical.
+            suppressed_metric_names=PRESENCE_SUPPRESSED_FROM_PERSISTENCE,
         )
         try:
             await self.anomaly_detector.load_baselines()

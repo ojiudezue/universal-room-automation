@@ -682,6 +682,8 @@ class SafetyCoordinator(BaseCoordinator):
             metric_names=self.SAFETY_METRICS,
             minimum_samples=720,
             sensitivity_multiplier=_sensitivity_mult,
+            # v4.6.5.3 surface fix (set is empty today — active_hazard_count wired)
+            suppressed_metric_names=SAFETY_SUPPRESSED_FROM_PERSISTENCE,
         )
         try:
             await self.anomaly_detector.load_baselines()

@@ -1,27 +1,22 @@
 # URA Backlog — As of v4.2.6 (Apr 19, 2026)
 
-## URA DB Scale Management — PROMOTED FROM TECH DEBT (Tier 2, queued)
+## URA DB Scale Management — ARCHIVED (build only on degradation signal)
 
-**Status:** Filed 2026-05-15 04:30 UTC after v4.6.3.1 deploy hung URA setup at 35+ min. Not a v4.6.3.1 regression — exposed pre-existing scale + new query load from v4.6.3.
+**Decision (2026-05-16):** Originally promoted from tech debt after the v4.6.3.1 deploy hang. v4.6.3.2's thread-safety fix resolved the actual cause of that hang; DB scale was a red herring. URA setup time has been consistently under 5 min across five subsequent deploys (v4.6.3.3 → v4.6.5.2). No live evidence that scale is degrading user experience today.
 
-**Evidence:**
-- URA DB is 886 MB total
-- `occupancy_events` 172 MB, `idx_occupancy_room_time` 145 MB, `environmental_data` 80 MB, `energy_snapshots` 65 MB, `anomaly_log` 43 MB, `census_snapshots` 40 MB
-- **Duplicate index identified:** `idx_env_room_time` (62 MB) AND `idx_environmental_room_time` (62 MB) on the same table — one is an orphan from a rename migration that was never dropped. ~62 MB waste + write amplification on every `environmental_data` insert
-- v4.6.3's `URARecentAnomaliesSensor` queries `anomaly_log` on every `SIGNAL_ACTIVITY_LOGGED` — compounds the load
+**Stop rehashing.** This item is filed and won't be re-queued unless one of these triggers fires:
+- URA setup time exceeds 5 min on a fresh restart (current SLO from prior planning)
+- DB size growth rate exceeds ~50 MB/week sustained (signal of unbounded retention)
+- A user-visible feature is blocked by DB I/O latency
+- A subsequent DB-write feature requires the orphan `idx_env_room_time` to be dropped to avoid write amplification regressions
 
-**Scope (Tier 2):**
-1. Retention policy on `occupancy_events`, `environmental_data`, `census_snapshots` (target: drop rows > N days; pick N based on usage analysis)
-2. Drop the orphan `idx_env_room_time` duplicate index
-3. Schedule periodic `VACUUM` (post-retention sweep) on URA DB
-4. Audit other tables for similar duplicate-index orphans
-5. (Stretch) Archive old rows to a sidecar `.db` file rather than DELETE
+**Original scope preserved here for when/if a trigger fires:**
+- DB was 886 MB on 2026-05-15. Largest tables: `occupancy_events` 172 MB, `environmental_data` 80 MB, `energy_snapshots` 65 MB, `anomaly_log` 43 MB, `census_snapshots` 40 MB.
+- **Orphan index:** `idx_env_room_time` (62 MB) duplicates `idx_environmental_room_time` (62 MB) — from a rename migration that was never dropped. ~62 MB waste + write amplification on every `environmental_data` insert.
+- Scope: retention policy on `occupancy_events` / `environmental_data` / `census_snapshots`; drop orphan index; schedule periodic `VACUUM`; audit other tables for duplicate-index orphans; optionally archive old rows to sidecar `.db`.
+- Estimated cost when promoted: ~200-300 prod LoC + ~150 test LoC. Tier 2.
 
-**Acceptance Criteria:** URA setup completes within 5 min on a fresh restart with a recently-VACUUM'd DB.
-
-**Estimated cost:** ~200-300 prod LoC (retention service, index audit, vacuum scheduler) + ~150 test LoC. Tier 2 (touches DB schema + setup-time behavior).
-
-**Recall hint:** `"Resume URA roadmap — DB scale management"`
+**Recall hint when promoted:** `"Resume URA roadmap — DB scale management"`
 
 ## Quality Enforcement Hardening — ARCHIVED, build on degradation
 
