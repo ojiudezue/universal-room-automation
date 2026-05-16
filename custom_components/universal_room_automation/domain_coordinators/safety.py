@@ -70,6 +70,21 @@ _LOGGER = logging.getLogger(__name__)
 # States that mean an entity is not providing real data
 _UNAVAILABLE_STATES = frozenset({"unavailable", "unknown"})
 
+# v4.6.5.1 P2: Module-level suppression registry for safety. Companion to
+# SafetyCoordinator.SAFETY_METRICS (defined as a class attribute). Every
+# metric in SAFETY_METRICS must be EITHER wired (record_observation call
+# with downstream store_event emit in this file) OR listed here. Today
+# the only safety metric (`active_hazard_count`) is wired (v4.6.3 D2), so
+# this set is empty; promoting it to a named constant codifies the
+# v4.6.3.1 doctrine and gives future maintainers an obvious place to add
+# a suppression rationale.
+#
+# Note: `hazard_trigger_frequency` was removed from SAFETY_METRICS entirely
+# in v4.6.4 P2 (constant 1.0 → z=0 → never emitted). It is NOT listed here
+# because it is no longer in SAFETY_METRICS at all — the parametric audit
+# would treat its presence here as inconsistent.
+SAFETY_SUPPRESSED_FROM_PERSISTENCE: frozenset[str] = frozenset()
+
 
 # ============================================================================
 # Enums

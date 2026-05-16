@@ -59,6 +59,27 @@ _CAMERA_OCCUPANCY_TIMEOUT_SECONDS = 300  # 5 minutes
 # States that mean an entity is not providing real data
 _UNAVAILABLE_STATES = frozenset({"unavailable", "unknown"})
 
+# v4.6.5.1 P2: Module-level suppression registry for presence. Companion to
+# PresenceCoordinator.PRESENCE_METRICS (defined as a class attribute on the
+# coordinator). Every metric in PRESENCE_METRICS must be EITHER wired (have
+# a record_observation call in this file with a downstream store_event +
+# activity_logger.log emit) OR listed here with a comment explaining why.
+# Introspected by the parametric meta-test in test_v465_observability_gap.py.
+#
+# Reasons each entry is suppressed:
+# - census_count (suppressed in v4.6.3.3): low-cardinality int 0..N, mostly
+#   0 during sleep/away. Z-score persistence produced 1825 anomaly_log
+#   emits in 24h on the live system. record_observation kept for in-memory
+#   anomaly counter; persistence (store_event + activity_logger.log) stripped.
+# - zone_occupied_count (suppressed in v4.6.3.1): binary 0/1 per zone per
+#   inference cycle. Z-score on binary input is degenerate — rarely-occupied
+#   zones produce z >= 4 on every "occupied=1.0" tick. Produced 2117 emits
+#   in 3h post-v4.6.3 deploy. Same treatment as census_count.
+PRESENCE_SUPPRESSED_FROM_PERSISTENCE: frozenset[str] = frozenset({
+    "census_count",
+    "zone_occupied_count",
+})
+
 
 # ============================================================================
 # Zone Presence
@@ -612,6 +633,28 @@ class PresenceCoordinator(BaseCoordinator):
             await self.anomaly_detector.load_baselines()
         except Exception:
             _LOGGER.debug("Could not load presence anomaly baselines (non-fatal)", exc_info=True)
+
+        # v4.6.5.1 P4 (M3 fix from v4.6.4 review): hydrate _transitions_today
+        # from house_state_log so the daily counter survives reload/restart.
+        # Without this, the counter resets to 0 on every restart and the
+        # transition_count_daily baseline distribution skews low —
+        # biasing future thrashy-day anomalies to fire more than they should.
+        try:
+            db = self.hass.data.get(DOMAIN, {}).get("database")
+            if db is not None:
+                today_iso = dt_util.now().date().isoformat()
+                count = await db.count_house_state_changes_since(today_iso)
+                self._transitions_today = count
+                self._transition_reset_date = today_iso
+                _LOGGER.info(
+                    "Hydrated _transitions_today=%d from house_state_log (since %s)",
+                    count, today_iso,
+                )
+        except Exception:
+            _LOGGER.debug(
+                "Could not hydrate _transitions_today from house_state_log (non-fatal)",
+                exc_info=True,
+            )
 
         # v3.19.0: Read face recognition toggle from integration config
         try:

@@ -78,6 +78,17 @@ _LOGGER = logging.getLogger(__name__)
 # Metrics tracked by anomaly detection
 SECURITY_METRICS = ["alert_trigger_frequency", "entry_anomaly_score"]
 
+# v4.6.5.1 P2: Module-level suppression registry — every metric in
+# SECURITY_METRICS must be EITHER wired (have a record_observation call site
+# in security.py) OR listed here. Introspected by the parametric meta-test
+# in test_v465_observability_gap.py.
+#
+# - entry_anomaly_score: defined in SECURITY_METRICS but no record_observation
+#   call site exists — silent slot. Documented per v4.6.3.1 doctrine.
+SECURITY_SUPPRESSED_FROM_PERSISTENCE: frozenset[str] = frozenset({
+    "entry_anomaly_score",
+})
+
 
 # ============================================================================
 # Enums
@@ -693,12 +704,10 @@ class SecurityCoordinator(BaseCoordinator):
           metric is silent; z-score detection never fires for it.
           Reference: v4.6.3.1 binary-metric doctrine — suppress silent metrics.
         """
-        # v4.6.5: Metrics in SECURITY_METRICS that are NOT wired to record_observation
-        # and therefore must not be wired to persistence (no anomaly ever fires).
-        SUPPRESSED_FROM_PERSISTENCE = {
-            "entry_anomaly_score",  # no record_observation call site in security.py
-        }
-
+        # v4.6.5.1 P2: SUPPRESSED_FROM_PERSISTENCE was promoted to module-level
+        # constant `SECURITY_SUPPRESSED_FROM_PERSISTENCE` at the top of this
+        # file so the parametric meta-test can introspect it. See that
+        # constant's docstring for the per-metric suppression rationale.
         event = EntryEvent(
             entity_id=intent.entity_id,
             new_state=intent.data.get("new_state", "on"),

@@ -180,7 +180,47 @@ Fix: remove `store_event` + `activity_logger.log` calls inside `_check_zone_anom
 
 **Lesson codified** in v4.6.5 plan (D5 meta-test) — future emit additions must audit metric continuity before wiring.
 
-## v4.6.5 — In-Memory Anomaly Persistence — IN REVIEW 2026-05-16
+## v4.6.6 — Severity Vocabulary Refactor (Tier 2-DB, queued)
+
+**Tier 2-DB trigger:** changes payload shape of a persisted record (the `severity` column on `anomaly_log`). Existing analytics that group by `severity = 2` would see different distributions post-deploy.
+
+**Why it's its own cycle:** the current emit pattern in every coordinator (`_NewSev.CRITICAL if anomaly.severity.value == "critical" else _NewSev.WARNING`) collapses the 4-bucket internal scale (NOMINAL / ADVISORY z=2-3 / ALERT z=3-4 / CRITICAL z>4) into a 2-bucket DB severity (WARNING / CRITICAL). ALERT becomes indistinguishable from ADVISORY at query time. Reviewer A-M2 + B-M1 both flagged this independently in v4.6.5.
+
+**Scope:**
+- Extend `AnomalySeverity` enum in `anomaly_event.py` to 4 distinct values (or 3 if NOMINAL collapses with no-emit).
+- Update mapping helper to translate `AnomalyRecord.severity` → `AnomalySeverity` faithfully across all coordinator emit sites (HVAC, security, music_following, presence, safety).
+- Update DAO + sensor readers to handle the expanded enum.
+- Behavioral test: assert each severity bucket round-trips through `save_anomaly_event` → `anomaly_log` SELECT → `URARecentAnomaliesSensor.by_severity`.
+- Migration consideration: existing rows have severity={1, 2} only. No backfill needed (semantically WARNING covers ADVISORY+ALERT in legacy rows; new rows distinguish them going forward).
+
+**Cost:** ~40 prod LoC across 5 coordinators + ~30 test LoC + ~10 LoC for enum/DAO/sensor + 1 behavioral round-trip test.
+
+**Tier 2-DB ceremony:** 3 parallel reviews (A: existing-analytics impact on by_severity distribution, B: every coordinator emit site updated correctly with no missed call sites, C: enum forward-compat + test fixture authority for severity round-trip).
+
+**Recall hint:** `"Resume URA roadmap — v4.6.6 severity refactor"`
+
+## v4.6.5.1 — Polish bundle (Tier 1, queued)
+
+**Items folded together because they're all small, low-blast-radius cleanups deferred from v4.6.5 reviews + audit. Single Tier 1 review.**
+
+**P1: `override_frequency` cumulative-counter fix** (v4.6.5 Review B-M2). Today's emit passes `total_overrides` (daily-cumulative) which grows monotonically until midnight reset. Late-day values produce ADVISORY just from natural accumulation. Replace with either (a) delta from previous cycle, or (b) overrides/hour over a rolling window. ~20 prod LoC + 1 behavioral test asserting the new emit fires on rate change not accumulation. The B-M2 soak note in v4.6.5 README still applies until this lands.
+
+**P2: `SUPPRESSED_FROM_PERSISTENCE` as module-level introspectable constant + parametric metric audit** (v4.6.5 Review C-M1). Today the set lives as a local inside each coordinator's `_record_anomaly_observations()` — documentation only, not introspectable. Promote to module-level (e.g. `HVAC_SUPPRESSED_FROM_PERSISTENCE = frozenset({...})`). Add one parametric meta-test that imports each `*_METRICS` constant + its companion suppression set and asserts: `set(METRICS) == wired_metrics ∪ suppressed_metrics`. Closes the forward-compat gap so a future-added metric must be EITHER wired OR explicitly suppressed (can't slip in silently). ~30 LoC across coordinators + 1 parametric test in `test_v465_observability_gap.py`.
+
+**P3: `tokenize` / `ast`-based comment filter** for negative test assertions (v4.6.5 Review C-M2/M4). Replace the line-level `# at start` filter with a proper tokenizer pass so docstrings + inline trailing comments don't trivially satisfy/break negative assertions like `test_safety_detector_hazard_trigger_frequency_deleted` or `test_hvac_override_frequency_wired_zone_call_frequency_suppressed`. ~20 LoC test helper.
+
+**P4: M3 `_transitions_today` RestoreEntity hydration** (carry-over from v4.6.4 review). `_transitions_today` resets to 0 on every reload/restart, so `transition_count_daily` baseline distribution skews low — biasing future thrashy-day anomalies to fire more than they should. Restore the counter via the existing PresenceCoordinator state-hydration path (mirrors how `_face_arrivals_today` would persist, if it did). ~30 prod LoC + 1 behavioral test.
+
+**Explicitly NOT in scope** (deferred to future or separate):
+- Music Following instrumentation investigation (`transfer_success_rate` mean=0.0 over 1594 samples) — needs runtime investigation, not a code-only polish
+- `recent_anomalies` sensor lazy-query / post-restart-zero behavior — needs runtime investigation
+- Severity collapse refactor → **v4.6.6 (Tier 2-DB)** above
+
+**Cost:** ~80 prod LoC + ~50 test LoC across 4-5 files. Tier 1 single review.
+
+**Recall hint:** `"Resume URA roadmap — v4.6.5.1 polish"`
+
+## v4.6.5 — In-Memory Anomaly Persistence — SHIPPED 2026-05-16
 
 **Status:** Code complete on `feature/v4.6.5-in-memory-anomaly-persistence` (rebased onto develop, 1 conflict in safety.py resolved). 22 v4.6.5 tests + all 64 v4.6.3 tests pass. Cardinality audit done. Awaiting Tier 2-DB review (3 parallel) + deploy.
 

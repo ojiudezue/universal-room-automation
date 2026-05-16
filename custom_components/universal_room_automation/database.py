@@ -1,7 +1,7 @@
 """Database for Universal Room Automation."""
 from __future__ import annotations
 #
-# Universal Room Automation vv4.6.5
+# Universal Room Automation vv4.6.5.1
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors
@@ -1528,6 +1528,35 @@ class UniversalRoomDatabase:
                 await db.commit()
         except Exception as e:
             _LOGGER.error("Error logging house state change: %s", e)
+
+    async def count_house_state_changes_since(self, since_iso: str) -> int:
+        """Return the number of house_state_log rows with timestamp >= since_iso.
+
+        v4.6.5.1 P4 (M3 fix from v4.6.4 review): supports
+        PresenceCoordinator._transitions_today hydration on setup. Without
+        this, the daily transition counter resets to 0 on every reload/
+        restart and the `transition_count_daily` baseline distribution skews
+        low — biasing future thrashy-day anomalies to fire more often than
+        they should.
+
+        Caller passes the start-of-today ISO string (e.g. "2026-05-16"); the
+        comparison works lexicographically against the UTC ISO timestamps in
+        the table (any "YYYY-MM-DDTHH:MM:SS..." string from today is >= the
+        bare date string). TZ note: there is an existing UTC-vs-local
+        approximation here matching the production `_count_transition` reset
+        check — not new to this fix.
+        """
+        try:
+            async with self._db() as db:
+                cursor = await db.execute(
+                    "SELECT COUNT(*) FROM house_state_log WHERE timestamp >= ?",
+                    (since_iso,),
+                )
+                row = await cursor.fetchone()
+                return int(row[0]) if row else 0
+        except Exception as e:
+            _LOGGER.error("Error counting house_state_log since %s: %s", since_iso, e)
+            return 0
 
     # =========================================================================
     # v3.1.6: ENERGY HISTORY LOGGING AND QUERIES
