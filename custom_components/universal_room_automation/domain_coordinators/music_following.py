@@ -338,6 +338,7 @@ class MusicFollowingCoordinator(BaseCoordinator):
                 AnomalySeverity as _NewSev,
                 EVENT_CLASS_POINT_IN_TIME,
                 build_context_json,
+                map_diag_severity,
             )
             _ctx = build_context_json(
                 source_signal="transfer_outcome_callback",
@@ -346,7 +347,8 @@ class MusicFollowingCoordinator(BaseCoordinator):
             _event = AnomalyEvent(
                 coordinator="music_following",
                 type=f"music_following.{metric}",
-                severity=_NewSev.CRITICAL if anomaly.severity.value == "critical" else _NewSev.WARNING,
+                # v4.6.6 D1: 1:1 mapping preserves all 4 z-score bands.
+                severity=map_diag_severity(anomaly.severity),
                 event_class=EVENT_CLASS_POINT_IN_TIME,
                 detected_at=anomaly.timestamp.isoformat(),
                 payload=_ctx,

@@ -9617,11 +9617,18 @@ class HouseNextRoomAccuracySensor(AggregationEntity, SensorEntity):
 # v4.6.2 D5 — per-person routine status sensor
 
 # Mapping from worst unacknowledged severity integer to state string.
+# v4.6.6: extended for 5-bucket AnomalySeverity (INFO=0/WARNING=1/ADVISORY=2/
+# ALERT=3/CRITICAL=4). CRITICAL is now 4, not 2; the int 2 now means ADVISORY.
+# Pre-v4.6.6 rows persisted with severity=2 (the old CRITICAL int) will be
+# read back as ADVISORY → "shifted" — see PLANNING_v4.6.6_severity_refactor.md
+# for the one-shot DB backfill that remaps the affected rows.
 _SEVERITY_TO_ROUTINE_STATE: dict[int | None, str] = {
-    None: "stable",   # no unacknowledged rows
-    0: "drifting",    # AnomalySeverity.INFO
-    1: "shifted",     # AnomalySeverity.WARNING
-    2: "major_shift", # AnomalySeverity.CRITICAL
+    None: "stable",       # no unacknowledged rows
+    0: "drifting",        # AnomalySeverity.INFO
+    1: "shifted",         # AnomalySeverity.WARNING
+    2: "shifted",         # AnomalySeverity.ADVISORY (z 2-3)
+    3: "shifted",         # AnomalySeverity.ALERT (z 3-4)
+    4: "major_shift",     # AnomalySeverity.CRITICAL (z > 4)
 }
 
 
