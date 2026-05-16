@@ -719,6 +719,7 @@ class AnomalyDetector:
         metric_names: List[str],
         minimum_samples: Optional[int] = None,
         sensitivity_multiplier: float = 1.0,
+        suppressed_metric_names: Optional["frozenset[str]"] = None,
     ) -> None:
         """Initialize the anomaly detector.
 
@@ -727,6 +728,18 @@ class AnomalyDetector:
                 > 1.0 = quieter (fewer flags); < 1.0 = more sensitive (more flags).
                 Applied once at init from the user's options-flow sensitivity bucket.
                 See ANOMALY_SENSITIVITY_MULTIPLIERS in const.py.
+            suppressed_metric_names: v4.6.5.3 surface fix. Metrics in this set
+                are treated as "in-memory only" — `record_observation` still runs
+                so `_active_anomalies` grows for diagnostic visibility, but
+                `get_worst_severity()` and the `active_anomalies` count in
+                `get_status_summary()` EXCLUDE them. Without this filter, the
+                per-coordinator anomaly sensor reports `state: critical` whenever
+                a degenerate-shape metric (e.g. v4.6.5-suppressed
+                `hvac.zone_call_frequency`) fires its in-memory anomaly — which
+                is misleading because the metric was explicitly suppressed from
+                persistence precisely because its shape is degenerate.
+                Companion to each coordinator's module-level
+                `*_SUPPRESSED_FROM_PERSISTENCE` constant from v4.6.5.1 P2.
         """
         self.hass = hass
         self.coordinator_id = coordinator_id
@@ -743,6 +756,26 @@ class AnomalyDetector:
         self._active_anomalies: list[AnomalyRecord] = []
         self._anomalies_today: int = 0
         self._anomaly_reset_date: str = ""
+        # v4.6.5.3 surface fix: suppressed metrics filtered out of severity.
+        self._suppressed_metric_names: "frozenset[str]" = (
+            suppressed_metric_names if suppressed_metric_names is not None
+            else frozenset()
+        )
+
+    def _persisted_active_anomalies(self) -> list:
+        """v4.6.5.3 surface fix: return only the anomalies whose metric is NOT
+        in `_suppressed_metric_names`. Used by `get_worst_severity()` and the
+        `active_anomalies` count in `get_status_summary()` so the per-
+        coordinator anomaly sensor's reported severity matches the
+        anomaly_log-eligible signal — not the in-memory count of degenerate-
+        shape suppressed metrics.
+        """
+        if not self._suppressed_metric_names:
+            return list(self._active_anomalies)
+        return [
+            a for a in self._active_anomalies
+            if a.metric_name not in self._suppressed_metric_names
+        ]
 
     @property
     def _database(self) -> Any:
@@ -858,8 +891,18 @@ class AnomalyDetector:
         return LearningStatus.INSUFFICIENT_DATA
 
     def get_worst_severity(self) -> AnomalySeverity:
-        """Return the worst active anomaly severity."""
-        if not self._active_anomalies:
+        """Return the worst active anomaly severity.
+
+        v4.6.5.3 surface fix: filters out anomalies for metrics in
+        `_suppressed_metric_names` so the per-coordinator anomaly sensor's
+        reported severity reflects the anomaly_log-eligible signal, not the
+        in-memory firing of suppressed-from-persistence degenerate-shape
+        metrics. Without this, the sensor reports `critical` permanently
+        whenever a suppressed metric fires (e.g. zone_call_frequency on
+        every morning HVAC warm-up).
+        """
+        persisted = self._persisted_active_anomalies()
+        if not persisted:
             return AnomalySeverity.NOMINAL
 
         severity_order = {
@@ -869,7 +912,7 @@ class AnomalyDetector:
             AnomalySeverity.CRITICAL: 3,
         }
         worst = max(
-            self._active_anomalies,
+            persisted,
             key=lambda a: severity_order.get(a.severity, 0),
         )
         return worst.severity
@@ -901,6 +944,14 @@ class AnomalyDetector:
             elif baseline.sample_count == 0:
                 silent_metrics.append(metric_name)
         total = len(self.metric_names) or 1  # avoid "0/0" if empty
+        # v4.6.5.3 surface fix: `active_anomalies` reports persisted-eligible
+        # count (suppressed metrics excluded). Add `suppressed_active_anomalies`
+        # for in-memory-only visibility — operators can still see the suppressed
+        # metric is firing without the sensor's primary state going `critical`.
+        persisted_active = self._persisted_active_anomalies()
+        suppressed_active = (
+            len(self._active_anomalies) - len(persisted_active)
+        )
         summary: Dict[str, Any] = {
             "coordinator_id": self.coordinator_id,
             "scope": scope,
@@ -908,7 +959,8 @@ class AnomalyDetector:
             "minimum_samples": self.minimum_samples,
             "metrics_active_ratio": f"{active_count}/{total}",
             "metrics_silent": silent_metrics,
-            "active_anomalies": len(self._active_anomalies),
+            "active_anomalies": len(persisted_active),
+            "suppressed_active_anomalies": suppressed_active,
             "anomalies_today": self._anomalies_today,
             "metrics": {},
         }

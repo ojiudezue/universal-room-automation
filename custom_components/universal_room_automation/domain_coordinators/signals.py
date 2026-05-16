@@ -21,6 +21,11 @@ SIGNAL_NM_ALERT_STATE_CHANGED: Final = "ura_nm_alert_state_changed"
 SIGNAL_PERSON_ARRIVING: Final = "ura_person_arriving"
 SIGNAL_ENERGY_ENTITIES_UPDATE: Final = "ura_energy_entities_update"
 SIGNAL_ACTIVITY_LOGGED: Final = "ura_activity_logged"
+# v4.6.5.3 M2: dispatched once from __init__.py when the URA database is
+# first added to hass.data[DOMAIN]["database"]. Sensors that need the DB on
+# startup (e.g. URARecentAnomaliesSensor) subscribe to this instead of
+# polling hass.data. Replaces v4.6.5.2's 30-attempt × 1s polling helper.
+SIGNAL_DATABASE_READY: Final = "ura_database_ready"
 SIGNAL_BAYESIAN_UPDATED: Final = "ura_bayesian_updated"
 SIGNAL_OCCUPANCY_ANOMALY: Final = "ura_occupancy_anomaly"
 
