@@ -20,11 +20,70 @@ class AnomalySeverity(IntEnum):
 
     Replaces 8 different severity vocabularies found in the v4.5.0 survey.
     Stored as integer in DB; human-readable label available via .name.
+
+    v4.6.6 — expanded from 3 buckets to 5 to preserve fidelity from the
+    internal coordinator_diagnostics.AnomalySeverity (NOMINAL / ADVISORY /
+    ALERT / CRITICAL) classifier through to the persisted anomaly_log row.
+    Previously every emit site collapsed ADVISORY and ALERT into WARNING,
+    making severity-grouped analytics unable to tell them apart.
+
+    Sort order is preserved: higher integer value = more severe. Code that
+    filters with `severity >= N` continues to work for INFO/WARNING; the
+    CRITICAL threshold moves from 2 to 4, so any caller hardcoding the
+    integer 2 to mean CRITICAL must use the enum symbol instead.
     """
 
-    INFO = 0      # Observation worth recording; no action required
-    WARNING = 1   # Unexpected; caller should act on this; cleanable
-    CRITICAL = 2  # Urgent; usually wires NM notification
+    INFO = 0       # Observation worth recording; no action required
+    WARNING = 1    # Unexpected; caller should act on this; cleanable
+    ADVISORY = 2   # z-score 2.0-3.0 — early signal, watch but no alert
+    ALERT = 3      # z-score 3.0-4.0 — notable, warrants attention
+    CRITICAL = 4   # z-score > 4.0 / urgent; usually wires NM notification
+
+
+# v4.6.6 D1: classifier-output → persisted-severity 1:1 mapping. Coordinator
+# emit sites call `map_diag_severity()` instead of the legacy 2-way ternary
+# (`_NewSev.CRITICAL if ... == "critical" else _NewSev.WARNING`) so the
+# ADVISORY (z 2-3) and ALERT (z 3-4) bands persist as distinct integer values
+# in `anomaly_log.severity` instead of both collapsing to WARNING. Reviewers
+# A-M2 + B-M1 in the v4.6.5 Tier 2-DB review flagged the collapse.
+_DIAG_TO_EVENT_SEVERITY = {
+    # keys: coordinator_diagnostics.AnomalySeverity StrEnum .value strings
+    "nominal":  AnomalySeverity.INFO,
+    "advisory": AnomalySeverity.ADVISORY,
+    "alert":    AnomalySeverity.ALERT,
+    "critical": AnomalySeverity.CRITICAL,
+}
+
+
+def map_diag_severity(diag_sev: Any) -> "AnomalySeverity":
+    """Map a coordinator_diagnostics.AnomalySeverity to the persisted IntEnum.
+
+    Accepts either the StrEnum instance (preferred) or its `.value` string.
+    Unknown inputs fall back to WARNING — same defensive default the prior
+    2-way idiom produced for non-CRITICAL classifier outputs. This keeps the
+    behavior for any caller that doesn't yet use the canonical scale.
+
+    v4.6.6 review B-M1: logs a WARNING when the fallback fires so future
+    classifier vocabulary drift (e.g., adding a 5th StrEnum bucket like
+    "fatal") doesn't silently land as WARNING — surfaces the mismatch in
+    home-assistant.log for diagnosis.
+
+    Used by all 5 coordinator emit sites — see the v4.6.6 D1 migration in
+    `docs/planning/PLANNING_v4.6.6_severity_refactor.md`.
+    """
+    key = getattr(diag_sev, "value", diag_sev)
+    if key not in _DIAG_TO_EVENT_SEVERITY:
+        import logging
+        _logger = logging.getLogger(__name__)
+        _logger.warning(
+            "map_diag_severity: unknown classifier bucket %r, defaulting to "
+            "WARNING. The coordinator_diagnostics.AnomalySeverity StrEnum "
+            "may have added a new member that isn't in _DIAG_TO_EVENT_SEVERITY. "
+            "Update the mapping table to preserve the new bucket's fidelity.",
+            key,
+        )
+        return AnomalySeverity.WARNING
+    return _DIAG_TO_EVENT_SEVERITY[key]
 
 
 # Valid event_class literal values. Enforced by convention; a StrEnum would

@@ -1170,17 +1170,21 @@ def _load_anomaly_event_module():
 # Behavioral: AnomalyEvent dataclass fields and constants
 
 def test_anomaly_event_severity_enum_values():
-    """Behavioral: AnomalySeverity IntEnum must have INFO=0, WARNING=1, CRITICAL=2.
+    """Behavioral: AnomalySeverity IntEnum has 5 buckets after v4.6.6 expansion.
 
-    Converts D2/D3/D6 source-grep assertions about severity values into a
-    real behavioral test that instantiates the enum and checks numeric values.
+    v4.6.6: ADVISORY=2 and ALERT=3 inserted between WARNING and CRITICAL so the
+    coordinator_diagnostics StrEnum (NOMINAL/ADVISORY/ALERT/CRITICAL) maps 1:1
+    instead of collapsing ADVISORY+ALERT into WARNING. CRITICAL moved from 2 to 4.
     """
     mod = _load_anomaly_event_module()
     assert mod.AnomalySeverity.INFO == 0
     assert mod.AnomalySeverity.WARNING == 1
-    assert mod.AnomalySeverity.CRITICAL == 2
+    assert mod.AnomalySeverity.ADVISORY == 2
+    assert mod.AnomalySeverity.ALERT == 3
+    assert mod.AnomalySeverity.CRITICAL == 4
     # IntEnum: can be compared directly with int
     assert int(mod.AnomalySeverity.WARNING) == 1
+    assert int(mod.AnomalySeverity.CRITICAL) == 4
 
 
 def test_anomaly_event_class_constants():

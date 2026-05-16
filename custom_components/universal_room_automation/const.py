@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv4.6.5.3
+# Universal Room Automation vv4.6.6
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v4.6.5.3"
+VERSION: Final = "v4.6.6"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -1285,7 +1285,9 @@ CONF_ROUTINE_CHANGE_NOTIFICATION_MODE: Final = "routine_change_notification_mode
 # D6: Event-mode cooldown (days per cell before re-notifying)
 CONF_ROUTINE_EVENT_COOLDOWN_DAYS: Final = "routine_event_cooldown_days"
 
-# D6: Minimum severity floor (0=INFO, 1=WARNING, 2=CRITICAL)
+# D6: Minimum severity floor (v4.6.6: 0=INFO, 1=WARNING, 2=ADVISORY,
+# 3=ALERT, 4=CRITICAL — AnomalySeverity IntEnum expanded from 3 to 5
+# buckets in v4.6.6 so ADVISORY/ALERT persist as distinct values)
 CONF_ROUTINE_EVENT_MIN_SEVERITY: Final = "routine_event_min_severity"
 
 # D6: Advanced tunables for D4 JS-divergence algorithm
