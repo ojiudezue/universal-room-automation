@@ -240,13 +240,19 @@ def test_severity_mapping_now_callers_responsibility():
 # ===========================================================================
 
 
-def test_save_anomaly_event_handles_legacy_not_null_columns():
-    """v4.6.1.1 hotfix: anomaly_log schema declares observed_value/
-    expected_mean/expected_std/z_score/sample_size as NOT NULL. The DAO
-    must satisfy these constraints by extracting from event.payload when
-    legacy callers pack them there, or using 0.0/0 sentinels for new
-    AnomalyEvent emitters. Production warning surfaced as:
-    "NOT NULL constraint failed: anomaly_log.observed_value"
+def test_save_anomaly_event_legacy_payload_fallback_preserved():
+    """v4.6.7 supersedes v4.6.1.1: anomaly_log schema relaxed the 5 metric
+    columns to NULL-able, so the DAO no longer needs to synthesize 0.0/0
+    sentinels. BUT the legacy fallback chain (dataclass field → payload
+    top-level → payload['extra']) must remain for legacy callers that
+    bury values in payload — that path was the original v4.6.3 B1 fix
+    and protects against shape drift during future migrations.
+
+    Asserts:
+      - The simplified `_resolve_metric` helper exists in save_anomaly_event
+      - It uses `payload_dict.get(field_name)` (variable-driven) for fallback
+      - INSERT VALUES references the resolved locals (not raw None)
+      - The pre-v4.6.7 hardcoded ` or 0.0)` sentinel chain is GONE
     """
     src = Path(
         "custom_components/universal_room_automation/database.py"
@@ -255,16 +261,34 @@ def test_save_anomaly_event_handles_legacy_not_null_columns():
     assert idx >= 0
     next_method = src.find("\n    async def ", idx + 1)
     block = src[idx: next_method if next_method > 0 else idx + 4000]
-    for field in ("observed_value", "expected_mean", "expected_std", "z_score", "sample_size"):
-        assert f'payload_dict.get("{field}"' in block, (
-            f"v4.6.1.1: save_anomaly_event must extract {field} from payload "
-            f"with a non-None default to satisfy the legacy NOT NULL schema"
-        )
-    # And the INSERT VALUES must reference the locals, not None
+
+    # v4.6.7: the simplified helper must exist
+    assert "_resolve_metric" in block, (
+        "v4.6.7: save_anomaly_event must define a `_resolve_metric` helper "
+        "that returns None for missing fields (no longer synthesizes sentinels)"
+    )
+    # v4.6.7: payload-fallback chain still in place (via the helper)
+    assert "payload_dict.get(field_name)" in block, (
+        "v4.6.7: _resolve_metric must keep the legacy payload-top-level "
+        "fallback for callers that bury values in event.payload"
+    )
+    assert '_payload_extra.get(field_name)' in block, (
+        "v4.6.7: _resolve_metric must keep the legacy payload['extra'] "
+        "fallback for the intermediate-migration shape"
+    )
+    # v4.6.7: pre-v4.6.7 sentinel synthesis chain must be GONE
+    assert " or 0.0)" not in block, (
+        "v4.6.7: the legacy ` or 0.0)` sentinel chain must be removed. "
+        "NULL now passes through honestly; the schema was relaxed to allow it."
+    )
+    assert " or 0)" not in block, (
+        "v4.6.7: same for sample_size — ` or 0)` sentinel chain removed"
+    )
+    # INSERT VALUES still references the resolved locals (not literal None)
     assert "                        observed_value," in block, (
-        "v4.6.1.1: INSERT VALUES tuple must pass `observed_value` local, "
-        "not None — None violates NOT NULL"
+        "v4.6.7: INSERT VALUES tuple must pass the resolved `observed_value` "
+        "local (which may be None now — schema permits it)"
     )
     assert "                        sample_size," in block, (
-        "v4.6.1.1: INSERT VALUES tuple must pass `sample_size` local"
+        "v4.6.7: INSERT VALUES tuple must pass `sample_size` local"
     )
