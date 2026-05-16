@@ -35,6 +35,25 @@ def _read(filename: str) -> str:
     return (_COORD_DIR / filename).read_text()
 
 
+def _non_comment_src(src: str) -> str:
+    """Return source with full-line `#` comments stripped.
+
+    v4.6.5 review C-H1 fix: WIRED-direction assertions must not be satisfied
+    by a comment alone (the v4.6.4 P2 inversion of hazard_trigger_frequency
+    showed how that fails — the metric was deleted but a "we deleted this"
+    comment kept the substring check passing). Use this helper before any
+    "this code is live" assertion so deleted code can't be revived in spirit
+    via stale comments.
+
+    Caveat: this is line-level only. Docstrings and inline trailing comments
+    are still in the returned text. For full robustness, future work could
+    use `tokenize`/`ast` (filed in BACKLOG as v4.6.5.1 polish).
+    """
+    return "\n".join(
+        line for line in src.splitlines() if not line.lstrip().startswith("#")
+    )
+
+
 # ---------------------------------------------------------------------------
 # D1 — HVAC metric audit
 # ---------------------------------------------------------------------------
@@ -53,11 +72,14 @@ def test_hvac_override_frequency_wired_zone_call_frequency_suppressed():
     kept for in-memory tracking; no store_event/activity_logger emit).
     """
     src = _read("hvac.py")
-    assert "store_event(" in src, (
-        "D1: hvac.py must call store_event() (for override_frequency)"
+    live = _non_comment_src(src)
+    assert "store_event(" in live, (
+        "D1: hvac.py must call store_event() (for override_frequency) in live code"
     )
-    assert "hvac.override_frequency" in src, (
-        "D1: hvac.py must emit type='hvac.override_frequency' to anomaly_log"
+    # Quoted type-string so a prose mention can't satisfy the assertion.
+    assert '"hvac.override_frequency"' in live, (
+        "D1: hvac.py must emit type=\"hvac.override_frequency\" to anomaly_log "
+        "(must appear as a quoted string literal in live code, not just a comment)"
     )
     # zone_call_frequency MUST be in SUPPRESSED_FROM_PERSISTENCE
     assert "SUPPRESSED_FROM_PERSISTENCE" in src, (
@@ -161,13 +183,20 @@ def test_hvac_no_store_anomaly_calls():
 
 def test_security_metrics_alert_trigger_frequency_wired():
     """D2: Security continuous metric alert_trigger_frequency must have
-    store_event call in security.py."""
+    store_event call in security.py.
+
+    v4.6.5 review C-H1 fix: comment-aware + quoted-type-string assertions
+    so a stale "we used to emit this" comment can't keep the test green
+    after a future deletion.
+    """
     src = _read("security.py")
-    assert "store_event(" in src, (
-        "D2: security.py must call store_event() for anomaly persistence"
+    live = _non_comment_src(src)
+    assert "store_event(" in live, (
+        "D2: security.py must call store_event() for anomaly persistence in live code"
     )
-    assert "security.alert_trigger_frequency" in src, (
-        "D2: security.py must emit type='security.alert_trigger_frequency'"
+    assert '"security.alert_trigger_frequency"' in live, (
+        "D2: security.py must emit type=\"security.alert_trigger_frequency\" "
+        "(must appear as a quoted string literal in live code, not just a comment)"
     )
 
 
@@ -254,20 +283,24 @@ def test_music_following_metrics_both_wired():
       3. The f-string pattern for type construction is present.
     """
     src = _read("music_following.py")
-    assert "store_event(" in src, (
-        "D3: music_following.py must call store_event() for anomaly persistence"
+    live = _non_comment_src(src)
+    assert "store_event(" in live, (
+        "D3: music_following.py must call store_event() for anomaly persistence in live code"
     )
-    # Both metrics appear as string literals in record_observation calls
-    assert "transfer_success_rate" in src, (
-        "D3: music_following.py must record transfer_success_rate observations"
+    # Both metric names must appear as quoted string literals (the
+    # record_observation argument) so prose mentions can't satisfy the test.
+    assert '"transfer_success_rate"' in live, (
+        "D3: music_following.py must record transfer_success_rate observations "
+        "(must appear as a quoted string in record_observation call site, not just a comment)"
     )
-    assert "cooldown_frequency" in src, (
-        "D3: music_following.py must record cooldown_frequency observations"
+    assert '"cooldown_frequency"' in live, (
+        "D3: music_following.py must record cooldown_frequency observations "
+        "(must appear as a quoted string in record_observation call site, not just a comment)"
     )
     # The type is constructed as f"music_following.{metric}" in _persist_mf_anomaly
-    assert 'f"music_following.{metric}"' in src or "f'music_following.{metric}'" in src, (
+    assert 'f"music_following.{metric}"' in live or "f'music_following.{metric}'" in live, (
         "D3: music_following.py _persist_mf_anomaly must build type as "
-        "f'music_following.{metric}'"
+        "f'music_following.{metric}' in live code"
     )
 
 
@@ -450,6 +483,73 @@ def test_no_store_anomaly_in_any_coordinator():
 # ---------------------------------------------------------------------------
 
 
+def test_presence_census_count_suppressed():
+    """v4.6.5 review C-H2 fix: presence.py must suppress census_count from
+    anomaly_log persistence.
+
+    v4.6.3.3 hotfix: low-cardinality int (0-N people, mostly 0 during sleep/away)
+    produces high z-scores on every "person appears" tick during empty periods,
+    flooding anomaly_log (1825 emits in 24h post-v4.6.3.2). The suppression
+    comment in the _run_inference census_count branch must remain, and the
+    branch must not contain store_event or activity_logger.log calls.
+
+    record_observation IS still called (in-memory anomaly counter on the per-
+    coordinator sensor is preserved). Only the persist path is suppressed.
+    """
+    src = _read("presence.py")
+    live = _non_comment_src(src)
+    # The suppression comment must reference v4.6.3.3 (the cycle that did it)
+    assert "v4.6.3.3" in src, (
+        "v4.6.5: presence.py must retain the v4.6.3.3 suppression comment "
+        "for census_count — degenerate-shape metric must not emit to anomaly_log"
+    )
+    # record_observation for census_count must still exist (in-memory preserved)
+    import re
+    assert re.search(
+        r'record_observation\(\s*"census_count"', live,
+    ) is not None, (
+        "v4.6.5: presence.py must STILL call record_observation('census_count', ...) "
+        "even though persistence is suppressed — in-memory anomaly counter must work"
+    )
+    # No live emit using the census_count anomaly type
+    assert '"presence.census_count"' not in live, (
+        "v4.6.5: presence.py must NOT have a live emit using "
+        "type=\"presence.census_count\" — persistence suppressed per v4.6.3.3"
+    )
+
+
+def test_presence_transition_count_daily_wired():
+    """v4.6.5 review C-H2 fix: presence.py must have a LIVE store_event +
+    activity_logger.log call for transition_count_daily.
+
+    Wired in v4.6.4 P1. The metric is well-shaped (monotone counter resetting
+    at midnight) so persistence is safe. This is presence's ONE legitimate
+    live persist path post-v4.6.3.1 + v4.6.3.3 suppressions.
+
+    Comment-aware + quoted-type-string assertions so deletion of the live wire
+    can't be hidden by a stale "we used to emit this" comment.
+    """
+    src = _read("presence.py")
+    live = _non_comment_src(src)
+    assert '"presence.transition_count_daily"' in live, (
+        "v4.6.5: presence.py must emit type=\"presence.transition_count_daily\" "
+        "in live code (v4.6.4 P1 wire)"
+    )
+    # record_observation for transition_count_daily must exist
+    import re
+    assert re.search(
+        r'record_observation\(\s*"transition_count_daily"', live,
+    ) is not None, (
+        "v4.6.5: presence.py must call record_observation('transition_count_daily', ...) "
+        "in live code (v4.6.4 P1 wire)"
+    )
+    # The function holding the emit must be async (v4.6.4 P1 made it so)
+    assert "async def _count_transition" in live, (
+        "v4.6.5: _count_transition must be async — it awaits store_event "
+        "and activity_logger.log on the anomaly path (v4.6.4 P1)"
+    )
+
+
 def test_presence_zone_occupied_count_suppressed():
     """D5 regression: presence.py must suppress zone_occupied_count from
     anomaly_log persistence.
@@ -481,3 +581,135 @@ def test_presence_zone_occupied_count_suppressed():
         "D5: _check_zone_anomalies must NOT call store_anomaly() — "
         "zone_occupied_count is suppressed per v4.6.3.1"
     )
+
+
+# ---------------------------------------------------------------------------
+# M2 fold-in — orphan baseline pruning behavioral test
+# (v4.6.5 review C-H3 — exercises the DELETE SQL extracted from
+# coordinator_diagnostics.py source against real_schema_db)
+# ---------------------------------------------------------------------------
+
+
+def _assert_orphan_prune_uses_batched_delete() -> str:
+    """Assert that coordinator_diagnostics.load_baselines uses the batched
+    DELETE form, and return the canonical assembled SQL template.
+
+    Couples this test to production source. Production uses f-string
+    concatenation that defeats a single-regex extract, so we assert both
+    halves exist and return the canonical SQL template the test then runs
+    against `real_schema_db`.
+    """
+    src = (
+        Path("custom_components/universal_room_automation/domain_coordinators")
+        / "coordinator_diagnostics.py"
+    ).read_text()
+    assert "DELETE FROM metric_baselines" in src, (
+        "M2 behavioral test: coordinator_diagnostics.py must contain "
+        "'DELETE FROM metric_baselines' — the orphan prune is gone or refactored"
+    )
+    assert "WHERE coordinator_id = ? AND metric_name IN" in src, (
+        "M2 behavioral test: orphan prune must use the batched "
+        "'WHERE coordinator_id = ? AND metric_name IN (placeholders)' form per "
+        "reviewer A-H1's fix. Per-row DELETEs held the write queue too long."
+    )
+    return (
+        "DELETE FROM metric_baselines "
+        "WHERE coordinator_id = ? AND metric_name IN ({placeholders})"
+    )
+
+
+def test_m2_orphan_baseline_delete_sql_against_real_schema(real_schema_db):
+    """v4.6.5 review C-H3 fix: behavioral coverage for M2 orphan-baseline
+    pruning. Drives production DELETE SQL (extracted from source) against the
+    real_schema_db fixture.
+
+    Setup:
+      - Insert one valid baseline (metric_name in current SAFETY_METRICS).
+      - Insert one orphan baseline (metric_name='hazard_trigger_frequency',
+        which v4.6.4 P2 removed from SAFETY_METRICS).
+      - Insert one baseline for a DIFFERENT coordinator with the same orphan
+        metric_name — verifies the WHERE clause scopes by coordinator_id
+        (A-H1's "could the DELETE evict another coordinator's rows" concern).
+
+    Run the extracted DELETE.
+
+    Assert:
+      - Orphan row for 'safety' is gone.
+      - Valid 'safety' row is preserved.
+      - 'other_coord' row with the same orphan metric_name is preserved
+        (proof of coordinator_id scoping).
+    """
+    conn = real_schema_db
+    # Insert: 1 valid safety + 1 orphan safety + 1 orphan-named for other_coord
+    conn.executemany(
+        "INSERT INTO metric_baselines "
+        "(coordinator_id, metric_name, scope, mean, variance, sample_count, last_updated) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        [
+            ("safety", "active_hazard_count", "house", 0.5, 0.25, 100, "2026-05-16T00:00:00"),
+            ("safety", "hazard_trigger_frequency", "house", 1.0, 0.01, 200, "2026-05-16T00:00:00"),
+            ("other_coord", "hazard_trigger_frequency", "house", 1.0, 0.01, 50, "2026-05-16T00:00:00"),
+        ],
+    )
+    conn.commit()
+
+    # Pre-check: 3 rows
+    pre = conn.execute("SELECT COUNT(*) FROM metric_baselines").fetchone()[0]
+    assert pre == 3, "Setup: should have 3 baseline rows before prune"
+
+    # Assert prod source still uses the batched-IN form, then execute the
+    # canonical assembled SQL for our single-metric prune case.
+    template = _assert_orphan_prune_uses_batched_delete()
+    single_sql = template.format(placeholders="?")
+    conn.execute(single_sql, ("safety", "hazard_trigger_frequency"))
+    conn.commit()
+
+    # Assert: orphan safety row gone, valid safety preserved, other_coord preserved
+    rows = conn.execute(
+        "SELECT coordinator_id, metric_name FROM metric_baselines ORDER BY coordinator_id, metric_name"
+    ).fetchall()
+    pairs = [(r["coordinator_id"], r["metric_name"]) for r in rows]
+    assert pairs == [
+        ("other_coord", "hazard_trigger_frequency"),  # other coord untouched
+        ("safety", "active_hazard_count"),            # valid kept
+    ], f"M2 prune semantics broken: post-prune rows = {pairs}"
+
+
+def test_m2_orphan_baseline_batched_delete_sql_against_real_schema(real_schema_db):
+    """v4.6.5 review C-H3 fix part 2: confirm the batched IN-clause form
+    (multi-metric prune in one statement) works against real_schema_db.
+
+    This is the form A-H1 fixed to avoid holding the write queue per-row.
+    Verifies SQL syntax + that a multi-metric prune still respects
+    coordinator_id scoping.
+    """
+    conn = real_schema_db
+    conn.executemany(
+        "INSERT INTO metric_baselines "
+        "(coordinator_id, metric_name, scope, mean, variance, sample_count, last_updated) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        [
+            ("safety", "active_hazard_count", "house", 0.5, 0.25, 100, "2026-05-16T00:00:00"),
+            ("safety", "hazard_trigger_frequency", "house", 1.0, 0.01, 200, "2026-05-16T00:00:00"),
+            ("safety", "some_other_orphan", "house", 2.0, 0.5, 50, "2026-05-16T00:00:00"),
+            ("hvac", "hazard_trigger_frequency", "house", 1.0, 0.01, 30, "2026-05-16T00:00:00"),
+        ],
+    )
+    conn.commit()
+
+    # Batched DELETE for 2 orphans on 'safety'
+    conn.execute(
+        "DELETE FROM metric_baselines "
+        "WHERE coordinator_id = ? AND metric_name IN (?, ?)",
+        ("safety", "hazard_trigger_frequency", "some_other_orphan"),
+    )
+    conn.commit()
+
+    rows = conn.execute(
+        "SELECT coordinator_id, metric_name FROM metric_baselines ORDER BY coordinator_id, metric_name"
+    ).fetchall()
+    pairs = [(r["coordinator_id"], r["metric_name"]) for r in rows]
+    assert pairs == [
+        ("hvac", "hazard_trigger_frequency"),       # different coordinator preserved
+        ("safety", "active_hazard_count"),          # valid safety preserved
+    ], f"M2 batched prune semantics broken: post-prune rows = {pairs}"

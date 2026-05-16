@@ -1017,12 +1017,20 @@ class AnomalyDetector:
                         self.coordinator_id,
                         [f"{m}@{s}" for m, s in orphan_keys],
                     )
-                    for metric_name, scope in orphan_keys:
-                        await db.execute(
-                            "DELETE FROM metric_baselines "
-                            "WHERE coordinator_id = ? AND metric_name = ? AND scope = ?",
-                            (self.coordinator_id, metric_name, scope),
-                        )
+                    # v4.6.5 review A-H1: batch the prune into a single DELETE
+                    # so we hold the write queue for one statement, not N.
+                    # The prune only runs when orphans exist (first restart
+                    # after a metric is removed), so this is a one-time cost
+                    # rather than ongoing — but keeping the writer slot tight
+                    # avoids contention with concurrent setup_entry on the
+                    # other AnomalyDetector coordinators.
+                    distinct_metrics = {m for m, _ in orphan_keys}
+                    placeholders = ",".join("?" for _ in distinct_metrics)
+                    await db.execute(
+                        f"DELETE FROM metric_baselines "
+                        f"WHERE coordinator_id = ? AND metric_name IN ({placeholders})",
+                        (self.coordinator_id, *distinct_metrics),
+                    )
                     await db.commit()
 
                 _LOGGER.debug(

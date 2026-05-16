@@ -216,10 +216,16 @@ class MusicFollowingCoordinator(BaseCoordinator):
                 "transfer_success_rate", "house", success_rate,
             )
             if anomaly:
-                self.hass.async_create_task(
+                # v4.6.5 review B-H1: track the persist task in the existing
+                # _pending_tasks set so async_unload_entry can await/cancel it
+                # (avoids the v4.6.3 A5 untracked-task class — task running
+                # after anomaly_detector / database teardown).
+                task = self.hass.async_create_task(
                     self._persist_mf_anomaly(anomaly, "transfer_success_rate", success_rate),
                     name="ura_mf_persist_transfer_success_rate",
                 )
+                self._pending_tasks.add(task)
+                task.add_done_callback(self._pending_tasks.discard)
 
             # cooldown_frequency: proportion of cooldown-blocked transfers
             cooldown_rate = stats.get("cooldown_blocked", 0) / total
@@ -227,10 +233,12 @@ class MusicFollowingCoordinator(BaseCoordinator):
                 "cooldown_frequency", "house", cooldown_rate,
             )
             if anomaly2:
-                self.hass.async_create_task(
+                task2 = self.hass.async_create_task(
                     self._persist_mf_anomaly(anomaly2, "cooldown_frequency", cooldown_rate),
                     name="ura_mf_persist_cooldown_frequency",
                 )
+                self._pending_tasks.add(task2)
+                task2.add_done_callback(self._pending_tasks.discard)
 
             # v4.5.20: fire refresh signal so MusicFollowingAnomalySensor
             # re-renders attrs after each transfer. MF is event-driven

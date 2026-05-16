@@ -199,7 +199,12 @@ Fix: remove `store_event` + `activity_logger.log` calls inside `_check_zone_anom
 **Filed for v4.6.5.1 polish:**
 - Music Following stats instrumentation investigation (mean=0 success rate over 1594 samples is suspicious)
 - Music Following metric-direction review (success-rate-up should not be anomalous)
-- M2 / M3 carryovers from v4.6.4 review if not folded into this cycle
+- M3 carry-over from v4.6.4 review (`_transitions_today` RestoreEntity hydration) — NOT folded into v4.6.5
+- M2 carry-over from v4.6.4 review (orphan baseline pruning) — DID fold into v4.6.5 with behavioral test
+- **From v4.6.5 Tier 2-DB Review A (data integrity):** ALERT→WARNING severity collapse (M2 in A, M1 in B) — refactor all coordinator emit sites to map ADVISORY/ALERT/CRITICAL to distinct DB severity values. Also DAO `!= 0.0` sentinel ambiguity (pre-existing v4.6.3 B1 fix, worth hardening).
+- **From v4.6.5 Tier 2-DB Review B (migration):** `override_frequency` cumulative-counter risk — daily-resetting sawtooth may fire ADVISORY routinely from late-day high values. Mean=3.23 std=3.43 baseline already captures the daily range so risk is bounded vs zone_call_frequency, but proper fix is delta-emit or rolling-window rate. Soak observation noted in v4.6.5 README Live Validation step 2.
+- **From v4.6.5 Tier 2-DB Review C (tests):** `SUPPRESSED_FROM_PERSISTENCE` is a local set used only as documentation, not a runtime gate — convert to module-level constant introspected by meta-test (also addresses C-M1 forward-compat audit). And: line-level comment filter is fragile (docstrings would satisfy / break it) — switch to `tokenize`/`ast` walk. And: per-coordinator metric audit doesn't scale generically — add one parametric meta-test that imports each `*_METRICS` constant and asserts the union of wired + suppressed sets covers it.
+- README note for soak observers: zone_call_frequency anomalies are intentionally invisible in `sensor.ura_coordinator_manager_recent_anomalies` (suppression by design — the in-memory anomaly sensor still counts them).
 
 **Symptom:** HVAC `sensor.ura_hvac_coordinator_hvac_anomaly` shows `state=advisory, anomalies_today=3`. But `by_coordinator.hvac` in `recent_anomalies` is 0. Same shape affects security, music_following, and the safety-detector path (distinct from safety hazards which migrated in v4.6.3 D2).
 
