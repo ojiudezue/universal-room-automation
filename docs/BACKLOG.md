@@ -41,6 +41,122 @@ Codifies enforcement for the v4.6.3 Tier 2-DB directives (CLAUDE.md Tier 2-DB, Q
 
 **Cost:** ~5-6 hours for full build, partial builds supported (e.g., Layer 1 alone is ~2 hours).
 
+## Guest Mode Actuation — DESIGN CYCLE (filed, Tier 2 when promoted)
+
+**Status:** Filed 2026-05-15. URA detects guest mode (v4.6.2.2 hardened the detection) but does NOTHING with it. Real opportunity — the inferred state should drive behavior, not just sit on a sensor.
+
+### Concrete trigger (user-provided)
+
+**HVAC zone preset overrides under guest mode.** Specifically:
+
+| Zone | Preset | Normal range | Guest-mode range |
+|---|---|---|---|
+| Back Hallway | `home` | 70–77 °F | **70–75 °F** (tighter comfort band) |
+| Back Hallway | `sleep` | 70–78 °F | 70–78 °F (unchanged) |
+| Any zone | `away` | 65–80 °F | 65–80 °F (unchanged) |
+
+Semantics: guests get tighter comfort during waking hours; sleep + away unchanged. Generalizes to per-(zone, preset) override tables.
+
+### Generalized design
+
+Per-coordinator `guest_mode_overrides` config schema. Each coordinator that opts in declares which behaviors switch under guest mode. Config-flow / options-flow exposes:
+
+- **HVAC:** per-(zone, preset) cool_low/heat_high overrides
+- Default behavior under guest mode is "use normal preset" unless an override exists
+- Schema: a structured override list per zone in options, OR a single table sensor that users can edit
+
+Bonus: a `binary_sensor.ura_guest_mode_active_overrides_count` showing how many overrides are currently in effect.
+
+### Other guest-mode behaviors worth considering (user to triage)
+
+**HVAC**
+- Suppress the **Override Arrester** during guest mode — don't fight back when residents adjust thermostats for guests
+- Suppress **pre-cool / pre-heat banking** — banking interferes with present-moment comfort
+- Suppress **solar gain cover management** in occupied zones — guests don't know why blinds are closing
+- Skip **vacancy auto-off** for shared spaces guests are passing through
+
+**Lighting**
+- Skip **circadian color temperature shifts** in guest bedrooms (jarring for unfamiliar guests)
+- Skip **sleep protection** dimming in guest bedrooms (guests don't follow your schedule)
+- Slower or disabled **motion-driven auto-off** in shared spaces
+- Brighter default in shared spaces during evening
+
+**Music Following**
+- Disable entirely under guest mode (the auto-transfer pattern is for residents; guests confuse the targeting)
+
+**Notification Manager**
+- Suppress non-critical notifications to residents (don't ping during hosting)
+- Different routing (critical to phones not shared Sonos)
+- Extended quiet hours in shared spaces
+
+**Security**
+- Don't auto-arm based on resident geofence (guests staying after residents leave)
+- Higher motion-anomaly tolerance (guests trigger more "unusual" patterns by default)
+
+**Energy**
+- Disable **TOU-aware appliance scheduling** (don't defer washer/dishwasher when guest needs them)
+- Don't aggressively bank battery — keep more reserve for unpredictable load
+
+**Bayesian Predictor / Routine Awareness**
+- Already-partially-handled: suppress Bayesian learning during guest mode (per `feedback_no_fabrication` memory)
+- **NEW:** also exclude guest-mode periods from regime-detection windows so guests don't trigger false drift events
+- Expose `routine_status.guest_minutes_in_recent_window` for visibility
+
+**Cover Controller**
+- Skip auto-close at sunset in occupied common areas (guests may want light)
+- Skip privacy mode in shared spaces during guest evenings
+
+**Routine Awareness D5 sensors**
+- Add `house_state_filter: guest` toggle so the routine_status sensors can optionally exclude guest periods from the "recent" window
+
+### Scope phasing (suggested)
+
+- **Phase 1** (Tier 2 feature cycle): HVAC zone preset overrides (the user's concrete ask). ~150 prod LoC + per-zone options-flow fields + tests. Validates the overrides framework.
+- **Phase 2** (Tier 2): expand framework to other coordinators based on which suggestions user picks. Each new coordinator opt-in is incremental.
+- **Phase 3** (Tier 1): the visibility/observability bits (override count sensor, guest_minutes attribute).
+
+**Recall hint:** `"Resume URA roadmap — guest mode actuation"`
+
+## v4.6.3.3 — Census_count over-emit suppression — IN REVIEW 2026-05-15
+
+**Status:** Code complete on `feature/v4.6.3.3-census-count-suppression`. Tests pass. Awaiting Tier 1 review + deploy.
+
+**Symptom:** `sensor.ura_recent_anomalies.by_coordinator.presence = 1825` over 24h window. Top-10 dominated by `presence.census_count` emits. Same shape as v4.6.3.1 zone_occupancy bug, different metric.
+
+**Root cause:** `census_count` (people in house) is low-cardinality int — mostly 0 during sleep/away, 1-4 when occupied. Z-score detector with `minimum_samples=24` produces high z on every "person appears" tick during mostly-empty period.
+
+**Fix shipped (option a, mirrors v4.6.3.1 pattern):** strip the `store_event` + `activity_logger.log` branch inside the census_count anomaly handler in `presence._run_inference`. Keep `record_observation` so the in-memory per-coordinator anomaly sensor still counts. Citing comment references the 1825/24h observation and points at the proper deferred fix (Bayesian time-bin distributions per v4.6.2 routine-awareness shape).
+
+**Tests:** new `test_presence_census_count_persistence_suppressed` (mirrors v4.6.3.1's `test_presence_zone_occupancy_persistence_suppressed`). Two stale D3/D12 tests inverted to `test_presence_no_live_store_event_or_anomaly_event` + `test_presence_no_activity_logger_anomaly_calls` — presence has zero live emit paths post v4.6.3.1 + v4.6.3.3. Net: +1 test, 0 regressions.
+
+**Audit findings (recorded here so they aren't lost):**
+- `presence.transition_count_daily` — declared in PRESENCE_METRICS since v3.6.0-c1, never actually called. Wire-up filed as v4.6.4 below.
+- `safety.hazard_trigger_frequency` — always passed `1.0`, so std→0 → z-guard suppresses every emit. Dead code that *looks* like a degenerate-shape risk but actually fires nothing. Worth cleaning in v4.6.4 or v4.6.5.
+- `hvac.zone_call_frequency` / `hvac.override_frequency` — currently in-memory only (no persist path). When v4.6.5 wires HVAC `save_anomaly_event`, `zone_call_frequency` is the next-most-likely degenerate-shape candidate (low int, mostly 0-3). v4.6.5 D5 meta-test should explicitly check it against real-data cardinality before shipping.
+- `security.alert_trigger_frequency` / `music_following.*` — event-driven, low volume, defer.
+
+## v4.6.4 — Polish bundle (queued, Tier 1)
+
+Bundles small follow-ups that don't warrant standalone cycles.
+
+**P1: Wire up `presence.transition_count_daily` properly.** Metric is declared in PRESENCE_METRICS since v3.6.0-c1 but no `record_observation` call site ever existed. House-state transitions per day is a continuous, well-shaped metric (counter that grows through day, resets at midnight) — safe for z-score detection unlike `census_count`. Add `record_observation("transition_count_daily", "house", float(self._transitions_today))` at the end of `_run_inference` after a successful transition. Expose via per-coordinator anomaly sensor attribute. ~10 prod LoC + 1 behavioral test.
+
+**P2: Delete `safety.hazard_trigger_frequency` dead code.** Always-`1.0` observation, std→0, never fires. Remove from `SAFETY_METRICS` and remove the record_observation + store_event call. Keep `active_hazard_count` (it has real variance). ~10 LoC removed.
+
+**P3: Existing LOWs from v4.6.2.1 / .2.2 / .3 + v4.6.3 reviews** (see further down this file). Not load-bearing.
+
+**P4: Tighten `test_presence_no_activity_logger_anomaly_calls` regex (v4.6.3.3 review L1).** Current pattern `r"activity_logger\.log\([^)]*action=['\"]anomaly['\"]"` stops `[^)]*` at the first `)`, so a future re-introduction with a nested call before `action=` (e.g. `description=str(foo())`) silently passes. Defense-in-depth via the sibling `store_event(` substring check catches regressions today, but the regex itself is brittle. Switch to `re.DOTALL` + balanced-paren walk, or use AST. ~3 LoC test change. Filed by v4.6.3.3 Tier 1 reviewer.
+
+Tier 1 single review. ~30-50 LoC net. Recall hint: `"Resume URA roadmap — v4.6.4 polish"`.
+
+## v4.6.3.2 — Thread-safety hotfix for URARecentAnomaliesSensor — SHIPPED 2026-05-15
+
+Root cause of v4.6.3.1 deploy hang. `sensor.py:10321` `_handle_activity_logged` was calling `hass.async_create_task` from dispatcher subscriber. Dispatchers fire on whichever thread invoked `async_dispatcher_send` — recorder thread completions and sync workers triggered the call from non-event-loop threads, raising RuntimeError under ReportBehavior.ERROR for custom integrations. Cascading dispatcher exceptions starved the event loop → HA API unresponsive → memory bloat (symptom, not cause).
+
+Fix: `hass.async_create_task` → `hass.add_job` (canonical thread-safe scheduler). 1-line change. Confirmed live: zero thread-safety warnings post-deploy, sensors refreshing correctly, memory at 5.3 GB (within normal range), load avg under 1.0.
+
+**Lesson for QUALITY_CONTEXT:** any dispatcher subscriber that schedules async work must use `hass.add_job` not `hass.async_create_task`. Worth adding as Bug Class #42.
+
 ## v4.6.3.1 — Presence zone_occupancy persistence suppression — SHIPPING 2026-05-14
 
 Diagnosis (deeper than originally hypothesized): not "firing on every change" — `_check_zone_anomalies` records binary 0/1 occupancy into z-score AnomalyDetector for 5 zones on every `_run_inference` trigger (9+ triggers). Rarely-occupied zones produce z >= 4 → CRITICAL on every "occupied=1.0" observation. Net: 2117 emits in 3h.
