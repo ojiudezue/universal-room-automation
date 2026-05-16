@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.6.5.1
+# Universal Room Automation vv4.6.5.2
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -10302,6 +10302,10 @@ class URARecentAnomaliesSensor(AggregationEntity, SensorEntity):
         # will re-run once it completes instead of spawning a parallel task.
         self._refresh_in_flight: bool = False
         self._refresh_pending: bool = False
+        # v4.6.5.2 review H1 fix: handle for the deferred initial-load task so
+        # async_on_remove can cancel it if the entity is torn down during the
+        # 30-second DB-readiness retry window. v4.6.3 A5 bug class.
+        self._initial_load_task: "asyncio.Task | None" = None
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
@@ -10333,8 +10337,65 @@ class URARecentAnomaliesSensor(AggregationEntity, SensorEntity):
             self.hass, SIGNAL_ACTIVITY_LOGGED, _handle_activity_logged
         )
         self.async_on_remove(lambda: self._unsub() if self._unsub else None)
-        # Initial load
-        await self._async_refresh()
+        # v4.6.5.2 Fix 2: initial load with database-readiness retry.
+        # async_added_to_hass fires during CM entry setup, which races against
+        # room-entry setup that creates `hass.data[DOMAIN]["database"]`. Without
+        # a retry, the initial refresh silently returns (database is None) and
+        # the sensor stays at 0 until a SIGNAL_ACTIVITY_LOGGED dispatch arrives
+        # — which won't happen for suppressed metrics. Observed live post-
+        # v4.6.5 and v4.6.5.1 deploys: 603 anomaly_log rows in 24h window,
+        # sensor showed 0.
+        # v4.6.5.2 review H1 fix: name the task and register cancellation on
+        # entity removal so it doesn't outlive teardown (v4.6.3 A5 bug class).
+        self._initial_load_task = self.hass.async_create_task(
+            self._initial_load_with_db_retry(),
+            name="ura_recent_anomalies_initial_load",
+        )
+        self.async_on_remove(
+            lambda: self._initial_load_task.cancel()
+            if self._initial_load_task and not self._initial_load_task.done()
+            else None
+        )
+
+    async def _initial_load_with_db_retry(self) -> None:
+        """Wait for the URA database to be ready, then run the initial refresh.
+
+        Polls hass.data[DOMAIN]["database"] for readiness with a short backoff.
+        Bounded at 30 attempts × 1s = 30s total — well within HA startup window.
+        If the DB never appears, logs a warning and gives up gracefully (the
+        SIGNAL_ACTIVITY_LOGGED subscription will still refresh on later emits).
+
+        v4.6.5.2 review H1 fix: respects entity teardown by checking
+        self._unsub (cleared when the entity is removed) at each retry loop
+        iteration. Also catches asyncio.CancelledError silently so cancellation
+        during teardown doesn't log a stack trace.
+        """
+        import asyncio
+        max_attempts = 30
+        try:
+            for attempt in range(max_attempts):
+                # If the entity was removed mid-retry, bail without touching hass.
+                if self._unsub is None:
+                    return
+                if self.hass.data.get(DOMAIN, {}).get("database") is not None:
+                    await self._async_refresh()
+                    if attempt > 0:
+                        _LOGGER.debug(
+                            "RecentAnomaliesSensor initial load succeeded after "
+                            "%d retries (DB warmup)",
+                            attempt,
+                        )
+                    return
+                await asyncio.sleep(1.0)
+            _LOGGER.warning(
+                "RecentAnomaliesSensor: database never appeared in hass.data "
+                "after %d seconds; sensor will populate on next "
+                "SIGNAL_ACTIVITY_LOGGED dispatch",
+                max_attempts,
+            )
+        except asyncio.CancelledError:
+            # Entity was removed during retry — silent exit, no stack trace.
+            return
 
     async def _async_refresh(self) -> None:
         """Query anomaly_log for last 24 h using idx_anomaly_timestamp index.

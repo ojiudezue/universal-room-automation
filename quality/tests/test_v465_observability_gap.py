@@ -1071,3 +1071,181 @@ def test_count_house_state_changes_since_sql_against_real_schema(real_schema_db)
     assert count_future == 0, (
         f"P4 SQL semantics: no rows from future date, got {count_future}"
     )
+
+
+# ---------------------------------------------------------------------------
+# v4.6.5.2 — Investigation fixes (MF denominator + recent_anomalies retry)
+# ---------------------------------------------------------------------------
+
+
+def _on_transfer_outcome_body(src: str) -> str:
+    """Extract just the _on_transfer_outcome method body from MF coordinator
+    source. Used by the v4.6.5.2 Fix 1 tests so assertions are scoped to the
+    method that changed, not the whole file.
+    """
+    import re
+    m = re.search(
+        r"def _on_transfer_outcome\(self\).*?(?=\n    (?:async )?def )",
+        src,
+        re.DOTALL,
+    )
+    return m.group(0) if m else ""
+
+
+def test_mf_success_rate_uses_transfer_keys_as_denominator():
+    """v4.6.5.2 Fix 1: transfer_success_rate must divide by music-involved
+    attempts only (MusicFollowing._TRANSFER_KEYS), not sum(stats.values()).
+
+    Pre-v4.6.5.2 the denominator included pre-music rejections
+    (low_confidence, cooldown_blocked, ping_pong_suppressed) which dominated
+    the live baseline and crushed success_rate to ~0.0 over 1594 samples
+    even when actual music transfers succeeded.
+
+    v4.6.5.2 review L1 fix: asserts SEMANTIC INTENT (presence of
+    `music_attempts`, absence of `sum(stats.values())`) rather than the
+    exact syntactic shape of the assignment — so benign refactors like
+    `float(stats.get(...))` or `(stats.get(...) or 0)` don't false-positive.
+    """
+    src = _read("music_following.py")
+    # POSITIVE checks (identifiers must appear in live code, excluding
+    # comments but allowing docstrings — `_non_comment_src` is line-level):
+    live = _non_comment_src(src)
+    body = _on_transfer_outcome_body(live)
+    assert body, "Could not extract _on_transfer_outcome body"
+    assert "_TRANSFER_KEYS" in body, (
+        "v4.6.5.2 Fix 1: _on_transfer_outcome must reference _TRANSFER_KEYS "
+        "to scope the denominator to music-involved outcomes"
+    )
+    assert "music_attempts" in body, (
+        "v4.6.5.2 Fix 1: _on_transfer_outcome must compute `music_attempts` "
+        "(sum over _TRANSFER_KEYS) and use it as the success_rate denominator"
+    )
+    # NEGATIVE check (the legacy denominator must NOT be reintroduced as
+    # actual code). Extract the raw method body first, THEN tokenize, so
+    # docstring mentions of the historical pattern don't trip the assertion.
+    raw_body = _on_transfer_outcome_body(src)
+    assert raw_body, "Could not extract raw _on_transfer_outcome body"
+    tok_body = _non_string_src(
+        # Indentation-strip so tokenize can parse the method body standalone
+        "\n".join(line.lstrip() for line in raw_body.splitlines())
+    )
+    assert "sum ( stats . values ( ) )" not in tok_body, (
+        "v4.6.5.2 Fix 1: _on_transfer_outcome must NOT use sum(stats.values()) "
+        "as a denominator — pre-music rejections (low_confidence, "
+        "ping_pong_suppressed) dominate it and crush success_rate to ~0."
+    )
+
+
+def test_mf_cooldown_frequency_uses_post_confidence_denominator():
+    """v4.6.5.2 Fix 1 part 2: cooldown_frequency must divide by post-confidence
+    decisions (music_attempts + cooldown_blocked), giving "of decisions past
+    the confidence check, fraction blocked by cooldown".
+
+    Pre-v4.6.5.2 divided by sum(stats.values()) (all 7 outcomes), so when
+    low_confidence dominated, cooldown_rate was crushed regardless of how
+    often cooldown actually fired.
+
+    v4.6.5.2 review L1 fix: semantic-intent assertions.
+    """
+    src = _read("music_following.py")
+    live = _non_comment_src(src)
+    body = _on_transfer_outcome_body(live)
+    assert body, "Could not extract _on_transfer_outcome body"
+    assert "post_confidence_total" in body, (
+        "v4.6.5.2 Fix 1: _on_transfer_outcome must compute "
+        "`post_confidence_total` (music_attempts + cooldown_blocked) and use "
+        "it as the cooldown_rate denominator"
+    )
+    # NEGATIVE check (tokenizer-based — docstring-immune)
+    raw_body = _on_transfer_outcome_body(src)
+    assert raw_body, "Could not extract raw _on_transfer_outcome body"
+    tok_body = _non_string_src(
+        "\n".join(line.lstrip() for line in raw_body.splitlines())
+    )
+    assert "sum ( stats . values ( ) )" not in tok_body, (
+        "v4.6.5.2 Fix 1: see success-rate test — same denominator concern"
+    )
+
+
+def test_recent_anomalies_sensor_retries_db_ready_on_startup():
+    """v4.6.5.2 Fix 2: URARecentAnomaliesSensor.async_added_to_hass must
+    defer the initial refresh until hass.data[DOMAIN]["database"] is ready.
+
+    Pre-v4.6.5.2 the initial refresh fired immediately in async_added_to_hass.
+    If the CM entry sets up before the room entry creates the database
+    (concurrent setup race), the refresh returns silently (database is None
+    at line 10355) and the sensor stays at 0 until a SIGNAL_ACTIVITY_LOGGED
+    dispatch arrives. Suppressed metrics don't fire that signal — so for
+    households with only suppressed metrics active, the sensor never updates.
+
+    Observed live post-v4.6.5 and v4.6.5.1: DB had 603 rows in the 24h
+    window, sensor showed 0.
+
+    Asserts (source-grep):
+      - The class has an _initial_load_with_db_retry helper
+      - The helper polls hass.data for database readiness
+      - async_added_to_hass schedules the helper (not the bare _async_refresh)
+    """
+    src = (
+        Path("custom_components/universal_room_automation/sensor.py")
+    ).read_text()
+    # Locate the URARecentAnomaliesSensor class
+    cls_start = src.find("class URARecentAnomaliesSensor(")
+    assert cls_start >= 0, "Could not find URARecentAnomaliesSensor class"
+    # Find the next top-level class
+    next_cls = src.find("\nclass ", cls_start + 1)
+    cls_body = src[cls_start : next_cls if next_cls > 0 else len(src)]
+    cls_body_live = _non_comment_src(cls_body)
+
+    assert "_initial_load_with_db_retry" in cls_body_live, (
+        "v4.6.5.2 Fix 2: URARecentAnomaliesSensor must define "
+        "_initial_load_with_db_retry to defer the initial refresh until "
+        "the DB is in hass.data"
+    )
+    assert "async def _initial_load_with_db_retry" in cls_body_live, (
+        "v4.6.5.2 Fix 2: _initial_load_with_db_retry must be async"
+    )
+    # The retry helper must check hass.data for the database
+    import re
+    assert re.search(
+        r'hass\.data\.get\(DOMAIN,\s*\{\}\)\.get\("database"\)\s*is not None',
+        cls_body_live,
+    ) is not None, (
+        "v4.6.5.2 Fix 2: retry helper must check "
+        "hass.data.get(DOMAIN, {}).get('database') is not None"
+    )
+    # async_added_to_hass must schedule the retry helper, not bare _async_refresh
+    aath_match = re.search(
+        r"async def async_added_to_hass\(self\).*?(?=\n    (?:async )?def )",
+        cls_body_live,
+        re.DOTALL,
+    )
+    assert aath_match is not None, (
+        "Could not find async_added_to_hass body"
+    )
+    aath_body = aath_match.group(0)
+    assert "_initial_load_with_db_retry" in aath_body, (
+        "v4.6.5.2 Fix 2: async_added_to_hass must schedule "
+        "_initial_load_with_db_retry (not call _async_refresh directly, which "
+        "race-loses to DB setup)"
+    )
+    # v4.6.5.2 review L2 fix: semantic-intent check that catches the race
+    # regardless of where in the method body it gets reintroduced. The direct
+    # `await self._async_refresh()` call should not appear anywhere in
+    # async_added_to_hass — it must only be reachable via the retry helper.
+    assert "await self._async_refresh()" not in aath_body, (
+        "v4.6.5.2 Fix 2: async_added_to_hass must not call `await "
+        "self._async_refresh()` directly — that's the race we're fixing. "
+        "The call must only be reachable through _initial_load_with_db_retry."
+    )
+    # v4.6.5.2 review H1 fix: the retry task must be cancellable on teardown
+    assert "_initial_load_task" in cls_body_live, (
+        "v4.6.5.2 review H1: URARecentAnomaliesSensor must keep a handle to "
+        "the initial-load task (`_initial_load_task`) so async_on_remove can "
+        "cancel it. Otherwise the task outlives entity teardown — v4.6.3 A5 "
+        "untracked-task bug class."
+    )
+    assert ".cancel()" in cls_body_live, (
+        "v4.6.5.2 review H1: an async_on_remove handler must cancel "
+        "_initial_load_task on teardown"
+    )
