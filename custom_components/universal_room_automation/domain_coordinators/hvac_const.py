@@ -323,6 +323,29 @@ HVAC_METRICS: Final = [
     "comfort_deviation_hours",
 ]
 
+# v4.6.5.1 P2: Module-level suppression registry — promoted from a local set
+# inside _record_anomaly_observations so the parametric meta-test
+# (test_v465_observability_gap.py::test_every_metric_is_wired_or_suppressed)
+# can introspect it. Every metric in HVAC_METRICS must be EITHER wired (have
+# a record_observation call site in hvac.py) OR listed here with a comment
+# explaining why.
+#
+# Reasons each entry is suppressed:
+# - zone_call_frequency: cardinality audit (v4.6.5 pre-deploy) showed
+#   mean=0.378 std=0.678 on a 3-zone install → active_count=2 → z=2.39 →
+#   ADVISORY would fire routinely. Same shape family as the suppressed
+#   census_count (v4.6.3.3). record_observation is still called so the
+#   per-coordinator anomaly sensor keeps counting; only persistence is gated.
+# - short_cycle_rate / comfort_deviation_hours: defined in HVAC_METRICS but
+#   no record_observation call site exists — they are silent slots.
+#   Documented per v4.6.3.1 doctrine: silent metrics must be explicitly
+#   listed rather than silently absent.
+HVAC_SUPPRESSED_FROM_PERSISTENCE: Final = frozenset({
+    "zone_call_frequency",
+    "short_cycle_rate",
+    "comfort_deviation_hours",
+})
+
 # Minimum samples before anomaly detection activates (14 days * 24/day)
 HVAC_ANOMALY_MIN_SAMPLES: Final = 336
 
