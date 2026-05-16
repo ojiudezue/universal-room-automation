@@ -1642,7 +1642,7 @@ class PresenceCoordinator(BaseCoordinator):
                 elif current_state == HouseState.GUEST:
                     self._disarm_guest_gate()
 
-                self._count_transition()
+                await self._count_transition()
 
                 # Propagate sleep state to zones
                 if new_state == HouseState.SLEEP:
@@ -1858,8 +1858,15 @@ class PresenceCoordinator(BaseCoordinator):
         )
         await self.decision_logger.log_decision(decision)
 
-    def _count_transition(self) -> None:
-        """Count daily transitions."""
+    async def _count_transition(self) -> None:
+        """Count daily transitions and record observation for anomaly detection.
+
+        v4.6.4 P1: `transition_count_daily` was declared in PRESENCE_METRICS since
+        v3.6.0-c1 but never had a `record_observation` call site. The metric is
+        well-shaped — monotone within day (0,1,2…), resets at midnight — so
+        z-score persistence is safe (no degenerate-shape risk like census_count /
+        zone_occupied_count which were suppressed in v4.6.3.3 / v4.6.3.1).
+        """
         today = dt_util.now().date().isoformat()
         if today != self._transition_reset_date:
             self._transitions_today = 0
@@ -1869,6 +1876,63 @@ class PresenceCoordinator(BaseCoordinator):
                 tracker._face_arrivals_today = 0
             self._face_arrival_cooldown.clear()
         self._transitions_today += 1
+
+        # v4.6.4 P1: record and emit if anomalously high transition count
+        if self.anomaly_detector is None:
+            return
+        anomaly = self.anomaly_detector.record_observation(
+            "transition_count_daily",
+            DIAGNOSTICS_SCOPE_HOUSE,
+            float(self._transitions_today),
+        )
+        if not anomaly:
+            return
+        from .anomaly_event import (
+            AnomalyEvent,
+            AnomalySeverity as _NewSev,
+            EVENT_CLASS_POINT_IN_TIME,
+            build_context_json,
+        )
+        _ctx = build_context_json(
+            source_signal="SIGNAL_HOUSE_STATE_CHANGED",
+            extra={
+                "transitions_today": self._transitions_today,
+            },
+        )
+        _event = AnomalyEvent(
+            coordinator="presence",
+            type="presence.transition_count_daily",
+            severity=_NewSev.CRITICAL if anomaly.severity.value == "critical" else _NewSev.WARNING,
+            event_class=EVENT_CLASS_POINT_IN_TIME,
+            detected_at=anomaly.timestamp.isoformat(),
+            payload=_ctx,
+            observed_value=anomaly.observed_value,
+            expected_mean=anomaly.expected_mean,
+            expected_std=anomaly.expected_std,
+            z_score=round(anomaly.z_score, 3),
+            sample_size=anomaly.sample_size,
+        )
+        await self.anomaly_detector.store_event(_event)
+        _LOGGER.info(
+            "Presence transition_count_daily anomaly: z=%.2f count=%d severity=%s",
+            anomaly.z_score, self._transitions_today, anomaly.severity.value,
+        )
+        _activity_logger = self.hass.data.get(DOMAIN, {}).get("activity_logger")
+        if _activity_logger:
+            await _activity_logger.log(
+                coordinator="presence",
+                action="anomaly",
+                description=(
+                    f"Presence transition_count_daily anomaly z={anomaly.z_score:.2f} "
+                    f"count={self._transitions_today}"
+                ),
+                importance="notable",
+                details={
+                    "type": "presence.transition_count_daily",
+                    "z_score": round(anomaly.z_score, 3),
+                    "transitions_today": self._transitions_today,
+                },
+            )
 
     # ------------------------------------------------------------------
     # Outcome measurement
