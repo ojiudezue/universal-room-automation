@@ -45,6 +45,15 @@ MUSIC_FOLLOWING_METRICS = [
     "cooldown_frequency",
 ]
 
+# v4.6.5.1 P2: Module-level suppression registry — every metric in
+# MUSIC_FOLLOWING_METRICS must be EITHER wired (record_observation call in
+# this file) OR listed here. Introspected by the parametric meta-test in
+# test_v465_observability_gap.py. Both MF metrics are wired (see
+# _on_transfer_outcome) so this set is empty today; promoting it to a
+# named constant codifies the v4.6.3.1 doctrine and gives future
+# maintainers an obvious place to add a suppression rationale.
+MUSIC_FOLLOWING_SUPPRESSED_FROM_PERSISTENCE: frozenset[str] = frozenset()
+
 
 class MusicFollowingCoordinator(BaseCoordinator):
     """Domain coordinator for music following.

@@ -112,6 +112,11 @@ class HVACCoordinator(BaseCoordinator):
             priority=HVAC_COORDINATOR_PRIORITY,
         )
         self._zone_manager = ZoneManager(hass)
+        # v4.6.5.1 P1: track previous-cycle total_overrides so we can emit a
+        # per-cycle DELTA rather than the cumulative-daily count (which is a
+        # sawtooth that resets at midnight — late-day values fire ADVISORY just
+        # from natural accumulation per v4.6.5 review B-M2).
+        self._last_total_overrides_observed: int | None = None
         self._preset_manager = PresetManager(hass, max_sleep_offset=max_sleep_offset)
         self._override_arrester = OverrideArrester(
             hass, self._zone_manager,
@@ -1485,15 +1490,10 @@ class HVACCoordinator(BaseCoordinator):
           record_observation (no call site exists). SUPPRESSED_FROM_PERSISTENCE —
           metric is silent; z-score detection never fires for it.
         """
-        # v4.6.5: Metrics in HVAC_METRICS that are NOT wired to persistence.
-        # Reference: v4.6.3.1 binary-metric doctrine — only wire metrics whose
-        # distribution shape is suitable for z-score persistence.
-        SUPPRESSED_FROM_PERSISTENCE = {
-            "zone_call_frequency",       # degenerate shape — live audit above
-            "short_cycle_rate",          # no record_observation call site in hvac.py
-            "comfort_deviation_hours",   # no record_observation call site in hvac.py
-        }
-
+        # v4.6.5.1 P2: SUPPRESSED_FROM_PERSISTENCE was promoted to module-level
+        # constant `HVAC_SUPPRESSED_FROM_PERSISTENCE` in hvac_const.py so the
+        # parametric meta-test can introspect it. See that constant's docstring
+        # for the per-metric suppression rationale.
         if self.anomaly_detector is None:
             return
 
@@ -1518,12 +1518,42 @@ class HVACCoordinator(BaseCoordinator):
                 active_count, anomaly.severity.value, anomaly.z_score,
             )
 
-        # Override frequency (per day, logged on each cycle)
+        # Override frequency — per-cycle DELTA, not cumulative count.
+        # v4.6.5.1 P1 (review B-M2 fix): pre-v4.6.5.1 this emitted the
+        # cumulative total_overrides (resets at midnight, grows through day).
+        # Late-day high values produced ADVISORY z-fires just from natural
+        # accumulation. Emitting the per-cycle delta gives a stable-variance
+        # signal: zero when no new overrides this cycle, positive int when
+        # a zone got overridden. After midnight reset (total drops to 0)
+        # we skip one cycle's observation to avoid recording a negative
+        # delta artifact.
         total_overrides = sum(
             z.override_count_today for z in self._zone_manager.zones.values()
         )
+        previous_total = self._last_total_overrides_observed
+        # Always update the anchor before any return path so we re-seed on
+        # restart, daily reset, or first cycle.
+        self._last_total_overrides_observed = total_overrides
+
+        if previous_total is None:
+            # First observation post-init or post-reload — no delta possible.
+            delta = 0
+        else:
+            delta = total_overrides - previous_total
+
+        if delta < 0:
+            # Daily reset just happened (total dropped from N to a smaller
+            # value). Skip the observation to avoid polluting the baseline
+            # with a negative artifact; resume next cycle.
+            _LOGGER.debug(
+                "HVAC override_frequency: midnight reset detected "
+                "(total dropped from %d to %d) — skipping observation this cycle",
+                previous_total, total_overrides,
+            )
+            return
+
         anomaly2 = self.anomaly_detector.record_observation(
-            "override_frequency", "house", float(total_overrides)
+            "override_frequency", "house", float(delta)
         )
         if anomaly2:
             try:
@@ -1535,7 +1565,10 @@ class HVACCoordinator(BaseCoordinator):
                 )
                 _ctx2 = build_context_json(
                     source_signal="hvac_decision_cycle",
-                    extra={"total_overrides": total_overrides},
+                    extra={
+                        "delta_overrides": delta,
+                        "total_overrides_today": total_overrides,
+                    },
                 )
                 _event2 = AnomalyEvent(
                     coordinator="hvac",
@@ -1552,8 +1585,8 @@ class HVACCoordinator(BaseCoordinator):
                 )
                 await self.anomaly_detector.store_event(_event2)
                 _LOGGER.info(
-                    "HVAC override_frequency anomaly persisted: total_overrides=%d z=%.2f",
-                    total_overrides, anomaly2.z_score,
+                    "HVAC override_frequency anomaly persisted: delta=%d total_today=%d z=%.2f",
+                    delta, total_overrides, anomaly2.z_score,
                 )
                 _activity_logger2 = self.hass.data.get(DOMAIN, {}).get("activity_logger")
                 if _activity_logger2:
@@ -1561,14 +1594,15 @@ class HVACCoordinator(BaseCoordinator):
                         coordinator="hvac",
                         action="anomaly",
                         description=(
-                            f"HVAC override_frequency anomaly: overrides={total_overrides} "
-                            f"z={anomaly2.z_score:.2f}"
+                            f"HVAC override_frequency anomaly: delta={delta} "
+                            f"total_today={total_overrides} z={anomaly2.z_score:.2f}"
                         ),
                         importance="notable",
                         details={
                             "type": "hvac.override_frequency",
                             "z_score": round(anomaly2.z_score, 3),
-                            "total_overrides": total_overrides,
+                            "delta_overrides": delta,
+                            "total_overrides_today": total_overrides,
                         },
                     )
             except Exception:
