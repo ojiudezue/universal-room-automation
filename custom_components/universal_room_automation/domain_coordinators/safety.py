@@ -543,11 +543,13 @@ class SafetyCoordinator(BaseCoordinator):
     PRIORITY = 100
 
     # v3.6.0-c2.9: Anomaly detection metrics
-    # Tracks hazard trigger frequency — detects when sensors fire more or less
-    # frequently than historical baseline (e.g., smoke detector triggering
-    # more often than normal could indicate a faulty sensor or real issue).
+    # v4.6.4 P2: dropped `hazard_trigger_frequency`. It was recorded as a constant
+    # 1.0 per call (the comment said "Each trigger is a count observation"), so the
+    # baseline mean converged to 1.0 with variance flooring to MIN_VARIANCE — every
+    # observation matched the mean exactly → z=0 → NOMINAL severity → no emit ever
+    # fired. Audit during v4.6.3.3 confirmed zero anomalies in production.
+    # `active_hazard_count` has real variance (0..N) and is retained.
     SAFETY_METRICS = [
-        "hazard_trigger_frequency",
         "active_hazard_count",
     ]
 
@@ -1640,6 +1642,10 @@ class SafetyCoordinator(BaseCoordinator):
         # v4.6.3 D2/D11/D12: Record hazard trigger as canonical AnomalyEvent +
         # ActivityLogger emit.  Replaces store_anomaly() wrapper with direct
         # store_event() so payload shape is canonical.
+        # v4.6.4 P2: hazard_trigger_frequency block removed — recorded constant
+        # 1.0, baseline mean converged to 1.0, |value-mean|=0 → z=0 → NOMINAL →
+        # never emitted. Audit confirmed zero anomalies ever fired. The remaining
+        # active_hazard_count emit has real variance and is retained.
         if self.anomaly_detector is not None:
             try:
                 from .anomaly_event import (
@@ -1648,59 +1654,7 @@ class SafetyCoordinator(BaseCoordinator):
                     EVENT_CLASS_HAZARD,
                     build_context_json,
                 )
-                scope = hazard.location or "house"
-                anomaly = self.anomaly_detector.record_observation(
-                    "hazard_trigger_frequency",
-                    scope,
-                    1.0,  # Each trigger is a count observation
-                )
-                if anomaly:
-                    _ctx = build_context_json(
-                        zone_id=None,
-                        room_id=scope if scope != "house" else None,
-                        source_signal="SIGNAL_SAFETY_HAZARD",
-                        extra={
-                            "hazard_type": hazard.type.value,
-                            "hazard_severity": hazard.severity.name,
-                        },
-                    )
-                    _event = AnomalyEvent(
-                        coordinator="safety",
-                        type=f"safety.hazard_{hazard.type.value}",
-                        severity=_NewSev.CRITICAL if anomaly.severity.value == "critical" else _NewSev.WARNING,
-                        event_class=EVENT_CLASS_HAZARD,
-                        detected_at=anomaly.timestamp.isoformat(),
-                        payload=_ctx,
-                        observed_value=anomaly.observed_value,
-                        expected_mean=anomaly.expected_mean,
-                        expected_std=anomaly.expected_std,
-                        z_score=round(anomaly.z_score, 3),
-                        sample_size=anomaly.sample_size,
-                    )
-                    await self.anomaly_detector.store_event(_event)
-                    _LOGGER.info(
-                        "Safety hazard anomaly emitted: hazard=%s scope=%s z=%.2f",
-                        hazard.type.value, scope, anomaly.z_score,
-                    )
-                    # D12: fire activity_logger (awaited — A5 fix: avoid untracked task)
-                    _activity_logger = self.hass.data.get(DOMAIN, {}).get("activity_logger")
-                    if _activity_logger:
-                        await _activity_logger.log(
-                            coordinator="safety",
-                            action="anomaly",
-                            description=(
-                                f"Safety hazard {hazard.type.value} @ {scope} "
-                                f"z={anomaly.z_score:.2f}"
-                            ),
-                            importance="critical",
-                            room=scope if scope != "house" else None,
-                            details={
-                                "type": f"safety.hazard_{hazard.type.value}",
-                                "z_score": round(anomaly.z_score, 3),
-                                "metric_name": anomaly.metric_name,
-                            },
-                        )
-                # Also record current active hazard count
+                # Record current active hazard count (well-shaped 0..N variance)
                 anomaly2 = self.anomaly_detector.record_observation(
                     "active_hazard_count",
                     "house",

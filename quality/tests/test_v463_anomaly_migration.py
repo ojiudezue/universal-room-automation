@@ -196,28 +196,92 @@ def test_presence_no_store_anomaly_calls():
     )
 
 
-def test_presence_no_live_store_event_or_anomaly_event():
-    """[SOURCE-GREP] v4.6.3.1 + v4.6.3.3: presence.py must have ZERO live anomaly emit paths.
+def test_presence_only_transition_count_daily_emits_persisted():
+    """[SOURCE-GREP] v4.6.4 P1: presence.py persistence is limited to transition_count_daily.
 
-    Supersedes the prior D3 assertion ("presence.py must call store_event(AnomalyEvent(...))").
-    Both presence anomaly metrics are now suppressed at the persistence layer:
-      - zone_occupied_count: suppressed in v4.6.3.1 (binary 0/1 → degenerate z-score)
-      - census_count: suppressed in v4.6.3.3 (low-cardinality int → degenerate z-score)
+    History:
+      - v4.6.3.1 suppressed zone_occupied_count (binary 0/1 → degenerate z-score)
+      - v4.6.3.3 suppressed census_count (low-cardinality int → degenerate z-score)
+      - v4.6.4 P1 wired up transition_count_daily (well-shaped: monotone within day,
+        resets at midnight) as the one legitimate presence persistence path.
 
-    record_observation() still runs for both (in-memory anomaly sensor counts preserved),
-    but store_event + activity_logger.log calls are stripped. Asserting the inverse here
-    protects against accidental re-introduction of either emit site.
+    Asserts exactly one store_event call and one AnomalyEvent construction, and
+    that both are inside the transition_count_daily code path. Protects against
+    accidental re-introduction of suppressed emits OR addition of a new emit
+    without an explicit audit + test update.
     """
     src = _presence_src()
-    assert "store_event(" not in src, (
-        "v4.6.3.1 + v4.6.3.3: presence.py must NOT call store_event — "
-        "both census_count and zone_occupied_count emits are suppressed at the persistence layer. "
-        "If you intentionally added a new well-shaped (continuous) presence metric, update this test."
+    store_event_count = src.count("store_event(")
+    assert store_event_count == 1, (
+        f"v4.6.4 P1: presence.py must contain exactly 1 store_event call "
+        f"(transition_count_daily). Found {store_event_count}. "
+        "If you intentionally added a new well-shaped presence metric, update this test "
+        "AND audit cardinality vs the v4.6.3.1 / v4.6.3.3 lessons."
     )
-    assert "AnomalyEvent(" not in src, (
-        "v4.6.3.1 + v4.6.3.3: presence.py must NOT construct AnomalyEvent — "
-        "no live presence emit path exists post-suppression. "
-        "If you intentionally added a new well-shaped (continuous) presence metric, update this test."
+    anomaly_event_count = src.count("AnomalyEvent(")
+    assert anomaly_event_count == 1, (
+        f"v4.6.4 P1: presence.py must contain exactly 1 AnomalyEvent construction "
+        f"(transition_count_daily). Found {anomaly_event_count}."
+    )
+    # Locate the single store_event call and its surrounding context — it must be
+    # the transition_count_daily emit.
+    import re
+    m = re.search(
+        r'type="presence\.transition_count_daily"[\s\S]{0,1200}?store_event\(',
+        src,
+    )
+    assert m is not None, (
+        "v4.6.4 P1: the one allowed store_event call must be inside the "
+        "transition_count_daily emit path (type='presence.transition_count_daily'). "
+        "If you moved/replaced the emit, update this assertion."
+    )
+
+
+def test_presence_transition_count_daily_wired_and_recorded():
+    """v4.6.4 P1: transition_count_daily must be in PRESENCE_METRICS AND have a
+    live record_observation call site in _count_transition.
+
+    transition_count_daily was declared in PRESENCE_METRICS since v3.6.0-c1 but
+    never had a record_observation call site — so the AnomalyDetector saw no
+    observations and the metric was effectively dead. v4.6.4 P1 wires it up:
+    _count_transition becomes async and records the daily transition count on
+    every increment, emitting an anomaly via store_event + activity_logger when
+    z-score exceeds threshold.
+
+    The metric is well-shaped (monotone counter resetting at midnight) so z-score
+    persistence is safe — no degenerate-shape risk like the suppressed
+    census_count / zone_occupied_count metrics.
+    """
+    src = _presence_src()
+    # Declaration preserved
+    assert '"transition_count_daily"' in src, (
+        "v4.6.4 P1: PRESENCE_METRICS must still include 'transition_count_daily'"
+    )
+    # record_observation call site must exist for this metric
+    import re
+    rec_match = re.search(
+        r'record_observation\(\s*"transition_count_daily"',
+        src,
+    )
+    assert rec_match is not None, (
+        "v4.6.4 P1: presence.py must contain "
+        'record_observation("transition_count_daily", ...) — the metric was '
+        "declared since v3.6.0-c1 but had no call site until v4.6.4."
+    )
+    # The call site must be inside _count_transition (the increment site)
+    fn_match = re.search(
+        r"async def _count_transition\(self\).*?(?=\n    (?:async )?def |\Z)",
+        src,
+        re.DOTALL,
+    )
+    assert fn_match is not None, (
+        "v4.6.4 P1: _count_transition must be async (it awaits store_event "
+        "and activity_logger.log on anomaly fire)"
+    )
+    assert "transition_count_daily" in fn_match.group(0), (
+        "v4.6.4 P1: the transition_count_daily record_observation call must "
+        "live inside _count_transition (co-located with the increment for "
+        "atomicity)"
     )
 
 
@@ -232,26 +296,45 @@ def test_presence_sensitivity_multiplier_wired():
     )
 
 
-def test_presence_no_activity_logger_anomaly_calls():
-    """v4.6.3.1 + v4.6.3.3: presence.py must have ZERO activity_logger.log(action='anomaly', ...) calls.
+def test_presence_only_transition_count_daily_activity_logger_call():
+    """v4.6.4 P1: presence.py must have exactly 1 activity_logger.log(action='anomaly', ...) call.
 
-    Supersedes the prior D12 assertion. Both presence emit sites are suppressed; the
-    activity_logger.log emit was unconditional on the suppressed branches, so it's
-    also gone. In-memory anomaly tracking via record_observation() is preserved.
+    The single call is the transition_count_daily emit (added v4.6.4 P1). All other
+    presence emits are suppressed (census_count in v4.6.3.3, zone_occupied_count in
+    v4.6.3.1). In-memory anomaly tracking via record_observation() is preserved for
+    the suppressed metrics.
     """
     src = _presence_src()
     # Match only activity_logger.log calls — not the standalone string 'action="anomaly"'
     # which could legitimately appear elsewhere in future code (e.g. routine logs).
+    # v4.6.4 P4: walk balanced parens after `activity_logger.log(` so a future
+    # re-introduction with a nested call like description=str(foo()) before
+    # action= isn't missed (v4.6.3.3 Tier 1 review L1).
     import re
-    pattern = re.compile(
-        r"activity_logger\.log\([^)]*action=['\"]anomaly['\"]",
-        re.DOTALL,
+    matches: list[str] = []
+    for m in re.finditer(r"activity_logger\.log\(", src):
+        depth = 1
+        i = m.end()
+        while i < len(src) and depth > 0:
+            ch = src[i]
+            if ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+            i += 1
+        call_body = src[m.end() : i - 1]  # contents between the outer parens
+        if re.search(r"action\s*=\s*['\"]anomaly['\"]", call_body):
+            matches.append(call_body)
+    assert len(matches) == 1, (
+        f"v4.6.4 P1: presence.py must have exactly 1 activity_logger.log(action='anomaly', ...) "
+        f"(the transition_count_daily emit). Found {len(matches)}. "
+        "If you intentionally added or removed a presence emit site, update this test."
     )
-    matches = pattern.findall(src)
-    assert not matches, (
-        f"v4.6.3.1 + v4.6.3.3: presence.py must NOT call activity_logger.log(action='anomaly', ...) — "
-        f"both presence emit sites are suppressed. Found {len(matches)} call(s). "
-        "If you intentionally added a new well-shaped presence metric, update this test."
+    # The one allowed call must carry presence.transition_count_daily in its details
+    assert "transition_count_daily" in matches[0], (
+        "v4.6.4 P1: the one allowed activity_logger.log call must be the "
+        "transition_count_daily emit (must reference 'transition_count_daily' "
+        "in description/details)."
     )
 
 

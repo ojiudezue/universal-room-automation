@@ -135,19 +135,34 @@ Bonus: a `binary_sensor.ura_guest_mode_active_overrides_count` showing how many 
 - `hvac.zone_call_frequency` / `hvac.override_frequency` — currently in-memory only (no persist path). When v4.6.5 wires HVAC `save_anomaly_event`, `zone_call_frequency` is the next-most-likely degenerate-shape candidate (low int, mostly 0-3). v4.6.5 D5 meta-test should explicitly check it against real-data cardinality before shipping.
 - `security.alert_trigger_frequency` / `music_following.*` — event-driven, low volume, defer.
 
-## v4.6.4 — Polish bundle (queued, Tier 1)
+## v4.6.4 — Polish bundle — IN REVIEW 2026-05-15
 
-Bundles small follow-ups that don't warrant standalone cycles.
+**Status:** Code complete on `feature/v4.6.4-polish-bundle`. Tests pass (3097 vs 3095 on develop, +2 net). Awaiting Tier 1 review + deploy.
 
-**P1: Wire up `presence.transition_count_daily` properly.** Metric is declared in PRESENCE_METRICS since v3.6.0-c1 but no `record_observation` call site ever existed. House-state transitions per day is a continuous, well-shaped metric (counter that grows through day, resets at midnight) — safe for z-score detection unlike `census_count`. Add `record_observation("transition_count_daily", "house", float(self._transitions_today))` at the end of `_run_inference` after a successful transition. Expose via per-coordinator anomaly sensor attribute. ~10 prod LoC + 1 behavioral test.
+**P1 SHIPPED — Wire up `presence.transition_count_daily`.** `_count_transition` is now `async` and records the daily counter on every increment. If z-score fires, emits canonical AnomalyEvent via `store_event` + `activity_logger.log(action="anomaly", ...)`. Well-shaped (monotone counter, resets at midnight) so persistence is safe. Test: `test_presence_transition_count_daily_wired_and_recorded`.
 
-**P2: Delete `safety.hazard_trigger_frequency` dead code.** Always-`1.0` observation, std→0, never fires. Remove from `SAFETY_METRICS` and remove the record_observation + store_event call. Keep `active_hazard_count` (it has real variance). ~10 LoC removed.
+**P2 SHIPPED — Delete `safety.hazard_trigger_frequency` dead code.** Always-`1.0` observation, std→0, z-guard suppressed every emit. Dropped from `SAFETY_METRICS`, full ~50 LoC emit block removed. `active_hazard_count` (real variance) retained.
 
-**P3: Existing LOWs from v4.6.2.1 / .2.2 / .3 + v4.6.3 reviews** (see further down this file). Not load-bearing.
+**P3 SHIPPED — Three small `automation.py` fixes from prior reviews:**
+- P3a (LOW #3): sleep branch no longer clears `_humidity_cap_suppressed` (preserves post-cap suppression contract across sleep)
+- P3b (LOW #4): HVAC-managing entry clears Path A anchor state (`_humidity_on_since`, `_humidity_fan_triggered_time`) so reload-seed runs cleanly on HVAC release
+- P3c (LOW #5): added intent comment explaining why cap-fire clears both anchor fields
 
-**P4: Tighten `test_presence_no_activity_logger_anomaly_calls` regex (v4.6.3.3 review L1).** Current pattern `r"activity_logger\.log\([^)]*action=['\"]anomaly['\"]"` stops `[^)]*` at the first `)`, so a future re-introduction with a nested call before `action=` (e.g. `description=str(foo())`) silently passes. Defense-in-depth via the sibling `store_event(` substring check catches regressions today, but the regex itself is brittle. Switch to `re.DOTALL` + balanced-paren walk, or use AST. ~3 LoC test change. Filed by v4.6.3.3 Tier 1 reviewer.
+**P4 SHIPPED — Tightened `test_presence_no_activity_logger_anomaly_calls` regex.** Replaced `[^)]*` with a balanced-paren walk that tolerates nested calls. The test is now also renamed `test_presence_only_transition_count_daily_activity_logger_call` since v4.6.4 P1 added the one legitimate call path.
 
-Tier 1 single review. ~30-50 LoC net. Recall hint: `"Resume URA roadmap — v4.6.4 polish"`.
+**Updated tests:** `test_presence_no_live_store_event_or_anomaly_event` → `test_presence_only_transition_count_daily_emits_persisted` (asserts exactly-1 emit, anchored on transition_count_daily); same shape for the activity_logger sibling.
+
+**Deferred (NOT in this bundle):**
+- LOW #8, #9 (Path A behavioral test rewrite) — separate cycle when behavioral test infra hardens
+- v4.6.3 review B4 (decision-contradicted-within-N-min path), B5 (NM source_signal drift), C10 (label externalization) — separate
+- v4.6.2.3 INFO #4 (sys.modules pollution) — separate infra cleanup
+
+**Deferred from v4.6.4 Tier 1 review:**
+- **M2 (file for v4.6.5):** orphan `hazard_trigger_frequency` row in `metric_baselines` table. `load_baselines` reloads every row for `coordinator_id="safety"` regardless of current `SAFETY_METRICS`. After P2 deploy, the DB row stays forever — unreferenced (nothing iterates `_baselines.keys()`, only `metric_names`) but cosmetically present. Add one-shot cleanup OR filter on load. Tier 1.
+- **M3 (file for v4.6.5):** `_transitions_today` is not restored across HA restart. Counter resets to 0 on every reload — `transition_count_daily` baseline distribution skews downward, biasing future thrashy-day anomalies to fire more than they should. Fold into RestoreEntity scope when v4.6.5 touches presence persistence.
+- **L2/L3/L4 (file for next polish bundle):** test-fixture limits — P4 balanced-paren walker doesn't quote-aware skip; async check is string-grep not AST; 1200-char window is wide. None blocking; all are heuristic limits with adequate defense-in-depth from sibling counts.
+
+Tier 1 single review. ~80 LoC prod + ~50 LoC tests net. Recall hint: `"Resume URA roadmap — v4.6.4 polish"`.
 
 ## v4.6.3.2 — Thread-safety hotfix for URARecentAnomaliesSensor — SHIPPED 2026-05-15
 

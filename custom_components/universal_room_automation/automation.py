@@ -1655,8 +1655,22 @@ class RoomAutomation:
         if not humidity_fans or humidity is None:
             return
 
-        # v3.18.1: Defer to HVAC coordinator if managing
+        # v3.18.1: Defer to HVAC coordinator if managing.
+        # v4.6.4 P3b: clear Path A anchor state on HVAC-managing entry so the
+        # reload-seed at line ~1685 runs cleanly when HVAC stops managing later.
+        # Without this clear, a stale `_humidity_on_since` from a pre-HVAC run
+        # blocks reload-seeding (which only fires when the anchor is None) and
+        # the max-runtime cap loses its reference point on HVAC release.
+        # KNOWN TRADE-OFF: this clear runs on every HVAC-managing eval, not only
+        # on the transition INTO HVAC-managing. A fan that bounces in and out of
+        # HVAC-managing windows therefore resets its runtime budget each cycle.
+        # Accepted as a safety bias — the max-runtime cap is a stuck-sensor /
+        # runaway-humidity guard rather than a true budget tracker, and a fresh
+        # window per handoff is preferable to carrying stale (possibly hours-old)
+        # anchors across multi-hour HVAC management.
         if self._is_hvac_managing_fans():
+            self._humidity_on_since = None
+            self._humidity_fan_triggered_time = None
             return
 
         # v3.18.1: Fan sleep policy — turn off humidity fans during sleep if policy=off
@@ -1669,7 +1683,10 @@ class RoomAutomation:
                 )
                 self._humidity_fan_triggered_time = None
                 self._humidity_on_since = None
-                self._humidity_cap_suppressed = False
+                # v4.6.4 P3a: do NOT clear `_humidity_cap_suppressed` here.
+                # Sleep onset must not void the post-cap-fire suppression contract
+                # ("humidity must drop below OFF threshold before re-trigger") —
+                # otherwise cap-fire + sleep within minutes leaks the contract on wake.
                 return
 
         threshold = self.config.get(CONF_HUMIDITY_FAN_THRESHOLD, DEFAULT_HUMIDITY_THRESHOLD)
@@ -1703,6 +1720,11 @@ class RoomAutomation:
                 "homeassistant", SERVICE_TURN_OFF, {"entity_id": humidity_fans},
                 blocking=False,
             )
+            # v4.6.4 P3c: intentionally clear BOTH anchor fields on cap-fire.
+            # `_humidity_on_since` resets so a future re-trigger starts a fresh
+            # runtime window; `_humidity_fan_triggered_time` clears so `fan_is_on`
+            # (derived from it) flips false and the next eval routes through the
+            # ON branch rather than the OFF branch.
             self._humidity_on_since = None
             self._humidity_fan_triggered_time = None
             # Suppression: require humidity to drop below OFF threshold before re-trigger.
