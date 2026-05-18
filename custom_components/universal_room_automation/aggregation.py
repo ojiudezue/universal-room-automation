@@ -176,6 +176,7 @@ from .const import (
     SENSOR_ZONE_GUEST_COUNT,
 )
 from .coordinator import UniversalRoomCoordinator
+from .domain_coordinators.energy_billing import _get_effective_rate_kwh
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -216,6 +217,7 @@ async def async_setup_aggregation_sensors(
         # === ENERGY TRACKING ===
         WholeHousePowerSensor(hass, entry),
         WholeHouseEnergySensor(hass, entry),
+        WholeHouseCostTodaySensor(hass, entry),
         RoomsEnergyTotalSensor(hass, entry),
         EnergyCoverageDeltaSensor(hass, entry),
 
@@ -347,6 +349,8 @@ async def async_setup_zone_sensors(
         # === ENERGY ===
         ZoneTotalPowerSensor(hass, entry, zone_name),
         ZoneEnergyTodaySensor(hass, entry, zone_name),
+        ZoneEnergyCostTodaySensor(hass, entry, zone_name),
+        ZoneCostPerHourSensor(hass, entry, zone_name),
 
         # === PERSON TRACKING ===
         ZoneCurrentOccupantsSensor(hass, entry, zone_name),
@@ -423,6 +427,8 @@ async def async_setup_zone_manager_sensors(
             # === ENERGY ===
             ZoneTotalPowerSensor(hass, entry, zone_name),
             ZoneEnergyTodaySensor(hass, entry, zone_name),
+            ZoneEnergyCostTodaySensor(hass, entry, zone_name),
+            ZoneCostPerHourSensor(hass, entry, zone_name),
             # === PERSON TRACKING ===
             ZoneCurrentOccupantsSensor(hass, entry, zone_name),
             ZoneOccupantCountSensor(hass, entry, zone_name),
@@ -1862,7 +1868,7 @@ class PredictedCostTodaySensor(AggregationEntity, SensorEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return cost calculation details."""
-        rate = self._get_config(CONF_ELECTRICITY_RATE, DEFAULT_ELECTRICITY_RATE)
+        rate, rate_source = _get_effective_rate_kwh(self.hass)
         delivery = self._get_config(CONF_DELIVERY_RATE, DEFAULT_DELIVERY_RATE)
         export_rate = self._get_config(CONF_EXPORT_REIMBURSEMENT_RATE, DEFAULT_EXPORT_REIMBURSEMENT_RATE)
 
@@ -1874,7 +1880,7 @@ class PredictedCostTodaySensor(AggregationEntity, SensorEntity):
             "delivery_rate": delivery,
             "export_rate": export_rate,
             "period": "today",
-            "rate_source": "static_config",  # v4.2.27: TOU-aware EC rate migration in v4.5.x backlog
+            "rate_source": rate_source,
         }
 
         # Add friendly display text
@@ -1889,7 +1895,7 @@ class PredictedCostTodaySensor(AggregationEntity, SensorEntity):
         """Update prediction from database. v4.2.27: was missing — sensor stayed at None forever.
         Cost = energy_kwh × (electricity_rate + delivery_rate) when net-import,
                energy_kwh × export_rate when net-export (negative kWh).
-        Static rate config; TOU-aware migration tracked in BACKLOG (E)."""
+        v4.6.8: Uses TOU-aware EC rate via _get_effective_rate_kwh helper."""
         db = self.hass.data.get(DOMAIN, {}).get("database")
         if not db:
             return
@@ -1901,7 +1907,7 @@ class PredictedCostTodaySensor(AggregationEntity, SensorEntity):
         if energy_kwh is None:
             self._cached_value = None
         else:
-            rate = self._get_config(CONF_ELECTRICITY_RATE, DEFAULT_ELECTRICITY_RATE)
+            rate, _src = _get_effective_rate_kwh(self.hass)
             delivery = self._get_config(CONF_DELIVERY_RATE, DEFAULT_DELIVERY_RATE)
             export_rate = self._get_config(CONF_EXPORT_REIMBURSEMENT_RATE, DEFAULT_EXPORT_REIMBURSEMENT_RATE)
             if energy_kwh >= 0:
@@ -1936,12 +1942,13 @@ class PredictedCostWeekSensor(AggregationEntity, SensorEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return details."""
+        _rate, rate_source = _get_effective_rate_kwh(self.hass)
         attrs = {
             "value": self._cached_value,
             "confidence": self._cached_confidence,
             "confidence_level": _get_confidence_level(self._cached_confidence),
             "period": "week",
-            "rate_source": "static_config",
+            "rate_source": rate_source,
         }
 
         # Add friendly display text
@@ -1953,7 +1960,8 @@ class PredictedCostWeekSensor(AggregationEntity, SensorEntity):
         return attrs
 
     async def async_update(self) -> None:
-        """Update prediction from database. v4.2.27: was missing — sensor stayed at None forever."""
+        """Update prediction from database. v4.2.27: was missing — sensor stayed at None forever.
+        v4.6.8: Uses TOU-aware EC rate via _get_effective_rate_kwh helper."""
         db = self.hass.data.get(DOMAIN, {}).get("database")
         if not db:
             return
@@ -1965,7 +1973,7 @@ class PredictedCostWeekSensor(AggregationEntity, SensorEntity):
         if energy_kwh is None:
             self._cached_value = None
         else:
-            rate = self._get_config(CONF_ELECTRICITY_RATE, DEFAULT_ELECTRICITY_RATE)
+            rate, _src = _get_effective_rate_kwh(self.hass)
             delivery = self._get_config(CONF_DELIVERY_RATE, DEFAULT_DELIVERY_RATE)
             export_rate = self._get_config(CONF_EXPORT_REIMBURSEMENT_RATE, DEFAULT_EXPORT_REIMBURSEMENT_RATE)
             if energy_kwh >= 0:
@@ -2000,12 +2008,13 @@ class PredictedCostMonthSensor(AggregationEntity, SensorEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return details."""
+        _rate, rate_source = _get_effective_rate_kwh(self.hass)
         attrs = {
             "value": self._cached_value,
             "confidence": self._cached_confidence,
             "confidence_level": _get_confidence_level(self._cached_confidence),
             "period": "month",
-            "rate_source": "static_config",
+            "rate_source": rate_source,
         }
 
         # Add friendly display text
@@ -2017,7 +2026,8 @@ class PredictedCostMonthSensor(AggregationEntity, SensorEntity):
         return attrs
 
     async def async_update(self) -> None:
-        """Update prediction from database. v4.2.27: was missing — sensor stayed at None forever."""
+        """Update prediction from database. v4.2.27: was missing — sensor stayed at None forever.
+        v4.6.8: Uses TOU-aware EC rate via _get_effective_rate_kwh helper."""
         db = self.hass.data.get(DOMAIN, {}).get("database")
         if not db:
             return
@@ -2029,7 +2039,7 @@ class PredictedCostMonthSensor(AggregationEntity, SensorEntity):
         if energy_kwh is None:
             self._cached_value = None
         else:
-            rate = self._get_config(CONF_ELECTRICITY_RATE, DEFAULT_ELECTRICITY_RATE)
+            rate, _src = _get_effective_rate_kwh(self.hass)
             delivery = self._get_config(CONF_DELIVERY_RATE, DEFAULT_DELIVERY_RATE)
             export_rate = self._get_config(CONF_EXPORT_REIMBURSEMENT_RATE, DEFAULT_EXPORT_REIMBURSEMENT_RATE)
             if energy_kwh >= 0:
@@ -2174,6 +2184,80 @@ class WholeHouseEnergySensor(AggregationEntity, SensorEntity):
         return {
             "source_sensors": sensors,
             "sensor_count": len(sensors),
+        }
+
+
+class WholeHouseCostTodaySensor(AggregationEntity, SensorEntity):
+    """Sensor: Whole house realized energy cost today — WholeHouseEnergy × TOU-aware rate.
+
+    v4.6.8: New sensor. Returns None when whole_house_energy_sensors not configured.
+    Uses _get_effective_rate_kwh helper (EC TOU first, static fallback).
+    """
+
+    _attr_device_class = SensorDeviceClass.MONETARY
+    _attr_native_unit_of_measurement = "USD"
+    _attr_state_class = SensorStateClass.TOTAL_INCREASING
+    _attr_icon = "mdi:currency-usd"
+    _attr_entity_registry_enabled_default = True
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_whole_house_cost_today"
+        self._attr_name = "Whole House Cost Today"
+        self._last_valid_value: float | None = None
+
+    def _get_sensor_list(self, plural_key, singular_key):
+        """Get sensor list with singular→plural migration fallback (mirrors WholeHouseEnergySensor)."""
+        sensors = self._get_config(plural_key)
+        if sensors:
+            return sensors if isinstance(sensors, list) else [sensors]
+        singular = self._get_config(singular_key)
+        if singular:
+            return [singular]
+        return []
+
+    def _sum_energy_sensors(self, sensor_ids: list[str]) -> float | None:
+        """Sum numeric values from a list of energy sensor entity IDs."""
+        total = 0.0
+        any_valid = False
+        for sensor_id in sensor_ids:
+            state = self.hass.states.get(sensor_id)
+            if state and state.state not in ("unknown", "unavailable"):
+                try:
+                    total += float(state.state)
+                    any_valid = True
+                except (ValueError, TypeError):
+                    pass
+        return total if any_valid else None
+
+    @property
+    def native_value(self) -> float | None:
+        """Return whole house cost today (energy_today × effective rate).
+
+        Returns None when whole_house_energy_sensors not configured — HA history
+        charts distinguish None (unconfigured) from 0.0 (configured but zero usage).
+        """
+        sensors = self._get_sensor_list(
+            CONF_WHOLE_HOUSE_ENERGY_SENSORS, CONF_WHOLE_HOUSE_ENERGY_SENSOR)
+        if not sensors:
+            return None
+        energy_kwh = self._sum_energy_sensors(sensors)
+        if energy_kwh is None:
+            return None
+        rate, _src = _get_effective_rate_kwh(self.hass)
+        return round(energy_kwh * rate, 4)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return rate and source sensor details."""
+        rate, rate_source = _get_effective_rate_kwh(self.hass)
+        sensors = self._get_sensor_list(
+            CONF_WHOLE_HOUSE_ENERGY_SENSORS, CONF_WHOLE_HOUSE_ENERGY_SENSOR)
+        return {
+            "rate_source": rate_source,
+            "rate_used": round(rate, 6),
+            "source_energy_sensor_count": len(sensors),
         }
 
 
@@ -2454,11 +2538,13 @@ class EnergyCostPerOccupiedHourSensor(AggregationEntity, SensorEntity):
         self._attr_name = "Energy Cost Per Occupied Hour"
 
     def _get_rate(self):
-        """Get effective electricity rate from energy coordinator."""
-        ec = _get_energy_coordinator(self.hass)
-        if ec and hasattr(ec, "tou_engine"):
-            return ec.tou_engine.get_effective_import_rate()
-        return 0.1  # Fallback
+        """Get effective electricity rate — EC TOU when available, static config fallback.
+
+        v4.6.8: Replaced hardcoded 0.1 fallback with _get_effective_rate_kwh helper.
+        Returns (rate, source) tuple; callers only need rate.
+        """
+        rate, _src = _get_effective_rate_kwh(self.hass)
+        return rate
 
     @property
     def available(self):
@@ -2547,7 +2633,8 @@ class MostExpensiveCircuitSensor(AggregationEntity, SensorEntity):
         if not ec._circuits._discovered:
             return [], 0.0
         circuits = []
-        rate = ec.tou_engine.get_effective_import_rate() if hasattr(ec, "tou_engine") else 0.1
+        # v4.6.8: Replaced hardcoded 0.1 fallback with _get_effective_rate_kwh helper.
+        rate, _src = _get_effective_rate_kwh(self.hass)
         for entity_id, circuit in ec._circuits._circuits.items():
             energy_kwh = circuit.cumulative_energy_wh / 1000.0
             cost = energy_kwh * rate
@@ -2607,8 +2694,8 @@ class OptimizationPotentialSensor(AggregationEntity, SensorEntity):
                 if power > 5:
                     waste_watts += power
 
-        ec = _get_energy_coordinator(self.hass)
-        rate = ec.tou_engine.get_effective_import_rate() if ec and hasattr(ec, "tou_engine") else 0.1
+        # v4.6.8: Replaced hardcoded 0.1 fallback with _get_effective_rate_kwh helper.
+        rate, _src = _get_effective_rate_kwh(self.hass)
         daily_kwh = waste_watts * 24 / 1000
         return round(daily_kwh * rate, 4)
 
@@ -2627,8 +2714,8 @@ class OptimizationPotentialSensor(AggregationEntity, SensorEntity):
         waste_rooms.sort(key=lambda r: r["watts"], reverse=True)
         waste_total = sum(r["watts"] for r in waste_rooms)
 
-        ec = _get_energy_coordinator(self.hass)
-        rate = ec.tou_engine.get_effective_import_rate() if ec and hasattr(ec, "tou_engine") else 0.1
+        # v4.6.8: Replaced hardcoded 0.1 fallback with _get_effective_rate_kwh helper.
+        rate, _src = _get_effective_rate_kwh(self.hass)
         daily_kwh = waste_total * 24 / 1000
         savings_day = daily_kwh * rate
         suggestion = None
@@ -3285,6 +3372,94 @@ class ZoneEnergyTodaySensor(ZoneSensorBase, SensorEntity):
         # Valid value - update and return
         self._last_valid_value = current
         return current
+
+
+class ZoneEnergyCostTodaySensor(ZoneSensorBase, SensorEntity):
+    """Sensor: Total energy cost today in zone — energy_today × TOU-aware rate.
+
+    v4.6.8: New sensor. Uses _get_effective_rate_kwh helper (EC TOU first, static fallback).
+    """
+
+    _attr_device_class = SensorDeviceClass.MONETARY
+    _attr_native_unit_of_measurement = "USD"
+    _attr_state_class = SensorStateClass.TOTAL_INCREASING
+    _attr_icon = "mdi:currency-usd"
+    _attr_entity_registry_enabled_default = True
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry, zone: str) -> None:
+        """Initialize."""
+        super().__init__(hass, entry, zone)
+        self._attr_unique_id = f"{DOMAIN}_zone_{zone}_energy_cost_today"
+        self._attr_name = "Energy Cost Today"
+
+    @property
+    def native_value(self) -> float | None:
+        """Return zone energy cost today (energy_today × effective rate)."""
+        total_energy = 0.0
+        any_valid = False
+        for coord in self._get_zone_coordinators():
+            if coord.data:
+                energy = coord.data.get(STATE_ENERGY_TODAY, 0)
+                if energy:
+                    total_energy += energy
+                    any_valid = True
+        if not any_valid:
+            return None
+        rate, _src = _get_effective_rate_kwh(self.hass)
+        return round(total_energy * rate, 4)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return rate details."""
+        rate, rate_source = _get_effective_rate_kwh(self.hass)
+        return {
+            "rate_source": rate_source,
+            "rate_used": round(rate, 6),
+        }
+
+
+class ZoneCostPerHourSensor(ZoneSensorBase, SensorEntity):
+    """Sensor: Real-time cost per hour for zone — (total_power_w / 1000) × rate.
+
+    v4.6.8: New sensor. Uses _get_effective_rate_kwh helper (EC TOU first, static fallback).
+    """
+
+    _attr_device_class = SensorDeviceClass.MONETARY
+    _attr_native_unit_of_measurement = "USD/h"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_icon = "mdi:currency-usd"
+    _attr_entity_registry_enabled_default = True
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry, zone: str) -> None:
+        """Initialize."""
+        super().__init__(hass, entry, zone)
+        self._attr_unique_id = f"{DOMAIN}_zone_{zone}_cost_per_hour"
+        self._attr_name = "Cost Per Hour"
+
+    @property
+    def native_value(self) -> float | None:
+        """Return zone cost per hour (W → kW × $/kWh = $/h)."""
+        total_power_w = 0.0
+        any_valid = False
+        for coord in self._get_zone_coordinators():
+            if coord.data:
+                power = coord.data.get(STATE_POWER_CURRENT, 0)
+                if power:
+                    total_power_w += power
+                    any_valid = True
+        if not any_valid:
+            return None
+        rate, _src = _get_effective_rate_kwh(self.hass)
+        return round((total_power_w / 1000.0) * rate, 4)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return rate details."""
+        rate, rate_source = _get_effective_rate_kwh(self.hass)
+        return {
+            "rate_source": rate_source,
+            "rate_used": round(rate, 6),
+        }
 
 
 class ZoneActiveRoomsSensor(ZoneSensorBase, SensorEntity):

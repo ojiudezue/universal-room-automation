@@ -131,13 +131,14 @@ class EnergyCoordinator(BaseCoordinator):
         )
         self._decision_interval = decision_interval
 
-        # v4.0.5: Accept pre-loaded TOU engine (async) or fall back to sync load
-        if tou_engine is not None:
-            self._tou = tou_engine
-        else:
-            from .energy_const import DEFAULT_TOU_RATE_FILE
-            config_dir = hass.config.path("")
-            self._tou = TOURateEngine.from_json_file(config_dir, DEFAULT_TOU_RATE_FILE)
+        # v4.0.5: Accept pre-loaded TOU engine (async-loaded by __init__.py before EC init).
+        # v4.6.8: sync from_json_file fallback removed — single install, always async path.
+        if tou_engine is None:
+            raise ValueError(
+                "EnergyCoordinator requires a pre-loaded TOURateEngine (tou_engine=). "
+                "Use TOURateEngine.async_from_json_file() in __init__.py before creating EC."
+            )
+        self._tou = tou_engine
 
         # Build off-peak drain targets from config
         ec = entity_config or {}

@@ -183,22 +183,24 @@ class TestDefaultEngine:
         assert info["rate_source"] == "built-in PEC 2026"
 
 
-# ── from_json_file — happy path ─────────────────────────────────────────────
+# ── JSON file loading — happy path ──────────────────────────────────────────
 
 class TestFromJsonFile:
-    """Loading rates from a valid JSON file."""
+    """Loading rates from a valid JSON file via _read_json_file + _from_parsed_data."""
 
     def test_loads_valid_file(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             _write_json(tmpdir, "tou.json", _VALID_JSON)
-            engine = TOURateEngine.from_json_file(tmpdir, "tou.json")
+            filepath_str, data = TOURateEngine._read_json_file(tmpdir, "tou.json")
+            engine = TOURateEngine._from_parsed_data(data, filepath_str, "tou.json") if data else TOURateEngine()
             assert engine._rate_file_loaded is True
             assert "TestCo" in engine.rate_source
 
     def test_rates_match_json(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             _write_json(tmpdir, "tou.json", _VALID_JSON)
-            engine = TOURateEngine.from_json_file(tmpdir, "tou.json")
+            filepath_str, data = TOURateEngine._read_json_file(tmpdir, "tou.json")
+            engine = TOURateEngine._from_parsed_data(data, filepath_str, "tou.json") if data else TOURateEngine()
             now = datetime(2026, 7, 15, 17, 0)  # summer, hour 17 = peak
             assert engine.get_current_period(now) == "peak"
             assert engine.get_current_rate(now) == 0.16
@@ -206,25 +208,28 @@ class TestFromJsonFile:
     def test_fixed_charges_loaded(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             _write_json(tmpdir, "tou.json", _VALID_JSON)
-            engine = TOURateEngine.from_json_file(tmpdir, "tou.json")
+            filepath_str, data = TOURateEngine._read_json_file(tmpdir, "tou.json")
+            engine = TOURateEngine._from_parsed_data(data, filepath_str, "tou.json") if data else TOURateEngine()
             assert engine._fixed["delivery_per_kwh"] == 0.02
             assert engine._fixed["service_availability"] == 30.0
 
     def test_rate_source_includes_utility_and_date(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             _write_json(tmpdir, "tou.json", _VALID_JSON)
-            engine = TOURateEngine.from_json_file(tmpdir, "tou.json")
+            filepath_str, data = TOURateEngine._read_json_file(tmpdir, "tou.json")
+            engine = TOURateEngine._from_parsed_data(data, filepath_str, "tou.json") if data else TOURateEngine()
             assert "TestCo" in engine.rate_source
             assert "2026-06-01" in engine.rate_source
 
 
-# ── from_json_file — fallbacks ───────────────────────────────────────────────
+# ── JSON file loading — fallbacks ────────────────────────────────────────────
 
 class TestFromJsonFileFallbacks:
-    """Fallback to PEC defaults on missing/invalid file."""
+    """Fallback to PEC defaults on missing/invalid file (_read_json_file returns None)."""
 
     def test_missing_file_returns_defaults(self):
-        engine = TOURateEngine.from_json_file("/nonexistent/path", "tou.json")
+        filepath_str, data = TOURateEngine._read_json_file("/nonexistent/path", "tou.json")
+        engine = TOURateEngine._from_parsed_data(data, filepath_str, "tou.json") if data else TOURateEngine()
         assert engine._rate_file_loaded is False
         assert engine.rate_source == "built-in PEC 2026"
 
@@ -233,7 +238,8 @@ class TestFromJsonFileFallbacks:
             path = os.path.join(tmpdir, "tou.json")
             with open(path, "w") as f:
                 f.write("NOT VALID JSON {{{")
-            engine = TOURateEngine.from_json_file(tmpdir, "tou.json")
+            filepath_str, data = TOURateEngine._read_json_file(tmpdir, "tou.json")
+            engine = TOURateEngine._from_parsed_data(data, filepath_str, "tou.json") if data else TOURateEngine()
             assert engine._rate_file_loaded is False
             assert engine.rate_source == "built-in PEC 2026"
 
@@ -243,7 +249,8 @@ class TestFromJsonFileFallbacks:
         del data["fixed_charges"]
         with tempfile.TemporaryDirectory() as tmpdir:
             _write_json(tmpdir, "tou.json", data)
-            engine = TOURateEngine.from_json_file(tmpdir, "tou.json")
+            filepath_str, data = TOURateEngine._read_json_file(tmpdir, "tou.json")
+            engine = TOURateEngine._from_parsed_data(data, filepath_str, "tou.json") if data else TOURateEngine()
             assert engine._fixed["service_availability"] == 32.50
             assert engine._fixed["delivery_per_kwh"] == 0.022546
 
@@ -260,7 +267,8 @@ class TestPeriodAliases:
 
         with tempfile.TemporaryDirectory() as tmpdir:
             _write_json(tmpdir, "tou.json", data)
-            engine = TOURateEngine.from_json_file(tmpdir, "tou.json")
+            filepath_str, data = TOURateEngine._read_json_file(tmpdir, "tou.json")
+            engine = TOURateEngine._from_parsed_data(data, filepath_str, "tou.json") if data else TOURateEngine()
             now = datetime(2026, 7, 15, 17, 0)  # summer, hour 17
             assert engine.get_current_period(now) == "peak"
 
@@ -271,7 +279,8 @@ class TestPeriodAliases:
 
         with tempfile.TemporaryDirectory() as tmpdir:
             _write_json(tmpdir, "tou.json", data)
-            engine = TOURateEngine.from_json_file(tmpdir, "tou.json")
+            filepath_str, data = TOURateEngine._read_json_file(tmpdir, "tou.json")
+            engine = TOURateEngine._from_parsed_data(data, filepath_str, "tou.json") if data else TOURateEngine()
             now = datetime(2026, 7, 15, 17, 0)
             assert engine.get_current_rate(now) == 0.16
 
@@ -285,7 +294,8 @@ class TestPeriodAliases:
 
         with tempfile.TemporaryDirectory() as tmpdir:
             _write_json(tmpdir, "tou.json", data)
-            engine = TOURateEngine.from_json_file(tmpdir, "tou.json")
+            filepath_str, data = TOURateEngine._read_json_file(tmpdir, "tou.json")
+            engine = TOURateEngine._from_parsed_data(data, filepath_str, "tou.json") if data else TOURateEngine()
             assert engine.get_current_period(datetime(2026, 7, 15, 10, 0)) == "off_peak"
             assert engine.get_current_period(datetime(2026, 7, 15, 15, 0)) == "mid_peak"
             assert engine.get_current_period(datetime(2026, 7, 15, 17, 0)) == "peak"
@@ -300,7 +310,8 @@ class TestPeriodAliases:
 
         with tempfile.TemporaryDirectory() as tmpdir:
             _write_json(tmpdir, "tou.json", data)
-            engine = TOURateEngine.from_json_file(tmpdir, "tou.json")
+            filepath_str, data = TOURateEngine._read_json_file(tmpdir, "tou.json")
+            engine = TOURateEngine._from_parsed_data(data, filepath_str, "tou.json") if data else TOURateEngine()
             assert engine.get_current_period(datetime(2026, 7, 15, 10, 0)) == "off_peak"
             assert engine.get_current_period(datetime(2026, 7, 15, 15, 0)) == "mid_peak"
             assert engine.get_current_period(datetime(2026, 7, 15, 17, 0)) == "peak"
@@ -319,7 +330,8 @@ class TestValidation:
         }
         with tempfile.TemporaryDirectory() as tmpdir:
             _write_json(tmpdir, "tou.json", data)
-            engine = TOURateEngine.from_json_file(tmpdir, "tou.json")
+            filepath_str, data = TOURateEngine._read_json_file(tmpdir, "tou.json")
+            engine = TOURateEngine._from_parsed_data(data, filepath_str, "tou.json") if data else TOURateEngine()
             # Should still load successfully, ignoring the unknown period
             assert engine._rate_file_loaded is True
             # shoulder mid_peak should still work
@@ -332,7 +344,8 @@ class TestValidation:
         del data["seasons"]["shoulder"]["periods"]["off_peak"]
         with tempfile.TemporaryDirectory() as tmpdir:
             _write_json(tmpdir, "tou.json", data)
-            engine = TOURateEngine.from_json_file(tmpdir, "tou.json")
+            filepath_str, data = TOURateEngine._read_json_file(tmpdir, "tou.json")
+            engine = TOURateEngine._from_parsed_data(data, filepath_str, "tou.json") if data else TOURateEngine()
             assert engine._rate_file_loaded is False
             assert engine.rate_source == "built-in PEC 2026"
 
@@ -350,7 +363,8 @@ class TestSeparateImportExport:
 
         with tempfile.TemporaryDirectory() as tmpdir:
             _write_json(tmpdir, "tou.json", data)
-            engine = TOURateEngine.from_json_file(tmpdir, "tou.json")
+            filepath_str, data = TOURateEngine._read_json_file(tmpdir, "tou.json")
+            engine = TOURateEngine._from_parsed_data(data, filepath_str, "tou.json") if data else TOURateEngine()
             now = datetime(2026, 3, 15, 18, 0)  # shoulder, hour 18 = mid_peak
             assert engine.get_current_rate(now) == 0.10
             assert engine.get_export_rate(now) == 0.07
@@ -366,7 +380,8 @@ class TestSeparateImportExport:
 
         with tempfile.TemporaryDirectory() as tmpdir:
             _write_json(tmpdir, "tou.json", data)
-            engine = TOURateEngine.from_json_file(tmpdir, "tou.json")
+            filepath_str, data = TOURateEngine._read_json_file(tmpdir, "tou.json")
+            engine = TOURateEngine._from_parsed_data(data, filepath_str, "tou.json") if data else TOURateEngine()
             now = datetime(2026, 3, 15, 18, 0)
             assert engine.get_current_rate(now) == 0.085
             assert engine.get_export_rate(now) == 0.085
@@ -381,7 +396,8 @@ class TestSeparateImportExport:
 
         with tempfile.TemporaryDirectory() as tmpdir:
             _write_json(tmpdir, "tou.json", data)
-            engine = TOURateEngine.from_json_file(tmpdir, "tou.json")
+            filepath_str, data = TOURateEngine._read_json_file(tmpdir, "tou.json")
+            engine = TOURateEngine._from_parsed_data(data, filepath_str, "tou.json") if data else TOURateEngine()
             now = datetime(2026, 3, 15, 18, 0)
             assert engine.get_current_rate(now) == 0.10
             assert engine.get_export_rate(now) == 0.07
