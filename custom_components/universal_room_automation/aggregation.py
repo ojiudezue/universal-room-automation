@@ -50,6 +50,7 @@ from homeassistant.helpers.event import (
     async_track_time_interval,
     async_track_state_change_event,
 )
+from homeassistant.helpers.restore_state import RestoreEntity
 from homeassistant.util import dt as dt_util
 
 from .const import (
@@ -4332,14 +4333,16 @@ class PersonLocationSensor(AggregationEntity, SensorEntity):
         return attrs
 
 
-class PersonPreviousLocationSensor(AggregationEntity, SensorEntity):
+class PersonPreviousLocationSensor(AggregationEntity, SensorEntity, RestoreEntity):
     """Sensor: Person's previous location.
-    
+
     v3.2.8.3: Added person_coordinator subscription for real-time updates
+    v4.6.9: RestoreEntity — seeds coordinator with persisted previous_location
+            on HA restart so persons already-away keep their last-seen room.
     """
-    
+
     _attr_icon = "mdi:map-marker-outline"
-    
+
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry, person_id: str) -> None:
         """Initialize."""
         super().__init__(hass, entry)
@@ -4347,12 +4350,36 @@ class PersonPreviousLocationSensor(AggregationEntity, SensorEntity):
         self._attr_unique_id = f"{DOMAIN}_person_{person_id}_previous_location"
         self._attr_name = f"{person_id.replace('_', ' ').title()} Previous Location"
         self._unsub_person_coordinator = None
-    
+
     async def async_added_to_hass(self) -> None:
-        """Subscribe to person_coordinator updates.
-        
-        v3.2.8.3: Enables real-time updates when person tracking changes
+        """Subscribe to person_coordinator updates and restore persisted state.
+
+        v3.2.8.3: Enables real-time updates when person tracking changes.
+        v4.6.9: Restores previous_location from HA state registry so persons
+                who were already-away at shutdown keep their last-seen room.
         """
+        await super().async_added_to_hass()
+
+        # v4.6.9: Restore persisted previous_location into coordinator.
+        # v4.6.9 review HIGH#1: include HA person-entity sentinels ("not_home"/"home")
+        # so we don't store them as restored room names.
+        _SKIP_STATES = {"unknown", "unavailable", "Unknown", "Unavailable",
+                        "None", "none", "away", "Away", "",
+                        "not_home", "Not_home", "home", "Home"}
+        try:
+            last_state = await self.async_get_last_state()
+            if last_state is not None and last_state.state not in _SKIP_STATES:
+                person_coordinator = self.hass.data[DOMAIN].get("person_coordinator")
+                if person_coordinator is not None:
+                    person_coordinator.seed_previous_location(
+                        self.person_id, last_state.state
+                    )
+        except Exception:
+            _LOGGER.debug(
+                "PersonPreviousLocationSensor: restore failed for %s",
+                self.person_id, exc_info=True,
+            )
+
         # Subscribe to person_coordinator updates
         person_coordinator = self.hass.data[DOMAIN].get("person_coordinator")
         if person_coordinator:
@@ -4387,18 +4414,20 @@ class PersonPreviousLocationSensor(AggregationEntity, SensorEntity):
         return prev_location.replace('_', ' ').title()
 
 
-class PersonPreviousSeenSensor(AggregationEntity, SensorEntity):
-    """
-    Sensor: When person was last seen in previous location.
-    
+class PersonPreviousSeenSensor(AggregationEntity, SensorEntity, RestoreEntity):
+    """Sensor: When person was last seen in previous location.
+
     v3.2.8.1: Fixed to use previous_location_time instead of last_changed.
-    Now correctly shows when person left their previous room, not when they entered current room.
-    v3.2.8.3: Added person_coordinator subscription for real-time updates
+    Now correctly shows when person left their previous room, not when they
+    entered current room.
+    v3.2.8.3: Added person_coordinator subscription for real-time updates.
+    v4.6.9: RestoreEntity — seeds coordinator with persisted timestamp on
+            HA restart.
     """
-    
+
     _attr_icon = "mdi:clock-outline"
     _attr_device_class = SensorDeviceClass.TIMESTAMP
-    
+
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry, person_id: str) -> None:
         """Initialize."""
         super().__init__(hass, entry)
@@ -4406,12 +4435,42 @@ class PersonPreviousSeenSensor(AggregationEntity, SensorEntity):
         self._attr_unique_id = f"{DOMAIN}_person_{person_id}_previous_seen"
         self._attr_name = f"{person_id.replace('_', ' ').title()} Previous Seen"
         self._unsub_person_coordinator = None
-    
+
     async def async_added_to_hass(self) -> None:
-        """Subscribe to person_coordinator updates.
-        
-        v3.2.8.3: Enables real-time updates when person tracking changes
+        """Subscribe to person_coordinator updates and restore persisted state.
+
+        v3.2.8.3: Enables real-time updates when person tracking changes.
+        v4.6.9: Restores previous_location_time from HA state registry.
         """
+        await super().async_added_to_hass()
+
+        # v4.6.9: Restore persisted previous_location_time into coordinator.
+        # v4.6.9 review HIGH#1: include HA person-entity sentinels ("not_home"/"home")
+        # so we don't store them as restored room names.
+        _SKIP_STATES = {"unknown", "unavailable", "Unknown", "Unavailable",
+                        "None", "none", "away", "Away", "",
+                        "not_home", "Not_home", "home", "Home"}
+        try:
+            last_state = await self.async_get_last_state()
+            if last_state is not None and last_state.state not in _SKIP_STATES:
+                parsed_time = dt_util.parse_datetime(last_state.state)
+                if parsed_time is not None:
+                    person_coordinator = self.hass.data[DOMAIN].get("person_coordinator")
+                    if person_coordinator is not None:
+                        person_coordinator.seed_previous_location_time(
+                            self.person_id, parsed_time
+                        )
+                else:
+                    _LOGGER.debug(
+                        "PersonPreviousSeenSensor: could not parse timestamp %r for %s — skip",
+                        last_state.state, self.person_id,
+                    )
+        except Exception:
+            _LOGGER.debug(
+                "PersonPreviousSeenSensor: restore failed for %s",
+                self.person_id, exc_info=True,
+            )
+
         # Subscribe to person_coordinator updates
         person_coordinator = self.hass.data[DOMAIN].get("person_coordinator")
         if person_coordinator:

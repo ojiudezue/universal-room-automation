@@ -56,6 +56,13 @@ SIGNAL_NEXT_ROOM_PREDICTION_UPDATE: Final = "ura_next_room_prediction_update"
 SIGNAL_ROUTINE_STATUS_UPDATE: Final = "ura_routine_status_update"
 SIGNAL_REGIME_EVENT_EMITTED: Final = "ura_regime_event_emitted"
 
+# v4.6.9: coordinator-ready signals for CM-device buttons that need to
+# re-evaluate `available` once their backing coordinator is registered.
+# Dispatch sites in __init__.py immediately after hass.data[DOMAIN][key] is set.
+# Mirrors the SIGNAL_DATABASE_READY pattern (v4.6.5.3).
+SIGNAL_NM_READY: Final = "ura_notification_manager_ready"
+SIGNAL_BAYESIAN_READY: Final = "ura_bayesian_predictor_ready"
+
 
 # ============================================================================
 # Shared data classes for inter-coordinator communication

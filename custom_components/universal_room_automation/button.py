@@ -477,6 +477,24 @@ class NMAcknowledgeButton(ButtonEntity):
             via_device=(DOMAIN, "coordinator_manager"),
         )
 
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to SIGNAL_NM_READY to re-evaluate availability after boot.
+
+        v4.6.9: NMAcknowledgeButton was permanently unavailable at first boot
+        because hass.data[DOMAIN]["notification_manager"] was never set (latent
+        bug) and nothing triggered a re-evaluation after NM registered.
+        """
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_NM_READY
+        self.async_on_remove(
+            async_dispatcher_connect(self.hass, SIGNAL_NM_READY, self._handle_ready)
+        )
+
+    @callback
+    def _handle_ready(self) -> None:
+        """Re-evaluate availability once NM is registered."""
+        self.async_schedule_update_ha_state()
+
     @property
     def available(self) -> bool:
         """Button is available when NM is active."""
@@ -524,6 +542,23 @@ class ClearBayesianBeliefsButton(ButtonEntity):
             model="Coordinator Manager",
             sw_version=VERSION,
         )
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to SIGNAL_BAYESIAN_READY to re-evaluate availability after boot.
+
+        v4.6.9: ClearBayesianBeliefsButton was greyed out at first boot because
+        nothing triggered a re-evaluation of available after the predictor registered.
+        """
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_BAYESIAN_READY
+        self.async_on_remove(
+            async_dispatcher_connect(self.hass, SIGNAL_BAYESIAN_READY, self._handle_ready)
+        )
+
+    @callback
+    def _handle_ready(self) -> None:
+        """Re-evaluate availability once Bayesian predictor is registered."""
+        self.async_schedule_update_ha_state()
 
     @property
     def available(self) -> bool:
@@ -952,6 +987,23 @@ class AcknowledgeRoutineChangesButton(ButtonEntity):
             sw_version=VERSION,
         )
 
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to SIGNAL_DATABASE_READY to re-evaluate availability after boot.
+
+        v4.6.9: AcknowledgeRoutineChangesButton was greyed out at first boot
+        because nothing triggered a re-evaluation after the database registered.
+        """
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_DATABASE_READY
+        self.async_on_remove(
+            async_dispatcher_connect(self.hass, SIGNAL_DATABASE_READY, self._handle_ready)
+        )
+
+    @callback
+    def _handle_ready(self) -> None:
+        """Re-evaluate availability once the database is registered."""
+        self.async_schedule_update_ha_state()
+
     @property
     def available(self) -> bool:
         """Available when the database is reachable."""
@@ -1018,6 +1070,23 @@ class AnomalyDiagnosticDumpButton(ButtonEntity):
             model="Coordinator Manager",
             sw_version=VERSION,
         )
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to SIGNAL_DATABASE_READY to re-evaluate availability after boot.
+
+        v4.6.9: AnomalyDiagnosticDumpButton was greyed out at first boot
+        because nothing triggered a re-evaluation after the database registered.
+        """
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_DATABASE_READY
+        self.async_on_remove(
+            async_dispatcher_connect(self.hass, SIGNAL_DATABASE_READY, self._handle_ready)
+        )
+
+    @callback
+    def _handle_ready(self) -> None:
+        """Re-evaluate availability once the database is registered."""
+        self.async_schedule_update_ha_state()
 
     @property
     def available(self) -> bool:
