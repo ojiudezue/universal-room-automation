@@ -1,22 +1,5 @@
-# URA Backlog — As of v4.2.6 (Apr 19, 2026)
+# URA Backlog — As of v4.6.8 (May 2026)
 
-## URA DB Scale Management — ARCHIVED (build only on degradation signal)
-
-**Decision (2026-05-16):** Originally promoted from tech debt after the v4.6.3.1 deploy hang. v4.6.3.2's thread-safety fix resolved the actual cause of that hang; DB scale was a red herring. URA setup time has been consistently under 5 min across five subsequent deploys (v4.6.3.3 → v4.6.5.2). No live evidence that scale is degrading user experience today.
-
-**Stop rehashing.** This item is filed and won't be re-queued unless one of these triggers fires:
-- URA setup time exceeds 5 min on a fresh restart (current SLO from prior planning)
-- DB size growth rate exceeds ~50 MB/week sustained (signal of unbounded retention)
-- A user-visible feature is blocked by DB I/O latency
-- A subsequent DB-write feature requires the orphan `idx_env_room_time` to be dropped to avoid write amplification regressions
-
-**Original scope preserved here for when/if a trigger fires:**
-- DB was 886 MB on 2026-05-15. Largest tables: `occupancy_events` 172 MB, `environmental_data` 80 MB, `energy_snapshots` 65 MB, `anomaly_log` 43 MB, `census_snapshots` 40 MB.
-- **Orphan index:** `idx_env_room_time` (62 MB) duplicates `idx_environmental_room_time` (62 MB) — from a rename migration that was never dropped. ~62 MB waste + write amplification on every `environmental_data` insert.
-- Scope: retention policy on `occupancy_events` / `environmental_data` / `census_snapshots`; drop orphan index; schedule periodic `VACUUM`; audit other tables for duplicate-index orphans; optionally archive old rows to sidecar `.db`.
-- Estimated cost when promoted: ~200-300 prod LoC + ~150 test LoC. Tier 2.
-
-**Recall hint when promoted:** `"Resume URA roadmap — DB scale management"`
 
 ## Quality Enforcement Hardening — ARCHIVED, build on degradation
 
@@ -275,13 +258,6 @@ Fix: remove `store_event` + `activity_logger.log` calls inside `_check_zone_anom
 
 ## Bugs (fix first)
 
-1. **Config flow save timeout** — Options persist to disk but `async_reload` from options flow update listener times out. Manual reload works.
-   - **Partially mitigated** in v4.2.0: try-except + debug logging on 7 room option steps. Root cause (93 entities per room causing reload timeout) remains.
-   - Workaround: manually reload entry after save.
-
-2. **Energy TOU blocking I/O** — `energy_tou.py:68` synchronous `filepath.read_text()` on event loop. HA 2026.x flags this.
-   - Fix: `await hass.async_add_executor_job(filepath.read_text)`
-
 3. **5 disabled HA automations use deprecated mireds** — Need `color_temp` → `color_temp_kelvin` migration when re-enabled. Tracked since v3.9.6.
 
 ## Tech Debt: DB Write Queue Startup Contention
@@ -308,9 +284,6 @@ Fix: remove `store_event` + `activity_logger.log` calls inside `_check_zone_anom
 
 **C. Frigate face DB undersized** — 11–17 samples per family member at recognition_threshold=0.9. 1 match in last 50 events. Not URA code — Frigate config. User handling.
 
-**D. Stub energy/cost prediction sensors** — `aggregation.py:1710-1911`: `PredictedEnergyWeekSensor`, `PredictedEnergyMonthSensor`, `PredictedCostTodaySensor`, `PredictedCostWeekSensor`, `PredictedCostMonthSensor` are missing `async_update()`. Hotfix needs implementation + Cost variants need EC `current_effective_rate` integration (architectural decision pending).
-
-**E. Legacy fixed-cost-rate vs EC TOU rate reconciliation** — Pre-EC code: rooms have `CONF_ELECTRICITY_RATE` static; cost calculations in `coordinator.py:1804-1811`, `aggregation.py:1813-1815` use it. EC era: `EnergyCoordinator.current_effective_rate` (`energy.py:2837`) is TOU-aware and authoritative. All cost calculations should migrate to EC's rate when EC is configured (with static config as fallback when EC not present).
 
 ## B6: "away_typical" Display + Seasonal Staleness Handling
 
@@ -1017,6 +990,55 @@ Promotion: ship as part of any v4.5.x cycle that touches `transitions.py` or as 
 
 **Promotion criteria:** schedule as a UX cycle when (a) the user explicitly asks for it, (b) URA gets a second user, or (c) the device-page sprawl crosses some "too much friction" threshold subjectively.
 
+## House Energy/Cost Accounting Reconciliation (Tier 2 investigation, fork)
+
+**Status:** Filed 2026-05-18. Do not promote until a downstream feature needs a canonical cost figure.
+
+Two parallel accounting paths currently coexist in URA:
+- **URA path:** `WholeHouseEnergySensor` (sums user-configured `whole_house_energy_sensors`) → `WholeHouseCostTodaySensor` (added v4.6.8, multiplies by TOU rate).
+- **EC path:** `EnergyCoordinator.cost_today` / `cost_this_cycle` (computed from Envoy lifetime deltas × TOU rate via `CostTracker`).
+
+Both are valid. Both use the same TOU rate after v4.6.8. They track different energy sources so they will not agree.
+
+**Scope of investigation:**
+- Document the two paths with clear semantics (URA = room-metered load, EC = grid net-import/export).
+- Decide canonical path for a monthly billing dashboard or utility-meter integration.
+- Determine whether `WholeHouseCostTodaySensor` (v4.6.8 D6) should become the canonical realized-cost surface and what happens to EC's `cost_today`.
+
+**Trigger condition:** Promote only when a downstream feature (utility-meter integration, monthly billing UI, energy dashboard v3) needs a canonical realized-cost figure.
+
+---
+
+## AnomalyType Discriminator Promote (Tier 2-DB, active queue)
+
+**Status:** Filed 2026-05-18 per user directive. Ready to queue when the next DB-sensitive cycle is scheduled.
+
+**Spec (from B7 sub-spec, BACKLOG lines 435+):** Add `AnomalyType` column to `AnomalyRecord` + `anomaly_log` schema migration.
+- Values: `point_in_time | regime_shift`
+- Default `point_in_time` for back-compat on existing rows
+- ~50 prod LoC + ~40 test LoC + migration script
+
+**Ceremony:** Tier 2-DB (3x parallel reviews per CLAUDE.md) — touches `database.py` DAOs, migrates callers, changes payload shape.
+
+**Recall hint:** `"Resume AnomalyType discriminator promote"`
+
+---
+
+## Per-Metric Z-Threshold Customization (deferred — trigger conditions below)
+
+**Status:** Filed 2026-05-18. Do NOT queue until a trigger fires.
+
+Currently `z_threshold` is global per coordinator (HVAC, Security, etc.).
+
+**Promote ONLY when ANY of:**
+- User reports an anomaly category flooding alerts (e.g., HVAC override_frequency hits every day even after baseline maturity)
+- Cardinality audit reveals a metric's natural variance is structurally different from its siblings in the same coordinator
+- Tier 3 dashboard surface needs per-metric tuning knobs (UX driving it, not algorithm)
+
+**Estimated cost when promoted:** ~80 prod LoC + ~60 test LoC. Tier 2 (touches config flow + options flow per coordinator).
+
+---
+
 ## Other Tracked Items
 
 - **Jaya + Ziri bedrooms** — need motion sensors added via config flow (options saved, blocked by bug #1)
@@ -1024,9 +1046,10 @@ Promotion: ship as part of any v4.5.x cycle that touches `transitions.py` or as 
 - **Dashboard v3 polish** — built, not deployed
 - **Diagnostic logging downgrade** — person coordinator WARNING → DEBUG after stabilization
 
-## Recommended Priority
+## Recommended Priority (post-v4.6.8)
 
-1. Config flow save root cause (partially mitigated in v4.2.0, still times out on large rooms)
-2. Optimizer Phase 1 (Activity Log done, no blockers remaining)
+1. Optimizer Phase 1 (Activity Log done, no blockers remaining)
+2. AnomalyType discriminator promote (Tier 2-DB, spec complete)
 3. B3 pre-emptive actions (planned — zone/house level, see `docs/planning/PLANNING_v4.x_B3_PREEMPTIVE_ACTIONS.md`)
 4. DB write queue deeper fixes (if room count grows or warmup becomes unacceptable)
+5. House Energy/Cost Accounting Reconciliation (when downstream feature needs canonical cost figure)

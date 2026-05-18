@@ -121,6 +121,7 @@ from .domain_coordinators.signals import (
     SIGNAL_SAFETY_HAZARD,
     SIGNAL_SECURITY_EVENT,
 )
+from .domain_coordinators.energy_billing import _get_effective_rate_kwh
 from .automation import RoomAutomation
 
 _LOGGER = logging.getLogger(__name__)
@@ -2110,7 +2111,8 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                 data[STATE_ENERGY_MONTHLY] = self._cached_predictions[STATE_ENERGY_MONTHLY]
 
             # Energy costs (computed fresh from cached energy values)
-            electricity_rate = self._get_electricity_rate()
+            # v4.6.8: Use TOU-aware rate via helper (EC first, room override, global, default).
+            electricity_rate, _rate_src = _get_effective_rate_kwh(self.hass, room_entry=self.entry)
             if data.get(STATE_ENERGY_WEEKLY) is not None:
                 data[STATE_ENERGY_COST_WEEKLY] = round(data[STATE_ENERGY_WEEKLY] * electricity_rate, 2)
             if data.get(STATE_ENERGY_MONTHLY) is not None:

@@ -17,8 +17,78 @@ from .energy_const import (
     PEC_FIXED_CHARGES,
 )
 from .energy_tou import TOURateEngine
+from ..const import (
+    CONF_ELECTRICITY_RATE,
+    DEFAULT_ELECTRICITY_RATE,
+)
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _get_effective_rate_kwh(
+    hass: HomeAssistant,
+    *,
+    room_entry=None,
+) -> tuple[float, str]:
+    """Return (rate_$/kWh, source) — EC TOU when configured, static fallback otherwise.
+
+    Resolution order:
+    1. EC's current_effective_rate (TOU-aware)  → (rate, "ec_tou")
+    2. Room entry's CONF_ELECTRICITY_RATE override (if room_entry given) → (rate, "static_config")
+    3. Global integration CONF_ELECTRICITY_RATE  → (rate, "static_config")
+    4. DEFAULT_ELECTRICITY_RATE                  → (rate, "static_config")
+
+    v4.6.8: Centralises every cost-rate lookup so the magic 0.1 fallback is
+    eliminated and TOU awareness reaches all cost sensors automatically.
+    Never raises — always returns a usable float.
+    """
+    # 1. Try Energy Coordinator's live TOU rate.
+    try:
+        from ..const import DOMAIN
+        manager = hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is not None:
+            ec = manager.coordinators.get("energy")
+            if ec is not None:
+                rate = ec.current_effective_rate
+                if rate is not None and isinstance(rate, (int, float)) and rate > 0:
+                    return float(rate), "ec_tou"
+    except Exception:  # noqa: BLE001
+        pass  # Fall through to static config
+
+    # 2. Room-level static override.
+    if room_entry is not None:
+        try:
+            room_rate = room_entry.options.get(
+                CONF_ELECTRICITY_RATE,
+                room_entry.data.get(CONF_ELECTRICITY_RATE),
+            )
+            if room_rate is not None:
+                return float(room_rate), "static_config"
+        except Exception:  # noqa: BLE001
+            pass
+
+    # 3. Global integration entry static rate.
+    try:
+        from ..const import ENTRY_TYPE_INTEGRATION, CONF_ENTRY_TYPE
+        for entry_data in hass.data.get(DOMAIN, {}).values():  # type: ignore[union-attr]
+            if not isinstance(entry_data, dict):
+                continue
+            cfg_entry = entry_data.get("entry")
+            if cfg_entry is None:
+                continue
+            if cfg_entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_INTEGRATION:
+                global_rate = cfg_entry.options.get(
+                    CONF_ELECTRICITY_RATE,
+                    cfg_entry.data.get(CONF_ELECTRICITY_RATE),
+                )
+                if global_rate is not None:
+                    return float(global_rate), "static_config"
+                break
+    except Exception:  # noqa: BLE001
+        pass
+
+    # 4. Hardcoded module-level default (never 0.1).
+    return DEFAULT_ELECTRICITY_RATE, "static_config"
 
 
 class CostTracker:

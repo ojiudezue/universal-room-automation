@@ -105,6 +105,7 @@ from .const import (
 from .coordinator import UniversalRoomCoordinator
 from .entity import UniversalRoomEntity
 from .aggregation import AggregationEntity
+from .domain_coordinators.energy_billing import _get_effective_rate_kwh
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -631,9 +632,10 @@ class EnergyCostTodaySensor(UniversalRoomEntity, SensorEntity):
     def native_value(self) -> float | None:
         """Return energy cost today."""
         energy = self.coordinator.data.get(STATE_ENERGY_TODAY, 0) if self.coordinator.data else 0
-        # v3.2.4 FIX: Merge entry.options with entry.data
-        config = {**self.coordinator.entry.data, **self.coordinator.entry.options}
-        rate = config.get(CONF_ELECTRICITY_RATE, DEFAULT_ELECTRICITY_RATE)
+        # v4.6.8: Use TOU-aware rate via helper (EC first, room override, global, default).
+        rate, _source = _get_effective_rate_kwh(
+            self.coordinator.hass, room_entry=self.coordinator.entry
+        )
         return round(energy * rate, 2)
 
 
