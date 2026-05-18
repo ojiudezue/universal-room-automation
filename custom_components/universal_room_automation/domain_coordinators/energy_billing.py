@@ -17,8 +17,75 @@ from .energy_const import (
     PEC_FIXED_CHARGES,
 )
 from .energy_tou import TOURateEngine
+from ..const import (
+    CONF_ELECTRICITY_RATE,
+    DEFAULT_ELECTRICITY_RATE,
+)
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _get_effective_rate_kwh(
+    hass: HomeAssistant,
+    *,
+    room_entry=None,
+) -> tuple[float, str]:
+    """Return (rate_$/kWh, source) — EC TOU when configured, static fallback otherwise.
+
+    Resolution order:
+    1. EC's current_effective_rate (TOU-aware)  → (rate, "ec_tou")
+    2. Room entry's CONF_ELECTRICITY_RATE override (if room_entry given) → (rate, "static_config")
+    3. Global integration CONF_ELECTRICITY_RATE  → (rate, "static_config")
+    4. DEFAULT_ELECTRICITY_RATE                  → (rate, "static_config")
+
+    v4.6.8: Centralises every cost-rate lookup so the magic 0.1 fallback is
+    eliminated and TOU awareness reaches all cost sensors automatically.
+    Never raises — always returns a usable float.
+    """
+    from ..const import DOMAIN
+
+    # 1. Try Energy Coordinator's live TOU rate.
+    try:
+        manager = hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is not None:
+            ec = manager.coordinators.get("energy")
+            if ec is not None:
+                rate = ec.current_effective_rate
+                if rate is not None and isinstance(rate, (int, float)) and rate > 0:
+                    return float(rate), "ec_tou"
+    except Exception as exc:  # noqa: BLE001
+        _LOGGER.debug("rate helper tier 1 (EC TOU) failed: %s", exc)
+
+    # 2. Room-level static override.
+    if room_entry is not None:
+        try:
+            room_rate = room_entry.options.get(
+                CONF_ELECTRICITY_RATE,
+                room_entry.data.get(CONF_ELECTRICITY_RATE),
+            )
+            if room_rate is not None:
+                return float(room_rate), "static_config"
+        except Exception as exc:  # noqa: BLE001
+            _LOGGER.debug("rate helper tier 2 (room override) failed: %s", exc)
+
+    # 3. Global integration entry static rate. Read the canonical slot:
+    # __init__.py stores the integration entry directly at hass.data[DOMAIN]["integration"]
+    # (a ConfigEntry — NOT wrapped in a dict). v4.6.8 fix: prior loop assumed
+    # dict-shaped values and never matched, silently falling through to step 4.
+    try:
+        integration_entry = hass.data.get(DOMAIN, {}).get("integration")
+        if integration_entry is not None:
+            global_rate = integration_entry.options.get(
+                CONF_ELECTRICITY_RATE,
+                integration_entry.data.get(CONF_ELECTRICITY_RATE),
+            )
+            if global_rate is not None:
+                return float(global_rate), "static_config"
+    except Exception as exc:  # noqa: BLE001
+        _LOGGER.debug("rate helper tier 3 (global integration) failed: %s", exc)
+
+    # 4. Hardcoded module-level default (never 0.1).
+    return DEFAULT_ELECTRICITY_RATE, "static_config"
 
 
 class CostTracker:

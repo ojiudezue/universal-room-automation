@@ -9,7 +9,7 @@
           "outside_humidity_sensor": "Outside Humidity Sensor",
           "weather_entity": "Weather Forecast Entity",
           "solar_production_sensor": "Solar Production Sensor",
-          "electricity_rate": "Electricity Rate ($/kWh)",
+          "electricity_rate": "Fallback Electricity Rate ($/kWh)",
           "notification_service": "Default Notification Service",
           "notification_target": "Default Notification Target",
           "notification_level": "Default Notification Level"
@@ -19,7 +19,7 @@
           "outside_humidity_sensor": "Sensor for outdoor humidity",
           "weather_entity": "Weather entity for forecasts and predictions",
           "solar_production_sensor": "Current solar production for energy calculations",
-          "electricity_rate": "Cost per kWh for energy cost calculations",
+          "electricity_rate": "Used only when the Energy Coordinator is not configured. With the Energy Coordinator active, cost calculations use the TOU-aware rate automatically.",
           "notification_service": "Service to send alerts (e.g., notify.mobile_app_phone)",
           "notification_target": "Device or group to receive notifications",
           "notification_level": "Which alerts to send: Off, Errors, Important, or All"
@@ -388,13 +388,13 @@
         "data": {
           "power_sensors": "Power Sensors",
           "energy_sensors": "Energy Sensors",
-          "electricity_rate": "Electricity Rate",
+          "electricity_rate": "Room Fallback Rate Override",
           "notify_daily_energy_summary": "Daily Summary"
         },
         "data_description": {
           "power_sensors": "Sensors showing current power draw (watts)",
           "energy_sensors": "Sensors showing cumulative energy usage (kWh). Select multiple for rooms with separate circuits.",
-          "electricity_rate": "Cost per kWh (overrides integration default)",
+          "electricity_rate": "Per-room fallback used only when the Energy Coordinator is not configured. With the Energy Coordinator active, room costs follow the live TOU rate and this value is ignored.",
           "notify_daily_energy_summary": "Send daily energy usage summary notification"
         }
       },
@@ -559,14 +559,14 @@
           "outside_humidity_sensor": "Outside Humidity Sensor",
           "weather_entity": "Weather Forecast Entity",
           "solar_production_sensor": "Solar Production Sensor",
-          "electricity_rate": "Default Electricity Rate ($/kWh)"
+          "electricity_rate": "Default Fallback Electricity Rate ($/kWh)"
         },
         "data_description": {
           "outside_temp_sensor": "Sensor for outdoor temperature",
           "outside_humidity_sensor": "Sensor for outdoor humidity",
           "weather_entity": "Weather entity for forecasts",
           "solar_production_sensor": "Current solar production",
-          "electricity_rate": "Cost per kWh for energy calculations"
+          "electricity_rate": "Used only when the Energy Coordinator is not configured. The Energy Coordinator's TOU-aware rate is preferred."
         }
       },
       "energy_sensors": {
@@ -1416,7 +1416,7 @@
         "data": {
           "power_sensors": "Power Sensors",
           "energy_sensors": "Energy Sensors",
-          "electricity_rate": "Electricity Rate ($/kWh)",
+          "electricity_rate": "Fallback Electricity Rate ($/kWh)",
           "notify_daily_energy_summary": "Daily Summary Notification"
         }
       },

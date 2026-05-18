@@ -51,7 +51,7 @@ class TOURateEngine:
 
     @classmethod
     def _read_json_file(cls, config_dir: str, filename: str) -> tuple[str, dict | None]:
-        """Read and parse TOU JSON file (blocking I/O — run in executor)."""
+        """Read and parse TOU JSON file (always called via async_from_json_file executor wrapper)."""
         import json
         from pathlib import Path
 
@@ -77,18 +77,6 @@ class TOURateEngine:
         filepath_str, data = await hass.async_add_executor_job(
             cls._read_json_file, config_dir, filename,
         )
-        if data is None:
-            return cls()
-        return cls._from_parsed_data(data, filepath_str, filename)
-
-    @classmethod
-    def from_json_file(cls, config_dir: str, filename: str) -> "TOURateEngine":
-        """Load TOU rates from a JSON file (sync — prefer async_from_json_file).
-
-        Expected format: see docs/plans/ENERGY_COORDINATOR_PLAN.md section 11.5
-        Falls back to PEC defaults if file not found or invalid.
-        """
-        filepath_str, data = cls._read_json_file(config_dir, filename)
         if data is None:
             return cls()
         return cls._from_parsed_data(data, filepath_str, filename)
