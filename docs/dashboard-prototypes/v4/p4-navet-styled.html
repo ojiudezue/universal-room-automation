@@ -1,0 +1,1927 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>URA v4 — P4 Navet-styled (P2 + Safety)</title>
+  <link rel="stylesheet" href="shared.css">
+</head>
+<body class="navet">
+
+<!-- ============================================================
+     Lucide icon sprite (hidden) — use via <use href="#lc-X">
+     ============================================================ -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <defs>
+    <symbol id="lc-house" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9.5L12 2l9 7.5V21a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9.5z"/><path d="M9 22V12h6v10"/></symbol>
+    <symbol id="lc-layers" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2 2 7l10 5 10-5-10-5z"/><path d="m2 17 10 5 10-5"/><path d="m2 12 10 5 10-5"/></symbol>
+    <symbol id="lc-zap" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></symbol>
+    <symbol id="lc-thermo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 14.76V3.5a2.5 2.5 0 0 0-5 0v11.26a4 4 0 1 0 5 0z"/></symbol>
+    <symbol id="lc-users" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></symbol>
+    <symbol id="lc-shield" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></symbol>
+    <symbol id="lc-activity" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></symbol>
+    <symbol id="lc-settings" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 0 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 0 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3h0a1.7 1.7 0 0 0 1-1.5V3a2 2 0 0 1 4 0v.1a1.7 1.7 0 0 0 1 1.5h0a1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8v0a1.7 1.7 0 0 0 1.5 1H21a2 2 0 0 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/><circle cx="12" cy="12" r="3"/></symbol>
+    <symbol id="lc-chevron-right" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></symbol>
+    <symbol id="lc-chevron-down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></symbol>
+    <symbol id="lc-bulb" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></symbol>
+    <symbol id="lc-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
+    <symbol id="lc-lock-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 9.9-1"/></symbol>
+    <symbol id="lc-video" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m22 8-6 4 6 4V8Z"/><rect width="14" height="12" x="2" y="6" rx="2"/></symbol>
+    <symbol id="lc-sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></symbol>
+    <symbol id="lc-cloud" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 19a4.5 4.5 0 1 0-1.4-8.8 6 6 0 1 0-11.6 1.6A4 4 0 0 0 6 19h11.5Z"/></symbol>
+    <symbol id="lc-moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></symbol>
+    <symbol id="lc-battery" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="7" width="16" height="10" rx="2"/><line x1="22" y1="11" x2="22" y2="13"/><line x1="6" y1="11" x2="6" y2="13"/><line x1="10" y1="11" x2="10" y2="13"/><line x1="14" y1="11" x2="14" y2="13"/></symbol>
+    <symbol id="lc-gauge" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 14 4-4"/><path d="M3.34 19a10 10 0 1 1 17.32 0"/></symbol>
+    <symbol id="lc-alert" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3Z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></symbol>
+    <symbol id="lc-brain" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z"/><path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z"/></symbol>
+    <symbol id="lc-music" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></symbol>
+    <symbol id="lc-fan" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.83 3.36c.13-.49.55-.86 1.06-.93C13.94 2.2 18 4.05 18 8a4 4 0 0 1-4 4"/><path d="M10 12.5C7.5 12.5 4.5 11.5 4.5 8c0-1.5 1-2.5 2-3"/><circle cx="12" cy="12" r="2"/><path d="M13.17 20.64c-.13.49-.55.86-1.06.93C10.06 21.8 6 19.95 6 16a4 4 0 0 1 4-4"/></symbol>
+    <symbol id="lc-plus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></symbol>
+    <symbol id="lc-minus" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/></symbol>
+    <symbol id="lc-more" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/></symbol>
+    <symbol id="lc-check" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></symbol>
+    <symbol id="lc-arrow-down" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/></symbol>
+    <symbol id="lc-arrow-up" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></symbol>
+    <symbol id="lc-sparkles" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3-1.9 5.8a2 2 0 0 1-1.3 1.3L3 12l5.8 1.9a2 2 0 0 1 1.3 1.3L12 21l1.9-5.8a2 2 0 0 1 1.3-1.3L21 12l-5.8-1.9a2 2 0 0 1-1.3-1.3z"/></symbol>
+    <symbol id="lc-radio" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4.9 19.1C1 15.2 1 8.8 4.9 4.9"/><path d="M7.8 16.2c-2.3-2.3-2.3-6.1 0-8.5"/><circle cx="12" cy="12" r="2"/><path d="M16.2 7.8c2.3 2.3 2.3 6.1 0 8.5"/><path d="M19.1 4.9C23 8.8 23 15.1 19.1 19"/></symbol>
+    <symbol id="lc-bell" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 8a6 6 0 0 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.94 1.94 0 0 0 3.4 0"/></symbol>
+    <symbol id="lc-eye" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></symbol>
+  </defs>
+</svg>
+
+<!-- ============================================================
+     Viewport toggle
+     ============================================================ -->
+<div class="viewport-toggle">
+  <button data-viewport="desktop" class="active">Desktop</button>
+  <button data-viewport="mobile">Mobile</button>
+</div>
+
+<div class="app">
+
+  <!-- ========================================================
+       Left rail navigation
+       ======================================================== -->
+  <aside class="rail">
+    <div class="rail-brand">
+      <div class="rail-brand-mark">U</div>
+      <div class="rail-brand-text">
+        <strong>URA</strong>
+        <span>v4 · p4 navet</span>
+      </div>
+    </div>
+
+    <div class="rail-section">Overview</div>
+    <button class="rail-link active" data-tab-target="home">
+      <svg class="icon"><use href="#lc-house"/></svg>
+      <span>Home</span>
+    </button>
+    <button class="rail-link" data-tab-target="house">
+      <svg class="icon"><use href="#lc-house"/></svg>
+      <span>House</span>
+    </button>
+    <button class="rail-link" data-tab-target="zones">
+      <svg class="icon"><use href="#lc-layers"/></svg>
+      <span>Zones</span>
+      <span class="rail-link-chip">5</span>
+    </button>
+    <button class="rail-link" data-tab-target="rooms">
+      <svg class="icon"><use href="#lc-layers"/></svg>
+      <span>Rooms</span>
+      <span class="rail-link-chip">19</span>
+    </button>
+
+    <div class="rail-section">Systems</div>
+    <button class="rail-link" data-tab-target="energy">
+      <svg class="icon"><use href="#lc-zap"/></svg>
+      <span>Energy</span>
+    </button>
+    <button class="rail-link" data-tab-target="hvac">
+      <svg class="icon"><use href="#lc-thermo"/></svg>
+      <span>HVAC</span>
+    </button>
+    <button class="rail-link" data-tab-target="presence">
+      <svg class="icon"><use href="#lc-users"/></svg>
+      <span>Presence</span>
+      <span class="rail-link-chip">3/4</span>
+    </button>
+    <button class="rail-link" data-tab-target="security">
+      <svg class="icon"><use href="#lc-shield"/></svg>
+      <span>Security</span>
+    </button>
+    <button class="rail-link" data-tab-target="safety">
+      <svg class="icon"><use href="#lc-alert"/></svg>
+      <span>Safety</span>
+    </button>
+
+    <div class="rail-section">URA</div>
+    <button class="rail-link" data-tab-target="diagnostics">
+      <svg class="icon"><use href="#lc-activity"/></svg>
+      <span>Diagnostics</span>
+      <span class="rail-link-chip">2</span>
+    </button>
+
+    <div class="rail-footer">
+      <button class="rail-link">
+        <svg class="icon"><use href="#lc-settings"/></svg>
+        <span>Settings</span>
+      </button>
+    </div>
+  </aside>
+
+  <!-- ========================================================
+       Main content area
+       ======================================================== -->
+  <main class="main">
+
+    <!-- Mobile tabs (visible only on mobile) -->
+    <nav class="mobile-tabs">
+      <button class="active" data-tab-target="home"><svg class="icon-sm"><use href="#lc-house"/></svg>Home</button>
+      <button data-tab-target="house"><svg class="icon-sm"><use href="#lc-house"/></svg>House</button>
+      <button data-tab-target="zones"><svg class="icon-sm"><use href="#lc-layers"/></svg>Zones</button>
+      <button data-tab-target="rooms"><svg class="icon-sm"><use href="#lc-layers"/></svg>Rooms</button>
+      <button data-tab-target="energy"><svg class="icon-sm"><use href="#lc-zap"/></svg>Energy</button>
+      <button data-tab-target="hvac"><svg class="icon-sm"><use href="#lc-thermo"/></svg>HVAC</button>
+      <button data-tab-target="presence"><svg class="icon-sm"><use href="#lc-users"/></svg>Presence</button>
+      <button data-tab-target="security"><svg class="icon-sm"><use href="#lc-shield"/></svg>Security</button>
+      <button data-tab-target="safety"><svg class="icon-sm"><use href="#lc-alert"/></svg>Safety</button>
+      <button data-tab-target="diagnostics"><svg class="icon-sm"><use href="#lc-activity"/></svg>Diagnostics</button>
+    </nav>
+
+    <!-- ====================================================
+         TAB: HOME
+         ==================================================== -->
+    <section class="tab active" data-tab="home">
+      <header class="page-header">
+        <div>
+          <h1 class="page-title">Good evening, Oji</h1>
+          <div class="page-subtitle">Sunday May 17 · 18:47 · Week 20</div>
+        </div>
+        <div class="page-actions">
+          <button class="btn"><svg class="icon"><use href="#lc-bell"/></svg></button>
+          <button class="btn"><svg class="icon"><use href="#lc-settings"/></svg></button>
+        </div>
+      </header>
+
+      <!-- CONTROLS BAR — primary house knobs at the top -->
+      <div class="controls-bar">
+        <div class="knob span-4">
+          <div class="knob-label">House mode <span class="badge accent">URA-suggested: Home</span></div>
+          <div class="pill-group" role="tablist" aria-label="House mode" style="width:100%">
+            <button class="active" style="flex:1">Home</button>
+            <button style="flex:1">Sleep</button>
+            <button style="flex:1">Away</button>
+            <button style="flex:1">Guest</button>
+            <button style="flex:1">Vacation</button>
+          </div>
+        </div>
+        <div class="knob span-2">
+          <div class="knob-label">Anomaly floor <svg class="icon-sm dim"><use href="#lc-alert"/></svg></div>
+          <div class="knob-value">ALERT <span class="badge accent">3</span></div>
+          <div class="knob-action">
+            <input type="range" min="0" max="4" value="3" class="slider">
+          </div>
+        </div>
+        <div class="knob span-2">
+          <div class="knob-label">Battery reserve <svg class="icon-sm dim"><use href="#lc-battery"/></svg></div>
+          <div class="knob-value tabular">25 <span class="dim" style="font-weight:400; font-size:var(--text-sm)">%</span></div>
+          <div class="knob-action">
+            <input type="range" min="10" max="80" value="25" class="slider">
+          </div>
+        </div>
+        <div class="knob span-2">
+          <div class="knob-label">Scenes</div>
+          <div class="knob-action" style="margin-top:0; flex-wrap:wrap">
+            <button class="btn sm">All off</button>
+            <button class="btn sm">Evening</button>
+            <button class="btn sm">Movie</button>
+            <button class="btn sm">Bed</button>
+          </div>
+        </div>
+        <div class="knob span-2">
+          <div class="knob-label">Quick toggles</div>
+          <div class="card-row"><span>Notifications</span><label class="toggle"><input type="checkbox" checked><span class="toggle-slot"></span></label></div>
+          <div class="card-row"><span>Do not disturb</span><label class="toggle"><input type="checkbox"><span class="toggle-slot"></span></label></div>
+        </div>
+      </div>
+
+      <!-- Status bar — at-a-glance house state -->
+      <div class="status-bar">
+        <div class="status-bar-item"><span class="dot green live"></span><strong>home_evening</strong></div>
+        <div class="status-bar-divider"></div>
+        <div class="status-bar-item"><svg class="icon-sm"><use href="#lc-cloud"/></svg><span>64°F</span><span class="dim">partly cloudy</span></div>
+        <div class="status-bar-divider"></div>
+        <div class="status-bar-item"><svg class="icon-sm"><use href="#lc-users"/></svg><strong>3</strong><span>/ 4 home</span></div>
+        <div class="status-bar-divider"></div>
+        <div class="status-bar-item"><svg class="icon-sm"><use href="#lc-zap"/></svg><strong class="tabular">0.8 kW</strong><span class="dim">from grid</span></div>
+        <div class="status-bar-divider"></div>
+        <div class="status-bar-item"><svg class="icon-sm"><use href="#lc-thermo"/></svg><strong class="tabular">73°F</strong><span class="dim">cool · set 72°</span></div>
+        <div class="status-bar-divider"></div>
+        <div class="status-bar-item"><svg class="icon-sm"><use href="#lc-shield"/></svg><span class="dim">disarmed</span></div>
+        <div class="spacer"></div>
+        <div class="status-bar-item"><span class="badge red"><svg class="icon-sm"><use href="#lc-alert"/></svg>2 anomalies</span></div>
+      </div>
+
+      <!-- Hero row — 4 key URA + house cards -->
+      <div class="grid">
+        <!-- URA brain — coordinator summary + next decision -->
+        <div class="card col-6 strong">
+          <div class="card-head">
+            <div class="card-title"><svg class="icon-sm"><use href="#lc-brain"/></svg>URA Coordinators</div>
+            <span class="badge green">5/5 healthy</span>
+          </div>
+          <div class="row" style="gap:var(--space-md)">
+            <div>
+              <div class="card-value tabular">247</div>
+              <div class="card-sub">decisions today</div>
+            </div>
+            <div style="flex:1; border-left:1px solid var(--glass-border); padding-left:var(--space-md)">
+              <div class="card-sub" style="margin-bottom:4px">Next predicted state · <span class="dim">routine awareness</span></div>
+              <div class="row" style="gap:var(--space-xs)">
+                <svg class="icon-sm" style="color:var(--status-blue)"><use href="#lc-moon"/></svg>
+                <strong>home_night</strong>
+                <span class="muted">at 21:30</span>
+                <span class="badge accent">87% conf</span>
+              </div>
+              <div class="card-sub" style="margin-top:var(--space-xs)">
+                Oji → Master Bed at 22:15 · 73% conf
+              </div>
+            </div>
+          </div>
+          <div class="card-row" style="border-top:1px solid var(--glass-border); padding-top:var(--space-sm); margin-top:var(--space-xs)">
+            <span class="dim">Latest decision · 18:42</span>
+            <span>HVAC · Master Suite → <span class="badge yellow">coast</span></span>
+          </div>
+        </div>
+
+        <!-- Energy now -->
+        <div class="card col-3 status-yellow">
+          <div class="card-head">
+            <div class="card-title"><svg class="icon-sm"><use href="#lc-zap"/></svg>Energy now</div>
+            <span class="badge yellow">mid-peak</span>
+          </div>
+          <div class="card-value tabular">0.8<span class="card-unit">kW</span></div>
+          <div class="card-sub">grid import · 28.4 kWh solar today</div>
+          <div class="card-row"><span>Battery</span><span><strong>78%</strong> · discharging</span></div>
+          <div class="card-row"><span>Cost today</span><span class="tabular">$4.82</span></div>
+        </div>
+
+        <!-- Active anomalies -->
+        <div class="card col-3 status-orange">
+          <div class="card-head">
+            <div class="card-title"><svg class="icon-sm"><use href="#lc-alert"/></svg>Anomalies</div>
+            <span class="badge orange">2 active</span>
+          </div>
+          <div class="card-row">
+            <span class="badge red">ALERT</span>
+            <span class="dim">18:31</span>
+          </div>
+          <div class="card-sub">HVAC · master_suite override_freq z=3.2</div>
+          <div class="card-row" style="margin-top:var(--space-xs)">
+            <span class="badge yellow">ADVISORY</span>
+            <span class="dim">17:48</span>
+          </div>
+          <div class="card-sub">Presence · transitions today z=2.4</div>
+        </div>
+      </div>
+
+      <!-- Section: who's home -->
+      <div class="section-head">
+        <h2>Who's home</h2>
+        <button class="btn sm" data-tab-target="presence">View all <svg class="icon-sm"><use href="#lc-chevron-right"/></svg></button>
+      </div>
+      <div class="grid">
+        <div class="card col-3 status-green">
+          <div class="row" style="gap:var(--space-sm)">
+            <div style="width:40px;height:40px;border-radius:var(--radius-full);background:linear-gradient(135deg,#42A5F5,#1E88E5);display:flex;align-items:center;justify-content:center;font-weight:600">O</div>
+            <div style="flex:1">
+              <div style="font-weight:600">Oji</div>
+              <div class="card-sub">Office · BLE+motion · 92%</div>
+            </div>
+            <span class="dot green live"></span>
+          </div>
+          <div class="card-sub">Next likely: Master Bed (22:15)</div>
+        </div>
+        <div class="card col-3 status-green">
+          <div class="row" style="gap:var(--space-sm)">
+            <div style="width:40px;height:40px;border-radius:var(--radius-full);background:linear-gradient(135deg,#EC407A,#C2185B);display:flex;align-items:center;justify-content:center;font-weight:600">E</div>
+            <div style="flex:1">
+              <div style="font-weight:600">Ezinne</div>
+              <div class="card-sub">Kitchen · camera · 88%</div>
+            </div>
+            <span class="dot green live"></span>
+          </div>
+          <div class="card-sub">Next likely: Great Room (19:10)</div>
+        </div>
+        <div class="card col-3 status-yellow">
+          <div class="row" style="gap:var(--space-sm)">
+            <div style="width:40px;height:40px;border-radius:var(--radius-full);background:linear-gradient(135deg,#66BB6A,#388E3C);display:flex;align-items:center;justify-content:center;font-weight:600">J</div>
+            <div style="flex:1">
+              <div style="font-weight:600">Jaya</div>
+              <div class="card-sub">Away · BLE last seen 16:12</div>
+            </div>
+            <span class="dot yellow"></span>
+          </div>
+          <div class="card-sub">ETA home: ~19:30 (commute)</div>
+        </div>
+        <div class="card col-3 status-green">
+          <div class="row" style="gap:var(--space-sm)">
+            <div style="width:40px;height:40px;border-radius:var(--radius-full);background:linear-gradient(135deg,#FFA726,#F57C00);display:flex;align-items:center;justify-content:center;font-weight:600">Z</div>
+            <div style="flex:1">
+              <div style="font-weight:600">Ziri</div>
+              <div class="card-sub">Playroom · motion · 95%</div>
+            </div>
+            <span class="dot green live"></span>
+          </div>
+          <div class="card-sub">Bedtime routine starts 19:30</div>
+        </div>
+      </div>
+
+      <!-- Section: system quick reads -->
+      <div class="section-head">
+        <h2>System quick reads</h2>
+      </div>
+      <div class="grid">
+        <!-- HVAC summary -->
+        <div class="card col-4">
+          <div class="card-head">
+            <div class="card-title"><svg class="icon-sm"><use href="#lc-thermo"/></svg>HVAC</div>
+            <button class="btn sm" data-tab-target="hvac">Details <svg class="icon-sm"><use href="#lc-chevron-right"/></svg></button>
+          </div>
+          <div class="row" style="gap:var(--space-md); padding:var(--space-xs) 0">
+            <div>
+              <div class="card-value sm tabular">73°<span class="card-unit" style="font-size:var(--text-sm)">avg</span></div>
+              <div class="card-sub">set 72° · cool</div>
+            </div>
+            <div style="flex:1; text-align:right">
+              <div class="card-sub">Comfort</div>
+              <div class="tabular" style="font-size:var(--text-md);font-weight:600;color:var(--status-green)">92%</div>
+            </div>
+          </div>
+          <div class="card-row"><span>Main Living</span><span><span class="badge green">normal</span> 72°</span></div>
+          <div class="card-row"><span>Master Suite</span><span><span class="badge yellow">coast</span> 74°</span></div>
+          <div class="card-row"><span>Kids</span><span><span class="badge blue">pre-cool</span> 71°</span></div>
+        </div>
+
+        <!-- Routine awareness -->
+        <div class="card col-4 status-blue">
+          <div class="card-head">
+            <div class="card-title"><svg class="icon-sm"><use href="#lc-sparkles"/></svg>Routine awareness</div>
+            <span class="badge blue">active</span>
+          </div>
+          <div class="card-row"><span>Next state</span><span><strong>home_night</strong> · 21:30</span></div>
+          <div class="card-row"><span>Confidence</span><span class="tabular">87%</span></div>
+          <div class="card-row"><span>Today's accuracy</span><span class="tabular">94% (32/34)</span></div>
+          <div class="card-row"><span>Floor min severity</span><span><span class="badge accent">ALERT (3)</span></span></div>
+          <div class="card-controls">
+            <button class="btn sm">Floor <svg class="icon-sm"><use href="#lc-chevron-down"/></svg></button>
+            <button class="btn sm">Override</button>
+          </div>
+        </div>
+
+        <!-- Security summary -->
+        <div class="card col-4">
+          <div class="card-head">
+            <div class="card-title"><svg class="icon-sm"><use href="#lc-shield"/></svg>Security</div>
+            <span class="badge">disarmed</span>
+          </div>
+          <div class="card-row"><span>Locks</span><span><strong>4/4</strong> locked</span></div>
+          <div class="card-row"><span>Cameras</span><span><strong>9</strong> recording</span></div>
+          <div class="card-row"><span>Last event</span><span class="dim">Garage opened 17:54</span></div>
+          <div class="card-controls">
+            <div class="pill-group">
+              <button>Off</button>
+              <button>Home</button>
+              <button>Night</button>
+              <button>Away</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- ====================================================
+         TAB: HOUSE — aggregates only, no individual rooms
+         (P2 unique: three level-tabs)
+         ==================================================== -->
+    <section class="tab" data-tab="house">
+      <header class="page-header">
+        <div>
+          <h1 class="page-title">House</h1>
+          <div class="page-subtitle">Whole-home roll-up · drill to Zones or Rooms for detail</div>
+        </div>
+        <div class="page-actions">
+          <button class="btn"><svg class="icon"><use href="#lc-plus"/></svg> Onboard room</button>
+        </div>
+      </header>
+
+      <div class="controls-bar">
+        <div class="knob span-4">
+          <div class="knob-label">Whole-house quick</div>
+          <div class="knob-action" style="margin-top:0; flex-wrap:wrap">
+            <button class="btn">All lights off</button>
+            <button class="btn">Evening scene</button>
+            <button class="btn">Bed scene</button>
+            <button class="btn">Movie scene</button>
+          </div>
+        </div>
+        <div class="knob span-4">
+          <div class="knob-label">House climate setpoint</div>
+          <div class="row" style="gap:var(--space-xs); align-items:center">
+            <button class="btn icon"><svg class="icon-sm"><use href="#lc-minus"/></svg></button>
+            <div class="knob-value tabular" style="flex:1; text-align:center">72°</div>
+            <button class="btn icon"><svg class="icon-sm"><use href="#lc-plus"/></svg></button>
+          </div>
+          <div class="card-sub">All zones · per-zone offsets retained</div>
+        </div>
+        <div class="knob span-4">
+          <div class="knob-label">Drill into</div>
+          <div class="knob-action" style="margin-top:0; flex-wrap:wrap">
+            <button class="btn" data-tab-target="zones">Zones <svg class="icon-sm"><use href="#lc-chevron-right"/></svg></button>
+            <button class="btn" data-tab-target="rooms">Rooms <svg class="icon-sm"><use href="#lc-chevron-right"/></svg></button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Whole-house KPI -->
+      <div class="grid">
+        <div class="card col-3">
+          <div class="card-title">Occupancy</div>
+          <div class="card-value tabular">3<span class="card-unit">/ 4</span></div>
+          <div class="card-sub">8 rooms occupied · 11 idle</div>
+        </div>
+        <div class="card col-3">
+          <div class="card-title">Lights on</div>
+          <div class="card-value tabular">23<span class="card-unit">/ 87</span></div>
+          <div class="card-sub">Main: 12 · Kids: 6 · Master: 5</div>
+        </div>
+        <div class="card col-3">
+          <div class="card-title">Avg temperature</div>
+          <div class="card-value tabular">73°<span class="card-unit">F</span></div>
+          <div class="card-sub">range 71° – 76° · outside 64°</div>
+        </div>
+        <div class="card col-3">
+          <div class="card-title">Activity (5 min)</div>
+          <div class="card-value tabular">14</div>
+          <div class="card-sub">motion events · 3 zones</div>
+        </div>
+      </div>
+
+      <!-- House-level summaries -->
+      <div class="section-head"><h2>Zone roll-ups</h2></div>
+      <div class="grid">
+        <div class="card col-4 status-green">
+          <div class="card-head"><div class="row" style="gap:var(--space-xs)"><span class="dot green live"></span><strong>Main Living</strong></div><button class="btn sm" data-tab-target="zones">View</button></div>
+          <div class="card-row"><span>Occupied</span><span class="tabular">3 / 5 rooms</span></div>
+          <div class="card-row"><span>Lights</span><span class="tabular">12 / 18 on</span></div>
+          <div class="card-row"><span>Temp / target</span><span class="tabular">72° / 72°</span></div>
+          <div class="card-row"><span>Status</span><span><span class="badge green">normal</span></span></div>
+        </div>
+        <div class="card col-4 status-yellow">
+          <div class="card-head"><div class="row" style="gap:var(--space-xs)"><span class="dot green"></span><strong>Master Suite</strong></div><button class="btn sm" data-tab-target="zones">View</button></div>
+          <div class="card-row"><span>Occupied</span><span class="tabular">1 / 4 rooms</span></div>
+          <div class="card-row"><span>Lights</span><span class="tabular">5 / 12 on</span></div>
+          <div class="card-row"><span>Temp / target</span><span class="tabular">74° / 73°</span></div>
+          <div class="card-row"><span>Status</span><span><span class="badge yellow">coast</span></span></div>
+        </div>
+        <div class="card col-4 status-blue">
+          <div class="card-head"><div class="row" style="gap:var(--space-xs)"><span class="dot green live"></span><strong>Kids</strong></div><button class="btn sm" data-tab-target="zones">View</button></div>
+          <div class="card-row"><span>Occupied</span><span class="tabular">1 / 4 rooms</span></div>
+          <div class="card-row"><span>Lights</span><span class="tabular">6 / 11 on</span></div>
+          <div class="card-row"><span>Temp / target</span><span class="tabular">71° / 71°</span></div>
+          <div class="card-row"><span>Status</span><span><span class="badge blue">pre-cool</span></span></div>
+        </div>
+        <div class="card col-6">
+          <div class="card-head"><div class="row" style="gap:var(--space-xs)"><span class="dot grey"></span><strong>Guest</strong></div><button class="btn sm" data-tab-target="zones">View</button></div>
+          <div class="card-row"><span>Occupied</span><span class="tabular">0 / 3 rooms</span></div>
+          <div class="card-row"><span>Lights</span><span class="tabular">0 / 7 on</span></div>
+          <div class="card-row"><span>Temp / target</span><span class="tabular">75° / 78°</span></div>
+          <div class="card-row"><span>Status</span><span><span class="badge">setback · vacancy</span></span></div>
+        </div>
+        <div class="card col-6">
+          <div class="card-head"><div class="row" style="gap:var(--space-xs)"><span class="dot grey"></span><strong>Outdoor</strong></div><button class="btn sm" data-tab-target="zones">View</button></div>
+          <div class="card-row"><span>Active</span><span class="dim">— · 0 sensors triggered</span></div>
+          <div class="card-row"><span>Lights</span><span class="tabular">0 / 6 on</span></div>
+          <div class="card-row"><span>Outdoor temp</span><span class="tabular">64° · partly cloudy</span></div>
+          <div class="card-row"><span>Status</span><span><span class="badge">sunset 19:42</span></span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ====================================================
+         TAB: ZONES — 5 zone cards with room roll-ups
+         ==================================================== -->
+    <section class="tab" data-tab="zones">
+      <header class="page-header">
+        <div>
+          <h1 class="page-title">Zones</h1>
+          <div class="page-subtitle">5 zones · tap a zone to filter Rooms tab</div>
+        </div>
+        <div class="page-actions">
+          <button class="btn sm" data-tab-target="rooms">All rooms <svg class="icon-sm"><use href="#lc-chevron-right"/></svg></button>
+        </div>
+      </header>
+
+      <div class="controls-bar">
+        <div class="knob span-4">
+          <div class="knob-label">Sort by</div>
+          <div class="pill-group" style="width:100%">
+            <button class="active" style="flex:1">Occupancy</button>
+            <button style="flex:1">Lights on</button>
+            <button style="flex:1">Demand</button>
+            <button style="flex:1">Name</button>
+          </div>
+        </div>
+        <div class="knob span-4">
+          <div class="knob-label">Show zones</div>
+          <div class="pill-group" style="width:100%">
+            <button class="active" style="flex:1">All</button>
+            <button style="flex:1">Indoor</button>
+            <button style="flex:1">Active</button>
+          </div>
+        </div>
+        <div class="knob span-4">
+          <div class="knob-label">Whole-house</div>
+          <div class="knob-action" style="margin-top:0; flex-wrap:wrap">
+            <button class="btn">All lights off</button>
+            <button class="btn">Setback all</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid">
+        <div class="card col-6 status-green">
+          <div class="card-head">
+            <div class="row" style="gap:var(--space-xs); font-size:var(--text-lg)"><span class="dot green live"></span><strong>Main Living</strong></div>
+            <span class="badge green">normal · cooling</span>
+          </div>
+          <div class="row" style="gap:var(--space-md); padding:var(--space-xs) 0">
+            <div><div class="card-value sm tabular">3 / 5</div><div class="card-sub">occupied</div></div>
+            <div><div class="card-value sm tabular">72°</div><div class="card-sub">avg · set 72°</div></div>
+            <div><div class="card-value sm tabular">12 / 18</div><div class="card-sub">lights on</div></div>
+            <div style="flex:1"></div>
+          </div>
+          <div class="card-row"><span>Rooms</span><span class="dim">Great Room · Kitchen · Dining · Foyer · Hallway</span></div>
+          <div class="card-controls">
+            <button class="btn sm icon"><svg class="icon-sm"><use href="#lc-minus"/></svg></button>
+            <span class="tabular" style="font-size:var(--text-md); align-self:center; padding:0 4px">72°</span>
+            <button class="btn sm icon"><svg class="icon-sm"><use href="#lc-plus"/></svg></button>
+            <button class="btn sm">All lights off</button>
+            <button class="btn sm" data-tab-target="rooms">Open rooms <svg class="icon-sm"><use href="#lc-chevron-right"/></svg></button>
+          </div>
+        </div>
+        <div class="card col-6 status-yellow">
+          <div class="card-head">
+            <div class="row" style="gap:var(--space-xs); font-size:var(--text-lg)"><span class="dot green"></span><strong>Master Suite</strong></div>
+            <span class="badge yellow">coast</span>
+          </div>
+          <div class="row" style="gap:var(--space-md); padding:var(--space-xs) 0">
+            <div><div class="card-value sm tabular">1 / 4</div><div class="card-sub">occupied (Oji)</div></div>
+            <div><div class="card-value sm tabular">74°</div><div class="card-sub">avg · set 73°</div></div>
+            <div><div class="card-value sm tabular">5 / 12</div><div class="card-sub">lights on</div></div>
+            <div style="flex:1"></div>
+          </div>
+          <div class="card-row"><span>Rooms</span><span class="dim">Office · Master Bed · Master Bath · Master Closet</span></div>
+          <div class="card-row"><span>URA reason</span><span class="dim">occupancy drop predicted 45m</span></div>
+          <div class="card-controls">
+            <button class="btn sm icon"><svg class="icon-sm"><use href="#lc-minus"/></svg></button>
+            <span class="tabular" style="font-size:var(--text-md); align-self:center; padding:0 4px">73°</span>
+            <button class="btn sm icon"><svg class="icon-sm"><use href="#lc-plus"/></svg></button>
+            <button class="btn sm">All lights off</button>
+            <button class="btn sm" data-tab-target="rooms">Open rooms <svg class="icon-sm"><use href="#lc-chevron-right"/></svg></button>
+          </div>
+        </div>
+        <div class="card col-6 status-blue">
+          <div class="card-head">
+            <div class="row" style="gap:var(--space-xs); font-size:var(--text-lg)"><span class="dot green live"></span><strong>Kids</strong></div>
+            <span class="badge blue">pre-cool</span>
+          </div>
+          <div class="row" style="gap:var(--space-md); padding:var(--space-xs) 0">
+            <div><div class="card-value sm tabular">1 / 4</div><div class="card-sub">occupied (Ziri)</div></div>
+            <div><div class="card-value sm tabular">71°</div><div class="card-sub">avg · set 71°</div></div>
+            <div><div class="card-value sm tabular">6 / 11</div><div class="card-sub">lights on</div></div>
+            <div style="flex:1"></div>
+          </div>
+          <div class="card-row"><span>Rooms</span><span class="dim">Playroom · Ziri Bed · Ziri Bath · Study</span></div>
+          <div class="card-row"><span>URA reason</span><span class="dim">Ziri bedtime routine 19:30</span></div>
+          <div class="card-controls">
+            <button class="btn sm icon"><svg class="icon-sm"><use href="#lc-minus"/></svg></button>
+            <span class="tabular" style="font-size:var(--text-md); align-self:center; padding:0 4px">71°</span>
+            <button class="btn sm icon"><svg class="icon-sm"><use href="#lc-plus"/></svg></button>
+            <button class="btn sm">All lights off</button>
+            <button class="btn sm" data-tab-target="rooms">Open rooms <svg class="icon-sm"><use href="#lc-chevron-right"/></svg></button>
+          </div>
+        </div>
+        <div class="card col-6">
+          <div class="card-head">
+            <div class="row" style="gap:var(--space-xs); font-size:var(--text-lg)"><span class="dot grey"></span><strong>Guest</strong></div>
+            <span class="badge">setback</span>
+          </div>
+          <div class="row" style="gap:var(--space-md); padding:var(--space-xs) 0">
+            <div><div class="card-value sm tabular">0 / 3</div><div class="card-sub">occupied</div></div>
+            <div><div class="card-value sm tabular">75°</div><div class="card-sub">avg · set 78°</div></div>
+            <div><div class="card-value sm tabular">0 / 7</div><div class="card-sub">lights on</div></div>
+            <div style="flex:1"></div>
+          </div>
+          <div class="card-row"><span>Rooms</span><span class="dim">Guest Bed · Guest Bath · Gym</span></div>
+          <div class="card-row"><span>URA reason</span><span class="dim">vacancy economy · guest mode off</span></div>
+          <div class="card-controls">
+            <button class="btn sm">Wake zone</button>
+            <button class="btn sm">Guest mode on</button>
+            <button class="btn sm" data-tab-target="rooms">Open rooms <svg class="icon-sm"><use href="#lc-chevron-right"/></svg></button>
+          </div>
+        </div>
+        <div class="card col-12">
+          <div class="card-head">
+            <div class="row" style="gap:var(--space-xs); font-size:var(--text-lg)"><span class="dot grey"></span><strong>Outdoor</strong></div>
+            <span class="badge">sunset 19:42</span>
+          </div>
+          <div class="row" style="gap:var(--space-md); padding:var(--space-xs) 0">
+            <div><div class="card-value sm tabular">64°</div><div class="card-sub">outdoor · partly cloudy</div></div>
+            <div><div class="card-value sm tabular">0 / 6</div><div class="card-sub">lights on (auto at sunset)</div></div>
+            <div><div class="card-value sm tabular">5.4 mph</div><div class="card-sub">wind · S</div></div>
+            <div><div class="card-value sm tabular">0.0&quot;</div><div class="card-sub">rain today</div></div>
+            <div style="flex:1"></div>
+          </div>
+          <div class="card-row"><span>Rooms</span><span class="dim">Front Porch · Back Deck · Garage</span></div>
+          <div class="card-controls">
+            <button class="btn sm">Porch on</button>
+            <button class="btn sm">Deck on</button>
+            <button class="btn sm">Auto sunset</button>
+            <button class="btn sm" data-tab-target="rooms">Open rooms <svg class="icon-sm"><use href="#lc-chevron-right"/></svg></button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ====================================================
+         TAB: ROOMS — dense grid of every room with controls
+         ==================================================== -->
+    <section class="tab" data-tab="rooms">
+      <header class="page-header">
+        <div>
+          <h1 class="page-title">Rooms</h1>
+          <div class="page-subtitle">19 rooms · auto-onboarded · controls per room</div>
+        </div>
+        <div class="page-actions">
+          <button class="btn"><svg class="icon"><use href="#lc-plus"/></svg> Onboard room</button>
+        </div>
+      </header>
+
+      <div class="controls-bar">
+        <div class="knob span-3">
+          <div class="knob-label">Zone filter</div>
+          <div class="pill-group" style="width:100%; flex-wrap:wrap">
+            <button class="active" style="flex:1">All</button>
+            <button style="flex:1">Main</button>
+            <button style="flex:1">Master</button>
+            <button style="flex:1">Kids</button>
+            <button style="flex:1">Guest</button>
+            <button style="flex:1">Outdoor</button>
+          </div>
+        </div>
+        <div class="knob span-3">
+          <div class="knob-label">Show only</div>
+          <div class="pill-group" style="width:100%">
+            <button class="active" style="flex:1">All</button>
+            <button style="flex:1">Occupied</button>
+            <button style="flex:1">Lights on</button>
+            <button style="flex:1">Climate</button>
+          </div>
+        </div>
+        <div class="knob span-3">
+          <div class="knob-label">Sort by</div>
+          <div class="pill-group" style="width:100%">
+            <button class="active" style="flex:1">Zone</button>
+            <button style="flex:1">Occupancy</button>
+            <button style="flex:1">Temp</button>
+            <button style="flex:1">Name</button>
+          </div>
+        </div>
+        <div class="knob span-3">
+          <div class="knob-label">Bulk actions</div>
+          <div class="knob-action" style="margin-top:0; flex-wrap:wrap">
+            <button class="btn sm">Lights off · filtered</button>
+            <button class="btn sm">Setback · filtered</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Zone headers + dense room grid -->
+      <div class="section-head"><h2>Main Living · 5 rooms</h2><span class="dim">3 occupied · 12/18 lights</span></div>
+      <div class="grid">
+        <div class="room-card col-3 status-green"><div class="room-card-head"><span class="dot green live"></span><span class="room-card-title">Great Room</span></div><div class="room-card-meta"><span><svg class="icon-sm"><use href="#lc-thermo"/></svg>72°</span><span><svg class="icon-sm"><use href="#lc-bulb"/></svg>4/6</span><span><svg class="icon-sm"><use href="#lc-fan"/></svg>med</span></div><div class="room-card-controls"><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-bulb"/></svg></button><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-minus"/></svg></button><span class="tabular" style="font-size:var(--text-sm); align-self:center; padding:0 4px">72°</span><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-plus"/></svg></button><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-more"/></svg></button></div></div>
+        <div class="room-card col-3 status-green"><div class="room-card-head"><span class="dot green live"></span><span class="room-card-title">Kitchen</span></div><div class="room-card-meta"><span><svg class="icon-sm"><use href="#lc-thermo"/></svg>72°</span><span><svg class="icon-sm"><use href="#lc-bulb"/></svg>5/5</span><span><svg class="icon-sm"><use href="#lc-music"/></svg>•</span></div><div class="room-card-controls"><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-bulb"/></svg></button><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-minus"/></svg></button><span class="tabular" style="font-size:var(--text-sm); align-self:center; padding:0 4px">72°</span><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-plus"/></svg></button><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-more"/></svg></button></div></div>
+        <div class="room-card col-3"><div class="room-card-head"><span class="dot green"></span><span class="room-card-title">Dining Room</span></div><div class="room-card-meta"><span><svg class="icon-sm"><use href="#lc-thermo"/></svg>72°</span><span><svg class="icon-sm"><use href="#lc-bulb"/></svg>0/3</span><span class="dim">idle 4h</span></div><div class="room-card-controls"><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-bulb"/></svg></button><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-minus"/></svg></button><span class="tabular" style="font-size:var(--text-sm); align-self:center; padding:0 4px">72°</span><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-plus"/></svg></button><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-more"/></svg></button></div></div>
+        <div class="room-card col-3"><div class="room-card-head"><span class="dot grey"></span><span class="room-card-title">Foyer</span></div><div class="room-card-meta"><span><svg class="icon-sm"><use href="#lc-thermo"/></svg>73°</span><span><svg class="icon-sm"><use href="#lc-bulb"/></svg>1/2</span><span class="dim">auto</span></div><div class="room-card-controls"><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-bulb"/></svg></button><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-minus"/></svg></button><span class="tabular" style="font-size:var(--text-sm); align-self:center; padding:0 4px">72°</span><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-plus"/></svg></button><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-more"/></svg></button></div></div>
+        <div class="room-card col-3"><div class="room-card-head"><span class="dot grey"></span><span class="room-card-title">Hallway</span></div><div class="room-card-meta"><span><svg class="icon-sm"><use href="#lc-thermo"/></svg>73°</span><span><svg class="icon-sm"><use href="#lc-bulb"/></svg>2/4</span><span class="dim">auto</span></div><div class="room-card-controls"><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-bulb"/></svg></button><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-minus"/></svg></button><span class="tabular" style="font-size:var(--text-sm); align-self:center; padding:0 4px">72°</span><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-plus"/></svg></button><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-more"/></svg></button></div></div>
+      </div>
+
+      <div class="section-head"><h2>Master Suite · 4 rooms</h2><span class="dim">1 occupied · 5/12 lights · <span class="badge yellow">coast</span></span></div>
+      <div class="grid">
+        <div class="room-card col-3 status-green"><div class="room-card-head"><span class="dot green live"></span><span class="room-card-title">Office</span><span class="badge green">Oji</span></div><div class="room-card-meta"><span><svg class="icon-sm"><use href="#lc-thermo"/></svg>73°</span><span><svg class="icon-sm"><use href="#lc-bulb"/></svg>2/3</span><span><svg class="icon-sm"><use href="#lc-music"/></svg>•</span></div><div class="room-card-controls"><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-bulb"/></svg></button><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-minus"/></svg></button><span class="tabular" style="font-size:var(--text-sm); align-self:center; padding:0 4px">72°</span><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-plus"/></svg></button><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-more"/></svg></button></div></div>
+        <div class="room-card col-3 status-yellow"><div class="room-card-head"><span class="dot yellow"></span><span class="room-card-title">Master Bed</span><span class="badge yellow">coast</span></div><div class="room-card-meta"><span><svg class="icon-sm"><use href="#lc-thermo"/></svg>74°</span><span><svg class="icon-sm"><use href="#lc-bulb"/></svg>0/2</span></div><div class="room-card-controls"><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-bulb"/></svg></button><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-minus"/></svg></button><span class="tabular" style="font-size:var(--text-sm); align-self:center; padding:0 4px">73°</span><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-plus"/></svg></button><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-more"/></svg></button></div></div>
+        <div class="room-card col-3"><div class="room-card-head"><span class="dot grey"></span><span class="room-card-title">Master Bath</span></div><div class="room-card-meta"><span><svg class="icon-sm"><use href="#lc-thermo"/></svg>74°</span><span><svg class="icon-sm"><use href="#lc-bulb"/></svg>0/3</span></div><div class="room-card-controls"><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-bulb"/></svg></button><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-minus"/></svg></button><span class="tabular" style="font-size:var(--text-sm); align-self:center; padding:0 4px">73°</span><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-plus"/></svg></button><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-more"/></svg></button></div></div>
+        <div class="room-card col-3"><div class="room-card-head"><span class="dot grey"></span><span class="room-card-title">Master Closet</span></div><div class="room-card-meta"><span><svg class="icon-sm"><use href="#lc-bulb"/></svg>0/2</span><span class="dim">no climate</span></div><div class="room-card-controls"><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-bulb"/></svg></button><button class="btn sm icon" disabled><svg class="icon-sm"><use href="#lc-minus"/></svg></button><span class="dim tabular" style="font-size:var(--text-sm); align-self:center; padding:0 4px">—</span><button class="btn sm icon" disabled><svg class="icon-sm"><use href="#lc-plus"/></svg></button><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-more"/></svg></button></div></div>
+      </div>
+
+      <div class="section-head"><h2>Kids · 4 rooms</h2><span class="dim">1 occupied · 6/11 lights · <span class="badge blue">pre-cool</span></span></div>
+      <div class="grid">
+        <div class="room-card col-3 status-blue"><div class="room-card-head"><span class="dot green live"></span><span class="room-card-title">Playroom</span><span class="badge green">Ziri</span></div><div class="room-card-meta"><span><svg class="icon-sm"><use href="#lc-thermo"/></svg>71°</span><span><svg class="icon-sm"><use href="#lc-bulb"/></svg>3/4</span></div><div class="room-card-controls"><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-bulb"/></svg></button><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-minus"/></svg></button><span class="tabular" style="font-size:var(--text-sm); align-self:center; padding:0 4px">71°</span><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-plus"/></svg></button><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-more"/></svg></button></div></div>
+        <div class="room-card col-3 status-blue"><div class="room-card-head"><span class="dot grey"></span><span class="room-card-title">Ziri Bed</span><span class="badge blue">pre-cool</span></div><div class="room-card-meta"><span><svg class="icon-sm"><use href="#lc-thermo"/></svg>72°</span><span><svg class="icon-sm"><use href="#lc-bulb"/></svg>1/2</span></div><div class="room-card-controls"><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-bulb"/></svg></button><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-minus"/></svg></button><span class="tabular" style="font-size:var(--text-sm); align-self:center; padding:0 4px">71°</span><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-plus"/></svg></button><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-more"/></svg></button></div></div>
+        <div class="room-card col-3"><div class="room-card-head"><span class="dot grey"></span><span class="room-card-title">Ziri Bath</span></div><div class="room-card-meta"><span><svg class="icon-sm"><use href="#lc-thermo"/></svg>73°</span><span><svg class="icon-sm"><use href="#lc-bulb"/></svg>0/2</span></div><div class="room-card-controls"><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-bulb"/></svg></button><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-minus"/></svg></button><span class="tabular" style="font-size:var(--text-sm); align-self:center; padding:0 4px">72°</span><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-plus"/></svg></button><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-more"/></svg></button></div></div>
+        <div class="room-card col-3"><div class="room-card-head"><span class="dot grey"></span><span class="room-card-title">Study</span></div><div class="room-card-meta"><span><svg class="icon-sm"><use href="#lc-thermo"/></svg>72°</span><span><svg class="icon-sm"><use href="#lc-bulb"/></svg>2/3</span></div><div class="room-card-controls"><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-bulb"/></svg></button><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-minus"/></svg></button><span class="tabular" style="font-size:var(--text-sm); align-self:center; padding:0 4px">71°</span><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-plus"/></svg></button><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-more"/></svg></button></div></div>
+      </div>
+
+      <div class="section-head"><h2>Guest · 3 rooms</h2><span class="dim">vacancy economy · setback</span></div>
+      <div class="grid">
+        <div class="room-card col-4"><div class="room-card-head"><span class="dot grey"></span><span class="room-card-title">Guest Bed</span></div><div class="room-card-meta"><span><svg class="icon-sm"><use href="#lc-thermo"/></svg>76°</span><span><svg class="icon-sm"><use href="#lc-bulb"/></svg>0/2</span><span class="dim">setback</span></div><div class="room-card-controls"><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-bulb"/></svg></button><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-minus"/></svg></button><span class="tabular" style="font-size:var(--text-sm); align-self:center; padding:0 4px">78°</span><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-plus"/></svg></button><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-more"/></svg></button></div></div>
+        <div class="room-card col-4"><div class="room-card-head"><span class="dot grey"></span><span class="room-card-title">Guest Bath</span></div><div class="room-card-meta"><span><svg class="icon-sm"><use href="#lc-thermo"/></svg>75°</span><span><svg class="icon-sm"><use href="#lc-bulb"/></svg>0/2</span></div><div class="room-card-controls"><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-bulb"/></svg></button><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-minus"/></svg></button><span class="tabular" style="font-size:var(--text-sm); align-self:center; padding:0 4px">78°</span><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-plus"/></svg></button><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-more"/></svg></button></div></div>
+        <div class="room-card col-4"><div class="room-card-head"><span class="dot grey"></span><span class="room-card-title">Gym</span></div><div class="room-card-meta"><span><svg class="icon-sm"><use href="#lc-thermo"/></svg>74°</span><span><svg class="icon-sm"><use href="#lc-bulb"/></svg>0/3</span></div><div class="room-card-controls"><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-bulb"/></svg></button><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-minus"/></svg></button><span class="tabular" style="font-size:var(--text-sm); align-self:center; padding:0 4px">76°</span><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-plus"/></svg></button><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-more"/></svg></button></div></div>
+      </div>
+
+      <div class="section-head"><h2>Outdoor · 3 rooms</h2><span class="dim">sunset 19:42 · auto-on</span></div>
+      <div class="grid">
+        <div class="room-card col-4"><div class="room-card-head"><span class="dot grey"></span><span class="room-card-title">Front Porch</span></div><div class="room-card-meta"><span class="dim">outdoor 64°</span><span><svg class="icon-sm"><use href="#lc-bulb"/></svg>0/1</span></div><div class="room-card-controls"><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-bulb"/></svg></button><button class="btn sm">Auto sunset</button><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-more"/></svg></button></div></div>
+        <div class="room-card col-4"><div class="room-card-head"><span class="dot grey"></span><span class="room-card-title">Back Deck</span></div><div class="room-card-meta"><span class="dim">outdoor 64°</span><span><svg class="icon-sm"><use href="#lc-bulb"/></svg>0/2</span></div><div class="room-card-controls"><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-bulb"/></svg></button><button class="btn sm">Auto sunset</button><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-more"/></svg></button></div></div>
+        <div class="room-card col-4"><div class="room-card-head"><span class="dot grey"></span><span class="room-card-title">Garage</span><span class="badge">closed</span></div><div class="room-card-meta"><span class="dim">last opened 17:54</span></div><div class="room-card-controls"><button class="btn sm">Open</button><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-more"/></svg></button></div></div>
+      </div>
+    </section>
+
+    <!-- ====================================================
+         TAB: ENERGY
+         ==================================================== -->
+    <section class="tab" data-tab="energy">
+      <header class="page-header">
+        <div>
+          <h1 class="page-title">Energy</h1>
+          <div class="page-subtitle">TOU · mid-peak · peak begins 19:00 · 13 min</div>
+        </div>
+        <div class="page-actions">
+          <span class="badge yellow lg">mid-peak · $0.18/kWh</span>
+        </div>
+      </header>
+
+      <!-- CONTROLS BAR — energy coordinator knobs -->
+      <div class="controls-bar">
+        <div class="knob span-3">
+          <div class="knob-label">Battery reserve <span class="badge accent">URA: 25%</span></div>
+          <div class="knob-value tabular">25 <span class="dim" style="font-weight:400; font-size:var(--text-sm)">% · 12.5 kWh</span></div>
+          <div class="knob-action">
+            <input type="range" min="10" max="80" value="25" class="slider">
+          </div>
+        </div>
+        <div class="knob span-2">
+          <div class="knob-label">Grid import cap</div>
+          <div class="knob-value tabular">8.0 <span class="dim" style="font-weight:400; font-size:var(--text-sm)">kW</span></div>
+          <div class="knob-action">
+            <input type="range" min="2" max="15" value="8" class="slider">
+          </div>
+        </div>
+        <div class="knob span-2">
+          <div class="knob-label">EV charge max</div>
+          <div class="knob-value tabular">7.2 <span class="dim" style="font-weight:400; font-size:var(--text-sm)">kW</span></div>
+          <div class="knob-action">
+            <input type="range" min="1" max="12" value="7" class="slider">
+          </div>
+        </div>
+        <div class="knob span-3">
+          <div class="knob-label">Battery mode</div>
+          <div class="pill-group" style="width:100%">
+            <button class="active" style="flex:1">Self-consumption</button>
+            <button style="flex:1">Storm reserve</button>
+            <button style="flex:1">TOU shift</button>
+          </div>
+          <div class="card-sub">Locked per codicil · cannot use grid_charge</div>
+        </div>
+        <div class="knob span-2">
+          <div class="knob-label">Manual</div>
+          <div class="knob-action" style="margin-top:0; flex-direction:column; align-items:stretch">
+            <button class="btn danger">Shed loads now</button>
+            <button class="btn sm">Resume EV</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Hero KPI row -->
+      <div class="grid">
+        <div class="card col-3 status-yellow">
+          <div class="card-title"><svg class="icon-sm"><use href="#lc-sun"/></svg>Solar now</div>
+          <div class="card-value tabular">0.4<span class="card-unit">kW</span></div>
+          <div class="card-sub">28.4 kWh today · forecast 32.1</div>
+        </div>
+        <div class="card col-3 status-green">
+          <div class="card-title"><svg class="icon-sm"><use href="#lc-battery"/></svg>Battery</div>
+          <div class="card-value tabular">78<span class="card-unit">%</span></div>
+          <div class="card-sub">discharging 1.2 kW · reserve 25%</div>
+          <div class="gauge-track"><div class="gauge-fill" style="width:78%"></div></div>
+        </div>
+        <div class="card col-3 status-orange">
+          <div class="card-title"><svg class="icon-sm"><use href="#lc-zap"/></svg>Grid</div>
+          <div class="card-value tabular">+0.8<span class="card-unit">kW</span></div>
+          <div class="card-sub">importing · 5.4 kWh today</div>
+        </div>
+        <div class="card col-3">
+          <div class="card-title">Cost today</div>
+          <div class="card-value tabular">$4.82</div>
+          <div class="card-sub">predicted bill: <strong class="tabular">$147</strong> (May)</div>
+        </div>
+      </div>
+
+      <!-- Energy flow + Solcast chart -->
+      <div class="grid" style="margin-top:var(--space-lg)">
+        <div class="card col-7">
+          <div class="card-head">
+            <div class="card-title"><svg class="icon-sm"><use href="#lc-activity"/></svg>Solar — Solcast vs actual (today)</div>
+            <span class="dim">refreshed 18:45</span>
+          </div>
+          <svg viewBox="0 0 600 180" class="sparkline" style="height:180px" preserveAspectRatio="none">
+            <defs>
+              <linearGradient id="solar-grad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#FFCA28" stop-opacity="0.4"/>
+                <stop offset="100%" stop-color="#FFCA28" stop-opacity="0"/>
+              </linearGradient>
+            </defs>
+            <!-- grid lines -->
+            <line x1="0" y1="45" x2="600" y2="45" stroke="rgba(255,255,255,0.05)"/>
+            <line x1="0" y1="90" x2="600" y2="90" stroke="rgba(255,255,255,0.05)"/>
+            <line x1="0" y1="135" x2="600" y2="135" stroke="rgba(255,255,255,0.05)"/>
+            <!-- forecast (dashed) -->
+            <path d="M0 170 Q60 168 100 150 T200 60 T300 30 T400 50 T500 130 T600 170" fill="none" stroke="rgba(130,177,255,0.5)" stroke-width="1.5" stroke-dasharray="3,3"/>
+            <!-- actual (solid + gradient fill) -->
+            <path d="M0 175 Q60 172 100 155 T200 65 T300 38 T380 55 T420 75 L420 75 L420 175 Z" fill="url(#solar-grad)"/>
+            <path d="M0 175 Q60 172 100 155 T200 65 T300 38 T380 55 T420 75" fill="none" stroke="#FFCA28" stroke-width="2"/>
+            <!-- now marker -->
+            <line x1="430" y1="0" x2="430" y2="180" stroke="rgba(255,255,255,0.15)" stroke-dasharray="2,2"/>
+            <circle cx="430" cy="120" r="3" fill="#FFCA28"/>
+            <text x="435" y="115" fill="rgba(255,255,255,0.6)" font-size="10">now · 0.4 kW</text>
+            <!-- x-axis -->
+            <text x="0" y="178" fill="rgba(255,255,255,0.4)" font-size="9">06</text>
+            <text x="150" y="178" fill="rgba(255,255,255,0.4)" font-size="9">10</text>
+            <text x="300" y="178" fill="rgba(255,255,255,0.4)" font-size="9">14</text>
+            <text x="450" y="178" fill="rgba(255,255,255,0.4)" font-size="9">18</text>
+            <text x="585" y="178" fill="rgba(255,255,255,0.4)" font-size="9">22</text>
+          </svg>
+          <div class="row" style="gap:var(--space-md); font-size:var(--text-xs); color:var(--text-tertiary)">
+            <span><span class="dot yellow" style="display:inline-block"></span> actual</span>
+            <span><span class="dot blue" style="display:inline-block"></span> Solcast forecast</span>
+            <span class="spacer"></span>
+            <span>peak today: <strong class="tabular">5.2 kW</strong> @ 12:48</span>
+          </div>
+        </div>
+
+        <div class="card col-5">
+          <div class="card-head">
+            <div class="card-title"><svg class="icon-sm"><use href="#lc-zap"/></svg>Energy flow (live)</div>
+            <span class="badge green">streaming</span>
+          </div>
+          <svg viewBox="0 0 320 220" style="width:100%; height:220px">
+            <!-- Solar -->
+            <g transform="translate(20,20)">
+              <rect x="0" y="0" width="80" height="50" rx="10" fill="rgba(255,202,40,0.12)" stroke="#FFCA28" stroke-width="1"/>
+              <text x="40" y="22" text-anchor="middle" fill="#FFCA28" font-size="11" font-weight="600">Solar</text>
+              <text x="40" y="40" text-anchor="middle" fill="#FFCA28" font-size="14" font-weight="500">0.4 kW</text>
+            </g>
+            <!-- Battery -->
+            <g transform="translate(20,150)">
+              <rect x="0" y="0" width="80" height="50" rx="10" fill="rgba(102,187,106,0.12)" stroke="#66BB6A" stroke-width="1"/>
+              <text x="40" y="22" text-anchor="middle" fill="#66BB6A" font-size="11" font-weight="600">Battery</text>
+              <text x="40" y="40" text-anchor="middle" fill="#66BB6A" font-size="14" font-weight="500">78% · -1.2</text>
+            </g>
+            <!-- Grid -->
+            <g transform="translate(220,150)">
+              <rect x="0" y="0" width="80" height="50" rx="10" fill="rgba(255,167,38,0.12)" stroke="#FFA726" stroke-width="1"/>
+              <text x="40" y="22" text-anchor="middle" fill="#FFA726" font-size="11" font-weight="600">Grid</text>
+              <text x="40" y="40" text-anchor="middle" fill="#FFA726" font-size="14" font-weight="500">+0.8 kW</text>
+            </g>
+            <!-- House -->
+            <g transform="translate(220,20)">
+              <rect x="0" y="0" width="80" height="50" rx="10" fill="rgba(130,177,255,0.12)" stroke="#82B1FF" stroke-width="1"/>
+              <text x="40" y="22" text-anchor="middle" fill="#82B1FF" font-size="11" font-weight="600">House</text>
+              <text x="40" y="40" text-anchor="middle" fill="#82B1FF" font-size="14" font-weight="500">2.4 kW</text>
+            </g>
+            <!-- arrows -->
+            <path d="M100 45 L220 45" stroke="#FFCA28" stroke-width="2" marker-end="url(#arrow-y)"/>
+            <path d="M100 175 L220 50" stroke="#66BB6A" stroke-width="2" marker-end="url(#arrow-g)"/>
+            <path d="M260 150 L260 70" stroke="#FFA726" stroke-width="2" marker-end="url(#arrow-o)"/>
+            <defs>
+              <marker id="arrow-y" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><polygon points="0 0, 6 4, 0 8" fill="#FFCA28"/></marker>
+              <marker id="arrow-g" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><polygon points="0 0, 6 4, 0 8" fill="#66BB6A"/></marker>
+              <marker id="arrow-o" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><polygon points="0 0, 6 4, 0 8" fill="#FFA726"/></marker>
+            </defs>
+          </svg>
+          <div class="card-sub" style="text-align:center">Net to house: solar 0.4 + battery 1.2 + grid 0.8 = 2.4 kW</div>
+        </div>
+      </div>
+
+      <!-- URA brain: energy decisions + tariff timeline -->
+      <div class="grid" style="margin-top:var(--space-lg)">
+        <div class="card col-8">
+          <div class="card-head">
+            <div class="card-title"><svg class="icon-sm"><use href="#lc-brain"/></svg>URA · recent energy decisions</div>
+          </div>
+          <div class="timeline">
+            <div class="timeline-row">
+              <div class="timeline-time">18:30</div>
+              <div class="timeline-body">
+                <div class="timeline-headline"><span class="badge accent">Battery</span> Reserve raised to <strong>25%</strong></div>
+                <div class="timeline-reason">TOU peak begins 19:00 · hold capacity for peak shave</div>
+              </div>
+              <button class="btn sm icon"><svg class="icon-sm"><use href="#lc-more"/></svg></button>
+            </div>
+            <div class="timeline-row">
+              <div class="timeline-time">17:55</div>
+              <div class="timeline-body">
+                <div class="timeline-headline"><span class="badge accent">HVAC</span> Pre-cool authorized · Kids zone</div>
+                <div class="timeline-reason">Solar surplus 2.1 kW · use before peak</div>
+              </div>
+              <button class="btn sm icon"><svg class="icon-sm"><use href="#lc-more"/></svg></button>
+            </div>
+            <div class="timeline-row">
+              <div class="timeline-time">15:42</div>
+              <div class="timeline-body">
+                <div class="timeline-headline"><span class="badge accent">EV</span> Charge paused</div>
+                <div class="timeline-reason">Grid import threshold exceeded · resume at off-peak</div>
+              </div>
+              <button class="btn sm icon"><svg class="icon-sm"><use href="#lc-more"/></svg></button>
+            </div>
+          </div>
+        </div>
+
+        <div class="card col-4">
+          <div class="card-title">Today's tariff</div>
+          <div class="row" style="gap:0; height:24px; margin:var(--space-sm) 0; border-radius:var(--radius-sm); overflow:hidden">
+            <div style="flex:6; background:rgba(102,187,106,0.5)" title="off-peak"></div>
+            <div style="flex:6; background:rgba(255,202,40,0.5)" title="mid"></div>
+            <div style="flex:5; background:rgba(239,83,80,0.6)" title="peak"></div>
+            <div style="flex:3; background:rgba(255,202,40,0.5)" title="mid"></div>
+            <div style="flex:4; background:rgba(102,187,106,0.5)" title="off-peak"></div>
+          </div>
+          <div class="card-row"><span>Off-peak</span><span class="tabular">12h · $0.08</span></div>
+          <div class="card-row"><span>Mid-peak <span class="badge yellow">now</span></span><span class="tabular">9h · $0.18</span></div>
+          <div class="card-row"><span>Peak</span><span class="tabular">3h · $0.36</span></div>
+        </div>
+      </div>
+
+      <!-- Load detail (status only — controls are at top) -->
+      <div class="section-head"><h2>Load status</h2></div>
+      <div class="grid">
+        <div class="card col-4"><div class="card-row"><span>EV charging</span><span class="badge orange">paused · TOU</span></div><div class="card-row"><span>Pool pump</span><span class="badge green">off</span></div><div class="card-row"><span>Hot tub</span><span class="badge">scheduled 02:00</span></div><div class="card-row"><span>Dryer</span><span class="dim">finished 17:12</span></div></div>
+        <div class="card col-4"><div class="card-head"><div class="card-title">Generator</div><span class="badge">standby</span></div><div class="card-row"><span>Fuel</span><span class="tabular">82%</span></div><div class="card-row"><span>Last run</span><span class="dim">12d ago · test</span></div></div>
+        <div class="card col-4"><div class="card-head"><div class="card-title">Yesterday vs today</div><span class="dim tabular">+12%</span></div><div class="card-row"><span>Solar (kWh)</span><span class="tabular">28.4 vs 25.3</span></div><div class="card-row"><span>Cost ($)</span><span class="tabular">4.82 vs 4.31</span></div></div>
+      </div>
+    </section>
+
+    <!-- ====================================================
+         TAB: HVAC
+         ==================================================== -->
+    <section class="tab" data-tab="hvac">
+      <header class="page-header">
+        <div>
+          <h1 class="page-title">HVAC</h1>
+          <div class="page-subtitle">5 zones · cool mode · system demand 64%</div>
+        </div>
+        <div class="page-actions">
+          <span class="badge green lg">comfort 92%</span>
+        </div>
+      </header>
+
+      <!-- CONTROLS BAR — HVAC coordinator knobs (this tab was light on knobs in P1 v1) -->
+      <div class="controls-bar">
+        <div class="knob span-3">
+          <div class="knob-label">System mode</div>
+          <div class="pill-group" style="width:100%">
+            <button class="active" style="flex:1">Cool</button>
+            <button style="flex:1">Heat</button>
+            <button style="flex:1">Auto</button>
+            <button style="flex:1">Off</button>
+          </div>
+          <div class="card-sub">Override per-zone in cards below</div>
+        </div>
+        <div class="knob span-2">
+          <div class="knob-label">House setpoint</div>
+          <div class="row" style="gap:var(--space-xs); align-items:center">
+            <button class="btn icon"><svg class="icon-sm"><use href="#lc-minus"/></svg></button>
+            <div class="knob-value tabular" style="flex:1; text-align:center">72°</div>
+            <button class="btn icon"><svg class="icon-sm"><use href="#lc-plus"/></svg></button>
+          </div>
+          <div class="card-sub">All zones · individual offsets retained</div>
+        </div>
+        <div class="knob span-3">
+          <div class="knob-label">Pre-cool aggressiveness <span class="badge accent">URA</span></div>
+          <div class="knob-value">Balanced</div>
+          <div class="knob-action">
+            <input type="range" min="0" max="3" value="2" class="slider">
+          </div>
+          <div class="card-sub">Passive · Conservative · <strong>Balanced</strong> · Aggressive</div>
+        </div>
+        <div class="knob span-2">
+          <div class="knob-label">Coast threshold</div>
+          <div class="knob-value tabular">45 <span class="dim" style="font-weight:400; font-size:var(--text-sm)">min</span></div>
+          <div class="knob-action">
+            <input type="range" min="15" max="120" value="45" class="slider">
+          </div>
+          <div class="card-sub">Predicted-vacancy lookahead</div>
+        </div>
+        <div class="knob span-2">
+          <div class="knob-label">URA modes</div>
+          <div class="card-row"><span style="font-size:var(--text-xs)">Arrester</span><label class="toggle"><input type="checkbox" checked><span class="toggle-slot"></span></label></div>
+          <div class="card-row"><span style="font-size:var(--text-xs)">Observation</span><label class="toggle"><input type="checkbox"><span class="toggle-slot"></span></label></div>
+          <div class="card-row"><span style="font-size:var(--text-xs)">Pre-cool</span><label class="toggle"><input type="checkbox" checked><span class="toggle-slot"></span></label></div>
+        </div>
+      </div>
+
+      <!-- House aggregate -->
+      <div class="grid">
+        <div class="card col-3">
+          <div class="card-title">House avg</div>
+          <div class="card-value tabular">73°<span class="card-unit">F</span></div>
+          <div class="card-sub">range 71° – 76° · outside 64°</div>
+        </div>
+        <div class="card col-3">
+          <div class="card-title">System demand</div>
+          <div class="card-value tabular">64<span class="card-unit">%</span></div>
+          <div class="gauge-track"><div class="gauge-fill orange" style="width:64%"></div></div>
+        </div>
+        <div class="card col-3">
+          <div class="card-title">Today runtime</div>
+          <div class="card-value tabular">4.2<span class="card-unit">h</span></div>
+          <div class="card-sub">est. cost: $2.18 · 6.4 kWh</div>
+        </div>
+        <div class="card col-3 status-blue">
+          <div class="card-title"><svg class="icon-sm"><use href="#lc-sparkles"/></svg>URA intent</div>
+          <div class="row" style="gap:var(--space-xs); margin-top:var(--space-xs)">
+            <span class="badge blue">pre-cool Kids</span>
+            <span class="badge yellow">coast Master</span>
+          </div>
+          <div class="card-sub">Solar surplus → push cooling forward</div>
+        </div>
+      </div>
+
+      <!-- Zone cards -->
+      <div class="section-head">
+        <h2>Zones</h2>
+      </div>
+      <div class="grid">
+        <!-- Main Living -->
+        <div class="card col-4">
+          <div class="card-head">
+            <div class="row" style="gap:var(--space-xs)"><span class="dot green"></span><strong>Main Living</strong></div>
+            <span class="badge green">normal</span>
+          </div>
+          <div class="row" style="gap:var(--space-md); padding:var(--space-xs) 0; align-items:flex-start">
+            <div>
+              <div class="card-value tabular">72°</div>
+              <div class="card-sub">current</div>
+            </div>
+            <div style="flex:1; text-align:right">
+              <div class="card-value sm tabular">72°</div>
+              <div class="card-sub">target · cool</div>
+            </div>
+          </div>
+          <div class="card-row"><span>Action</span><span><span class="badge accent">cooling</span></span></div>
+          <div class="card-row"><span>Demand</span><span class="tabular">42%</span></div>
+          <div class="card-row"><span>Comfort</span><span class="tabular" style="color:var(--status-green)">95%</span></div>
+          <div class="card-row"><span>Thermostat</span><span class="dim">Nest · Great Room</span></div>
+          <div class="card-controls">
+            <button class="btn sm icon"><svg class="icon-sm"><use href="#lc-minus"/></svg></button>
+            <span class="tabular" style="font-size:var(--text-md); font-weight:600; align-self:center; padding:0 4px">72°</span>
+            <button class="btn sm icon"><svg class="icon-sm"><use href="#lc-plus"/></svg></button>
+            <div class="pill-group" style="margin-left:auto">
+              <button class="active">Cool</button>
+              <button>Heat</button>
+              <button>Auto</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Master Suite -->
+        <div class="card col-4 status-yellow">
+          <div class="card-head">
+            <div class="row" style="gap:var(--space-xs)"><span class="dot yellow"></span><strong>Master Suite</strong></div>
+            <span class="badge yellow">coast</span>
+          </div>
+          <div class="row" style="gap:var(--space-md); padding:var(--space-xs) 0; align-items:flex-start">
+            <div>
+              <div class="card-value tabular">74°</div>
+              <div class="card-sub">current</div>
+            </div>
+            <div style="flex:1; text-align:right">
+              <div class="card-value sm tabular">73°</div>
+              <div class="card-sub">target · cool</div>
+            </div>
+          </div>
+          <div class="card-row"><span>Action</span><span><span class="badge">idle (coasting)</span></span></div>
+          <div class="card-row"><span>Demand</span><span class="tabular">18%</span></div>
+          <div class="card-row"><span>Comfort</span><span class="tabular" style="color:var(--status-yellow)">88%</span></div>
+          <div class="card-row"><span>URA reason</span><span class="dim">occupied drop in 45m</span></div>
+          <div class="card-controls">
+            <button class="btn sm icon"><svg class="icon-sm"><use href="#lc-minus"/></svg></button>
+            <span class="tabular" style="font-size:var(--text-md); font-weight:600; align-self:center; padding:0 4px">73°</span>
+            <button class="btn sm icon"><svg class="icon-sm"><use href="#lc-plus"/></svg></button>
+            <div class="pill-group" style="margin-left:auto">
+              <button class="active">Cool</button>
+              <button>Heat</button>
+              <button>Auto</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Kids -->
+        <div class="card col-4 status-blue">
+          <div class="card-head">
+            <div class="row" style="gap:var(--space-xs)"><span class="dot blue"></span><strong>Kids</strong></div>
+            <span class="badge blue">pre-cool</span>
+          </div>
+          <div class="row" style="gap:var(--space-md); padding:var(--space-xs) 0; align-items:flex-start">
+            <div>
+              <div class="card-value tabular">71°</div>
+              <div class="card-sub">current</div>
+            </div>
+            <div style="flex:1; text-align:right">
+              <div class="card-value sm tabular">71°</div>
+              <div class="card-sub">target · pre-cool</div>
+            </div>
+          </div>
+          <div class="card-row"><span>Action</span><span><span class="badge accent">cooling hard</span></span></div>
+          <div class="card-row"><span>Demand</span><span class="tabular">88%</span></div>
+          <div class="card-row"><span>Comfort</span><span class="tabular" style="color:var(--status-green)">93%</span></div>
+          <div class="card-row"><span>URA reason</span><span class="dim">Ziri bedtime 19:30</span></div>
+          <div class="card-controls">
+            <button class="btn sm icon"><svg class="icon-sm"><use href="#lc-minus"/></svg></button>
+            <span class="tabular" style="font-size:var(--text-md); font-weight:600; align-self:center; padding:0 4px">71°</span>
+            <button class="btn sm icon"><svg class="icon-sm"><use href="#lc-plus"/></svg></button>
+            <div class="pill-group" style="margin-left:auto">
+              <button class="active">Cool</button>
+              <button>Heat</button>
+              <button>Auto</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Guest -->
+        <div class="card col-6">
+          <div class="card-head">
+            <div class="row" style="gap:var(--space-xs)"><span class="dot grey"></span><strong>Guest Suite</strong></div>
+            <span class="badge">setback</span>
+          </div>
+          <div class="row" style="gap:var(--space-md); padding:var(--space-xs) 0">
+            <div><div class="card-value sm tabular">76°</div><div class="card-sub">current</div></div>
+            <div style="flex:1; text-align:right"><div class="card-value sm tabular">78°</div><div class="card-sub">target · cool</div></div>
+          </div>
+          <div class="card-row"><span>Action</span><span class="dim">unoccupied · 6h</span></div>
+          <div class="card-row"><span>URA</span><span class="dim">guest mode off · vacancy economy</span></div>
+        </div>
+
+        <!-- Hazard guard + advanced URA knobs -->
+        <div class="card col-6">
+          <div class="card-head">
+            <div class="card-title"><svg class="icon-sm"><use href="#lc-alert"/></svg>Hazard guard &amp; advanced</div>
+            <span class="badge green">guarding</span>
+          </div>
+          <div class="card-row"><span>Hot-zone temp limit</span><span class="tabular">82°F</span></div>
+          <div class="card-row"><span>Cold-zone temp limit</span><span class="tabular">62°F</span></div>
+          <div class="card-row"><span>Comfort weight (mode)</span><span class="dim">balanced · energy 0.4 · comfort 0.6</span></div>
+          <div class="card-row"><span>Setback economy (vacancy)</span><span><span class="badge green">active 6h+</span></span></div>
+          <div class="card-row"><span>Routine awareness influence</span><span class="tabular">strong</span></div>
+          <div class="card-row"><span>Min daily HVAC severity</span><span><span class="badge accent">ALERT (3)</span></span></div>
+          <div class="card-sub" style="margin-top:var(--space-xs)">Hazard guard ignores arrester to force cooling when zones exceed limit. Severity gates anomaly emit.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ====================================================
+         TAB: PRESENCE
+         ==================================================== -->
+    <section class="tab" data-tab="presence">
+      <header class="page-header">
+        <div>
+          <h1 class="page-title">Presence</h1>
+          <div class="page-subtitle">Fusion: BLE + cameras + motion + radar · 4 people · 3 home</div>
+        </div>
+        <div class="page-actions">
+          <span class="badge green lg">3 / 4 home · 14 events/5min</span>
+        </div>
+      </header>
+
+      <!-- CONTROLS BAR — presence coordinator knobs -->
+      <div class="controls-bar">
+        <div class="knob span-3">
+          <div class="knob-label">Music following <span class="badge green">3 rooms</span></div>
+          <div class="row" style="gap:var(--space-sm)"><label class="toggle"><input type="checkbox" checked><span class="toggle-slot"></span></label><span class="dim" style="font-size:var(--text-sm)">master enable</span></div>
+          <div class="knob-action">
+            <button class="btn sm">Per-room <svg class="icon-sm"><use href="#lc-chevron-down"/></svg></button>
+          </div>
+        </div>
+        <div class="knob span-3">
+          <div class="knob-label">BLE confidence floor</div>
+          <div class="knob-value tabular">75 <span class="dim" style="font-weight:400; font-size:var(--text-sm)">% · -60 dBm</span></div>
+          <div class="knob-action">
+            <input type="range" min="40" max="95" value="75" class="slider">
+          </div>
+          <div class="card-sub">Below this, ignore BLE alone (require fusion)</div>
+        </div>
+        <div class="knob span-2">
+          <div class="knob-label">Transition smoothing</div>
+          <div class="knob-value tabular">8 <span class="dim" style="font-weight:400; font-size:var(--text-sm)">sec</span></div>
+          <div class="knob-action">
+            <input type="range" min="0" max="30" value="8" class="slider">
+          </div>
+          <div class="card-sub">Debounce window for room change</div>
+        </div>
+        <div class="knob span-2">
+          <div class="knob-label">Census mode</div>
+          <div class="pill-group" style="width:100%">
+            <button style="flex:1">Strict</button>
+            <button class="active" style="flex:1">Lenient</button>
+          </div>
+          <div class="card-sub">Lenient keeps known-present 5m</div>
+        </div>
+        <div class="knob span-2">
+          <div class="knob-label">Auto-detect guests</div>
+          <div class="row" style="gap:var(--space-sm)"><label class="toggle"><input type="checkbox"><span class="toggle-slot"></span></label><span class="dim" style="font-size:var(--text-sm)">camera-only</span></div>
+          <div class="card-sub">Unknown faces → guest count</div>
+        </div>
+      </div>
+
+      <!-- Person cards with fusion -->
+      <div class="grid">
+        <div class="card col-3 status-green">
+          <div class="row" style="gap:var(--space-sm)">
+            <div style="width:48px;height:48px;border-radius:var(--radius-full);background:linear-gradient(135deg,#42A5F5,#1E88E5);display:flex;align-items:center;justify-content:center;font-weight:600;font-size:var(--text-lg)">O</div>
+            <div style="flex:1; min-width:0">
+              <div style="font-weight:600">Oji</div>
+              <div class="card-sub">at Office · 18m</div>
+            </div>
+            <span class="dot green live"></span>
+          </div>
+          <div class="card-row"><span>Fusion confidence</span><span><strong class="tabular">92%</strong></span></div>
+          <div class="card-row"><span>Sources</span><span class="dim">BLE + motion + camera</span></div>
+          <div class="card-row"><span>Likely next</span><span><span class="badge accent">Master Bed</span> 22:15</span></div>
+          <div class="card-controls">
+            <button class="btn sm">Override location <svg class="icon-sm"><use href="#lc-chevron-down"/></svg></button>
+          </div>
+        </div>
+        <div class="card col-3 status-green">
+          <div class="row" style="gap:var(--space-sm)">
+            <div style="width:48px;height:48px;border-radius:var(--radius-full);background:linear-gradient(135deg,#EC407A,#C2185B);display:flex;align-items:center;justify-content:center;font-weight:600;font-size:var(--text-lg)">E</div>
+            <div style="flex:1"><div style="font-weight:600">Ezinne</div><div class="card-sub">at Kitchen · 6m</div></div>
+            <span class="dot green live"></span>
+          </div>
+          <div class="card-row"><span>Fusion confidence</span><span><strong class="tabular">88%</strong></span></div>
+          <div class="card-row"><span>Sources</span><span class="dim">camera + motion</span></div>
+          <div class="card-row"><span>Likely next</span><span><span class="badge accent">Great Room</span> 19:10</span></div>
+          <div class="card-controls">
+            <button class="btn sm">Override location <svg class="icon-sm"><use href="#lc-chevron-down"/></svg></button>
+          </div>
+        </div>
+        <div class="card col-3 status-yellow">
+          <div class="row" style="gap:var(--space-sm)">
+            <div style="width:48px;height:48px;border-radius:var(--radius-full);background:linear-gradient(135deg,#66BB6A,#388E3C);display:flex;align-items:center;justify-content:center;font-weight:600;font-size:var(--text-lg)">J</div>
+            <div style="flex:1"><div style="font-weight:600">Jaya</div><div class="card-sub">Away · since 16:12</div></div>
+            <span class="dot yellow"></span>
+          </div>
+          <div class="card-row"><span>Last seen</span><span><span class="dim">BLE: not_home</span></span></div>
+          <div class="card-row"><span>ETA home</span><span class="tabular">~19:30</span></div>
+          <div class="card-row"><span>Arrival routine</span><span><span class="badge green">armed</span></span></div>
+          <div class="card-controls">
+            <button class="btn sm">Mark home</button>
+            <button class="btn sm">Mark away</button>
+          </div>
+        </div>
+        <div class="card col-3 status-green">
+          <div class="row" style="gap:var(--space-sm)">
+            <div style="width:48px;height:48px;border-radius:var(--radius-full);background:linear-gradient(135deg,#FFA726,#F57C00);display:flex;align-items:center;justify-content:center;font-weight:600;font-size:var(--text-lg)">Z</div>
+            <div style="flex:1"><div style="font-weight:600">Ziri</div><div class="card-sub">at Playroom · 24m</div></div>
+            <span class="dot green live"></span>
+          </div>
+          <div class="card-row"><span>Fusion confidence</span><span><strong class="tabular">95%</strong></span></div>
+          <div class="card-row"><span>Sources</span><span class="dim">motion + radar</span></div>
+          <div class="card-row"><span>Bedtime routine</span><span><span class="badge blue">in 43m</span></span></div>
+          <div class="card-controls">
+            <button class="btn sm">Override location <svg class="icon-sm"><use href="#lc-chevron-down"/></svg></button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Aggregates -->
+      <div class="section-head"><h2>House aggregates</h2></div>
+      <div class="grid">
+        <div class="card col-3">
+          <div class="card-title">Property count</div>
+          <div class="card-value tabular">3</div>
+          <div class="card-sub">all inside · 0 in outdoor rooms</div>
+        </div>
+        <div class="card col-3">
+          <div class="card-title">Census today</div>
+          <div class="card-value tabular">3</div>
+          <div class="card-sub">peak: 4 at 14:30 · min: 1 at 10:15</div>
+        </div>
+        <div class="card col-3">
+          <div class="card-title">Transitions today</div>
+          <div class="card-value tabular">47</div>
+          <div class="card-sub"><span class="badge yellow">z=2.4</span> ADVISORY anomaly</div>
+        </div>
+        <div class="card col-3 status-blue">
+          <div class="card-title"><svg class="icon-sm"><use href="#lc-sparkles"/></svg>Routine awareness</div>
+          <div class="card-row"><span>Next state</span><span><strong>home_night</strong> 21:30</span></div>
+          <div class="card-row"><span>Confidence</span><span class="tabular">87%</span></div>
+        </div>
+      </div>
+
+      <!-- Source fusion -->
+      <div class="section-head"><h2>Detection sources</h2></div>
+      <div class="grid">
+        <div class="card col-4">
+          <div class="card-head">
+            <div class="card-title"><svg class="icon-sm"><use href="#lc-radio"/></svg>BLE (Bermuda)</div>
+            <span class="badge green">3 active</span>
+          </div>
+          <div class="card-row"><span>Oji iPhone</span><span><span class="badge green">Office</span> -52 dBm</span></div>
+          <div class="card-row"><span>Ezinne iPhone</span><span><span class="badge green">Kitchen</span> -61 dBm</span></div>
+          <div class="card-row"><span>Ziri Watch</span><span><span class="badge green">Playroom</span> -48 dBm</span></div>
+          <div class="card-row"><span>Jaya iPhone</span><span><span class="dim">not_home · 16:12</span></span></div>
+        </div>
+        <div class="card col-4">
+          <div class="card-head">
+            <div class="card-title"><svg class="icon-sm"><use href="#lc-video"/></svg>Cameras (detection)</div>
+            <span class="badge green">9 streaming</span>
+          </div>
+          <div class="card-row"><span>Kitchen cam</span><span class="dim">person 16s ago</span></div>
+          <div class="card-row"><span>Great Room cam</span><span class="dim">person 2m ago</span></div>
+          <div class="card-row"><span>Front porch</span><span class="dim">vehicle 4m ago</span></div>
+          <div class="card-row"><span>Back deck</span><span class="dim">cat 12m ago</span></div>
+        </div>
+        <div class="card col-4">
+          <div class="card-head">
+            <div class="card-title"><svg class="icon-sm"><use href="#lc-eye"/></svg>Motion + radar</div>
+            <span class="badge green">14 events / 5m</span>
+          </div>
+          <div class="card-row"><span>Office radar</span><span><span class="badge green">person stationary</span></span></div>
+          <div class="card-row"><span>Playroom motion</span><span><span class="badge green">active</span></span></div>
+          <div class="card-row"><span>Kitchen motion</span><span><span class="badge green">active</span></span></div>
+          <div class="card-row"><span>Master Bath</span><span class="dim">idle 38m</span></div>
+        </div>
+      </div>
+
+      <!-- Controls bottom -->
+      <div class="section-head"><h2>Music following</h2></div>
+      <div class="grid">
+        <div class="card col-12">
+          <div class="card-head">
+            <div class="card-title"><svg class="icon-sm"><use href="#lc-music"/></svg>Per-room enablement</div>
+            <span class="badge green">enabled in 3 rooms · 12 transitions today</span>
+          </div>
+          <div class="grid gap-sm" style="grid-template-columns:repeat(auto-fill,minmax(180px,1fr))">
+            <div class="card-row"><span>Master Bed</span><label class="toggle"><input type="checkbox" checked><span class="toggle-slot"></span></label></div>
+            <div class="card-row"><span>Office</span><label class="toggle"><input type="checkbox" checked><span class="toggle-slot"></span></label></div>
+            <div class="card-row"><span>Kitchen</span><label class="toggle"><input type="checkbox" checked><span class="toggle-slot"></span></label></div>
+            <div class="card-row"><span>Great Room</span><label class="toggle"><input type="checkbox"><span class="toggle-slot"></span></label></div>
+            <div class="card-row"><span>Playroom</span><label class="toggle"><input type="checkbox"><span class="toggle-slot"></span></label></div>
+            <div class="card-row"><span>Gym</span><label class="toggle"><input type="checkbox"><span class="toggle-slot"></span></label></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ====================================================
+         TAB: SECURITY
+         ==================================================== -->
+    <section class="tab" data-tab="security">
+      <header class="page-header">
+        <div>
+          <h1 class="page-title">Security</h1>
+          <div class="page-subtitle">Disarmed · 4/4 locks · 9 cameras streaming</div>
+        </div>
+        <div class="page-actions">
+          <button class="btn"><svg class="icon"><use href="#lc-bell"/></svg> Events</button>
+        </div>
+      </header>
+
+      <!-- CONTROLS BAR — security coordinator knobs -->
+      <div class="controls-bar">
+        <div class="knob span-4">
+          <div class="knob-label">Alarm mode <span class="badge green">URA: disarmed @ home_evening</span></div>
+          <div class="pill-group" style="width:100%">
+            <button class="active" style="flex:1">Off</button>
+            <button style="flex:1">Home</button>
+            <button style="flex:1">Night</button>
+            <button class="" style="flex:1">Away</button>
+          </div>
+          <div class="card-sub">Arm requires 5s hold confirm</div>
+        </div>
+        <div class="knob span-2">
+          <div class="knob-label">Auto-arm on leave</div>
+          <div class="row" style="gap:var(--space-sm)"><label class="toggle"><input type="checkbox" checked><span class="toggle-slot"></span></label><span class="dim" style="font-size:var(--text-sm)">2m delay</span></div>
+          <div class="card-sub">When census drops to 0</div>
+        </div>
+        <div class="knob span-2">
+          <div class="knob-label">Auto-arm at sleep</div>
+          <div class="row" style="gap:var(--space-sm)"><label class="toggle"><input type="checkbox" checked><span class="toggle-slot"></span></label><span class="dim" style="font-size:var(--text-sm)">→ Night</span></div>
+          <div class="card-sub">Triggers on house_state=sleep</div>
+        </div>
+        <div class="knob span-2">
+          <div class="knob-label">Lock-after-motion</div>
+          <div class="knob-value tabular">5 <span class="dim" style="font-weight:400; font-size:var(--text-sm)">min</span></div>
+          <div class="knob-action">
+            <input type="range" min="0" max="30" value="5" class="slider">
+          </div>
+        </div>
+        <div class="knob span-2">
+          <div class="knob-label">Camera privacy</div>
+          <div class="row" style="gap:var(--space-sm)"><label class="toggle"><input type="checkbox"><span class="toggle-slot"></span></label><span class="dim" style="font-size:var(--text-sm)">all off</span></div>
+          <div class="card-sub">Indoor cams · obscure when home_evening</div>
+        </div>
+      </div>
+
+      <!-- Hero KPI -->
+      <div class="grid">
+        <div class="card col-3 status-green">
+          <div class="card-title"><svg class="icon-sm"><use href="#lc-shield"/></svg>Alarm</div>
+          <div class="card-value sm">Disarmed</div>
+          <div class="card-sub">last armed 23:00 yesterday</div>
+        </div>
+        <div class="card col-3 status-green">
+          <div class="card-title"><svg class="icon-sm"><use href="#lc-lock"/></svg>Locks</div>
+          <div class="card-value tabular">4 / 4</div>
+          <div class="card-sub">all locked</div>
+        </div>
+        <div class="card col-3 status-green">
+          <div class="card-title"><svg class="icon-sm"><use href="#lc-video"/></svg>Cameras</div>
+          <div class="card-value tabular">9 / 9</div>
+          <div class="card-sub">streaming · 2 with motion</div>
+        </div>
+        <div class="card col-3 status-yellow">
+          <div class="card-title"><svg class="icon-sm"><use href="#lc-bell"/></svg>Recent events</div>
+          <div class="card-value tabular">3</div>
+          <div class="card-sub">last: garage opened 17:54</div>
+        </div>
+      </div>
+
+      <!-- Cameras grouped -->
+      <div class="section-head"><h2>Cameras · entryways</h2></div>
+      <div class="grid">
+        <div class="card col-4">
+          <div style="aspect-ratio:16/9; background:linear-gradient(135deg,#1a1a2e,#0f0f1f); border-radius:var(--radius-md); display:flex; align-items:center; justify-content:center; color:var(--text-tertiary); margin-bottom:var(--space-xs); position:relative">
+            <svg class="icon-xl"><use href="#lc-video"/></svg>
+            <span class="badge red" style="position:absolute; top:8px; left:8px"><span class="dot red live" style="background:white"></span>REC</span>
+          </div>
+          <div class="row between"><strong>Front Door</strong><span class="badge yellow">motion 2m</span></div>
+          <div class="card-sub">vehicle detected · Jaya commute?</div>
+        </div>
+        <div class="card col-4">
+          <div style="aspect-ratio:16/9; background:linear-gradient(135deg,#1a1a2e,#0f0f1f); border-radius:var(--radius-md); display:flex; align-items:center; justify-content:center; color:var(--text-tertiary); margin-bottom:var(--space-xs); position:relative">
+            <svg class="icon-xl"><use href="#lc-video"/></svg>
+            <span class="badge red" style="position:absolute; top:8px; left:8px"><span class="dot red live" style="background:white"></span>REC</span>
+          </div>
+          <div class="row between"><strong>Garage</strong><span class="badge">idle</span></div>
+          <div class="card-sub">door state: closed · 53m</div>
+        </div>
+        <div class="card col-4">
+          <div style="aspect-ratio:16/9; background:linear-gradient(135deg,#1a1a2e,#0f0f1f); border-radius:var(--radius-md); display:flex; align-items:center; justify-content:center; color:var(--text-tertiary); margin-bottom:var(--space-xs); position:relative">
+            <svg class="icon-xl"><use href="#lc-video"/></svg>
+            <span class="badge red" style="position:absolute; top:8px; left:8px"><span class="dot red live" style="background:white"></span>REC</span>
+          </div>
+          <div class="row between"><strong>Back Door</strong><span class="badge">idle</span></div>
+          <div class="card-sub">no events 4h</div>
+        </div>
+      </div>
+
+      <div class="section-head"><h2>Cameras · outside</h2></div>
+      <div class="grid">
+        <div class="card col-3">
+          <div style="aspect-ratio:16/9; background:linear-gradient(135deg,#1a1a2e,#0f0f1f); border-radius:var(--radius-md); margin-bottom:var(--space-xs); display:flex; align-items:center; justify-content:center"><svg class="icon-lg"><use href="#lc-video"/></svg></div>
+          <div class="row between"><strong>Driveway</strong><span class="dim">streaming</span></div>
+        </div>
+        <div class="card col-3">
+          <div style="aspect-ratio:16/9; background:linear-gradient(135deg,#1a1a2e,#0f0f1f); border-radius:var(--radius-md); margin-bottom:var(--space-xs); display:flex; align-items:center; justify-content:center"><svg class="icon-lg"><use href="#lc-video"/></svg></div>
+          <div class="row between"><strong>Side Yard</strong><span class="dim">streaming</span></div>
+        </div>
+        <div class="card col-3">
+          <div style="aspect-ratio:16/9; background:linear-gradient(135deg,#1a1a2e,#0f0f1f); border-radius:var(--radius-md); margin-bottom:var(--space-xs); display:flex; align-items:center; justify-content:center"><svg class="icon-lg"><use href="#lc-video"/></svg></div>
+          <div class="row between"><strong>Back Deck</strong><span class="badge yellow">cat 12m</span></div>
+        </div>
+        <div class="card col-3">
+          <div style="aspect-ratio:16/9; background:linear-gradient(135deg,#1a1a2e,#0f0f1f); border-radius:var(--radius-md); margin-bottom:var(--space-xs); display:flex; align-items:center; justify-content:center"><svg class="icon-lg"><use href="#lc-video"/></svg></div>
+          <div class="row between"><strong>Pool</strong><span class="dim">streaming</span></div>
+        </div>
+      </div>
+
+      <div class="section-head"><h2>Cameras · inside</h2></div>
+      <div class="grid">
+        <div class="card col-3">
+          <div style="aspect-ratio:16/9; background:linear-gradient(135deg,#1a1a2e,#0f0f1f); border-radius:var(--radius-md); margin-bottom:var(--space-xs); display:flex; align-items:center; justify-content:center"><svg class="icon-lg"><use href="#lc-video"/></svg></div>
+          <div class="row between"><strong>Great Room</strong><span class="badge green">person 2m</span></div>
+        </div>
+        <div class="card col-3">
+          <div style="aspect-ratio:16/9; background:linear-gradient(135deg,#1a1a2e,#0f0f1f); border-radius:var(--radius-md); margin-bottom:var(--space-xs); display:flex; align-items:center; justify-content:center"><svg class="icon-lg"><use href="#lc-video"/></svg></div>
+          <div class="row between"><strong>Kitchen</strong><span class="badge green">person 16s</span></div>
+        </div>
+      </div>
+
+      <!-- Locks + contact sensors -->
+      <div class="section-head"><h2>Locks &amp; entries</h2></div>
+      <div class="grid">
+        <div class="card col-3 status-green">
+          <div class="card-head">
+            <div class="row" style="gap:var(--space-xs)"><svg class="icon-sm" style="color:var(--status-green)"><use href="#lc-lock"/></svg><strong>Front Door</strong></div>
+            <span class="badge green">locked</span>
+          </div>
+          <div class="card-sub">last: 16:38 · auto-lock 5m</div>
+          <div class="card-controls">
+            <button class="btn sm danger" data-confirm>Unlock <svg class="icon-sm"><use href="#lc-chevron-right"/></svg></button>
+          </div>
+        </div>
+        <div class="card col-3 status-green">
+          <div class="card-head">
+            <div class="row" style="gap:var(--space-xs)"><svg class="icon-sm" style="color:var(--status-green)"><use href="#lc-lock"/></svg><strong>Back Door</strong></div>
+            <span class="badge green">locked</span>
+          </div>
+          <div class="card-sub">last: 14:22</div>
+          <div class="card-controls"><button class="btn sm danger" data-confirm>Unlock</button></div>
+        </div>
+        <div class="card col-3 status-green">
+          <div class="card-head">
+            <div class="row" style="gap:var(--space-xs)"><svg class="icon-sm" style="color:var(--status-green)"><use href="#lc-lock"/></svg><strong>Garage</strong></div>
+            <span class="badge green">locked</span>
+          </div>
+          <div class="card-sub">door state: closed</div>
+          <div class="card-controls"><button class="btn sm">Open</button></div>
+        </div>
+        <div class="card col-3 status-green">
+          <div class="card-head">
+            <div class="row" style="gap:var(--space-xs)"><svg class="icon-sm" style="color:var(--status-green)"><use href="#lc-lock"/></svg><strong>Side Gate</strong></div>
+            <span class="badge green">locked</span>
+          </div>
+          <div class="card-sub">last: yesterday</div>
+          <div class="card-controls"><button class="btn sm" disabled>—</button></div>
+        </div>
+      </div>
+
+      <div class="section-head"><h2>Recent entry events</h2></div>
+      <div class="card col-12">
+        <div class="timeline">
+          <div class="timeline-row"><div class="timeline-time">17:54</div><div class="timeline-body"><div class="timeline-headline">Garage door <strong>opened</strong></div><div class="timeline-reason">closed 3m later · auto-dismissed</div></div></div>
+          <div class="timeline-row"><div class="timeline-time">16:38</div><div class="timeline-body"><div class="timeline-headline">Front Door <strong>locked</strong></div><div class="timeline-reason">Oji · keypad</div></div></div>
+          <div class="timeline-row"><div class="timeline-time">14:22</div><div class="timeline-body"><div class="timeline-headline">Back Door <strong>locked</strong></div><div class="timeline-reason">auto · 5m after motion stopped</div></div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ====================================================
+         TAB: SAFETY — fed by Safety coordinator
+         Hazards (fire/CO/smoke/leak/freeze/garage-open),
+         detectors, auto-shutoff, emergency contacts.
+         Distinct from Security (alarm/locks/cameras).
+         ==================================================== -->
+    <section class="tab" data-tab="safety">
+      <header class="page-header">
+        <div>
+          <h1 class="page-title">Safety</h1>
+          <div class="page-subtitle">0 active hazards · 12 detectors OK · auto-shutoff armed · 3 events today (auto-dismissed)</div>
+        </div>
+        <div class="page-actions">
+          <span class="badge green lg"><svg class="icon-sm"><use href="#lc-shield"/></svg>guarding</span>
+        </div>
+      </header>
+
+      <!-- CONTROLS BAR — Safety coordinator knobs -->
+      <div class="controls-bar">
+        <div class="knob span-3">
+          <div class="knob-label">Safety routines <span class="badge green">all armed</span></div>
+          <div class="pill-group" style="width:100%">
+            <button class="active" style="flex:1">All armed</button>
+            <button style="flex:1">Day only</button>
+            <button style="flex:1">Disabled</button>
+          </div>
+          <div class="card-sub">Auto-respond to fire / leak / freeze</div>
+        </div>
+        <div class="knob span-2">
+          <div class="knob-label">Auto water shutoff <span class="badge accent">URA</span></div>
+          <div class="row" style="gap:var(--space-sm)"><label class="toggle"><input type="checkbox" checked><span class="toggle-slot"></span></label><span class="dim" style="font-size:var(--text-sm)">on leak detected</span></div>
+          <div class="card-sub">Triggers main valve close</div>
+        </div>
+        <div class="knob span-2">
+          <div class="knob-label">Auto-lock on fire</div>
+          <div class="row" style="gap:var(--space-sm)"><label class="toggle"><input type="checkbox" checked><span class="toggle-slot"></span></label><span class="dim" style="font-size:var(--text-sm)">unlocks all doors</span></div>
+          <div class="card-sub">Egress for occupants</div>
+        </div>
+        <div class="knob span-2">
+          <div class="knob-label">Freeze threshold</div>
+          <div class="knob-value tabular">38° <span class="dim" style="font-weight:400; font-size:var(--text-sm)">F</span></div>
+          <div class="knob-action"><input type="range" min="30" max="50" value="38" class="slider"></div>
+          <div class="card-sub">Indoor &lt; this = WARN</div>
+        </div>
+        <div class="knob span-3">
+          <div class="knob-label">Hazard severity floor <span class="badge accent">3</span></div>
+          <div class="knob-value">WARNING <span class="badge" style="font-size:var(--text-xs)">always notify ≥</span></div>
+          <div class="knob-action"><input type="range" min="0" max="4" value="2" class="slider"></div>
+          <div class="card-sub">Anomaly emit threshold for Safety</div>
+        </div>
+      </div>
+
+      <!-- Hero KPI -->
+      <div class="grid">
+        <div class="card col-3 status-green">
+          <div class="card-title"><svg class="icon-sm"><use href="#lc-shield"/></svg>Active hazards</div>
+          <div class="card-value tabular">0</div>
+          <div class="card-sub">last 24h: 3 events, all auto-resolved</div>
+        </div>
+        <div class="card col-3 status-green">
+          <div class="card-title"><svg class="icon-sm"><use href="#lc-check"/></svg>Detectors</div>
+          <div class="card-value tabular">12 / 12</div>
+          <div class="card-sub">smoke 4 · CO 3 · leak 3 · freeze 2</div>
+        </div>
+        <div class="card col-3 status-green">
+          <div class="card-title"><svg class="icon-sm"><use href="#lc-bell"/></svg>Events today</div>
+          <div class="card-value tabular">3</div>
+          <div class="card-sub">all auto-dismissed in &lt; 5m</div>
+        </div>
+        <div class="card col-3 strong">
+          <div class="card-title"><svg class="icon-sm"><use href="#lc-brain"/></svg>URA intent</div>
+          <div class="card-sub" style="margin-top:var(--space-xs); font-size:var(--text-sm); color:var(--text-primary)"><span class="badge green">guarding</span> · last review 18:42</div>
+          <div class="card-sub">No anomalies in detector frequency. All 12 sensors responsive.</div>
+        </div>
+      </div>
+
+      <!-- Detectors by type -->
+      <div class="section-head"><h2>Smoke &amp; CO</h2></div>
+      <div class="grid">
+        <div class="card col-3 status-green"><div class="card-head"><div class="card-title"><svg class="icon-sm"><use href="#lc-alert"/></svg>Kitchen</div><span class="badge green">clear</span></div><div class="card-row"><span>Smoke</span><span class="tabular">0 ppm</span></div><div class="card-row"><span>CO</span><span class="tabular">2 ppm</span></div><div class="card-row"><span>Battery</span><span class="tabular">92%</span></div><div class="card-row"><span>Tested</span><span class="dim">14d ago</span></div></div>
+        <div class="card col-3 status-green"><div class="card-head"><div class="card-title"><svg class="icon-sm"><use href="#lc-alert"/></svg>Hallway</div><span class="badge green">clear</span></div><div class="card-row"><span>Smoke</span><span class="tabular">0 ppm</span></div><div class="card-row"><span>CO</span><span class="tabular">1 ppm</span></div><div class="card-row"><span>Battery</span><span class="tabular">88%</span></div><div class="card-row"><span>Tested</span><span class="dim">14d ago</span></div></div>
+        <div class="card col-3 status-green"><div class="card-head"><div class="card-title"><svg class="icon-sm"><use href="#lc-alert"/></svg>Master Bed</div><span class="badge green">clear</span></div><div class="card-row"><span>Smoke</span><span class="tabular">0 ppm</span></div><div class="card-row"><span>CO</span><span class="tabular">2 ppm</span></div><div class="card-row"><span>Battery</span><span class="tabular">95%</span></div><div class="card-row"><span>Tested</span><span class="dim">14d ago</span></div></div>
+        <div class="card col-3 status-yellow"><div class="card-head"><div class="card-title"><svg class="icon-sm"><use href="#lc-alert"/></svg>Garage</div><span class="badge yellow">low battery</span></div><div class="card-row"><span>Smoke</span><span class="tabular">0 ppm</span></div><div class="card-row"><span>CO</span><span class="tabular">4 ppm</span></div><div class="card-row"><span>Battery</span><span class="tabular" style="color:var(--status-yellow)">18%</span></div><div class="card-row"><span>Action</span><span class="dim">replace soon</span></div></div>
+      </div>
+
+      <div class="section-head"><h2>Water leak</h2></div>
+      <div class="grid">
+        <div class="card col-4 status-green"><div class="card-head"><div class="card-title"><svg class="icon-sm"><use href="#lc-alert"/></svg>Kitchen sink</div><span class="badge green">dry</span></div><div class="card-row"><span>Last detected</span><span class="dim">never</span></div><div class="card-row"><span>Battery</span><span class="tabular">87%</span></div></div>
+        <div class="card col-4 status-green"><div class="card-head"><div class="card-title"><svg class="icon-sm"><use href="#lc-alert"/></svg>Water heater</div><span class="badge green">dry</span></div><div class="card-row"><span>Last detected</span><span class="dim">never</span></div><div class="card-row"><span>Battery</span><span class="tabular">91%</span></div></div>
+        <div class="card col-4 status-green"><div class="card-head"><div class="card-title"><svg class="icon-sm"><use href="#lc-alert"/></svg>Laundry</div><span class="badge green">dry</span></div><div class="card-row"><span>Last detected</span><span class="dim">2d ago (1m, dismissed)</span></div><div class="card-row"><span>Battery</span><span class="tabular">93%</span></div></div>
+      </div>
+
+      <div class="section-head"><h2>Freeze &amp; garage</h2></div>
+      <div class="grid">
+        <div class="card col-3 status-green"><div class="card-head"><div class="card-title"><svg class="icon-sm"><use href="#lc-thermo"/></svg>Garage temp</div><span class="badge green">safe</span></div><div class="card-value sm tabular">62°</div><div class="card-sub">threshold: 38° · 24° margin</div></div>
+        <div class="card col-3 status-green"><div class="card-head"><div class="card-title"><svg class="icon-sm"><use href="#lc-thermo"/></svg>Attic temp</div><span class="badge green">safe</span></div><div class="card-value sm tabular">84°</div><div class="card-sub">no freeze concern · summer</div></div>
+        <div class="card col-3 status-green"><div class="card-head"><div class="card-title"><svg class="icon-sm"><use href="#lc-lock"/></svg>Garage door</div><span class="badge green">closed</span></div><div class="card-value sm">Closed</div><div class="card-sub">last open: 17:54 · 3m</div></div>
+        <div class="card col-3 status-green"><div class="card-head"><div class="card-title"><svg class="icon-sm"><use href="#lc-lock"/></svg>Side gate</div><span class="badge green">closed</span></div><div class="card-value sm">Closed</div><div class="card-sub">last open: yesterday</div></div>
+      </div>
+
+      <!-- Recent safety events timeline -->
+      <div class="section-head"><h2>Recent safety events</h2></div>
+      <div class="card col-12">
+        <div class="timeline">
+          <div class="timeline-row">
+            <div class="timeline-time">17:54</div>
+            <div class="timeline-body">
+              <div class="timeline-headline"><span class="badge green">resolved</span> Garage door opened</div>
+              <div class="timeline-reason">closed 3m later · auto-dismissed · Oji vehicle event</div>
+            </div>
+            <button class="btn sm icon"><svg class="icon-sm"><use href="#lc-more"/></svg></button>
+          </div>
+          <div class="timeline-row">
+            <div class="timeline-time">12:18</div>
+            <div class="timeline-body">
+              <div class="timeline-headline"><span class="badge green">resolved</span> CO spike · Kitchen</div>
+              <div class="timeline-reason">peak 8 ppm during cooking · cleared in 90s · below alert (35 ppm)</div>
+            </div>
+            <button class="btn sm icon"><svg class="icon-sm"><use href="#lc-more"/></svg></button>
+          </div>
+          <div class="timeline-row">
+            <div class="timeline-time">08:42</div>
+            <div class="timeline-body">
+              <div class="timeline-headline"><span class="badge green">resolved</span> Smoke detector test · Master Bed</div>
+              <div class="timeline-reason">scheduled monthly self-test · all sensors responsive</div>
+            </div>
+            <button class="btn sm icon"><svg class="icon-sm"><use href="#lc-more"/></svg></button>
+          </div>
+          <div class="timeline-row">
+            <div class="timeline-time" style="color:var(--text-tertiary)">2d ago</div>
+            <div class="timeline-body">
+              <div class="timeline-headline"><span class="badge yellow">attention</span> Water leak · Laundry · 1m</div>
+              <div class="timeline-reason">condensate overflow · auto-shutoff held · self-cleared, dismissed by Oji</div>
+            </div>
+            <button class="btn sm icon"><svg class="icon-sm"><use href="#lc-more"/></svg></button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Emergency contacts -->
+      <div class="section-head"><h2>Emergency response</h2></div>
+      <div class="grid">
+        <div class="card col-6">
+          <div class="card-head">
+            <div class="card-title"><svg class="icon-sm"><use href="#lc-bell"/></svg>Auto-call sequence</div>
+            <label class="toggle"><input type="checkbox" checked><span class="toggle-slot"></span></label>
+          </div>
+          <div class="card-row"><span>1. Oji</span><span class="tabular">+1 ••• ••• 4127 · SMS+call</span></div>
+          <div class="card-row"><span>2. Ezinne</span><span class="tabular">+1 ••• ••• 8203 · SMS+call</span></div>
+          <div class="card-row"><span>3. 911 (auto-fail-over)</span><span><span class="badge red">on fire/CO ≥ 35 ppm</span></span></div>
+          <div class="card-sub">Triggered on hazard ≥ CRITICAL or no ack in 90s</div>
+        </div>
+        <div class="card col-6">
+          <div class="card-head">
+            <div class="card-title"><svg class="icon-sm"><use href="#lc-activity"/></svg>Safety coordinator</div>
+            <span class="badge green">healthy</span>
+          </div>
+          <div class="card-row"><span>Decisions today</span><span class="tabular">28</span></div>
+          <div class="card-row"><span>Auto-dismissals (avg/day)</span><span class="tabular">5.2</span></div>
+          <div class="card-row"><span>False alarms (7d)</span><span class="tabular">0</span></div>
+          <div class="card-row"><span>Last self-check</span><span class="dim">18:35 · all sensors</span></div>
+          <div class="card-controls">
+            <button class="btn sm">Run drill</button>
+            <button class="btn sm">Test alarms</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ====================================================
+         TAB: DIAGNOSTICS (incl. Alerts folded in)
+         ==================================================== -->
+    <section class="tab" data-tab="diagnostics">
+      <header class="page-header">
+        <div>
+          <h1 class="page-title">Diagnostics</h1>
+          <div class="page-subtitle">URA v4.6.7 · PRAGMA 467 · 5/5 coordinators · uptime 6d 14h</div>
+        </div>
+        <div class="page-actions">
+          <button class="btn"><svg class="icon"><use href="#lc-activity"/></svg> Logs</button>
+          <button class="btn"><svg class="icon"><use href="#lc-settings"/></svg> Reload</button>
+        </div>
+      </header>
+
+      <!-- CONTROLS BAR — system-wide URA knobs -->
+      <div class="controls-bar">
+        <div class="knob span-3">
+          <div class="knob-label">Anomaly floor <svg class="icon-sm dim"><use href="#lc-alert"/></svg></div>
+          <div class="knob-value">ALERT <span class="badge accent">3</span></div>
+          <div class="knob-action">
+            <input type="range" min="0" max="4" value="3" class="slider">
+          </div>
+          <div class="card-sub">INFO · WARN · ADVISORY · <strong>ALERT</strong> · CRITICAL</div>
+        </div>
+        <div class="knob span-3">
+          <div class="knob-label">Routine awareness floor</div>
+          <div class="knob-value">ALERT <span class="badge accent">3</span></div>
+          <div class="knob-action">
+            <input type="range" min="0" max="4" value="3" class="slider">
+          </div>
+          <div class="card-sub">Only emit routine events ≥ this severity</div>
+        </div>
+        <div class="knob span-2">
+          <div class="knob-label">DB maintenance</div>
+          <div class="knob-action" style="margin-top:0; flex-direction:column; align-items:stretch">
+            <button class="btn sm">Run VACUUM</button>
+            <button class="btn sm">Prune retention</button>
+          </div>
+        </div>
+        <div class="knob span-2">
+          <div class="knob-label">Observation mode (all)</div>
+          <div class="row" style="gap:var(--space-sm)"><label class="toggle"><input type="checkbox"><span class="toggle-slot"></span></label><span class="dim" style="font-size:var(--text-sm)">URA records, no act</span></div>
+        </div>
+        <div class="knob span-2">
+          <div class="knob-label">Telemetry</div>
+          <div class="row" style="gap:var(--space-sm)"><label class="toggle"><input type="checkbox" checked><span class="toggle-slot"></span></label><span class="dim" style="font-size:var(--text-sm)">decision log</span></div>
+          <div class="row" style="gap:var(--space-sm)"><label class="toggle"><input type="checkbox" checked><span class="toggle-slot"></span></label><span class="dim" style="font-size:var(--text-sm)">anomaly log</span></div>
+        </div>
+      </div>
+
+      <!-- Top alerts strip (folded from old Alerts tab) -->
+      <div class="grid">
+        <div class="card col-12 status-red">
+          <div class="card-head">
+            <div class="card-title"><svg class="icon-sm"><use href="#lc-alert"/></svg>Active anomalies · 2</div>
+            <div class="row" style="gap:var(--space-xs)">
+              <button class="btn sm">Floor: ALERT</button>
+              <button class="btn sm">Acknowledge all</button>
+            </div>
+          </div>
+          <div class="timeline">
+            <div class="timeline-row">
+              <div class="timeline-time">18:31</div>
+              <div class="timeline-body">
+                <div class="timeline-headline"><span class="badge red">ALERT</span> HVAC · master_suite override_frequency</div>
+                <div class="timeline-reason">z-score 3.2 · 6 user overrides in 24h vs baseline mean 1.4</div>
+              </div>
+              <button class="btn sm">Ack</button>
+            </div>
+            <div class="timeline-row">
+              <div class="timeline-time">17:48</div>
+              <div class="timeline-body">
+                <div class="timeline-headline"><span class="badge yellow">ADVISORY</span> Presence · transition_count_daily</div>
+                <div class="timeline-reason">z-score 2.4 · 47 transitions today vs baseline mean 28</div>
+              </div>
+              <button class="btn sm">Ack</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Coordinator grid -->
+      <div class="section-head"><h2>Coordinators</h2></div>
+      <div class="grid">
+        <div class="card col-4 status-green">
+          <div class="card-head"><div class="card-title">Presence</div><span class="badge green">healthy</span></div>
+          <div class="card-row"><span>Decisions today</span><span class="tabular">89</span></div>
+          <div class="card-row"><span>Last decision</span><span class="dim">18:37 · Oji → Office</span></div>
+          <div class="card-row"><span>Success rate</span><span class="tabular">98%</span></div>
+          <div class="card-row"><span>Override freq</span><span class="tabular">2 / day</span></div>
+          <div class="card-controls">
+            <label class="row" style="gap:6px; font-size:var(--text-xs); flex:1"><span>Enabled</span><span class="spacer"></span><span class="toggle"><input type="checkbox" checked><span class="toggle-slot"></span></span></label>
+            <button class="btn sm">Restart</button>
+          </div>
+        </div>
+        <div class="card col-4 status-orange">
+          <div class="card-head"><div class="card-title">HVAC</div><span class="badge orange">attention</span></div>
+          <div class="card-row"><span>Decisions today</span><span class="tabular">64</span></div>
+          <div class="card-row"><span>Last decision</span><span class="dim">18:42 · Master → coast</span></div>
+          <div class="card-row"><span>Success rate</span><span class="tabular">94%</span></div>
+          <div class="card-row"><span>Override freq</span><span class="tabular" style="color:var(--status-red)">6 / day <span class="badge red">ALERT</span></span></div>
+          <div class="card-controls">
+            <label class="row" style="gap:6px; font-size:var(--text-xs); flex:1"><span>Enabled</span><span class="spacer"></span><span class="toggle"><input type="checkbox" checked><span class="toggle-slot"></span></span></label>
+            <button class="btn sm">Restart</button>
+          </div>
+        </div>
+        <div class="card col-4 status-green">
+          <div class="card-head"><div class="card-title">Energy</div><span class="badge green">healthy</span></div>
+          <div class="card-row"><span>Decisions today</span><span class="tabular">42</span></div>
+          <div class="card-row"><span>Last decision</span><span class="dim">18:30 · battery reserve 25%</span></div>
+          <div class="card-row"><span>Success rate</span><span class="tabular">100%</span></div>
+          <div class="card-row"><span>Override freq</span><span class="tabular">0 / day</span></div>
+          <div class="card-controls">
+            <label class="row" style="gap:6px; font-size:var(--text-xs); flex:1"><span>Enabled</span><span class="spacer"></span><span class="toggle"><input type="checkbox" checked><span class="toggle-slot"></span></span></label>
+            <button class="btn sm">Restart</button>
+          </div>
+        </div>
+        <div class="card col-4 status-green">
+          <div class="card-head"><div class="card-title">Safety</div><span class="badge green">healthy</span></div>
+          <div class="card-row"><span>Decisions today</span><span class="tabular">28</span></div>
+          <div class="card-row"><span>Last decision</span><span class="dim">17:54 · Garage hazard auto-dismissed</span></div>
+          <div class="card-row"><span>Active hazards</span><span class="tabular">0</span></div>
+          <div class="card-row"><span>Override freq</span><span class="tabular">1 / day</span></div>
+          <div class="card-controls">
+            <label class="row" style="gap:6px; font-size:var(--text-xs); flex:1"><span>Enabled</span><span class="spacer"></span><span class="toggle"><input type="checkbox" checked><span class="toggle-slot"></span></span></label>
+            <button class="btn sm">Restart</button>
+          </div>
+        </div>
+        <div class="card col-4 status-green">
+          <div class="card-head"><div class="card-title">Security</div><span class="badge green">healthy</span></div>
+          <div class="card-row"><span>Decisions today</span><span class="tabular">24</span></div>
+          <div class="card-row"><span>Last decision</span><span class="dim">16:38 · Front Door auto-lock</span></div>
+          <div class="card-row"><span>Success rate</span><span class="tabular">100%</span></div>
+          <div class="card-row"><span>Override freq</span><span class="tabular">0 / day</span></div>
+          <div class="card-controls">
+            <label class="row" style="gap:6px; font-size:var(--text-xs); flex:1"><span>Enabled</span><span class="spacer"></span><span class="toggle"><input type="checkbox" checked><span class="toggle-slot"></span></span></label>
+            <button class="btn sm">Restart</button>
+          </div>
+        </div>
+        <div class="card col-4">
+          <div class="card-head"><div class="card-title">System</div><span class="badge">info</span></div>
+          <div class="card-row"><span>Version</span><span class="mono">v4.6.7</span></div>
+          <div class="card-row"><span>PRAGMA user_version</span><span class="tabular mono">467</span></div>
+          <div class="card-row"><span>DB size</span><span class="tabular">812 MB</span></div>
+          <div class="card-row"><span>Uptime</span><span class="tabular">6d 14h</span></div>
+          <div class="card-row"><span>Write queue</span><span class="tabular">0 pending</span></div>
+        </div>
+      </div>
+
+      <!-- Decisions stream + automation health -->
+      <div class="grid" style="margin-top:var(--space-lg)">
+        <div class="card col-8">
+          <div class="card-head">
+            <div class="card-title"><svg class="icon-sm"><use href="#lc-brain"/></svg>Decisions stream · last 30 min</div>
+            <span class="badge accent">12 events</span>
+          </div>
+          <div class="timeline">
+            <div class="timeline-row"><div class="timeline-time">18:42</div><div class="timeline-body"><div class="timeline-headline"><span class="badge accent">HVAC</span> Master Suite → <strong>coast</strong></div><div class="timeline-reason">predicted occupancy drop in 45m · holding at 73°</div></div></div>
+            <div class="timeline-row"><div class="timeline-time">18:37</div><div class="timeline-body"><div class="timeline-headline"><span class="badge accent">Presence</span> Oji → <strong>Office</strong></div><div class="timeline-reason">BLE+motion fusion · 92% confidence</div></div></div>
+            <div class="timeline-row"><div class="timeline-time">18:30</div><div class="timeline-body"><div class="timeline-headline"><span class="badge accent">Energy</span> Battery reserve → <strong>25%</strong></div><div class="timeline-reason">TOU peak begins 19:00 · hold capacity</div></div></div>
+            <div class="timeline-row"><div class="timeline-time">18:24</div><div class="timeline-body"><div class="timeline-headline"><span class="badge accent">Music</span> Master Bed following → <strong>enabled</strong></div><div class="timeline-reason">Oji arrival predicted in 12m</div></div></div>
+            <div class="timeline-row"><div class="timeline-time">18:15</div><div class="timeline-body"><div class="timeline-headline"><span class="badge accent">HVAC</span> Kids → <strong>pre-cool</strong></div><div class="timeline-reason">Ziri bedtime 19:30 · pull 1° below target</div></div></div>
+            <div class="timeline-row"><div class="timeline-time">18:02</div><div class="timeline-body"><div class="timeline-headline"><span class="badge accent">Safety</span> Garage hazard <strong>cleared</strong></div><div class="timeline-reason">door closed 3m after open · auto-dismissed</div></div></div>
+          </div>
+        </div>
+
+        <div class="card col-4">
+          <div class="card-head"><div class="card-title">Automation health</div><span class="badge green">98% / 7d</span></div>
+          <div class="card-row"><span>Runs today</span><span class="tabular">247 / 251 ✓</span></div>
+          <div class="card-row"><span>Failed</span><span class="tabular" style="color:var(--status-red)">4</span></div>
+          <div class="card-row"><span>Last error</span><span class="dim">14:22 · WhatsApp bridge timeout</span></div>
+          <div class="card-row"><span>Avg exec</span><span class="tabular">84 ms</span></div>
+          <div class="card-row"><span>P95 exec</span><span class="tabular">312 ms</span></div>
+          <div class="card-controls">
+            <button class="btn sm">View logs</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<script src="shared.js"></script>
+</body>
+</html>

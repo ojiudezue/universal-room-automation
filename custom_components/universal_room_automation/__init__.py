@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv4.6.8
+# Universal Room Automation vv4.6.9
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -1132,6 +1132,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         # learns from live transitions).
                         hass.data[DOMAIN]["bayesian_predictor"] = bayesian_predictor
 
+                        # v4.6.9: notify buttons that bayesian_predictor is ready
+                        try:
+                            from homeassistant.helpers.dispatcher import async_dispatcher_send
+                            from .domain_coordinators.signals import SIGNAL_BAYESIAN_READY
+                            async_dispatcher_send(hass, SIGNAL_BAYESIAN_READY)
+                        except Exception:
+                            _LOGGER.debug(
+                                "SIGNAL_BAYESIAN_READY dispatch failed (non-fatal)",
+                                exc_info=True,
+                            )
+
                         # v4.6.2 D4: instantiate RegimeDetector now that both
                         # database and bayesian_predictor are available.
                         try:
@@ -1975,6 +1986,20 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     )
                     nm = NotificationManager(hass, cm_config)
                     coordinator_manager.set_notification_manager(nm)
+                    # v4.6.9: register canonical slot (latent bug fix — was never
+                    # set, so NMAcknowledgeButton.available and the three NM
+                    # service handlers always read None from hass.data[DOMAIN]).
+                    hass.data[DOMAIN]["notification_manager"] = nm
+                    # v4.6.9: notify NMAcknowledgeButton that NM is ready
+                    try:
+                        from homeassistant.helpers.dispatcher import async_dispatcher_send
+                        from .domain_coordinators.signals import SIGNAL_NM_READY
+                        async_dispatcher_send(hass, SIGNAL_NM_READY)
+                    except Exception:
+                        _LOGGER.debug(
+                            "SIGNAL_NM_READY dispatch failed (non-fatal)",
+                            exc_info=True,
+                        )
                 else:
                     _LOGGER.info("Notification Manager disabled via config")
 
