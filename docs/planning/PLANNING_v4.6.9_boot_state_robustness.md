@@ -50,12 +50,12 @@ Both inherit `AggregationEntity, SensorEntity` and read from `person_coordinator
 2. `async_added_to_hass`:
    - Call `await self.async_get_last_state()`
    - If `last_state` exists AND `last_state.state` is a real-room value (not `unknown`, `away`, `unavailable`, `None`, `""`):
-     - For `PersonPreviousLocationSensor`: call `person_coordinator.seed_previous_location(person_id, last_state.state)`
-     - For `PersonPreviousSeenSensor`: parse `last_state.state` as ISO timestamp and call `person_coordinator.seed_previous_location_time(person_id, parsed_time)`
-3. **New `PersonCoordinator.seed_previous_location(person_id, location)` method:**
-   - Idempotent — only seeds if `_data[person_id].get("previous_location")` is currently None / "unknown" / "away" / missing (don't clobber live data)
+     - For `PersonPreviousLocationSensor`: call `person_coordinator.seed_previous_location(person_name, last_state.state)`
+     - For `PersonPreviousSeenSensor`: parse `last_state.state` as ISO timestamp and call `person_coordinator.seed_previous_location_time(person_name, parsed_time)`
+3. **New `PersonTrackingCoordinator.seed_previous_location(person_name, location)` method:**
+   - Idempotent — only seeds if `data[person_name].get("previous_location")` is currently None / "unknown" / "away" / missing (don't clobber live data)
    - Logs at `_LOGGER.debug` what was seeded for which person
-4. **New `PersonCoordinator.seed_previous_location_time(person_id, time)` method:**
+4. **New `PersonTrackingCoordinator.seed_previous_location_time(person_name, time)` method:**
    - Same idempotency rule, paired field
 
 ### Acceptance Criteria D1
@@ -101,6 +101,18 @@ Both inherit `AggregationEntity, SensorEntity` and read from `person_coordinator
 - `SIGNAL_DATABASE_READY` is already dispatched (v4.6.5.3) — buttons just need to subscribe
 
 **Why not just poll `available`?** Buttons don't poll by default (no `_attr_should_poll = True` semantics for stateless action entities). The dispatcher pattern is the standard HA solution and is already in use at `sensor.py` precedents (HVACAnomalySensor at line 7378-7392 per BACKLOG.md reference).
+
+#### Discovered during build — NM latent bug (v4.6.9)
+
+During implementation, `__init__.py` was audited for where `notification_manager` is registered in `hass.data[DOMAIN]`. The audit found it was **never registered**: `coordinator_manager.set_notification_manager(nm)` was called at line 1977, but `hass.data[DOMAIN]["notification_manager"] = nm` was missing entirely.
+
+This means all four callers of the `"notification_manager"` key (`handle_acknowledge_notification`, `handle_test_notification`, `handle_test_inbound` in `__init__.py`, and `NMAcknowledgeButton.available` in `button.py`) always read `None` — the NMAcknowledgeButton was permanently unavailable and the three services always logged warnings. This is the root cause of the user-reported "NM Acknowledge button greyed out" symptom; the dispatcher signal was a secondary fix on top of this.
+
+**Fix applied:** One line added immediately after `coordinator_manager.set_notification_manager(nm)`:
+```python
+hass.data[DOMAIN]["notification_manager"] = nm  # v4.6.9: register canonical slot
+```
+`SIGNAL_NM_READY` dispatch follows immediately after.
 
 ### Acceptance Criteria D2
 - **Test:** `test_clear_bayesian_button_available_after_ready_signal` — instantiate button before predictor registered, assert `available == False`; dispatch `SIGNAL_BAYESIAN_READY`; assert `async_schedule_update_ha_state` was called

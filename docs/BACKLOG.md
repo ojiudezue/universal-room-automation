@@ -1,5 +1,16 @@
-# URA Backlog — As of v4.6.8 (May 2026)
+# URA Backlog — As of v4.6.9 (May 2026)
 
+## v4.6.9 — Boot-State Robustness — SHIPPED 2026-05-18
+
+Both user-reported papercuts from v4.6.8 deploy day are resolved:
+
+1. **Previous Location sensors stuck "Unknown" after restart** — `PersonPreviousLocationSensor` and `PersonPreviousSeenSensor` now extend `RestoreEntity`. On `async_added_to_hass`, each reads the last persisted HA state and seeds the coordinator via new idempotent `PersonTrackingCoordinator.seed_previous_location` / `seed_previous_location_time` methods. Persons who were already-away at shutdown retain their last-seen room across restarts.
+
+2. **Four CM-device buttons greyed out at first boot** — `NMAcknowledgeButton`, `ClearBayesianBeliefsButton`, `AcknowledgeRoutineChangesButton`, `AnomalyDiagnosticDumpButton` each got `async_added_to_hass` subscribing to the relevant coordinator-ready signal (`SIGNAL_NM_READY`, `SIGNAL_BAYESIAN_READY`, `SIGNAL_DATABASE_READY`). Two new signals added to `signals.py`; dispatch sites wired in `__init__.py`.
+
+**Bonus fix — NM latent bug:** `hass.data[DOMAIN]["notification_manager"]` was never registered (only `coordinator_manager.set_notification_manager(nm)` was called). This meant `NMAcknowledgeButton.available` always returned `False` AND the three NM service handlers always logged warnings. One-line fix at `__init__.py:1978` closes the root cause.
+
+---
 
 ## Quality Enforcement Hardening — ARCHIVED, build on degradation
 

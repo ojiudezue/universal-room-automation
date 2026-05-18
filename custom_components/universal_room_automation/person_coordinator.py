@@ -1004,6 +1004,69 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
             return None
         return self.data[person_name].get("previous_location_time")
 
+    def seed_previous_location(self, person_name: str, location: str) -> None:
+        """Seed previous_location from RestoreEntity on startup.
+
+        v4.6.9: Idempotent — only writes when the in-memory value is
+        None / "unknown" / "Unknown" / "away" / "Away" / missing.
+        Never clobbers live data populated by the coordinator.
+
+        Args:
+            person_name: Key in self._data (matches existing getter convention).
+            location:    The persisted location string from the last HA state.
+        """
+        if self.data is None:
+            # DataUpdateCoordinator hasn't run its first refresh yet; nothing
+            # to seed into — the first real update will overwrite anyway.
+            _LOGGER.debug(
+                "seed_previous_location: skip %s — coordinator data not yet initialised",
+                person_name,
+            )
+            return
+        self.data.setdefault(person_name, {})
+        current = self.data[person_name].get("previous_location")
+        if current in (None, "unknown", "Unknown", "away", "Away", ""):
+            self.data[person_name]["previous_location"] = location
+            _LOGGER.debug(
+                "seed_previous_location: %s ← %r (was %r)",
+                person_name, location, current,
+            )
+        else:
+            _LOGGER.debug(
+                "seed_previous_location: skip %s — live value %r present",
+                person_name, current,
+            )
+
+    def seed_previous_location_time(self, person_name: str, time: datetime) -> None:
+        """Seed previous_location_time from RestoreEntity on startup.
+
+        v4.6.9: Idempotent — only writes when the in-memory value is None /
+        missing. Never clobbers live data.
+
+        Args:
+            person_name: Key in self._data.
+            time:        Timezone-aware datetime parsed by dt_util.parse_datetime.
+        """
+        if self.data is None:
+            _LOGGER.debug(
+                "seed_previous_location_time: skip %s — coordinator data not yet initialised",
+                person_name,
+            )
+            return
+        self.data.setdefault(person_name, {})
+        current = self.data[person_name].get("previous_location_time")
+        if current is None:
+            self.data[person_name]["previous_location_time"] = time
+            _LOGGER.debug(
+                "seed_previous_location_time: %s ← %s (was None)",
+                person_name, time,
+            )
+        else:
+            _LOGGER.debug(
+                "seed_previous_location_time: skip %s — live value %s present",
+                person_name, current,
+            )
+
     def get_room_occupants(self, room_name: str) -> list[str]:
         """
         Get list of people currently in a room.
