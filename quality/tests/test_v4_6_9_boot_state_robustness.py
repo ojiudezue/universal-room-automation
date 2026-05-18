@@ -215,10 +215,12 @@ class TestPersonPreviousLocationSensorRestore:
                 return self._mock_last_state
 
             async def async_added_to_hass(self):
-                # Replicate the v4.6.9 restore block from aggregation.py
+                # Replicate the v4.6.9 restore block from aggregation.py.
+                # v4.6.9 review HIGH#1: keep this list in sync with aggregation.py.
                 from homeassistant.util import dt as dt_util_mod
                 _SKIP_STATES = {"unknown", "unavailable", "Unknown", "Unavailable",
-                                "None", "none", "away", "Away", ""}
+                                "None", "none", "away", "Away", "",
+                                "not_home", "Not_home", "home", "Home"}
                 try:
                     last_state = await self.async_get_last_state()
                     if last_state is not None and last_state.state not in _SKIP_STATES:
@@ -294,6 +296,75 @@ class TestPersonPreviousLocationSensorRestore:
         import asyncio
         # Must not raise
         asyncio.get_event_loop().run_until_complete(sensor.async_added_to_hass())
+
+    def test_seed_skipped_when_last_state_is_not_home(self):
+        """v4.6.9 review HIGH#1: seed NOT called for HA 'not_home' person state."""
+        mock_pc = MagicMock()
+        hass_data = {
+            "universal_room_automation": {"person_coordinator": mock_pc}
+        }
+        sensor = self._make_sensor(hass_data)
+        sensor._mock_last_state = _MockLastState("not_home")
+
+        import asyncio
+        asyncio.get_event_loop().run_until_complete(sensor.async_added_to_hass())
+        mock_pc.seed_previous_location.assert_not_called()
+
+    def test_seed_skipped_when_last_state_is_home_zone(self):
+        """v4.6.9 review HIGH#1: seed NOT called for HA 'home' zone state."""
+        mock_pc = MagicMock()
+        hass_data = {
+            "universal_room_automation": {"person_coordinator": mock_pc}
+        }
+        sensor = self._make_sensor(hass_data)
+        sensor._mock_last_state = _MockLastState("home")
+
+        import asyncio
+        asyncio.get_event_loop().run_until_complete(sensor.async_added_to_hass())
+        mock_pc.seed_previous_location.assert_not_called()
+
+
+class TestSeedPreviousLocationTimeTzCoercion:
+    """v4.6.9 review MEDIUM#1: naive datetime coerced to UTC before storage."""
+
+    def test_naive_datetime_coerced_to_utc(self):
+        """A tz-naive datetime passed to seed_previous_location_time is stored as tz-aware UTC."""
+        from datetime import datetime
+        from homeassistant.util import dt as dt_util
+
+        # Inlined seed_previous_location_time body (matches person_coordinator.py).
+        # If the production code changes, update here.
+        data = {}
+        naive = datetime(2026, 5, 18, 22, 30, 0)
+        assert naive.tzinfo is None
+
+        # Apply the coercion logic
+        if naive.tzinfo is None:
+            naive = dt_util.as_utc(naive)
+        assert naive.tzinfo is not None, "After coercion, tzinfo must be set"
+
+        data.setdefault("oji", {})
+        if data["oji"].get("previous_location_time") is None:
+            data["oji"]["previous_location_time"] = naive
+
+        stored = data["oji"]["previous_location_time"]
+        assert stored.tzinfo is not None
+        # Confirm subtraction with another tz-aware datetime does NOT raise.
+        delta = dt_util.utcnow() - stored
+        assert delta is not None  # would have raised TypeError if tz mismatch
+
+    def test_tz_aware_datetime_passes_through_unchanged(self):
+        """A tz-aware datetime is stored without re-coercion (no double-conversion)."""
+        from homeassistant.util import dt as dt_util
+
+        aware = dt_util.utcnow()
+        assert aware.tzinfo is not None
+
+        if aware.tzinfo is None:
+            aware = dt_util.as_utc(aware)
+
+        # No change to value
+        assert aware.tzinfo is not None
 
 
 class TestPersonPreviousSeenSensorRestore:

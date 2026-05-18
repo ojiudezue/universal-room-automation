@@ -4361,8 +4361,11 @@ class PersonPreviousLocationSensor(AggregationEntity, SensorEntity, RestoreEntit
         await super().async_added_to_hass()
 
         # v4.6.9: Restore persisted previous_location into coordinator.
+        # v4.6.9 review HIGH#1: include HA person-entity sentinels ("not_home"/"home")
+        # so we don't store them as restored room names.
         _SKIP_STATES = {"unknown", "unavailable", "Unknown", "Unavailable",
-                        "None", "none", "away", "Away", ""}
+                        "None", "none", "away", "Away", "",
+                        "not_home", "Not_home", "home", "Home"}
         try:
             last_state = await self.async_get_last_state()
             if last_state is not None and last_state.state not in _SKIP_STATES:
@@ -4442,8 +4445,11 @@ class PersonPreviousSeenSensor(AggregationEntity, SensorEntity, RestoreEntity):
         await super().async_added_to_hass()
 
         # v4.6.9: Restore persisted previous_location_time into coordinator.
+        # v4.6.9 review HIGH#1: include HA person-entity sentinels ("not_home"/"home")
+        # so we don't store them as restored room names.
         _SKIP_STATES = {"unknown", "unavailable", "Unknown", "Unavailable",
-                        "None", "none", "away", "Away", ""}
+                        "None", "none", "away", "Away", "",
+                        "not_home", "Not_home", "home", "Home"}
         try:
             last_state = await self.async_get_last_state()
             if last_state is not None and last_state.state not in _SKIP_STATES:

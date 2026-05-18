@@ -12,6 +12,20 @@ Both user-reported papercuts from v4.6.8 deploy day are resolved:
 
 ---
 
+## v4.6.10 — Deferred from v4.6.9 review
+
+Tier 1 review of v4.6.9 surfaced three items not blocking deploy. Address in a future polish cycle:
+
+1. **MEDIUM #2 — Inlined seed-method test bodies** (`quality/tests/test_v4_6_9_boot_state_robustness.py` `TestSeedPreviousLocation*`). Tests re-implement the seed logic rather than calling `PersonTrackingCoordinator.seed_previous_location` directly, because the module imports `homeassistant.components.person` which the lightweight test env can't load. **Drift risk:** future edits to the production seed methods (e.g. tightening sentinel set, fixing tz handling) will pass the tests while production regresses. **Fix:** extract seed logic to a leaf module `domain_coordinators/person_seed_helpers.py` (no `homeassistant.components.person` imports), have `PersonTrackingCoordinator` delegate to it, and have tests import the helper directly. ~30 prod LoC + ~40 test LoC. Bug class: proposed **"Test inlines production logic (drift risk)"**.
+
+2. **Module-level `_SKIP_STATES` constant** — currently a local in both `PersonPreviousLocationSensor.async_added_to_hass` and `PersonPreviousSeenSensor.async_added_to_hass` (`aggregation.py`). Promote to a module-level constant to share between both sensors. Cosmetic; ~5 LoC.
+
+3. **Comment typo in `person_coordinator.py:1011-1012`** — references `self._data` but the actual attribute is `self.data`. Cosmetic; 2 LoC.
+
+Promote when next touching either file. Not a standalone cycle unless others queue up.
+
+---
+
 ## Quality Enforcement Hardening — ARCHIVED, build on degradation
 
 **Status:** Shelf-ready, NOT queued. Build only if quality signals degrade per documented trigger criteria.

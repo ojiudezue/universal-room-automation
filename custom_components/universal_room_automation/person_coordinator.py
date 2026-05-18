@@ -1054,6 +1054,10 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
             )
             return
         self.data.setdefault(person_name, {})
+        # v4.6.9 review MEDIUM#1: coerce naive datetime to UTC to avoid
+        # tz-aware/naive subtraction errors downstream (Bug Class #21).
+        if time.tzinfo is None:
+            time = dt_util.as_utc(time)
         current = self.data[person_name].get("previous_location_time")
         if current is None:
             self.data[person_name]["previous_location_time"] = time
