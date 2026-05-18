@@ -136,3 +136,7 @@ Per planning doc acceptance criteria, post-deploy verify:
 c4bb0c6 v4.6.8: EC TOU Rate Reconciliation + Zone/House Cost Surface
 fdb916c v4.6.8 planning: EC TOU rate reconciliation + zone/house cost surface
 ```
+
+---
+
+**Deploy:** 2026-05-18 CDT (post-review pipeline)
