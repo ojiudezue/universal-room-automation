@@ -42,9 +42,10 @@ def _get_effective_rate_kwh(
     eliminated and TOU awareness reaches all cost sensors automatically.
     Never raises — always returns a usable float.
     """
+    from ..const import DOMAIN
+
     # 1. Try Energy Coordinator's live TOU rate.
     try:
-        from ..const import DOMAIN
         manager = hass.data.get(DOMAIN, {}).get("coordinator_manager")
         if manager is not None:
             ec = manager.coordinators.get("energy")
@@ -52,8 +53,8 @@ def _get_effective_rate_kwh(
                 rate = ec.current_effective_rate
                 if rate is not None and isinstance(rate, (int, float)) and rate > 0:
                     return float(rate), "ec_tou"
-    except Exception:  # noqa: BLE001
-        pass  # Fall through to static config
+    except Exception as exc:  # noqa: BLE001
+        _LOGGER.debug("rate helper tier 1 (EC TOU) failed: %s", exc)
 
     # 2. Room-level static override.
     if room_entry is not None:
@@ -64,28 +65,24 @@ def _get_effective_rate_kwh(
             )
             if room_rate is not None:
                 return float(room_rate), "static_config"
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as exc:  # noqa: BLE001
+            _LOGGER.debug("rate helper tier 2 (room override) failed: %s", exc)
 
-    # 3. Global integration entry static rate.
+    # 3. Global integration entry static rate. Read the canonical slot:
+    # __init__.py stores the integration entry directly at hass.data[DOMAIN]["integration"]
+    # (a ConfigEntry — NOT wrapped in a dict). v4.6.8 fix: prior loop assumed
+    # dict-shaped values and never matched, silently falling through to step 4.
     try:
-        from ..const import ENTRY_TYPE_INTEGRATION, CONF_ENTRY_TYPE
-        for entry_data in hass.data.get(DOMAIN, {}).values():  # type: ignore[union-attr]
-            if not isinstance(entry_data, dict):
-                continue
-            cfg_entry = entry_data.get("entry")
-            if cfg_entry is None:
-                continue
-            if cfg_entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_INTEGRATION:
-                global_rate = cfg_entry.options.get(
-                    CONF_ELECTRICITY_RATE,
-                    cfg_entry.data.get(CONF_ELECTRICITY_RATE),
-                )
-                if global_rate is not None:
-                    return float(global_rate), "static_config"
-                break
-    except Exception:  # noqa: BLE001
-        pass
+        integration_entry = hass.data.get(DOMAIN, {}).get("integration")
+        if integration_entry is not None:
+            global_rate = integration_entry.options.get(
+                CONF_ELECTRICITY_RATE,
+                integration_entry.data.get(CONF_ELECTRICITY_RATE),
+            )
+            if global_rate is not None:
+                return float(global_rate), "static_config"
+    except Exception as exc:  # noqa: BLE001
+        _LOGGER.debug("rate helper tier 3 (global integration) failed: %s", exc)
 
     # 4. Hardcoded module-level default (never 0.1).
     return DEFAULT_ELECTRICITY_RATE, "static_config"

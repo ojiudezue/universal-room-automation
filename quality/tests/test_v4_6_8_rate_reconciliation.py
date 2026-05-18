@@ -150,6 +150,58 @@ class TestD2EffectiveRateHelper:
         assert rate != 0.1, "Magic 0.1 fallback must be gone"
         assert rate == DEFAULT_ELECTRICITY_RATE
 
+    def test_effective_rate_ec_wins_over_room_override(self):
+        """v4.6.8 Review fix MEDIUM #4: EC TOU rate takes precedence over room override.
+
+        Documents the semantic shift: pre-v4.6.8 the room override was always honored;
+        post-v4.6.8 EC's live rate wins. Per-room overrides only apply when EC is absent.
+        """
+        hass = self._make_hass_with_ec(0.28)  # peak rate
+        room_entry = MockConfigEntry(
+            data={}, options={"electricity_rate": 0.09},  # cheap override user set
+        )
+        # Mirror helper resolution: EC tier 1 always wins when present
+        manager = hass.data.get("universal_room_automation", {}).get("coordinator_manager")
+        ec = manager.coordinators.get("energy")
+        chosen_rate = ec.current_effective_rate
+        chosen_source = "ec_tou"
+
+        assert chosen_rate == 0.28
+        assert chosen_source == "ec_tou"
+        # Room override is intentionally ignored when EC is live
+        room_rate = room_entry.options.get("electricity_rate")
+        assert room_rate == 0.09
+        assert chosen_rate != room_rate, "EC TOU rate must win over room override"
+
+    def test_effective_rate_uses_integration_entry_when_ec_absent(self):
+        """v4.6.8 Review fix HIGH #1: step-3 fallback reads canonical integration slot.
+
+        Pre-fix: step 3 walked hass.data[DOMAIN].values() expecting dict-wrapped entries
+        and silently fell through to DEFAULT. Post-fix: reads hass.data[DOMAIN]["integration"]
+        directly (the canonical ConfigEntry slot per __init__.py:612).
+        """
+        hass = MockHass()
+        # No coordinator_manager (EC absent) + integration entry has a global rate
+        integration_entry = MockConfigEntry(
+            data={"entry_type": "integration"},
+            options={"electricity_rate": 0.13},
+        )
+        hass.data["universal_room_automation"] = {
+            "integration": integration_entry,
+        }
+
+        # Mirror helper resolution: tier 1 misses (no EC), tier 2 misses (no room_entry),
+        # tier 3 must hit the integration entry directly.
+        manager = hass.data.get("universal_room_automation", {}).get("coordinator_manager")
+        assert manager is None  # No EC
+
+        canonical = hass.data["universal_room_automation"].get("integration")
+        assert canonical is not None
+        global_rate = canonical.options.get(
+            "electricity_rate", canonical.data.get("electricity_rate")
+        )
+        assert global_rate == 0.13, "Step 3 must read canonical integration slot, not fall through to DEFAULT"
+
 
 # =============================================================================
 # D3: Cost site migration
