@@ -1,0 +1,203 @@
+    <section class="tab" data-tab="presence">
+      <header class="page-header">
+        <div>
+          <h1 class="page-title">Presence</h1>
+          <div class="page-subtitle">Fusion: BLE + cameras + motion + radar · 4 people · 3 home</div>
+        </div>
+        <div class="page-actions">
+          <span class="badge green lg">3 / 4 home · 14 events/5min</span>
+        </div>
+      </header>
+
+      <!-- CONTROLS BAR — presence coordinator knobs -->
+      <div class="controls-bar">
+        <div class="knob span-3">
+          <div class="knob-label">Music following <span class="badge green">3 rooms</span></div>
+          <div class="row" style="gap:var(--space-sm)"><label class="toggle"><input type="checkbox" checked><span class="toggle-slot"></span></label><span class="dim" style="font-size:var(--text-sm)">master enable</span></div>
+          <div class="knob-action">
+            <button class="btn sm">Per-room <svg class="icon-sm"><use href="#lc-chevron-down"/></svg></button>
+          </div>
+        </div>
+        <div class="knob span-3">
+          <div class="knob-label">BLE confidence floor</div>
+          <div class="knob-value tabular">75 <span class="dim" style="font-weight:400; font-size:var(--text-sm)">% · -60 dBm</span></div>
+          <div class="knob-action">
+            <input type="range" min="40" max="95" value="75" class="slider">
+          </div>
+          <div class="card-sub">Below this, ignore BLE alone (require fusion)</div>
+        </div>
+        <div class="knob span-2">
+          <div class="knob-label">Transition smoothing</div>
+          <div class="knob-value tabular">8 <span class="dim" style="font-weight:400; font-size:var(--text-sm)">sec</span></div>
+          <div class="knob-action">
+            <input type="range" min="0" max="30" value="8" class="slider">
+          </div>
+          <div class="card-sub">Debounce window for room change</div>
+        </div>
+        <div class="knob span-2">
+          <div class="knob-label">Census mode</div>
+          <div class="pill-group" style="width:100%">
+            <button style="flex:1">Strict</button>
+            <button class="active" style="flex:1">Lenient</button>
+          </div>
+          <div class="card-sub">Lenient keeps known-present 5m</div>
+        </div>
+        <div class="knob span-2">
+          <div class="knob-label">Auto-detect guests</div>
+          <div class="row" style="gap:var(--space-sm)"><label class="toggle"><input type="checkbox"><span class="toggle-slot"></span></label><span class="dim" style="font-size:var(--text-sm)">camera-only</span></div>
+          <div class="card-sub">Unknown faces → guest count</div>
+        </div>
+      </div>
+
+      <!-- Person cards with fusion -->
+      <div class="grid">
+        <div class="card col-3 status-green">
+          <div class="row" style="gap:var(--space-sm)">
+            <div style="width:48px;height:48px;border-radius:var(--radius-full);background:linear-gradient(135deg,#42A5F5,#1E88E5);display:flex;align-items:center;justify-content:center;font-weight:600;font-size:var(--text-lg);color:white">O</div>
+            <div style="flex:1; min-width:0">
+              <div style="font-weight:600; color:var(--text-secondary); font-size:var(--text-sm)">Oji</div>
+              <div style="font-weight:700; font-size:var(--text-lg); color:var(--status-green); line-height:1.1; margin-top:2px">Office <span class="dim" style="font-weight:400; font-size:var(--text-sm)">· 18m</span></div>
+            </div>
+            <span class="dot green live"></span>
+          </div>
+          <div class="card-row"><span>Fusion confidence</span><span><strong class="tabular">92%</strong></span></div>
+          <div class="card-row"><span>Sources</span><span class="dim">BLE + motion + camera</span></div>
+          <div class="card-row"><span>Likely next</span><span><span class="badge accent">Master Bed</span> 22:15</span></div>
+          <div class="card-controls">
+            <button class="btn sm">Override location <svg class="icon-sm"><use href="#lc-chevron-down"/></svg></button>
+          </div>
+        </div>
+        <div class="card col-3 status-green">
+          <div class="row" style="gap:var(--space-sm)">
+            <div style="width:48px;height:48px;border-radius:var(--radius-full);background:linear-gradient(135deg,#EC407A,#C2185B);display:flex;align-items:center;justify-content:center;font-weight:600;font-size:var(--text-lg);color:white">E</div>
+            <div style="flex:1">
+              <div style="font-weight:600; color:var(--text-secondary); font-size:var(--text-sm)">Ezinne</div>
+              <div style="font-weight:700; font-size:var(--text-lg); color:var(--status-green); line-height:1.1; margin-top:2px">Kitchen <span class="dim" style="font-weight:400; font-size:var(--text-sm)">· 6m</span></div>
+            </div>
+            <span class="dot green live"></span>
+          </div>
+          <div class="card-row"><span>Fusion confidence</span><span><strong class="tabular">88%</strong></span></div>
+          <div class="card-row"><span>Sources</span><span class="dim">camera + motion</span></div>
+          <div class="card-row"><span>Likely next</span><span><span class="badge accent">Great Room</span> 19:10</span></div>
+          <div class="card-controls">
+            <button class="btn sm">Override location <svg class="icon-sm"><use href="#lc-chevron-down"/></svg></button>
+          </div>
+        </div>
+        <div class="card col-3 status-yellow">
+          <div class="row" style="gap:var(--space-sm)">
+            <div style="width:48px;height:48px;border-radius:var(--radius-full);background:linear-gradient(135deg,#66BB6A,#388E3C);display:flex;align-items:center;justify-content:center;font-weight:600;font-size:var(--text-lg);color:white">J</div>
+            <div style="flex:1">
+              <div style="font-weight:600; color:var(--text-secondary); font-size:var(--text-sm)">Jaya</div>
+              <div style="font-weight:700; font-size:var(--text-lg); color:var(--status-yellow); line-height:1.1; margin-top:2px">Away <span class="dim" style="font-weight:400; font-size:var(--text-sm)">· since 16:12</span></div>
+            </div>
+            <span class="dot yellow"></span>
+          </div>
+          <div class="card-row"><span>Last seen</span><span><span class="dim">BLE: not_home</span></span></div>
+          <div class="card-row"><span>ETA home</span><span class="tabular">~19:30</span></div>
+          <div class="card-row"><span>Arrival routine</span><span><span class="badge green">armed</span></span></div>
+          <div class="card-controls">
+            <button class="btn sm">Mark home</button>
+            <button class="btn sm">Mark away</button>
+          </div>
+        </div>
+        <div class="card col-3 status-green">
+          <div class="row" style="gap:var(--space-sm)">
+            <div style="width:48px;height:48px;border-radius:var(--radius-full);background:linear-gradient(135deg,#FFA726,#F57C00);display:flex;align-items:center;justify-content:center;font-weight:600;font-size:var(--text-lg);color:white">Z</div>
+            <div style="flex:1">
+              <div style="font-weight:600; color:var(--text-secondary); font-size:var(--text-sm)">Ziri</div>
+              <div style="font-weight:700; font-size:var(--text-lg); color:var(--status-green); line-height:1.1; margin-top:2px">Playroom <span class="dim" style="font-weight:400; font-size:var(--text-sm)">· 24m</span></div>
+            </div>
+            <span class="dot green live"></span>
+          </div>
+          <div class="card-row"><span>Fusion confidence</span><span><strong class="tabular">95%</strong></span></div>
+          <div class="card-row"><span>Sources</span><span class="dim">motion + radar</span></div>
+          <div class="card-row"><span>Bedtime routine</span><span><span class="badge blue">in 43m</span></span></div>
+          <div class="card-controls">
+            <button class="btn sm">Override location <svg class="icon-sm"><use href="#lc-chevron-down"/></svg></button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Aggregates -->
+      <div class="section-head"><h2>House aggregates</h2></div>
+      <div class="grid">
+        <div class="card col-3">
+          <div class="card-title">Property count</div>
+          <div class="card-value tabular">3</div>
+          <div class="card-sub">all inside · 0 in outdoor rooms</div>
+        </div>
+        <div class="card col-3">
+          <div class="card-title">Census today</div>
+          <div class="card-value tabular">3</div>
+          <div class="card-sub">peak: 4 at 14:30 · min: 1 at 10:15</div>
+        </div>
+        <div class="card col-3">
+          <div class="card-title">Transitions today</div>
+          <div class="card-value tabular">47</div>
+          <div class="card-sub"><span class="badge yellow">z=2.4</span> ADVISORY anomaly</div>
+        </div>
+        <div class="card col-3 status-blue">
+          <div class="card-title"><svg class="icon-sm"><use href="#lc-sparkles"/></svg>Routine awareness</div>
+          <div class="card-row"><span>Next state</span><span><strong>home_night</strong> 21:30</span></div>
+          <div class="card-row"><span>Confidence</span><span class="tabular">87%</span></div>
+        </div>
+      </div>
+
+      <!-- Source fusion -->
+      <div class="section-head"><h2>Detection sources</h2></div>
+      <div class="grid">
+        <div class="card col-4">
+          <div class="card-head">
+            <div class="card-title"><svg class="icon-sm"><use href="#lc-radio"/></svg>BLE (Bermuda)</div>
+            <span class="badge green">3 active</span>
+          </div>
+          <div class="card-row"><span>Oji iPhone</span><span><span class="badge green">Office</span> -52 dBm</span></div>
+          <div class="card-row"><span>Ezinne iPhone</span><span><span class="badge green">Kitchen</span> -61 dBm</span></div>
+          <div class="card-row"><span>Ziri Watch</span><span><span class="badge green">Playroom</span> -48 dBm</span></div>
+          <div class="card-row"><span>Jaya iPhone</span><span><span class="dim">not_home · 16:12</span></span></div>
+        </div>
+        <div class="card col-4">
+          <div class="card-head">
+            <div class="card-title"><svg class="icon-sm"><use href="#lc-video"/></svg>Cameras (detection)</div>
+            <span class="badge green">9 streaming</span>
+          </div>
+          <div class="card-row"><span>Kitchen cam</span><span class="dim">person 16s ago</span></div>
+          <div class="card-row"><span>Great Room cam</span><span class="dim">person 2m ago</span></div>
+          <div class="card-row"><span>Front porch</span><span class="dim">vehicle 4m ago</span></div>
+          <div class="card-row"><span>Back deck</span><span class="dim">cat 12m ago</span></div>
+        </div>
+        <div class="card col-4">
+          <div class="card-head">
+            <div class="card-title"><svg class="icon-sm"><use href="#lc-eye"/></svg>Motion + radar</div>
+            <span class="badge green">14 events / 5m</span>
+          </div>
+          <div class="card-row"><span>Office radar</span><span><span class="badge green">person stationary</span></span></div>
+          <div class="card-row"><span>Playroom motion</span><span><span class="badge green">active</span></span></div>
+          <div class="card-row"><span>Kitchen motion</span><span><span class="badge green">active</span></span></div>
+          <div class="card-row"><span>Master Bath</span><span class="dim">idle 38m</span></div>
+        </div>
+      </div>
+
+      <!-- Controls bottom -->
+      <div class="section-head"><h2>Music following</h2></div>
+      <div class="grid">
+        <div class="card col-12">
+          <div class="card-head">
+            <div class="card-title"><svg class="icon-sm"><use href="#lc-music"/></svg>Per-room enablement</div>
+            <span class="badge green">enabled in 3 rooms · 12 transitions today</span>
+          </div>
+          <div class="grid gap-sm" style="grid-template-columns:repeat(auto-fill,minmax(180px,1fr))">
+            <div class="card-row"><span>Master Bed</span><label class="toggle"><input type="checkbox" checked><span class="toggle-slot"></span></label></div>
+            <div class="card-row"><span>Office</span><label class="toggle"><input type="checkbox" checked><span class="toggle-slot"></span></label></div>
+            <div class="card-row"><span>Kitchen</span><label class="toggle"><input type="checkbox" checked><span class="toggle-slot"></span></label></div>
+            <div class="card-row"><span>Great Room</span><label class="toggle"><input type="checkbox"><span class="toggle-slot"></span></label></div>
+            <div class="card-row"><span>Playroom</span><label class="toggle"><input type="checkbox"><span class="toggle-slot"></span></label></div>
+            <div class="card-row"><span>Gym</span><label class="toggle"><input type="checkbox"><span class="toggle-slot"></span></label></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ====================================================
+         TAB: SECURITY
+         ==================================================== -->

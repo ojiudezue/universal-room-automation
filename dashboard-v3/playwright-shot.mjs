@@ -34,30 +34,51 @@ const suffix = isMobile ? 'mobile' : 'desktop';
 const browser = await chromium.launch();
 const ctx = await browser.newContext({ viewport, deviceScaleFactor: 2 });
 
-// React dev server
-const reactPage = await ctx.newPage();
-try {
-  await reactPage.goto(DEV_URL, { waitUntil: 'networkidle', timeout: 15000 });
-  await reactPage.waitForTimeout(500); // settle
-  const reactPath = path.join(OUT_DIR, `react-${suffix}.png`);
-  await reactPage.screenshot({ path: reactPath, fullPage: false });
-  console.log(`React shot: ${reactPath}`);
-} catch (e) {
-  console.error('React shot failed:', e.message);
+// React dev server — capture each tab
+const tabs = ['home', 'house', 'zones', 'rooms', 'energy', 'hvac',
+               'presence', 'security', 'safety', 'diagnostics'];
+const onlyTab = process.argv.find(a => a.startsWith('--tab='))?.slice(6);
+const tabsToShoot = onlyTab ? [onlyTab] : tabs;
+for (const tab of tabsToShoot) {
+  const reactPage = await ctx.newPage();
+  try {
+    await reactPage.goto(DEV_URL, { waitUntil: 'networkidle', timeout: 15000 });
+    if (tab !== 'home') {
+      // Click rail item to switch tabs
+      const selector = `[aria-current="page"], button:has(span:text("${tab.charAt(0).toUpperCase() + tab.slice(1)}"))`;
+      await reactPage.click(`.rail button:has-text("${tab.charAt(0).toUpperCase() + tab.slice(1)}")`).catch(() => {});
+      await reactPage.waitForTimeout(300);
+    } else {
+      await reactPage.waitForTimeout(500);
+    }
+    const reactPath = path.join(OUT_DIR, `react-${tab}-${suffix}.png`);
+    await reactPage.screenshot({ path: reactPath, fullPage: true });
+    console.log(`React ${tab}: ${reactPath}`);
+  } catch (e) {
+    console.error(`React ${tab} shot failed:`, e.message);
+  } finally {
+    await reactPage.close();
+  }
 }
 
-// P6 reference
-const p6Page = await ctx.newPage();
-try {
-  await p6Page.goto(P6_URL, { waitUntil: 'networkidle', timeout: 10000 });
-  // Hide the prototype-only viewport toggle for fair comparison
-  await p6Page.addStyleTag({ content: '.viewport-toggle { display: none !important; }' });
-  await p6Page.waitForTimeout(300);
-  const p6Path = path.join(OUT_DIR, `p6-${suffix}.png`);
-  await p6Page.screenshot({ path: p6Path, fullPage: false });
-  console.log(`P6 shot: ${p6Path}`);
-} catch (e) {
-  console.error('P6 shot failed:', e.message);
+// P6 reference — also capture each tab
+for (const tab of tabsToShoot) {
+  const p6Page = await ctx.newPage();
+  try {
+    await p6Page.goto(P6_URL, { waitUntil: 'networkidle', timeout: 10000 });
+    await p6Page.addStyleTag({ content: '.viewport-toggle { display: none !important; }' });
+    if (tab !== 'home') {
+      await p6Page.click(`.rail button[data-tab-target="${tab}"]`).catch(() => {});
+      await p6Page.waitForTimeout(200);
+    }
+    const p6Path = path.join(OUT_DIR, `p6-${tab}-${suffix}.png`);
+    await p6Page.screenshot({ path: p6Path, fullPage: true });
+    console.log(`P6 ${tab}: ${p6Path}`);
+  } catch (e) {
+    console.error(`P6 ${tab} shot failed:`, e.message);
+  } finally {
+    await p6Page.close();
+  }
 }
 
 await browser.close();
