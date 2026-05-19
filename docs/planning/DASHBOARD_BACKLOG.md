@@ -39,6 +39,25 @@ Per-tab status:
 
 ---
 
+## v5.0.1 — hakit issue #304 mitigation (panel_custom iframe-recreation)
+
+Filed 2026-05-19 from @hakit/core research. Open issue: https://github.com/shannonhochkins/ha-component-kit/issues/304
+
+**Problem:** When the URA Dashboard tab is backgrounded in HA for >5 min and then returned to, HA's `panel_custom` machinery destroys and recreates the iframe. hakit's React tree re-mounts but the WebSocket may be mid-reconnect, leading to `subscribeUsers: failed to fetch users 3` errors. User has to hard-refresh.
+
+**Maintainer status:** can't reproduce on ingress (HAKit add-on path); `panel_custom` path acknowledged as not their test target.
+
+**Mitigation strategy options:**
+1. **Cache the iframe DOM node in the web component.** In `ura-panel-v3.js`, store `this._iframe` and re-attach it in `connectedCallback` rather than creating a fresh one. Survives HA's destroy/recreate of the custom element if the element itself gets reused.
+2. **Detect the failure mode in main.tsx.** On HassConnect mount, if status remains `pending` with `subscribeUsers` error >5s, force `window.location.reload()`. Auto-recovery instead of user-driven hard-refresh.
+3. **Switch to direct mount (no inner iframe).** Render React app directly into the web component (or its shadow root). Removes the iframe entirely → bug doesn't apply. Larger refactor.
+
+**Recommend option 1 first** (smallest blast radius). Option 2 as a safety net. Option 3 if 1+2 don't fully solve.
+
+**Acceptance test:** Open URA Dashboard, switch to another HA tab, leave for 10 minutes, switch back. Dashboard should reconnect within 3 seconds without hard-refresh.
+
+---
+
 ## v5.1+ — Background images variant
 
 User chose v5.0 = P6 (no images). Background variant (P7) ships in v5.1+:
@@ -67,6 +86,41 @@ Sensor audit details: `docs/planning/DASHBOARD_v5_sensor_audit.md`.
 - **ETA home / commute time** — killed by user 2026-05-19. Don't surface even as a stub.
 - **Wake zone button** — UI action only, no sensor needed.
 - **Write queue pending depth** — internal queue state; only surface if ops needs it (not by default).
+
+---
+
+## @hakit/core v6 research findings (2026-05-19)
+
+Documented during dashboard mount preview (v4.6.10.1). Key facts to preserve:
+
+**Auth model:**
+- hakit v6 auto-inherits from `window.top.hassConnection` when same-origin
+- localStorage key is literally `"hassTokens"` with `AuthData` shape (not URA's prior `{type, hassUrl, access_token, token_type}` — that shape gets *rejected*)
+- Three valid auth paths: inherited (best), `hassToken` prop (long-lived), saved tokens (fallback)
+- Set `windowContext: window.top` in HassConnect options when iframed
+
+**Performance:**
+- `useEntity` returns new object identity on every entity update
+- v6 removed `throttle` parameter — no built-in rate-limit
+- For 50+ entity dashboards, plan `React.memo` with custom equality or use `useSubscribeEntity` directly
+
+**Breaking changes from v4 → v6 to handle in D3-D7 live wiring:**
+- `useStore` → `useHass`
+- `HassContext` / `HassContextProps` removed
+- `getConfig`/`getServices`/`getUser`/`getStates` direct methods removed — use store subscriptions
+- ButtonCard/SensorCard: no auto domain prefix, no `unitOfMeasurement` prop
+- TimeCard: explicit `entity` prop required
+- Light entity: `kelvin` → `color_temp_kelvin`
+- framer-motion removed
+- Breakpoints moved from `@hakit/core` to `ThemeProvider` (in `@hakit/components`)
+
+**Entity name typing:**
+- `EntityName = DefaultEntityName | "unknown"` where `DefaultEntityName = "${AllDomains}.${string}"`
+- String literals typecheck against template literal type
+- Variable strings need `as EntityName` cast
+- Optional: `sync-user-types` script in hakit core to generate strict union from live HA — would give autocomplete + strict typing if we add it to URA's build
+
+**Open issue blocking us:** [#304 — HassConnect Suspend/Resume](https://github.com/shannonhochkins/ha-component-kit/issues/304). See v5.0.1 entry above.
 
 ---
 
