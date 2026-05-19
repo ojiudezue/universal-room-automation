@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv4.6.10.1
+# Universal Room Automation vv4.6.12
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v4.6.10.1"
+VERSION: Final = "v4.6.12"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -907,6 +907,9 @@ ZONE_MODE_OCCUPIED: Final = "occupied"
 ZONE_MODE_SLEEP: Final = "sleep"
 ZONE_MODE_UNKNOWN: Final = "unknown"
 ZONE_MODE_AUTO: Final = "auto"
+
+# v4.6.12: Dashboard aggregator sensors — motion event window
+ZONE_MOTION_WINDOW_SECONDS: Final = 300  # 5 minutes (matches dashboard "Activity (5 min)")
 
 # House state override options (all 9 states + auto)
 HOUSE_STATE_OVERRIDE_OPTIONS: Final = [
