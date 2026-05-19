@@ -1,0 +1,258 @@
+    <section class="tab active" data-tab="home">
+      <header class="page-header">
+        <div>
+          <h1 class="page-title">Good evening, Oji</h1>
+          <div class="page-subtitle">Sunday May 17 · 18:47 · Week 20</div>
+        </div>
+        <div class="page-actions">
+          <button class="btn"><svg class="icon"><use href="#lc-bell"/></svg></button>
+          <button class="btn"><svg class="icon"><use href="#lc-settings"/></svg></button>
+        </div>
+      </header>
+
+      <!-- CONTROLS BAR — primary house knobs at the top -->
+      <div class="controls-bar">
+        <div class="knob span-4">
+          <div class="knob-label">House mode <span class="badge accent">URA-suggested: Home</span></div>
+          <div class="pill-group" role="tablist" aria-label="House mode" style="width:100%">
+            <button class="active" style="flex:1">Home</button>
+            <button style="flex:1">Sleep</button>
+            <button style="flex:1">Away</button>
+            <button style="flex:1">Guest</button>
+            <button style="flex:1">Vacation</button>
+          </div>
+        </div>
+        <div class="knob span-2">
+          <div class="knob-label">Anomaly floor <svg class="icon-sm dim"><use href="#lc-alert"/></svg></div>
+          <div class="knob-value">ALERT <span class="badge accent">3</span></div>
+          <div class="knob-action">
+            <input type="range" min="0" max="4" value="3" class="slider">
+          </div>
+        </div>
+        <div class="knob span-2">
+          <div class="knob-label">Battery reserve <svg class="icon-sm dim"><use href="#lc-battery"/></svg></div>
+          <div class="knob-value tabular">25 <span class="dim" style="font-weight:400; font-size:var(--text-sm)">%</span></div>
+          <div class="knob-action">
+            <input type="range" min="10" max="80" value="25" class="slider">
+          </div>
+        </div>
+        <div class="knob span-2">
+          <div class="knob-label">Scenes</div>
+          <div class="knob-action" style="margin-top:0; flex-wrap:wrap">
+            <button class="btn sm">All off</button>
+            <button class="btn sm">Evening</button>
+            <button class="btn sm">Movie</button>
+            <button class="btn sm">Bed</button>
+          </div>
+        </div>
+        <div class="knob span-2">
+          <div class="knob-label">Quick toggles</div>
+          <div class="card-row"><span>Notifications</span><label class="toggle"><input type="checkbox" checked><span class="toggle-slot"></span></label></div>
+          <div class="card-row"><span>Do not disturb</span><label class="toggle"><input type="checkbox"><span class="toggle-slot"></span></label></div>
+        </div>
+      </div>
+
+      <!-- Status bar — at-a-glance house state -->
+      <div class="status-bar">
+        <div class="status-bar-item"><span class="dot green live"></span><strong>home_evening</strong></div>
+        <div class="status-bar-divider"></div>
+        <div class="status-bar-item"><svg class="icon-sm"><use href="#lc-cloud"/></svg><span>64°F</span><span class="dim">partly cloudy</span></div>
+        <div class="status-bar-divider"></div>
+        <div class="status-bar-item"><svg class="icon-sm"><use href="#lc-users"/></svg><strong>3</strong><span>/ 4 home</span></div>
+        <div class="status-bar-divider"></div>
+        <div class="status-bar-item"><svg class="icon-sm"><use href="#lc-zap"/></svg><strong class="tabular">0.8 kW</strong><span class="dim">from grid</span></div>
+        <div class="status-bar-divider"></div>
+        <div class="status-bar-item"><svg class="icon-sm"><use href="#lc-thermo"/></svg><strong class="tabular">73°F</strong><span class="dim">cool · set 72°</span></div>
+        <div class="status-bar-divider"></div>
+        <div class="status-bar-item"><svg class="icon-sm"><use href="#lc-shield"/></svg><span class="dim">disarmed</span></div>
+        <div class="spacer"></div>
+        <div class="status-bar-item"><span class="badge red"><svg class="icon-sm"><use href="#lc-alert"/></svg>2 anomalies</span></div>
+      </div>
+
+      <!-- Hero row — 4 key URA + house cards -->
+      <div class="grid">
+        <!-- URA brain — coordinator summary + next decision -->
+        <div class="card col-6 strong">
+          <div class="card-head">
+            <div class="card-title"><svg class="icon-sm"><use href="#lc-brain"/></svg>URA Coordinators</div>
+            <span class="badge green">5/5 healthy</span>
+          </div>
+          <div class="row" style="gap:var(--space-md)">
+            <div>
+              <div class="card-value tabular">247</div>
+              <div class="card-sub">decisions today</div>
+            </div>
+            <div style="flex:1; border-left:1px solid var(--glass-border); padding-left:var(--space-md)">
+              <div class="card-sub" style="margin-bottom:4px">Next predicted state · <span class="dim">routine awareness</span></div>
+              <div class="row" style="gap:var(--space-xs)">
+                <svg class="icon-sm" style="color:var(--status-blue)"><use href="#lc-moon"/></svg>
+                <strong>home_night</strong>
+                <span class="muted">at 21:30</span>
+                <span class="badge accent">87% conf</span>
+              </div>
+              <div class="card-sub" style="margin-top:var(--space-xs)">
+                Oji → Master Bed at 22:15 · 73% conf
+              </div>
+            </div>
+          </div>
+          <div class="card-row" style="border-top:1px solid var(--glass-border); padding-top:var(--space-sm); margin-top:var(--space-xs)">
+            <span class="dim">Latest decision · 18:42</span>
+            <span>HVAC · Master Suite → <span class="badge yellow">coast</span></span>
+          </div>
+        </div>
+
+        <!-- Energy now -->
+        <div class="card col-3 status-yellow">
+          <div class="card-head">
+            <div class="card-title"><svg class="icon-sm"><use href="#lc-zap"/></svg>Energy now</div>
+            <span class="badge yellow">mid-peak</span>
+          </div>
+          <div class="card-value tabular">0.8<span class="card-unit">kW</span></div>
+          <div class="card-sub">grid import · 28.4 kWh solar today</div>
+          <div class="card-row"><span>Battery</span><span><strong>78%</strong> · discharging</span></div>
+          <div class="card-row"><span>Cost today</span><span class="tabular">$4.82</span></div>
+        </div>
+
+        <!-- Active anomalies -->
+        <div class="card col-3 status-orange">
+          <div class="card-head">
+            <div class="card-title"><svg class="icon-sm"><use href="#lc-alert"/></svg>Anomalies</div>
+            <span class="badge orange">2 active</span>
+          </div>
+          <div class="card-row">
+            <span class="badge red">ALERT</span>
+            <span class="dim">18:31</span>
+          </div>
+          <div class="card-sub">HVAC · master_suite override_freq z=3.2</div>
+          <div class="card-row" style="margin-top:var(--space-xs)">
+            <span class="badge yellow">ADVISORY</span>
+            <span class="dim">17:48</span>
+          </div>
+          <div class="card-sub">Presence · transitions today z=2.4</div>
+        </div>
+      </div>
+
+      <!-- Section: who's home -->
+      <div class="section-head">
+        <h2>Who's home</h2>
+        <button class="btn sm" data-tab-target="presence">View all <svg class="icon-sm"><use href="#lc-chevron-right"/></svg></button>
+      </div>
+      <div class="grid">
+        <div class="card col-3 status-green">
+          <div class="row" style="gap:var(--space-sm)">
+            <div style="width:40px;height:40px;border-radius:var(--radius-full);background:linear-gradient(135deg,#42A5F5,#1E88E5);display:flex;align-items:center;justify-content:center;font-weight:600;color:white">O</div>
+            <div style="flex:1">
+              <div style="font-weight:600; color:var(--text-secondary); font-size:var(--text-sm)">Oji</div>
+              <div style="font-weight:700; font-size:var(--text-lg); color:var(--status-green); line-height:1.1; margin-top:2px">Office</div>
+            </div>
+            <span class="dot green live"></span>
+          </div>
+          <div class="card-sub">BLE + motion · 92% confidence</div>
+          <div class="card-sub">Next likely: Master Bed at 22:15</div>
+        </div>
+        <div class="card col-3 status-green">
+          <div class="row" style="gap:var(--space-sm)">
+            <div style="width:40px;height:40px;border-radius:var(--radius-full);background:linear-gradient(135deg,#EC407A,#C2185B);display:flex;align-items:center;justify-content:center;font-weight:600;color:white">E</div>
+            <div style="flex:1">
+              <div style="font-weight:600; color:var(--text-secondary); font-size:var(--text-sm)">Ezinne</div>
+              <div style="font-weight:700; font-size:var(--text-lg); color:var(--status-green); line-height:1.1; margin-top:2px">Kitchen</div>
+            </div>
+            <span class="dot green live"></span>
+          </div>
+          <div class="card-sub">Camera + motion · 88% confidence</div>
+          <div class="card-sub">Next likely: Great Room at 19:10</div>
+        </div>
+        <div class="card col-3 status-yellow">
+          <div class="row" style="gap:var(--space-sm)">
+            <div style="width:40px;height:40px;border-radius:var(--radius-full);background:linear-gradient(135deg,#66BB6A,#388E3C);display:flex;align-items:center;justify-content:center;font-weight:600;color:white">J</div>
+            <div style="flex:1">
+              <div style="font-weight:600; color:var(--text-secondary); font-size:var(--text-sm)">Jaya</div>
+              <div style="font-weight:700; font-size:var(--text-lg); color:var(--status-yellow); line-height:1.1; margin-top:2px">Away</div>
+            </div>
+            <span class="dot yellow"></span>
+          </div>
+          <div class="card-sub">BLE not_home · since 16:12 (2h 35m)</div>
+          <div class="card-sub">ETA home: ~19:30 · commute</div>
+        </div>
+        <div class="card col-3 status-green">
+          <div class="row" style="gap:var(--space-sm)">
+            <div style="width:40px;height:40px;border-radius:var(--radius-full);background:linear-gradient(135deg,#FFA726,#F57C00);display:flex;align-items:center;justify-content:center;font-weight:600;color:white">Z</div>
+            <div style="flex:1">
+              <div style="font-weight:600; color:var(--text-secondary); font-size:var(--text-sm)">Ziri</div>
+              <div style="font-weight:700; font-size:var(--text-lg); color:var(--status-green); line-height:1.1; margin-top:2px">Playroom</div>
+            </div>
+            <span class="dot green live"></span>
+          </div>
+          <div class="card-sub">Motion + radar · 95% confidence</div>
+          <div class="card-sub">Bedtime routine starts 19:30</div>
+        </div>
+      </div>
+
+      <!-- Section: system quick reads -->
+      <div class="section-head">
+        <h2>System quick reads</h2>
+      </div>
+      <div class="grid">
+        <!-- HVAC summary -->
+        <div class="card col-4">
+          <div class="card-head">
+            <div class="card-title"><svg class="icon-sm"><use href="#lc-thermo"/></svg>HVAC</div>
+            <button class="btn sm" data-tab-target="hvac">Details <svg class="icon-sm"><use href="#lc-chevron-right"/></svg></button>
+          </div>
+          <div class="row" style="gap:var(--space-md); padding:var(--space-xs) 0">
+            <div>
+              <div class="card-value sm tabular">73°<span class="card-unit" style="font-size:var(--text-sm)">avg</span></div>
+              <div class="card-sub">set 72° · cool</div>
+            </div>
+            <div style="flex:1; text-align:right">
+              <div class="card-sub">Comfort</div>
+              <div class="tabular" style="font-size:var(--text-md);font-weight:600;color:var(--status-green)">92%</div>
+            </div>
+          </div>
+          <div class="card-row"><span>Main Living</span><span><span class="badge green">normal</span> 72°</span></div>
+          <div class="card-row"><span>Master Suite</span><span><span class="badge yellow">coast</span> 74°</span></div>
+          <div class="card-row"><span>Kids</span><span><span class="badge blue">pre-cool</span> 71°</span></div>
+        </div>
+
+        <!-- Routine awareness -->
+        <div class="card col-4 status-blue">
+          <div class="card-head">
+            <div class="card-title"><svg class="icon-sm"><use href="#lc-sparkles"/></svg>Routine awareness</div>
+            <span class="badge blue">active</span>
+          </div>
+          <div class="card-row"><span>Next state</span><span><strong>home_night</strong> · 21:30</span></div>
+          <div class="card-row"><span>Confidence</span><span class="tabular">87%</span></div>
+          <div class="card-row"><span>Today's accuracy</span><span class="tabular">94% (32/34)</span></div>
+          <div class="card-row"><span>Floor min severity</span><span><span class="badge accent">ALERT (3)</span></span></div>
+          <div class="card-controls">
+            <button class="btn sm">Floor <svg class="icon-sm"><use href="#lc-chevron-down"/></svg></button>
+            <button class="btn sm">Override</button>
+          </div>
+        </div>
+
+        <!-- Security summary -->
+        <div class="card col-4">
+          <div class="card-head">
+            <div class="card-title"><svg class="icon-sm"><use href="#lc-shield"/></svg>Security</div>
+            <span class="badge">disarmed</span>
+          </div>
+          <div class="card-row"><span>Locks</span><span><strong>4/4</strong> locked</span></div>
+          <div class="card-row"><span>Cameras</span><span><strong>9</strong> recording</span></div>
+          <div class="card-row"><span>Last event</span><span class="dim">Garage opened 17:54</span></div>
+          <div class="card-controls">
+            <div class="pill-group">
+              <button>Off</button>
+              <button>Home</button>
+              <button>Night</button>
+              <button>Away</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- ====================================================
+         TAB: HOUSE — aggregates only, no individual rooms
+         (P2 unique: three level-tabs)
+         ==================================================== -->

@@ -1,0 +1,187 @@
+    <section class="tab" data-tab="security">
+      <header class="page-header">
+        <div>
+          <h1 class="page-title">Security</h1>
+          <div class="page-subtitle">Disarmed · 4/4 locks · 9 cameras streaming</div>
+        </div>
+        <div class="page-actions">
+          <button class="btn"><svg class="icon"><use href="#lc-bell"/></svg> Events</button>
+        </div>
+      </header>
+
+      <!-- CONTROLS BAR — security coordinator knobs -->
+      <div class="controls-bar">
+        <div class="knob span-4">
+          <div class="knob-label">Alarm mode <span class="badge green">URA: disarmed @ home_evening</span></div>
+          <div class="pill-group" style="width:100%">
+            <button class="active" style="flex:1">Off</button>
+            <button style="flex:1">Home</button>
+            <button style="flex:1">Night</button>
+            <button class="" style="flex:1">Away</button>
+          </div>
+          <div class="card-sub">Arm requires 5s hold confirm</div>
+        </div>
+        <div class="knob span-2">
+          <div class="knob-label">Auto-arm on leave</div>
+          <div class="row" style="gap:var(--space-sm)"><label class="toggle"><input type="checkbox" checked><span class="toggle-slot"></span></label><span class="dim" style="font-size:var(--text-sm)">2m delay</span></div>
+          <div class="card-sub">When census drops to 0</div>
+        </div>
+        <div class="knob span-2">
+          <div class="knob-label">Auto-arm at sleep</div>
+          <div class="row" style="gap:var(--space-sm)"><label class="toggle"><input type="checkbox" checked><span class="toggle-slot"></span></label><span class="dim" style="font-size:var(--text-sm)">→ Night</span></div>
+          <div class="card-sub">Triggers on house_state=sleep</div>
+        </div>
+        <div class="knob span-2">
+          <div class="knob-label">Lock-after-motion</div>
+          <div class="knob-value tabular">5 <span class="dim" style="font-weight:400; font-size:var(--text-sm)">min</span></div>
+          <div class="knob-action">
+            <input type="range" min="0" max="30" value="5" class="slider">
+          </div>
+        </div>
+        <div class="knob span-2">
+          <div class="knob-label">Camera privacy</div>
+          <div class="row" style="gap:var(--space-sm)"><label class="toggle"><input type="checkbox"><span class="toggle-slot"></span></label><span class="dim" style="font-size:var(--text-sm)">all off</span></div>
+          <div class="card-sub">Indoor cams · obscure when home_evening</div>
+        </div>
+      </div>
+
+      <!-- Hero KPI -->
+      <div class="grid">
+        <div class="card col-3 status-green">
+          <div class="card-title"><svg class="icon-sm"><use href="#lc-shield"/></svg>Alarm</div>
+          <div class="card-value sm">Disarmed</div>
+          <div class="card-sub">last armed 23:00 yesterday</div>
+        </div>
+        <div class="card col-3 status-green">
+          <div class="card-title"><svg class="icon-sm"><use href="#lc-lock"/></svg>Locks</div>
+          <div class="card-value tabular">4 / 4</div>
+          <div class="card-sub">all locked</div>
+        </div>
+        <div class="card col-3 status-green">
+          <div class="card-title"><svg class="icon-sm"><use href="#lc-video"/></svg>Cameras</div>
+          <div class="card-value tabular">9 / 9</div>
+          <div class="card-sub">streaming · 2 with motion</div>
+        </div>
+        <div class="card col-3 status-yellow">
+          <div class="card-title"><svg class="icon-sm"><use href="#lc-bell"/></svg>Recent events</div>
+          <div class="card-value tabular">3</div>
+          <div class="card-sub">last: garage opened 17:54</div>
+        </div>
+      </div>
+
+      <!-- Cameras grouped -->
+      <div class="section-head"><h2>Cameras · entryways</h2></div>
+      <div class="grid">
+        <div class="card col-4">
+          <div style="aspect-ratio:16/9; background:linear-gradient(135deg,#1a1a2e,#0f0f1f); border-radius:var(--radius-md); display:flex; align-items:center; justify-content:center; color:var(--text-tertiary); margin-bottom:var(--space-xs); position:relative">
+            <svg class="icon-xl"><use href="#lc-video"/></svg>
+            <span class="badge red" style="position:absolute; top:8px; left:8px"><span class="dot red live" style="background:white"></span>REC</span>
+          </div>
+          <div class="row between"><strong>Front Door</strong><span class="badge yellow">motion 2m</span></div>
+          <div class="card-sub">vehicle detected · Jaya commute?</div>
+        </div>
+        <div class="card col-4">
+          <div style="aspect-ratio:16/9; background:linear-gradient(135deg,#1a1a2e,#0f0f1f); border-radius:var(--radius-md); display:flex; align-items:center; justify-content:center; color:var(--text-tertiary); margin-bottom:var(--space-xs); position:relative">
+            <svg class="icon-xl"><use href="#lc-video"/></svg>
+            <span class="badge red" style="position:absolute; top:8px; left:8px"><span class="dot red live" style="background:white"></span>REC</span>
+          </div>
+          <div class="row between"><strong>Garage</strong><span class="badge">idle</span></div>
+          <div class="card-sub">door state: closed · 53m</div>
+        </div>
+        <div class="card col-4">
+          <div style="aspect-ratio:16/9; background:linear-gradient(135deg,#1a1a2e,#0f0f1f); border-radius:var(--radius-md); display:flex; align-items:center; justify-content:center; color:var(--text-tertiary); margin-bottom:var(--space-xs); position:relative">
+            <svg class="icon-xl"><use href="#lc-video"/></svg>
+            <span class="badge red" style="position:absolute; top:8px; left:8px"><span class="dot red live" style="background:white"></span>REC</span>
+          </div>
+          <div class="row between"><strong>Back Door</strong><span class="badge">idle</span></div>
+          <div class="card-sub">no events 4h</div>
+        </div>
+      </div>
+
+      <div class="section-head"><h2>Cameras · outside</h2></div>
+      <div class="grid">
+        <div class="card col-3">
+          <div style="aspect-ratio:16/9; background:linear-gradient(135deg,#1a1a2e,#0f0f1f); border-radius:var(--radius-md); margin-bottom:var(--space-xs); display:flex; align-items:center; justify-content:center"><svg class="icon-lg"><use href="#lc-video"/></svg></div>
+          <div class="row between"><strong>Driveway</strong><span class="dim">streaming</span></div>
+        </div>
+        <div class="card col-3">
+          <div style="aspect-ratio:16/9; background:linear-gradient(135deg,#1a1a2e,#0f0f1f); border-radius:var(--radius-md); margin-bottom:var(--space-xs); display:flex; align-items:center; justify-content:center"><svg class="icon-lg"><use href="#lc-video"/></svg></div>
+          <div class="row between"><strong>Side Yard</strong><span class="dim">streaming</span></div>
+        </div>
+        <div class="card col-3">
+          <div style="aspect-ratio:16/9; background:linear-gradient(135deg,#1a1a2e,#0f0f1f); border-radius:var(--radius-md); margin-bottom:var(--space-xs); display:flex; align-items:center; justify-content:center"><svg class="icon-lg"><use href="#lc-video"/></svg></div>
+          <div class="row between"><strong>Back Deck</strong><span class="badge yellow">cat 12m</span></div>
+        </div>
+        <div class="card col-3">
+          <div style="aspect-ratio:16/9; background:linear-gradient(135deg,#1a1a2e,#0f0f1f); border-radius:var(--radius-md); margin-bottom:var(--space-xs); display:flex; align-items:center; justify-content:center"><svg class="icon-lg"><use href="#lc-video"/></svg></div>
+          <div class="row between"><strong>Pool</strong><span class="dim">streaming</span></div>
+        </div>
+      </div>
+
+      <div class="section-head"><h2>Cameras · inside</h2></div>
+      <div class="grid">
+        <div class="card col-3">
+          <div style="aspect-ratio:16/9; background:linear-gradient(135deg,#1a1a2e,#0f0f1f); border-radius:var(--radius-md); margin-bottom:var(--space-xs); display:flex; align-items:center; justify-content:center"><svg class="icon-lg"><use href="#lc-video"/></svg></div>
+          <div class="row between"><strong>Great Room</strong><span class="badge green">person 2m</span></div>
+        </div>
+        <div class="card col-3">
+          <div style="aspect-ratio:16/9; background:linear-gradient(135deg,#1a1a2e,#0f0f1f); border-radius:var(--radius-md); margin-bottom:var(--space-xs); display:flex; align-items:center; justify-content:center"><svg class="icon-lg"><use href="#lc-video"/></svg></div>
+          <div class="row between"><strong>Kitchen</strong><span class="badge green">person 16s</span></div>
+        </div>
+      </div>
+
+      <!-- Locks + contact sensors -->
+      <div class="section-head"><h2>Locks &amp; entries</h2></div>
+      <div class="grid">
+        <div class="card col-3 status-green">
+          <div class="card-head">
+            <div class="row" style="gap:var(--space-xs)"><svg class="icon-sm" style="color:var(--status-green)"><use href="#lc-lock"/></svg><strong>Front Door</strong></div>
+            <span class="badge green">locked</span>
+          </div>
+          <div class="card-sub">last: 16:38 · auto-lock 5m</div>
+          <div class="card-controls">
+            <button class="btn sm danger" data-confirm>Unlock <svg class="icon-sm"><use href="#lc-chevron-right"/></svg></button>
+          </div>
+        </div>
+        <div class="card col-3 status-green">
+          <div class="card-head">
+            <div class="row" style="gap:var(--space-xs)"><svg class="icon-sm" style="color:var(--status-green)"><use href="#lc-lock"/></svg><strong>Back Door</strong></div>
+            <span class="badge green">locked</span>
+          </div>
+          <div class="card-sub">last: 14:22</div>
+          <div class="card-controls"><button class="btn sm danger" data-confirm>Unlock</button></div>
+        </div>
+        <div class="card col-3 status-green">
+          <div class="card-head">
+            <div class="row" style="gap:var(--space-xs)"><svg class="icon-sm" style="color:var(--status-green)"><use href="#lc-lock"/></svg><strong>Garage</strong></div>
+            <span class="badge green">locked</span>
+          </div>
+          <div class="card-sub">door state: closed</div>
+          <div class="card-controls"><button class="btn sm">Open</button></div>
+        </div>
+        <div class="card col-3 status-green">
+          <div class="card-head">
+            <div class="row" style="gap:var(--space-xs)"><svg class="icon-sm" style="color:var(--status-green)"><use href="#lc-lock"/></svg><strong>Side Gate</strong></div>
+            <span class="badge green">locked</span>
+          </div>
+          <div class="card-sub">last: yesterday</div>
+          <div class="card-controls"><button class="btn sm" disabled>—</button></div>
+        </div>
+      </div>
+
+      <div class="section-head"><h2>Recent entry events</h2></div>
+      <div class="card col-12">
+        <div class="timeline">
+          <div class="timeline-row"><div class="timeline-time">17:54</div><div class="timeline-body"><div class="timeline-headline">Garage door <strong>opened</strong></div><div class="timeline-reason">closed 3m later · auto-dismissed</div></div></div>
+          <div class="timeline-row"><div class="timeline-time">16:38</div><div class="timeline-body"><div class="timeline-headline">Front Door <strong>locked</strong></div><div class="timeline-reason">Oji · keypad</div></div></div>
+          <div class="timeline-row"><div class="timeline-time">14:22</div><div class="timeline-body"><div class="timeline-headline">Back Door <strong>locked</strong></div><div class="timeline-reason">auto · 5m after motion stopped</div></div></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ====================================================
+         TAB: SAFETY — fed by Safety coordinator
+         Hazards (fire/CO/smoke/leak/freeze/garage-open),
+         detectors, auto-shutoff, emergency contacts.
+         Distinct from Security (alarm/locks/cameras).
+         ==================================================== -->

@@ -1,0 +1,224 @@
+    <section class="tab" data-tab="energy">
+      <header class="page-header">
+        <div>
+          <h1 class="page-title">Energy</h1>
+          <div class="page-subtitle">TOU · mid-peak · peak begins 19:00 · 13 min</div>
+        </div>
+        <div class="page-actions">
+          <span class="badge yellow lg">mid-peak · $0.18/kWh</span>
+        </div>
+      </header>
+
+      <!-- CONTROLS BAR — energy coordinator knobs -->
+      <div class="controls-bar">
+        <div class="knob span-3">
+          <div class="knob-label">Battery reserve <span class="badge accent">URA: 25%</span></div>
+          <div class="knob-value tabular">25 <span class="dim" style="font-weight:400; font-size:var(--text-sm)">% · 12.5 kWh</span></div>
+          <div class="knob-action">
+            <input type="range" min="10" max="80" value="25" class="slider">
+          </div>
+        </div>
+        <div class="knob span-2">
+          <div class="knob-label">Grid import cap</div>
+          <div class="knob-value tabular">8.0 <span class="dim" style="font-weight:400; font-size:var(--text-sm)">kW</span></div>
+          <div class="knob-action">
+            <input type="range" min="2" max="15" value="8" class="slider">
+          </div>
+        </div>
+        <div class="knob span-2">
+          <div class="knob-label">EV charge max</div>
+          <div class="knob-value tabular">7.2 <span class="dim" style="font-weight:400; font-size:var(--text-sm)">kW</span></div>
+          <div class="knob-action">
+            <input type="range" min="1" max="12" value="7" class="slider">
+          </div>
+        </div>
+        <div class="knob span-3">
+          <div class="knob-label">Battery mode</div>
+          <div class="pill-group" style="width:100%">
+            <button class="active" style="flex:1">Self-consumption</button>
+            <button style="flex:1">Storm reserve</button>
+            <button style="flex:1">TOU shift</button>
+          </div>
+          <div class="card-sub">Locked per codicil · cannot use grid_charge</div>
+        </div>
+        <div class="knob span-2">
+          <div class="knob-label">Manual</div>
+          <div class="knob-action" style="margin-top:0; flex-direction:column; align-items:stretch">
+            <button class="btn danger">Shed loads now</button>
+            <button class="btn sm">Resume EV</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Hero KPI row -->
+      <div class="grid">
+        <div class="card col-3 status-yellow">
+          <div class="card-title"><svg class="icon-sm"><use href="#lc-sun"/></svg>Solar now</div>
+          <div class="card-value tabular">0.4<span class="card-unit">kW</span></div>
+          <div class="card-sub">28.4 kWh today · forecast 32.1</div>
+        </div>
+        <div class="card col-3 status-green">
+          <div class="card-title"><svg class="icon-sm"><use href="#lc-battery"/></svg>Battery</div>
+          <div class="card-value tabular">78<span class="card-unit">%</span></div>
+          <div class="card-sub">discharging 1.2 kW · reserve 25%</div>
+          <div class="gauge-track"><div class="gauge-fill" style="width:78%"></div></div>
+        </div>
+        <div class="card col-3 status-orange">
+          <div class="card-title"><svg class="icon-sm"><use href="#lc-zap"/></svg>Grid</div>
+          <div class="card-value tabular">+0.8<span class="card-unit">kW</span></div>
+          <div class="card-sub">importing · 5.4 kWh today</div>
+        </div>
+        <div class="card col-3">
+          <div class="card-title">Cost today</div>
+          <div class="card-value tabular">$4.82</div>
+          <div class="card-sub">predicted bill: <strong class="tabular">$147</strong> (May)</div>
+        </div>
+      </div>
+
+      <!-- Energy flow + Solcast chart -->
+      <div class="grid" style="margin-top:var(--space-lg)">
+        <div class="card col-7">
+          <div class="card-head">
+            <div class="card-title"><svg class="icon-sm"><use href="#lc-activity"/></svg>Solar — Solcast vs actual (today)</div>
+            <span class="dim">refreshed 18:45</span>
+          </div>
+          <svg viewBox="0 0 600 180" class="sparkline" style="height:180px" preserveAspectRatio="none">
+            <defs>
+              <linearGradient id="solar-grad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#FFCA28" stop-opacity="0.4"/>
+                <stop offset="100%" stop-color="#FFCA28" stop-opacity="0"/>
+              </linearGradient>
+            </defs>
+            <!-- grid lines -->
+            <line x1="0" y1="45" x2="600" y2="45" stroke="rgba(255,255,255,0.05)"/>
+            <line x1="0" y1="90" x2="600" y2="90" stroke="rgba(255,255,255,0.05)"/>
+            <line x1="0" y1="135" x2="600" y2="135" stroke="rgba(255,255,255,0.05)"/>
+            <!-- forecast (dashed) -->
+            <path d="M0 170 Q60 168 100 150 T200 60 T300 30 T400 50 T500 130 T600 170" fill="none" stroke="rgba(130,177,255,0.5)" stroke-width="1.5" stroke-dasharray="3,3"/>
+            <!-- actual (solid + gradient fill) -->
+            <path d="M0 175 Q60 172 100 155 T200 65 T300 38 T380 55 T420 75 L420 75 L420 175 Z" fill="url(#solar-grad)"/>
+            <path d="M0 175 Q60 172 100 155 T200 65 T300 38 T380 55 T420 75" fill="none" stroke="#FFCA28" stroke-width="2"/>
+            <!-- now marker -->
+            <line x1="430" y1="0" x2="430" y2="180" stroke="rgba(255,255,255,0.15)" stroke-dasharray="2,2"/>
+            <circle cx="430" cy="120" r="3" fill="#FFCA28"/>
+            <text x="435" y="115" fill="rgba(255,255,255,0.6)" font-size="10">now · 0.4 kW</text>
+            <!-- x-axis -->
+            <text x="0" y="178" fill="rgba(255,255,255,0.4)" font-size="9">06</text>
+            <text x="150" y="178" fill="rgba(255,255,255,0.4)" font-size="9">10</text>
+            <text x="300" y="178" fill="rgba(255,255,255,0.4)" font-size="9">14</text>
+            <text x="450" y="178" fill="rgba(255,255,255,0.4)" font-size="9">18</text>
+            <text x="585" y="178" fill="rgba(255,255,255,0.4)" font-size="9">22</text>
+          </svg>
+          <div class="row" style="gap:var(--space-md); font-size:var(--text-xs); color:var(--text-tertiary)">
+            <span><span class="dot yellow" style="display:inline-block"></span> actual</span>
+            <span><span class="dot blue" style="display:inline-block"></span> Solcast forecast</span>
+            <span class="spacer"></span>
+            <span>peak today: <strong class="tabular">5.2 kW</strong> @ 12:48</span>
+          </div>
+        </div>
+
+        <div class="card col-5">
+          <div class="card-head">
+            <div class="card-title"><svg class="icon-sm"><use href="#lc-zap"/></svg>Energy flow (live)</div>
+            <span class="badge green">streaming</span>
+          </div>
+          <svg viewBox="0 0 320 220" style="width:100%; height:220px">
+            <!-- Solar -->
+            <g transform="translate(20,20)">
+              <rect x="0" y="0" width="80" height="50" rx="10" fill="rgba(255,202,40,0.12)" stroke="#FFCA28" stroke-width="1"/>
+              <text x="40" y="22" text-anchor="middle" fill="#FFCA28" font-size="11" font-weight="600">Solar</text>
+              <text x="40" y="40" text-anchor="middle" fill="#FFCA28" font-size="14" font-weight="500">0.4 kW</text>
+            </g>
+            <!-- Battery -->
+            <g transform="translate(20,150)">
+              <rect x="0" y="0" width="80" height="50" rx="10" fill="rgba(102,187,106,0.12)" stroke="#66BB6A" stroke-width="1"/>
+              <text x="40" y="22" text-anchor="middle" fill="#66BB6A" font-size="11" font-weight="600">Battery</text>
+              <text x="40" y="40" text-anchor="middle" fill="#66BB6A" font-size="14" font-weight="500">78% · -1.2</text>
+            </g>
+            <!-- Grid -->
+            <g transform="translate(220,150)">
+              <rect x="0" y="0" width="80" height="50" rx="10" fill="rgba(255,167,38,0.12)" stroke="#FFA726" stroke-width="1"/>
+              <text x="40" y="22" text-anchor="middle" fill="#FFA726" font-size="11" font-weight="600">Grid</text>
+              <text x="40" y="40" text-anchor="middle" fill="#FFA726" font-size="14" font-weight="500">+0.8 kW</text>
+            </g>
+            <!-- House -->
+            <g transform="translate(220,20)">
+              <rect x="0" y="0" width="80" height="50" rx="10" fill="rgba(130,177,255,0.12)" stroke="#82B1FF" stroke-width="1"/>
+              <text x="40" y="22" text-anchor="middle" fill="#82B1FF" font-size="11" font-weight="600">House</text>
+              <text x="40" y="40" text-anchor="middle" fill="#82B1FF" font-size="14" font-weight="500">2.4 kW</text>
+            </g>
+            <!-- arrows -->
+            <path d="M100 45 L220 45" stroke="#FFCA28" stroke-width="2" marker-end="url(#arrow-y)"/>
+            <path d="M100 175 L220 50" stroke="#66BB6A" stroke-width="2" marker-end="url(#arrow-g)"/>
+            <path d="M260 150 L260 70" stroke="#FFA726" stroke-width="2" marker-end="url(#arrow-o)"/>
+            <defs>
+              <marker id="arrow-y" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><polygon points="0 0, 6 4, 0 8" fill="#FFCA28"/></marker>
+              <marker id="arrow-g" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><polygon points="0 0, 6 4, 0 8" fill="#66BB6A"/></marker>
+              <marker id="arrow-o" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto"><polygon points="0 0, 6 4, 0 8" fill="#FFA726"/></marker>
+            </defs>
+          </svg>
+          <div class="card-sub" style="text-align:center">Net to house: solar 0.4 + battery 1.2 + grid 0.8 = 2.4 kW</div>
+        </div>
+      </div>
+
+      <!-- URA brain: energy decisions + tariff timeline -->
+      <div class="grid" style="margin-top:var(--space-lg)">
+        <div class="card col-8">
+          <div class="card-head">
+            <div class="card-title"><svg class="icon-sm"><use href="#lc-brain"/></svg>URA · recent energy decisions</div>
+          </div>
+          <div class="timeline">
+            <div class="timeline-row">
+              <div class="timeline-time">18:30</div>
+              <div class="timeline-body">
+                <div class="timeline-headline"><span class="badge accent">Battery</span> Reserve raised to <strong>25%</strong></div>
+                <div class="timeline-reason">TOU peak begins 19:00 · hold capacity for peak shave</div>
+              </div>
+              <button class="btn sm icon"><svg class="icon-sm"><use href="#lc-more"/></svg></button>
+            </div>
+            <div class="timeline-row">
+              <div class="timeline-time">17:55</div>
+              <div class="timeline-body">
+                <div class="timeline-headline"><span class="badge accent">HVAC</span> Pre-cool authorized · Kids zone</div>
+                <div class="timeline-reason">Solar surplus 2.1 kW · use before peak</div>
+              </div>
+              <button class="btn sm icon"><svg class="icon-sm"><use href="#lc-more"/></svg></button>
+            </div>
+            <div class="timeline-row">
+              <div class="timeline-time">15:42</div>
+              <div class="timeline-body">
+                <div class="timeline-headline"><span class="badge accent">EV</span> Charge paused</div>
+                <div class="timeline-reason">Grid import threshold exceeded · resume at off-peak</div>
+              </div>
+              <button class="btn sm icon"><svg class="icon-sm"><use href="#lc-more"/></svg></button>
+            </div>
+          </div>
+        </div>
+
+        <div class="card col-4">
+          <div class="card-title">Today's tariff</div>
+          <div class="row" style="gap:0; height:24px; margin:var(--space-sm) 0; border-radius:var(--radius-sm); overflow:hidden">
+            <div style="flex:6; background:rgba(102,187,106,0.5)" title="off-peak"></div>
+            <div style="flex:6; background:rgba(255,202,40,0.5)" title="mid"></div>
+            <div style="flex:5; background:rgba(239,83,80,0.6)" title="peak"></div>
+            <div style="flex:3; background:rgba(255,202,40,0.5)" title="mid"></div>
+            <div style="flex:4; background:rgba(102,187,106,0.5)" title="off-peak"></div>
+          </div>
+          <div class="card-row"><span>Off-peak</span><span class="tabular">12h · $0.08</span></div>
+          <div class="card-row"><span>Mid-peak <span class="badge yellow">now</span></span><span class="tabular">9h · $0.18</span></div>
+          <div class="card-row"><span>Peak</span><span class="tabular">3h · $0.36</span></div>
+        </div>
+      </div>
+
+      <!-- Load detail (status only — controls are at top) -->
+      <div class="section-head"><h2>Load status</h2></div>
+      <div class="grid">
+        <div class="card col-4"><div class="card-row"><span>EV charging</span><span class="badge orange">paused · TOU</span></div><div class="card-row"><span>Pool pump</span><span class="badge green">off</span></div><div class="card-row"><span>Hot tub</span><span class="badge">scheduled 02:00</span></div><div class="card-row"><span>Dryer</span><span class="dim">finished 17:12</span></div></div>
+        <div class="card col-4"><div class="card-head"><div class="card-title">Generator</div><span class="badge">standby</span></div><div class="card-row"><span>Fuel</span><span class="tabular">82%</span></div><div class="card-row"><span>Last run</span><span class="dim">12d ago · test</span></div></div>
+        <div class="card col-4"><div class="card-head"><div class="card-title">Yesterday vs today</div><span class="dim tabular">+12%</span></div><div class="card-row"><span>Solar (kWh)</span><span class="tabular">28.4 vs 25.3</span></div><div class="card-row"><span>Cost ($)</span><span class="tabular">4.82 vs 4.31</span></div></div>
+      </div>
+    </section>
+
+    <!-- ====================================================
+         TAB: HVAC
+         ==================================================== -->

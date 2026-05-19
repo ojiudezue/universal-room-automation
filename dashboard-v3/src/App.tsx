@@ -1,53 +1,23 @@
 /**
- * URA v3 Dashboard -- App root.
- * Tab-based SPA with lazy mounting and persistent state.
+ * URA Dashboard v5.0 — App root (P6 light Navet-styled).
+ * 10 tabs across Overview / Systems / URA groups per dashboard v4 fulcrum P2.
+ * Tab content for v5.0 D1 is stub placeholders; live wiring per D3-D7.
  */
-import { useState, useRef } from "react";
+import { useState } from "react";
 import { Shell } from "./components/layout/Shell";
-import { TabBar, type TabId } from "./components/layout/TabBar";
-import { OverviewTab } from "./components/tabs/OverviewTab";
-import { PresenceTab } from "./components/tabs/PresenceTab";
-import { RoomsTab } from "./components/tabs/RoomsTab";
-import { EnergyTab } from "./components/tabs/EnergyTab";
-import { HVACTab } from "./components/tabs/HVACTab";
-import { SecurityTab } from "./components/tabs/SecurityTab";
-import { DiagnosticsTab } from "./components/tabs/DiagnosticsTab";
-
-const TAB_COMPONENTS: Record<TabId, React.FC> = {
-  overview: OverviewTab,
-  presence: PresenceTab,
-  rooms: RoomsTab,
-  energy: EnergyTab,
-  hvac: HVACTab,
-  security: SecurityTab,
-  diagnostics: DiagnosticsTab,
-};
+import { TabShell, LucideSprite } from "./components/tabs-shell/TabShell";
+import type { TabId } from "./components/layout/Rail";
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<TabId>("overview");
-  // Track visited tabs for lazy mounting (keep alive once mounted)
-  const visited = useRef<Set<TabId>>(new Set(["overview"]));
-
-  const switchTab = (id: TabId) => {
-    visited.current.add(id);
-    setActiveTab(id);
-  };
+  const [active, setActive] = useState<TabId>("home");
 
   return (
-    <Shell tabBar={<TabBar active={activeTab} onChange={switchTab} />}>
-      {(Object.keys(TAB_COMPONENTS) as TabId[]).map((tabId) => {
-        if (!visited.current.has(tabId)) return null;
-        const Component = TAB_COMPONENTS[tabId];
-        return (
-          <div
-            key={tabId}
-            style={{ display: tabId === activeTab ? "block" : "none" }}
-            className="animate-fade-in"
-          >
-            <Component />
-          </div>
-        );
-      })}
-    </Shell>
+    <>
+      {/* Lucide SVG sprite mounted once at app root */}
+      <LucideSprite />
+      <Shell active={active} onChange={setActive}>
+        <TabShell active={active} />
+      </Shell>
+    </>
   );
 }

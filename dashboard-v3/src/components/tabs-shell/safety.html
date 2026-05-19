@@ -1,0 +1,166 @@
+    <section class="tab" data-tab="safety">
+      <header class="page-header">
+        <div>
+          <h1 class="page-title">Safety</h1>
+          <div class="page-subtitle">0 active hazards · 12 detectors OK · auto-shutoff armed · 3 events today (auto-dismissed)</div>
+        </div>
+        <div class="page-actions">
+          <span class="badge green lg"><svg class="icon-sm"><use href="#lc-shield"/></svg>guarding</span>
+        </div>
+      </header>
+
+      <!-- CONTROLS BAR — Safety coordinator knobs -->
+      <div class="controls-bar">
+        <div class="knob span-3">
+          <div class="knob-label">Safety routines <span class="badge green">all armed</span></div>
+          <div class="pill-group" style="width:100%">
+            <button class="active" style="flex:1">All armed</button>
+            <button style="flex:1">Day only</button>
+            <button style="flex:1">Disabled</button>
+          </div>
+          <div class="card-sub">Auto-respond to fire / leak / freeze</div>
+        </div>
+        <div class="knob span-2">
+          <div class="knob-label">Auto water shutoff <span class="badge accent">URA</span></div>
+          <div class="row" style="gap:var(--space-sm)"><label class="toggle"><input type="checkbox" checked><span class="toggle-slot"></span></label><span class="dim" style="font-size:var(--text-sm)">on leak detected</span></div>
+          <div class="card-sub">Triggers main valve close</div>
+        </div>
+        <div class="knob span-2">
+          <div class="knob-label">Auto-lock on fire</div>
+          <div class="row" style="gap:var(--space-sm)"><label class="toggle"><input type="checkbox" checked><span class="toggle-slot"></span></label><span class="dim" style="font-size:var(--text-sm)">unlocks all doors</span></div>
+          <div class="card-sub">Egress for occupants</div>
+        </div>
+        <div class="knob span-2">
+          <div class="knob-label">Freeze threshold</div>
+          <div class="knob-value tabular">38° <span class="dim" style="font-weight:400; font-size:var(--text-sm)">F</span></div>
+          <div class="knob-action"><input type="range" min="30" max="50" value="38" class="slider"></div>
+          <div class="card-sub">Indoor &lt; this = WARN</div>
+        </div>
+        <div class="knob span-3">
+          <div class="knob-label">Hazard severity floor <span class="badge accent">3</span></div>
+          <div class="knob-value">WARNING <span class="badge" style="font-size:var(--text-xs)">always notify ≥</span></div>
+          <div class="knob-action"><input type="range" min="0" max="4" value="2" class="slider"></div>
+          <div class="card-sub">Anomaly emit threshold for Safety</div>
+        </div>
+      </div>
+
+      <!-- Hero KPI -->
+      <div class="grid">
+        <div class="card col-3 status-green">
+          <div class="card-title"><svg class="icon-sm"><use href="#lc-shield"/></svg>Active hazards</div>
+          <div class="card-value tabular">0</div>
+          <div class="card-sub">last 24h: 3 events, all auto-resolved</div>
+        </div>
+        <div class="card col-3 status-green">
+          <div class="card-title"><svg class="icon-sm"><use href="#lc-check"/></svg>Detectors</div>
+          <div class="card-value tabular">12 / 12</div>
+          <div class="card-sub">smoke 4 · CO 3 · leak 3 · freeze 2</div>
+        </div>
+        <div class="card col-3 status-green">
+          <div class="card-title"><svg class="icon-sm"><use href="#lc-bell"/></svg>Events today</div>
+          <div class="card-value tabular">3</div>
+          <div class="card-sub">all auto-dismissed in &lt; 5m</div>
+        </div>
+        <div class="card col-3 strong">
+          <div class="card-title"><svg class="icon-sm"><use href="#lc-brain"/></svg>URA intent</div>
+          <div class="card-sub" style="margin-top:var(--space-xs); font-size:var(--text-sm); color:var(--text-primary)"><span class="badge green">guarding</span> · last review 18:42</div>
+          <div class="card-sub">No anomalies in detector frequency. All 12 sensors responsive.</div>
+        </div>
+      </div>
+
+      <!-- Detectors by type -->
+      <div class="section-head"><h2>Smoke &amp; CO</h2></div>
+      <div class="grid">
+        <div class="card col-3 status-green"><div class="card-head"><div class="card-title"><svg class="icon-sm"><use href="#lc-alert"/></svg>Kitchen</div><span class="badge green">clear</span></div><div class="card-row"><span>Smoke</span><span class="tabular">0 ppm</span></div><div class="card-row"><span>CO</span><span class="tabular">2 ppm</span></div><div class="card-row"><span>Battery</span><span class="tabular">92%</span></div><div class="card-row"><span>Tested</span><span class="dim">14d ago</span></div></div>
+        <div class="card col-3 status-green"><div class="card-head"><div class="card-title"><svg class="icon-sm"><use href="#lc-alert"/></svg>Hallway</div><span class="badge green">clear</span></div><div class="card-row"><span>Smoke</span><span class="tabular">0 ppm</span></div><div class="card-row"><span>CO</span><span class="tabular">1 ppm</span></div><div class="card-row"><span>Battery</span><span class="tabular">88%</span></div><div class="card-row"><span>Tested</span><span class="dim">14d ago</span></div></div>
+        <div class="card col-3 status-green"><div class="card-head"><div class="card-title"><svg class="icon-sm"><use href="#lc-alert"/></svg>Master Bed</div><span class="badge green">clear</span></div><div class="card-row"><span>Smoke</span><span class="tabular">0 ppm</span></div><div class="card-row"><span>CO</span><span class="tabular">2 ppm</span></div><div class="card-row"><span>Battery</span><span class="tabular">95%</span></div><div class="card-row"><span>Tested</span><span class="dim">14d ago</span></div></div>
+        <div class="card col-3 status-yellow"><div class="card-head"><div class="card-title"><svg class="icon-sm"><use href="#lc-alert"/></svg>Garage</div><span class="badge yellow">low battery</span></div><div class="card-row"><span>Smoke</span><span class="tabular">0 ppm</span></div><div class="card-row"><span>CO</span><span class="tabular">4 ppm</span></div><div class="card-row"><span>Battery</span><span class="tabular" style="color:var(--status-yellow)">18%</span></div><div class="card-row"><span>Action</span><span class="dim">replace soon</span></div></div>
+      </div>
+
+      <div class="section-head"><h2>Water leak</h2></div>
+      <div class="grid">
+        <div class="card col-4 status-green"><div class="card-head"><div class="card-title"><svg class="icon-sm"><use href="#lc-alert"/></svg>Kitchen sink</div><span class="badge green">dry</span></div><div class="card-row"><span>Last detected</span><span class="dim">never</span></div><div class="card-row"><span>Battery</span><span class="tabular">87%</span></div></div>
+        <div class="card col-4 status-green"><div class="card-head"><div class="card-title"><svg class="icon-sm"><use href="#lc-alert"/></svg>Water heater</div><span class="badge green">dry</span></div><div class="card-row"><span>Last detected</span><span class="dim">never</span></div><div class="card-row"><span>Battery</span><span class="tabular">91%</span></div></div>
+        <div class="card col-4 status-green"><div class="card-head"><div class="card-title"><svg class="icon-sm"><use href="#lc-alert"/></svg>Laundry</div><span class="badge green">dry</span></div><div class="card-row"><span>Last detected</span><span class="dim">2d ago (1m, dismissed)</span></div><div class="card-row"><span>Battery</span><span class="tabular">93%</span></div></div>
+      </div>
+
+      <div class="section-head"><h2>Freeze &amp; garage</h2></div>
+      <div class="grid">
+        <div class="card col-3 status-green"><div class="card-head"><div class="card-title"><svg class="icon-sm"><use href="#lc-thermo"/></svg>Garage temp</div><span class="badge green">safe</span></div><div class="card-value sm tabular">62°</div><div class="card-sub">threshold: 38° · 24° margin</div></div>
+        <div class="card col-3 status-green"><div class="card-head"><div class="card-title"><svg class="icon-sm"><use href="#lc-thermo"/></svg>Attic temp</div><span class="badge green">safe</span></div><div class="card-value sm tabular">84°</div><div class="card-sub">no freeze concern · summer</div></div>
+        <div class="card col-3 status-green"><div class="card-head"><div class="card-title"><svg class="icon-sm"><use href="#lc-lock"/></svg>Garage door</div><span class="badge green">closed</span></div><div class="card-value sm">Closed</div><div class="card-sub">last open: 17:54 · 3m</div></div>
+        <div class="card col-3 status-green"><div class="card-head"><div class="card-title"><svg class="icon-sm"><use href="#lc-lock"/></svg>Side gate</div><span class="badge green">closed</span></div><div class="card-value sm">Closed</div><div class="card-sub">last open: yesterday</div></div>
+      </div>
+
+      <!-- Recent safety events timeline -->
+      <div class="section-head"><h2>Recent safety events</h2></div>
+      <div class="card col-12">
+        <div class="timeline">
+          <div class="timeline-row">
+            <div class="timeline-time">17:54</div>
+            <div class="timeline-body">
+              <div class="timeline-headline"><span class="badge green">resolved</span> Garage door opened</div>
+              <div class="timeline-reason">closed 3m later · auto-dismissed · Oji vehicle event</div>
+            </div>
+            <button class="btn sm icon"><svg class="icon-sm"><use href="#lc-more"/></svg></button>
+          </div>
+          <div class="timeline-row">
+            <div class="timeline-time">12:18</div>
+            <div class="timeline-body">
+              <div class="timeline-headline"><span class="badge green">resolved</span> CO spike · Kitchen</div>
+              <div class="timeline-reason">peak 8 ppm during cooking · cleared in 90s · below alert (35 ppm)</div>
+            </div>
+            <button class="btn sm icon"><svg class="icon-sm"><use href="#lc-more"/></svg></button>
+          </div>
+          <div class="timeline-row">
+            <div class="timeline-time">08:42</div>
+            <div class="timeline-body">
+              <div class="timeline-headline"><span class="badge green">resolved</span> Smoke detector test · Master Bed</div>
+              <div class="timeline-reason">scheduled monthly self-test · all sensors responsive</div>
+            </div>
+            <button class="btn sm icon"><svg class="icon-sm"><use href="#lc-more"/></svg></button>
+          </div>
+          <div class="timeline-row">
+            <div class="timeline-time" style="color:var(--text-tertiary)">2d ago</div>
+            <div class="timeline-body">
+              <div class="timeline-headline"><span class="badge yellow">attention</span> Water leak · Laundry · 1m</div>
+              <div class="timeline-reason">condensate overflow · auto-shutoff held · self-cleared, dismissed by Oji</div>
+            </div>
+            <button class="btn sm icon"><svg class="icon-sm"><use href="#lc-more"/></svg></button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Emergency contacts -->
+      <div class="section-head"><h2>Emergency response</h2></div>
+      <div class="grid">
+        <div class="card col-6">
+          <div class="card-head">
+            <div class="card-title"><svg class="icon-sm"><use href="#lc-bell"/></svg>Auto-call sequence</div>
+            <label class="toggle"><input type="checkbox" checked><span class="toggle-slot"></span></label>
+          </div>
+          <div class="card-row"><span>1. Oji</span><span class="tabular">+1 ••• ••• 4127 · SMS+call</span></div>
+          <div class="card-row"><span>2. Ezinne</span><span class="tabular">+1 ••• ••• 8203 · SMS+call</span></div>
+          <div class="card-row"><span>3. 911 (auto-fail-over)</span><span><span class="badge red">on fire/CO ≥ 35 ppm</span></span></div>
+          <div class="card-sub">Triggered on hazard ≥ CRITICAL or no ack in 90s</div>
+        </div>
+        <div class="card col-6">
+          <div class="card-head">
+            <div class="card-title"><svg class="icon-sm"><use href="#lc-activity"/></svg>Safety coordinator</div>
+            <span class="badge green">healthy</span>
+          </div>
+          <div class="card-row"><span>Decisions today</span><span class="tabular">28</span></div>
+          <div class="card-row"><span>Auto-dismissals (avg/day)</span><span class="tabular">5.2</span></div>
+          <div class="card-row"><span>False alarms (7d)</span><span class="tabular">0</span></div>
+          <div class="card-row"><span>Last self-check</span><span class="dim">18:35 · all sensors</span></div>
+          <div class="card-controls">
+            <button class="btn sm">Run drill</button>
+            <button class="btn sm">Test alarms</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ====================================================
+         TAB: DIAGNOSTICS (incl. Alerts folded in)
+         ==================================================== -->
