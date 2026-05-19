@@ -163,6 +163,10 @@ async def async_setup_entry(
 
     # v3.6.0: Coordinator Manager entry - set up coordinator sensors under this entry
     if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_COORDINATOR_MANAGER:
+        # v4.6.13 review fix C.M1: single source of truth for UI coordinator list.
+        from .domain_coordinators.coordinator_telemetry_const import (
+            UI_COORDINATORS as _UI_COORDINATORS,
+        )
         coordinator_sensors = [
             CoordinatorManagerSensor(hass, entry),
             HouseStateSensor(hass, entry),
@@ -284,23 +288,23 @@ async def async_setup_entry(
             # v4.6.10 D2: Setup duration diagnostic sensor
             URASetupDurationSensor(hass, entry),
             # v4.6.13 D1-D3, D5: Per-UI-coordinator telemetry sensors (20 sensors).
-            # UI coordinators: presence, hvac, energy, safety, security
-            # (see coordinator_telemetry_const.py for the emit-label mapping).
+            # Review C C.M1 fix: import UI_COORDINATORS from the const file so a
+            # future 6th coordinator only needs adding to one place.
             *(
                 CoordinatorDecisionsTodaySensor(hass, entry, uc)
-                for uc in ("presence", "hvac", "energy", "safety", "security")
+                for uc in _UI_COORDINATORS
             ),
             *(
                 CoordinatorOverrideFrequencySensor(hass, entry, uc)
-                for uc in ("presence", "hvac", "energy", "safety", "security")
+                for uc in _UI_COORDINATORS
             ),
             *(
                 CoordinatorComplianceRateSensor(hass, entry, uc)
-                for uc in ("presence", "hvac", "energy", "safety", "security")
+                for uc in _UI_COORDINATORS
             ),
             *(
                 CoordinatorLastDecisionSensor(hass, entry, uc)
-                for uc in ("presence", "hvac", "energy", "safety", "security")
+                for uc in _UI_COORDINATORS
             ),
             # v4.6.13 D4: URA SQLite DB size sensor (includes WAL + SHM)
             URADBSizeSensor(hass, entry),
@@ -10857,13 +10861,16 @@ class CoordinatorOverrideFrequencySensor(AggregationEntity, SensorEntity):
         self._attr_device_info = _cm_device_info()
         self._count_24h: int = 0
         self._unsub_timer: object = None
+        self._unsub_db_ready: object = None  # Review B.B1/C.M2: db-ready fallback
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
         from homeassistant.helpers.event import async_track_time_interval
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
         from .domain_coordinators.coordinator_telemetry_const import (
             OVERRIDE_FREQUENCY_REFRESH_S,
         )
+        from .domain_coordinators.signals import SIGNAL_DATABASE_READY
         # Bug Class #38: capture unsub into async_on_remove.
         self._unsub_timer = async_track_time_interval(
             self.hass,
@@ -10873,9 +10880,25 @@ class CoordinatorOverrideFrequencySensor(AggregationEntity, SensorEntity):
         self.async_on_remove(
             lambda: self._unsub_timer() if self._unsub_timer else None
         )
-        # Initial refresh.
+        # Initial refresh — closes the v4.6.5.3 M2 startup race so the
+        # 5-min poll-interval first-load delay is bounded by DB-ready
+        # rather than the polling cadence (Review B.B1 / C.M2).
         if self.hass.data.get(DOMAIN, {}).get("database") is not None:
             await self._async_refresh()
+        else:
+            def _handle_db_ready(*_a, **_kw) -> None:
+                self.hass.async_create_task(self._async_refresh())
+                if self._unsub_db_ready is not None:
+                    self._unsub_db_ready()
+                    self._unsub_db_ready = None
+
+            self._unsub_db_ready = async_dispatcher_connect(
+                self.hass, SIGNAL_DATABASE_READY, _handle_db_ready
+            )
+            self.async_on_remove(
+                lambda: self._unsub_db_ready()
+                if self._unsub_db_ready is not None else None
+            )
 
     async def _async_refresh(self) -> None:
         try:
@@ -10957,13 +10980,16 @@ class CoordinatorComplianceRateSensor(AggregationEntity, SensorEntity):
         self._rate_pct: int | None = None
         self._decisions_in_window: int = 0
         self._unsub_timer: object = None
+        self._unsub_db_ready: object = None  # Review B.B1/C.M2: db-ready fallback
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
         from homeassistant.helpers.event import async_track_time_interval
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
         from .domain_coordinators.coordinator_telemetry_const import (
             COMPLIANCE_RATE_REFRESH_S,
         )
+        from .domain_coordinators.signals import SIGNAL_DATABASE_READY
         self._unsub_timer = async_track_time_interval(
             self.hass,
             lambda _now: self.hass.async_create_task(self._async_refresh()),
@@ -10972,8 +10998,25 @@ class CoordinatorComplianceRateSensor(AggregationEntity, SensorEntity):
         self.async_on_remove(
             lambda: self._unsub_timer() if self._unsub_timer else None
         )
+        # Review B.B1/C.M2: DB-ready fallback — 30-min poll interval would
+        # leave the sensor at "unknown" too long if the DB initializes after
+        # this sensor's async_added_to_hass.
         if self.hass.data.get(DOMAIN, {}).get("database") is not None:
             await self._async_refresh()
+        else:
+            def _handle_db_ready(*_a, **_kw) -> None:
+                self.hass.async_create_task(self._async_refresh())
+                if self._unsub_db_ready is not None:
+                    self._unsub_db_ready()
+                    self._unsub_db_ready = None
+
+            self._unsub_db_ready = async_dispatcher_connect(
+                self.hass, SIGNAL_DATABASE_READY, _handle_db_ready
+            )
+            self.async_on_remove(
+                lambda: self._unsub_db_ready()
+                if self._unsub_db_ready is not None else None
+            )
 
     async def _async_refresh(self) -> None:
         """Aggregate get_compliance_rate across mapped emit-labels."""
