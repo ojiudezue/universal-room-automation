@@ -283,6 +283,27 @@ async def async_setup_entry(
             URARecentAnomaliesSensor(hass, entry),
             # v4.6.10 D2: Setup duration diagnostic sensor
             URASetupDurationSensor(hass, entry),
+            # v4.6.13 D1-D3, D5: Per-UI-coordinator telemetry sensors (20 sensors).
+            # UI coordinators: presence, hvac, energy, safety, security
+            # (see coordinator_telemetry_const.py for the emit-label mapping).
+            *(
+                CoordinatorDecisionsTodaySensor(hass, entry, uc)
+                for uc in ("presence", "hvac", "energy", "safety", "security")
+            ),
+            *(
+                CoordinatorOverrideFrequencySensor(hass, entry, uc)
+                for uc in ("presence", "hvac", "energy", "safety", "security")
+            ),
+            *(
+                CoordinatorComplianceRateSensor(hass, entry, uc)
+                for uc in ("presence", "hvac", "energy", "safety", "security")
+            ),
+            *(
+                CoordinatorLastDecisionSensor(hass, entry, uc)
+                for uc in ("presence", "hvac", "energy", "safety", "security")
+            ),
+            # v4.6.13 D4: URA SQLite DB size sensor (includes WAL + SHM)
+            URADBSizeSensor(hass, entry),
         ]
         # v3.8.0-H1: Add per-zone HVAC sensors dynamically
         # v4.5.13.1: Use canonical-zone helper for thermostat-keyed dedup
@@ -10671,3 +10692,566 @@ class SafetyEventsSummarySensor(AggregationEntity, SensorEntity):
         self._cached_count = 0
         self._cached_auto_dismissed = 0
         self._cached_last_event_at = None
+
+
+# ============================================================================
+# v4.6.13 — Coordinator Telemetry Sensor Set (Dashboard Cycle C)
+# ============================================================================
+#
+# Five deliverables surfacing per-coordinator decision telemetry to the v5
+# Diagnostics tab. All sensors read existing tables (no schema changes):
+#   D1 — decisions_today per UI coordinator (5 sensors)
+#   D2 — override_frequency per UI coordinator (5 sensors)
+#   D3 — compliance_rate per UI coordinator (5 sensors)
+#   D4 — DB size in MB (1 sensor)
+#   D5 — last_decision_time per UI coordinator (5 sensors)
+#
+# UI→emit mapping lives in coordinator_telemetry_const.py so adjusting it
+# is a one-file change with no sensor-class touch.
+
+
+class CoordinatorDecisionsTodaySensor(AggregationEntity, SensorEntity):
+    """v4.6.13 D1: per-UI-coordinator decision count since local midnight.
+
+    Entity: sensor.ura_{ui_coordinator}_decisions_today
+    Refresh: SIGNAL_ACTIVITY_LOGGED, filtered by emit-label match.
+    Cutoff: local midnight (Bug Class #11) converted to UTC isoformat.
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:counter"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = "decisions"
+
+    def __init__(
+        self, hass: HomeAssistant, entry: ConfigEntry, ui_coordinator: str,
+    ) -> None:
+        super().__init__(hass, entry)
+        self._ui_coordinator = ui_coordinator
+        self._attr_unique_id = f"{DOMAIN}_{ui_coordinator}_decisions_today"
+        self._attr_name = f"{ui_coordinator.capitalize()} Decisions Today"
+        self._attr_device_info = _cm_device_info()
+        self._count_today: int = 0
+        self._unsub_activity: object = None
+        self._unsub_db_ready: object = None
+        self._refresh_in_flight: bool = False
+        self._refresh_pending: bool = False
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import (
+            SIGNAL_ACTIVITY_LOGGED,
+            SIGNAL_DATABASE_READY,
+        )
+        from .domain_coordinators.coordinator_telemetry_const import (
+            COORDINATOR_EMIT_LABELS,
+        )
+
+        labels = COORDINATOR_EMIT_LABELS.get(self._ui_coordinator, ())
+
+        def _handle_activity(payload: dict) -> None:
+            # Filter by emit-label to avoid full-suite refresh on every activity row.
+            if payload.get("coordinator") not in labels:
+                return
+            if self._refresh_in_flight:
+                self._refresh_pending = True
+            else:
+                self.hass.add_job(self._async_refresh())
+
+        self._unsub_activity = async_dispatcher_connect(
+            self.hass, SIGNAL_ACTIVITY_LOGGED, _handle_activity
+        )
+        self.async_on_remove(
+            lambda: self._unsub_activity() if self._unsub_activity else None
+        )
+
+        # v4.6.5.3 M2 pattern: event-driven initial load.
+        if self.hass.data.get(DOMAIN, {}).get("database") is not None:
+            await self._async_refresh()
+        else:
+            def _handle_db_ready(*_a, **_kw) -> None:
+                self.hass.add_job(self._async_refresh())
+                if self._unsub_db_ready is not None:
+                    self._unsub_db_ready()
+                    self._unsub_db_ready = None
+
+            self._unsub_db_ready = async_dispatcher_connect(
+                self.hass, SIGNAL_DATABASE_READY, _handle_db_ready
+            )
+            self.async_on_remove(
+                lambda: self._unsub_db_ready()
+                if self._unsub_db_ready is not None else None
+            )
+
+    async def _async_refresh(self) -> None:
+        """Count activity_log rows since local midnight for mapped labels."""
+        if self._refresh_in_flight:
+            self._refresh_pending = True
+            return
+        self._refresh_in_flight = True
+        try:
+            database = self.hass.data.get(DOMAIN, {}).get("database")
+            if database is None:
+                return
+            from .domain_coordinators.coordinator_telemetry_const import (
+                COORDINATOR_EMIT_LABELS,
+            )
+            labels = COORDINATOR_EMIT_LABELS.get(self._ui_coordinator, ())
+            if not labels:
+                self._count_today = 0
+                self.async_write_ha_state()
+                return
+            # Bug Class #11: midnight is LOCAL — use dt_util.start_of_local_day.
+            local_midnight = dt_util.start_of_local_day()
+            cutoff = dt_util.as_utc(local_midnight).isoformat()
+            placeholders = ",".join("?" * len(labels))
+            async with database._db_read() as db:
+                cursor = await db.execute(
+                    f"SELECT COUNT(*) FROM ura_activity_log "
+                    f"WHERE coordinator IN ({placeholders}) "
+                    f"AND timestamp >= ?",
+                    (*labels, cutoff),
+                )
+                row = await cursor.fetchone()
+                self._count_today = row[0] if row else 0
+            self.async_write_ha_state()
+        except Exception:
+            _LOGGER.debug(
+                "CoordinatorDecisionsTodaySensor(%s): refresh failed",
+                self._ui_coordinator, exc_info=True,
+            )
+        finally:
+            self._refresh_in_flight = False
+            if self._refresh_pending:
+                self._refresh_pending = False
+                self.hass.async_create_task(self._async_refresh())
+
+    @property
+    def native_value(self) -> int:
+        return self._count_today
+
+
+class CoordinatorOverrideFrequencySensor(AggregationEntity, SensorEntity):
+    """v4.6.13 D2: per-UI-coordinator override count over last 24h.
+
+    Entity: sensor.ura_{ui_coordinator}_override_frequency
+    Source: compliance_log.override_detected = 1 joined to decision_log.coordinator_id.
+    Refresh: 5-minute polling (compliance writes don't dispatch signals).
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:hand-back-left"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = "overrides"
+
+    def __init__(
+        self, hass: HomeAssistant, entry: ConfigEntry, ui_coordinator: str,
+    ) -> None:
+        super().__init__(hass, entry)
+        self._ui_coordinator = ui_coordinator
+        self._attr_unique_id = f"{DOMAIN}_{ui_coordinator}_override_frequency"
+        self._attr_name = f"{ui_coordinator.capitalize()} Override Frequency"
+        self._attr_device_info = _cm_device_info()
+        self._count_24h: int = 0
+        self._unsub_timer: object = None
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        from homeassistant.helpers.event import async_track_time_interval
+        from .domain_coordinators.coordinator_telemetry_const import (
+            OVERRIDE_FREQUENCY_REFRESH_S,
+        )
+        # Bug Class #38: capture unsub into async_on_remove.
+        self._unsub_timer = async_track_time_interval(
+            self.hass,
+            lambda _now: self.hass.async_create_task(self._async_refresh()),
+            timedelta(seconds=OVERRIDE_FREQUENCY_REFRESH_S),
+        )
+        self.async_on_remove(
+            lambda: self._unsub_timer() if self._unsub_timer else None
+        )
+        # Initial refresh.
+        if self.hass.data.get(DOMAIN, {}).get("database") is not None:
+            await self._async_refresh()
+
+    async def _async_refresh(self) -> None:
+        try:
+            database = self.hass.data.get(DOMAIN, {}).get("database")
+            if database is None:
+                return
+            from .domain_coordinators.coordinator_telemetry_const import (
+                COORDINATOR_EMIT_LABELS,
+                OVERRIDE_FREQUENCY_WINDOW_HOURS,
+            )
+            labels = COORDINATOR_EMIT_LABELS.get(self._ui_coordinator, ())
+            if not labels:
+                self._count_24h = 0
+                self.async_write_ha_state()
+                return
+            # Bug Class #21: compliance_log.timestamp is tz-naive (database.py
+            # uses datetime.utcnow().isoformat() for writes). Strip tzinfo
+            # from cutoff to match the stored shape.
+            cutoff = (
+                dt_util.utcnow() - timedelta(hours=OVERRIDE_FREQUENCY_WINDOW_HOURS)
+            ).replace(tzinfo=None).isoformat()
+            placeholders = ",".join("?" * len(labels))
+            async with database._db_read() as db:
+                cursor = await db.execute(
+                    f"""SELECT COUNT(*) FROM compliance_log c
+                        JOIN decision_log d ON c.decision_id = d.id
+                        WHERE c.override_detected = 1
+                          AND d.coordinator_id IN ({placeholders})
+                          AND c.timestamp >= ?""",
+                    (*labels, cutoff),
+                )
+                row = await cursor.fetchone()
+                self._count_24h = row[0] if row else 0
+            self.async_write_ha_state()
+        except Exception:
+            _LOGGER.debug(
+                "CoordinatorOverrideFrequencySensor(%s): refresh failed",
+                self._ui_coordinator, exc_info=True,
+            )
+
+    @property
+    def native_value(self) -> int:
+        return self._count_24h
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        from .domain_coordinators.coordinator_telemetry_const import (
+            OVERRIDE_FREQUENCY_WINDOW_HOURS,
+        )
+        return {"window_hours": OVERRIDE_FREQUENCY_WINDOW_HOURS}
+
+
+class CoordinatorComplianceRateSensor(AggregationEntity, SensorEntity):
+    """v4.6.13 D3: per-UI-coordinator 7-day compliance percentage.
+
+    Entity: sensor.ura_{ui_coordinator}_compliance_rate
+    Source: existing ComplianceTracker.get_compliance_rate DAO. For UI
+    coordinators mapped to multiple emit-labels (e.g. presence → presence
+    + transit + room), aggregate by summing compliant + total across labels.
+    Returns None when no decisions in window (avoids misleading "100%" on
+    fresh install).
+    Refresh: 30-minute polling (compliance rate is slow-moving 7-day metric).
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:check-decagram"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = PERCENTAGE
+
+    def __init__(
+        self, hass: HomeAssistant, entry: ConfigEntry, ui_coordinator: str,
+    ) -> None:
+        super().__init__(hass, entry)
+        self._ui_coordinator = ui_coordinator
+        self._attr_unique_id = f"{DOMAIN}_{ui_coordinator}_compliance_rate"
+        self._attr_name = f"{ui_coordinator.capitalize()} Compliance Rate"
+        self._attr_device_info = _cm_device_info()
+        self._rate_pct: int | None = None
+        self._decisions_in_window: int = 0
+        self._unsub_timer: object = None
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        from homeassistant.helpers.event import async_track_time_interval
+        from .domain_coordinators.coordinator_telemetry_const import (
+            COMPLIANCE_RATE_REFRESH_S,
+        )
+        self._unsub_timer = async_track_time_interval(
+            self.hass,
+            lambda _now: self.hass.async_create_task(self._async_refresh()),
+            timedelta(seconds=COMPLIANCE_RATE_REFRESH_S),
+        )
+        self.async_on_remove(
+            lambda: self._unsub_timer() if self._unsub_timer else None
+        )
+        if self.hass.data.get(DOMAIN, {}).get("database") is not None:
+            await self._async_refresh()
+
+    async def _async_refresh(self) -> None:
+        """Aggregate get_compliance_rate across mapped emit-labels."""
+        try:
+            database = self.hass.data.get(DOMAIN, {}).get("database")
+            if database is None:
+                return
+            from .domain_coordinators.coordinator_telemetry_const import (
+                COORDINATOR_EMIT_LABELS,
+                COMPLIANCE_RATE_WINDOW_DAYS,
+            )
+            labels = COORDINATOR_EMIT_LABELS.get(self._ui_coordinator, ())
+            if not labels:
+                self._rate_pct = None
+                self._decisions_in_window = 0
+                self.async_write_ha_state()
+                return
+
+            # Parallel SELECT COUNT(*) to gate "no decisions → None" — DAO
+            # returns 1.0 for empty (foot-gun), so we count separately.
+            # Bug Class #21: compliance_log.timestamp is tz-naive.
+            cutoff = (
+                dt_util.utcnow() - timedelta(days=COMPLIANCE_RATE_WINDOW_DAYS)
+            ).replace(tzinfo=None).isoformat()
+            placeholders = ",".join("?" * len(labels))
+            total = 0
+            compliant = 0
+            async with database._db_read() as db:
+                cursor = await db.execute(
+                    f"""SELECT COUNT(*),
+                              SUM(CASE WHEN c.compliant THEN 1 ELSE 0 END)
+                       FROM compliance_log c
+                       JOIN decision_log d ON c.decision_id = d.id
+                       WHERE c.timestamp >= ?
+                         AND d.coordinator_id IN ({placeholders})""",
+                    (cutoff, *labels),
+                )
+                row = await cursor.fetchone()
+                if row:
+                    total = int(row[0] or 0)
+                    compliant = int(row[1] or 0)
+
+            self._decisions_in_window = total
+            if total == 0:
+                self._rate_pct = None  # HA renders "unknown" — honest signal
+            else:
+                self._rate_pct = int(round((compliant / total) * 100))
+            self.async_write_ha_state()
+        except Exception:
+            _LOGGER.debug(
+                "CoordinatorComplianceRateSensor(%s): refresh failed",
+                self._ui_coordinator, exc_info=True,
+            )
+
+    @property
+    def native_value(self) -> int | None:
+        return self._rate_pct
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        from .domain_coordinators.coordinator_telemetry_const import (
+            COMPLIANCE_RATE_WINDOW_DAYS,
+        )
+        return {
+            "decisions_in_window": self._decisions_in_window,
+            "window_days": COMPLIANCE_RATE_WINDOW_DAYS,
+        }
+
+
+class URADBSizeSensor(AggregationEntity, SensorEntity):
+    """v4.6.13 D4: URA SQLite DB size in MB (including WAL + SHM sidecars).
+
+    Entity: sensor.ura_db_size_mb
+    Refresh: 5-minute polling (filesystem stat — no DB query).
+    Includes WAL/SHM sidecars since they can be 100s of MB during heavy
+    write bursts and the user-meaningful "DB size" must include them.
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:database"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = "MB"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_db_size_mb"
+        self._attr_name = "DB Size"
+        self._attr_device_info = _cm_device_info()
+        self._size_mb: float | None = None
+        self._unsub_timer: object = None
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        from homeassistant.helpers.event import async_track_time_interval
+        from .domain_coordinators.coordinator_telemetry_const import (
+            DB_SIZE_REFRESH_S,
+        )
+        self._unsub_timer = async_track_time_interval(
+            self.hass,
+            lambda _now: self.hass.async_create_task(self._async_refresh()),
+            timedelta(seconds=DB_SIZE_REFRESH_S),
+        )
+        self.async_on_remove(
+            lambda: self._unsub_timer() if self._unsub_timer else None
+        )
+        await self._async_refresh()
+
+    async def _async_refresh(self) -> None:
+        import os
+        try:
+            database = self.hass.data.get(DOMAIN, {}).get("database")
+            if database is None:
+                self._size_mb = None
+                self.async_write_ha_state()
+                return
+            db_path = getattr(database, "db_file", None)
+            if not db_path:
+                self._size_mb = None
+                self.async_write_ha_state()
+                return
+            size_bytes = await self.hass.async_add_executor_job(
+                os.path.getsize, db_path
+            )
+            # Include WAL + SHM sidecars (WAL mode).
+            for suffix in ("-wal", "-shm"):
+                try:
+                    size_bytes += await self.hass.async_add_executor_job(
+                        os.path.getsize, db_path + suffix
+                    )
+                except OSError:
+                    pass  # WAL/SHM may not exist between checkpoints
+            self._size_mb = round(size_bytes / (1024 * 1024), 2)
+            self.async_write_ha_state()
+        except FileNotFoundError:
+            self._size_mb = None
+            self.async_write_ha_state()
+        except Exception:
+            _LOGGER.debug("URADBSizeSensor: refresh failed", exc_info=True)
+
+    @property
+    def native_value(self) -> float | None:
+        return self._size_mb
+
+
+class CoordinatorLastDecisionSensor(AggregationEntity, SensorEntity):
+    """v4.6.13 D5: per-UI-coordinator last-decision timestamp + context.
+
+    Entity: sensor.ura_{ui_coordinator}_last_decision_time
+    Refresh: SIGNAL_ACTIVITY_LOGGED, filtered by emit-label match.
+    State: timestamp of most recent activity_log row across mapped labels.
+    Attributes: action, description, room, zone, entity_id of that row.
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:clock-outline"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_device_class = SensorDeviceClass.TIMESTAMP
+
+    def __init__(
+        self, hass: HomeAssistant, entry: ConfigEntry, ui_coordinator: str,
+    ) -> None:
+        super().__init__(hass, entry)
+        self._ui_coordinator = ui_coordinator
+        self._attr_unique_id = f"{DOMAIN}_{ui_coordinator}_last_decision_time"
+        self._attr_name = f"{ui_coordinator.capitalize()} Last Decision"
+        self._attr_device_info = _cm_device_info()
+        self._last_ts: datetime | None = None
+        self._last_attrs: dict[str, Any] = {}
+        self._unsub_activity: object = None
+        self._unsub_db_ready: object = None
+        self._refresh_in_flight: bool = False
+        self._refresh_pending: bool = False
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import (
+            SIGNAL_ACTIVITY_LOGGED,
+            SIGNAL_DATABASE_READY,
+        )
+        from .domain_coordinators.coordinator_telemetry_const import (
+            COORDINATOR_EMIT_LABELS,
+        )
+
+        labels = COORDINATOR_EMIT_LABELS.get(self._ui_coordinator, ())
+
+        def _handle_activity(payload: dict) -> None:
+            if payload.get("coordinator") not in labels:
+                return
+            if self._refresh_in_flight:
+                self._refresh_pending = True
+            else:
+                self.hass.add_job(self._async_refresh())
+
+        self._unsub_activity = async_dispatcher_connect(
+            self.hass, SIGNAL_ACTIVITY_LOGGED, _handle_activity
+        )
+        self.async_on_remove(
+            lambda: self._unsub_activity() if self._unsub_activity else None
+        )
+
+        if self.hass.data.get(DOMAIN, {}).get("database") is not None:
+            await self._async_refresh()
+        else:
+            def _handle_db_ready(*_a, **_kw) -> None:
+                self.hass.add_job(self._async_refresh())
+                if self._unsub_db_ready is not None:
+                    self._unsub_db_ready()
+                    self._unsub_db_ready = None
+
+            self._unsub_db_ready = async_dispatcher_connect(
+                self.hass, SIGNAL_DATABASE_READY, _handle_db_ready
+            )
+            self.async_on_remove(
+                lambda: self._unsub_db_ready()
+                if self._unsub_db_ready is not None else None
+            )
+
+    async def _async_refresh(self) -> None:
+        if self._refresh_in_flight:
+            self._refresh_pending = True
+            return
+        self._refresh_in_flight = True
+        try:
+            database = self.hass.data.get(DOMAIN, {}).get("database")
+            if database is None:
+                return
+            from .domain_coordinators.coordinator_telemetry_const import (
+                COORDINATOR_EMIT_LABELS,
+            )
+            labels = COORDINATOR_EMIT_LABELS.get(self._ui_coordinator, ())
+            if not labels:
+                self._last_ts = None
+                self._last_attrs = {}
+                self.async_write_ha_state()
+                return
+            placeholders = ",".join("?" * len(labels))
+            async with database._db_read() as db:
+                cursor = await db.execute(
+                    f"""SELECT timestamp, action, description, room,
+                              zone, entity_id
+                       FROM ura_activity_log
+                       WHERE coordinator IN ({placeholders})
+                       ORDER BY timestamp DESC
+                       LIMIT 1""",
+                    labels,
+                )
+                row = await cursor.fetchone()
+                if row is None:
+                    self._last_ts = None
+                    self._last_attrs = {}
+                else:
+                    # Bug Class #21: ura_activity_log writes are tz-aware.
+                    self._last_ts = dt_util.parse_datetime(row[0])
+                    self._last_attrs = {
+                        "action": row[1],
+                        "description": row[2],
+                        "room": row[3],
+                        "zone": row[4],
+                        "entity_id": row[5],
+                    }
+            self.async_write_ha_state()
+        except Exception:
+            _LOGGER.debug(
+                "CoordinatorLastDecisionSensor(%s): refresh failed",
+                self._ui_coordinator, exc_info=True,
+            )
+        finally:
+            self._refresh_in_flight = False
+            if self._refresh_pending:
+                self._refresh_pending = False
+                self.hass.async_create_task(self._async_refresh())
+
+    @property
+    def native_value(self) -> datetime | None:
+        return self._last_ts
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        return dict(self._last_attrs)
