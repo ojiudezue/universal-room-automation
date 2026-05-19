@@ -1,12 +1,24 @@
 # B5: URA Appliance Scheduler — Cost-Reduction Deferral & Forecast-Aware Sprinklers
 
-**Version:** 1.0
+**Version:** 1.1 (2026-05-19 revision — see Revision Log below)
 **Date:** May 5, 2026
 **Status:** Ready to build (queued as v4.7.x; was v4.4.x)
 **Renumbered:** 2026-05-06 from v4.4.x to v4.7.x in the post-v4.3.4 reshuffle that moved Battery Strategy v2 Overlay to v4.5.0 and Routine Awareness to v4.6.0.
 **Depends on:** Energy Coordinator (v4.0.0+, TOU engine), Coordinator Manager v3.6+ (`register_coordinator`), URADatabase v4.2.x (write queue with batching + budgeting)
 **Effort:** ~28-36 hours (D1-D6: ~22h core; D7-D8 sprinklers + provider-2: ~10h)
 **Priority:** MEDIUM-HIGH — directly reduces utility cost; foundational for future appliance/water integrations
+
+## Revision Log
+
+**2026-05-19 (v1.1):** User reax post-v4.6.x dashboard cycle. Adjusts:
+- **Principle 1 (Defer, don't interrupt):** added caveat for interrupting *manual start* in a disallowed window + notify + resume-via-scheduling (EV-charging precedent). Mid-cycle interrupt still out of scope.
+- **New Principle 7 (Strictness configurable):** per-appliance defaults — `tolerate_mid_peak`, `on_bisect` Literal{stop,start,prefer_off_peak}, cycle-length sensor preferred over fallback constants.
+- **New Principle 8 (Power monitoring multi-vector):** device-native power entity + mains-circuit monitor + 30s worst-case polling tolerance.
+- **New Principle 9 (Observability + control):** initial config in config/options flow; critical knobs mirrored to URA device UI; Dashboard v5.0+ consumes same surfaces.
+- **New Principle 10 (Anomaly pattern):** follow hardened v4.6.x framework (load_baselines on async_start, save_baselines after observation, store_event for dispatch). Reference CM setup_duration wiring as canonical for once-per-trigger metrics; HVAC for recurring metrics. Do NOT recreate the early-construction patterns.
+- **TOU section:** clarified `get_minutes_until_period` is bidirectional — same helper answers `target_period="peak"` for the interrupt-at-start decision in principle 1. Includes the bisect-decision pseudocode.
+- **Rainbird:** flagged separate control toggle requirement (see new Rainbird Controls section below).
+- **Dashboard hooks:** coordinator must expose sensors/attributes consumable by Dashboard v5.0 (zone load, pending deferrals, last-blocked-start). New section below.
 
 ---
 
@@ -28,7 +40,7 @@ Defer flexible appliance starts (washers, dishwashers, washtowers) into the chea
 
 ## Design Principles
 
-**1. Defer, don't interrupt.** Scheduler only acts on cycles that have not yet started. A running cycle is never paused, even if user was about to hit "start" during peak. (Mid-cycle interrupt is out of scope; some appliances tolerate it poorly and the user-visible disruption isn't worth the savings.)
+**1. Defer, don't interrupt — with one explicit caveat.** Scheduler does not pause a *running* cycle. But it MAY interrupt a *manual start* that fired during a disallowed window, issue a stop, and notify the user (precedent: EV charging coordinator monitors circuit power and issues stop when charging is detected at the wrong time). The point is to prevent unnecessary energy burn by household members who are not energy-conscious. The interrupted cycle is captured as a "stalled command" and resumed via scheduling once the energy profile becomes favorable and constraints end. This caveat applies only to appliances classified as **interruptible-at-start** (i.e., interrupting before any real work — a wash cycle that has not yet drawn water, a dishwasher pre-soak that has not begun, etc.). It does NOT apply once the cycle has materially started (water drawn, oven preheated, etc.).
 
 **2. Provider plugin pattern (extensibility).** Adding Bosch / SmartThings / smart-plug-monitored appliances must require zero edits to `appliances.py`. Concrete providers live in `appliance_providers/*.py` and self-register.
 
@@ -39,6 +51,23 @@ Defer flexible appliance starts (washers, dishwashers, washtowers) into the chea
 **5. Sprinklers are different.** They have only ONE deferral primitive (rain delay in days, not minutes). Forecast threshold is configurable. Rain delay only suppresses *future* schedules — active cycles are not interrupted (per Rainbird semantics).
 
 **6. Fail-safe on missing inputs.** No TOU engine = pass-through (no deferral). No weather forecast = no skip. Stale forecast (> 6h old) = no skip. Provider unreachable mid-defer = log + drop deferral; do not retry indefinitely.
+
+**7. Strictness configurable per appliance.** Open question to resolve in D2:
+  - Default: zone all major-device runs to off-peak (strictest).
+  - Mid-peak tolerance: allow a per-appliance boolean `tolerate_mid_peak` (default False).
+  - Cycle-bisects-peak handling: per-appliance `on_bisect: Literal["stop","start","prefer_off_peak"]` (default `prefer_off_peak` — start only if completion time projects into off-peak before peak begins).
+  - Cycle-duration source for bisect math: prefer device-exposed cycle-length sensor; fallback to `avg_cycle_minutes` constant per provider (researched defaults — washer ~50min, dishwasher ~120min, etc.).
+  These knobs live on the appliance options-flow page and are mirrored to the URA device UI (see principle 9).
+
+**8. Power monitoring is multi-vector.** Two independent signals + one polling-cadence assumption:
+  - **Device-native power entity** — if the appliance integration exposes `sensor.<entity>_power_w`, prefer it.
+  - **Mains-circuit power monitor** — large appliances often have a dedicated circuit with a monitor device that maps to it; rare cases use an inline power-monitoring outlet. The user catalogs which devices have which.
+  - **Polling cadence assumption.** Some power sensors are not real-time (poll-based). Assume worst-case 30s polling tolerance in any "is it drawing power" check — i.e., don't issue stop within 30s of expected-start unless we have a sub-30s-fresh reading.
+  - When BOTH vectors disagree (one says drawing, the other does not) — prefer the device-native if available within 30s freshness; otherwise the circuit monitor with a freshness penalty.
+
+**9. Observability + control: configure once, mirror to device UI for critical knobs.** Initial configuration lives in the integration's config-flow and options-flow dialogs (provider selection, per-appliance overrides, strictness defaults). Critical runtime knobs must additionally surface on the URA Appliance Coordinator device page in HA — e.g., a per-appliance "scheduling enabled" toggle, the current pending deferral, "cancel pending deferral" button. The dashboard (Dashboard v5.0+) consumes the same surfaces.
+
+**10. Anomaly pattern follows the hardened (v4.6.x) framework.** Every coordinator gets an anomaly_detector and a hardened emit pipeline. Use `AnomalyDetector` from `coordinator_diagnostics.py` (load_baselines on async_start, save_baselines after observation, store_event for dispatch). Do NOT recreate the early-construction patterns from v3.x; those have been replaced. Reference v4.6.10's CM setup_duration wiring at `__init__.py:2048-2146` as the canonical example for once-per-trigger metrics, and HVAC `hvac.py:~1470-1620` for recurring metrics.
 
 ---
 
@@ -92,10 +121,25 @@ EC's existing `TOURateEngine.get_next_transition()` returns `{next_period, hours
 
 **Decision:** Extend `energy_tou.py` with `get_minutes_until_period(target_period: str, now=None) -> int | None`. Implementation walks the same `transitions` list but computes minute-precise delta from `now` to the next transition where `t_period == target_period`. Returns `None` if no off_peak window in the next 24h (shouldn't happen for PEC schedule, but defensive).
 
+**Generalized API — answers both directions.** Per 2026-05-19 user reax, the same helper covers `target_period="off_peak"` (when do we get cheap?) AND `target_period="peak"` (when do we lose cheap?). The interrupt-at-start decision in principle 1 uses `get_minutes_until_period("peak")` paired with the appliance's estimated cycle length to decide whether to allow or interrupt a manual start. Concretely:
+  ```
+  minutes_until_peak = tou.get_minutes_until_period("peak")
+  cycle_minutes = provider.get_cycle_length(entity_id) or PROVIDER_AVG_CYCLE[provider_id]
+  on_bisect = appliance_options.get("on_bisect", "prefer_off_peak")
+  if cycle_minutes <= minutes_until_peak:           # completes before peak
+      allow_start()
+  elif on_bisect == "prefer_off_peak":              # bisect → defer
+      interrupt_and_defer(reason="cycle_bisects_peak")
+  elif on_bisect == "start":
+      allow_start_with_notify()                     # ignores peak cost
+  else:                                              # on_bisect == "stop"
+      interrupt_and_notify(reason="cycle_bisects_peak")
+  ```
+
 **Why extend EC, not duplicate logic in Appliance Coordinator:**
 - Avoids Bug Class #22 (enum mismatch): same `_VALID_PERIODS` set, same period-name aliases.
 - Keeps TOU rate file ownership in EC.
-- Appliance Coordinator just calls `energy_coord.tou_engine.get_minutes_until_period("off_peak")`.
+- Appliance Coordinator just calls `energy_coord.tou_engine.get_minutes_until_period(...)`.
 
 EC must already be set up at this point (registration order in `__init__.py` line 1461 confirms EC registers before HVAC; Appliance can register after EC similarly). Guard with `if energy_coord is None or energy_coord.tou_engine is None: skip deferral, log once`.
 
@@ -260,7 +304,9 @@ Cleanup method is registered in nightly maintenance schedule (Bug #27 — every 
 
 ### D7: RainbirdProvider + forecast-aware skip
 
-**What:** `RainbirdProvider` implements `set_delay_start(entity_id, minutes)` by translating to days (ceil(minutes/1440)) and calling `rainbird.set_rain_delay`. Capability: `delay_unit="days"`, `max_delay=14`. Forecast logic in coordinator (NOT provider — it's policy):
+**What:** `RainbirdProvider` implements `set_delay_start(entity_id, minutes)` by translating to days (ceil(minutes/1440)) and calling `rainbird.set_rain_delay`. Capability: `delay_unit="days"`, `max_delay=14`. Forecast logic in coordinator (NOT provider — it's policy).
+
+**2026-05-19 reax: Rainbird needs a separate URA-side master control toggle.** Surface a `switch.ura_appliance_coordinator_rainbird_enabled` (or button/toggle on the device page) that gates ALL Rainbird logic in URA — both the forecast-aware skip AND any future scheduled-start nudges. When OFF, URA leaves the Rainbird integration untouched (no `set_rain_delay`, no schedule reads). This is the homeowner's "URA-stay-out-of-my-sprinklers" lever. Mirrored as a config-flow option AND a device-UI switch per principle 9. Default: ON if a RainbirdProvider is discovered, else N/A.
 
 1. Configurable per-controller threshold (default: rain probability ≥ 60% within next 24h, OR forecast precipitation ≥ 0.10 inches).
 2. Configurable weather entity (defaults to user's `weather.phalanxmadrone`).
@@ -281,6 +327,35 @@ Cleanup method is registered in nightly maintenance schedule (Bug #27 — every 
 - **Sensor:** `sensor.ura_appliance_coordinator_sprinkler_skips_today` increments on skip.
 - **Test:** `test_skip_when_high_rain_probability`, `test_no_skip_when_low_probability`, `test_no_skip_when_forecast_stale`, `test_active_cycle_not_interrupted`, `test_forecast_response_dict_guards` (Bug #8).
 - **Live:** Wait for next forecast >60% rain day; verify rain delay set; no zone interruption mid-cycle.
+
+---
+
+### D7.5: Observability + Dashboard hooks (2026-05-19 reax)
+
+**What:** Define and ship the URA-side observability surfaces for the Appliance Coordinator. These satisfy Principle 9 (config + device-UI mirroring) AND Principle 10 (anomaly framework) AND give Dashboard v5.0+ the data it needs without bespoke wiring per cycle.
+
+**Sensors (auto-create on coordinator setup):**
+- `sensor.ura_appliance_coordinator_pending_deferrals` — int count of ARMED + SCHEDULING entries, with `extra_state_attributes.deferrals: list[{appliance, target_run_time, reason}]`.
+- `sensor.ura_appliance_coordinator_last_blocked_start` — string "appliance: reason" of the most recent manual-start interrupt (per Principle 1 caveat), with `attributes.timestamp + .resumed_at`.
+- `sensor.ura_appliance_coordinator_deferrals_today` + `sensor.ura_appliance_coordinator_savings_today_kwh` — daily counters; reset by `_maybe_reset_daily_counters` pattern from existing coordinators.
+- `sensor.ura_appliance_coordinator_anomaly_status` — follows the v4.6.11 health_status / status_per_coordinator pattern. Provides `green/orange/red` health to the dashboard.
+
+**Switches (control surface on the device page):**
+- `switch.ura_appliance_coordinator_scheduling_enabled` — global on/off.
+- Per-appliance `switch.ura_appliance_<id>_scheduling_enabled` — created from config-flow options; toggles the per-appliance gate.
+- `switch.ura_appliance_coordinator_rainbird_enabled` — when RainbirdProvider discovered (see D7).
+
+**Buttons:**
+- `button.ura_appliance_coordinator_cancel_pending_deferrals` — operator escape hatch.
+
+**Dashboard contract:** Dashboard v5.0+ should consume these via the same pattern used by v4.6.10-13 (state + extra_state_attributes). No bespoke services; no privileged DB reads from the dashboard.
+
+### Acceptance Criteria
+- **Verify:** Coordinator registers all 4 sensors and ≥2 switches on `async_added_to_hass`.
+- **Verify:** Toggling `scheduling_enabled = OFF` halts all new deferrals within one decision cycle; existing ARMED entries are left in place (operator can cancel via the button).
+- **Verify:** Anomaly status sensor reports `green` when zero deferrals dropped/expired in last 24h, else `orange` (drop rate > 0) or `red` (drop rate > 20%).
+- **Test:** Behavioral + AST-introspection smoke tests proving sensor/switch classes exist with expected unique_ids and device_info.
+- **Live:** All sensors visible on `URA: Appliance Coordinator` device page; values update in real time.
 
 ---
 
