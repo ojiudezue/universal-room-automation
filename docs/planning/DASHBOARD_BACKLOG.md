@@ -39,6 +39,21 @@ Per-tab status:
 
 ---
 
+## v5.0.x — Dashboard performance polish (user-flagged 2026-05-19)
+
+User feedback at v4.6.10.1 mount preview: "Fidelity is good. Performance is still not amazing."
+
+Tactical optimizations to investigate before D8 polish ship:
+
+1. **Locale chunk explosion.** Vite build produces ~40 locale chunks (af/ar/bg/bn/bs/ca/...) at 100-400KB each from date-fns. The `resolve.alias` in vite.config.ts redirects to en-US but Vite is still emitting them. Investigate: stricter alias pattern, manualChunks override, or explicit date-fns/locale/en-US import only.
+2. **Initial bundle size.** index-*.js is ~330KB; hakit-*.js is ~294KB. Combined first-paint ~620KB. Acceptable but trim where possible (tree-shake unused @hakit/core exports; lazy-load tabs not yet visited).
+3. **`useEntity` re-render footprint** (when live wiring lands in D3-D7). Per @hakit/core v6 research: returns new object identity on every entity update, no built-in throttle. Plan `React.memo` with custom equality on card components OR use `useSubscribeEntity` directly with selector equality.
+4. **Iframe overhead.** `panel_custom` + iframe doubles React/JS execution context vs. direct mount. Defer until v5.0.x decides whether to keep iframe (with issue #304 mitigation) or refactor to direct web-component mount.
+
+LoC: investigation pass first (~1h), then targeted fixes (~50-100 LoC). Tier 1.
+
+---
+
 ## v5.0.1 — hakit issue #304 mitigation (panel_custom iframe-recreation)
 
 Filed 2026-05-19 from @hakit/core research. Open issue: https://github.com/shannonhochkins/ha-component-kit/issues/304
