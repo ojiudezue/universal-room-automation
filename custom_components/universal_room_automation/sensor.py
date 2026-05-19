@@ -19,6 +19,7 @@
 #
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime, timedelta
 from typing import Any, Optional
@@ -10596,16 +10597,20 @@ class SafetyEventsSummarySensor(AggregationEntity, SensorEntity):
         self._cached_count: int = 0
         self._cached_auto_dismissed: int = 0
         self._cached_last_event_at: str | None = None
+        self._refresh_task: asyncio.Task | None = None
 
     async def _refresh_cache(self) -> None:
         """Query ura_activity_log for last 24h safety events."""
-        from datetime import timedelta
         db = self.hass.data.get(DOMAIN, {}).get("database")
         if db is None:
             return
         cutoff = (dt_util.utcnow() - timedelta(hours=24)).isoformat()
         try:
-            async with db._db() as conn:
+            # Review A H1 / Review C H3: SELECT must go through the read-only
+            # connection — _db() is the serialized write queue. Using it here
+            # would block real writes (save_baselines, save_anomaly_event)
+            # behind a 60s-cadence read.
+            async with db._db_read() as conn:
                 cursor = await conn.execute(
                     """SELECT COUNT(*),
                               SUM(CASE WHEN action LIKE '%dismiss%'
@@ -10637,8 +10642,13 @@ class SafetyEventsSummarySensor(AggregationEntity, SensorEntity):
     @property
     def native_value(self) -> int:
         """Return count of safety events in last 24h."""
-        if self._cache_stale():
-            self.hass.async_create_task(self._refresh_cache())
+        if self._cache_stale() and (
+            self._refresh_task is None or self._refresh_task.done()
+        ):
+            # Review C C2: track + guard against re-entry so we don't pile up
+            # overlapping queries when the property is hot. The task is
+            # cancelled in async_will_remove_from_hass (Bug Class #19).
+            self._refresh_task = self.hass.async_create_task(self._refresh_cache())
         return self._cached_count
 
     @property
@@ -10651,7 +10661,12 @@ class SafetyEventsSummarySensor(AggregationEntity, SensorEntity):
         }
 
     async def async_will_remove_from_hass(self) -> None:
-        """Clear cache on entity remove (Bug Class #36)."""
+        """Clear cache + cancel in-flight refresh (Bug Classes #19, #36, #38)."""
+        # Review C C1: super() cleans up AggregationEntity._agg_retry_unsub.
+        await super().async_will_remove_from_hass()
+        if self._refresh_task is not None and not self._refresh_task.done():
+            self._refresh_task.cancel()
+        self._refresh_task = None
         self._cache_time = None
         self._cached_count = 0
         self._cached_auto_dismissed = 0

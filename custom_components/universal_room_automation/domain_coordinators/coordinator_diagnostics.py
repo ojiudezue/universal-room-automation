@@ -1001,7 +1001,12 @@ class AnomalyDetector:
         if database is None:
             return 0
 
-        cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat()
+        # Review A L1: dt_util.utcnow() (tz-aware) — completes the v4.6.11 D2
+        # sweep started at lines 798/824 for the AnomalyDetector class.
+        # datetime.utcnow() is deprecated in Python 3.12+ and returns a naive
+        # datetime (bug class #21). Remaining call sites in ComplianceTracker
+        # and DecisionLogger are out of v4.6.11 scope.
+        cutoff = (dt_util.utcnow() - timedelta(days=days)).isoformat()
 
         try:
             async with database._db() as db:

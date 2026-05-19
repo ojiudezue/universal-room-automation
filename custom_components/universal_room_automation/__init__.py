@@ -2048,6 +2048,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 # v4.6.11 D1: Full pipeline — construct → load_baselines on async_start
                 # (manager.py) → record_observation → save_baselines → store_event →
                 # anomaly_log row visible via URARecentAnomaliesSensor.
+                # NOTE (Review B L1): no NM cascade for this metric — setup_duration
+                # is internal instrumentation, not an operator-facing alert. Analytics
+                # consumers read anomaly_log directly; activity_log carries the audit
+                # trail. If a future metric needs operator notification, wire NM at
+                # the store_event call site, not here.
                 #
                 # Bug Class #19: use entry.async_create_background_task so the task is
                 # tracked and cancelled on entry unload.
@@ -2076,6 +2081,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                             # save_baselines ALWAYS — even when no anomaly returned.
                             # Without this, the baseline never persists and
                             # minimum_samples=10 is unreachable across restarts.
+                            #
+                            # Review B M1 — intentional cadence divergence from peers:
+                            # HVAC/presence/security/music save baselines at teardown
+                            # (their metrics fire many times per session). CM's
+                            # setup_duration fires exactly once per boot; teardown-only
+                            # save would lose the observation if HA crashes before
+                            # clean shutdown. Do NOT "align" this to the peer pattern.
                             await _det.save_baselines()
                             if _anomaly is not None:
                                 from .domain_coordinators.anomaly_event import (
@@ -2084,6 +2096,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                                     build_context_json,
                                     map_diag_severity,
                                 )
+                                # Review A M3: include house_state so anomaly_log
+                                # rows for the CM are queryable alongside peer
+                                # rows that all carry this column. save_anomaly_event
+                                # reads payload_dict["house_state"] (database.py:4642).
+                                _house_state: str | None = None
+                                try:
+                                    _hsm = getattr(_cm, "_house_state_machine", None)
+                                    if _hsm is not None:
+                                        _house_state = str(_hsm.state)
+                                except Exception:
+                                    _house_state = None
                                 _ctx = build_context_json(
                                     source_signal="URA_SETUP_COMPLETE",
                                     extra={
@@ -2092,6 +2115,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                                         "room_count": _telem.get("room_count"),
                                     },
                                 )
+                                if _house_state is not None:
+                                    _ctx["house_state"] = _house_state
                                 _event = AnomalyEvent(
                                     coordinator="coordinator_manager",
                                     type="coordinator_manager.setup_duration_seconds",
