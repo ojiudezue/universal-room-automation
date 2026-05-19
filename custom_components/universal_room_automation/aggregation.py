@@ -837,12 +837,23 @@ class RoomsOccupiedSensor(AggregationEntity, SensorEntity):
     
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        """Return room list."""
+        """Return room list and per-zone breakdown."""
         rooms = []
+        # v4.6.11 D4.2: per_zone_breakdown — zone → occupied room count.
+        # Reads CONF_ZONE from entry.options first then entry.data (Bug Class #14).
+        zone_breakdown: dict[str, int] = {}
         for coord in _get_room_coordinators(self.hass):
             if coord.data and coord.data.get(STATE_OCCUPIED, False):
                 rooms.append(coord.entry.data.get("room_name", "Unknown"))
-        return {"rooms": rooms}
+                try:
+                    zone = coord.entry.options.get(CONF_ZONE) or coord.entry.data.get(CONF_ZONE, "unassigned")
+                    zone_breakdown[zone] = zone_breakdown.get(zone, 0) + 1
+                except Exception:
+                    pass
+        return {
+            "rooms": rooms,
+            "per_zone_breakdown": zone_breakdown,
+        }
 
 
 class SafetyAlertBinarySensor(AggregationEntity, BinarySensorEntity):
@@ -2125,9 +2136,26 @@ class WholeHousePowerSensor(AggregationEntity, SensorEntity):
         """Return source info."""
         sensors = self._get_sensor_list(
             CONF_WHOLE_HOUSE_POWER_SENSORS, CONF_WHOLE_HOUSE_POWER_SENSOR)
+        # v4.6.11 D4.5: source_breakdown — solar_power_w from existing config key.
+        # battery_power_w and grid_power_w return None this cycle; CONF_BATTERY_POWER_SENSOR
+        # + CONF_GRID_POWER_SENSOR config keys are filed for v4.6.13.
+        solar_power_w: float | None = None
+        try:
+            solar_sensor = self._get_config(CONF_SOLAR_PRODUCTION_SENSOR)
+            if solar_sensor:
+                state = self.hass.states.get(solar_sensor)
+                if state and state.state not in ("unknown", "unavailable"):
+                    solar_power_w = float(state.state)
+        except Exception:
+            pass
         return {
             "source_sensors": sensors,
             "sensor_count": len(sensors),
+            "source_breakdown": {
+                "solar_power_w": solar_power_w,
+                "battery_power_w": None,
+                "grid_power_w": None,
+            },
         }
 
 
