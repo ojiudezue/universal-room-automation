@@ -15,6 +15,7 @@
  * fragments stay as visual reference.
  */
 import type { TabId } from "../layout/Rail";
+import { Diagnostics } from "../tabs/Diagnostics";
 
 // Vite supports ?raw imports natively — each .html file is loaded as a string.
 import lucideSprite from "./_lucide-sprite.html?raw";
@@ -27,11 +28,15 @@ import hvac from "./hvac.html?raw";
 import presence from "./presence.html?raw";
 import security from "./security.html?raw";
 import safety from "./safety.html?raw";
-import diagnostics from "./diagnostics.html?raw";
+import diagnosticsHtml from "./diagnostics.html?raw";
 
-const TAB_HTML: Record<TabId, string> = {
-  home, house, zones, rooms, energy, hvac, presence, security, safety, diagnostics,
+// TAB_HTML carries the legacy static fragments for tabs not yet ported to React.
+// Kept around (incl. diagnosticsHtml) as the visual reference for future ports.
+const TAB_HTML: Record<Exclude<TabId, "diagnostics">, string> = {
+  home, house, zones, rooms, energy, hvac, presence, security, safety,
 };
+// Retained for visual reference / parity diffing during the next 9 tab ports.
+void diagnosticsHtml;
 
 interface Props {
   active: TabId;
@@ -52,5 +57,11 @@ function withActiveClass(html: string): string {
 }
 
 export function TabShell({ active }: Props) {
+  // Ported tabs render via React components; the rest fall through to the
+  // legacy static-HTML path. This is the seam for porting more tabs later —
+  // add a case here per tab as it's converted.
+  if (active === "diagnostics") {
+    return <Diagnostics />;
+  }
   return <div dangerouslySetInnerHTML={{ __html: withActiveClass(TAB_HTML[active]) }} />;
 }
