@@ -908,6 +908,9 @@ ZONE_MODE_SLEEP: Final = "sleep"
 ZONE_MODE_UNKNOWN: Final = "unknown"
 ZONE_MODE_AUTO: Final = "auto"
 
+# v4.6.12: Dashboard aggregator sensors — motion event window
+ZONE_MOTION_WINDOW_SECONDS: Final = 300  # 5 minutes (matches dashboard "Activity (5 min)")
+
 # House state override options (all 9 states + auto)
 HOUSE_STATE_OVERRIDE_OPTIONS: Final = [
     "auto", "away", "arriving", "home_day", "home_evening",

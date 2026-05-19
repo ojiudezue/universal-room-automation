@@ -175,6 +175,8 @@ from .const import (
     # v3.5.1: Zone aggregation sensor keys
     SENSOR_ZONE_IDENTIFIED_PERSONS,
     SENSOR_ZONE_GUEST_COUNT,
+    # v4.6.12: Dashboard aggregator sensors
+    ZONE_MOTION_WINDOW_SECONDS,
 )
 from .coordinator import UniversalRoomCoordinator
 from .domain_coordinators.energy_billing import _get_effective_rate_kwh
@@ -235,6 +237,11 @@ async def async_setup_aggregation_sensors(
         EnergyCostPerOccupiedHourSensor(hass, entry),
         MostExpensiveCircuitSensor(hass, entry),
         OptimizationPotentialSensor(hass, entry),
+
+        # === v4.6.12 Cycle B: DASHBOARD AGGREGATOR SENSORS ===
+        ZoneMotionEventCountSensor(hass, entry),
+        HouseSystemDemandSensor(hass, entry),
+        EnergyGridDemandSensor(hass, entry),
     ]
 
     # === v3.2.0: INTEGRATION PERSON LOCATION SENSORS ===
@@ -4749,3 +4756,230 @@ class ZonePresenceStatusSensor(ZoneSensorBase, SensorEntity):
                 "zone_tracker_count": len(presence.zone_trackers),
             }
         return tracker.to_dict()
+
+
+# ============================================================================
+# v4.6.12 Cycle B: DASHBOARD AGGREGATOR SENSORS
+# ============================================================================
+
+
+def _get_hvac_coordinator(hass: HomeAssistant):
+    """Get the HVAC coordinator instance (lazy, survives reloads)."""
+    manager = hass.data.get(DOMAIN, {}).get("coordinator_manager")
+    if manager is None:
+        return None
+    return manager.coordinators.get("hvac")
+
+
+class ZoneMotionEventCountSensor(AggregationEntity, SensorEntity):
+    """Diagnostic sensor: count of zones with motion in the last 5 minutes.
+
+    v4.6.12: New aggregator sensor for dashboard House tab. Counts DISTINCT
+    zones (per CONF_ZONE) where at least one room coordinator's
+    `_last_motion_time` is within ZONE_MOTION_WINDOW_SECONDS of now.
+    """
+
+    _attr_icon = "mdi:motion-sensor"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = "zones"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_entity_registry_enabled_default = True
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_zones_with_motion"
+        self._attr_name = "Zones With Motion"
+
+    @property
+    def native_value(self) -> int:
+        """Return count of distinct zones with motion in the last 5 minutes."""
+        now = dt_util.utcnow()
+        window = timedelta(seconds=ZONE_MOTION_WINDOW_SECONDS)
+        zones_with_motion: set[str] = set()
+        for coord in _get_room_coordinators(self.hass):
+            try:
+                last = coord._last_motion_time
+            except AttributeError:
+                continue
+            if last is None:
+                continue
+            # bug class #21: tolerate naive datetimes
+            if last.tzinfo is None:
+                last = last.replace(tzinfo=dt_util.UTC)
+            if (now - last) > window:
+                continue
+            # bug class #14: options first, then data
+            zone = coord.entry.options.get(CONF_ZONE) or coord.entry.data.get(CONF_ZONE)
+            if zone:
+                zones_with_motion.add(zone)
+        return len(zones_with_motion)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return per-zone last-motion context (no async, no DB, no mutation)."""
+        now = dt_util.utcnow()
+        window = timedelta(seconds=ZONE_MOTION_WINDOW_SECONDS)
+        zones_with_motion: set[str] = set()
+        for coord in _get_room_coordinators(self.hass):
+            try:
+                last = coord._last_motion_time
+            except AttributeError:
+                continue
+            if last is None:
+                continue
+            if last.tzinfo is None:
+                last = last.replace(tzinfo=dt_util.UTC)
+            if (now - last) > window:
+                continue
+            zone = coord.entry.options.get(CONF_ZONE) or coord.entry.data.get(CONF_ZONE)
+            if zone:
+                zones_with_motion.add(zone)
+        return {
+            "zones": sorted(zones_with_motion),
+            "window_minutes": ZONE_MOTION_WINDOW_SECONDS // 60,
+        }
+
+
+class HouseSystemDemandSensor(AggregationEntity, SensorEntity):
+    """Sensor: HVAC system demand — % of zones actively heating or cooling.
+
+    v4.6.12: New aggregator for HVAC tab header. Defined as
+    round((zones_in_call / total_zones) * 100) using `zone.hvac_action` from
+    the HVAC ZoneManager (mirrors hvac.py:1514). Returns None when HVAC
+    coordinator is unavailable or zero zones are configured.
+    """
+
+    _attr_native_unit_of_measurement = PERCENTAGE
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_icon = "mdi:hvac"
+    _attr_entity_registry_enabled_default = True
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_hvac_system_demand"
+        self._attr_name = "HVAC System Demand"
+
+    @property
+    def available(self) -> bool:
+        """Available only when HVAC coordinator is present."""
+        return _get_hvac_coordinator(self.hass) is not None
+
+    @property
+    def native_value(self) -> int | None:
+        """Return percentage of zones actively heating or cooling."""
+        hvac = _get_hvac_coordinator(self.hass)
+        if hvac is None:
+            return None
+        try:
+            zones = hvac.zone_manager.zones
+        except AttributeError:
+            return None
+        total = len(zones)
+        if total == 0:
+            return None
+        active = sum(
+            1 for z in zones.values()
+            if z.hvac_action in ("cooling", "heating")
+        )
+        return int(round((active / total) * 100))
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return zone breakdown and load bucket (no async, no DB, no mutation)."""
+        hvac = _get_hvac_coordinator(self.hass)
+        if hvac is None:
+            return {}
+        try:
+            zones = hvac.zone_manager.zones
+        except AttributeError:
+            return {}
+        active_names = sorted(
+            z.zone_name for z in zones.values()
+            if z.hvac_action in ("cooling", "heating")
+        )
+        pct = self.native_value or 0
+        if pct == 0:
+            bucket = "idle"
+        elif pct <= 33:
+            bucket = "light"
+        elif pct <= 66:
+            bucket = "moderate"
+        else:
+            bucket = "heavy"
+        return {
+            "active_zones": active_names,
+            "active_count": len(active_names),
+            "total_zones": len(zones),
+            "load_bucket": bucket,
+            "formula": "active_zones / total_zones",
+        }
+
+
+class EnergyGridDemandSensor(AggregationEntity, SensorEntity):
+    """Sensor: current grid import as a percentage of the configured grid cap.
+
+    v4.6.12: New aggregator for the Energy tab. Reads
+    EnergyCoordinator._grid_import_cap_kw + live net_power_w (mirrors
+    energy.py:1453). Returns None when cap is disabled or coordinator is
+    unavailable. Does NOT clamp at 100% — dashboard surfaces excess.
+    """
+
+    _attr_native_unit_of_measurement = PERCENTAGE
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_icon = "mdi:gauge"
+    _attr_entity_registry_enabled_default = True
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_energy_grid_demand"
+        self._attr_name = "Energy Grid Demand"
+
+    @property
+    def available(self) -> bool:
+        """Available only when EC is present and grid import cap is enabled."""
+        ec = _get_energy_coordinator(self.hass)
+        if ec is None:
+            return False
+        if not getattr(ec, "_grid_import_cap_enabled", False):
+            return False
+        if getattr(ec, "_grid_import_cap_kw", 0.0) <= 0:
+            return False
+        return True
+
+    @property
+    def native_value(self) -> float | None:
+        """Return grid import as % of cap. No clamp at 100%."""
+        ec = _get_energy_coordinator(self.hass)
+        if ec is None:
+            return None
+        cap_kw = getattr(ec, "_grid_import_cap_kw", 0.0)
+        if cap_kw <= 0 or not getattr(ec, "_grid_import_cap_enabled", False):
+            return None
+        try:
+            net_w = ec._battery.net_power_w
+        except AttributeError:
+            return None
+        if net_w is None:
+            return None
+        grid_kw = max(net_w, 0) / 1000.0
+        return round((grid_kw / cap_kw) * 100.0, 1)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return grid import detail (no async, no DB, no mutation)."""
+        ec = _get_energy_coordinator(self.hass)
+        if ec is None:
+            return {}
+        cap_kw = getattr(ec, "_grid_import_cap_kw", 0.0)
+        cap_enabled = getattr(ec, "_grid_import_cap_enabled", False)
+        battery = getattr(ec, "_battery", None)
+        net_w = getattr(battery, "net_power_w", None)
+        grid_kw: float | None = None
+        if net_w is not None:
+            grid_kw = round(max(net_w, 0) / 1000.0, 3)
+        return {
+            "grid_import_kw": grid_kw,
+            "grid_import_cap_kw": cap_kw,
+            "grid_import_cap_enabled": cap_enabled,
+            "exporting": net_w is not None and net_w < 0,
+        }
