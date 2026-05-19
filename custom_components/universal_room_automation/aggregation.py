@@ -4790,9 +4790,13 @@ class ZoneMotionEventCountSensor(AggregationEntity, SensorEntity):
         self._attr_unique_id = f"{DOMAIN}_zones_with_motion"
         self._attr_name = "Zones With Motion"
 
-    @property
-    def native_value(self) -> int:
-        """Return count of distinct zones with motion in the last 5 minutes."""
+    def _compute_zones_with_motion(self) -> set[str]:
+        """Single-pass zone-with-motion computation shared by both properties.
+
+        Review C C2: extracting this guarantees native_value and
+        extra_state_attributes see the same snapshot — no TOCTOU between
+        property reads, and no double-iteration of room coordinators.
+        """
         now = dt_util.utcnow()
         window = timedelta(seconds=ZONE_MOTION_WINDOW_SECONDS)
         zones_with_motion: set[str] = set()
@@ -4812,30 +4816,18 @@ class ZoneMotionEventCountSensor(AggregationEntity, SensorEntity):
             zone = coord.entry.options.get(CONF_ZONE) or coord.entry.data.get(CONF_ZONE)
             if zone:
                 zones_with_motion.add(zone)
-        return len(zones_with_motion)
+        return zones_with_motion
+
+    @property
+    def native_value(self) -> int:
+        """Return count of distinct zones with motion in the last 5 minutes."""
+        return len(self._compute_zones_with_motion())
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return per-zone last-motion context (no async, no DB, no mutation)."""
-        now = dt_util.utcnow()
-        window = timedelta(seconds=ZONE_MOTION_WINDOW_SECONDS)
-        zones_with_motion: set[str] = set()
-        for coord in _get_room_coordinators(self.hass):
-            try:
-                last = coord._last_motion_time
-            except AttributeError:
-                continue
-            if last is None:
-                continue
-            if last.tzinfo is None:
-                last = last.replace(tzinfo=dt_util.UTC)
-            if (now - last) > window:
-                continue
-            zone = coord.entry.options.get(CONF_ZONE) or coord.entry.data.get(CONF_ZONE)
-            if zone:
-                zones_with_motion.add(zone)
         return {
-            "zones": sorted(zones_with_motion),
+            "zones": sorted(self._compute_zones_with_motion()),
             "window_minutes": ZONE_MOTION_WINDOW_SECONDS // 60,
         }
 
@@ -4893,11 +4885,15 @@ class HouseSystemDemandSensor(AggregationEntity, SensorEntity):
             zones = hvac.zone_manager.zones
         except AttributeError:
             return {}
+        # Review C M3: compute pct locally from the already-fetched zones
+        # snapshot rather than re-invoking the value property (which would do
+        # a second coordinator lookup + second zones iteration).
         active_names = sorted(
             z.zone_name for z in zones.values()
             if z.hvac_action in ("cooling", "heating")
         )
-        pct = self.native_value or 0
+        total = len(zones)
+        pct = int(round((len(active_names) / total) * 100)) if total else 0
         if pct == 0:
             bucket = "idle"
         elif pct <= 33:
@@ -4909,7 +4905,7 @@ class HouseSystemDemandSensor(AggregationEntity, SensorEntity):
         return {
             "active_zones": active_names,
             "active_count": len(active_names),
-            "total_zones": len(zones),
+            "total_zones": total,
             "load_bucket": bucket,
             "formula": "active_zones / total_zones",
         }

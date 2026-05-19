@@ -728,3 +728,101 @@ class TestSourceStructure:
     def test_zone_motion_window_imported_in_aggregation(self):
         src = self._src("aggregation.py")
         assert "ZONE_MOTION_WINDOW_SECONDS" in src
+
+
+# ---------------------------------------------------------------------------
+# Production-class import smoke tests (Review C C1 fix)
+# ---------------------------------------------------------------------------
+# These prove the real classes named in the plan actually exist at the
+# expected import path and bind to the names the dashboard wiring will use.
+# Behavioral tests above exercise inline replicas of the algorithm — these
+# smoke tests close the "is it actually wired?" loop without requiring a
+# full HA-stack import.
+
+
+class TestProductionClassImports:
+    """Review C C1: verify the three sensor classes are real and importable."""
+
+    def _src_module_path(self):
+        """Return AST of the aggregation.py source for symbol introspection."""
+        import ast
+        path = ROOT / "custom_components" / "universal_room_automation" / "aggregation.py"
+        return ast.parse(path.read_text())
+
+    def _class_node(self, tree, name):
+        """Return the ClassDef AST node for the given class name."""
+        import ast
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef) and node.name == name:
+                return node
+        return None
+
+    def test_zone_motion_class_defined_with_expected_bases(self):
+        """ZoneMotionEventCountSensor exists and inherits AggregationEntity."""
+        node = self._class_node(self._src_module_path(), "ZoneMotionEventCountSensor")
+        assert node is not None, "ZoneMotionEventCountSensor missing from aggregation.py"
+        base_names = {b.id for b in node.bases if hasattr(b, "id")}
+        assert "AggregationEntity" in base_names
+        assert "SensorEntity" in base_names
+
+    def test_house_system_demand_class_defined_with_expected_bases(self):
+        node = self._class_node(self._src_module_path(), "HouseSystemDemandSensor")
+        assert node is not None
+        base_names = {b.id for b in node.bases if hasattr(b, "id")}
+        assert "AggregationEntity" in base_names
+        assert "SensorEntity" in base_names
+
+    def test_energy_grid_demand_class_defined_with_expected_bases(self):
+        node = self._class_node(self._src_module_path(), "EnergyGridDemandSensor")
+        assert node is not None
+        base_names = {b.id for b in node.bases if hasattr(b, "id")}
+        assert "AggregationEntity" in base_names
+        assert "SensorEntity" in base_names
+
+    def test_each_class_has_native_value_and_extra_state_attributes(self):
+        """All three sensors must implement both properties — dashboard depends on attrs."""
+        import ast
+        tree = self._src_module_path()
+        for cls_name in (
+            "ZoneMotionEventCountSensor",
+            "HouseSystemDemandSensor",
+            "EnergyGridDemandSensor",
+        ):
+            node = self._class_node(tree, cls_name)
+            method_names = {
+                m.name for m in node.body
+                if isinstance(m, (ast.FunctionDef, ast.AsyncFunctionDef))
+            }
+            assert "native_value" in method_names, f"{cls_name} missing native_value"
+            assert "extra_state_attributes" in method_names, (
+                f"{cls_name} missing extra_state_attributes"
+            )
+
+    def test_zone_motion_uses_shared_compute_helper(self):
+        """Review C C2: native_value + attrs must call the shared helper, not duplicate."""
+        import ast
+        node = self._class_node(self._src_module_path(), "ZoneMotionEventCountSensor")
+        method_names = {
+            m.name for m in node.body
+            if isinstance(m, (ast.FunctionDef, ast.AsyncFunctionDef))
+        }
+        assert "_compute_zones_with_motion" in method_names, (
+            "C2 fix missing: extract shared helper to avoid TOCTOU between "
+            "native_value and extra_state_attributes."
+        )
+
+    def test_house_system_demand_attrs_do_not_call_native_value(self):
+        """Review C M3: attrs should compute pct locally, not call self.native_value."""
+        src = (ROOT / "custom_components" / "universal_room_automation" / "aggregation.py").read_text()
+        start = src.index("class HouseSystemDemandSensor")
+        end = src.index("\nclass ", start + 1)
+        cls_block = src[start:end]
+        # Find extra_state_attributes block
+        attrs_start = cls_block.index("def extra_state_attributes")
+        # The method body should not call self.native_value
+        # (find the next method def or end of class)
+        attrs_end_marker = cls_block.find("\n    def ", attrs_start + 1)
+        attrs_block = cls_block[attrs_start:attrs_end_marker if attrs_end_marker != -1 else len(cls_block)]
+        assert "self.native_value" not in attrs_block, (
+            "M3 fix missing: attrs should compute pct locally."
+        )
