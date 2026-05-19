@@ -18,15 +18,12 @@ export function GlobalStyles() {
         touch-action: manipulation;
       }
 
+      /* v5.0 D1: body font-family + color + background owned by p6-shared.css
+         (body.light overrides for P6). Keep only the safe defaults here. */
       body {
-        font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', Roboto, sans-serif;
-        color: rgba(255, 255, 255, 0.95);
-        background: #060612;
         overflow-x: hidden;
         -webkit-font-smoothing: antialiased;
         -moz-osx-font-smoothing: grayscale;
-        font-size: 16px;
-        line-height: 1.5;
       }
 
       #root {

@@ -1,34 +1,48 @@
 /**
- * App shell: wraps the tab bar and tab content area.
- * Provides the background layer and overall layout structure.
+ * App shell — P6 light Navet-styled.
+ * Two-pane layout: left rail (>768px) or top mobile-tabs (≤768px), main content.
+ * Body classes applied: body.navet body.light, plus data-active-tab attribute
+ * for per-tab mood gradients (see p6-shared.css body[data-active-tab="..."]).
  */
-import { type ReactNode } from "react";
-import { color, space, zIndex } from "../../design/tokens";
+import { useEffect, type ReactNode } from "react";
+import { Rail, type TabId } from "./Rail";
+import { MobileTabs } from "./MobileTabs";
 
 interface Props {
-  tabBar: ReactNode;
+  active: TabId;
+  onChange: (id: TabId) => void;
   children: ReactNode;
 }
 
-const shellStyle: React.CSSProperties = {
-  position: "relative",
-  minHeight: "100dvh",
-  background: `linear-gradient(180deg, ${color.surface.base} 0%, #060612 100%)`,
-};
+// Threshold below which P6's mobile collapse (rail → top-strip + denser knobs)
+// kicks in. Matches docs/dashboard-prototypes/v4/shared.css @media (max-width: 768px).
+const MOBILE_MAX = 768;
 
-const contentStyle: React.CSSProperties = {
-  position: "relative",
-  zIndex: zIndex.base,
-  padding: `${space.md}px ${space.md}px ${space["3xl"]}px`,
-  maxWidth: 1400,
-  margin: "0 auto",
-};
+export function Shell({ active, onChange, children }: Props) {
+  // Lock P6 finish: body.navet body.light, plus data-active-tab for mood gradients.
+  useEffect(() => {
+    const body = document.body;
+    body.classList.add("navet", "light");
+    body.dataset.activeTab = active;
+  }, [active]);
 
-export function Shell({ tabBar, children }: Props) {
+  // Auto-toggle body.mobile based on viewport width so P6's mobile CSS rules
+  // (rail collapse, knob span overrides, etc.) apply correctly without manual
+  // viewport-toggle interaction.
+  useEffect(() => {
+    const sync = () => {
+      document.body.classList.toggle("mobile", window.innerWidth <= MOBILE_MAX);
+    };
+    sync();
+    window.addEventListener("resize", sync);
+    return () => window.removeEventListener("resize", sync);
+  }, []);
+
   return (
-    <div style={shellStyle}>
-      {tabBar}
-      <main style={contentStyle} role="tabpanel">
+    <div className="app">
+      <Rail active={active} onChange={onChange} />
+      <main className="main">
+        <MobileTabs active={active} onChange={onChange} />
         {children}
       </main>
     </div>

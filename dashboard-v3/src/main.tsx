@@ -9,9 +9,18 @@ import { HassConnect } from "@hakit/core";
 import App from "./App";
 import { GlobalStyles } from "./design/GlobalStyles";
 import { color, type as typography } from "./design/tokens";
+import "./design/p6-shared.css"; // v5.0 D1: import P6 prototype stylesheet as canonical
 
 function Root() {
   const [hassUrl, setHassUrl] = useState<string | null>(null);
+
+  // v5.0 D1: detect dev mode (vite dev server or ?dev query param) and mount
+  // App directly without HassConnect so visual iteration / Playwright works
+  // without a live HA token. Tab content is placeholders in D1 anyway.
+  const isDev = (
+    import.meta.env.DEV ||
+    new URLSearchParams(window.location.search).has("dev")
+  );
 
   useEffect(() => {
     const handler = (event: MessageEvent) => {
@@ -38,6 +47,16 @@ function Root() {
     window.addEventListener("message", handler);
     return () => window.removeEventListener("message", handler);
   }, []);
+
+  // Dev mode: skip the HassConnect wrapper so the layout renders without auth.
+  if (isDev) {
+    return (
+      <>
+        <GlobalStyles />
+        <App />
+      </>
+    );
+  }
 
   if (!hassUrl) {
     return (

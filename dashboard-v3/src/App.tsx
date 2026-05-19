@@ -1,50 +1,64 @@
 /**
- * URA v3 Dashboard -- App root.
- * Tab-based SPA with lazy mounting and persistent state.
+ * URA Dashboard v5.0 — App root (P6 light Navet-styled).
+ * 10 tabs across Overview / Systems / URA groups per dashboard v4 fulcrum P2.
+ * Tab content for v5.0 D1 is stub placeholders; live wiring per D3-D7.
  */
 import { useState, useRef } from "react";
 import { Shell } from "./components/layout/Shell";
-import { TabBar, type TabId } from "./components/layout/TabBar";
-import { OverviewTab } from "./components/tabs/OverviewTab";
-import { PresenceTab } from "./components/tabs/PresenceTab";
-import { RoomsTab } from "./components/tabs/RoomsTab";
-import { EnergyTab } from "./components/tabs/EnergyTab";
-import { HVACTab } from "./components/tabs/HVACTab";
-import { SecurityTab } from "./components/tabs/SecurityTab";
-import { DiagnosticsTab } from "./components/tabs/DiagnosticsTab";
+import type { TabId } from "./components/layout/Rail";
 
-const TAB_COMPONENTS: Record<TabId, React.FC> = {
-  overview: OverviewTab,
-  presence: PresenceTab,
-  rooms: RoomsTab,
-  energy: EnergyTab,
-  hvac: HVACTab,
-  security: SecurityTab,
-  diagnostics: DiagnosticsTab,
+function TabPlaceholder({ id, label }: { id: TabId; label: string }) {
+  return (
+    <div style={{ padding: "var(--space-lg)" }}>
+      <h1 style={{
+        fontSize: "var(--text-xl)",
+        fontWeight: 700,
+        margin: "0 0 var(--space-md)",
+        color: "var(--text-primary)",
+      }}>
+        {label}
+      </h1>
+      <p style={{ color: "var(--text-secondary)" }}>
+        Tab <code>{id}</code> — placeholder. Live-wired content lands in D3-D7.
+      </p>
+    </div>
+  );
+}
+
+const TAB_LABELS: Record<TabId, string> = {
+  home: "Home",
+  house: "House",
+  zones: "Zones",
+  rooms: "Rooms",
+  energy: "Energy",
+  hvac: "HVAC",
+  presence: "Presence",
+  security: "Security",
+  safety: "Safety",
+  diagnostics: "Diagnostics",
 };
 
+const ALL_TABS = Object.keys(TAB_LABELS) as TabId[];
+
 export default function App() {
-  const [activeTab, setActiveTab] = useState<TabId>("overview");
-  // Track visited tabs for lazy mounting (keep alive once mounted)
-  const visited = useRef<Set<TabId>>(new Set(["overview"]));
+  const [active, setActive] = useState<TabId>("home");
+  const visited = useRef<Set<TabId>>(new Set(["home"]));
 
   const switchTab = (id: TabId) => {
     visited.current.add(id);
-    setActiveTab(id);
+    setActive(id);
   };
 
   return (
-    <Shell tabBar={<TabBar active={activeTab} onChange={switchTab} />}>
-      {(Object.keys(TAB_COMPONENTS) as TabId[]).map((tabId) => {
+    <Shell active={active} onChange={switchTab}>
+      {ALL_TABS.map((tabId) => {
         if (!visited.current.has(tabId)) return null;
-        const Component = TAB_COMPONENTS[tabId];
         return (
           <div
             key={tabId}
-            style={{ display: tabId === activeTab ? "block" : "none" }}
-            className="animate-fade-in"
+            style={{ display: tabId === active ? "block" : "none" }}
           >
-            <Component />
+            <TabPlaceholder id={tabId} label={TAB_LABELS[tabId]} />
           </div>
         );
       })}

@@ -59,6 +59,12 @@ dmypy.json
 # Dashboard build artifacts (source only — built output ships in frontend/)
 dashboard/node_modules/
 dashboard/dist/
+dashboard-v3/node_modules/
+dashboard-v3/dist/
+# Playwright artifacts (dev-only visual diff tool)
+dashboard-v3/test-results/
+dashboard-v3/playwright-report/
+dashboard-v3/playwright/.cache/
 
 # Temporary files
 *.tmp
