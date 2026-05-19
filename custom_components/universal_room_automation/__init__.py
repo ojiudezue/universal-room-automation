@@ -1420,6 +1420,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # NOTE: Zone Manager and Coordinator Manager devices are now registered
         # under their own config entries (not under the integration entry).
         # This prevents duplicate display on the integration page.
+        # v4.6.10 D1: Capture setup start timestamp (Bug Class #21: dt_util, not datetime).
+        _setup_started = None
+        try:
+            from homeassistant.util import dt as _dt_util_telem
+            _setup_started = _dt_util_telem.utcnow()
+        except Exception:
+            _LOGGER.debug("v4.6.10: setup telemetry start capture failed (non-fatal)", exc_info=True)
+
         if merged_config.get(CONF_DOMAIN_COORDINATORS_ENABLED, False):
             try:
                 from .domain_coordinators.manager import CoordinatorManager
@@ -2006,6 +2014,77 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 await coordinator_manager.async_start()
                 hass.data[DOMAIN]["coordinator_manager"] = coordinator_manager
                 _LOGGER.info("Domain Coordinator Manager initialized and started")
+
+                # v4.6.10 D1: Stash setup telemetry — LAST thing in CM init block.
+                # Failure here is non-fatal; integration is fully functional without it.
+                try:
+                    from homeassistant.util import dt as _dt_telem2
+                    if _setup_started is not None:
+                        _setup_completed = _dt_telem2.utcnow()
+                        _duration_s = (_setup_completed - _setup_started).total_seconds()
+                        _room_count = sum(
+                            1
+                            for _ce in hass.config_entries.async_entries(DOMAIN)
+                            if _ce.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_ROOM
+                        )
+                        hass.data[DOMAIN]["setup_telemetry"] = {
+                            "started": _setup_started,
+                            "completed": _setup_completed,
+                            "duration_seconds": _duration_s,
+                            "coordinator_count": len(coordinator_manager.coordinators),
+                            "room_count": _room_count,
+                        }
+                        _LOGGER.debug(
+                            "v4.6.10: setup telemetry captured: duration=%.3fs "
+                            "coordinators=%d rooms=%d",
+                            _duration_s,
+                            len(coordinator_manager.coordinators),
+                            _room_count,
+                        )
+                except Exception:
+                    _LOGGER.debug("v4.6.10: setup telemetry stash failed (non-fatal)", exc_info=True)
+
+                # v4.6.10 D3: Push one observation per boot into CM-level anomaly detector.
+                # Bug Class #19: use entry.async_create_background_task so the task is
+                # tracked and cancelled on entry unload.
+                def _make_observation_coro():
+                    async def _push_setup_observation():
+                        try:
+                            _cm = hass.data.get(DOMAIN, {}).get("coordinator_manager")
+                            if _cm is None:
+                                return
+                            _det = getattr(_cm, "_setup_anomaly_detector", None)
+                            if _det is None:
+                                return
+                            _telem = hass.data.get(DOMAIN, {}).get("setup_telemetry")
+                            if _telem is None:
+                                return
+                            _dur = _telem.get("duration_seconds")
+                            if _dur is None:
+                                return
+                            _anomaly = _det.record_observation(
+                                metric_name="setup_duration_seconds",
+                                scope="house",
+                                value=float(_dur),
+                            )
+                            if _anomaly is not None:
+                                _LOGGER.info(
+                                    "v4.6.10: setup_duration_seconds anomaly detected "
+                                    "(z=%.2f severity=%s) — in-memory only until 10+ boots",
+                                    _anomaly.z_score, _anomaly.severity.value,
+                                )
+                        except Exception:
+                            _LOGGER.debug(
+                                "v4.6.10: setup anomaly observation push failed (non-fatal)",
+                                exc_info=True,
+                            )
+                    return _push_setup_observation()
+
+                entry.async_create_background_task(
+                    hass,
+                    _make_observation_coro(),
+                    "ura_setup_duration_observation",
+                )
             except Exception as e:
                 _LOGGER.error("Failed to initialize Coordinator Manager: %s", e)
                 import traceback

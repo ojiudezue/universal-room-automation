@@ -278,6 +278,8 @@ async def async_setup_entry(
             URAMemoryDeltaSensor(hass, entry),
             # v4.6.3 D12: Recent anomalies house-level sensor
             URARecentAnomaliesSensor(hass, entry),
+            # v4.6.10 D2: Setup duration diagnostic sensor
+            URASetupDurationSensor(hass, entry),
         ]
         # v3.8.0-H1: Add per-zone HVAC sensors dynamically
         # v4.5.13.1: Use canonical-zone helper for thermostat-keyed dedup
@@ -6043,12 +6045,15 @@ class EnergyPredictedBillSensor(AggregationEntity, SensorEntity):
 
     Entity: sensor.ura_energy_predicted_bill
     Device: URA: Energy Coordinator
+
+    v4.6.10 D6: removed state_class MEASUREMENT — MONETARY + MEASUREMENT is rejected by
+    HA recorder (HA core issues #86780, #88457, #115692).  Predicted bill is an
+    instantaneous estimate, so no state_class is the correct pattern.
     """
 
     _attr_has_entity_name = True
     _attr_icon = "mdi:receipt-text"
     _attr_device_class = SensorDeviceClass.MONETARY
-    _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_native_unit_of_measurement = "USD"
     _attr_suggested_display_precision = 2
 
@@ -6262,12 +6267,16 @@ class EnergyArbitrageSavingsCycleSensor(AggregationEntity, SensorEntity):
 
 
 class EnergyArbitrageSavingsTotalSensor(AggregationEntity, SensorEntity):
-    """v4.3.0 D4: Lifetime arbitrage savings since v4.3.0 deploy."""
+    """v4.3.0 D4: Lifetime arbitrage savings since v4.3.0 deploy.
+
+    v4.6.10 D6: state_class TOTAL_INCREASING → TOTAL (MONETARY + TOTAL_INCREASING
+    rejected by HA recorder).  TOTAL is correct for lifetime accumulators.
+    """
 
     _attr_has_entity_name = True
     _attr_icon = "mdi:cash-100"
     _attr_device_class = SensorDeviceClass.MONETARY
-    _attr_state_class = SensorStateClass.TOTAL_INCREASING
+    _attr_state_class = SensorStateClass.TOTAL
     _attr_native_unit_of_measurement = "USD"
     _attr_suggested_display_precision = 2
 
@@ -10484,3 +10493,61 @@ class URARecentAnomaliesSensor(AggregationEntity, SensorEntity):
             "by_type": self._by_type,
             "window_hours": 24,
         }
+
+
+class URASetupDurationSensor(AggregationEntity, SensorEntity):
+    """Diagnostic sensor: URA async_setup_entry duration (last boot).
+
+    Entity: sensor.ura_setup_duration_seconds
+    Device: URA: Coordinator Manager
+
+    v4.6.10 D2: Surfaces the boot-time telemetry captured in D1 so HA's
+    history graph shows setup duration trend across reboots.
+    Reads from hass.data[DOMAIN]["setup_telemetry"] — populated by
+    __init__.py immediately after coordinator_manager.async_start() returns.
+    """
+
+    _attr_device_class = SensorDeviceClass.DURATION
+    _attr_native_unit_of_measurement = "s"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_entity_registry_enabled_default = True
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:timer-outline"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_setup_duration_seconds"
+        self._attr_name = "URA Setup Duration"
+        # D2: Override AggregationEntity's default (DOMAIN, "integration") device
+        # to attach to the CM device — confirmed by reading AggregationEntity.__init__
+        # which sets identifiers={(DOMAIN, "integration")}. CM sensors use _cm_device_info().
+        self._attr_device_info = _cm_device_info()
+
+    @property
+    def native_value(self) -> float | None:
+        """Return last boot setup duration in seconds, or None if not yet captured."""
+        try:
+            telem = self.hass.data.get(DOMAIN, {}).get("setup_telemetry")
+            if not telem:
+                return None
+            return round(float(telem.get("duration_seconds", 0)), 3)
+        except Exception:
+            _LOGGER.debug("URASetupDurationSensor: native_value read failed", exc_info=True)
+            return None
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return timing breakdown and counts from last boot."""
+        try:
+            telem = self.hass.data.get(DOMAIN, {}).get("setup_telemetry") or {}
+            return {
+                "started_at": telem.get("started"),
+                "completed_at": telem.get("completed"),
+                "coordinator_count": telem.get("coordinator_count"),
+                "room_count": telem.get("room_count"),
+            }
+        except Exception:
+            _LOGGER.debug("URASetupDurationSensor: extra_state_attributes read failed", exc_info=True)
+            return {}
