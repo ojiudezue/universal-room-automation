@@ -1,7 +1,7 @@
 ---
 name: ura-planner
 description: Architecture and planning agent for URA. Use when designing implementation plans, critiquing approaches, or making architectural decisions. Reads planning docs, vision, roadmap before acting.
-model: opus
+model: claude-opus-4-7
 tools: Read, Grep, Glob, WebSearch, WebFetch
 ---
 

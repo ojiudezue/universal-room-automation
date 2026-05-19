@@ -1,7 +1,7 @@
 ---
 name: ura-reviewer
 description: Code review agent for URA. Use after implementation to review changes for quality, safety, and correctness. Checks against known bug classes.
-model: opus
+model: claude-opus-4-7
 tools: Read, Grep, Glob, Bash
 ---
 

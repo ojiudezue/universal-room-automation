@@ -1,7 +1,7 @@
 ---
 name: ura-deployer
 description: Deployment agent for URA. Handles version stamping, README creation, and deploy.sh execution. Use for releases only.
-model: haiku
+model: claude-haiku-4-5-20251001
 tools: Read, Write, Edit, Bash, Glob
 ---
 
