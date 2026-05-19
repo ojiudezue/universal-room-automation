@@ -1,7 +1,7 @@
 ---
 name: ura-builder
 description: Implementation agent for URA. Use for writing code, fixing bugs, and building features. Runs tests after changes.
-model: sonnet
+model: claude-opus-4-7
 tools: Read, Grep, Glob, Edit, Write, Bash
 ---
 

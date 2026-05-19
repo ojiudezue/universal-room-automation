@@ -144,6 +144,22 @@ class CoordinatorManager:
         # v3.6.29: Notification Manager (not a coordinator — standalone service)
         self._notification_manager = None
 
+        # v4.6.10 D3: CM-level anomaly detector for URA self-instrumentation.
+        # Wrapped so detector failure does NOT prevent CM construction (CM failing = URA dead).
+        try:
+            self._setup_anomaly_detector = AnomalyDetector(
+                hass=hass,
+                coordinator_id="coordinator_manager",
+                metric_names=["setup_duration_seconds"],
+                minimum_samples=10,
+            )
+        except Exception:
+            _LOGGER.debug(
+                "v4.6.10: CM setup_anomaly_detector init failed (non-fatal)",
+                exc_info=True,
+            )
+            self._setup_anomaly_detector = None
+
     @property
     def device_info(self) -> DeviceInfo:
         """Return device info for the Coordinator Manager device."""

@@ -1,6 +1,6 @@
 """Person tracking coordinator for Universal Room Automation."""
 #
-# Universal Room Automation vv4.6.9
+# Universal Room Automation vv4.6.10
 # Build: 2026-01-03
 # File: person_coordinator.py
 # v3.2.9: No changes (zone fixes in aggregation.py, fan fixes in automation.py)
@@ -1012,7 +1012,7 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
         Never clobbers live data populated by the coordinator.
 
         Args:
-            person_name: Key in self._data (matches existing getter convention).
+            person_name: Key in self.data (matches existing getter convention).
             location:    The persisted location string from the last HA state.
         """
         if self.data is None:
@@ -1044,7 +1044,7 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
         missing. Never clobbers live data.
 
         Args:
-            person_name: Key in self._data.
+            person_name: Key in self.data.
             time:        Timezone-aware datetime parsed by dt_util.parse_datetime.
         """
         if self.data is None:
