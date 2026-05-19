@@ -2045,16 +2045,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 except Exception:
                     _LOGGER.debug("v4.6.10: setup telemetry stash failed (non-fatal)", exc_info=True)
 
-                # v4.6.10 D3: SCAFFOLD ONLY in this cycle — observation push wired but
-                # the AnomalyDetector baseline is in-memory and does NOT persist across
-                # HA restarts. Each restart resets _baselines to {}, so minimum_samples=10
-                # is NEVER reached and anomalies will not fire from this metric.
-                #
-                # The full pipeline (baseline persistence + AnomalyEvent construction +
-                # store_event call for DB persistence + NM dispatch) is filed for v4.6.11
-                # in docs/BACKLOG.md. This cycle ships the scaffolding (sensor + observation
-                # wiring) without functional detection — design accepted by reviewer pair
-                # 2026-05-18 (Tier 2 Review A C1 + Review B B1, both flagged the same gap).
+                # v4.6.11 D1: Full pipeline — construct → load_baselines on async_start
+                # (manager.py) → record_observation → save_baselines → store_event →
+                # anomaly_log row visible via URARecentAnomaliesSensor.
                 #
                 # Bug Class #19: use entry.async_create_background_task so the task is
                 # tracked and cancelled on entry unload.
@@ -2080,16 +2073,61 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                                 scope="house",
                                 value=float(_dur),
                             )
+                            # save_baselines ALWAYS — even when no anomaly returned.
+                            # Without this, the baseline never persists and
+                            # minimum_samples=10 is unreachable across restarts.
+                            await _det.save_baselines()
                             if _anomaly is not None:
-                                # NOTE: This log line will never fire in practice because
-                                # the in-memory baseline resets every restart and never
-                                # accumulates the 10 samples needed for z-score evaluation.
-                                # See v4.6.11 backlog entry for the persistence work.
-                                _LOGGER.info(
-                                    "v4.6.10: setup_duration_seconds observation "
-                                    "(z=%.2f severity=%s) — scaffold-only, no dispatch",
-                                    _anomaly.z_score, _anomaly.severity.value,
+                                from .domain_coordinators.anomaly_event import (
+                                    AnomalyEvent,
+                                    EVENT_CLASS_POINT_IN_TIME,
+                                    build_context_json,
+                                    map_diag_severity,
                                 )
+                                _ctx = build_context_json(
+                                    source_signal="URA_SETUP_COMPLETE",
+                                    extra={
+                                        "duration_seconds": _dur,
+                                        "coordinator_count": _telem.get("coordinator_count"),
+                                        "room_count": _telem.get("room_count"),
+                                    },
+                                )
+                                _event = AnomalyEvent(
+                                    coordinator="coordinator_manager",
+                                    type="coordinator_manager.setup_duration_seconds",
+                                    severity=map_diag_severity(_anomaly.severity),
+                                    event_class=EVENT_CLASS_POINT_IN_TIME,
+                                    detected_at=_anomaly.timestamp.isoformat(),
+                                    payload=_ctx,
+                                    observed_value=_anomaly.observed_value,
+                                    expected_mean=_anomaly.expected_mean,
+                                    expected_std=_anomaly.expected_std,
+                                    z_score=round(_anomaly.z_score, 3),
+                                    sample_size=_anomaly.sample_size,
+                                )
+                                await _det.store_event(_event)
+                                _LOGGER.info(
+                                    "v4.6.11 D1: setup_duration_seconds anomaly emitted: "
+                                    "z=%.2f severity=%s dur=%.2fs",
+                                    _anomaly.z_score, _anomaly.severity.value, _dur,
+                                )
+                                _activity_logger = hass.data.get(DOMAIN, {}).get("activity_logger")
+                                if _activity_logger:
+                                    await _activity_logger.log(
+                                        coordinator="coordinator_manager",
+                                        action="anomaly",
+                                        description=(
+                                            f"Setup duration anomaly: "
+                                            f"{_dur:.2f}s "
+                                            f"(z={_anomaly.z_score:.2f})"
+                                        ),
+                                        importance="notable",
+                                        details={
+                                            "type": "coordinator_manager.setup_duration_seconds",
+                                            "z_score": round(_anomaly.z_score, 3),
+                                            "duration_seconds": _dur,
+                                        },
+                                    )
                         except Exception:
                             _LOGGER.debug(
                                 "v4.6.10: setup anomaly observation push failed (non-fatal)",

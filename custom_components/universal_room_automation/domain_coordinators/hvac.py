@@ -1702,6 +1702,20 @@ class HVACCoordinator(BaseCoordinator):
         attrs["last_pre_arrival_time"] = self._last_pre_arrival_time.isoformat() if self._last_pre_arrival_time else None
         attrs["last_pre_arrival_source"] = self._last_pre_arrival_source
         attrs["last_pre_arrival_person"] = self._last_pre_arrival_person
+        # v4.6.11 D4.6: zone_limits — per-zone target temperature bounds.
+        # get_zone_status_attrs() shape: see hvac_zones.py:502.
+        zone_limits: dict[str, dict[str, float | None]] = {}
+        try:
+            for zone_id, zone in self._zone_manager.zones.items():
+                zone_attrs = self._zone_manager.get_zone_status_attrs(zone_id)
+                friendly_name = zone_attrs.get("friendly_name", zone_id)
+                zone_limits[friendly_name] = {
+                    "cool_low": zone_attrs.get("target_temp_low"),
+                    "heat_high": zone_attrs.get("target_temp_high"),
+                }
+        except Exception:
+            pass
+        attrs["zone_limits"] = zone_limits
         return attrs
 
     async def async_teardown(self) -> None:

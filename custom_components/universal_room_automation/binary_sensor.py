@@ -40,6 +40,7 @@ from .const import (
     STATE_DARK,
     STATE_TEMPERATURE,
     STATE_HUMIDITY,
+    STATE_TIME_SINCE_OCCUPIED,
     ATTR_LAST_MOTION,
     ATTR_TIMEOUT,
     CONF_DOOR_SENSORS,
@@ -346,6 +347,31 @@ class OccupiedBinarySensor(UniversalRoomEntity, BinarySensorEntity, RestoreEntit
             attrs["last_timed_close_date"] = (
                 self.coordinator.automation._last_timed_close_date
             )
+        # v4.6.11 D4.3: idle_duration — seconds since room was last occupied.
+        # Zero when occupied, STATE_TIME_SINCE_OCCUPIED when vacant.
+        try:
+            if self.is_on:
+                attrs["idle_duration"] = 0
+            else:
+                attrs["idle_duration"] = (
+                    self.coordinator.data.get(STATE_TIME_SINCE_OCCUPIED)
+                    if self.coordinator.data else None
+                )
+        except Exception:
+            attrs["idle_duration"] = None
+        # v4.6.11 D4.4: current_persons — list of person names tracked in this room.
+        # Returns [] not None (UI expects array — Bug Class #8).
+        # Reads from person_coordinator registered under hass.data[DOMAIN]["person_coordinator"].
+        try:
+            _persons: list[str] = []
+            _pc = self.hass.data.get(DOMAIN, {}).get("person_coordinator")
+            if _pc is not None:
+                _room_name = self.coordinator.entry.data.get("room_name", "")
+                if _room_name:
+                    _persons = _pc.get_room_occupants(_room_name) or []
+            attrs["current_persons"] = _persons
+        except Exception:
+            attrs["current_persons"] = []
         return attrs
 
 

@@ -28,6 +28,7 @@ import aiosqlite
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.event import async_call_later
+from homeassistant.util import dt as dt_util
 
 from ..const import DOMAIN
 
@@ -795,7 +796,7 @@ class AnomalyDetector:
 
     def _maybe_reset_daily_counter(self) -> None:
         """Reset daily anomaly counter if date changed."""
-        today = datetime.utcnow().date().isoformat()
+        today = dt_util.utcnow().date().isoformat()
         if today != self._anomaly_reset_date:
             self._anomalies_today = 0
             self._anomaly_reset_date = today
@@ -821,7 +822,7 @@ class AnomalyDetector:
                 self._maybe_reset_daily_counter()
                 self._anomalies_today += 1
                 anomaly = AnomalyRecord(
-                    timestamp=datetime.utcnow(),
+                    timestamp=dt_util.utcnow(),
                     coordinator_id=self.coordinator_id,
                     scope=scope,
                     metric_name=metric_name,
