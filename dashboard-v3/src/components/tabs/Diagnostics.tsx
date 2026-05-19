@@ -31,26 +31,20 @@ import {
   useUraSensorFloat,
   useUraSensorAttrs,
   useUraSensorState,
-  formatClockTime,
 } from "../../data/useUraSensor";
+import {
+  statusToCardClass,
+  statusToBadge,
+  num,
+  formatClockTime,
+} from "../../data/statusColors";
+import type {
+  PerCoordinatorStatus,
+  SummaryAttrs,
+} from "../../data/useCoordinatorSummary";
+import { COORDINATOR_SUMMARY_SENSOR } from "../../data/useCoordinatorSummary";
 
 type CoordinatorKey = "presence" | "hvac" | "energy" | "safety" | "security";
-
-interface PerCoordinatorStatus {
-  status: "nominal" | "advisory" | "alert" | "critical" | string;
-  active_anomalies: number;
-  enabled: boolean;
-}
-
-interface SummaryAttrs {
-  health_status?: "green" | "orange" | "red" | string;
-  status_per_coordinator?: Record<string, PerCoordinatorStatus>;
-  house_state?: string;
-  coordinators_registered?: number;
-  coordinators_active?: number;
-  decisions_today?: number;
-  conflicts_resolved_today?: number;
-}
 
 interface CoordinatorCardDef {
   key: CoordinatorKey;
@@ -65,47 +59,10 @@ const COORDINATORS: CoordinatorCardDef[] = [
   { key: "security", label: "Security" },
 ];
 
-const SUMMARY_SENSOR = "sensor.ura_coordinator_manager_coordinator_summary";
 const DB_SIZE_SENSOR = "sensor.ura_coordinator_manager_db_size";
 
 function sensorId(coord: CoordinatorKey, suffix: string): string {
   return `sensor.ura_coordinator_manager_${coord}_${suffix}`;
-}
-
-/** Maps coordinator status → CSS modifier class for the surrounding .card. */
-function statusToCardClass(status: string | undefined): string {
-  switch (status) {
-    case "nominal":
-      return "status-green";
-    case "advisory":
-      return "status-orange";
-    case "alert":
-    case "critical":
-      return "status-red";
-    default:
-      return "";
-  }
-}
-
-/** Maps coordinator status → label + badge color used in the card header. */
-function statusToBadge(status: string | undefined): { label: string; cls: string } {
-  switch (status) {
-    case "nominal":
-      return { label: "healthy", cls: "green" };
-    case "advisory":
-      return { label: "attention", cls: "orange" };
-    case "alert":
-      return { label: "alert", cls: "red" };
-    case "critical":
-      return { label: "critical", cls: "red" };
-    default:
-      return { label: "unknown", cls: "" };
-  }
-}
-
-/** Tiny helper: render number or "—". */
-function num(v: number | null): string {
-  return v == null ? "—" : String(v);
 }
 
 /** Per-coordinator card. Each card owns its own hook calls. */
@@ -476,7 +433,7 @@ function AutomationHealth() {
 }
 
 export function Diagnostics() {
-  const summary = useUraSensorAttrs<SummaryAttrs>(SUMMARY_SENSOR);
+  const summary = useUraSensorAttrs<SummaryAttrs>(COORDINATOR_SUMMARY_SENSOR);
   const summaryAttrs = summary.attrs;
   const statusMap = summaryAttrs?.status_per_coordinator;
   const coordRegistered = summaryAttrs?.coordinators_registered;
