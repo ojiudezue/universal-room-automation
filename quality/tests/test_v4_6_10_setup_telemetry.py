@@ -489,7 +489,7 @@ class TestD3AnomalyDetectorWiring:
             except Exception:
                 pass
 
-        asyncio.get_event_loop().run_until_complete(_push())
+        asyncio.run(_push())
         det.record_observation.assert_called_once_with(
             metric_name="setup_duration_seconds",
             scope="house",
@@ -523,7 +523,7 @@ class TestD3AnomalyDetectorWiring:
             except Exception:
                 pass
 
-        asyncio.get_event_loop().run_until_complete(_push())  # must not raise
+        asyncio.run(_push())  # must not raise
 
     def test_observation_push_when_cm_missing(self):
         """D3 AC: No exception when CM is absent from hass.data."""
@@ -535,7 +535,7 @@ class TestD3AnomalyDetectorWiring:
             if _cm is None:
                 return
 
-        asyncio.get_event_loop().run_until_complete(_push())  # passes if no exception
+        asyncio.run(_push())  # passes if no exception
 
     def test_exactly_one_observation_per_setup(self):
         """D3 AC: Each setup invocation pushes exactly one observation."""
@@ -565,11 +565,11 @@ class TestD3AnomalyDetectorWiring:
                 value=float(_telem["duration_seconds"]),
             )
 
-        asyncio.get_event_loop().run_until_complete(_push())
+        asyncio.run(_push())
         assert len(call_log) == 1
 
         # Simulate reload: second setup does NOT double-push into same detector
-        asyncio.get_event_loop().run_until_complete(_push())
+        asyncio.run(_push())
         assert len(call_log) == 2  # second boot = second distinct observation
 
 
@@ -633,7 +633,7 @@ class TestD4ThreatModelHonor:
             except Exception:
                 pass
 
-        asyncio.get_event_loop().run_until_complete(_bg_task())
+        asyncio.run(_bg_task())
         # No exception → test passes
 
     def test_init_py_wraps_telemetry_in_try_except(self):

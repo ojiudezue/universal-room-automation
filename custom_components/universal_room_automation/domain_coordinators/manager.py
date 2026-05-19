@@ -37,6 +37,17 @@ _LOGGER = logging.getLogger(__name__)
 # Intent batching window — collect intents for this long before processing
 INTENT_BATCH_WINDOW_MS: Final = 100  # milliseconds
 
+# v4.6.11 review fix (A.M2 / C.L4): hoisted to module level so the mapping is
+# allocated once, not rebuilt on every get_summary()/get_system_anomaly_status()
+# call. AnomalySeverity is a StrEnum so dict-key equality works against either
+# the enum instance or its .value string.
+_SEVERITY_RANK: Final[dict[AnomalySeverity, int]] = {
+    AnomalySeverity.NOMINAL: 0,
+    AnomalySeverity.ADVISORY: 1,
+    AnomalySeverity.ALERT: 2,
+    AnomalySeverity.CRITICAL: 3,
+}
+
 
 class ConflictResolver:
     """Resolves conflicts when multiple coordinators target the same device.
@@ -268,6 +279,23 @@ class CoordinatorManager:
                 _LOGGER.info("Notification Manager started")
             except Exception:
                 _LOGGER.exception("Failed to start Notification Manager")
+
+        # v4.6.11 D1: CM-level anomaly detector baseline persistence.
+        # Pattern mirrors safety.py:689 / hvac.py:534 / presence.py:638 /
+        # security.py:631 / music_following.py:170. Without this load,
+        # the in-memory _baselines dict resets every restart and
+        # minimum_samples=10 (manager.py:154) is unreachable.
+        if self._setup_anomaly_detector is not None:
+            try:
+                await self._setup_anomaly_detector.load_baselines()
+                _LOGGER.debug(
+                    "v4.6.11 D1: CM setup_anomaly_detector baselines loaded"
+                )
+            except Exception:
+                _LOGGER.debug(
+                    "v4.6.11 D1: CM setup_anomaly_detector load_baselines failed (non-fatal)",
+                    exc_info=True,
+                )
 
         _LOGGER.info(
             "Coordinator Manager started with %d coordinators",
@@ -531,6 +559,51 @@ class CoordinatorManager:
         """Build coordinator summary for the summary sensor."""
         self._maybe_reset_daily_counters()
 
+        # v4.6.11 D4.1: Build per-coordinator health data and aggregate health_status.
+        # Severity mapping: NOMINAL → green, ADVISORY → orange, ALERT/CRITICAL → red.
+        # Uses getattr(coordinator, "anomaly_detector", None) — not all coordinators have one.
+        worst_rank = 0
+        status_per_coordinator: dict[str, dict] = {}
+        for coord_id, coordinator in self._coordinators.items():
+            det = getattr(coordinator, "anomaly_detector", None)
+            if det is not None:
+                try:
+                    worst_sev = det.get_worst_severity()
+                    rank = _SEVERITY_RANK.get(worst_sev, 0)
+                    if rank > worst_rank:
+                        worst_rank = rank
+                    # Review A M1: count only persisted active anomalies — the
+                    # raw _active_anomalies list includes suppressed metrics
+                    # (e.g. hvac.zone_call_frequency) that get_worst_severity()
+                    # already filters out via _persisted_active_anomalies().
+                    # Without this, status="nominal" could ship with
+                    # active_anomalies>0, which dashboards render as broken.
+                    try:
+                        active_count = len(det._persisted_active_anomalies())
+                    except Exception:
+                        active_count = len(getattr(det, "_active_anomalies", []))
+                    sev_label = worst_sev.value if worst_sev else "nominal"
+                except Exception:
+                    rank = 0
+                    active_count = 0
+                    sev_label = "nominal"
+            else:
+                rank = 0
+                active_count = 0
+                sev_label = "nominal"
+            status_per_coordinator[coord_id] = {
+                "status": sev_label,
+                "active_anomalies": active_count,
+                "enabled": coordinator.enabled,
+            }
+
+        if worst_rank == 0:
+            health_status = "green"
+        elif worst_rank == 1:
+            health_status = "orange"
+        else:
+            health_status = "red"
+
         summary: dict[str, Any] = {
             "house_state": str(self._house_state_machine.state),
             "coordinators_registered": len(self._coordinators),
@@ -539,6 +612,8 @@ class CoordinatorManager:
             ),
             "decisions_today": self._decisions_today,
             "conflicts_resolved_today": self._conflicts_resolved_today,
+            "health_status": health_status,
+            "status_per_coordinator": status_per_coordinator,
         }
 
         # Add per-coordinator status (populated by each coordinator as they ship)
@@ -637,12 +712,8 @@ class CoordinatorManager:
         learning_status: dict[str, str] = {}
         coordinators_with_anomalies: list[str] = []
 
-        severity_order = {
-            AnomalySeverity.NOMINAL: 0,
-            AnomalySeverity.ADVISORY: 1,
-            AnomalySeverity.ALERT: 2,
-            AnomalySeverity.CRITICAL: 3,
-        }
+        # Same ordering as module-level _SEVERITY_RANK.
+        severity_order = _SEVERITY_RANK
 
         for coord_id, coordinator in self._coordinators.items():
             if coordinator.anomaly_detector is None:

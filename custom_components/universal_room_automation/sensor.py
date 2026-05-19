@@ -19,6 +19,7 @@
 #
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime, timedelta
 from typing import Any, Optional
@@ -266,6 +267,8 @@ async def async_setup_entry(
             NMAlertStateSensor(hass, entry),
             EnergyEnvoyStatusSensor(hass, entry),
             SafetyActiveCooldownsSensor(hass, entry),
+            # v4.6.11 D4.8: Safety events summary (last 24h from activity log)
+            SafetyEventsSummarySensor(hass, entry),
             SecurityAuthorizedGuestsSensor(hass, entry),
             # Activity Log sensor
             URALastActivitySensor(hass, entry),
@@ -10558,3 +10561,113 @@ class URASetupDurationSensor(AggregationEntity, SensorEntity):
         except Exception:
             _LOGGER.debug("URASetupDurationSensor: extra_state_attributes read failed", exc_info=True)
             return {}
+
+
+# ============================================================================
+# v4.6.11 D4.8 — Safety Events Summary Sensor
+# ============================================================================
+
+
+class SafetyEventsSummarySensor(AggregationEntity, SensorEntity):
+    """Safety events in last 24h from ura_activity_log.
+
+    Entity: sensor.ura_safety_events_summary
+    Device: URA: Safety Coordinator
+    State: events_today_count (int)
+    Attributes: auto_dismissed_count, last_event_at, window_hours
+
+    Bug Class #26: 60s in-sensor cache before re-query.
+    Bug Class #36: cache cleared on entity remove (async_will_remove_from_hass).
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:shield-alert-outline"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    _CACHE_TTL_S = 60
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_safety_events_summary"
+        self._attr_name = "Safety Events Summary"
+        self._attr_device_info = _safety_device_info()
+        self._cache_time: datetime | None = None
+        self._cached_count: int = 0
+        self._cached_auto_dismissed: int = 0
+        self._cached_last_event_at: str | None = None
+        self._refresh_task: asyncio.Task | None = None
+
+    async def _refresh_cache(self) -> None:
+        """Query ura_activity_log for last 24h safety events."""
+        db = self.hass.data.get(DOMAIN, {}).get("database")
+        if db is None:
+            return
+        cutoff = (dt_util.utcnow() - timedelta(hours=24)).isoformat()
+        try:
+            # Review A H1 / Review C H3: SELECT must go through the read-only
+            # connection — _db() is the serialized write queue. Using it here
+            # would block real writes (save_baselines, save_anomaly_event)
+            # behind a 60s-cadence read.
+            async with db._db_read() as conn:
+                cursor = await conn.execute(
+                    """SELECT COUNT(*),
+                              SUM(CASE WHEN action LIKE '%dismiss%'
+                                        OR action LIKE '%auto_clear%'
+                                   THEN 1 ELSE 0 END),
+                              MAX(timestamp)
+                       FROM ura_activity_log
+                       WHERE coordinator='safety' AND timestamp >= ?""",
+                    (cutoff,),
+                )
+                row = await cursor.fetchone()
+                if row:
+                    self._cached_count = int(row[0] or 0)
+                    self._cached_auto_dismissed = int(row[1] or 0)
+                    self._cached_last_event_at = row[2]
+                self._cache_time = dt_util.utcnow()
+        except Exception:
+            _LOGGER.debug(
+                "SafetyEventsSummarySensor: query failed (non-fatal)", exc_info=True
+            )
+
+    def _cache_stale(self) -> bool:
+        """Return True if cache is older than TTL or not yet populated."""
+        if self._cache_time is None:
+            return True
+        age = (dt_util.utcnow() - self._cache_time).total_seconds()
+        return age >= self._CACHE_TTL_S
+
+    @property
+    def native_value(self) -> int:
+        """Return count of safety events in last 24h."""
+        if self._cache_stale() and (
+            self._refresh_task is None or self._refresh_task.done()
+        ):
+            # Review C C2: track + guard against re-entry so we don't pile up
+            # overlapping queries when the property is hot. The task is
+            # cancelled in async_will_remove_from_hass (Bug Class #19).
+            self._refresh_task = self.hass.async_create_task(self._refresh_cache())
+        return self._cached_count
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return breakdown attributes."""
+        return {
+            "auto_dismissed_count": self._cached_auto_dismissed,
+            "last_event_at": self._cached_last_event_at,
+            "window_hours": 24,
+        }
+
+    async def async_will_remove_from_hass(self) -> None:
+        """Clear cache + cancel in-flight refresh (Bug Classes #19, #36, #38)."""
+        # Review C C1: super() cleans up AggregationEntity._agg_retry_unsub.
+        await super().async_will_remove_from_hass()
+        if self._refresh_task is not None and not self._refresh_task.done():
+            self._refresh_task.cancel()
+        self._refresh_task = None
+        self._cache_time = None
+        self._cached_count = 0
+        self._cached_auto_dismissed = 0
+        self._cached_last_event_at = None
