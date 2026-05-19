@@ -1,5 +1,23 @@
 # URA Project Instructions
 
+## Subagent Usage Protocol — MANDATORY
+
+For URA cycles, route each phase to the designated subagent. Do NOT default to `general-purpose` for cycle work — the URA subagents have institutional muscle memory (bug class names, file caution levels, ceremony rules).
+
+| Phase | Agent | When |
+|---|---|---|
+| Planning doc / architecture | `ura-planner` | Writing PLANNING_v*.md, critiquing scope, tier classification |
+| Implementation | `ura-builder` | Code changes to `custom_components/universal_room_automation/`, tests |
+| Test execution + baseline-diff | `ura-validator` | After build, before review. Runs pytest, compares against `pre-review-vX.Y.Z`. Never edits code. |
+| Code review | `ura-reviewer` | Tier 1 = one pass; Tier 2 = TWO parallel passes with different framings; Tier 2-DB = THREE parallel passes per Tier 2-DB protocol below |
+| Deploy | `/deploy` skill OR `./scripts/deploy.sh` directly | `ura-deployer` is redundant — slated for deletion |
+
+**Tier 2 review framings** — when dispatching two reviewers, give them DIFFERENT explicit focus areas so blind spots don't overlap. Example: Reviewer A = "correctness + edge cases", Reviewer B = "async + lifecycle + race conditions".
+
+**Exception:** `general-purpose` is appropriate for one-off exploratory work OUTSIDE the URA cycle protocol (e.g., dashboard prototype investigation, branch state audits, broad codebase questions).
+
+**No soak watching.** Never propose "monitor for 24h" / "soak overnight" as a post-deploy step. Cycles close at live-validation. Trip-wires for regression go in code (anomaly detection wired to NM), not calendar reminders.
+
 ## Release Process — MANDATORY
 - **Always use `./scripts/deploy.sh <version> <summary> <release-notes>`** for releases
 - Create `docs/readmes/README_v<version>.md` BEFORE deploying

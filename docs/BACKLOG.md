@@ -1,3 +1,38 @@
+# URA Backlog — As of v4.6.10 (May 2026)
+
+## v4.6.10 — Setup Telemetry + Anomaly Wiring + Deferred Polish — SHIPPED 2026-05-18
+
+- D1 boot telemetry capture, D2 `sensor.ura_setup_duration_seconds`, D3 anomaly observation push (scaffold-only — see v4.6.11 below)
+- D5a `_PERSON_LAST_STATE_SKIP_VALUES` module constant, D5b docstring typo fix
+- D6 MONETARY state-class fixes on 5 sensors (3 in aggregation.py, 2 in sensor.py)
+- D7 first dogfood of subagent enforcement protocol (planner → builder → validator → 2 parallel reviewers)
+- Tier 2 review: 1 CRITICAL + 2 HIGH + 4 MEDIUM addressed; 3 LOW deferred to v4.6.11
+
+## v4.6.11 — D3 Persistence + LOW Polish Carryover (Tier 2, QUEUED)
+
+**Primary work (from v4.6.10 review C1/B1):** Make D3 setup-duration anomaly detection actually functional. Currently scaffolding only — `AnomalyDetector._baselines` is in-memory and resets every restart, so `minimum_samples=10` is never reached.
+
+Two paths to choose between in the planning cycle:
+
+1. **DB-backed baseline persistence** — extend `AnomalyDetector` (or wrap it) to checkpoint baseline statistics (n, mean, variance) to a new `metric_baselines` table. Restored on init. ~80 prod LoC + schema migration + ~60 test LoC. Tier 2-DB.
+2. **Query-replay baseline reconstruction** — query the last N rows from `metric_observations` (or `anomaly_log`) at init and replay them into the baseline. Avoids new schema; requires the observations to be persisted in the first place (which D3 doesn't currently do). ~60 prod LoC + ~50 test LoC. Tier 2.
+
+Either way: after baseline persistence works, ADD the missing `store_event(AnomalyEvent(...))` call after `record_observation` returns a non-None anomaly (following `safety.py:1684-1715` pattern) to actually fire the NM cascade. Without this, anomalies fire into the void.
+
+Update the v4.6.10 code comment + log message that say "scaffold-only, no dispatch" once the persistence + dispatch are wired.
+
+**LOW carryover from v4.6.10 review:**
+- `quality/tests/test_v4_6_10_setup_telemetry.py` uses `asyncio.get_event_loop().run_until_complete()` — deprecated since Python 3.10. Use `asyncio.run()` or pytest-asyncio.
+- `_make_observation_coro()` factory in `__init__.py` is unnecessary indirection (closure-over-nothing). Simplify after persistence wiring is in.
+- Pre-existing Bug Class #21 violation at `coordinator_diagnostics.py:824` (`datetime.utcnow()` — should be `dt_util.utcnow()`). Noted by Review B (L3).
+
+**Carryover from v4.6.9 (still deferred):**
+- `domain_coordinators/person_seed_helpers.py` extraction (drift risk mitigation for inlined test bodies). ~30 prod + ~40 test LoC.
+
+**Recall hint:** "Resume v4.6.11 — D3 persistence + LOW polish carryover"
+
+---
+
 # URA Backlog — As of v4.6.9 (May 2026)
 
 ## v4.6.9 — Boot-State Robustness — SHIPPED 2026-05-18

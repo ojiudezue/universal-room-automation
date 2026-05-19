@@ -611,6 +611,17 @@ def _get_coverage_rating(delta_percent: float) -> str:
         return COVERAGE_RATING_INCOMPLETE
 
 
+# v4.6.10 D5a: Module-level constant for person state values that should not
+# be seeded into the coordinator as real room names.  Replaces two inline
+# _SKIP_STATES assignments in PersonPreviousLocationSensor and
+# PersonPreviousSeenSensor (v4.6.9 review LOW finding).
+_PERSON_LAST_STATE_SKIP_VALUES: frozenset[str] = frozenset({
+    "unknown", "unavailable", "Unknown", "Unavailable",
+    "None", "none", "away", "Away", "",
+    "not_home", "Not_home", "home", "Home",
+})
+
+
 class AggregationEntity:
     """Base class for aggregation entities."""
 
@@ -2193,11 +2204,13 @@ class WholeHouseCostTodaySensor(AggregationEntity, SensorEntity):
 
     v4.6.8: New sensor. Returns None when whole_house_energy_sensors not configured.
     Uses _get_effective_rate_kwh helper (EC TOU first, static fallback).
+    v4.6.10 D6: state_class TOTAL_INCREASING → TOTAL (MONETARY + TOTAL_INCREASING is
+    rejected by HA recorder; TOTAL is correct for daily-resetting accumulators).
     """
 
     _attr_device_class = SensorDeviceClass.MONETARY
     _attr_native_unit_of_measurement = "USD"
-    _attr_state_class = SensorStateClass.TOTAL_INCREASING
+    _attr_state_class = SensorStateClass.TOTAL
     _attr_icon = "mdi:currency-usd"
     _attr_entity_registry_enabled_default = True
 
@@ -3379,11 +3392,12 @@ class ZoneEnergyCostTodaySensor(ZoneSensorBase, SensorEntity):
     """Sensor: Total energy cost today in zone — energy_today × TOU-aware rate.
 
     v4.6.8: New sensor. Uses _get_effective_rate_kwh helper (EC TOU first, static fallback).
+    v4.6.10 D6: state_class TOTAL_INCREASING → TOTAL (MONETARY incompatibility fix).
     """
 
     _attr_device_class = SensorDeviceClass.MONETARY
     _attr_native_unit_of_measurement = "USD"
-    _attr_state_class = SensorStateClass.TOTAL_INCREASING
+    _attr_state_class = SensorStateClass.TOTAL
     _attr_icon = "mdi:currency-usd"
     _attr_entity_registry_enabled_default = True
 
@@ -3423,11 +3437,12 @@ class ZoneCostPerHourSensor(ZoneSensorBase, SensorEntity):
     """Sensor: Real-time cost per hour for zone — (total_power_w / 1000) × rate.
 
     v4.6.8: New sensor. Uses _get_effective_rate_kwh helper (EC TOU first, static fallback).
+    v4.6.10 D6: removed state_class MEASUREMENT — MONETARY + MEASUREMENT is rejected by
+    HA recorder.  This sensor is a rate/instantaneous value, so no state_class is correct.
     """
 
     _attr_device_class = SensorDeviceClass.MONETARY
     _attr_native_unit_of_measurement = "USD/h"
-    _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_icon = "mdi:currency-usd"
     _attr_entity_registry_enabled_default = True
 
@@ -4363,12 +4378,10 @@ class PersonPreviousLocationSensor(AggregationEntity, SensorEntity, RestoreEntit
         # v4.6.9: Restore persisted previous_location into coordinator.
         # v4.6.9 review HIGH#1: include HA person-entity sentinels ("not_home"/"home")
         # so we don't store them as restored room names.
-        _SKIP_STATES = {"unknown", "unavailable", "Unknown", "Unavailable",
-                        "None", "none", "away", "Away", "",
-                        "not_home", "Not_home", "home", "Home"}
+        # v4.6.10 D5a: use module-level _PERSON_LAST_STATE_SKIP_VALUES constant.
         try:
             last_state = await self.async_get_last_state()
-            if last_state is not None and last_state.state not in _SKIP_STATES:
+            if last_state is not None and last_state.state not in _PERSON_LAST_STATE_SKIP_VALUES:
                 person_coordinator = self.hass.data[DOMAIN].get("person_coordinator")
                 if person_coordinator is not None:
                     person_coordinator.seed_previous_location(
@@ -4447,12 +4460,10 @@ class PersonPreviousSeenSensor(AggregationEntity, SensorEntity, RestoreEntity):
         # v4.6.9: Restore persisted previous_location_time into coordinator.
         # v4.6.9 review HIGH#1: include HA person-entity sentinels ("not_home"/"home")
         # so we don't store them as restored room names.
-        _SKIP_STATES = {"unknown", "unavailable", "Unknown", "Unavailable",
-                        "None", "none", "away", "Away", "",
-                        "not_home", "Not_home", "home", "Home"}
+        # v4.6.10 D5a: use module-level _PERSON_LAST_STATE_SKIP_VALUES constant.
         try:
             last_state = await self.async_get_last_state()
-            if last_state is not None and last_state.state not in _SKIP_STATES:
+            if last_state is not None and last_state.state not in _PERSON_LAST_STATE_SKIP_VALUES:
                 parsed_time = dt_util.parse_datetime(last_state.state)
                 if parsed_time is not None:
                     person_coordinator = self.hass.data[DOMAIN].get("person_coordinator")
