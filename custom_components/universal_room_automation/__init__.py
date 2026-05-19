@@ -28,6 +28,7 @@ from homeassistant.helpers.event import (
     async_track_time_interval,
     async_track_state_change_event,
 )
+from homeassistant.util import dt as dt_util  # v4.6.10 review fix A-M1: module-top import
 
 from .const import (
     DOMAIN,
@@ -1421,10 +1422,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # under their own config entries (not under the integration entry).
         # This prevents duplicate display on the integration page.
         # v4.6.10 D1: Capture setup start timestamp (Bug Class #21: dt_util, not datetime).
+        # Review fix A-M1: use module-top dt_util import, no function-local re-import.
         _setup_started = None
         try:
-            from homeassistant.util import dt as _dt_util_telem
-            _setup_started = _dt_util_telem.utcnow()
+            _setup_started = dt_util.utcnow()
         except Exception:
             _LOGGER.debug("v4.6.10: setup telemetry start capture failed (non-fatal)", exc_info=True)
 
@@ -2017,10 +2018,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
                 # v4.6.10 D1: Stash setup telemetry — LAST thing in CM init block.
                 # Failure here is non-fatal; integration is fully functional without it.
+                # Review fix A-M1: use module-top dt_util import.
                 try:
-                    from homeassistant.util import dt as _dt_telem2
                     if _setup_started is not None:
-                        _setup_completed = _dt_telem2.utcnow()
+                        _setup_completed = dt_util.utcnow()
                         _duration_s = (_setup_completed - _setup_started).total_seconds()
                         _room_count = sum(
                             1
@@ -2044,10 +2045,22 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 except Exception:
                     _LOGGER.debug("v4.6.10: setup telemetry stash failed (non-fatal)", exc_info=True)
 
-                # v4.6.10 D3: Push one observation per boot into CM-level anomaly detector.
+                # v4.6.10 D3: SCAFFOLD ONLY in this cycle — observation push wired but
+                # the AnomalyDetector baseline is in-memory and does NOT persist across
+                # HA restarts. Each restart resets _baselines to {}, so minimum_samples=10
+                # is NEVER reached and anomalies will not fire from this metric.
+                #
+                # The full pipeline (baseline persistence + AnomalyEvent construction +
+                # store_event call for DB persistence + NM dispatch) is filed for v4.6.11
+                # in docs/BACKLOG.md. This cycle ships the scaffolding (sensor + observation
+                # wiring) without functional detection — design accepted by reviewer pair
+                # 2026-05-18 (Tier 2 Review A C1 + Review B B1, both flagged the same gap).
+                #
                 # Bug Class #19: use entry.async_create_background_task so the task is
                 # tracked and cancelled on entry unload.
-                def _make_observation_coro():
+                # Review fix H1: wrap the scheduling call itself in try/except so a
+                # scheduling failure doesn't mask as "CM init failed" at the outer except.
+                try:
                     async def _push_setup_observation():
                         try:
                             _cm = hass.data.get(DOMAIN, {}).get("coordinator_manager")
@@ -2068,9 +2081,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                                 value=float(_dur),
                             )
                             if _anomaly is not None:
+                                # NOTE: This log line will never fire in practice because
+                                # the in-memory baseline resets every restart and never
+                                # accumulates the 10 samples needed for z-score evaluation.
+                                # See v4.6.11 backlog entry for the persistence work.
                                 _LOGGER.info(
-                                    "v4.6.10: setup_duration_seconds anomaly detected "
-                                    "(z=%.2f severity=%s) — in-memory only until 10+ boots",
+                                    "v4.6.10: setup_duration_seconds observation "
+                                    "(z=%.2f severity=%s) — scaffold-only, no dispatch",
                                     _anomaly.z_score, _anomaly.severity.value,
                                 )
                         except Exception:
@@ -2078,13 +2095,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                                 "v4.6.10: setup anomaly observation push failed (non-fatal)",
                                 exc_info=True,
                             )
-                    return _push_setup_observation()
 
-                entry.async_create_background_task(
-                    hass,
-                    _make_observation_coro(),
-                    "ura_setup_duration_observation",
-                )
+                    entry.async_create_background_task(
+                        hass,
+                        _push_setup_observation(),
+                        "ura_setup_duration_observation",
+                    )
+                except Exception:
+                    _LOGGER.debug(
+                        "v4.6.10: setup anomaly observation scheduling failed (non-fatal)",
+                        exc_info=True,
+                    )
             except Exception as e:
                 _LOGGER.error("Failed to initialize Coordinator Manager: %s", e)
                 import traceback
@@ -2499,6 +2520,11 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if unsub_bayesian_accuracy:
             unsub_bayesian_accuracy()
         hass.data[DOMAIN].pop("bayesian_predictor_shutdown", None)
+
+        # v4.6.10 review fix B2: Clean up setup_telemetry so a reload doesn't leave
+        # stale data that would mislead the sensor if the reload's CM init block
+        # never re-runs. Bug Class #36 (lifecycle teardown).
+        hass.data[DOMAIN].pop("setup_telemetry", None)
 
         # v3.5.0: Clean up camera census
         unsub_census = hass.data[DOMAIN].pop("unsub_census", None)

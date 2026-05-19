@@ -129,7 +129,9 @@ _entity_mod.DeviceInfo = dict  # DeviceInfo is dict-like for our tests
 _entity_mod.EntityCategory = _EntityCategory
 
 _dt_stub = MagicMock()
-_dt_stub.utcnow = datetime.utcnow
+# v4.6.10 review fix B-M2: stub utcnow returns tz-aware datetime so tests
+# exercise the same behavior as production dt_util.utcnow (Bug Class #21).
+_dt_stub.utcnow = lambda: datetime.now(tz=timezone.utc)
 _dt_stub.now = lambda: datetime.now(tz=timezone.utc)
 _dt_stub.parse_datetime = MagicMock(return_value=None)
 _dt_stub.as_utc = lambda dt: dt
@@ -646,6 +648,77 @@ class TestD4ThreatModelHonor:
         assert "setup anomaly observation push failed" in src or \
                "_push_setup_observation" in src, \
                "D3 observation push must have inner try/except"
+
+    def test_init_py_telemetry_failures_log_at_debug_not_error(self):
+        """v4.6.10 review fix B-M1: defensive try/except blocks log at debug.
+
+        Source-inspection verifies all three telemetry-related try/except blocks
+        (D1 start, D1 stash, D3 push, D3 schedule) use _LOGGER.debug, never
+        _LOGGER.error or _LOGGER.warning. Non-fatal degradations must be quiet.
+        """
+        init_file = ROOT / "custom_components" / "universal_room_automation" / "__init__.py"
+        with open(init_file) as f:
+            src = f.read()
+        # The 4 telemetry-related debug log signatures
+        required_debug_lines = [
+            "setup telemetry start capture failed",
+            "setup telemetry stash failed",
+            "setup anomaly observation push failed",
+            "setup anomaly observation scheduling failed",
+        ]
+        for sig in required_debug_lines:
+            assert sig in src, f"Missing telemetry debug log signature: {sig!r}"
+        # Confirm those signatures appear with _LOGGER.debug (not error/warning)
+        for sig in required_debug_lines:
+            # Find each occurrence + check the preceding logger call is .debug
+            idx = src.find(sig)
+            assert idx > 0
+            preceding = src[max(0, idx - 200):idx]
+            assert "_LOGGER.debug" in preceding, \
+                f"Telemetry signature {sig!r} must be logged via _LOGGER.debug, " \
+                f"not error/warning. Preceding context: {preceding[-150:]!r}"
+
+    def test_init_py_d3_scheduling_has_outer_try_except(self):
+        """v4.6.10 review fix H1: entry.async_create_background_task call itself wrapped.
+
+        If task scheduling raises (entry already unloaded, etc.), it must NOT
+        propagate to the outer 'Failed to initialize Coordinator Manager' except.
+        """
+        init_file = ROOT / "custom_components" / "universal_room_automation" / "__init__.py"
+        with open(init_file) as f:
+            src = f.read()
+        # Find the D3 scheduling call
+        sched_idx = src.find("ura_setup_duration_observation")
+        assert sched_idx > 0, "D3 scheduling call not found"
+        # Look for the outer try/except wrapping it
+        following = src[sched_idx:sched_idx + 500]
+        assert "setup anomaly observation scheduling failed" in following, \
+            "D3 entry.async_create_background_task call must be wrapped in its own " \
+            "try/except logging 'setup anomaly observation scheduling failed' at debug. " \
+            "Without this, a scheduling exception masks as 'CM init failed' at ERROR."
+
+
+class TestB2UnloadTelemetryCleanup:
+    """v4.6.10 review fix B2: setup_telemetry popped on async_unload_entry."""
+
+    def test_async_unload_pops_setup_telemetry(self):
+        """B2 AC: source inspection — async_unload_entry must pop setup_telemetry.
+
+        Without this, a config-entry reload that fails before the CM init block
+        leaves stale telemetry in hass.data, causing the sensor to silently
+        report the PREVIOUS setup's duration. Bug Class #36 (lifecycle teardown).
+        """
+        init_file = ROOT / "custom_components" / "universal_room_automation" / "__init__.py"
+        with open(init_file) as f:
+            src = f.read()
+        # Find async_unload_entry body
+        unload_idx = src.find("async def async_unload_entry")
+        assert unload_idx > 0, "async_unload_entry not found"
+        # Pop must appear between async_unload_entry and the next async def
+        next_def = src.find("async def ", unload_idx + 1)
+        unload_body = src[unload_idx:next_def if next_def > 0 else len(src)]
+        assert 'hass.data[DOMAIN].pop("setup_telemetry"' in unload_body, \
+            "async_unload_entry must pop setup_telemetry from hass.data[DOMAIN]"
 
 
 # ---------------------------------------------------------------------------

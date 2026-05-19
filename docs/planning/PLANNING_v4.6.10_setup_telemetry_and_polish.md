@@ -122,7 +122,9 @@ class URASetupDurationSensor(AggregationEntity, SensorEntity):
 
 ### D3 — AnomalyDetector observation wiring for `setup_duration_seconds`
 
-**Goal:** Push one observation per boot so URA learns its own setup duration baseline. Future boot deviates ≥ Z threshold → existing AnomalyDetector → NM cascade fires.
+**STATUS POST-REVIEW:** Scaffold-only in v4.6.10. Tier 2 reviewers (A C1 + B B1) independently flagged that `AnomalyDetector._baselines` is purely in-memory and resets every restart. Since `setup_duration_seconds` accumulates ONE observation per boot, `minimum_samples=10` will NEVER be reached. The observation push + sensor wiring ships in v4.6.10 as scaffolding; the persistence layer (baseline → DB) + `AnomalyEvent` construction + `store_event` call for NM dispatch ship in **v4.6.11** (filed in BACKLOG.md). Code comment + log message updated to reflect "scaffold-only, no dispatch" so future readers aren't misled.
+
+**Goal (scaffolding only this cycle):** Wire the observation pipeline so the v4.6.11 follow-up only adds persistence + dispatch, not the data path.
 
 **Context verified via `domain_coordinators/manager.py` + `domain_coordinators/base.py`:**
 - `BaseCoordinator.anomaly_detector` is None by default; each domain coordinator instantiates its own.

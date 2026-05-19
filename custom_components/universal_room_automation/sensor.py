@@ -10527,12 +10527,19 @@ class URASetupDurationSensor(AggregationEntity, SensorEntity):
 
     @property
     def native_value(self) -> float | None:
-        """Return last boot setup duration in seconds, or None if not yet captured."""
+        """Return last boot setup duration in seconds, or None if not yet captured.
+
+        Review fix A-M2: return None (not 0.0) when duration_seconds key is missing.
+        Honors the "None when unknown" contract for HA sensor semantics.
+        """
         try:
             telem = self.hass.data.get(DOMAIN, {}).get("setup_telemetry")
             if not telem:
                 return None
-            return round(float(telem.get("duration_seconds", 0)), 3)
+            dur = telem.get("duration_seconds")
+            if dur is None:
+                return None
+            return round(float(dur), 3)
         except Exception:
             _LOGGER.debug("URASetupDurationSensor: native_value read failed", exc_info=True)
             return None
