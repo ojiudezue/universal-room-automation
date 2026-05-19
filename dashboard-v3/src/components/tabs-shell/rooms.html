@@ -1,0 +1,94 @@
+    <section class="tab" data-tab="rooms">
+      <header class="page-header">
+        <div>
+          <h1 class="page-title">Rooms</h1>
+          <div class="page-subtitle">19 rooms · auto-onboarded · controls per room</div>
+        </div>
+        <div class="page-actions">
+          <button class="btn"><svg class="icon"><use href="#lc-plus"/></svg> Onboard room</button>
+        </div>
+      </header>
+
+      <div class="controls-bar">
+        <div class="knob span-3">
+          <div class="knob-label">Zone filter</div>
+          <div class="pill-group" style="width:100%; flex-wrap:wrap">
+            <button class="active" style="flex:1">All</button>
+            <button style="flex:1">Main</button>
+            <button style="flex:1">Master</button>
+            <button style="flex:1">Kids</button>
+            <button style="flex:1">Guest</button>
+            <button style="flex:1">Outdoor</button>
+          </div>
+        </div>
+        <div class="knob span-3">
+          <div class="knob-label">Show only</div>
+          <div class="pill-group" style="width:100%">
+            <button class="active" style="flex:1">All</button>
+            <button style="flex:1">Occupied</button>
+            <button style="flex:1">Lights on</button>
+            <button style="flex:1">Climate</button>
+          </div>
+        </div>
+        <div class="knob span-3">
+          <div class="knob-label">Sort by</div>
+          <div class="pill-group" style="width:100%">
+            <button class="active" style="flex:1">Zone</button>
+            <button style="flex:1">Occupancy</button>
+            <button style="flex:1">Temp</button>
+            <button style="flex:1">Name</button>
+          </div>
+        </div>
+        <div class="knob span-3">
+          <div class="knob-label">Bulk actions</div>
+          <div class="knob-action" style="margin-top:0; flex-wrap:wrap">
+            <button class="btn sm">Lights off · filtered</button>
+            <button class="btn sm">Setback · filtered</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Zone headers + dense room grid -->
+      <div class="section-head"><h2>Main Living · 5 rooms</h2><span class="dim">3 occupied · 12/18 lights</span></div>
+      <div class="grid">
+        <div class="room-card col-3 status-green"><div class="room-card-head"><span class="dot green live"></span><span class="room-card-title">Great Room</span></div><div class="room-card-meta"><span><svg class="icon-sm"><use href="#lc-thermo"/></svg>72°</span><span><svg class="icon-sm"><use href="#lc-bulb"/></svg>4/6</span><span><svg class="icon-sm"><use href="#lc-fan"/></svg>med</span></div><div class="room-card-controls"><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-bulb"/></svg></button><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-minus"/></svg></button><span class="tabular" style="font-size:var(--text-sm); align-self:center; padding:0 4px">72°</span><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-plus"/></svg></button><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-more"/></svg></button></div></div>
+        <div class="room-card col-3 status-green"><div class="room-card-head"><span class="dot green live"></span><span class="room-card-title">Kitchen</span></div><div class="room-card-meta"><span><svg class="icon-sm"><use href="#lc-thermo"/></svg>72°</span><span><svg class="icon-sm"><use href="#lc-bulb"/></svg>5/5</span><span><svg class="icon-sm"><use href="#lc-music"/></svg>•</span></div><div class="room-card-controls"><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-bulb"/></svg></button><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-minus"/></svg></button><span class="tabular" style="font-size:var(--text-sm); align-self:center; padding:0 4px">72°</span><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-plus"/></svg></button><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-more"/></svg></button></div></div>
+        <div class="room-card col-3"><div class="room-card-head"><span class="dot green"></span><span class="room-card-title">Dining Room</span></div><div class="room-card-meta"><span><svg class="icon-sm"><use href="#lc-thermo"/></svg>72°</span><span><svg class="icon-sm"><use href="#lc-bulb"/></svg>0/3</span><span class="dim">idle 4h</span></div><div class="room-card-controls"><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-bulb"/></svg></button><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-minus"/></svg></button><span class="tabular" style="font-size:var(--text-sm); align-self:center; padding:0 4px">72°</span><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-plus"/></svg></button><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-more"/></svg></button></div></div>
+        <div class="room-card col-3"><div class="room-card-head"><span class="dot grey"></span><span class="room-card-title">Foyer</span></div><div class="room-card-meta"><span><svg class="icon-sm"><use href="#lc-thermo"/></svg>73°</span><span><svg class="icon-sm"><use href="#lc-bulb"/></svg>1/2</span><span class="dim">auto</span></div><div class="room-card-controls"><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-bulb"/></svg></button><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-minus"/></svg></button><span class="tabular" style="font-size:var(--text-sm); align-self:center; padding:0 4px">72°</span><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-plus"/></svg></button><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-more"/></svg></button></div></div>
+        <div class="room-card col-3"><div class="room-card-head"><span class="dot grey"></span><span class="room-card-title">Hallway</span></div><div class="room-card-meta"><span><svg class="icon-sm"><use href="#lc-thermo"/></svg>73°</span><span><svg class="icon-sm"><use href="#lc-bulb"/></svg>2/4</span><span class="dim">auto</span></div><div class="room-card-controls"><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-bulb"/></svg></button><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-minus"/></svg></button><span class="tabular" style="font-size:var(--text-sm); align-self:center; padding:0 4px">72°</span><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-plus"/></svg></button><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-more"/></svg></button></div></div>
+      </div>
+
+      <div class="section-head"><h2>Master Suite · 4 rooms</h2><span class="dim">1 occupied · 5/12 lights · <span class="badge yellow">coast</span></span></div>
+      <div class="grid">
+        <div class="room-card col-3 status-green"><div class="room-card-head"><span class="dot green live"></span><span class="room-card-title">Office</span><span class="badge green">Oji</span></div><div class="room-card-meta"><span><svg class="icon-sm"><use href="#lc-thermo"/></svg>73°</span><span><svg class="icon-sm"><use href="#lc-bulb"/></svg>2/3</span><span><svg class="icon-sm"><use href="#lc-music"/></svg>•</span></div><div class="room-card-controls"><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-bulb"/></svg></button><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-minus"/></svg></button><span class="tabular" style="font-size:var(--text-sm); align-self:center; padding:0 4px">72°</span><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-plus"/></svg></button><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-more"/></svg></button></div></div>
+        <div class="room-card col-3 status-yellow"><div class="room-card-head"><span class="dot yellow"></span><span class="room-card-title">Master Bed</span><span class="badge yellow">coast</span></div><div class="room-card-meta"><span><svg class="icon-sm"><use href="#lc-thermo"/></svg>74°</span><span><svg class="icon-sm"><use href="#lc-bulb"/></svg>0/2</span></div><div class="room-card-controls"><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-bulb"/></svg></button><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-minus"/></svg></button><span class="tabular" style="font-size:var(--text-sm); align-self:center; padding:0 4px">73°</span><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-plus"/></svg></button><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-more"/></svg></button></div></div>
+        <div class="room-card col-3"><div class="room-card-head"><span class="dot grey"></span><span class="room-card-title">Master Bath</span></div><div class="room-card-meta"><span><svg class="icon-sm"><use href="#lc-thermo"/></svg>74°</span><span><svg class="icon-sm"><use href="#lc-bulb"/></svg>0/3</span></div><div class="room-card-controls"><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-bulb"/></svg></button><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-minus"/></svg></button><span class="tabular" style="font-size:var(--text-sm); align-self:center; padding:0 4px">73°</span><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-plus"/></svg></button><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-more"/></svg></button></div></div>
+        <div class="room-card col-3"><div class="room-card-head"><span class="dot grey"></span><span class="room-card-title">Master Closet</span></div><div class="room-card-meta"><span><svg class="icon-sm"><use href="#lc-bulb"/></svg>0/2</span><span class="dim">no climate</span></div><div class="room-card-controls"><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-bulb"/></svg></button><button class="btn sm icon" disabled><svg class="icon-sm"><use href="#lc-minus"/></svg></button><span class="dim tabular" style="font-size:var(--text-sm); align-self:center; padding:0 4px">—</span><button class="btn sm icon" disabled><svg class="icon-sm"><use href="#lc-plus"/></svg></button><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-more"/></svg></button></div></div>
+      </div>
+
+      <div class="section-head"><h2>Kids · 4 rooms</h2><span class="dim">1 occupied · 6/11 lights · <span class="badge blue">pre-cool</span></span></div>
+      <div class="grid">
+        <div class="room-card col-3 status-blue"><div class="room-card-head"><span class="dot green live"></span><span class="room-card-title">Playroom</span><span class="badge green">Ziri</span></div><div class="room-card-meta"><span><svg class="icon-sm"><use href="#lc-thermo"/></svg>71°</span><span><svg class="icon-sm"><use href="#lc-bulb"/></svg>3/4</span></div><div class="room-card-controls"><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-bulb"/></svg></button><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-minus"/></svg></button><span class="tabular" style="font-size:var(--text-sm); align-self:center; padding:0 4px">71°</span><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-plus"/></svg></button><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-more"/></svg></button></div></div>
+        <div class="room-card col-3 status-blue"><div class="room-card-head"><span class="dot grey"></span><span class="room-card-title">Ziri Bed</span><span class="badge blue">pre-cool</span></div><div class="room-card-meta"><span><svg class="icon-sm"><use href="#lc-thermo"/></svg>72°</span><span><svg class="icon-sm"><use href="#lc-bulb"/></svg>1/2</span></div><div class="room-card-controls"><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-bulb"/></svg></button><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-minus"/></svg></button><span class="tabular" style="font-size:var(--text-sm); align-self:center; padding:0 4px">71°</span><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-plus"/></svg></button><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-more"/></svg></button></div></div>
+        <div class="room-card col-3"><div class="room-card-head"><span class="dot grey"></span><span class="room-card-title">Ziri Bath</span></div><div class="room-card-meta"><span><svg class="icon-sm"><use href="#lc-thermo"/></svg>73°</span><span><svg class="icon-sm"><use href="#lc-bulb"/></svg>0/2</span></div><div class="room-card-controls"><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-bulb"/></svg></button><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-minus"/></svg></button><span class="tabular" style="font-size:var(--text-sm); align-self:center; padding:0 4px">72°</span><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-plus"/></svg></button><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-more"/></svg></button></div></div>
+        <div class="room-card col-3"><div class="room-card-head"><span class="dot grey"></span><span class="room-card-title">Study</span></div><div class="room-card-meta"><span><svg class="icon-sm"><use href="#lc-thermo"/></svg>72°</span><span><svg class="icon-sm"><use href="#lc-bulb"/></svg>2/3</span></div><div class="room-card-controls"><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-bulb"/></svg></button><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-minus"/></svg></button><span class="tabular" style="font-size:var(--text-sm); align-self:center; padding:0 4px">71°</span><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-plus"/></svg></button><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-more"/></svg></button></div></div>
+      </div>
+
+      <div class="section-head"><h2>Guest · 3 rooms</h2><span class="dim">vacancy economy · setback</span></div>
+      <div class="grid">
+        <div class="room-card col-4"><div class="room-card-head"><span class="dot grey"></span><span class="room-card-title">Guest Bed</span></div><div class="room-card-meta"><span><svg class="icon-sm"><use href="#lc-thermo"/></svg>76°</span><span><svg class="icon-sm"><use href="#lc-bulb"/></svg>0/2</span><span class="dim">setback</span></div><div class="room-card-controls"><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-bulb"/></svg></button><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-minus"/></svg></button><span class="tabular" style="font-size:var(--text-sm); align-self:center; padding:0 4px">78°</span><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-plus"/></svg></button><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-more"/></svg></button></div></div>
+        <div class="room-card col-4"><div class="room-card-head"><span class="dot grey"></span><span class="room-card-title">Guest Bath</span></div><div class="room-card-meta"><span><svg class="icon-sm"><use href="#lc-thermo"/></svg>75°</span><span><svg class="icon-sm"><use href="#lc-bulb"/></svg>0/2</span></div><div class="room-card-controls"><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-bulb"/></svg></button><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-minus"/></svg></button><span class="tabular" style="font-size:var(--text-sm); align-self:center; padding:0 4px">78°</span><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-plus"/></svg></button><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-more"/></svg></button></div></div>
+        <div class="room-card col-4"><div class="room-card-head"><span class="dot grey"></span><span class="room-card-title">Gym</span></div><div class="room-card-meta"><span><svg class="icon-sm"><use href="#lc-thermo"/></svg>74°</span><span><svg class="icon-sm"><use href="#lc-bulb"/></svg>0/3</span></div><div class="room-card-controls"><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-bulb"/></svg></button><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-minus"/></svg></button><span class="tabular" style="font-size:var(--text-sm); align-self:center; padding:0 4px">76°</span><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-plus"/></svg></button><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-more"/></svg></button></div></div>
+      </div>
+
+      <div class="section-head"><h2>Outdoor · 3 rooms</h2><span class="dim">sunset 19:42 · auto-on</span></div>
+      <div class="grid">
+        <div class="room-card col-4"><div class="room-card-head"><span class="dot grey"></span><span class="room-card-title">Front Porch</span></div><div class="room-card-meta"><span class="dim">outdoor 64°</span><span><svg class="icon-sm"><use href="#lc-bulb"/></svg>0/1</span></div><div class="room-card-controls"><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-bulb"/></svg></button><button class="btn sm">Auto sunset</button><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-more"/></svg></button></div></div>
+        <div class="room-card col-4"><div class="room-card-head"><span class="dot grey"></span><span class="room-card-title">Back Deck</span></div><div class="room-card-meta"><span class="dim">outdoor 64°</span><span><svg class="icon-sm"><use href="#lc-bulb"/></svg>0/2</span></div><div class="room-card-controls"><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-bulb"/></svg></button><button class="btn sm">Auto sunset</button><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-more"/></svg></button></div></div>
+        <div class="room-card col-4"><div class="room-card-head"><span class="dot grey"></span><span class="room-card-title">Garage</span><span class="badge">closed</span></div><div class="room-card-meta"><span class="dim">last opened 17:54</span></div><div class="room-card-controls"><button class="btn sm">Open</button><button class="btn sm icon"><svg class="icon-sm"><use href="#lc-more"/></svg></button></div></div>
+      </div>
+    </section>
+
+    <!-- ====================================================
+         TAB: ENERGY
+         ==================================================== -->

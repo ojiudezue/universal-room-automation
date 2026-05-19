@@ -1,81 +1,55 @@
 /**
- * URA v3 Dashboard entry point.
- * Handles HA authentication via postMessage from the panel iframe,
- * then mounts the app inside HassConnect from @hakit/core.
+ * URA Dashboard v5.0 entry point.
+ *
+ * Auth strategy (per @hakit/core v6.0.2 research 2026-05-19):
+ *   hakit's HassConnect auto-inherits HA's auth + WebSocket connection from
+ *   window.top.hassConnection when running inside a same-origin iframe.
+ *   No postMessage token bridge needed; the localStorage["hassTokens"] shape
+ *   URA v3 was writing didn't match hakit's AuthData shape anyway and would
+ *   have been rejected.
+ *
+ *   `windowContext: window.top` makes hakit's breakpoints/resize use the
+ *   parent HA frontend's window so media queries fire correctly while we
+ *   render inside the iframe.
  */
-import React, { useState, useEffect } from "react";
+import React from "react";
 import ReactDOM from "react-dom/client";
 import { HassConnect } from "@hakit/core";
 import App from "./App";
 import { GlobalStyles } from "./design/GlobalStyles";
-import { color, type as typography } from "./design/tokens";
+import "./design/p6-shared.css";
 
 function Root() {
-  const [hassUrl, setHassUrl] = useState<string | null>(null);
+  // v5.0: dev-mode bypass for Vite dev iteration (Playwright + visual diff).
+  // import.meta.env.DEV is true during `npm run dev` but false in production
+  // build. ?dev query param forces it on a deployed instance for debugging.
+  const isDev =
+    import.meta.env.DEV ||
+    new URLSearchParams(window.location.search).has("dev");
 
-  useEffect(() => {
-    const handler = (event: MessageEvent) => {
-      // Only accept messages from same origin
-      if (event.origin !== window.location.origin) return;
-      if (event.data?.type === "ura-auth" && event.data.hassUrl) {
-        const tokenData = {
-          hassUrl: event.data.hassUrl,
-          access_token: event.data.access_token,
-          token_type: event.data.token_type,
-          expires: Date.now() + 1800000,
-          clientId: "",
-          expires_in: 1800,
-          refresh_token: "",
-        };
-        try {
-          localStorage.setItem("hassTokens", JSON.stringify(tokenData));
-        } catch {
-          // localStorage may be blocked in iframe context
-        }
-        setHassUrl(event.data.hassUrl);
-      }
-    };
-    window.addEventListener("message", handler);
-    return () => window.removeEventListener("message", handler);
-  }, []);
-
-  if (!hassUrl) {
+  if (isDev) {
     return (
       <>
         <GlobalStyles />
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            height: "100dvh",
-            color: color.text.secondary,
-            fontSize: typography.size.md,
-            fontFamily: typography.family,
-            background: "#060612",
-          }}
-        >
-          <div style={{ textAlign: "center" }}>
-            <div
-              className="animate-spin"
-              style={{
-                width: 24,
-                height: 24,
-                border: `2px solid ${color.glass.border}`,
-                borderTop: `2px solid ${color.accent.primary}`,
-                borderRadius: "50%",
-                margin: "0 auto 12px",
-              }}
-            />
-            Connecting to Home Assistant...
-          </div>
-        </div>
+        <App />
       </>
     );
   }
 
+  // Production: mount HassConnect. hakit reads window.top.hassConnection
+  // for auth + WebSocket inheritance. hassUrl must be a valid origin string
+  // (hakit sanitizes via new URL(hassUrl).origin internally).
+  const hassUrl = window.location.origin;
+
   return (
-    <HassConnect hassUrl={hassUrl}>
+    <HassConnect
+      hassUrl={hassUrl}
+      options={{
+        // Use the parent HA frontend's window for breakpoints/resize so
+        // media queries reflect the actual viewport, not the iframe's.
+        windowContext: window.top ?? window,
+      }}
+    >
       <GlobalStyles />
       <App />
     </HassConnect>

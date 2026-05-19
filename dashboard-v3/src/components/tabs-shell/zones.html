@@ -1,0 +1,146 @@
+    <section class="tab" data-tab="zones">
+      <header class="page-header">
+        <div>
+          <h1 class="page-title">Zones</h1>
+          <div class="page-subtitle">5 zones · tap a zone to filter Rooms tab</div>
+        </div>
+        <div class="page-actions">
+          <button class="btn sm" data-tab-target="rooms">All rooms <svg class="icon-sm"><use href="#lc-chevron-right"/></svg></button>
+        </div>
+      </header>
+
+      <div class="controls-bar">
+        <div class="knob span-4">
+          <div class="knob-label">Sort by</div>
+          <div class="pill-group" style="width:100%">
+            <button class="active" style="flex:1">Occupancy</button>
+            <button style="flex:1">Lights on</button>
+            <button style="flex:1">Demand</button>
+            <button style="flex:1">Name</button>
+          </div>
+        </div>
+        <div class="knob span-4">
+          <div class="knob-label">Show zones</div>
+          <div class="pill-group" style="width:100%">
+            <button class="active" style="flex:1">All</button>
+            <button style="flex:1">Indoor</button>
+            <button style="flex:1">Active</button>
+          </div>
+        </div>
+        <div class="knob span-4">
+          <div class="knob-label">Whole-house</div>
+          <div class="knob-action" style="margin-top:0; flex-wrap:wrap">
+            <button class="btn">All lights off</button>
+            <button class="btn">Setback all</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid">
+        <div class="card col-6 status-green">
+          <div class="card-head">
+            <div class="row" style="gap:var(--space-xs); font-size:var(--text-lg)"><span class="dot green live"></span><strong>Main Living</strong></div>
+            <span class="badge green">normal · cooling</span>
+          </div>
+          <div class="row" style="gap:var(--space-md); padding:var(--space-xs) 0">
+            <div><div class="card-value sm tabular">3 / 5</div><div class="card-sub">occupied</div></div>
+            <div><div class="card-value sm tabular">72°</div><div class="card-sub">avg · set 72°</div></div>
+            <div><div class="card-value sm tabular">12 / 18</div><div class="card-sub">lights on</div></div>
+            <div style="flex:1"></div>
+          </div>
+          <div class="card-row"><span>Rooms</span><span class="dim">Great Room · Kitchen · Dining · Foyer · Hallway</span></div>
+          <div class="card-controls">
+            <button class="btn sm icon"><svg class="icon-sm"><use href="#lc-minus"/></svg></button>
+            <span class="tabular" style="font-size:var(--text-md); align-self:center; padding:0 4px">72°</span>
+            <button class="btn sm icon"><svg class="icon-sm"><use href="#lc-plus"/></svg></button>
+            <button class="btn sm">All lights off</button>
+            <button class="btn sm" data-tab-target="rooms">Open rooms <svg class="icon-sm"><use href="#lc-chevron-right"/></svg></button>
+          </div>
+        </div>
+        <div class="card col-6 status-yellow">
+          <div class="card-head">
+            <div class="row" style="gap:var(--space-xs); font-size:var(--text-lg)"><span class="dot green"></span><strong>Master Suite</strong></div>
+            <span class="badge yellow">coast</span>
+          </div>
+          <div class="row" style="gap:var(--space-md); padding:var(--space-xs) 0">
+            <div><div class="card-value sm tabular">1 / 4</div><div class="card-sub">occupied (Oji)</div></div>
+            <div><div class="card-value sm tabular">74°</div><div class="card-sub">avg · set 73°</div></div>
+            <div><div class="card-value sm tabular">5 / 12</div><div class="card-sub">lights on</div></div>
+            <div style="flex:1"></div>
+          </div>
+          <div class="card-row"><span>Rooms</span><span class="dim">Office · Master Bed · Master Bath · Master Closet</span></div>
+          <div class="card-row"><span>URA reason</span><span class="dim">occupancy drop predicted 45m</span></div>
+          <div class="card-controls">
+            <button class="btn sm icon"><svg class="icon-sm"><use href="#lc-minus"/></svg></button>
+            <span class="tabular" style="font-size:var(--text-md); align-self:center; padding:0 4px">73°</span>
+            <button class="btn sm icon"><svg class="icon-sm"><use href="#lc-plus"/></svg></button>
+            <button class="btn sm">All lights off</button>
+            <button class="btn sm" data-tab-target="rooms">Open rooms <svg class="icon-sm"><use href="#lc-chevron-right"/></svg></button>
+          </div>
+        </div>
+        <div class="card col-6 status-blue">
+          <div class="card-head">
+            <div class="row" style="gap:var(--space-xs); font-size:var(--text-lg)"><span class="dot green live"></span><strong>Kids</strong></div>
+            <span class="badge blue">pre-cool</span>
+          </div>
+          <div class="row" style="gap:var(--space-md); padding:var(--space-xs) 0">
+            <div><div class="card-value sm tabular">1 / 4</div><div class="card-sub">occupied (Ziri)</div></div>
+            <div><div class="card-value sm tabular">71°</div><div class="card-sub">avg · set 71°</div></div>
+            <div><div class="card-value sm tabular">6 / 11</div><div class="card-sub">lights on</div></div>
+            <div style="flex:1"></div>
+          </div>
+          <div class="card-row"><span>Rooms</span><span class="dim">Playroom · Ziri Bed · Ziri Bath · Study</span></div>
+          <div class="card-row"><span>URA reason</span><span class="dim">Ziri bedtime routine 19:30</span></div>
+          <div class="card-controls">
+            <button class="btn sm icon"><svg class="icon-sm"><use href="#lc-minus"/></svg></button>
+            <span class="tabular" style="font-size:var(--text-md); align-self:center; padding:0 4px">71°</span>
+            <button class="btn sm icon"><svg class="icon-sm"><use href="#lc-plus"/></svg></button>
+            <button class="btn sm">All lights off</button>
+            <button class="btn sm" data-tab-target="rooms">Open rooms <svg class="icon-sm"><use href="#lc-chevron-right"/></svg></button>
+          </div>
+        </div>
+        <div class="card col-6">
+          <div class="card-head">
+            <div class="row" style="gap:var(--space-xs); font-size:var(--text-lg)"><span class="dot grey"></span><strong>Guest</strong></div>
+            <span class="badge">setback</span>
+          </div>
+          <div class="row" style="gap:var(--space-md); padding:var(--space-xs) 0">
+            <div><div class="card-value sm tabular">0 / 3</div><div class="card-sub">occupied</div></div>
+            <div><div class="card-value sm tabular">75°</div><div class="card-sub">avg · set 78°</div></div>
+            <div><div class="card-value sm tabular">0 / 7</div><div class="card-sub">lights on</div></div>
+            <div style="flex:1"></div>
+          </div>
+          <div class="card-row"><span>Rooms</span><span class="dim">Guest Bed · Guest Bath · Gym</span></div>
+          <div class="card-row"><span>URA reason</span><span class="dim">vacancy economy · guest mode off</span></div>
+          <div class="card-controls">
+            <button class="btn sm">Wake zone</button>
+            <button class="btn sm">Guest mode on</button>
+            <button class="btn sm" data-tab-target="rooms">Open rooms <svg class="icon-sm"><use href="#lc-chevron-right"/></svg></button>
+          </div>
+        </div>
+        <div class="card col-12">
+          <div class="card-head">
+            <div class="row" style="gap:var(--space-xs); font-size:var(--text-lg)"><span class="dot grey"></span><strong>Outdoor</strong></div>
+            <span class="badge">sunset 19:42</span>
+          </div>
+          <div class="row" style="gap:var(--space-md); padding:var(--space-xs) 0">
+            <div><div class="card-value sm tabular">64°</div><div class="card-sub">outdoor · partly cloudy</div></div>
+            <div><div class="card-value sm tabular">0 / 6</div><div class="card-sub">lights on (auto at sunset)</div></div>
+            <div><div class="card-value sm tabular">5.4 mph</div><div class="card-sub">wind · S</div></div>
+            <div><div class="card-value sm tabular">0.0&quot;</div><div class="card-sub">rain today</div></div>
+            <div style="flex:1"></div>
+          </div>
+          <div class="card-row"><span>Rooms</span><span class="dim">Front Porch · Back Deck · Garage</span></div>
+          <div class="card-controls">
+            <button class="btn sm">Porch on</button>
+            <button class="btn sm">Deck on</button>
+            <button class="btn sm">Auto sunset</button>
+            <button class="btn sm" data-tab-target="rooms">Open rooms <svg class="icon-sm"><use href="#lc-chevron-right"/></svg></button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ====================================================
+         TAB: ROOMS — dense grid of every room with controls
+         ==================================================== -->

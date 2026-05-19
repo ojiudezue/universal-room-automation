@@ -1,0 +1,107 @@
+    <section class="tab" data-tab="house">
+      <header class="page-header">
+        <div>
+          <h1 class="page-title">House</h1>
+          <div class="page-subtitle">Whole-home roll-up · drill to Zones or Rooms for detail</div>
+        </div>
+        <div class="page-actions">
+          <button class="btn"><svg class="icon"><use href="#lc-plus"/></svg> Onboard room</button>
+        </div>
+      </header>
+
+      <div class="controls-bar">
+        <div class="knob span-4">
+          <div class="knob-label">Whole-house quick</div>
+          <div class="knob-action" style="margin-top:0; flex-wrap:wrap">
+            <button class="btn">All lights off</button>
+            <button class="btn">Evening scene</button>
+            <button class="btn">Bed scene</button>
+            <button class="btn">Movie scene</button>
+          </div>
+        </div>
+        <div class="knob span-4">
+          <div class="knob-label">House climate setpoint</div>
+          <div class="row" style="gap:var(--space-xs); align-items:center">
+            <button class="btn icon"><svg class="icon-sm"><use href="#lc-minus"/></svg></button>
+            <div class="knob-value tabular" style="flex:1; text-align:center">72°</div>
+            <button class="btn icon"><svg class="icon-sm"><use href="#lc-plus"/></svg></button>
+          </div>
+          <div class="card-sub">All zones · per-zone offsets retained</div>
+        </div>
+        <div class="knob span-4">
+          <div class="knob-label">Drill into</div>
+          <div class="knob-action" style="margin-top:0; flex-wrap:wrap">
+            <button class="btn" data-tab-target="zones">Zones <svg class="icon-sm"><use href="#lc-chevron-right"/></svg></button>
+            <button class="btn" data-tab-target="rooms">Rooms <svg class="icon-sm"><use href="#lc-chevron-right"/></svg></button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Whole-house KPI -->
+      <div class="grid">
+        <div class="card col-3">
+          <div class="card-title">Occupancy</div>
+          <div class="card-value tabular">3<span class="card-unit">/ 4</span></div>
+          <div class="card-sub">8 rooms occupied · 11 idle</div>
+        </div>
+        <div class="card col-3">
+          <div class="card-title">Lights on</div>
+          <div class="card-value tabular">23<span class="card-unit">/ 87</span></div>
+          <div class="card-sub">Main: 12 · Kids: 6 · Master: 5</div>
+        </div>
+        <div class="card col-3">
+          <div class="card-title">Avg temperature</div>
+          <div class="card-value tabular">73°<span class="card-unit">F</span></div>
+          <div class="card-sub">range 71° – 76° · outside 64°</div>
+        </div>
+        <div class="card col-3">
+          <div class="card-title">Activity (5 min)</div>
+          <div class="card-value tabular">14</div>
+          <div class="card-sub">motion events · 3 zones</div>
+        </div>
+      </div>
+
+      <!-- House-level summaries -->
+      <div class="section-head"><h2>Zone roll-ups</h2></div>
+      <div class="grid">
+        <div class="card col-4 status-green">
+          <div class="card-head"><div class="row" style="gap:var(--space-xs)"><span class="dot green live"></span><strong>Main Living</strong></div><button class="btn sm" data-tab-target="zones">View</button></div>
+          <div class="card-row"><span>Occupied</span><span class="tabular">3 / 5 rooms</span></div>
+          <div class="card-row"><span>Lights</span><span class="tabular">12 / 18 on</span></div>
+          <div class="card-row"><span>Temp / target</span><span class="tabular">72° / 72°</span></div>
+          <div class="card-row"><span>Status</span><span><span class="badge green">normal</span></span></div>
+        </div>
+        <div class="card col-4 status-yellow">
+          <div class="card-head"><div class="row" style="gap:var(--space-xs)"><span class="dot green"></span><strong>Master Suite</strong></div><button class="btn sm" data-tab-target="zones">View</button></div>
+          <div class="card-row"><span>Occupied</span><span class="tabular">1 / 4 rooms</span></div>
+          <div class="card-row"><span>Lights</span><span class="tabular">5 / 12 on</span></div>
+          <div class="card-row"><span>Temp / target</span><span class="tabular">74° / 73°</span></div>
+          <div class="card-row"><span>Status</span><span><span class="badge yellow">coast</span></span></div>
+        </div>
+        <div class="card col-4 status-blue">
+          <div class="card-head"><div class="row" style="gap:var(--space-xs)"><span class="dot green live"></span><strong>Kids</strong></div><button class="btn sm" data-tab-target="zones">View</button></div>
+          <div class="card-row"><span>Occupied</span><span class="tabular">1 / 4 rooms</span></div>
+          <div class="card-row"><span>Lights</span><span class="tabular">6 / 11 on</span></div>
+          <div class="card-row"><span>Temp / target</span><span class="tabular">71° / 71°</span></div>
+          <div class="card-row"><span>Status</span><span><span class="badge blue">pre-cool</span></span></div>
+        </div>
+        <div class="card col-6">
+          <div class="card-head"><div class="row" style="gap:var(--space-xs)"><span class="dot grey"></span><strong>Guest</strong></div><button class="btn sm" data-tab-target="zones">View</button></div>
+          <div class="card-row"><span>Occupied</span><span class="tabular">0 / 3 rooms</span></div>
+          <div class="card-row"><span>Lights</span><span class="tabular">0 / 7 on</span></div>
+          <div class="card-row"><span>Temp / target</span><span class="tabular">75° / 78°</span></div>
+          <div class="card-row"><span>Status</span><span><span class="badge">setback · vacancy</span></span></div>
+        </div>
+        <div class="card col-6">
+          <div class="card-head"><div class="row" style="gap:var(--space-xs)"><span class="dot grey"></span><strong>Outdoor</strong></div><button class="btn sm" data-tab-target="zones">View</button></div>
+          <div class="card-row"><span>Active</span><span class="dim">— · 0 sensors triggered</span></div>
+          <div class="card-row"><span>Lights</span><span class="tabular">0 / 6 on</span></div>
+          <div class="card-row"><span>Outdoor temp</span><span class="tabular">64° · partly cloudy</span></div>
+          <div class="card-row"><span>Status</span><span><span class="badge">sunset 19:42</span></span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ====================================================
+         TAB: ZONES — 5 zone cards with room roll-ups
+         ==================================================== -->

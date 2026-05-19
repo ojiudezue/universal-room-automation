@@ -1,0 +1,218 @@
+    <section class="tab" data-tab="hvac">
+      <header class="page-header">
+        <div>
+          <h1 class="page-title">HVAC</h1>
+          <div class="page-subtitle">5 zones · cool mode · system demand 64%</div>
+        </div>
+        <div class="page-actions">
+          <span class="badge green lg">comfort 92%</span>
+        </div>
+      </header>
+
+      <!-- CONTROLS BAR — HVAC coordinator knobs (this tab was light on knobs in P1 v1) -->
+      <div class="controls-bar">
+        <div class="knob span-3">
+          <div class="knob-label">System mode</div>
+          <div class="pill-group" style="width:100%">
+            <button class="active" style="flex:1">Cool</button>
+            <button style="flex:1">Heat</button>
+            <button style="flex:1">Auto</button>
+            <button style="flex:1">Off</button>
+          </div>
+          <div class="card-sub">Override per-zone in cards below</div>
+        </div>
+        <div class="knob span-2">
+          <div class="knob-label">House setpoint</div>
+          <div class="row" style="gap:var(--space-xs); align-items:center">
+            <button class="btn icon"><svg class="icon-sm"><use href="#lc-minus"/></svg></button>
+            <div class="knob-value tabular" style="flex:1; text-align:center">72°</div>
+            <button class="btn icon"><svg class="icon-sm"><use href="#lc-plus"/></svg></button>
+          </div>
+          <div class="card-sub">All zones · individual offsets retained</div>
+        </div>
+        <div class="knob span-3">
+          <div class="knob-label">Pre-cool aggressiveness <span class="badge accent">URA</span></div>
+          <div class="knob-value">Balanced</div>
+          <div class="knob-action">
+            <input type="range" min="0" max="3" value="2" class="slider">
+          </div>
+          <div class="card-sub">Passive · Conservative · <strong>Balanced</strong> · Aggressive</div>
+        </div>
+        <div class="knob span-2">
+          <div class="knob-label">Coast threshold</div>
+          <div class="knob-value tabular">45 <span class="dim" style="font-weight:400; font-size:var(--text-sm)">min</span></div>
+          <div class="knob-action">
+            <input type="range" min="15" max="120" value="45" class="slider">
+          </div>
+          <div class="card-sub">Predicted-vacancy lookahead</div>
+        </div>
+        <div class="knob span-2">
+          <div class="knob-label">URA modes</div>
+          <div class="card-row"><span style="font-size:var(--text-xs)">Arrester</span><label class="toggle"><input type="checkbox" checked><span class="toggle-slot"></span></label></div>
+          <div class="card-row"><span style="font-size:var(--text-xs)">Observation</span><label class="toggle"><input type="checkbox"><span class="toggle-slot"></span></label></div>
+          <div class="card-row"><span style="font-size:var(--text-xs)">Pre-cool</span><label class="toggle"><input type="checkbox" checked><span class="toggle-slot"></span></label></div>
+        </div>
+      </div>
+
+      <!-- House aggregate -->
+      <div class="grid">
+        <div class="card col-3">
+          <div class="card-title">House avg</div>
+          <div class="card-value tabular">73°<span class="card-unit">F</span></div>
+          <div class="card-sub">range 71° – 76° · outside 64°</div>
+        </div>
+        <div class="card col-3">
+          <div class="card-title">System demand</div>
+          <div class="card-value tabular">64<span class="card-unit">%</span></div>
+          <div class="gauge-track"><div class="gauge-fill orange" style="width:64%"></div></div>
+        </div>
+        <div class="card col-3">
+          <div class="card-title">Today runtime</div>
+          <div class="card-value tabular">4.2<span class="card-unit">h</span></div>
+          <div class="card-sub">est. cost: $2.18 · 6.4 kWh</div>
+        </div>
+        <div class="card col-3 status-blue">
+          <div class="card-title"><svg class="icon-sm"><use href="#lc-sparkles"/></svg>URA intent</div>
+          <div class="row" style="gap:var(--space-xs); margin-top:var(--space-xs)">
+            <span class="badge blue">pre-cool Kids</span>
+            <span class="badge yellow">coast Master</span>
+          </div>
+          <div class="card-sub">Solar surplus → push cooling forward</div>
+        </div>
+      </div>
+
+      <!-- Zone cards -->
+      <div class="section-head">
+        <h2>Zones</h2>
+      </div>
+      <div class="grid">
+        <!-- Main Living -->
+        <div class="card col-4">
+          <div class="card-head">
+            <div class="row" style="gap:var(--space-xs)"><span class="dot green"></span><strong>Main Living</strong></div>
+            <span class="badge green">normal</span>
+          </div>
+          <div class="row" style="gap:var(--space-md); padding:var(--space-xs) 0; align-items:flex-start">
+            <div>
+              <div class="card-value tabular">72°</div>
+              <div class="card-sub">current</div>
+            </div>
+            <div style="flex:1; text-align:right">
+              <div class="card-value sm tabular">72°</div>
+              <div class="card-sub">target · cool</div>
+            </div>
+          </div>
+          <div class="card-row"><span>Action</span><span><span class="badge accent">cooling</span></span></div>
+          <div class="card-row"><span>Demand</span><span class="tabular">42%</span></div>
+          <div class="card-row"><span>Comfort</span><span class="tabular" style="color:var(--status-green)">95%</span></div>
+          <div class="card-row"><span>Thermostat</span><span class="dim">Nest · Great Room</span></div>
+          <div class="card-controls">
+            <button class="btn sm icon"><svg class="icon-sm"><use href="#lc-minus"/></svg></button>
+            <span class="tabular" style="font-size:var(--text-md); font-weight:600; align-self:center; padding:0 4px">72°</span>
+            <button class="btn sm icon"><svg class="icon-sm"><use href="#lc-plus"/></svg></button>
+            <div class="pill-group" style="margin-left:auto">
+              <button class="active">Cool</button>
+              <button>Heat</button>
+              <button>Auto</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Master Suite -->
+        <div class="card col-4 status-yellow">
+          <div class="card-head">
+            <div class="row" style="gap:var(--space-xs)"><span class="dot yellow"></span><strong>Master Suite</strong></div>
+            <span class="badge yellow">coast</span>
+          </div>
+          <div class="row" style="gap:var(--space-md); padding:var(--space-xs) 0; align-items:flex-start">
+            <div>
+              <div class="card-value tabular">74°</div>
+              <div class="card-sub">current</div>
+            </div>
+            <div style="flex:1; text-align:right">
+              <div class="card-value sm tabular">73°</div>
+              <div class="card-sub">target · cool</div>
+            </div>
+          </div>
+          <div class="card-row"><span>Action</span><span><span class="badge">idle (coasting)</span></span></div>
+          <div class="card-row"><span>Demand</span><span class="tabular">18%</span></div>
+          <div class="card-row"><span>Comfort</span><span class="tabular" style="color:var(--status-yellow)">88%</span></div>
+          <div class="card-row"><span>URA reason</span><span class="dim">occupied drop in 45m</span></div>
+          <div class="card-controls">
+            <button class="btn sm icon"><svg class="icon-sm"><use href="#lc-minus"/></svg></button>
+            <span class="tabular" style="font-size:var(--text-md); font-weight:600; align-self:center; padding:0 4px">73°</span>
+            <button class="btn sm icon"><svg class="icon-sm"><use href="#lc-plus"/></svg></button>
+            <div class="pill-group" style="margin-left:auto">
+              <button class="active">Cool</button>
+              <button>Heat</button>
+              <button>Auto</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Kids -->
+        <div class="card col-4 status-blue">
+          <div class="card-head">
+            <div class="row" style="gap:var(--space-xs)"><span class="dot blue"></span><strong>Kids</strong></div>
+            <span class="badge blue">pre-cool</span>
+          </div>
+          <div class="row" style="gap:var(--space-md); padding:var(--space-xs) 0; align-items:flex-start">
+            <div>
+              <div class="card-value tabular">71°</div>
+              <div class="card-sub">current</div>
+            </div>
+            <div style="flex:1; text-align:right">
+              <div class="card-value sm tabular">71°</div>
+              <div class="card-sub">target · pre-cool</div>
+            </div>
+          </div>
+          <div class="card-row"><span>Action</span><span><span class="badge accent">cooling hard</span></span></div>
+          <div class="card-row"><span>Demand</span><span class="tabular">88%</span></div>
+          <div class="card-row"><span>Comfort</span><span class="tabular" style="color:var(--status-green)">93%</span></div>
+          <div class="card-row"><span>URA reason</span><span class="dim">Ziri bedtime 19:30</span></div>
+          <div class="card-controls">
+            <button class="btn sm icon"><svg class="icon-sm"><use href="#lc-minus"/></svg></button>
+            <span class="tabular" style="font-size:var(--text-md); font-weight:600; align-self:center; padding:0 4px">71°</span>
+            <button class="btn sm icon"><svg class="icon-sm"><use href="#lc-plus"/></svg></button>
+            <div class="pill-group" style="margin-left:auto">
+              <button class="active">Cool</button>
+              <button>Heat</button>
+              <button>Auto</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Guest -->
+        <div class="card col-6">
+          <div class="card-head">
+            <div class="row" style="gap:var(--space-xs)"><span class="dot grey"></span><strong>Guest Suite</strong></div>
+            <span class="badge">setback</span>
+          </div>
+          <div class="row" style="gap:var(--space-md); padding:var(--space-xs) 0">
+            <div><div class="card-value sm tabular">76°</div><div class="card-sub">current</div></div>
+            <div style="flex:1; text-align:right"><div class="card-value sm tabular">78°</div><div class="card-sub">target · cool</div></div>
+          </div>
+          <div class="card-row"><span>Action</span><span class="dim">unoccupied · 6h</span></div>
+          <div class="card-row"><span>URA</span><span class="dim">guest mode off · vacancy economy</span></div>
+        </div>
+
+        <!-- Hazard guard + advanced URA knobs -->
+        <div class="card col-6">
+          <div class="card-head">
+            <div class="card-title"><svg class="icon-sm"><use href="#lc-alert"/></svg>Hazard guard &amp; advanced</div>
+            <span class="badge green">guarding</span>
+          </div>
+          <div class="card-row"><span>Hot-zone temp limit</span><span class="tabular">82°F</span></div>
+          <div class="card-row"><span>Cold-zone temp limit</span><span class="tabular">62°F</span></div>
+          <div class="card-row"><span>Comfort weight (mode)</span><span class="dim">balanced · energy 0.4 · comfort 0.6</span></div>
+          <div class="card-row"><span>Setback economy (vacancy)</span><span><span class="badge green">active 6h+</span></span></div>
+          <div class="card-row"><span>Routine awareness influence</span><span class="tabular">strong</span></div>
+          <div class="card-row"><span>Min daily HVAC severity</span><span><span class="badge accent">ALERT (3)</span></span></div>
+          <div class="card-sub" style="margin-top:var(--space-xs)">Hazard guard ignores arrester to force cooling when zones exceed limit. Severity gates anomaly emit.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ====================================================
+         TAB: PRESENCE
+         ==================================================== -->
