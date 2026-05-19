@@ -8,28 +8,96 @@
 - D7 first dogfood of subagent enforcement protocol (planner → builder → validator → 2 parallel reviewers)
 - Tier 2 review: 1 CRITICAL + 2 HIGH + 4 MEDIUM addressed; 3 LOW deferred to v4.6.11
 
-## v4.6.11 — D3 Persistence + LOW Polish Carryover (Tier 2, QUEUED)
+## v4.6.11 — D3 Persistence + Live-Validation Carryovers + LOW Polish (Tier 2, QUEUED)
 
-**Primary work (from v4.6.10 review C1/B1):** Make D3 setup-duration anomaly detection actually functional. Currently scaffolding only — `AnomalyDetector._baselines` is in-memory and resets every restart, so `minimum_samples=10` is never reached.
+**Recall hint:** "Resume v4.6.11 — D3 persistence + live-validation carryovers"
+
+### CRITICAL — D3 anomaly detection persistence + dispatch
+
+From v4.6.10 Tier 2 review (convergent A C1 + B B1). The currently-shipped D3 anomaly observation push is functional code, but the detection it enables cannot fire for a structural reason: `AnomalyDetector._baselines` is an in-memory dict that resets to `{}` on every HA restart. `setup_duration_seconds` accumulates exactly ONE observation per boot. `minimum_samples=10` is therefore unreachable. The baseline can never mature.
 
 Two paths to choose between in the planning cycle:
 
-1. **DB-backed baseline persistence** — extend `AnomalyDetector` (or wrap it) to checkpoint baseline statistics (n, mean, variance) to a new `metric_baselines` table. Restored on init. ~80 prod LoC + schema migration + ~60 test LoC. Tier 2-DB.
-2. **Query-replay baseline reconstruction** — query the last N rows from `metric_observations` (or `anomaly_log`) at init and replay them into the baseline. Avoids new schema; requires the observations to be persisted in the first place (which D3 doesn't currently do). ~60 prod LoC + ~50 test LoC. Tier 2.
+1. **DB-backed baseline persistence** — extend `AnomalyDetector` (or wrap it) to checkpoint baseline statistics (n, mean, variance) to a new `metric_baselines` table. Restored on init. ~80 prod LoC + schema migration + ~60 test LoC. **Tier 2-DB** (schema change → 3x parallel reviews per CLAUDE.md protocol).
+2. **Query-replay baseline reconstruction** — query the last N rows from `metric_observations` (or `anomaly_log`) at init and replay them into the baseline. Avoids new schema; requires observations to be persisted in the first place (which D3 currently doesn't do). ~60 prod LoC + ~50 test LoC. Tier 2.
 
-Either way: after baseline persistence works, ADD the missing `store_event(AnomalyEvent(...))` call after `record_observation` returns a non-None anomaly (following `safety.py:1684-1715` pattern) to actually fire the NM cascade. Without this, anomalies fire into the void.
+Either way: after baseline persistence works, ADD the missing `store_event(AnomalyEvent(...))` call after `record_observation` returns a non-None anomaly (following `safety.py:1684-1715` pattern) to actually fire the NM cascade.
 
-Update the v4.6.10 code comment + log message that say "scaffold-only, no dispatch" once the persistence + dispatch are wired.
+Update the v4.6.10 code comment + log message that say "scaffold-only, no dispatch" once persistence + dispatch are wired. Without this update, future readers won't trust new code in the area.
 
-**LOW carryover from v4.6.10 review:**
+### HIGH — Three MONETARY sensors missed by D6 sweep test (live-validation 2026-05-18)
+
+Live validation post v4.6.10 deploy found THREE PredictedCost sensors still have the MONETARY + MEASUREMENT incompatibility:
+
+- `sensor.universal_room_automation_predicted_cost_today` (state class `measurement`, device class `monetary`)
+- `sensor.universal_room_automation_predicted_cost_week`
+- `sensor.universal_room_automation_predicted_cost_month`
+
+**Root cause:** these classes set `_attr_state_class = SensorStateClass.MEASUREMENT` AND `unit_of_measurement = "$"` but never explicitly declare `_attr_device_class = SensorDeviceClass.MONETARY`. HA auto-derives `device_class = MONETARY` from the dollar-sign unit. The v4.6.10 D6 sweep test (`test_no_monetary_measurement_attr_in_aggregation`) grepped for the literal string `MONETARY` in the class body, so PredictedCost classes (which only contain `"$"`) were never matched.
+
+**Fix:**
+- Change `_attr_state_class = SensorStateClass.MEASUREMENT` → either remove (predicted values are not statistically meaningful as MEASUREMENT) OR `SensorStateClass.TOTAL` if the predicted-cost values are interpreted as daily/weekly/monthly running estimates
+- Decision per HA semantics: PredictedCost is a forward-projected single value per query window, not a cumulative running total → remove `_attr_state_class` entirely (no state_class)
+
+**Test broadening (Bug Class proposal):**
+- Add proposed bug class **"Sweep test with narrow detection regex"** to `docs/QUALITY_CONTEXT.md`
+- Broaden the D6 sweep test to ALSO catch sensors where:
+  - `unit_of_measurement` is dollar-prefixed (`"$"`, `"$/h"`, `"USD"`, `"USD/h"`, `"USD/day"`) — implicit MONETARY via HA inference
+  - AND `_attr_state_class` is `MEASUREMENT` or `TOTAL_INCREASING`
+  - This catches the auto-derivation path, not just explicit `_attr_device_class = MONETARY` declarations
+
+LoC: ~10 prod (3 sensor edits) + ~30 test (broader sweep). Should also re-run the sweep across the full codebase to find any other dollar-unit + incompatible-state_class combos.
+
+### MEDIUM — Setup duration sensor capture window is too narrow (live-validation 2026-05-18)
+
+`sensor.ura_coordinator_manager_ura_setup_duration` reports **3.221s** post-restart. This is only the CM init block (between `CoordinatorManager(...)` construction and `coordinator_manager.async_start()` returning). It excludes:
+
+- Person coordinator init (runs BEFORE the CM block)
+- Platform setup callbacks (sensor/binary_sensor/button — runs AFTER CM init returns)
+- Room/zone coordinator instantiation for all rooms
+- Initial entity state reads
+
+User-visible URA setup wall-time is closer to ~30-60s on a typical restart. The 3.221s is honest about what it measures, but the "URA Setup Duration" label overpromises.
+
+**Fix:** Move the end waypoint OUT of `async_setup_entry`. Two options:
+1. Subscribe to a coordinator-ready signal (e.g., `SIGNAL_COORDINATORS_READY` if it exists, or invent one) and capture the timestamp in the signal handler.
+2. Schedule a `entry.async_create_background_task` with `await hass.async_block_till_done()` to wait for platform setup to fully complete, then capture.
+
+Option 1 is cleaner but requires the signal infrastructure. Option 2 is mechanical but couples timing to HA's task-queue semantics.
+
+Either way: when the wider window is shipped, `setup_duration_seconds` should report ~30-60s on a healthy boot, making the anomaly baseline (once it has persistence per the CRITICAL above) actually useful for detecting regressions.
+
+LoC: ~30 prod (new signal handler or background-task waypoint) + ~20 test. Conditional: only ship after the D3 persistence fix lands, since the anomaly metric needs the wider window AND the persistent baseline together to be useful.
+
+### LOW — Carryovers from v4.6.10 review
+
 - `quality/tests/test_v4_6_10_setup_telemetry.py` uses `asyncio.get_event_loop().run_until_complete()` — deprecated since Python 3.10. Use `asyncio.run()` or pytest-asyncio.
-- `_make_observation_coro()` factory in `__init__.py` is unnecessary indirection (closure-over-nothing). Simplify after persistence wiring is in.
-- Pre-existing Bug Class #21 violation at `coordinator_diagnostics.py:824` (`datetime.utcnow()` — should be `dt_util.utcnow()`). Noted by Review B (L3).
+- `_make_observation_coro()` factory in `__init__.py` is unnecessary indirection (closure-over-nothing). Simplify once persistence wiring is in.
+- Pre-existing Bug Class #21 violation at `coordinator_diagnostics.py:824` (`datetime.utcnow()` — should be `dt_util.utcnow()`). Noted by Review B (L3). One-line fix.
 
-**Carryover from v4.6.9 (still deferred):**
-- `domain_coordinators/person_seed_helpers.py` extraction (drift risk mitigation for inlined test bodies). ~30 prod + ~40 test LoC.
+### LOW — Carryover from v4.6.9 review
 
-**Recall hint:** "Resume v4.6.11 — D3 persistence + LOW polish carryover"
+- `domain_coordinators/person_seed_helpers.py` extraction (drift-risk mitigation for inlined test bodies). ~30 prod + ~40 test LoC. Deferred from v4.6.10 per the planning doc's conditional rule (helpers reference `self.data` so pure-free-function extraction would require coupling the new module to coordinator state).
+
+### Subagent protocol regressions discovered during v4.6.10 (file as v4.6.11 sub-deliverable)
+
+- `ura-planner` agent missing Write tool — delivered plan inline; main thread had to save the file. **Fix:** add `Write` to ura-planner AGENT.md frontmatter tools list.
+- `ura-validator` baseline-diff methodology has artifact: new test files execute against baseline production code and fail (their imports resolve against stale production). Directional result correct, absolute counts slightly inflated by ~18. **Fix:** either also stash the new test files during baseline-diff run, OR filter pytest to exclude tests added in the current branch.
+
+### Estimated total budget v4.6.11
+
+| Deliverable | Prod LoC | Test LoC | Tier |
+|---|---|---|---|
+| D3 persistence + dispatch | ~80 (DB path) or ~60 (replay path) | ~60 / ~50 | 2-DB / 2 |
+| D6 PredictedCost MONETARY fix | ~10 | ~30 | 1 |
+| Setup duration window widening | ~30 | ~20 | 1 |
+| LOW carryovers (3 from v4.6.10) | ~10 | ~10 | — |
+| LOW carryover (1 from v4.6.9) | ~30 | ~40 | — |
+| Subagent protocol fixes | ~5 | 0 | — |
+| **TOTAL (DB persistence path)** | **~165** | **~160** | Tier 2-DB |
+| **TOTAL (replay persistence path)** | **~145** | **~150** | Tier 2 |
+
+Tier decision deferred to planner. DB path is cleaner architecture; replay path is smaller blast radius. Either way: Tier 2 ceremony (2+ parallel reviewers).
 
 ---
 
