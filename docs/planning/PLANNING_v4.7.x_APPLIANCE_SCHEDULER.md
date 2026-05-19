@@ -1,5 +1,7 @@
 # B5: URA Appliance Scheduler — Cost-Reduction Deferral & Forecast-Aware Sprinklers
 
+> **⚠️ Superseded by [`PLANNING_v4.7.x_APPLIANCE_SCHEDULER_v2.md`](PLANNING_v4.7.x_APPLIANCE_SCHEDULER_v2.md) as of 2026-05-19.** v2 replans the cycle around the interrupt-at-start path, strictness UX, multi-vector power, observability slate, and Rainbird kill-switch. Keep this file for history.
+
 **Version:** 1.1 (2026-05-19 revision — see Revision Log below)
 **Date:** May 5, 2026
 **Status:** Ready to build (queued as v4.7.x; was v4.4.x)

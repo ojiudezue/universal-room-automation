@@ -70,8 +70,9 @@ async def validate_v4611(states_map: dict) -> list[tuple[str, bool, str]]:
     """v4.6.11 acceptance criteria — see docs/reviews/code-review/v4.6.11_*.md."""
     out = []
 
-    # Criterion 2: sensor.ura_safety_events_summary loads + returns int
-    s = states_map.get("sensor.ura_safety_events_summary")
+    # Criterion 2: safety events summary loads + returns int
+    # Entity ID prefixes with device, so it's ura_safety_coordinator_*
+    s = states_map.get("sensor.ura_safety_coordinator_safety_events_summary")
     ok = False
     msg = "missing"
     if s:
@@ -127,7 +128,7 @@ async def validate_v4612(states_map: dict) -> list[tuple[str, bool, str]]:
     """v4.6.12 acceptance criteria — see docs/readmes/README_v4.6.12.md."""
     out = []
 
-    motion = states_map.get("sensor.ura_zones_with_motion")
+    motion = states_map.get("sensor.universal_room_automation_zones_with_motion")
     ok = False
     msg = "missing"
     if motion:
@@ -139,7 +140,7 @@ async def validate_v4612(states_map: dict) -> list[tuple[str, bool, str]]:
             msg = f"state not int: {motion['state']!r}"
     out.append(("v4.6.12/1 zones_with_motion", ok, msg))
 
-    hvac = states_map.get("sensor.ura_hvac_system_demand")
+    hvac = states_map.get("sensor.universal_room_automation_hvac_system_demand")
     ok = False
     msg = "missing"
     if hvac:
@@ -156,7 +157,7 @@ async def validate_v4612(states_map: dict) -> list[tuple[str, bool, str]]:
                 msg = f"state not int: {st!r}"
     out.append(("v4.6.12/2 hvac_system_demand", ok, msg))
 
-    grid = states_map.get("sensor.ura_energy_grid_demand")
+    grid = states_map.get("sensor.universal_room_automation_energy_grid_demand")
     ok = False
     msg = "missing"
     if grid:
