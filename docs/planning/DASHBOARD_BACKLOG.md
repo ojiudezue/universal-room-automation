@@ -39,6 +39,17 @@ Per-tab status:
 
 ---
 
+## URA Python — EC startup-race resilience (CANDIDATE, evidence required)
+
+**Filed:** 2026-05-19 during EC `not_initialized` incident.
+**Status:** Hypothesis only. Will not enter a build cycle until reproduced/witnessed.
+
+EC was found in `not_initialized` state after a HA restart ~16h prior. Repair issue placeholder showed `envoy_entity_missing` (V2 validation failure). User confirmed config is correct. CM reload via REST API did not fix it. Hypothesis: integration-load race where URA's setup ran before Enphase finished registering entities — V2 check failed, EC gate closed permanently for that boot.
+
+Detailed entry in `docs/planning/PLANNING_v4.6.12_dashboard_aggregator_sensors.md` ("Investigation candidate") with required evidence + ship sketch. Recall hint: "Resume EC startup-race investigation".
+
+---
+
 ## v5.0.x — Dashboard performance polish (user-flagged 2026-05-19)
 
 User feedback at v4.6.10.1 mount preview: "Fidelity is good. Performance is still not amazing."

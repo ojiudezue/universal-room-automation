@@ -407,6 +407,37 @@ No changes to:
 
 ---
 
+## Investigation candidate — NOT scoped yet, requires evidence
+
+### EC envoy validation startup-race resilience
+
+**Status:** Hypothesis. NOT committed for v4.6.12. **Will not be scoped into a build cycle until the bug is reproduced or otherwise confirmed.**
+
+**Symptom observed 2026-05-19:** EC reported `not_initialized` after a HA restart ~16h prior. Repair issue `energy_envoy_invalid_<entry_id>` fired with placeholder `errors: energy_envoy_entity=envoy_entity_missing` (V2 validation: `hass.states.get(envoy_eid) is None`). User confirmed the saved envoy_eid points at the correct, currently-healthy entity. CM reload via REST API did not fix it.
+
+**Hypothesis:** At setup time, HA's parallel-integration-loading hadn't yet registered Enphase entities in `hass.states`. URA's V2 check (`energy_const.py:566-572`) returned False. EC was gated off via `__init__.py:1725`. Once Enphase finished loading, the entity became available, but URA's gate had already closed and is not retried. The fix would be event-driven retry — subscribe to state_changed for the envoy_eid + re-run validation on availability.
+
+**Why this is just a hypothesis right now:**
+- The HA WebSocket API (with long-lived token) does not expose config-entry data/options to outside-in queries, so we cannot directly confirm the envoy_eid value was right or what was/wasn't in `hass.states` at setup time.
+- No `system_log/get` ERROR entries currently in buffer — could mean logs cleared or could mean the failure was silent (`_envoy_validation_ok = False` gate, no exception).
+- The "race" framing is consistent with the symptoms but other explanations exist (e.g., a transient HA core issue, an Enphase integration disabled-then-re-enabled, a partial entity registry migration).
+
+**Required evidence before scoping this into a build cycle:**
+
+1. **Reproducibility.** The symptom must recur after at least one independent HA restart (or HAOS reboot). If a single restart clears it for days/weeks, it's a one-off — not worth code work.
+2. **Race witness.** When the bug recurs, capture URA setup logs showing the validation failed at startup. Specifically the line `Envoy entity 'sensor.envoy_<serial>_<...>' is currently 'unavailable'` (the V3 warning path at `energy_const.py:576-579`) OR the V2 error message logged at `__init__.py:1666-1671`. Without this log we cannot rule out a stale-config bug.
+3. **State-machine timing trace.** Optional: add temporary debug logging to `validate_envoy_config` to print the entity_id + `hass.states.get(eid)` result at the moment the gate fires. This requires a one-off debug deploy but would definitively prove or rule out the race.
+4. **User-facing pattern check.** If reload-from-Settings-Devices-and-Services consistently fixes the issue (not the device-page reload that storms entities), that's a tell: the gate is purely first-shot and a clean reload retries the check against a now-populated state machine. Confirms event-driven retry would be the right fix.
+
+**If confirmed:** scope ~30 prod LoC + ~40 test LoC in a future cycle (likely v4.6.12.x or v4.6.13). Tier 1.
+- Subscribe to `EVENT_STATE_CHANGED` filtered to the envoy_eid in `__init__.py` setup path
+- On state change, re-run `validate_envoy_config`; if it now passes AND EC was previously skipped, register EC and clear the repair issue
+- Acceptance test: mock setup that runs validation BEFORE the envoy entity exists in `hass.states`, then simulate state_changed event, assert EC is now registered
+
+**If NOT confirmed:** the symptom was likely a one-off (HA core hiccup or transient entity-registry issue). No code work needed. Workaround: restart HAOS or reload the URA: Coordinator Manager entry via Settings → Devices & Services.
+
+---
+
 ## Out of scope (explicit)
 
 Not in v4.6.12, deferred to later cycles:
