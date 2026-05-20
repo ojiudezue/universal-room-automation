@@ -1003,11 +1003,27 @@ body.mobile .tabular, body.mobile .mono { overflow-wrap: anywhere; }
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 12px;
+  /* Generous tap targets — iOS HIG recommends 44px min; we hit ~40 with padding. */
+  padding: 10px 14px;
+  min-height: 40px;
   border-radius: var(--radius-md);
   font-size: var(--text-sm);
   color: var(--text-secondary);
   flex-shrink: 0;
+  /* v5.0.4 iOS tab-tap fix: buttons inside an overflow-x:auto container
+     have ambiguous tap-vs-scroll semantics on iOS Safari / WKWebView.
+     `touch-action: manipulation` tells iOS "this is a click target;
+     don't classify minor finger drift as scroll" — fixes the case where
+     tapping a tab did nothing because iOS was waiting to see if it
+     was the start of a scroll gesture. */
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: rgba(25, 118, 210, 0.18);
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  /* Strip iOS's default button styling that can interfere. */
+  -webkit-appearance: none;
+  appearance: none;
 }
 
 .mobile-tabs button.active {
