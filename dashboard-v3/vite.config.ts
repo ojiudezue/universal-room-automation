@@ -12,6 +12,12 @@ export default defineConfig({
     chunkSizeWarningLimit: 600,
     rollupOptions: {
       output: {
+        // Vendor / hakit / charts split keeps the top-of-fold cacheable.
+        // date-fns locale shards remain lazy-loaded (~60 small chunks);
+        // resolve.alias below redirects all non-en imports to en-US so the
+        // shards are only built once even if hakit's UI internals appear
+        // to use multiple locales. The dashboard never eagerly downloads
+        // them — they're chunked by Rollup's default dynamic-import split.
         manualChunks: {
           vendor: ["react", "react-dom"],
           hakit: ["@hakit/core"],
@@ -21,6 +27,9 @@ export default defineConfig({
     },
   },
   resolve: {
+    // Belt-and-suspenders: alias still redirects non-en locale paths to en-US
+    // for the cases where the import is a plain string. The manualChunks
+    // function above catches the rest (dynamic imports + transitive deps).
     alias: [
       {
         find: /^date-fns\/locale\/(?!en\b).*/,
