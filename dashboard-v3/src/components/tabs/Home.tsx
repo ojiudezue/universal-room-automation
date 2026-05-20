@@ -91,6 +91,7 @@ function StatusBar({
   zonesList,
   gridKw,
   gridExporting,
+  houseKw,
   anomalyTotal,
 }: {
   houseState: string | null;
@@ -98,8 +99,14 @@ function StatusBar({
   zonesList: string[];
   gridKw: number | null;
   gridExporting: boolean;
+  /** Fallback when grid_demand is unavailable (no cap configured) — total
+   *  house load from whole_house_power. Different metric from gridKw. */
+  houseKw: number | null;
   anomalyTotal: number;
 }) {
+  const displayKw = gridKw ?? houseKw;
+  const displayLabel =
+    gridKw != null ? (gridExporting ? "exporting" : "from grid") : "house load";
   return (
     <div className="status-bar">
       <div className="status-bar-item">
@@ -123,13 +130,13 @@ function StatusBar({
           <use href="#lc-zap" />
         </svg>
         <strong className="tabular">
-          {gridKw == null
+          {displayKw == null
             ? "—"
-            : gridExporting
-              ? `-${Math.abs(gridKw).toFixed(1)} kW`
-              : `${gridKw.toFixed(1)} kW`}
+            : gridKw != null && gridExporting
+              ? `-${Math.abs(displayKw).toFixed(1)} kW`
+              : `${displayKw.toFixed(1)} kW`}
         </strong>
-        <span className="dim">{gridExporting ? "exporting" : "from grid"}</span>
+        <span className="dim">{displayLabel}</span>
       </div>
       <div className="spacer"></div>
       {anomalyTotal > 0 && (
@@ -368,12 +375,19 @@ function UraBrainHero({
 /** Energy-now card (right-hand side of the hero row). */
 function EnergyNowCard() {
   const gridDemand = useUraSensorAttrs<GridDemandAttrs>(GRID_DEMAND_SENSOR);
+  const wholePower = useUraSensorFloat(WHOLE_HOUSE_POWER_SENSOR);
   const wholeCost = useUraSensorFloat(WHOLE_HOUSE_COST_SENSOR);
   const batterySoc = useUraSensorFloat(ENVOY_BATTERY_SOC);
   const tou = useUraSensorState(TOU_PERIOD_SENSOR);
 
   const gridKw = gridDemand.attrs?.grid_import_kw ?? null;
   const exporting = gridDemand.attrs?.exporting ?? false;
+  // v5.0.4 fallback to whole_house_power (W → kW) when grid_demand is unavailable
+  const houseKw =
+    wholePower.value == null ? null : Math.round((wholePower.value / 1000) * 10) / 10;
+  const displayKw = gridKw ?? houseKw;
+  const displayLabel =
+    gridKw != null ? (exporting ? "exporting" : "from grid") : "house load";
   const period = tou.unavailable || tou.state == null ? null : tou.state;
   const periodBadgeCls =
     period === "peak"
@@ -407,14 +421,14 @@ function EnergyNowCard() {
         <span className={`badge ${periodBadgeCls}`.trim()}>{periodLabel}</span>
       </div>
       <div className="card-value tabular">
-        {gridKw == null
+        {displayKw == null
           ? "—"
-          : exporting
-            ? `-${Math.abs(gridKw).toFixed(1)}`
-            : gridKw.toFixed(1)}
+          : gridKw != null && exporting
+            ? `-${Math.abs(displayKw).toFixed(1)}`
+            : displayKw.toFixed(1)}
         <span className="card-unit">kW</span>
       </div>
-      <div className="card-sub">{exporting ? "exporting" : "from grid"}</div>
+      <div className="card-sub">{displayLabel}</div>
       <div className="card-row">
         <span>Battery</span>
         <span>
@@ -564,8 +578,17 @@ export function Home() {
   const exporting = gridDemand.attrs?.exporting ?? false;
 
   // Derive house power for the subtitle when available.
+  // sensor.universal_room_automation_whole_house_power is in WATTS (per
+  // the entity's unit_of_measurement attribute), so divide by 1000 to get kW.
   const houseKw =
     wholePower.value == null ? null : Math.round((wholePower.value / 1000) * 10) / 10;
+
+  // v5.0.4 status-bar fallback: when sensor.energy_grid_demand is unavailable
+  // (it requires _grid_import_cap_enabled in EC options — not always set),
+  // surface whole_house_power as "house load" instead of rendering "—".
+  // StatusBar handles this via its own displayKw/displayLabel locals; the
+  // EnergyNowCard further down also reads gridKw / houseKw and applies its
+  // own fallback so its kW value isn't "—" either.
 
   return (
     <section className="tab active" data-tab="home">
@@ -603,6 +626,7 @@ export function Home() {
         zonesList={zonesAttrs.attrs?.zones ?? []}
         gridKw={gridKw}
         gridExporting={exporting}
+        houseKw={houseKw}
         anomalyTotal={anomalyTotal}
       />
 
