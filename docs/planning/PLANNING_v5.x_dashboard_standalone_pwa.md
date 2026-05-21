@@ -101,7 +101,7 @@ CORS / WebSocket: the PWA at `ura.phalanxmadrone.com` opens `wss://madronehaos.p
 
 | Decision | Value | Why |
 |---|---|---|
-| **Repo location** | `universal-room-automation/dashboard-pwa/` (sibling to existing `dashboard-v3/`) | Co-located with URA so changes evolve together. Decouple to its own repo later if it grows. |
+| **Repo location** | **Separate repo** `~/Code/ura-dashboard-pwa/` → GitHub `ojiudezue/ura-dashboard-pwa` | Locked 2026-05-21 — keeps build/deploy cadence independent from URA Python; smaller blast radius for frontend-only experiments. Cross-repo coupling is just the entity-id schema documented in URA's `docs/TELEMETRY_LAYER.md`. |
 | **Build tool** | Vite (same as dashboard-v3) | Familiar; React 19 support; static build → `dist/` |
 | **State store** | Zustand 5.x | Tiny (~3 KB), `useSyncExternalStore` under the hood, supports custom equality |
 | **Routing** | `react-router-dom` 6 with `HashRouter` | Hash-based avoids server-side rewrite rules on the static host. Tabs become `#/home`, `#/diagnostics`, etc. |
@@ -303,11 +303,13 @@ This is the seam where the dashboard's read-only controls bar finally becomes wr
 12 deliverables. v6.0 ships D1-D9. D10-D12 follow as v6.1.
 
 ### D1: Vite + React + TypeScript scaffolding
-- New `dashboard-pwa/` directory in URA repo.
+- New repo `~/Code/ura-dashboard-pwa/` (separate from `universal-room-automation/`).
+- `git init` + initial commit; create GitHub repo `ojiudezue/ura-dashboard-pwa`.
 - `package.json` (react 19, react-dom 19, react-router-dom 6, zustand 5, vite 6, vite-plugin-pwa 0.21, typescript 5.7, vitest, @playwright/test).
 - `vite.config.ts` with PWA plugin, base `/`, build outDir `dist/`.
 - `tsconfig.json` strict.
 - Empty `App.tsx` + `main.tsx`.
+- `.env.example` documenting `VITE_HA_WS_URL=wss://madronehaos.phalanxmadrone.com/api/websocket` and `VITE_HA_HTTP_URL=https://madronehaos.phalanxmadrone.com` (the WS + REST endpoints; not the token — that's user-entered).
 - `npm run dev` runs locally; `npm run build` produces `dist/`.
 
 **Acceptance:**
@@ -345,10 +347,11 @@ This is the seam where the dashboard's read-only controls bar finally becomes wr
 ### D4: Auth screen + long-lived-token storage
 - Route `#/auth` shows a text input ("Paste your HA long-lived token").
 - "Test connection" button instantiates the WS client + tries `auth_ok`.
-- On success: persist token to `localStorage`, redirect to `#/home`.
+- On success: persist token to `localStorage` (key: `ura.ll_token`), redirect to `#/home`.
 - On `auth_invalid`: show error, leave the token field for retry.
 - App root checks for stored token on mount; if missing, redirect to `#/auth`.
 - "Sign out" link in any tab clears localStorage + redirects to `#/auth`.
+- **v6.0 token source:** paste the homelab token from `homelab-automation/.env` `HA_TOKEN`. This token is shared with Ansible scripts; **D10 (v6.1)** will mint a dedicated `ura-dashboard-pwa` token via HA profile UI and swap so PWA revocability is independent of homelab automation.
 
 **Acceptance:**
 - Fresh load with empty localStorage → lands on `#/auth`.
@@ -439,11 +442,12 @@ This is the seam where the dashboard's read-only controls bar finally becomes wr
 
 ---
 
-### D10: OAuth2 flow (v6.1)
+### D10: OAuth2 flow + dedicated PWA token (v6.1)
 - `/auth/callback` route handles `?code=&state=` redirect from HA.
 - Token exchange + refresh-token persistence.
 - Auth screen has "Sign in with Home Assistant" button (initiates OAuth) AND a "Use long-lived token" fallback (keeps D4 behavior).
-- Refresh logic: 5min before expiry, POST `/auth/token` with `grant_type=refresh_token`; on refresh-failure → fall through to re-auth.
+- Refresh logic: 5 min before expiry, POST `/auth/token` with `grant_type=refresh_token`; on refresh-failure → fall through to re-auth.
+- **PWA-dedicated long-lived token mint** (separate from OAuth path): document the procedure to create a `ura-dashboard-pwa` LL token via HA profile → Long-lived access tokens → "Create token", name it `ura-dashboard-pwa`, paste into the PWA auth screen. Replaces the shared homelab token. Revoke independently if the PWA is ever compromised. Add this as a **D4 follow-up step** in the deploy README so anyone re-deploying from scratch knows to use a dedicated token.
 
 **Acceptance:**
 - Fresh load → click "Sign in with HA" → redirected to HA login → accept → redirected back → entities load.
@@ -647,15 +651,81 @@ Realistic with normal interrupts: **2 weeks elapsed for v6.0**, **3 weeks for v6
 
 ---
 
-## Open questions (resolve before D1)
+## Locked decisions (2026-05-21)
 
-1. **Confirm subdomain.** `ura.phalanxmadrone.com` proposed. Alternative: `dashboard.phalanxmadrone.com`. (Recommend `ura` — shorter, matches branding.)
-2. **Confirm port.** `3005` is the next free port per the homelab inventory. Confirm no conflicting service.
-3. **Long-lived token rotation policy.** The 1y token in `homelab-automation/.env` is reusable; the PWA stores its own copy. Do you want the PWA to share that token or mint a new one for clarity? (Recommend: new dedicated PWA token labeled `ura-dashboard-pwa` so it's revocable independently.)
-4. **WebKit Playwright + local-IP unreachability.** v5.0 hit this; for v6 we'll test against the public CF tunnel URL which WebKit DOES reach. Confirm tunnel-accessibility before D9.
-5. **OAuth2 redirect URI** — HA's "URL-based client identification" wants `client_id` to exactly match an HTTPS URL the user owns. Our `client_id` will be `https://ura.phalanxmadrone.com`. Confirm HA accepts this exact host string (it should; this is the URL-as-client-id mechanism).
-6. **Mobile install pattern.** Banner-prompt for "Add to Home Screen" on iOS — text + screenshot guide? Or just rely on the user knowing how?
-7. **Repo decision.** Sibling directory `universal-room-automation/dashboard-pwa/` or separate repo `ura-dashboard-pwa`? (Recommend sibling for v6.0; spin out only if it grows >5,000 LoC or develops independent release cadence.)
+1. ✅ **Subdomain:** `ura.phalanxmadrone.com`
+2. ✅ **Port:** `3005` on webhost LXC 110
+3. ✅ **v6.0 token:** Reuse the existing homelab `.env` `HA_TOKEN` (1-year LL token, already minted). **v6.1 TODO:** mint a dedicated `ura-dashboard-pwa` LL token via the HA profile UI, swap the PWA over to it, leave the homelab token for the homelab-automation scripts. This isolates revocability — if the PWA is ever compromised, revoke its token without breaking Ansible runs.
+4. ✅ **Repo decision:** Separate repo `ura-dashboard-pwa` (sibling project, NOT inside `universal-room-automation/`). Lives at `~/Code/ura-dashboard-pwa/`. Git pushed to a new GitHub repo.
+5. ✅ **Mobile install banner:** Include (iOS-only, dismissable, ~50 LoC). See "Mobile install banner" section below.
+
+Still open (resolve at D9 / D10):
+
+- **WebKit Playwright + local-IP unreachability** — v5.0 hit this; v6 will test against the public CF tunnel URL which WebKit DOES reach. Verify tunnel-accessibility before D9.
+- **OAuth2 redirect URI** — HA's "URL-based client identification" wants `client_id` to exactly match an HTTPS URL. Our `client_id` will be `https://ura.phalanxmadrone.com`. Confirm HA accepts this exact host string at D10 (it should — this is the URL-as-client-id mechanism HA documents).
+
+---
+
+## Mobile install banner (clarified)
+
+Small dismissable strip shown ONLY to iOS Safari users who haven't already installed the PWA. Necessary because Apple refuses to fire `beforeinstallprompt` — without the banner, an iOS visitor has no idea this is an installable app.
+
+Implementation (~50 LoC component):
+
+```tsx
+// src/components/InstallBanner.tsx
+import { useEffect, useState } from "react";
+
+const STORAGE_KEY = "ura.install_banner_dismissed_at";
+
+function isIOS(): boolean {
+  return /iPhone|iPad|iPod/.test(navigator.userAgent);
+}
+
+function isStandalone(): boolean {
+  // iOS sets navigator.standalone when launched from home screen;
+  // also check display-mode media query for cross-browser truth.
+  return (
+    (navigator as any).standalone === true ||
+    window.matchMedia("(display-mode: standalone)").matches
+  );
+}
+
+export function InstallBanner() {
+  const [show, setShow] = useState(false);
+
+  useEffect(() => {
+    if (!isIOS()) return;
+    if (isStandalone()) return;
+    if (localStorage.getItem(STORAGE_KEY)) return;
+    setShow(true);
+  }, []);
+
+  if (!show) return null;
+
+  return (
+    <div className="install-banner" role="dialog">
+      <div>
+        📲 <strong>Install URA</strong> — Tap{" "}
+        <span className="ios-share-glyph">⎘</span> below, then{" "}
+        <strong>Add to Home Screen</strong>
+      </div>
+      <button
+        onClick={() => {
+          localStorage.setItem(STORAGE_KEY, new Date().toISOString());
+          setShow(false);
+        }}
+      >
+        Dismiss
+      </button>
+    </div>
+  );
+}
+```
+
+Style: sticky-bottom on mobile, dim background, accent border. Tap "Dismiss" → localStorage flag → never shown again on that device.
+
+For Android Chrome, the existing `beforeinstallprompt` capture in `vite-plugin-pwa` handles auto-prompting. No banner needed on Android.
 
 ---
 
@@ -681,6 +751,7 @@ If 1-8 all hold: v6.0 is good. v6.1 (OAuth2) and v6.2 (controls) follow.
 - "URA PWA deploy" → D8 hosting+DNS+tunnel section
 - "URA PWA auth" → v6.0 LL token + v6.1 OAuth2 sections
 - "URA PWA perf budget" → D9 + D12 sections (FCP < 200ms, transfer < 500 KB)
+- "URA PWA token rotation" → D10 dedicated-token mint section
 
 ---
 
