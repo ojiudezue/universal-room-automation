@@ -65,9 +65,19 @@ else
   git -C "$REPO_DIR" commit -m "v$VERSION: $SUMMARY"
 fi
 
-# Step 4: Push to develop
-step "4/7 Pushing to develop"
+# Step 4: Push to develop (GitHub origin + homelab Gitea mirror)
+step "4/7 Pushing to develop (origin + gitea)"
 run git -C "$REPO_DIR" push origin develop
+# Gitea mirror — only if remote exists. dual-push.sh handles credentials
+# from .env.local and restores clean URL via trap on any failure.
+if git -C "$REPO_DIR" remote get-url gitea >/dev/null 2>&1; then
+  if $DRY_RUN; then
+    echo "  [dry-run] bash scripts/dual-push.sh develop  (gitea mirror only)"
+  else
+    bash "$REPO_DIR/scripts/dual-push.sh" develop || \
+      echo "  [warn] gitea push failed — origin already pushed; gitea is mirror-only"
+  fi
+fi
 
 # Step 5: Create PR
 step "5/7 Creating PR: develop → master"
