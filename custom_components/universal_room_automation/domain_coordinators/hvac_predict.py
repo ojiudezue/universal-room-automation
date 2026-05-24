@@ -733,6 +733,136 @@ class HVACPredictor:
             "zone_demand": dict(self._zone_demand),
         }
 
+    def get_intent_attrs(self) -> dict[str, Any]:
+        """Return D4 intent enrichment attributes for the pre-cool likelihood sensor.
+
+        v4.6.9 D4: Adds reasoning context (forecast peak, TOU anchor, solar
+        intent, prior-day baseline) to the existing pre-cool likelihood sensor.
+
+        PWA contract guards:
+        - All numeric attrs: float or None. Never "—" / "N/A" / "" strings.
+        - Timestamps: ISO 8601 UTC strings, or None. Never naive datetime.
+        - solar_intent / anchor_period: str or None.
+        - Flat dict only. No nested objects.
+
+        Bug-class prevention:
+        - #8:  isinstance guards on forecast dict and list
+        - #11: all timestamps UTC via dt_util.now().astimezone(UTC).isoformat()
+        - #14: energy coordinator re-read at call time (not cached on self)
+        - #29: null-forecast branch fully covered
+        - #37: stable attribute shape — all 6 keys always present
+        """
+        from datetime import timezone
+
+        from ..const import DOMAIN
+
+        # Re-read at call time (Bug Class #14 — no stale cache).
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        energy = manager.coordinators.get("energy") if manager is not None else None
+
+        # --- Forecast peak outside temp and time ---
+        forecast_peak_outside_f: float | None = None
+        forecast_peak_time_iso: str | None = None
+
+        if energy is not None:
+            try:
+                cached_high = energy._cached_forecast_high
+                if cached_high is not None:
+                    forecast_peak_outside_f = float(cached_high)
+                    # Derive the forecast peak time from today's TOU peak start
+                    # hour (PEAK_HOUR_START = 14 / 2PM).  We anchor to midnight
+                    # of today in local time, then convert to UTC ISO.
+                    # Bug Class #11: result is always UTC-aware.
+                    now = dt_util.now()
+                    peak_local = now.replace(
+                        hour=PEAK_HOUR_START,
+                        minute=0,
+                        second=0,
+                        microsecond=0,
+                    )
+                    forecast_peak_time_iso = (
+                        peak_local.astimezone(timezone.utc).isoformat()
+                    )
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("get_intent_attrs: failed to read forecast from EC")
+
+        # --- TOU anchor period + minutes until it starts ---
+        anchor_period: str | None = None
+        anchor_starts_in_minutes: int | None = None
+
+        if energy is not None:
+            try:
+                tou = energy.tou_engine
+                transition = tou.get_next_transition()
+                # Bug Class #8: guard the transition dict
+                if isinstance(transition, dict):
+                    next_period = transition.get("next_period")
+                    hours_until = transition.get("hours_until")
+                    if next_period in ("peak", "mid_peak"):
+                        anchor_period = next_period
+                        if hours_until is not None:
+                            anchor_starts_in_minutes = int(
+                                round(float(hours_until) * 60)
+                            )
+                    elif next_period == "off_peak":
+                        # Currently in a peak window — anchor to the current period
+                        try:
+                            current = tou.get_current_period()
+                            if current in ("peak", "mid_peak"):
+                                anchor_period = current
+                                anchor_starts_in_minutes = 0
+                        except Exception:  # noqa: BLE001
+                            pass
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("get_intent_attrs: failed to read TOU anchor from EC")
+
+        # --- Solar intent ---
+        # Derived from EC battery strategy phase and mode.
+        # Mapping:
+        #   arbitrage_phase == "charge"     → harvest (charging from grid/solar)
+        #   arbitrage_phase == "discharge"  → export (discharging to house/grid)
+        #   mode == "self_consumption"      → passthrough (balancing in place)
+        #   anything else                   → unknown
+        solar_intent: str | None = None
+
+        if energy is not None:
+            try:
+                batt = energy.battery_status
+                if isinstance(batt, dict):
+                    phase = batt.get("arbitrage_phase", "n/a")
+                    mode = batt.get("mode", "unknown")
+                    if phase == "charge":
+                        solar_intent = "harvest"
+                    elif phase == "discharge":
+                        solar_intent = "export"
+                    elif mode == "self_consumption":
+                        solar_intent = "passthrough"
+                    else:
+                        solar_intent = "unknown"
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug("get_intent_attrs: failed to read battery strategy from EC")
+
+        # --- Prior-day baseline ---
+        # TODO(v4.7.x): no prior-day outdoor-temp tracking exists in the codebase.
+        # Emit null until a historical baseline store is introduced.
+        prior_day_at_this_hour_f: float | None = None
+
+        _LOGGER.debug(
+            "HVAC intent attrs: forecast_peak=%.1f anchor=%s solar_intent=%s",
+            forecast_peak_outside_f or 0.0,
+            anchor_period,
+            solar_intent,
+        )
+
+        return {
+            "forecast_peak_outside_f": forecast_peak_outside_f,
+            "forecast_peak_time_iso": forecast_peak_time_iso,
+            "anchor_period": anchor_period,
+            "anchor_starts_in_minutes": anchor_starts_in_minutes,
+            "solar_intent": solar_intent,
+            "prior_day_at_this_hour_f": prior_day_at_this_hour_f,
+        }
+
     def get_outcome_attrs(self) -> dict[str, Any]:
         """Return daily outcome for sensor."""
         if self._last_outcome is None:
