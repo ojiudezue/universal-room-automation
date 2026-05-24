@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.6.14
+# Universal Room Automation vv4.6.14.1
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -3835,8 +3835,8 @@ class PresenceNextStateSensor(AggregationEntity, SensorEntity):
         super().__init__(hass, entry)
         from homeassistant.helpers.device_registry import DeviceInfo
         from .const import VERSION
-        self._attr_unique_id = f"{DOMAIN}_presence_coordinator_next_state"
-        self._attr_name = "Presence Coordinator Next State"
+        self._attr_unique_id = f"{DOMAIN}_next_state"
+        self._attr_name = "Next State"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, "presence_coordinator")},
             name="URA: Presence Coordinator",
@@ -4873,8 +4873,8 @@ class SecurityAggregatorSensor(AggregationEntity, SensorEntity):
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         """Initialize."""
         super().__init__(hass, entry)
-        self._attr_unique_id = f"{DOMAIN}_security_coordinator_aggregator"
-        self._attr_name = "Security Coordinator Aggregator"
+        self._attr_unique_id = f"{DOMAIN}_aggregator"
+        self._attr_name = "Aggregator"
         self._attr_device_info = _security_device_info()
 
     def _get_aggregator(self) -> dict | None:
@@ -4996,8 +4996,8 @@ class EnergyRecentDecisionsSensor(AggregationEntity, SensorEntity):
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         """Initialize."""
         super().__init__(hass, entry)
-        self._attr_unique_id = f"{DOMAIN}_energy_coordinator_recent_decisions"
-        self._attr_name = "Energy Coordinator Recent Decisions"
+        self._attr_unique_id = f"{DOMAIN}_recent_decisions"
+        self._attr_name = "Recent Decisions"
         self._attr_device_info = _energy_device_info()
 
     def _get_decisions_data(self) -> dict | None:
@@ -11147,8 +11147,8 @@ class SafetyRecentEventsSensor(AggregationEntity, SensorEntity):
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         """Initialize."""
         super().__init__(hass, entry)
-        self._attr_unique_id = f"{DOMAIN}_safety_coordinator_recent_events"
-        self._attr_name = "Safety Coordinator Recent Events"
+        self._attr_unique_id = f"{DOMAIN}_recent_events"
+        self._attr_name = "Recent Events"
         self._attr_device_info = _safety_device_info()
 
     def _get_events_data(self) -> dict | None:
