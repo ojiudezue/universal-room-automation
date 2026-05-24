@@ -4988,7 +4988,10 @@ class EnergyRecentDecisionsSensor(AggregationEntity, SensorEntity):
 
     _attr_has_entity_name = True
     _attr_icon = "mdi:format-list-bulleted-type"
-    _attr_state_class = SensorStateClass.MEASUREMENT
+    # Tier 2-DB Reviewer C M1: state is a sliding-window count from a volatile
+    # in-memory ring buffer (resets on HA restart). HA long-term statistics
+    # would record a discontinuous time series for it. state_class=None opts
+    # out of LTS recording; matches the pattern at SecurityAggregatorSensor.
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         """Initialize."""
@@ -7625,8 +7628,15 @@ class HVACPreCoolLikelihoodSensor(AggregationEntity, SensorEntity):
         if hvac is None:
             return {}
         # v4.6.9 D4: merge prediction attrs with intent enrichment attrs.
-        # get_intent_attrs() always returns the 6 D4 keys (all str/float/int/None —
-        # no nested dicts, no Decimal, no "—" strings). Bug Class #37 contract.
+        # get_intent_attrs() returns the 6 D4 keys (all str/float/int/None — no
+        # nested dicts, no Decimal, no "—" strings); Bug Class #37 contract for
+        # the D4 keys is flat.
+        # Tier 2-DB Reviewer C H1: NOTE that the pre-existing
+        # `get_prediction_attrs()` already returns `zone_demand: dict[str,str]`
+        # — that is one nested dict that pre-dates v4.6.9 and is consumed by
+        # other PWA surfaces; we don't strip it. So the merged result is NOT
+        # uniformly flat (one nested key, plus 6 + ~6 flat keys). PWA
+        # `useUraSensorAttrs<HvacIntentAttrs>` reads only the 6 D4 keys.
         attrs = dict(hvac.predictor.get_prediction_attrs())
         try:
             intent = hvac.predictor.get_intent_attrs()
@@ -11129,7 +11139,10 @@ class SafetyRecentEventsSensor(AggregationEntity, SensorEntity):
 
     _attr_has_entity_name = True
     _attr_icon = "mdi:shield-alert"
-    _attr_state_class = SensorStateClass.MEASUREMENT
+    # Tier 2-DB Reviewer C M1: state is a sliding-window count from a volatile
+    # in-memory ring buffer (resets on HA restart). HA long-term statistics
+    # would record a discontinuous time series for it. state_class=None opts
+    # out of LTS recording.
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         """Initialize."""
