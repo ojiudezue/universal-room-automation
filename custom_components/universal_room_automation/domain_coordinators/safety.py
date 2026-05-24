@@ -91,6 +91,35 @@ SAFETY_SUPPRESSED_FROM_PERSISTENCE: frozenset[str] = frozenset()
 # ============================================================================
 
 
+class EventSeverity(StrEnum):
+    """PWA-facing severity vocabulary for the recent-events ring buffer.
+
+    Maps from internal Severity (CRITICAL/HIGH/MEDIUM/LOW) to the four
+    values the PWA RecentEventsAttrs contract expects.
+
+    Bug Class #22: single StrEnum definition — never redefine this vocabulary
+    at call sites. _record_event() calls EventSeverity.from_severity() to
+    convert; get_recent_events() reads the already-converted strings from the
+    buffer; severity_breakdown keys are exactly these four values.
+    """
+
+    INFO = "info"
+    ADVISORY = "advisory"
+    ALERT = "alert"
+    CRITICAL = "critical"
+
+    @classmethod
+    def from_severity(cls, severity: "Severity") -> "EventSeverity":
+        """Map internal Severity → PWA EventSeverity string."""
+        if severity == Severity.CRITICAL:
+            return cls.CRITICAL
+        elif severity == Severity.HIGH:
+            return cls.ALERT
+        elif severity == Severity.MEDIUM:
+            return cls.ADVISORY
+        return cls.INFO
+
+
 class HazardType(StrEnum):
     """Types of environmental hazards."""
 
@@ -635,6 +664,12 @@ class SafetyCoordinator(BaseCoordinator):
         self._last_counter_reset: datetime | None = None
         self._response_times: list[float] = []  # seconds
 
+        # v4.6.9 D5: Recent-events ring buffer — capped at 20 entries.
+        # Bug Class #25 (bounded list): deque(maxlen=20) enforces the hard cap.
+        # Each entry: { timestamp_iso, type, room, severity }
+        # severity uses EventSeverity vocabulary (info|advisory|alert|critical).
+        self._event_buffer: deque = deque(maxlen=20)
+
     @property
     def active_hazards(self) -> dict[str, Hazard]:
         """Return currently active hazards."""
@@ -644,6 +679,108 @@ class SafetyCoordinator(BaseCoordinator):
     def sensors_monitored(self) -> int:
         """Return total number of monitored sensors."""
         return len(self._binary_sensors) + len(self._numeric_sensors)
+
+    # =========================================================================
+    # v4.6.9 D5: Recent-events ring buffer helpers
+    # =========================================================================
+
+    def _record_event(
+        self,
+        event_type: str,
+        room: str | None,
+        severity: Severity,
+    ) -> None:
+        """Append a safety event entry to the ring buffer.
+
+        **Threading contract** (Tier 2-DB Reviewer A H1): MUST be called from
+        the HA event loop. Do NOT invoke from a thread executor — deque mutation
+        is safe under CPython's GIL but `get_recent_events()` snapshots via
+        `list(buffer)` and a concurrent appender from a thread could observe
+        a partial view. All current callers (`_respond_to_hazard`) are event-
+        loop-bound.
+
+        Bug Class #11: timestamp is UTC ISO 8601 string, never a datetime obj.
+        Bug Class #22: severity converted via EventSeverity.from_severity() —
+                       never redefine the vocabulary at call sites.
+        Bug Class #25: deque(maxlen=20) enforces hard cap — no list growth.
+        """
+        entry: dict[str, Any] = {
+            "timestamp_iso": dt_util.utcnow().isoformat(),
+            "type": event_type,
+            "room": room,
+            "severity": EventSeverity.from_severity(severity).value,
+        }
+        self._event_buffer.append(entry)
+        _LOGGER.debug(
+            "Safety event recorded: type=%s room=%s severity=%s",
+            event_type,
+            room,
+            entry["severity"],
+        )
+
+    def get_recent_events(self) -> dict[str, Any]:
+        """Return recent-events data for the SafetyRecentEventsSensor.
+
+        Returns a dict with:
+          - events: list[dict] — last 20 events, newest first
+          - count_24h: int — number of events in the last 24h
+          - last_event_at_iso: str | None — timestamp of most recent entry
+          - severity_breakdown: dict with exactly 4 int keys
+            (info, advisory, alert, critical)
+
+        Bug Class #29: covers empty-buffer branch (count_24h=0, empty list).
+        Bug Class #37: stable shape — all four keys always present.
+        Bug Class #25: list length capped at 20 by deque(maxlen=20).
+        """
+        # Stable empty shape — returned whenever buffer is empty
+        _empty_breakdown: dict[str, int] = {
+            "info": 0,
+            "advisory": 0,
+            "alert": 0,
+            "critical": 0,
+        }
+
+        all_entries = list(self._event_buffer)  # oldest → newest
+        newest_first = list(reversed(all_entries))
+
+        if not newest_first:
+            return {
+                "events": [],
+                "count_24h": 0,
+                "last_event_at_iso": None,
+                "severity_breakdown": dict(_empty_breakdown),
+            }
+
+        cutoff = dt_util.utcnow() - timedelta(hours=24)
+        count_24h = 0
+        breakdown: dict[str, int] = dict(_empty_breakdown)
+
+        # Tier 2-DB Reviewer A H2 fix: import at function top, not loop body.
+        from datetime import timezone as _tz
+
+        for entry in all_entries:
+            try:
+                ts = datetime.fromisoformat(entry["timestamp_iso"])
+                if ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=_tz.utc)
+                if ts >= cutoff:
+                    count_24h += 1
+                    sev_key = entry.get("severity", "info")
+                    if sev_key in breakdown:
+                        breakdown[sev_key] += 1
+            except Exception:
+                pass
+
+        last_event_at_iso: str | None = (
+            newest_first[0].get("timestamp_iso") if newest_first else None
+        )
+
+        return {
+            "events": newest_first,
+            "count_24h": count_24h,
+            "last_event_at_iso": last_event_at_iso,
+            "severity_breakdown": breakdown,
+        }
 
     # =========================================================================
     # Setup
@@ -1569,6 +1706,18 @@ class SafetyCoordinator(BaseCoordinator):
         # New hazard or severity change — reset occurrence counter
         self._hazard_occurrences[key] = 1
         self._hazards_detected_24h += 1
+
+        # v4.6.9 D5: Record into the recent-events ring buffer.
+        # Every new hazard (or severity change on an existing one) appends
+        # one entry. room=hazard.location (str | None — "unknown" from
+        # _location_from_entity_id but never None in practice; coerced to
+        # None only when empty so the PWA gets clean null).
+        _room_val: str | None = hazard.location if hazard.location else None
+        self._record_event(
+            event_type=hazard.type.value,
+            room=_room_val,
+            severity=hazard.severity,
+        )
 
         # Generate actions based on severity
         actions: list[CoordinatorAction] = []

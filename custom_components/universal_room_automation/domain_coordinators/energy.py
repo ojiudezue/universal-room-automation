@@ -8,6 +8,7 @@ Priority 40 (higher than HVAC at 30, lower than Safety at 100).
 from __future__ import annotations
 
 import asyncio
+import collections
 import logging
 from typing import Any
 
@@ -437,6 +438,99 @@ class EnergyCoordinator(BaseCoordinator):
             scope="forecast",
             max_samples=365,
         )
+
+        # v4.6.9 D3: Decision stream ring buffer — capped at 20 entries.
+        # Bug Class #25 (bounded list): deque(maxlen=20) enforces the hard cap.
+        # Each entry: { timestamp_iso, action, reason, tou_period, target_entity }
+        self._decision_buffer: collections.deque = collections.deque(maxlen=20)
+
+    # ------------------------------------------------------------------
+    # v4.6.9 D3: Decision stream helpers
+    # ------------------------------------------------------------------
+
+    def _record_decision(
+        self,
+        action: str,
+        reason: str,
+        target_entity: str | None = None,
+    ) -> None:
+        """Append a decision entry to the ring buffer.
+
+        **Threading contract** (Tier 2-DB Reviewer A H1): MUST be called from
+        the HA event loop. Do NOT invoke from a thread executor — deque mutation
+        is safe under CPython's GIL but `get_recent_decisions()` snapshots via
+        `list(buffer)` and a concurrent appender from a thread could observe
+        a partial view. All current callers are event-loop-bound; future
+        sensor platforms must follow the same constraint.
+
+        Bug Class #11: timestamp is UTC ISO 8601 string, never a datetime obj.
+        Bug Class #22: tou_period is read directly from TOURateEngine._VALID_PERIODS
+                       vocabulary (peak | mid_peak | off_peak).
+        Bug Class #25: deque(maxlen=20) enforces hard cap — no list growth.
+        """
+        from homeassistant.util import dt as dt_util
+        try:
+            tou_period: str = self._tou.get_current_period()
+        except Exception:
+            tou_period = "off_peak"
+        entry: dict[str, Any] = {
+            "timestamp_iso": dt_util.utcnow().isoformat(),
+            "action": action,
+            "reason": reason,
+            "tou_period": tou_period,
+            "target_entity": target_entity,
+        }
+        self._decision_buffer.append(entry)
+        _LOGGER.debug(
+            "Energy decision recorded: action=%s reason=%s tou_period=%s target=%s",
+            action, reason, tou_period, target_entity,
+        )
+
+    def get_recent_decisions(self) -> dict[str, Any]:
+        """Return decision stream data for the sensor.
+
+        Returns a dict with:
+          - decisions: list[dict] — last 20 decisions, newest first
+          - count_24h: int — number of decisions in the last 24h
+          - last_action_at_iso: str | None — timestamp of most recent entry
+
+        Bug Class #29: covers empty-buffer branch (count_24h=0, empty list).
+        Bug Class #37: stable shape — all three keys always present.
+        """
+        # Tier 2-DB Reviewer A H2 fix: imports at function top, not loop body.
+        from datetime import datetime, timedelta, timezone
+
+        from homeassistant.util import dt as dt_util
+
+        all_entries = list(self._decision_buffer)  # oldest→newest
+        newest_first = list(reversed(all_entries))
+
+        if not newest_first:
+            return {
+                "decisions": [],
+                "count_24h": 0,
+                "last_action_at_iso": None,
+            }
+
+        cutoff = dt_util.utcnow() - timedelta(hours=24)
+        count_24h = 0
+        for entry in all_entries:
+            try:
+                ts = datetime.fromisoformat(entry["timestamp_iso"])
+                if ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=timezone.utc)
+                if ts >= cutoff:
+                    count_24h += 1
+            except Exception:
+                pass
+
+        last_action_at_iso: str | None = newest_first[0].get("timestamp_iso") if newest_first else None
+
+        return {
+            "decisions": newest_first,
+            "count_24h": count_24h,
+            "last_action_at_iso": last_action_at_iso,
+        }
 
     def _build_entity_map(self, config: dict[str, str] | None) -> dict[str, str]:
         """Build entity mapping from config keys to battery strategy keys."""
@@ -1905,6 +1999,12 @@ class EnergyCoordinator(BaseCoordinator):
             new_period = self._tou.check_period_transition()
             if new_period:
                 self._tou_transition_count += 1
+                # v4.6.9 D3: TOU transition is a user-visible decision event.
+                self._record_decision(
+                    action=f"tou_transition_{new_period}",
+                    reason=f"TOU period changed to {new_period}",
+                    target_entity=None,
+                )
                 # v3.13.3: Track SOC at peak start for battery degradation detection
                 if new_period == "peak":
                     soc = self._battery.battery_soc
@@ -1959,6 +2059,20 @@ class EnergyCoordinator(BaseCoordinator):
             decision["evse_battery_hold"] = self._evse_battery_hold_active
 
             self._last_battery_decision = decision
+
+            # v4.6.9 D3: Record battery strategy decision in the ring buffer.
+            # Only record when the mode has actions (non-trivial decision) or
+            # when EVSE hold is active — avoids flooding the buffer with idle cycles.
+            _bat_actions = decision.get("actions", [])
+            if _bat_actions or decision.get("evse_battery_hold"):
+                _bat_target: str | None = (
+                    _bat_actions[0].get("target") if _bat_actions else None
+                )
+                self._record_decision(
+                    action=f"battery_{decision.get('mode', 'unknown')}",
+                    reason=decision.get("reason", ""),
+                    target_entity=_bat_target,
+                )
 
             # Execute actions (skipped in observation mode)
             if not self._observation_mode:
@@ -2362,6 +2476,12 @@ class EnergyCoordinator(BaseCoordinator):
         )
         if constraint_key != self._last_published_constraint:
             self._last_published_constraint = constraint_key
+            # v4.6.9 D3: Record HVAC constraint change in decision buffer.
+            self._record_decision(
+                action=f"hvac_constraint_{self._hvac_constraint_mode}",
+                reason=reason,
+                target_entity=None,
+            )
             from .signals import EnergyConstraint, SIGNAL_ENERGY_CONSTRAINT
             from homeassistant.helpers.dispatcher import async_dispatcher_send
 
@@ -2481,6 +2601,15 @@ class EnergyCoordinator(BaseCoordinator):
             )
             # Execute the actual shed action
             self._execute_shed_action(shed_target, activate=True)
+            # v4.6.9 D3: Record load shedding escalation in decision buffer.
+            self._record_decision(
+                action="load_shed_escalate",
+                reason=(
+                    f"Load shedding escalated to level {self._load_shedding_active_level} "
+                    f"(shedding {shed_target}, import {import_kw:.1f} kW > {threshold:.1f} kW)"
+                ),
+                target_entity=None,
+            )
             # Activity log: load shedding escalation
             from ..const import DOMAIN
             activity_logger = self.hass.data.get(DOMAIN, {}).get("activity_logger")

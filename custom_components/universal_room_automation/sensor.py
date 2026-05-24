@@ -176,6 +176,8 @@ async def async_setup_entry(
             HouseStateConfidenceSensor(hass, entry),
             PresenceAnomalySensor(hass, entry),
             PresenceComplianceSensor(hass, entry),
+            # v4.6.9 D1: Routine awareness next-state prediction
+            PresenceNextStateSensor(hass, entry),
             # v3.6.0-c2: Safety Coordinator sensors
             SafetyStatusSensor(hass, entry),
             SafetyActiveHazardsSensor(hass, entry),
@@ -191,6 +193,10 @@ async def async_setup_entry(
             SecurityOpenEntriesSensor(hass, entry),
             SecurityLastLockSweepSensor(hass, entry),
             SecurityExpectedArrivalsSensor(hass, entry),
+            # v4.6.9 D2: Locks + cameras roll-up aggregator
+            SecurityAggregatorSensor(hass, entry),
+            # v4.6.9 D3: Energy Coordinator decision stream timeline
+            EnergyRecentDecisionsSensor(hass, entry),
             # v3.6.27: Music Following Coordinator sensors
             MusicFollowingAnomalySensor(hass, entry),
             MusicFollowingTransfersTodaySensor(hass, entry),
@@ -273,6 +279,8 @@ async def async_setup_entry(
             SafetyActiveCooldownsSensor(hass, entry),
             # v4.6.11 D4.8: Safety events summary (last 24h from activity log)
             SafetyEventsSummarySensor(hass, entry),
+            # v4.6.9 D5: Safety recent-events ring buffer (last 20 events, newest first)
+            SafetyRecentEventsSensor(hass, entry),
             SecurityAuthorizedGuestsSensor(hass, entry),
             # Activity Log sensor
             URALastActivitySensor(hass, entry),
@@ -3769,6 +3777,172 @@ class PresenceComplianceSensor(AggregationEntity, SensorEntity):
             return 100.0
 
 
+# ============================================================================
+# v4.6.9 D1: Presence Coordinator — Next-State Prediction Sensor
+# ============================================================================
+
+
+try:
+    from enum import StrEnum as _StrEnum
+except ImportError:
+    from enum import Enum as _BaseEnum
+
+    class _StrEnum(str, _BaseEnum):  # type: ignore[no-redef]
+        """Python < 3.11 StrEnum backport."""
+
+
+class _NextStateVocab(_StrEnum):
+    """Bug Class #22: StrEnum for the next-state prediction vocabulary.
+
+    Vocabulary matches the plan's PWA hook contract:
+      home_day | home_night | away | sleep | guest | vacation | unknown
+    """
+    HOME_DAY = "home_day"
+    HOME_NIGHT = "home_night"
+    AWAY = "away"
+    SLEEP = "sleep"
+    GUEST = "guest"
+    VACATION = "vacation"
+    UNKNOWN = "unknown"
+
+
+class PresenceNextStateSensor(AggregationEntity, SensorEntity):
+    """Routine awareness next-state prediction sensor.
+
+    Entity: sensor.ura_presence_coordinator_next_state
+    Device: URA: Presence Coordinator
+    State: predicted house state (home_day | home_night | away | sleep |
+           guest | vacation | unknown)
+    Attributes (flat, PWA-parseable):
+      confidence: float (0.0-1.0)
+      predicted_at_iso: str (ISO 8601 UTC)
+      model: str (model id / version)
+      current_state: str (current house state, for cross-check)
+      transition_eta_minutes: int | null
+
+    v4.6.9 D1: The Routine Awareness v4.6.0 cycle introduced regime shift
+    *detection* (RegimeDetector, nightly batch) but not forward next-state
+    prediction.  PresenceCoordinator.get_next_state_prediction() currently
+    returns a placeholder_v0 shape (state="unknown", confidence=0.0).
+    A real model is planned for v4.7.x.
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:crystal-ball"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .const import VERSION
+        self._attr_unique_id = f"{DOMAIN}_presence_coordinator_next_state"
+        self._attr_name = "Presence Coordinator Next State"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "presence_coordinator")},
+            name="URA: Presence Coordinator",
+            manufacturer="Universal Room Automation",
+            model="Presence Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+
+    def _get_prediction(self) -> dict | None:
+        """Read the prediction from the presence coordinator.
+
+        Bug Class #14 (config staleness): called on every populator access —
+        never caches; always reads from the live coordinator.
+        """
+        try:
+            manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+            if manager is None:
+                return None
+            presence = manager.coordinators.get("presence")
+            if presence is None:
+                return None
+            return presence.get_next_state_prediction()
+        except Exception:
+            _LOGGER.debug(
+                "PresenceNextStateSensor: error reading prediction", exc_info=True
+            )
+            return None
+
+    @property
+    def native_value(self) -> str:
+        """Return the predicted next house state.
+
+        Tier 2-DB Reviewer A H3 fix: return the vocabulary value "unknown"
+        when prediction is unavailable — NOT the HA STATE_UNAVAILABLE constant.
+        The HA constant ("unavailable") would be stored as a string state in
+        the PWA's read path (useUraSensorState.state) and bypass the proper
+        unavailable signalling. The PWA's hook maps "unknown" → unavailable=True
+        via its state-vocab check.
+
+        Bug Class #29: covers the null-model branch — never returns "—"/"N/A"/"".
+        Bug Class #22: state value is validated against _NextStateVocab.
+        """
+        prediction = self._get_prediction()
+        if prediction is None:
+            return _NextStateVocab.UNKNOWN.value
+        raw = prediction.get("state", "unknown")
+        # Validate against vocabulary — default to "unknown" on bad value
+        try:
+            return _NextStateVocab(raw).value
+        except ValueError:
+            _LOGGER.debug(
+                "PresenceNextStateSensor: unexpected state value %r — using unknown", raw
+            )
+            return _NextStateVocab.UNKNOWN.value
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return flat PWA-parseable attribute dict.
+
+        Bug Class #37 (stable attribute shape): keys are always present;
+        null values use None (not absent keys).
+        All values are JSON-serializable: float, str, int, or None.
+        No Decimal, no datetime objects, no nested dicts.
+        """
+        prediction = self._get_prediction()
+        if prediction is None:
+            return {
+                "confidence": 0.0,
+                "predicted_at_iso": None,
+                "model": None,
+                "current_state": None,
+                "transition_eta_minutes": None,
+            }
+        eta = prediction.get("transition_eta_minutes")
+        return {
+            "confidence": float(prediction.get("confidence", 0.0)),
+            "predicted_at_iso": prediction.get("predicted_at_iso"),
+            "model": prediction.get("model"),
+            "current_state": prediction.get("current_state"),
+            "transition_eta_minutes": int(eta) if eta is not None else None,
+        }
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to house-state change signal for live updates.
+
+        Bug Class #1 (coordinator lifecycle): super() called first; subscription
+        cleaned up via async_on_remove (no untracked listeners).
+        Bug Class #19 (untracked background tasks): no tasks created here.
+        """
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_HOUSE_STATE_CHANGED
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_HOUSE_STATE_CHANGED, self._handle_update,
+            )
+        )
+        _LOGGER.debug("PresenceNextStateSensor: subscribed to SIGNAL_HOUSE_STATE_CHANGED")
+
+    @callback
+    def _handle_update(self, *args: Any) -> None:
+        """Schedule a state refresh when house state changes."""
+        self.async_schedule_update_ha_state()
+
+
 class IntegrationHouseStateSensor(AggregationEntity, SensorEntity):
     """House state sensor duplicated on the URA integration device.
 
@@ -4667,6 +4841,226 @@ class SecurityExpectedArrivalsSensor(AggregationEntity, SensorEntity):
     @callback
     def _handle_update(self) -> None:
         """Handle security entity update signal."""
+        self.async_schedule_update_ha_state()
+
+
+class SecurityAggregatorSensor(AggregationEntity, SensorEntity):
+    """Locks + cameras roll-up aggregator.
+
+    Entity: sensor.ura_security_coordinator_aggregator
+    Device: URA: Security Coordinator
+    State: armed | disarmed | partial | alert  (StrEnum _SecurityAggStatus)
+
+    v4.6.9 D2: Single sensor that rolls up all configured lock.* and
+    camera.* entities into a security overview the PWA dashboard can bind.
+
+    Bug-class guards:
+      #22 — state vocabulary is _SecurityAggStatus (StrEnum); never raw str
+      #23 — observation mode does NOT gate state computation; only action
+             dispatch is gated in the coordinator. Dashboard shows reality.
+      #29 — every status branch (armed/disarmed/partial/alert) is exercised
+             by mandatory tests and by the no-entities branch.
+      #11 — last_state_change_iso is UTC ISO 8601 str (never datetime obj).
+      #37 — extra_state_attributes is a flat dict of ints + one str|None.
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:shield-home"
+    # Tier 2-DB Reviewer A C1 fix: string-state sensor (armed|disarmed|partial|alert)
+    # — NOT a numeric measurement. Omit state_class entirely (matches pattern at
+    # SecurityArmedStateSensor:2976 "_attr_state_class = None  # Enum state").
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_security_coordinator_aggregator"
+        self._attr_name = "Security Coordinator Aggregator"
+        self._attr_device_info = _security_device_info()
+
+    def _get_aggregator(self) -> dict | None:
+        """Fetch live aggregator state from the security coordinator.
+
+        Returns None when the coordinator is unavailable so callers can
+        fall back gracefully without repeating the manager lookup.
+        """
+        try:
+            manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+            if manager is None:
+                return None
+            security = manager.coordinators.get("security")
+            if security is None:
+                return None
+            return security.get_security_aggregator_state()
+        except Exception:
+            _LOGGER.debug(
+                "SecurityAggregatorSensor: get_security_aggregator_state() failed",
+                exc_info=True,
+            )
+            return None
+
+    @property
+    def native_value(self) -> str:
+        """Return overall security status — armed | disarmed | partial | alert."""
+        agg = self._get_aggregator()
+        if agg is None:
+            return "disarmed"
+        return agg["status"]
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return flat lock/camera counts + last_state_change_iso.
+
+        Shape is always stable (Bug Class #37): all 9 keys are always
+        present regardless of whether locks/cameras are configured.
+        """
+        agg = self._get_aggregator()
+        if agg is None:
+            return {
+                "locks_total": 0,
+                "locks_locked": 0,
+                "locks_unlocked": 0,
+                "locks_jammed": 0,
+                "cameras_total": 0,
+                "cameras_streaming": 0,
+                "cameras_idle": 0,
+                "cameras_offline": 0,
+                "last_state_change_iso": None,
+            }
+        return {
+            "locks_total": agg["locks_total"],
+            "locks_locked": agg["locks_locked"],
+            "locks_unlocked": agg["locks_unlocked"],
+            "locks_jammed": agg["locks_jammed"],
+            "cameras_total": agg["cameras_total"],
+            "cameras_streaming": agg["cameras_streaming"],
+            "cameras_idle": agg["cameras_idle"],
+            "cameras_offline": agg["cameras_offline"],
+            "last_state_change_iso": agg["last_state_change_iso"],
+        }
+
+    @property
+    def icon(self) -> str:
+        """Dynamic icon based on aggregator status."""
+        val = self.native_value
+        if val == "alert":
+            return "mdi:shield-alert"
+        if val == "armed":
+            return "mdi:shield-lock"
+        if val == "partial":
+            return "mdi:shield-half-full"
+        return "mdi:shield-off-outline"
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to security entity updates."""
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_SECURITY_ENTITIES_UPDATE
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_SECURITY_ENTITIES_UPDATE, self._handle_update
+            )
+        )
+
+    @callback
+    def _handle_update(self) -> None:
+        """Handle security entity update signal."""
+        self.async_schedule_update_ha_state()
+
+
+class EnergyRecentDecisionsSensor(AggregationEntity, SensorEntity):
+    """Energy Coordinator decision stream timeline.
+
+    Entity: sensor.ura_energy_coordinator_recent_decisions
+    Device: URA: Energy Coordinator
+    State: int — number of decisions in the last 24h (never '—'/None/unknown)
+
+    v4.6.9 D3: Exposes the in-memory decision ring buffer from EnergyCoordinator
+    as a PWA-consumable sensor. State is always int (0 when buffer empty).
+
+    Bug-class guards:
+      #11  — all timestamps are UTC ISO 8601 strings (dt_util.utcnow().isoformat())
+      #22  — tou_period values come from TOURateEngine._VALID_PERIODS vocabulary
+             (peak | mid_peak | off_peak); never redefined here
+      #25  — buffer is deque(maxlen=20); hard cap enforced in coordinator
+      #29  — empty-buffer branch returns 0 + empty list (not null/unknown)
+      #37  — extra_state_attributes has stable shape: decisions + last_action_at_iso
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:format-list-bulleted-type"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_energy_coordinator_recent_decisions"
+        self._attr_name = "Energy Coordinator Recent Decisions"
+        self._attr_device_info = _energy_device_info()
+
+    def _get_decisions_data(self) -> dict | None:
+        """Fetch decision stream data from EnergyCoordinator.
+
+        Returns None when the coordinator is unavailable; callers fall back
+        gracefully to the empty-buffer shape.
+        """
+        try:
+            manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+            if manager is None:
+                return None
+            energy = manager.coordinators.get("energy")
+            if energy is None:
+                return None
+            return energy.get_recent_decisions()
+        except Exception:
+            _LOGGER.debug(
+                "EnergyRecentDecisionsSensor: get_recent_decisions() failed",
+                exc_info=True,
+            )
+            return None
+
+    @property
+    def native_value(self) -> int:
+        """Return number of decisions in the last 24h.
+
+        Bug Class #29: always returns int 0 on empty buffer — never None/unknown.
+        """
+        data = self._get_decisions_data()
+        if data is None:
+            return 0
+        return int(data.get("count_24h", 0))
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return flat decisions list + last_action_at_iso.
+
+        Bug Class #37: both keys are always present regardless of buffer state.
+        Bug Class #25: list is capped at 20 entries (enforced by deque in coordinator).
+        """
+        data = self._get_decisions_data()
+        if data is None:
+            return {
+                "decisions": [],
+                "last_action_at_iso": None,
+            }
+        return {
+            "decisions": data.get("decisions", []),
+            "last_action_at_iso": data.get("last_action_at_iso"),
+        }
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to energy entity updates."""
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_ENERGY_ENTITIES_UPDATE
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_ENERGY_ENTITIES_UPDATE, self._handle_update
+            )
+        )
+
+    @callback
+    def _handle_update(self) -> None:
+        """Handle energy entity update signal."""
         self.async_schedule_update_ha_state()
 
 
@@ -7230,7 +7624,18 @@ class HVACPreCoolLikelihoodSensor(AggregationEntity, SensorEntity):
         hvac = manager.coordinators.get("hvac")
         if hvac is None:
             return {}
-        return hvac.predictor.get_prediction_attrs()
+        # v4.6.9 D4: merge prediction attrs with intent enrichment attrs.
+        # get_intent_attrs() always returns the 6 D4 keys (all str/float/int/None —
+        # no nested dicts, no Decimal, no "—" strings). Bug Class #37 contract.
+        attrs = dict(hvac.predictor.get_prediction_attrs())
+        try:
+            intent = hvac.predictor.get_intent_attrs()
+            attrs.update(intent)
+        except Exception:  # noqa: BLE001
+            # Defensive guard: if intent attrs fail for any reason, the base
+            # prediction attrs are still returned intact.
+            pass
+        return attrs
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
@@ -10696,6 +11101,118 @@ class SafetyEventsSummarySensor(AggregationEntity, SensorEntity):
         self._cached_count = 0
         self._cached_auto_dismissed = 0
         self._cached_last_event_at = None
+
+
+# ============================================================================
+# v4.6.9 D5: Safety Coordinator — Recent Events Aggregator
+# ============================================================================
+
+
+class SafetyRecentEventsSensor(AggregationEntity, SensorEntity):
+    """Safety Coordinator recent-events ring buffer sensor.
+
+    Entity: sensor.ura_safety_coordinator_recent_events
+    Device: URA: Safety Coordinator
+    State: int — count of events in the last 24h (never '—'/None/unknown)
+
+    v4.6.9 D5: Exposes the in-memory event ring buffer from SafetyCoordinator
+    as a PWA-consumable sensor. State is always int (0 when buffer empty).
+
+    Bug-class guards:
+      #11  — all timestamps are UTC ISO 8601 strings (dt_util.utcnow().isoformat())
+      #22  — severity uses EventSeverity StrEnum (info|advisory|alert|critical)
+      #25  — buffer is deque(maxlen=20); hard cap enforced in coordinator
+      #29  — empty-buffer branch returns 0 + empty list (not null/unknown)
+      #37  — extra_state_attributes has stable shape: events, last_event_at_iso,
+              severity_breakdown always present regardless of buffer state
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:shield-alert"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_safety_coordinator_recent_events"
+        self._attr_name = "Safety Coordinator Recent Events"
+        self._attr_device_info = _safety_device_info()
+
+    def _get_events_data(self) -> dict | None:
+        """Fetch recent-events data from SafetyCoordinator.
+
+        Returns None when the coordinator is unavailable; callers fall back
+        gracefully to the empty-buffer shape.
+        """
+        try:
+            manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+            if manager is None:
+                return None
+            safety = manager.coordinators.get("safety")
+            if safety is None:
+                return None
+            return safety.get_recent_events()
+        except Exception:
+            _LOGGER.debug(
+                "SafetyRecentEventsSensor: get_recent_events() failed",
+                exc_info=True,
+            )
+            return None
+
+    @property
+    def native_value(self) -> int:
+        """Return number of events in the last 24h.
+
+        Bug Class #29: always returns int 0 on empty buffer — never None/unknown.
+        """
+        data = self._get_events_data()
+        if data is None:
+            return 0
+        return int(data.get("count_24h", 0))
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return flat events list, last_event_at_iso, and severity_breakdown.
+
+        Bug Class #37: all three keys are always present regardless of buffer state.
+        Bug Class #25: events list capped at 20 entries (enforced by deque in coordinator).
+        """
+        data = self._get_events_data()
+        if data is None:
+            return {
+                "events": [],
+                "last_event_at_iso": None,
+                "severity_breakdown": {
+                    "info": 0,
+                    "advisory": 0,
+                    "alert": 0,
+                    "critical": 0,
+                },
+            }
+        return {
+            "events": data.get("events", []),
+            "last_event_at_iso": data.get("last_event_at_iso"),
+            "severity_breakdown": data.get(
+                "severity_breakdown",
+                {"info": 0, "advisory": 0, "alert": 0, "critical": 0},
+            ),
+        }
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to safety entity updates."""
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_SAFETY_ENTITIES_UPDATE
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_SAFETY_ENTITIES_UPDATE, self._handle_update
+            )
+        )
+
+    @callback
+    def _handle_update(self) -> None:
+        """Handle safety entity update signal."""
+        self.async_schedule_update_ha_state()
 
 
 # ============================================================================
