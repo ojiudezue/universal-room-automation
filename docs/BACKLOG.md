@@ -482,11 +482,61 @@ return pred.top_room
 
 **Discovered during:** May 5 2026 sensor reconciliation cycle.
 
-## Appliance Scheduler (B5)
+## Appliance Coordinator (B5) — v3 PLAN CURRENT
 
-**B5: Appliance Scheduler — Cost-Reduction Deferral + Forecast-Aware Sprinklers** — New domain coordinator that defers LG ThinQ washer/dishwasher/washtower starts to off-peak TOU, and skips Rainbird sprinkler cycles based on weather forecast. Provider plugin pattern for future integrations (Bosch, SmartThings, generic power-sensor). Restart-survivable, reload-resilient. **Full plan:** `docs/planning/PLANNING_v4.4.x_APPLIANCE_SCHEDULER.md`
+**Status:** v3 plan landed 2026-05-23 at `docs/planning/PLANNING_v4.7.x_APPLIANCE_COORDINATOR_v3.md`. Ready to build (Tier 2-DB). Supersedes v1.1 (`PLANNING_v4.7.x_APPLIANCE_SCHEDULER.md`) and v2.0 (`PLANNING_v4.7.x_APPLIANCE_SCHEDULER_v2.md`); both retained for history.
 
-Phasing: D1+D2+D3+D4+D6 as v4.4.0; D5 hardening as v4.4.1; D7 sprinkler skip as v4.4.2; D8 generic provider as v4.5.0.
+**Scope:** New domain coordinator that defers LG ThinQ washer/dishwasher/washtower starts to cheaper TOU windows, interrupts manual starts that fire in peak (when the appliance is `interruptible_at_start`), and skips Rainbird sprinkler cycles based on weather forecast. Provider plugin pattern for future brands (Bosch, SmartThings, generic power-sensor).
+
+**v3 absorbs (since 2026-05-23):**
+- Dashboard target swap — Dashboard v5.0+ HA panel → **URA PWA v6.0+ standalone** (Principle 9 rewritten; D10 sensors annotated with `useUraSensor*` hook contracts; flat-attr discipline enforced; full 14-sensor Dashboard Hooks contract table)
+- v4.6.8 EC TOU rate reconciliation **(now shipped 2026-05-18)** → `savings_today_dollars` consumes `EnergyCoordinator.get_current_rate_for_period(period)` instead of local rate constants
+- v4.6.7 `anomaly_log` NOT NULL relaxation → interrupt-path can write partial metric rows (no fake zeros)
+
+**v2.0 absorbed all v1.1 user reax** (verified 2026-05-25):
+- P1 interrupt-at-start caveat + EV-charging precedent → INTERRUPTED SM state + D2
+- P7 per-appliance strictness (`tolerate_mid_peak`, `on_bisect`, cycle-length sensor) → Strictness Config Schema + D2 options-flow
+- P8 multi-vector power (device-native + mains + 30s tolerance) → PowerSignalAggregator + D11
+- P9 config-flow + device-page mirror → D10 entity slate (now PWA-grounded in v3)
+- P10 hardened v4.6.x anomaly framework → Principle 10 + D6
+- TOU bidirectional helper → Principle 11 + D3
+- Rainbird kill switch → D8
+- Coordinator dashboard surfaces → D10 + Dashboard Hooks section
+
+**Tier 2-DB review (CLAUDE.md):** 3 parallel reviewers
+- A — Data integrity + DB architecture preservation
+- B — Migration correctness + signal chain integrity
+- C — New surfaces + test fixture authority + PWA contract
+
+**Effort:** ~36-46h
+**Priority:** MEDIUM-HIGH
+
+**Ship plan (per v3):**
+- **v4.7.0** — D3, D11, D12, D1, D2, D4, D6, D10 (LG cost-deferral + interrupt + PWA observability)
+- **v4.7.1** — D5 (reload resilience hardening)
+- **v4.7.2** — D7 + D8 (sprinkler skip + Rainbird kill switch)
+- **v4.8.0** — D9 (GenericPowerSensorProvider, deferred)
+
+**Minor staleness in v3 (non-blocking):** Status line + "Why v3" §2 say v4.6.8 is "in flight" — actually shipped 2026-05-18. Open Q#7 (EC rate API name) now answerable; pin during D10 build.
+
+**Recall hint:** `"Resume Appliance Coordinator v3"` or `"B5 appliance scheduler"`
+
+---
+
+## v4.7.x SLOT CONTENTION (3 plans queued, 2026-05-25)
+
+Three independent Tier 2+ feature cycles are now `ready to build` against the v4.7.x version slot. Suggested order (warmest first, dependency-respecting):
+
+| # | Plan | Tier | Effort | Why this order |
+|---|---|---|---|---|
+| 1 | **Guest Mode Actuation Phase 1** | Tier 2 | ~11h | Warmest user-driven feature per memory; smallest scope; OWNS the override schema Dynamic Preset Mgmt depends on |
+| 2 | **AnomalyType discriminator** (memory item, no plan yet) | Tier 2-DB | ~90 LoC + migration | "On tap" per 2026-05-18 directive; small; clears the way for v4.8.x anomaly classification work |
+| 3 | **Appliance Coordinator v3** | Tier 2-DB | ~36-46h | Largest; independent of Guest Mode + Dynamic Preset; can run in parallel after Guest Mode P1 if desired |
+| 4 | **Dynamic Preset Mgmt Cycle A** (weather redundancy) | Tier 2 | TBD | Hard-blocks on no precedent dependency; useful on its own |
+| 5 | **Dynamic Preset Mgmt Cycle B** (preset adjustment) | Tier 2 | TBD | Depends on Cycle A AND Guest Mode Phase 1's override schema being shipped + stable |
+| 6 | **Routine Awareness Phase 2** (guest-mode-filter extensions) | Tier 1, ~120 LoC | Small | Hard-blocks on Guest Mode Phase 1; could roll into same release |
+
+User to assign actual v-numbers at deploy time.
 
 ## B7: Routine Change Detection (paired with B6 → ship together as v4.5.0 "Routine Awareness")
 

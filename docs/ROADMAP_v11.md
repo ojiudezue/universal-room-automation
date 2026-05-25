@@ -431,6 +431,52 @@ camera coverage overlay, blind spot visualization, occupancy heatmaps.
 Large effort for primarily visual value — deferred until core intelligence
 is complete.
 
+### v4.7.x SLOT CONTENTION — three ready-to-build plans (2026-05-25)
+
+Three Tier 2+ feature cycles are queued against the v4.7.x slot. Order below
+is warmest-first + dependency-respecting; user assigns actual v-numbers at
+deploy time.
+
+1. **Guest Mode Actuation Phase 1** (~11h, Tier 2) — warmest user-driven
+   feature; OWNS the override schema Dynamic Preset Mgmt depends on
+2. **AnomalyType discriminator** (~90 LoC + migration, Tier 2-DB) — "on tap"
+   per 2026-05-18 directive; no plan doc yet
+3. **Appliance Coordinator v3** (~36-46h, Tier 2-DB) — largest; independent
+   of items 1+2; can run parallel after Guest Mode P1
+4. **Dynamic Preset Mgmt Cycle A** (weather redundancy, Tier 2) — useful
+   standalone; prereq for B
+5. **Dynamic Preset Mgmt Cycle B** (preset adjustment, Tier 2) — needs A
+   shipped + Guest Mode P1 schema stable
+6. **Routine Awareness Phase 2** (guest-mode filter, Tier 1 ~120 LoC) — needs
+   Guest Mode P1; could roll into same release
+
+---
+
+### v4.7.x — Appliance Coordinator v3 (B5: cost-deferral + interrupt-at-start + PWA-consumable surfaces)
+**Effort:** ~36-46 hours / 12 deliverables / Tier 2-DB
+**Priority:** MEDIUM-HIGH
+**Status:** v3 plan landed 2026-05-23 at `docs/planning/PLANNING_v4.7.x_APPLIANCE_COORDINATOR_v3.md` (supersedes v1.1 + v2.0)
+
+New domain coordinator that defers LG ThinQ washer/dishwasher/washtower starts
+to cheaper TOU windows, interrupts manual starts that fire in peak (when the
+appliance is `interruptible_at_start`), and skips Rainbird sprinkler cycles
+based on weather forecast. Provider plugin pattern for future brands.
+
+**v3 absorbed all v1.1 user reax** (verified 2026-05-25): interrupt-at-start
+caveat, per-appliance strictness, multi-vector power, hardened v4.6.x anomaly
+framework, TOU bidirectional helper, Rainbird kill switch, dashboard surfaces.
+**v3 added on top of v2:** Dashboard target swap (Dashboard v5.0+ HA panel →
+URA PWA v6.0+ standalone) with explicit `useUraSensor*` hook contract, Tier
+2-DB classification with 3 parallel reviewers (A data integrity / B migration
++ signal chain / C new surfaces + PWA contract), 14-sensor Dashboard Hooks
+contract table, flat-attr discipline.
+
+**Ship plan:**
+- v4.7.0 — D3 + D11 + D12 + D1 + D2 + D4 + D6 + D10 (LG cost-deferral + interrupt + PWA observability)
+- v4.7.1 — D5 (reload resilience)
+- v4.7.2 — D7 + D8 (sprinkler skip + Rainbird kill switch)
+- v4.8.0 — D9 (GenericPowerSensorProvider, deferred)
+
 ### v4.7.x — Guest Mode Actuation Phase 1 (HVAC Preset Range Overrides)
 **Effort:** ~11 hours / ~470 prod + ~350 test LoC across ~9 files
 **Priority:** HIGH (user-driven feature, warmest in current queue)
