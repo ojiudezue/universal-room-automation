@@ -431,6 +431,57 @@ camera coverage overlay, blind spot visualization, occupancy heatmaps.
 Large effort for primarily visual value — deferred until core intelligence
 is complete.
 
+### v4.7.x — Guest Mode Actuation Phase 1 (HVAC Preset Range Overrides)
+**Effort:** ~11 hours / ~470 prod + ~350 test LoC across ~9 files
+**Priority:** HIGH (user-driven feature, warmest in current queue)
+**Status:** Plan filed 2026-05-24 at `docs/planning/PLANNING_v4.7.x_guest_mode_actuation_phase1.md`
+**Tier:** Tier 2
+
+URA detects guest mode reliably since v4.6.2.2 but takes zero action. Phase 1
+introduces a shared per-(zone, preset, range) `OverrideEngine`, plumbs it into
+the HVAC preset-apply path so `climate.set_temperature(target_temp_high, _low)`
+is issued (arrester-suppressed) on every `set_preset_mode`, and surfaces
+`sensor.ura_active_preset_overrides` as the "why is my Master capped at 74°F
+right now" debug path. Composition rule shipped: per-field highest-priority
+wins, narrowest-range tiebreak.
+
+User's concrete ask: Back Hallway `home` narrows 70–77 → **70–75 °F** under
+guest; `sleep` unchanged (70–78); `away` always 65–80. Generalizes to per-zone
+per-preset override tables.
+
+**Phase 2+ (separate Tier 2 cycles, one per coordinator):** Arrester
+suppression under guest, Lighting circadian suppression, Music Following
+disable, NM routing changes, Cover Controller skips. Each reuses the schema
+and engine.
+
+**Phase 3 (Tier 1):** `guest_minutes_today`, `routine_status.guest_minutes_in_recent_window`,
+anomaly-detector exclusion of guest periods from baselines.
+
+### v4.7.x — Dynamic Preset Management (Weather-Forecast-Driven)
+**Effort:** TWO Tier 2 cycles (Cycle A weather redundancy + Cycle B preset adjustment)
+**Priority:** HIGH (composes with Guest Mode override schema — same surface area)
+**Status:** Plan filed 2026-05-24 at `docs/planning/PLANNING_v4.7.x_dynamic_preset_management.md`
+**Tier:** Tier 2 each cycle
+**Hard prerequisite:** Cycle A ships before Cycle B; Cycle B depends on the Guest
+Mode Phase 1 override schema being shipped + stable.
+
+Cycle A delivers a `WeatherProviderManager` with ≥2 (target 3) prioritized
+weather providers, failover, staleness window, divergence detection, and
+3 new sensors (active provider, today's high, divergence binary). Eliminates
+URA's current single-provider blind spot — every existing weather consumer
+(HVAC predictor, etc.) migrates through the manager.
+
+Cycle B layers a `WeatherDrivenPresetOverrideSource` onto the shared override
+schema. Each morning (~06:00 local, NOT midnight) classifies today's
+forecast into 4 buckets (cool / mild / hot / extreme) and emits per-zone
+preset-range overrides. Default priority 30 (lower than guest_mode=50);
+overrides expire at local midnight. 2 new sensors + 1 user-pressable
+recompute button.
+
+6 open user questions defer the data decisions (bucket boundaries, per-zone
+range tables, opt-in zones, priority tiebreak, recompute hour, include
+`sleep` preset) — engineering is straightforward once user fills the tables.
+
 ### Sensor Health Surfacing — chattering + stuck-on detection
 **Effort:** 1-2 cycles (~150-300 LoC + DB migration + dashboard tile)
 **Priority:** MEDIUM (preventative — catches silently-degrading sensors before they corrupt automation)

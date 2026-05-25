@@ -147,9 +147,17 @@ Codifies enforcement for the v4.6.3 Tier 2-DB directives (CLAUDE.md Tier 2-DB, Q
 
 **Cost:** ~5-6 hours for full build, partial builds supported (e.g., Layer 1 alone is ~2 hours).
 
-## Guest Mode Actuation — DESIGN CYCLE (filed, Tier 2 when promoted)
+## Guest Mode Actuation — PLAN FILED 2026-05-24 (Tier 2, Phase 1 ready to build)
 
-**Status:** Filed 2026-05-15. URA detects guest mode (v4.6.2.2 hardened the detection) but does NOTHING with it. Real opportunity — the inferred state should drive behavior, not just sit on a sensor.
+**Status:** Phase 1 planning doc landed at `docs/planning/PLANNING_v4.7.x_guest_mode_actuation_phase1.md` (2026-05-24). URA detects guest mode (v4.6.2.2 hardened the detection) but does NOTHING with it. Real opportunity — the inferred state should drive behavior, not just sit on a sensor.
+
+**Phase 1 scope:** Shared per-(zone, preset, range) `OverrideEngine` + HVAC opt-in + CM master toggle + Zone Manager per-zone override UI + `sensor.ura_active_preset_overrides` diagnostic. ~470 prod LoC + ~350 test LoC across ~9 files. Owns the override schema that Dynamic Preset Management (parallel plan) layers onto.
+
+**Phase 2+:** Each new coordinator opt-in is its own Tier 2 cycle reusing the engine. Likely order: (a) Arrester suppression under guest, (b) Lighting circadian suppression, (c) Music Following disable, (d) NM routing changes, (e) Cover Controller skips.
+
+**Phase 3:** Tier 1 visibility (`guest_minutes_today` attribute, `routine_status.guest_minutes_in_recent_window`, anomaly-detector exclusion of guest periods).
+
+### Background context (filed 2026-05-15)
 
 ### Concrete trigger (user-provided)
 
@@ -222,6 +230,40 @@ Bonus: a `binary_sensor.ura_guest_mode_active_overrides_count` showing how many 
 - **Phase 3** (Tier 1): the visibility/observability bits (override count sensor, guest_minutes attribute).
 
 **Recall hint:** `"Resume URA roadmap — guest mode actuation"`
+
+## Dynamic Preset Management — PLAN FILED 2026-05-24 (Tier 2, TWO cycles)
+
+**Status:** Planning doc landed at `docs/planning/PLANNING_v4.7.x_dynamic_preset_management.md` (2026-05-24). Composes on the override schema owned by Guest Mode Actuation Phase 1 (which must ship first).
+
+**Problem:** URA HVAC presets carry fixed temperature RANGES per zone. One range doesn't fit every day — a 70–76 °F `home` that paces the AC nicely on a 78 °F day forces it to grind all afternoon on a 98 °F day. User policy: **always ranges, never absolute setpoints, never daily user fiddling.**
+
+**Two-cycle phasing:**
+
+**Cycle A — Weather Forecast Redundancy (Tier 2)**
+- New `WeatherProviderManager` with ≥2 (target 3) prioritized weather providers
+- Failover semantics, staleness window (default 6h), divergence detection (default 5°F threshold)
+- 3 new sensors: `sensor.ura_weather_active_provider`, `sensor.ura_weather_forecast_today_high`, `binary_sensor.ura_weather_divergence`
+- Migrate every existing weather consumer through the manager (no direct `hass.states.get("weather.*")` in domain code)
+- **Hard prerequisite** for Cycle B — single-provider outage today leaves URA blind
+
+**Cycle B — Dynamic Preset Adjustment (Tier 2)**
+- Depends on Cycle A
+- New `WeatherDrivenPresetOverrideSource` plugged into shared override schema
+- Morning recompute (~06:00 local, NOT midnight) classifies today into 4 buckets: `cool` (<75°F) / `mild` (75–84) / `hot` (85–94) / `extreme` (≥95)
+- Per-(zone, bucket) range table configured in CM options flow
+- 2 new sensors + 1 user-pressable recompute button
+- Default priority 30 (lower than guest_mode=50); guest wins ties
+- Overrides expire at local midnight; next morning emits fresh
+
+**6 open user questions** (in the planning doc):
+1. Bucket boundaries — Texas-tuned?
+2. Per-zone preset range tables (core decision — engineering trivial once specified)
+3. Which zones opt IN (south-facing master likely YES; back hallway likely NO)
+4. Override priority vs guest mode
+5. Recompute hour
+6. Include `sleep` preset?
+
+**Recall hint:** `"Dynamic preset management"` or `"Resume Dynamic Preset Management"`
 
 ## v4.6.3.3 — Census_count over-emit suppression — IN REVIEW 2026-05-15
 
