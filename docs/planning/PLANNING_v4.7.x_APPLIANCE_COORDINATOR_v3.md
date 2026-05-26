@@ -1,10 +1,10 @@
 # B5: URA Appliance Coordinator v3 — Cost-Deferral, Interrupt-at-Start, PWA-Consumable Surfaces
 
-**Version:** 3.0 (2026-05-23)
-**Status:** Ready to build (queued as v4.7.x — runs after v4.6.8 EC TOU rate reconciliation lands)
+**Version:** 3.0 (2026-05-23; staleness patch 2026-05-25)
+**Status:** Ready to build (queued as v4.7.x).
 **Supersedes:** `PLANNING_v4.7.x_APPLIANCE_SCHEDULER_v2.md` v2.0 (2026-05-19). v1.1 and v2.0 retained for history.
 **Depends on:**
-  - Energy Coordinator (TOU engine at `domain_coordinators/energy_tou.py`; v4.6.8 reconciliation surface adds canonical zone/house `cost_today_dollars` — D10 dashboard hooks consume these alongside appliance savings.)
+  - Energy Coordinator (TOU engine at `domain_coordinators/energy_tou.py`). v4.6.8 reconciliation surface (zone/house `cost_today_dollars`) **shipped 2026-05-18** — met dependency. D10 dashboard hooks consume these alongside appliance savings. Canonical rate API verified live (2026-05-25): `EnergyCoordinator.current_effective_rate` (property, `energy.py:3552`) for "now"; `TOURateEngine.get_effective_import_rate(now=...)` (method, `energy_tou.py:194`) for arbitrary instants (base + delivery + transmission).
   - Coordinator Manager v3.6+ (`register_coordinator` at `domain_coordinators/manager.py:236`)
   - URADatabase v4.6.7+ (write queue with batching + budgeting; `anomaly_log` NOT NULL-relaxed at v4.6.7 — interrupt-path anomalies CAN write partial metric columns now)
   - URA Dashboard PWA v6.0+ (separate repo at `~/Code/ura-dashboard-pwa/`; reads URA via HA WebSocket through `useUraSensor` hooks — see Dashboard Hooks section)
@@ -23,7 +23,7 @@ v2 was written 2026-05-19, four days before this revision. Three concrete shifts
    - `useUraSensorAttrs<T>` is an UNCHECKED cast — coordinator must guarantee attribute shape stability.
    - Strings ("unknown", "unavailable", "") are treated as `unavailable=true`. Coordinator should NOT emit those as "valid" values for the int/float parsers.
 
-2. **v4.6.8 EC TOU rate reconciliation + zone/house cost surface is queued/in-flight.** Per the deploy memory (v4.6.7 shipped 2026-05-16; v4.6.8 cost surface staged after). The Appliance Coordinator's `savings_today_dollars` sensor should ride the v4.6.8 cost-vocabulary — i.e., consume `EnergyCoordinator.get_current_rate_for_period(period)` instead of re-implementing rate lookup. Reduces the bisect-savings math drift between EC and AC.
+2. **v4.6.8 EC TOU rate reconciliation + zone/house cost surface SHIPPED 2026-05-18** (met dependency). The Appliance Coordinator's `savings_today_dollars` sensor rides the v4.6.8 cost-vocabulary — consumes `TOURateEngine.get_effective_import_rate(now=projected_run_time)` for bisect savings math (returns base + delivery + transmission, matching the v4.6.8 canonical rate shape) and `EnergyCoordinator.current_effective_rate` for "rate right now" sanity reads. Reduces the bisect-savings math drift between EC and AC. **The v3 draft proposed `EnergyCoordinator.get_current_rate_for_period(period: str) -> float` — that signature does NOT exist; see Open Q#7 (resolved) for the actual API.**
 
 3. **v4.6.7's `anomaly_log` NOT NULL relaxation reshapes the anomaly emit pattern.** Five metric columns are now nullable. The interrupt-at-start path historically had a "metrics not applicable" problem (no `setup_duration`, no `loop_duration`); v3 takes advantage of this by emitting interrupt-specific events with the appliance-relevant subset populated only.
 
@@ -215,7 +215,7 @@ Per `CLAUDE.md` "Planning Docs — Acceptance Criteria Required", each D has Ver
 - `sensor.ura_appliance_coordinator_last_blocked_start` — string `"<appliance>: <reason>"` (`useUraSensorState`); attrs `{timestamp_iso, resumed_at_iso, entity_id, reason}`
 - `sensor.ura_appliance_coordinator_deferrals_today` — int (`useUraSensorInt`)
 - `sensor.ura_appliance_coordinator_savings_today_kwh` — float (`useUraSensorFloat`)
-- `sensor.ura_appliance_coordinator_savings_today_dollars` — float (`useUraSensorFloat`); **(v3)** uses EC v4.6.8 canonical rate lookup, not local re-computation
+- `sensor.ura_appliance_coordinator_savings_today_dollars` — float (`useUraSensorFloat`); **(v3)** uses EC v4.6.8 canonical rate — `TOURateEngine.get_effective_import_rate(now=projected_dt)` for arbitrary-instant lookups; never local rate constants
 - `sensor.ura_appliance_coordinator_anomaly_status` — string `green|orange|red` (`useUraSensorState`); attrs `{drop_rate, drops_24h, last_drop_iso}`
 - `sensor.ura_appliance_coordinator_state_machine_breakdown` — int total (`useUraSensorInt`); attrs flat dict keyed by SM state name
 - `sensor.ura_appliance_coordinator_rainbird_status` — string (`useUraSensorState`)
@@ -343,7 +343,7 @@ v2.0 risks unchanged. **New v3 risks:**
 | Risk | Severity | Mitigation |
 |---|---|---|
 | **(v3) PWA contract drift** — D10 sensor attribute shape changes silently, PWA tabs break | HIGH | Shape-table above is the contract; Review C runs the `test_pwa_attribute_shape_flatness` regression; any future shape change requires the PWA repo's `useUraSensorAttrs<T>` type to update first (manual coordination, single user) |
-| **(v3) Savings drift from EC** — `savings_today_dollars` recomputes rates locally, drifts from EC v4.6.8 canonical surface | MEDIUM | D10 acceptance explicitly: consume `EnergyCoordinator.get_current_rate_for_period(period)`, never local rate constants |
+| **(v3) Savings drift from EC** — `savings_today_dollars` recomputes rates locally, drifts from EC v4.6.8 canonical surface | MEDIUM | D10 acceptance explicitly: consume `TOURateEngine.get_effective_import_rate(now=projected_dt)` (verified live 2026-05-25) for arbitrary-instant rates; `EnergyCoordinator.current_effective_rate` for "now"; NEVER local rate constants |
 | **(v3) anomaly_log partial-row regression** — v4.6.7 relaxed NOT NULL but downstream readers may still expect populated metric columns | MEDIUM | Review A spot-check: confirm any analytics queries against `anomaly_log` handle NULL metric columns. Interrupt-path events emit `appliance_id`, `state_at_event`, `reason` only |
 
 Carried v2.0 risks (in v3 verbatim):
@@ -402,7 +402,13 @@ Carried from v2.0:
 6. Resume payload schema across LG firmware versions — capture as opaque `dict[str, Any]`.
 
 **New for v3:**
-7. **EC v4.6.8 rate API name.** v4.6.8 (TOU rate reconciliation) is in flight at the time of v3 writing. The exact method name on EC for "current canonical rate for period" needs verification at D10 build time. Provisional: `EnergyCoordinator.get_current_rate_for_period(period: str) -> float`. If v4.6.8 ships a different signature, D10 savings sensor adapts at build, not in this plan.
+7. ~~**EC v4.6.8 rate API name.**~~ **RESOLVED 2026-05-25** by live source verification (`energy.py:3552` + `energy_tou.py:178/194`). The v3 draft's provisional `EnergyCoordinator.get_current_rate_for_period(period: str) -> float` does NOT exist. Actual API:
+   - `EnergyCoordinator.current_effective_rate` — property, no args, returns the current effective rate (`float`, base + delivery + transmission) for "now". Delegates to `self._billing.current_effective_rate`.
+   - `TOURateEngine.get_current_rate(now=None)` — base power charge only (`$/kWh`), at arbitrary instant. Period resolution is internal.
+   - `TOURateEngine.get_effective_import_rate(now=None)` — base + delivery + transmission, at arbitrary instant. **This is the bisect-savings math input** (matches the v4.6.8 canonical cost-vocabulary).
+   - `TOURateEngine.get_export_rate(now=None)` — export credit at arbitrary instant.
+
+   D10 `savings_today_dollars` consumes `get_effective_import_rate(now=projected_run_time)` for both "what it would cost now" and "what it would cost deferred" arms of the bisect. `current_effective_rate` is reserved for sanity reads.
 8. **PWA tab port timing for Appliance.** The PWA repo is separate; whether the Appliance tab port lands in the same calendar window as URA v4.7.0 is a coordination question. The URA side has zero dependency on the tab existing — sensors must be correct in either case. Flag only so the user can sequence PWA port work.
 9. **`anomaly_log` partial-row downstream readers.** v4.6.7 relaxed NOT NULL on 5 metric columns. Does any existing dashboard/analytics query against `anomaly_log` assume those columns non-NULL? Audit needed at D6 build (Review A scope).
 
@@ -435,7 +441,7 @@ Unchanged from v2.0:
 | 3 | INTERRUPTED row in `appliance_state_machine` with `original_command_payload` non-NULL | `ura-sqlite` MCP |
 | 4 | At peak end, washer auto-resumes via `set_delay_start` | HA log + appliance UI |
 | 5 | `sensor.ura_appliance_coordinator_last_blocked_start` non-empty + attrs flat | HA UI |
-| 6 | `sensor.ura_appliance_coordinator_savings_today_dollars` matches hand calc within 10%, uses EC v4.6.8 rate API | manual math + log |
+| 6 | `sensor.ura_appliance_coordinator_savings_today_dollars` matches hand calc within 10%; uses `TOURateEngine.get_effective_import_rate(now=...)` (no local rate constants in `appliances.py`) | manual math + log + AST check |
 | 7 | Toggle `switch.ura_appliance_coordinator_scheduling_enabled = OFF` → no new ARMs for 1h | HA log |
 | 8 | Toggle `switch.ura_appliance_coordinator_rainbird_enabled = OFF` → no `rainbird.*` calls | HA log |
 | 9 | After HA restart, INTERRUPTED rows restored within 60s | log + DB |
@@ -463,6 +469,12 @@ From v2.0 (unchanged):
 **New in v3:**
 - `/Users/okosisi/Code/ura-dashboard-pwa/src/data/useUraSensor.ts` — PWA hook layer; canonical contract for D10 sensor shapes
 - `docs/QUALITY_CONTEXT.md` v7.2 — 31 documented bug classes
+
+**Verified live 2026-05-25 (Open Q#7 resolution):**
+- `domain_coordinators/energy.py:3552` — `EnergyCoordinator.current_effective_rate` property
+- `domain_coordinators/energy_tou.py:178` — `TOURateEngine.get_current_rate(now=None)` (base only)
+- `domain_coordinators/energy_tou.py:194` — `TOURateEngine.get_effective_import_rate(now=None)` (base + delivery + transmission — D10 savings sensor's input)
+- `domain_coordinators/energy_tou.py:186` — `TOURateEngine.get_export_rate(now=None)`
 
 ---
 

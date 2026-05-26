@@ -15,6 +15,12 @@ import asyncio
 import logging
 from collections import defaultdict
 from datetime import datetime, timedelta
+# functools.partial used for digest scheduling. HA's
+# get_hassjob_callable_job_type() explicitly unwraps partials before
+# checking iscoroutinefunction (verified Reviewer B 2026-05-26), so this
+# works correctly regardless of Python version. Python 3.12+ also fixed
+# inspect.iscoroutinefunction(partial) directly. v4.6.15 thread-safety fix.
+from functools import partial
 from typing import Any
 
 try:
@@ -1978,11 +1984,14 @@ class NotificationManager:
             morning_time = person_cfg.get(CONF_NM_PERSON_DIGEST_MORNING, "08:00")
             try:
                 hour, minute = map(int, morning_time.split(":"))
+                # Pass partial-bound coroutine function directly. The previous
+                # lambda + async_create_task pattern fired HA's frame helper
+                # warning "calls async_create_task from a thread other than the
+                # event loop, which may cause crash or data corruption" and
+                # left the coroutine never-awaited (verified 2026-05-26).
                 unsub = async_track_time_change(
                     self.hass,
-                    lambda now, pid=person_id, pcfg=person_cfg: self.hass.async_create_task(
-                        self._fire_digest(pid, pcfg)
-                    ),
+                    partial(self._fire_digest, person_id, person_cfg),
                     hour=hour,
                     minute=minute,
                     second=0,
@@ -1996,11 +2005,12 @@ class NotificationManager:
                 evening_time = person_cfg.get(CONF_NM_PERSON_DIGEST_EVENING, "18:00")
                 try:
                     hour, minute = map(int, evening_time.split(":"))
+                    # Pass partial-bound coroutine directly — see morning-digest
+                    # block above for rationale (frame-helper warning + never-
+                    # awaited coroutine bug).
                     unsub = async_track_time_change(
                         self.hass,
-                        lambda now, pid=person_id, pcfg=person_cfg: self.hass.async_create_task(
-                            self._fire_digest(pid, pcfg)
-                        ),
+                        partial(self._fire_digest, person_id, person_cfg),
                         hour=hour,
                         minute=minute,
                         second=0,
@@ -2009,8 +2019,18 @@ class NotificationManager:
                 except (ValueError, AttributeError):
                     _LOGGER.warning("Invalid evening digest time: %s", evening_time)
 
-    async def _fire_digest(self, person_id: str, person_cfg: dict[str, Any]) -> None:
-        """Deliver the daily digest for a person."""
+    async def _fire_digest(
+        self,
+        person_id: str,
+        person_cfg: dict[str, Any],
+        _now=None,
+    ) -> None:
+        """Deliver the daily digest for a person.
+
+        `_now` parameter accepts the datetime passed by HA's
+        async_track_time_change scheduler when called as the timer callback.
+        Default None for direct in-process invocation.
+        """
         database = self.hass.data.get(DOMAIN, {}).get("database")
         if not database:
             return
