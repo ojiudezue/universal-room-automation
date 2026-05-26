@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.6.14.1
+# Universal Room Automation vv4.6.15
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -11402,9 +11402,15 @@ class CoordinatorOverrideFrequencySensor(AggregationEntity, SensorEntity):
         )
         from .domain_coordinators.signals import SIGNAL_DATABASE_READY
         # Bug Class #38: capture unsub into async_on_remove.
+        # Pass coroutine function directly — HA's HassJob machinery handles
+        # thread-safe scheduling. Wrapping in a lambda + async_create_task
+        # triggers HA's frame helper warning "calls async_create_task from a
+        # thread other than the event loop, which may cause crash or data
+        # corruption" and leaves the coroutine never-awaited (verified
+        # 2026-05-26).
         self._unsub_timer = async_track_time_interval(
             self.hass,
-            lambda _now: self.hass.async_create_task(self._async_refresh()),
+            self._async_refresh,
             timedelta(seconds=OVERRIDE_FREQUENCY_REFRESH_S),
         )
         self.async_on_remove(
@@ -11417,7 +11423,14 @@ class CoordinatorOverrideFrequencySensor(AggregationEntity, SensorEntity):
             await self._async_refresh()
         else:
             def _handle_db_ready(*_a, **_kw) -> None:
-                self.hass.async_create_task(self._async_refresh())
+                # Bug Class #42 (v4.6.15) + v4.6.3.2 precedent:
+                # use hass.add_job (thread-safe) NOT async_create_task in a
+                # dispatcher-signal sync callback. SIGNAL_DATABASE_READY is
+                # dispatched on-loop in this codebase today (verified Reviewer B
+                # 2026-05-26), but the URARecentAnomaliesSensor v4.6.3.1
+                # incident proved dispatchers CAN fire from non-event-loop
+                # threads. add_job stays correct in either case.
+                self.hass.add_job(self._async_refresh())
                 if self._unsub_db_ready is not None:
                     self._unsub_db_ready()
                     self._unsub_db_ready = None
@@ -11430,7 +11443,13 @@ class CoordinatorOverrideFrequencySensor(AggregationEntity, SensorEntity):
                 if self._unsub_db_ready is not None else None
             )
 
-    async def _async_refresh(self) -> None:
+    async def _async_refresh(self, _now=None) -> None:
+        """Recompute override-frequency rolling count.
+
+        `_now` parameter accepts the datetime passed by HA's
+        async_track_time_interval scheduler. Default None for the
+        in-process initial-refresh call.
+        """
         try:
             database = self.hass.data.get(DOMAIN, {}).get("database")
             if database is None:
@@ -11520,9 +11539,11 @@ class CoordinatorComplianceRateSensor(AggregationEntity, SensorEntity):
             COMPLIANCE_RATE_REFRESH_S,
         )
         from .domain_coordinators.signals import SIGNAL_DATABASE_READY
+        # Pass coroutine function directly — see CoordinatorOverrideFrequencySensor
+        # for rationale (frame-helper warning + never-awaited coroutine bug).
         self._unsub_timer = async_track_time_interval(
             self.hass,
-            lambda _now: self.hass.async_create_task(self._async_refresh()),
+            self._async_refresh,
             timedelta(seconds=COMPLIANCE_RATE_REFRESH_S),
         )
         self.async_on_remove(
@@ -11535,7 +11556,14 @@ class CoordinatorComplianceRateSensor(AggregationEntity, SensorEntity):
             await self._async_refresh()
         else:
             def _handle_db_ready(*_a, **_kw) -> None:
-                self.hass.async_create_task(self._async_refresh())
+                # Bug Class #42 (v4.6.15) + v4.6.3.2 precedent:
+                # use hass.add_job (thread-safe) NOT async_create_task in a
+                # dispatcher-signal sync callback. SIGNAL_DATABASE_READY is
+                # dispatched on-loop in this codebase today (verified Reviewer B
+                # 2026-05-26), but the URARecentAnomaliesSensor v4.6.3.1
+                # incident proved dispatchers CAN fire from non-event-loop
+                # threads. add_job stays correct in either case.
+                self.hass.add_job(self._async_refresh())
                 if self._unsub_db_ready is not None:
                     self._unsub_db_ready()
                     self._unsub_db_ready = None
@@ -11548,8 +11576,13 @@ class CoordinatorComplianceRateSensor(AggregationEntity, SensorEntity):
                 if self._unsub_db_ready is not None else None
             )
 
-    async def _async_refresh(self) -> None:
-        """Aggregate get_compliance_rate across mapped emit-labels."""
+    async def _async_refresh(self, _now=None) -> None:
+        """Aggregate get_compliance_rate across mapped emit-labels.
+
+        `_now` parameter accepts the datetime passed by HA's
+        async_track_time_interval scheduler when called as the timer
+        callback. Default None for the in-process initial-refresh call.
+        """
         try:
             database = self.hass.data.get(DOMAIN, {}).get("database")
             if database is None:
@@ -11645,9 +11678,11 @@ class URADBSizeSensor(AggregationEntity, SensorEntity):
         from .domain_coordinators.coordinator_telemetry_const import (
             DB_SIZE_REFRESH_S,
         )
+        # Pass coroutine function directly — see CoordinatorOverrideFrequencySensor
+        # for rationale (frame-helper warning + never-awaited coroutine bug).
         self._unsub_timer = async_track_time_interval(
             self.hass,
-            lambda _now: self.hass.async_create_task(self._async_refresh()),
+            self._async_refresh,
             timedelta(seconds=DB_SIZE_REFRESH_S),
         )
         self.async_on_remove(
@@ -11655,7 +11690,13 @@ class URADBSizeSensor(AggregationEntity, SensorEntity):
         )
         await self._async_refresh()
 
-    async def _async_refresh(self) -> None:
+    async def _async_refresh(self, _now=None) -> None:
+        """Refresh DB size from filesystem stat (no DB query).
+
+        `_now` parameter accepts the datetime passed by HA's
+        async_track_time_interval scheduler. Default None for the
+        in-process initial-refresh call.
+        """
         import os
         try:
             database = self.hass.data.get(DOMAIN, {}).get("database")
