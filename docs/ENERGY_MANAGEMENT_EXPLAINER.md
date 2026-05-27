@@ -51,6 +51,20 @@ Power monitored via `sensor.garage_a_power_minute_average` and `sensor.garage_b_
 ### Smart Plugs
 On/off switches for additional controllable loads. Configured via options flow as a list of entity IDs. Default: 4x Moes WiFi sockets for L1 EV charging.
 
+### EC Master + Sub-Feature Toggles
+
+Six switch entities on the `URA: Energy Coordinator` device page. All have a `available = self._get_energy() is not None` gate — if the EC coord refused to start (e.g., Envoy validation failed), these show `unavailable` until a successful reload.
+
+| Switch | Default | Purpose |
+|---|---|---|
+| `switch.ura_energy_coordinator_enabled` | ON | Master EC enable (per CM options). Validates Envoy + 4 derived entities before allowing EC to start. |
+| `switch.ura_energy_coordinator_observation_mode` | OFF | Compute all decisions, fire NO `switch.*` / `select.*` / `number.*` service calls. |
+| `switch.ura_energy_coordinator_grid_import_cap` | OFF | Pause/resume EV chargers when net grid import exceeds the configured cap |
+| `switch.ura_energy_coordinator_load_shedding` | OFF | Enable the 4-level cascade (pool → EV → smart plugs → HVAC) |
+| `switch.ura_energy_coordinator_excess_solar_charging` | OFF | Auto-route surplus solar into EVSEs when SOC ≥ threshold + remaining forecast ≥ kWh threshold |
+| `switch.ura_energy_coordinator_grid_arbitrage` | OFF | Allow overnight grid charging on poor-solar-tomorrow days |
+| `switch.ura_energy_coordinator_ev_tou_management` | ON | Pause EVSEs during peak / mid-peak TOU periods |
+
 ---
 
 ## 4. TOU Rate Structure
@@ -138,16 +152,20 @@ No peak period exists. Mid-peak IS the highest-rate window.
 ### Grid Charge Arbitrage
 
 When all conditions are met:
-- Arbitrage is enabled in config
-- Tomorrow's solar is `poor` or `very_poor`
-- Current SOC < trigger threshold (default 30%)
+- `switch.ura_energy_coordinator_grid_arbitrage` is ON
+- Tomorrow's solar is `poor` or `very_poor` (D3 multi-day horizon can also consider D+2 if enabled)
+- The "charge window" is open: `(next_high_rate_transition - now) ≤ arbitrage_charge_lead_time_min` (default 360 min / 6 hr; range 120-720)
 
 Then:
 - Enable `charge_from_grid` switch
 - Battery charges overnight at $0.0435/kWh off-peak
 - Avoids importing at $0.0864-$0.1618/kWh later
-- Stops when SOC reaches target (default 80%)
+- Stops when SOC reaches `peak_buffer_target` (default 80%)
 - Storm prep takes priority over arbitrage
+
+**Arbitrage charge lead time** (`number.ura_energy_coordinator_arbitrage_charge_lead_time`) gates the WAIT → CHARGE transition: how many minutes before next high-rate TOU period the battery is allowed to begin grid-charging. Shorter = closer to peak = less off-peak grid energy used but risks not reaching target SOC. Longer = guaranteed full by peak but uses more off-peak kWh.
+
+**Defensive grid-import guard** (v4.5.0.2): if actual grid import exceeds `arbitrage_grid_import_guard_kw` during a CHARGE tick, the chunk aborts (back to WAIT). Protects undersized breakers / dual-load surprises.
 
 ---
 
@@ -178,6 +196,24 @@ When surplus solar would otherwise be wasted:
 - Track which EVSEs the system turned on (`_excess_solar_active` set)
 - Turn off only system-activated EVSEs when conditions are no longer met
 - Peak period forces immediate turn-off of excess solar EVSEs
+
+---
+
+## 6a. Grid Import Cap
+
+When `switch.ura_energy_coordinator_grid_import_cap` is ON and `energy_grid_import_cap_kw` is set (3-20 kW, default 8 kW, configured via options flow slider):
+
+Every decision tick, read live net grid import (from Envoy's `current_net_power_consumption`) and act:
+
+| Condition | Action |
+|---|---|
+| `net_kw > cap_kw` | Turn OFF any charging EVSE not already paused-by-cap |
+| `net_kw < (cap_kw − 1.0 kW hysteresis)` | Turn ON any EVSE previously paused-by-cap |
+| In between (cap_kw − 1.0 to cap_kw) | No change (hysteresis band) |
+
+**Acts on EVSEs only.** Non-EV loads (HVAC, water heater, plug loads) are NOT throttled — if non-EV load alone exceeds cap, the diagnostic sensor `sensor.ura_energy_coordinator_energy_grid_demand` shows >100% but URA takes no action.
+
+**Tracked independently from TOU pausing** — an EVSE can be paused-by-TOU and paused-by-grid-cap at the same time; resume logic only fires if neither flag is set.
 
 ---
 
@@ -232,8 +268,23 @@ At each date change, daily totals are saved to the `energy_daily` database table
 | Cost today | Net import cost minus export credit |
 | Cost this cycle | Accumulated since bill cycle start |
 | Predicted bill | Extrapolated monthly bill |
-| Current effective rate | Base + delivery + transmission |
+| Current effective rate | Base + delivery + transmission (`EnergyCoordinator.current_effective_rate` property — v4.6.8 canonical) |
 | Import/export kWh | Daily and cycle totals |
+| Zone cost today (per zone) | v4.6.8 — per-zone cost derived from per-zone power × TOU rate |
+| Whole-house cost today | v4.6.8 — aggregator across all zones |
+| Cost per hour (zone) | Live $/h burn rate |
+
+### v4.6.8 EC Canonical Rate API
+
+The `TOURateEngine` exposes three rate methods all downstream consumers use:
+
+| Method | Returns |
+|---|---|
+| `get_current_rate(now=None)` | Base import rate ($/kWh) at given instant |
+| `get_effective_import_rate(now=None)` | Base + delivery + transmission ($/kWh) — **the canonical "what would I pay if I imported right now"** |
+| `get_export_rate(now=None)` | Export credit ($/kWh) |
+
+`EnergyCoordinator.current_effective_rate` (property) returns the rate at "now". All zone/house cost sensors use `get_effective_import_rate` so per-zone math, whole-house math, and per-appliance projected savings all agree on the same rate. v4.6.8 specifically reconciled multiple call sites that previously used different rate lookups (some forgot delivery+transmission).
 
 ---
 
@@ -312,7 +363,7 @@ Prediction is generated at midnight but refreshed within 30 minutes of sunrise w
 
 ## 10. Load Shedding Cascade
 
-When sustained grid import exceeds the threshold for the configured duration (default: 5.0 kW for 15 minutes), loads are shed in priority order:
+Gated by `switch.ura_energy_coordinator_load_shedding` (default OFF). When sustained grid import exceeds the threshold for the configured duration (default: 5.0 kW for 15 minutes), loads are shed in priority order:
 
 | Level | Target | Action |
 |---|---|---|
