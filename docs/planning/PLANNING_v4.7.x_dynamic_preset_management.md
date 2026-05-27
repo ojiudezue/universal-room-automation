@@ -9,6 +9,18 @@
 
 ---
 
+## Feedback Round 1 — incorporated 2026-05-27
+
+Three changes from user review (file at `~/.../Codetxfer/PLANNING_v4.7.x_dynamic_preset_management.md`):
+
+1. **Drop the cron, piggyback on the decision cycle.** No new scheduler. See "Morning recompute trigger" section — gate becomes `now.hour >= recompute_hour AND last_recompute_date != today`, evaluated each tick.
+2. **Cool bucket default high: 78 → 77.** Tighter cool-day comfort target.
+3. **Sleep preset defaults: 1°F lower high per bucket than home.** Codifies user's empirical preference. See per-zone bucket table section.
+
+No structural changes to the two-cycle phasing or shared override schema. Open Questions §B (1-6) unchanged.
+
+---
+
 ## TL;DR
 
 URA HVAC presets (`home`, `sleep`, `away`) carry fixed temperature RANGES per zone. One range does not fit every day — a 70–76°F `home` range that paces the AC nicely on a 78°F day forces the AC to grind all afternoon on a 98°F day. User policy: **always ranges, never absolute setpoints, never daily user fiddling.**
@@ -207,10 +219,25 @@ Every consumer identified in Discovery routes through `WeatherProviderManager.ge
 - Composition rule (owned by Guest Mode schema): highest-priority active wins; tie → most-recent. NOT re-designed here.
 
 ### Morning recompute trigger
-- Cron at `CONF_DYNAMIC_PRESET_RECOMPUTE_HOUR` (1–12, default 6)
-- NOT midnight — many providers don't update tomorrow until early morning
-- On fire: read `get_today_forecast()`. Unhealthy/stale → log WARNING, fire `ura_dynamic_preset_skipped`, no-op. Healthy → classify → emit
-- Also fire on: HA startup catch-up, user button (B5), provider failover changing today's high by >2°F
+
+**No separate scheduler.** Piggyback on URA's existing 5-min decision cycle (Feedback Round 1, 2026-05-27 — "Why a special Cron? Why not a normal decision cycle that coincides with the morning? No new tools if we don't need it.").
+
+Mechanism:
+- On every decision tick, check: `now.hour >= CONF_DYNAMIC_PRESET_RECOMPUTE_HOUR AND last_recompute_date != today`
+- If true, recompute; set `last_recompute_date = today`
+- 5-min granularity is plenty for a once-per-day morning recompute (worst-case 5-min skew from configured hour; no user impact)
+- Persist `last_recompute_date` to URA's existing storage so HA restart at, say, 10:00 with the day's compute not yet done still triggers correctly
+
+`CONF_DYNAMIC_PRESET_RECOMPUTE_HOUR` (1–12, default 6) — not midnight, because many weather providers don't publish tomorrow's forecast until early morning.
+
+Read `get_today_forecast()` when the gate fires:
+- Unhealthy/stale → log WARNING, fire `ura_dynamic_preset_skipped`, no-op
+- Healthy → classify bucket → emit overrides
+
+Also fire on:
+- HA startup catch-up (just covered by the gate logic — first cycle after startup hits the condition if it's past the recompute hour and today's date hasn't been stamped)
+- User button press (B5)
+- Provider failover where today's high jumps >2°F (handled in B2)
 
 ### Per-zone × per-bucket range table
 **Configuration: options flow per zone (NOT YAML).** Reasons: URA pattern is options-flow (v4.5.10 enforced); options flow reloads on save; consistent UX; small data (~40 numbers across 5 zones).
@@ -219,14 +246,20 @@ Form layout per zone (in CM options, under existing zone subsection):
 ```
 [ ] Enable dynamic preset adjustment for this zone
 
-If enabled:
-  Bucket: cool       low [70.0]  high [78.0]
+If enabled (defaults for `home` preset — Feedback Round 1 2026-05-27 reduced cool 78 → 77):
+  Bucket: cool       low [70.0]  high [77.0]
   Bucket: mild       low [70.0]  high [76.0]   (defaults from current home preset)
   Bucket: hot        low [70.0]  high [74.0]
   Bucket: extreme    low [70.0]  high [73.0]
 
 [ ] Also apply to 'sleep' preset (default OFF)
-  (if checked, second 4-row table for sleep)
+  If checked, defaults are 1°F LOWER high than home per bucket
+  (Feedback Round 1 2026-05-27 — "Usually sleep is one degree lower on
+  the high range than home"):
+    Bucket: cool       low [70.0]  high [76.0]
+    Bucket: mild       low [70.0]  high [75.0]
+    Bucket: hot        low [70.0]  high [73.0]
+    Bucket: extreme    low [70.0]  high [72.0]
 ```
 
 Defaults: `mild` matches current `home`; others placeholder until user fills (form-validate all 4 rows filled before save). Not opted in → no override.
@@ -276,7 +309,7 @@ Two on CM device:
 - `CONF_DYNAMIC_PRESET_INCLUDE_SLEEP_PER_ZONE` — dict[zone_id, bool], default False
 - `CONF_DYNAMIC_PRESET_BUCKET_BOUNDARIES` — global; default `{cool:75, mild:85, hot:95}`
 - `CONF_DYNAMIC_PRESET_PRIORITY` — int 1–100, default 30
-- `CONF_DYNAMIC_PRESET_RECOMPUTE_HOUR` — int 1–12, default 6
+- `CONF_DYNAMIC_PRESET_RECOMPUTE_HOUR` — int 1–12, default 6 (gate on existing decision cycle; no separate scheduler)
 
 **Acceptance**
 - **Verify:** CM options has "Dynamic Preset Adjustment" subsection
