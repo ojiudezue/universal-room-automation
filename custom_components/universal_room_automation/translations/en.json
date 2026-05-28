@@ -556,51 +556,57 @@
         }
       },
       "zone_dynamic_preset": {
-        "title": "🌤️ Dynamic Preset — {zone_name}",
-        "description": "Configure weather-driven preset adjustments for zone '{zone_name}'. When enabled, the Energy Coordinator classifies each day's thermal load into a bucket (cool / mild / hot / extreme) based on today's apparent forecast high and emits HVAC temperature-range overrides accordingly. Changes take effect on the next EC decision tick (within 5 minutes).",
+        "title": "🌡️ Zone Dynamic Preset",
+        "description": "Configure per-zone Dynamic Preset temperature ranges for zone '{zone_name}'. Enable DPM for this zone and set target setpoint ranges for each outdoor condition bucket.",
         "data": {
-          "zone_dynamic_preset_enabled": "Enable Dynamic Preset Adjustment",
-          "zone_dynamic_preset_offset": "Zone Offset (°F)",
-          "zone_dynamic_preset_reset_offset_guest": "Reset Offset Under Guest Mode",
-          "zone_dynamic_preset_sleep_enabled": "Also Apply to Sleep Preset",
-          "zone_dynamic_preset_cool_home_low": "Cool Bucket — Home Cool Low (°F)",
-          "zone_dynamic_preset_cool_home_high": "Cool Bucket — Home Cool High (°F)",
-          "zone_dynamic_preset_mild_home_low": "Mild Bucket — Home Cool Low (°F)",
-          "zone_dynamic_preset_mild_home_high": "Mild Bucket — Home Cool High (°F)",
-          "zone_dynamic_preset_hot_home_low": "Hot Bucket — Home Cool Low (°F)",
-          "zone_dynamic_preset_hot_home_high": "Hot Bucket — Home Cool High (°F)",
-          "zone_dynamic_preset_extreme_home_low": "Extreme Bucket — Home Cool Low (°F)",
-          "zone_dynamic_preset_extreme_home_high": "Extreme Bucket — Home Cool High (°F)",
-          "zone_dynamic_preset_cool_sleep_low": "Cool Bucket — Sleep Cool Low (°F)",
-          "zone_dynamic_preset_cool_sleep_high": "Cool Bucket — Sleep Cool High (°F)",
-          "zone_dynamic_preset_mild_sleep_low": "Mild Bucket — Sleep Cool Low (°F)",
-          "zone_dynamic_preset_mild_sleep_high": "Mild Bucket — Sleep Cool High (°F)",
-          "zone_dynamic_preset_hot_sleep_low": "Hot Bucket — Sleep Cool Low (°F)",
-          "zone_dynamic_preset_hot_sleep_high": "Hot Bucket — Sleep Cool High (°F)",
-          "zone_dynamic_preset_extreme_sleep_low": "Extreme Bucket — Sleep Cool Low (°F)",
-          "zone_dynamic_preset_extreme_sleep_high": "Extreme Bucket — Sleep Cool High (°F)"
+          "zone_dynamic_preset_enabled": "Enable DPM for this zone",
+          "zone_dynamic_preset_offset": "Offset",
+          "zone_dynamic_preset_reset_offset_guest": "Reset offset during Guest Mode",
+          "zone_dynamic_preset_sleep_enabled": "Enable sleep preset ranges",
+          "zone_dynamic_preset_cool_home_low": "Cool: Home Low",
+          "zone_dynamic_preset_cool_home_high": "Cool: Home High",
+          "zone_dynamic_preset_mild_home_low": "Mild: Home Low",
+          "zone_dynamic_preset_mild_home_high": "Mild: Home High",
+          "zone_dynamic_preset_hot_home_low": "Hot: Home Low",
+          "zone_dynamic_preset_hot_home_high": "Hot: Home High",
+          "zone_dynamic_preset_extreme_home_low": "Extreme: Home Low",
+          "zone_dynamic_preset_extreme_home_high": "Extreme: Home High",
+          "zone_dynamic_preset_cool_sleep_low": "Cool: Sleep Low",
+          "zone_dynamic_preset_cool_sleep_high": "Cool: Sleep High",
+          "zone_dynamic_preset_mild_sleep_low": "Mild: Sleep Low",
+          "zone_dynamic_preset_mild_sleep_high": "Mild: Sleep High",
+          "zone_dynamic_preset_hot_sleep_low": "Hot: Sleep Low",
+          "zone_dynamic_preset_hot_sleep_high": "Hot: Sleep High",
+          "zone_dynamic_preset_extreme_sleep_low": "Extreme: Sleep Low",
+          "zone_dynamic_preset_extreme_sleep_high": "Extreme: Sleep High",
+          "zone_dynamic_preset_customize_buckets": "Customize bucket temperature ranges for this zone"
         },
         "data_description": {
-          "zone_dynamic_preset_enabled": "When ON, the EC dynamically adjusts this zone's HVAC preset range based on today's weather forecast. The adjustment is re-evaluated every 5 minutes using the current apparent-temperature forecast.",
-          "zone_dynamic_preset_offset": "Applied to all bucket cool_high values for this zone. Use to bias non-bedroom zones warmer (e.g., Back Hallway = +1). Range: 0 to +3°F in 0.5°F steps.",
-          "zone_dynamic_preset_reset_offset_guest": "When ON, the zone offset is reset to 0°F during Guest Mode so guest rooms match the baseline range. Recommended for zones that include guest bedrooms.",
-          "zone_dynamic_preset_sleep_enabled": "When ON, separate sleep-preset ranges are applied during sleep hours. Sleep cool_high is automatically floored at 74°F (max(74, home_high − 1) + offset). Disable to use the same ranges for home and sleep presets.",
-          "zone_dynamic_preset_cool_home_low": "Cool bucket (forecast ≤ 75°F / δ ≤ −2°F): lower bound of the home-preset cooling range. Default: 70°F.",
-          "zone_dynamic_preset_cool_home_high": "Cool bucket (forecast ≤ 75°F / δ ≤ −2°F): upper bound of the home-preset cooling range. Default: 77°F.",
-          "zone_dynamic_preset_mild_home_low": "Mild bucket (forecast 75–85°F / −2 < δ ≤ +8°F): lower bound of the home-preset cooling range. Default: 70°F.",
-          "zone_dynamic_preset_mild_home_high": "Mild bucket (forecast 75–85°F / −2 < δ ≤ +8°F): upper bound of the home-preset cooling range. Default: 76°F.",
-          "zone_dynamic_preset_hot_home_low": "Hot bucket (forecast 85–95°F / +8 < δ ≤ +18°F): lower bound of the home-preset cooling range. Default: 70°F.",
-          "zone_dynamic_preset_hot_home_high": "Hot bucket (forecast 85–95°F / +8 < δ ≤ +18°F): upper bound of the home-preset cooling range. Default: 74°F.",
-          "zone_dynamic_preset_extreme_home_low": "Extreme bucket (forecast > 95°F / δ > +18°F): lower bound of the home-preset cooling range. Default: 70°F.",
-          "zone_dynamic_preset_extreme_home_high": "Extreme bucket (forecast > 95°F / δ > +18°F): upper bound of the home-preset cooling range. Default: 74°F (same as hot bucket).",
-          "zone_dynamic_preset_cool_sleep_low": "Cool bucket: lower bound of the sleep-preset cooling range. Only used when 'Also Apply to Sleep Preset' is ON. Default: 70°F.",
-          "zone_dynamic_preset_cool_sleep_high": "Cool bucket: upper bound of the sleep-preset cooling range. Floor: 74°F after offset. Default: 76°F.",
-          "zone_dynamic_preset_mild_sleep_low": "Mild bucket: lower bound of the sleep-preset cooling range. Only used when 'Also Apply to Sleep Preset' is ON. Default: 70°F.",
-          "zone_dynamic_preset_mild_sleep_high": "Mild bucket: upper bound of the sleep-preset cooling range. Floor: 74°F after offset. Default: 75°F.",
-          "zone_dynamic_preset_hot_sleep_low": "Hot bucket: lower bound of the sleep-preset cooling range. Only used when 'Also Apply to Sleep Preset' is ON. Default: 70°F.",
-          "zone_dynamic_preset_hot_sleep_high": "Hot bucket: upper bound of the sleep-preset cooling range. Floor activates when home_high ≤ 75°F. Default: 74°F.",
-          "zone_dynamic_preset_extreme_sleep_low": "Extreme bucket: lower bound of the sleep-preset cooling range. Only used when 'Also Apply to Sleep Preset' is ON. Default: 70°F.",
-          "zone_dynamic_preset_extreme_sleep_high": "Extreme bucket: upper bound of the sleep-preset cooling range. Floor: 74°F. Default: 74°F."
+          "zone_dynamic_preset_enabled": "When enabled, DPM adjusts this zone's thermostat setpoints based on outdoor conditions.",
+          "zone_dynamic_preset_offset": "Additional °F offset applied on top of bucket adjustments (0-3°F, step 0.5). Useful for zones that consistently run warm/cool.",
+          "zone_dynamic_preset_reset_offset_guest": "When Guest Mode is active, reset this zone's offset to 0 to maintain comfortable temperatures for guests.",
+          "zone_dynamic_preset_sleep_enabled": "Enable separate temperature ranges for sleep preset. When off, sleep uses the same ranges as home preset.",
+          "zone_dynamic_preset_cool_home_low": "Minimum cooling setpoint (°F) for home preset in cool outdoor conditions.",
+          "zone_dynamic_preset_cool_home_high": "Maximum cooling setpoint (°F) for home preset in cool outdoor conditions.",
+          "zone_dynamic_preset_mild_home_low": "Minimum cooling setpoint (°F) for home preset in mild outdoor conditions.",
+          "zone_dynamic_preset_mild_home_high": "Maximum cooling setpoint (°F) for home preset in mild outdoor conditions.",
+          "zone_dynamic_preset_hot_home_low": "Minimum cooling setpoint (°F) for home preset in hot outdoor conditions.",
+          "zone_dynamic_preset_hot_home_high": "Maximum cooling setpoint (°F) for home preset in hot outdoor conditions.",
+          "zone_dynamic_preset_extreme_home_low": "Minimum cooling setpoint (°F) for home preset in extreme heat conditions.",
+          "zone_dynamic_preset_extreme_home_high": "Maximum cooling setpoint (°F) for home preset in extreme heat conditions.",
+          "zone_dynamic_preset_cool_sleep_low": "Minimum cooling setpoint (°F) for sleep preset in cool conditions.",
+          "zone_dynamic_preset_cool_sleep_high": "Maximum cooling setpoint (°F) for sleep preset in cool conditions.",
+          "zone_dynamic_preset_mild_sleep_low": "Minimum cooling setpoint (°F) for sleep preset in mild conditions.",
+          "zone_dynamic_preset_mild_sleep_high": "Maximum cooling setpoint (°F) for sleep preset in mild conditions.",
+          "zone_dynamic_preset_hot_sleep_low": "Minimum cooling setpoint (°F) for sleep preset in hot conditions.",
+          "zone_dynamic_preset_hot_sleep_high": "Maximum cooling setpoint (°F) for sleep preset in hot conditions.",
+          "zone_dynamic_preset_extreme_sleep_low": "Minimum cooling setpoint (°F) for sleep preset in extreme conditions.",
+          "zone_dynamic_preset_extreme_sleep_high": "Maximum cooling setpoint (°F) for sleep preset in extreme conditions.",
+          "zone_dynamic_preset_customize_buckets": "When checked, expand the 'Customize Bucket Ranges' section to set per-bucket temperature ranges. When unchecked, the system derives ranges from the seasonal baseline + zone offset automatically."
+        },
+        "sections": {
+          "customize_buckets_section": "Customize Bucket Ranges",
+          "sleep_section": "Sleep Preset Ranges"
         }
       },
       "global_sensors": {
@@ -973,25 +979,30 @@
       },
       "hvac_dynamic_preset": {
         "title": "🌡️ Dynamic Preset Auto-Adjust",
-        "description": "Configure Dynamic Preset house-wide settings and per-zone temperature ranges. Master switch controls DPM globally; per-zone settings only apply for zones with DPM enabled.",
+        "description": "House-wide Dynamic Preset settings. Enable or disable DPM globally; expand Advanced to tune bucket boundaries. Per-zone settings live under Zone Manager → [zone] → Dynamic Preset.",
         "data": {
           "dynamic_preset_delta_cool_max": "Cool Bucket Max Delta",
           "dynamic_preset_delta_mild_max": "Mild Bucket Max Delta",
           "dynamic_preset_delta_hot_max": "Hot Bucket Max Delta",
           "dynamic_preset_dwell_minutes": "Bucket Dwell Minutes",
-          "dynamic_preset_hysteresis_f": "Bucket Hysteresis (°F)"
+          "dynamic_preset_hysteresis_f": "Bucket Hysteresis (°F)",
+          "dynamic_preset_enabled": "Enable Dynamic Preset Auto-Adjust"
         },
         "data_description": {
           "dynamic_preset_delta_cool_max": "Maximum setpoint reduction (negative) when outdoor conditions are cool. Range: -10 to 0°F. Default: -2°F.",
           "dynamic_preset_delta_mild_max": "Maximum setpoint increase when outdoor conditions are mild. Range: 0 to 15°F. Default: 8°F.",
           "dynamic_preset_delta_hot_max": "Maximum setpoint increase when outdoor conditions are hot. Range: 10 to 30°F. Default: 18°F.",
           "dynamic_preset_dwell_minutes": "Minutes a bucket condition must persist before adjustments apply. Prevents rapid cycling. Range: 15-240 min. Default: 60.",
-          "dynamic_preset_hysteresis_f": "Temperature band around bucket boundary before switching buckets. Prevents flapping at thresholds. Range: 0.5-5.0°F. Default: 2.0."
+          "dynamic_preset_hysteresis_f": "Temperature band around bucket boundary before switching buckets. Prevents flapping at thresholds. Range: 0.5-5.0°F. Default: 2.0.",
+          "dynamic_preset_enabled": "Master toggle for the Dynamic Preset feature. When off, all zones fall back to the seasonal baseline setpoints."
+        },
+        "sections": {
+          "advanced": "Advanced (rarely change)"
         }
       },
       "hvac_baseline_presets": {
         "title": "📅 Baseline Presets (Seasonal)",
-        "description": "Edit the house-wide preset temperature ranges per season. These are the baseline setpoints that every zone uses unless Dynamic Preset is configured per-zone. Cooling setpoint must be at least 3°F above heating setpoint for each row.",
+        "description": "Edit the house-wide preset temperature ranges per season. These are the baseline setpoints that every zone uses unless Dynamic Preset is configured per-zone. Cooling setpoint must be at least 3°F above heating setpoint. To restore factory defaults, check 'Reset all to defaults' and save.",
         "data": {
           "hvac_baseline_summer_home_cool": "Summer · Home — Cool High (°F)",
           "hvac_baseline_summer_home_heat": "Summer · Home — Heat Low (°F)",
@@ -1016,7 +1027,8 @@
           "hvac_baseline_winter_away_cool": "Winter · Away — Cool High (°F)",
           "hvac_baseline_winter_away_heat": "Winter · Away — Heat Low (°F)",
           "hvac_baseline_winter_vacation_cool": "Winter · Vacation — Cool High (°F)",
-          "hvac_baseline_winter_vacation_heat": "Winter · Vacation — Heat Low (°F)"
+          "hvac_baseline_winter_vacation_heat": "Winter · Vacation — Heat Low (°F)",
+          "_reset_all": "Reset all to defaults"
         },
         "data_description": {
           "hvac_baseline_summer_home_cool": "Summer (Jun–Sep) Home preset cooling target. Default: 77°F.",
@@ -1042,55 +1054,13 @@
           "hvac_baseline_winter_away_cool": "Winter Away preset cooling target. Default: 78°F.",
           "hvac_baseline_winter_away_heat": "Winter Away preset heating floor. Default: 60°F.",
           "hvac_baseline_winter_vacation_cool": "Winter Vacation preset cooling target. Default: 80°F.",
-          "hvac_baseline_winter_vacation_heat": "Winter Vacation preset heating floor. Default: 58°F."
-        }
-      },
-      "zone_dynamic_preset": {
-        "title": "🌡️ Zone Dynamic Preset",
-        "description": "Configure per-zone Dynamic Preset temperature ranges for zone '{zone_name}'. Enable DPM for this zone and set target setpoint ranges for each outdoor condition bucket.",
-        "data": {
-          "zone_dynamic_preset_enabled": "Enable DPM for this zone",
-          "zone_dynamic_preset_offset": "Offset",
-          "zone_dynamic_preset_reset_offset_guest": "Reset offset during Guest Mode",
-          "zone_dynamic_preset_sleep_enabled": "Enable sleep preset ranges",
-          "zone_dynamic_preset_cool_home_low": "Cool: Home Low",
-          "zone_dynamic_preset_cool_home_high": "Cool: Home High",
-          "zone_dynamic_preset_mild_home_low": "Mild: Home Low",
-          "zone_dynamic_preset_mild_home_high": "Mild: Home High",
-          "zone_dynamic_preset_hot_home_low": "Hot: Home Low",
-          "zone_dynamic_preset_hot_home_high": "Hot: Home High",
-          "zone_dynamic_preset_extreme_home_low": "Extreme: Home Low",
-          "zone_dynamic_preset_extreme_home_high": "Extreme: Home High",
-          "zone_dynamic_preset_cool_sleep_low": "Cool: Sleep Low",
-          "zone_dynamic_preset_cool_sleep_high": "Cool: Sleep High",
-          "zone_dynamic_preset_mild_sleep_low": "Mild: Sleep Low",
-          "zone_dynamic_preset_mild_sleep_high": "Mild: Sleep High",
-          "zone_dynamic_preset_hot_sleep_low": "Hot: Sleep Low",
-          "zone_dynamic_preset_hot_sleep_high": "Hot: Sleep High",
-          "zone_dynamic_preset_extreme_sleep_low": "Extreme: Sleep Low",
-          "zone_dynamic_preset_extreme_sleep_high": "Extreme: Sleep High"
+          "hvac_baseline_winter_vacation_heat": "Winter Vacation preset heating floor. Default: 58°F.",
+          "_reset_all": "Check and save to restore all 24 baseline setpoints to factory defaults. This action requires confirmation on the next screen."
         },
-        "data_description": {
-          "zone_dynamic_preset_enabled": "When enabled, DPM adjusts this zone's thermostat setpoints based on outdoor conditions.",
-          "zone_dynamic_preset_offset": "Additional °F offset applied on top of bucket adjustments (0-3°F, step 0.5). Useful for zones that consistently run warm/cool.",
-          "zone_dynamic_preset_reset_offset_guest": "When Guest Mode is active, reset this zone's offset to 0 to maintain comfortable temperatures for guests.",
-          "zone_dynamic_preset_sleep_enabled": "Enable separate temperature ranges for sleep preset. When off, sleep uses the same ranges as home preset.",
-          "zone_dynamic_preset_cool_home_low": "Minimum cooling setpoint (°F) for home preset in cool outdoor conditions.",
-          "zone_dynamic_preset_cool_home_high": "Maximum cooling setpoint (°F) for home preset in cool outdoor conditions.",
-          "zone_dynamic_preset_mild_home_low": "Minimum cooling setpoint (°F) for home preset in mild outdoor conditions.",
-          "zone_dynamic_preset_mild_home_high": "Maximum cooling setpoint (°F) for home preset in mild outdoor conditions.",
-          "zone_dynamic_preset_hot_home_low": "Minimum cooling setpoint (°F) for home preset in hot outdoor conditions.",
-          "zone_dynamic_preset_hot_home_high": "Maximum cooling setpoint (°F) for home preset in hot outdoor conditions.",
-          "zone_dynamic_preset_extreme_home_low": "Minimum cooling setpoint (°F) for home preset in extreme heat conditions.",
-          "zone_dynamic_preset_extreme_home_high": "Maximum cooling setpoint (°F) for home preset in extreme heat conditions.",
-          "zone_dynamic_preset_cool_sleep_low": "Minimum cooling setpoint (°F) for sleep preset in cool conditions.",
-          "zone_dynamic_preset_cool_sleep_high": "Maximum cooling setpoint (°F) for sleep preset in cool conditions.",
-          "zone_dynamic_preset_mild_sleep_low": "Minimum cooling setpoint (°F) for sleep preset in mild conditions.",
-          "zone_dynamic_preset_mild_sleep_high": "Maximum cooling setpoint (°F) for sleep preset in mild conditions.",
-          "zone_dynamic_preset_hot_sleep_low": "Minimum cooling setpoint (°F) for sleep preset in hot conditions.",
-          "zone_dynamic_preset_hot_sleep_high": "Maximum cooling setpoint (°F) for sleep preset in hot conditions.",
-          "zone_dynamic_preset_extreme_sleep_low": "Minimum cooling setpoint (°F) for sleep preset in extreme conditions.",
-          "zone_dynamic_preset_extreme_sleep_high": "Maximum cooling setpoint (°F) for sleep preset in extreme conditions."
+        "sections": {
+          "summer_section": "Summer (Jun–Sep)",
+          "shoulder_section": "Shoulder (Mar–May, Oct–Nov)",
+          "winter_section": "Winter (Dec–Feb)"
         }
       },
       "coordinator_music_following": {
@@ -1626,6 +1596,12 @@
           "alert_lights": "Alert Indicator Lights",
           "alert_light_color": "Alert Color"
         }
+      },
+      "hvac_baseline_presets_reset_confirm": {
+        "title": "Reset Baseline Presets",
+        "description": "Are you sure? This will clear all 24 saved baseline setpoints and restore factory defaults. This cannot be undone.",
+        "data": {},
+        "data_description": {}
       }
     },
     "error": {

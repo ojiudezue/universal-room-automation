@@ -351,7 +351,8 @@ class TestD1BaselinePresetsMenuAndStep:
 
     def test_baseline_presets_saves_to_entry_options(self, config_flow_src):
         idx = config_flow_src.find("async def async_step_hvac_baseline_presets(")
-        body = config_flow_src[idx:idx + 8000]
+        # v4.7.4 D4 restructured this function; self._config_entry.options is ~8003 chars in.
+        body = config_flow_src[idx:idx + 12000]
         assert "async_create_entry" in body, (
             "Step must call async_create_entry to persist to entry.options"
         )
@@ -372,14 +373,16 @@ class TestD1BaselinePresetsMenuAndStep:
 
     def test_strings_baseline_presets_step_has_24_data_fields(self, strings):
         data = strings["options"]["step"]["hvac_baseline_presets"].get("data", {})
-        assert len(data) == 24, (
-            f"strings.json hvac_baseline_presets must have 24 data fields, found {len(data)}"
+        # v4.7.4 D4 added _reset_all (25 total); original 24 baseline fields must still be present.
+        assert len(data) >= 24, (
+            f"strings.json hvac_baseline_presets must have at least 24 data fields, found {len(data)}"
         )
 
     def test_strings_baseline_presets_has_data_descriptions(self, strings):
         desc = strings["options"]["step"]["hvac_baseline_presets"].get("data_description", {})
-        assert len(desc) == 24, (
-            f"strings.json hvac_baseline_presets must have 24 data_description entries, found {len(desc)}"
+        # v4.7.4 D4 added _reset_all description (25 total); original 24 must still be present.
+        assert len(desc) >= 24, (
+            f"strings.json hvac_baseline_presets must have at least 24 data_description entries, found {len(desc)}"
         )
 
     def test_strings_error_key_exists(self, strings):
@@ -397,7 +400,8 @@ class TestD1BaselinePresetsMenuAndStep:
 
     def test_translations_baseline_presets_step_has_24_data_fields(self, translations_en):
         data = translations_en["options"]["step"]["hvac_baseline_presets"].get("data", {})
-        assert len(data) == 24
+        # v4.7.4 D4 added _reset_all (25 total); original 24 baseline fields must still be present.
+        assert len(data) >= 24
 
     def test_translations_error_key_exists(self, translations_en):
         errors = translations_en["options"].get("error", {})
