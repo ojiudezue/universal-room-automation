@@ -15,6 +15,7 @@ Bug class prevention:
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -107,9 +108,15 @@ class WeatherProviderManager:
         self._provider_health: dict[str, WeatherProviderHealth] = {}
         # Per-provider today-high values (used for divergence detection)
         self._provider_highs: dict[str, float] = {}
-        # Divergence flag
+        # Divergence flag + transition tracking (WPM-C3: fire signal on enter only)
         self._divergence_f: float | None = None
         self._divergent: bool = False
+        self._was_divergent: bool = False
+
+        # WPM-C1: re-entrancy guard — serialises concurrent _refresh_all_providers calls
+        self._refresh_lock: asyncio.Lock = asyncio.Lock()
+        # WPM-C2: track tasks created by state-change handler (Bug #19)
+        self._pending_refresh_tasks: set[asyncio.Task] = set()
 
     # -------------------------------------------------------------------------
     # Lifecycle
@@ -148,11 +155,20 @@ class WeatherProviderManager:
         await self._refresh_all_providers()
 
     async def async_teardown(self) -> None:
-        """Cancel all state-change listeners."""
+        """Cancel all state-change listeners and in-flight refresh tasks."""
         for unsub in self._unsub_handles:
             unsub()
         self._unsub_handles.clear()
-        _LOGGER.debug("WeatherProviderManager: listeners cancelled")
+
+        # WPM-C2: cancel any in-flight refresh tasks (Bug #19)
+        if self._pending_refresh_tasks:
+            tasks = list(self._pending_refresh_tasks)
+            for task in tasks:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+            self._pending_refresh_tasks.clear()
+
+        _LOGGER.debug("WeatherProviderManager: listeners and tasks cancelled")
 
     def update_options(self, options: dict[str, Any]) -> None:
         """Update options snapshot (called from CM options-update listener).
@@ -212,14 +228,6 @@ class WeatherProviderManager:
         forecast = self._cached_forecast
         if forecast is None or forecast.apparent_high is None:
             return None
-        try:
-            domain = __import__(
-                "custom_components.universal_room_automation",
-                fromlist=["__init__"],
-            )
-            from homeassistant.const import DOMAIN as _  # noqa: F401 (unused)
-        except Exception:
-            pass
 
         # Resolve the zone's home baseline cool_high via HVAC PresetManager
         baseline_high = self._get_zone_baseline_high(zone_id, preset)
@@ -313,7 +321,19 @@ class WeatherProviderManager:
             return None
 
     async def _refresh_all_providers(self) -> None:
-        """Re-derive health, fetch forecasts, elect active provider, check divergence."""
+        """Re-derive health, fetch forecasts, elect active provider, check divergence.
+
+        WPM-C1: guarded by _refresh_lock to prevent concurrent execution (e.g.
+        3 providers updating in the same event-loop tick each firing a state-change
+        callback). Each provider's forecast is fetched exactly once and cached in
+        `_fetched_forecasts` — the active provider reuses that result rather than
+        making a second service call.
+        """
+        async with self._refresh_lock:
+            await self._refresh_all_providers_locked()
+
+    async def _refresh_all_providers_locked(self) -> None:
+        """Inner body of _refresh_all_providers, runs under _refresh_lock."""
         providers = self._build_provider_list()
         if not providers:
             legacy = self._options.get(CONF_ENERGY_WEATHER_ENTITY, DEFAULT_WEATHER_ENTITY)
@@ -325,6 +345,8 @@ class WeatherProviderManager:
         provider_highs: dict[str, float] = {}
         provider_apparent_highs: dict[str, float] = {}
         health_map: dict[str, WeatherProviderHealth] = {}
+        # WPM-C1: cache each provider's forecast so the active provider isn't re-fetched
+        fetched_forecasts: dict[str, dict] = {}
 
         for eid in providers:
             if not eid:
@@ -343,6 +365,9 @@ class WeatherProviderManager:
             if forecast_data is None:
                 health_map[eid] = WeatherProviderHealth.NO_FORECAST
                 continue
+
+            # Cache result — reused below for the active provider (WPM-C1)
+            fetched_forecasts[eid] = forecast_data
 
             raw_high = _parse_float(forecast_data.get("temperature"))
             apparent_high = _probe_apparent_temp_attrs(forecast_data)
@@ -366,9 +391,10 @@ class WeatherProviderManager:
         self._divergence_f = divergence_f
         self._divergent = is_divergent
 
-        # Build the cached forecast from the active provider
+        # Build the cached forecast from the active provider's already-fetched data
         if new_active:
-            forecast_data = await self._fetch_provider_forecast(new_active)
+            # WPM-C1: reuse cached result — NO second service call
+            forecast_data = fetched_forecasts.get(new_active)
             if forecast_data:
                 raw_high = _parse_float(forecast_data.get("temperature"))
                 raw_low = _parse_float(forecast_data.get("templow"))
@@ -384,8 +410,14 @@ class WeatherProviderManager:
                     apparent_high = raw_high  # fallback to raw with flag
                     confidence = "apparent_unavailable_fallback_raw"
 
-                # With divergence and ≥2 providers, use median
-                if is_divergent and len(provider_highs) >= 2:
+                # WPM-H3: divergence median uses apparent highs, falls back to raw
+                if is_divergent and len(provider_apparent_highs) >= 2:
+                    vals = sorted(provider_apparent_highs.values())
+                    mid = len(vals) // 2
+                    apparent_high = vals[mid] if len(vals) % 2 else (vals[mid - 1] + vals[mid]) / 2
+                    confidence = "low_divergent"
+                elif is_divergent and len(provider_highs) >= 2:
+                    # Fallback: not enough apparent values — use raw median
                     vals = sorted(provider_highs.values())
                     mid = len(vals) // 2
                     apparent_high = vals[mid] if len(vals) % 2 else (vals[mid - 1] + vals[mid]) / 2
@@ -437,9 +469,12 @@ class WeatherProviderManager:
             except Exception:
                 _LOGGER.debug("WeatherProviderManager: dispatcher send failed", exc_info=True)
 
-        if is_divergent:
+        # WPM-C3: fire divergence signal only on enter-divergence transition
+        was_divergent = self._was_divergent
+        self._was_divergent = is_divergent
+        if is_divergent and not was_divergent:
             _LOGGER.warning(
-                "WeatherProviderManager: divergence %.1f°F exceeds threshold %.1f°F "
+                "WeatherProviderManager: divergence entered — %.1f°F exceeds threshold %.1f°F "
                 "(providers: %s)",
                 divergence_f or 0.0,
                 self._divergence_threshold_f(),
@@ -455,6 +490,11 @@ class WeatherProviderManager:
                 )
             except Exception:
                 _LOGGER.debug("WeatherProviderManager: divergence dispatcher send failed", exc_info=True)
+        elif was_divergent and not is_divergent:
+            _LOGGER.info(
+                "WeatherProviderManager: divergence cleared (providers now within %.1f°F threshold)",
+                self._divergence_threshold_f(),
+            )
 
     def _compute_divergence(
         self, provider_highs: dict[str, float]
@@ -526,10 +566,13 @@ class WeatherProviderManager:
         entity_id = event.data.get("entity_id", "")
         _LOGGER.debug("WeatherProviderManager: state change on %s", entity_id)
         # Bug #42: use hass.async_create_task with a named coroutine, NOT a lambda
-        self.hass.async_create_task(
+        # WPM-C2: track the task so it can be cancelled on teardown (Bug #19)
+        task = self.hass.async_create_task(
             self._refresh_all_providers(),
             name="ura_weather_manager_refresh",
         )
+        self._pending_refresh_tasks.add(task)
+        task.add_done_callback(self._pending_refresh_tasks.discard)
 
     # -------------------------------------------------------------------------
     # Read-only properties used by sensors
@@ -589,6 +632,17 @@ class WeatherProviderManager:
         if self._cached_forecast is None:
             return "unavailable"
         return self._cached_forecast.apparent_confidence
+
+    def current_apparent_forecast_high(self) -> float | None:
+        """Return the last-known apparent forecast high without triggering a refresh.
+
+        WPM-H2: non-blocking accessor for sensor reads — sensors must never call
+        get_today_forecast() (which forces a full refresh on every HA state poll).
+        Returns None until the first successful probe.
+        """
+        if self._cached_forecast is None:
+            return None
+        return self._cached_forecast.apparent_high
 
 
 # ─────────────────────────────────────────────────────────────────────────────

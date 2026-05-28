@@ -1675,6 +1675,34 @@ For every class outside `Entity` subclasses that calls `async_listen`/`async_tra
 
 ---
 
+### Bug Class #44: Cross-File sys.modules Pollution in Test Harness ⚠️
+
+**Shape:** Test files use `sys.modules.setdefault(name, mock)` at module-import scope to stub HA dependencies before loading production code. When pytest collects multiple such files in one process, the first-loaded file wins the `setdefault` race — every subsequent file silently inherits the first file's mock. If the first file froze `dt_util.utcnow` to a fixed sentinel, all later files see that frozen clock regardless of their own mock setup.
+
+**v4.7.x example (WPM-C4, Cycle A reviewer fix-up):** `test_v47x_ev_tou_hardening.py` uses `_FIXED_NOW = datetime(2026, 5, 27, 14, 0, 0, tzinfo=timezone.utc)` and installs it via `setdefault("homeassistant.util.dt", ...)`. When pytest collects EV TOU before weather-manager (alphabetical), the frozen clock propagates. `test_stale_entity` in the weather-manager test computed staleness as `(frozen_time - state.last_changed)` — because `_utcnow()` called `datetime.now()` (live) but production code called `dt_util.utcnow()` (frozen), the staleness delta was 0 hours instead of 8 hours, and the health check returned HEALTHY instead of STALE. In reverse collection order, EV TOU's `switch.py` failed with `ImportError: cannot import name 'async_call_later'` because the weather-manager test's `homeassistant.helpers.event` mock (lacking `async_call_later`) won the `setdefault` race.
+
+**Two sub-patterns:**
+1. **Frozen-time contamination:** File A installs a fixed `utcnow` via `setdefault`; File B's staleness tests receive wrong age calculations.
+2. **Missing-attribute contamination:** File A's minimal `helpers.event` mock (missing `async_call_later`) wins `setdefault`; File B's switch load fails with `ImportError`.
+
+**Fix:**
+- Force-set (`sys.modules[name] = ...`) every mock that is safety-critical (timestamps, event helpers with specific method requirements) AFTER the `setdefault` loop in every test file. This ensures each file's mocks win regardless of collection order.
+- For frozen-time tests: always use `sys.modules[name] = ...` (not `setdefault`) for `homeassistant.util.dt`.
+- For live-time tests: additionally verify that the test helper (`_utcnow()`) calls `datetime.now()` directly, not via `sys.modules["homeassistant.util.dt"].utcnow()`, so it cannot be poisoned.
+- Long-term: extract shared HA mock setup into `conftest.py` fixtures with per-module isolation and restore-on-teardown.
+
+**Detection:**
+- **Static:** Grep for `sys.modules.setdefault("homeassistant.util.dt"` in multiple test files — if more than one file registers a `utcnow` mock this way, there is an ordering race.
+- **CI canary:** Run `pytest file_A.py file_B.py` AND `pytest file_B.py file_A.py` as separate jobs. Both orderings must pass.
+- **Behavioral:** A staleness/age test that passes in isolation but fails when another test file runs first is the canonical symptom.
+
+**Regression guard:** `quality/tests/test_v47x_weather_manager.py::TestDtUtilIsolation::test_weather_utcnow_helper_returns_live_time` asserts that the weather test's `_utcnow()` helper is not redirected to the EV TOU sentinel.
+
+**Discovered:** v4.7.x Cycle A reviewer fix-up (2026-05-27)
+**Severity:** HIGH — silent test correctness failures; cross-file contamination is invisible unless both orderings are tested
+
+---
+
 ## ✅ MANDATORY VALIDATION CHECKLIST
 
 **Before EVERY deployment, complete this checklist:**

@@ -115,6 +115,31 @@ for name, attrs in _mods.items():
     else:
         sys.modules.setdefault(name, attrs)
 
+# WPM-C4: force-set mocks that are sensitive to ordering (Bug Class #44).
+# setdefault loses the race when the weather_manager test file loads first.
+# Force-setting ensures this file's mocks always win regardless of collection order.
+_ev_event_mock = _mock_module(
+    "homeassistant.helpers.event",
+    async_call_later=MagicMock(return_value=lambda: None),
+    async_track_state_change_event=MagicMock(return_value=lambda: None),
+)
+sys.modules["homeassistant.helpers.event"] = _ev_event_mock
+sys.modules["homeassistant.util.dt"] = _mock_module(
+    "homeassistant.util.dt",
+    utcnow=_fixed_utcnow,
+    now=_fixed_now,
+    UTC=timezone.utc,
+    as_local=_as_local,
+)
+# restore_state: needs AsyncMock-backed RestoreEntity so switch.py can inherit correctly
+sys.modules["homeassistant.helpers.restore_state"] = _mock_module(
+    "homeassistant.helpers.restore_state",
+    RestoreEntity=type("RestoreEntity", (), {
+        "async_added_to_hass": AsyncMock(),
+        "async_get_last_state": AsyncMock(return_value=None),
+    }),
+)
+
 sys.modules.setdefault("aiosqlite", MagicMock())
 
 # Add project root

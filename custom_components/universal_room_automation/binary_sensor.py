@@ -1697,6 +1697,27 @@ class WeatherDivergenceBinarySensor(AggregationEntity, BinarySensorEntity):
             via_device=(DOMAIN, "coordinator_manager"),
         )
 
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to SIGNAL_WEATHER_DIVERGENCE_DETECTED for reactive updates (WPM-H1)."""
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_WEATHER_DIVERGENCE_DETECTED
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_WEATHER_DIVERGENCE_DETECTED, self._on_divergence_signal,
+            )
+        )
+
+    @callback
+    def _on_divergence_signal(self, _payload=None) -> None:
+        """Handle divergence signal — push updated state to HA."""
+        self.async_write_ha_state()
+
+    @property
+    def available(self) -> bool:
+        """Return False when WeatherProviderManager is not set up (WPM-H5)."""
+        return self.hass.data.get(DOMAIN, {}).get("weather_manager") is not None
+
     @property
     def is_on(self) -> bool | None:
         """Return True when provider divergence exceeds configured threshold."""
@@ -1710,15 +1731,15 @@ class WeatherDivergenceBinarySensor(AggregationEntity, BinarySensorEntity):
 
     @property
     def extra_state_attributes(self) -> dict:
-        """Return divergence details."""
+        """Return divergence details including configured threshold (WPM-H6)."""
         try:
             mgr = self.hass.data.get(DOMAIN, {}).get("weather_manager")
             if mgr is None:
                 return {}
             return {
                 "divergence_f": mgr.divergence_f,
-                "threshold_f": None,  # populated from options via manager
-                "provider_high_map": mgr._provider_highs,
+                "threshold_f": mgr._divergence_threshold_f(),
+                "provider_high_map": dict(mgr._provider_highs),
             }
         except Exception:
             return {}

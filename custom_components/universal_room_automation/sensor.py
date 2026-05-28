@@ -6349,6 +6349,27 @@ class WeatherActiveProviderSensor(AggregationEntity, SensorEntity):
         self._attr_name = "Weather Active Provider"
         self._attr_device_info = _energy_device_info()
 
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to SIGNAL_WEATHER_PROVIDER_CHANGED for reactive updates (WPM-H1)."""
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_WEATHER_PROVIDER_CHANGED
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_WEATHER_PROVIDER_CHANGED, self._on_weather_signal,
+            )
+        )
+
+    @callback
+    def _on_weather_signal(self, _payload=None) -> None:
+        """Handle provider-changed or divergence signal."""
+        self.async_write_ha_state()
+
+    @property
+    def available(self) -> bool:
+        """Return False when WeatherProviderManager is not set up (WPM-H5)."""
+        return self.hass.data.get(DOMAIN, {}).get("weather_manager") is not None
+
     @property
     def native_value(self) -> str:
         """Return active provider entity_id, 'none', or 'all_stale'."""
@@ -6391,6 +6412,7 @@ class WeatherApparentForecastHighSensor(AggregationEntity, SensorEntity):
     _attr_native_unit_of_measurement = "°F"
     _attr_state_class = "measurement"
     _attr_suggested_display_precision = 1
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         """Initialize."""
@@ -6399,40 +6421,59 @@ class WeatherApparentForecastHighSensor(AggregationEntity, SensorEntity):
         self._attr_name = "Weather Apparent Forecast High"
         self._attr_device_info = _energy_device_info()
 
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to provider-changed signal for reactive updates (WPM-H1)."""
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_WEATHER_PROVIDER_CHANGED
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_WEATHER_PROVIDER_CHANGED, self._on_weather_signal,
+            )
+        )
+
+    @callback
+    def _on_weather_signal(self, _payload=None) -> None:
+        """Handle provider-changed signal — push updated value to HA."""
+        self.async_write_ha_state()
+
+    @property
+    def available(self) -> bool:
+        """Return False when WeatherProviderManager is absent or has no forecast (WPM-H5)."""
+        try:
+            mgr = self.hass.data.get(DOMAIN, {}).get("weather_manager")
+            return mgr is not None and mgr._cached_forecast is not None
+        except Exception:
+            return False
+
     @property
     def native_value(self) -> float | None:
-        """Return today's apparent high from active provider."""
+        """Return today's apparent high directly from WPM (WPM-H2 — no EC indirection)."""
         try:
-            manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
-            if manager is None:
+            mgr = self.hass.data.get(DOMAIN, {}).get("weather_manager")
+            if mgr is None:
                 return None
-            energy = manager.coordinators.get("energy")
-            if energy is None:
-                return None
-            return energy._cached_apparent_forecast_high
+            return mgr.current_apparent_forecast_high()
         except Exception:
             return None
 
     @property
     def extra_state_attributes(self) -> dict:
-        """Return forecast detail attributes."""
+        """Return forecast detail attributes sourced entirely from WPM (WPM-H2)."""
         try:
-            manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
             mgr = self.hass.data.get(DOMAIN, {}).get("weather_manager")
-            attrs: dict = {}
-            if manager is not None:
-                energy = manager.coordinators.get("energy")
-                if energy is not None:
-                    attrs["raw_high"] = energy._cached_forecast_high
-            if mgr is not None:
-                forecast = mgr._cached_forecast
-                if forecast is not None:
-                    attrs["apparent_low"] = forecast.apparent_low
-                    attrs["provider_source"] = forecast.provider_id
-                    attrs["confidence"] = forecast.apparent_confidence
-                    attrs["divergence_f"] = forecast.divergence_f
-                    attrs["median_across_providers"] = forecast.apparent_high
-            return attrs
+            if mgr is None:
+                return {}
+            forecast = mgr._cached_forecast
+            if forecast is None:
+                return {}
+            return {
+                "raw_high": forecast.raw_high,
+                "apparent_low": forecast.apparent_low,
+                "provider_source": forecast.provider_id,
+                "confidence": forecast.apparent_confidence,
+                "divergence_f": forecast.divergence_f,
+            }
         except Exception:
             return {}
 
