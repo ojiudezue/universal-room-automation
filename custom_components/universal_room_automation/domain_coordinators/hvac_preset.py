@@ -16,7 +16,6 @@ from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
 from .hvac_const import (
-    BASELINE_MIN_DEADBAND,
     CONF_HVAC_BASELINE_SUMMER_HOME_COOL,
     CONF_HVAC_BASELINE_SUMMER_HOME_HEAT,
     CONF_HVAC_BASELINE_SUMMER_SLEEP_COOL,
