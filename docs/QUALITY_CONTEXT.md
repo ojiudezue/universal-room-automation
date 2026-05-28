@@ -4,7 +4,7 @@
 **Last Updated:** May 10, 2026 (v4.5.11.3 cycle aftermath)
 **Current Production:** v4.5.11.3
 **Status:** Active quality standards
-**Bug Classes:** 33 documented (7 original + 13 from Jan–Mar 2026 + 2 from v3.20–v3.22 hardening + 1 from v4.1.1 lambda scope + 1 from v4.2.5 closure escape + 3 from v4.2.8–v4.2.11 DB performance + 1 from v4.2.24 sync update_listener + 1 from v4.2.9 maintenance budgeting + 2 from v4.5.11.x AC ramp-down cycle + 1 from v4.6.15 lambda+async_create_task + 1 from v4.7.x EV TOU bookkeeping short-circuit)
+**Bug Classes:** 46 documented (7 original + 13 from Jan–Mar 2026 + 2 from v3.20–v3.22 hardening + 1 from v4.1.1 lambda scope + 1 from v4.2.5 closure escape + 3 from v4.2.8–v4.2.11 DB performance + 1 from v4.2.24 sync update_listener + 1 from v4.2.9 maintenance budgeting + 2 from v4.5.11.x AC ramp-down cycle + 1 from v4.6.15 lambda+async_create_task + 1 from v4.7.x EV TOU bookkeeping short-circuit + 1 from v4.7.4.1 async_update_entry re-entrancy)
 
 **Quality bar — read every cycle:** Two independent staff-engineer-level code reviews using software engineering best practices. The bug-class catalog below is a regression-prevention reference, NOT the review framework. See `CLAUDE.md` § Review Protocol for the canonical statement.
 
@@ -1737,6 +1737,24 @@ engine = OverrideEngine(get_options=self._get_cm_options)
 
 **Discovered:** v4.7.1 fix-up, Cycle B Tier 2-DB review pass (Reviewers A, B, C all flagged it at CRITICAL)
 **Severity:** CRITICAL — config changes silently ignored; no error, no log; indistinguishable from correct behavior during initial testing
+
+---
+
+### Bug Class #46 — `async_update_entry` from within `async_setup_entry` triggers re-entrant reload
+
+**Shape:** A migration helper calls `hass.config_entries.async_update_entry(entry, options=...)` while still inside `async_setup_entry`. HA's update_listener machinery fires the registered update callback, which typically reloads the entry. On cold install or first boot after upgrade, the double-pass through `async_setup_entry` can blow HA's 120s bootstrap-2 budget, surfacing as `CancelledError: Global task timeout: Bootstrap stage 2 timeout` at whatever `await` happens to be running when the budget hits zero — NOT necessarily the actual slow path.
+
+**v4.7.4 example:** Migration helper at `__init__.py:2319` set `CONF_ZONE_DYNAMIC_PRESET_CUSTOMIZE_BUCKETS=True` for zones with saved per-bucket cells, then called `async_update_entry`. On cold HA boot after HACS upgrade, the reload re-entered setup; user's HA bootstrap-2 timed out at TOU engine load on first boot. Second boot worked because migration already persisted → idempotent no-op.
+
+**Prevention:** Defer the `async_update_entry` call via `hass.async_create_task(...)` so it fires after `async_setup_entry` returns. The deferred reload runs as a clean second pass with the migration flag already set, making it benign.
+
+**Detection:**
+- Static: grep for `async_update_entry` calls textually inside `async_setup_entry` body. Most should be deferred.
+- Live: `Bootstrap stage 2 timeout` in HA core log with traceback pointing to `async_setup_entry` is the symptom; the file:line in the trace is often misleading (catches whatever await is running).
+
+**Severity:** HIGH on cold install only; subsequent boots succeed because the migration is idempotent. Worst-case: user can't recover without SSH-level restart or HACS rollback.
+
+**Filed 2026-05-28** after v4.7.4 first-boot incident.
 
 ---
 
