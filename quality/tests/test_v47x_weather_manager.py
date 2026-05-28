@@ -843,13 +843,12 @@ class TestSourceContractConfs:
 # ---------------------------------------------------------------------------
 
 
-class TestNoDirectWeatherStateReads:
+class TestNoLiteralWeatherStateReads:
     """A4: test_no_direct_hass_states_get_weather_in_domain_code.
 
-    Scans all domain_coordinator Python files for patterns like
-    hass.states.get("weather.") or states.get("weather.").
-    These must not appear because all weather reads must route through
-    WeatherProviderManager (Bug #37 prevention).
+    Line-grep for literal states.get('weather.*') patterns in domain coordinator
+    files. Does NOT catch variable-based reads (e.g., eid = 'weather.foo';
+    states.get(eid)) — only literal string arguments are detected.
 
     weather_manager.py itself is exempted (it's the router, not a direct consumer).
     """
@@ -1281,4 +1280,113 @@ class TestDtUtilIsolation:
         assert drift != 0.0, (
             f"_utcnow() returned exactly the EV TOU sentinel ({now}) — "
             "the test helper must use datetime.now(), not dt_util.utcnow()"
+        )
+
+
+# ---------------------------------------------------------------------------
+# v4.7.0.1 cleanup tests (4 fixes)
+# ---------------------------------------------------------------------------
+
+
+class TestUpdateOptionsDeleted:
+    """Fix 1 (A5+B10): update_options() has been removed — it was never called."""
+
+    def test_update_options_not_present(self):
+        """WeatherProviderManager must NOT have an update_options() method.
+
+        The _async_update_listener does a full entry reload rather than calling
+        update_options(); keeping the method was dead code and misleading.
+        """
+        hass = _make_hass()
+        mgr = WeatherProviderManager(hass, {})
+        assert not hasattr(mgr, "update_options"), (
+            "update_options() was deleted in v4.7.0.1 — it must not be present. "
+            "If it reappeared, remove it again: the options-update listener reloads "
+            "the full entry instead of updating in-place."
+        )
+
+
+class TestDivergenceThresholdPublicProperty:
+    """Fix 2: public divergence_threshold_f property matches private method value."""
+
+    def test_public_property_matches_private_method(self):
+        """divergence_threshold_f (property) returns same value as _divergence_threshold_f()."""
+        hass = _make_hass()
+        mgr = WeatherProviderManager(hass, {
+            CONF_WEATHER_DIVERGENCE_THRESHOLD_F: 7.5,
+        })
+        assert mgr.divergence_threshold_f == mgr._divergence_threshold_f()
+
+    def test_public_property_uses_default_when_not_configured(self):
+        """divergence_threshold_f returns DEFAULT_WEATHER_DIVERGENCE_THRESHOLD_F when absent."""
+        hass = _make_hass()
+        mgr = WeatherProviderManager(hass, {})
+        assert mgr.divergence_threshold_f == DEFAULT_WEATHER_DIVERGENCE_THRESHOLD_F
+
+    def test_public_property_reflects_custom_value(self):
+        """divergence_threshold_f returns the configured value."""
+        hass = _make_hass()
+        mgr = WeatherProviderManager(hass, {CONF_WEATHER_DIVERGENCE_THRESHOLD_F: 10.0})
+        assert mgr.divergence_threshold_f == 10.0
+
+
+class TestPriorityRankFor:
+    """Fix 3 (M3): priority_rank_for returns correct 0-indexed rank or None."""
+
+    def _make_mgr(self, primary="weather.p1", f1="weather.p2", f2="weather.p3"):
+        hass = _make_hass()
+        return WeatherProviderManager(hass, {
+            CONF_ENERGY_WEATHER_ENTITY: primary,
+            CONF_ENERGY_WEATHER_FALLBACK_1: f1,
+            CONF_ENERGY_WEATHER_FALLBACK_2: f2,
+        })
+
+    def test_primary_is_rank_0(self):
+        mgr = self._make_mgr()
+        assert mgr.priority_rank_for("weather.p1") == 0
+
+    def test_fallback_1_is_rank_1(self):
+        mgr = self._make_mgr()
+        assert mgr.priority_rank_for("weather.p2") == 1
+
+    def test_fallback_2_is_rank_2(self):
+        mgr = self._make_mgr()
+        assert mgr.priority_rank_for("weather.p3") == 2
+
+    def test_unknown_entity_returns_none(self):
+        mgr = self._make_mgr()
+        assert mgr.priority_rank_for("weather.unknown") is None
+
+    def test_none_active_priority_rank_is_none(self):
+        """When active_provider is None, priority_rank_for(None) returns None."""
+        hass = _make_hass()
+        mgr = WeatherProviderManager(hass, {CONF_ENERGY_WEATHER_ENTITY: "weather.p1"})
+        # active_provider is None until a refresh runs
+        assert mgr.active_provider is None
+        assert mgr.priority_rank_for(mgr.active_provider) is None
+
+
+class TestRenamedTestClass:
+    """Fix 4 (B9): TestNoLiteralWeatherStateReads class rename sanity check.
+
+    This test verifies the renamed class still exercises the same scanning
+    logic — the name change from TestNoDirectWeatherStateReads was made to
+    clarify that only literal string patterns are detected (line-grep only).
+    """
+
+    def test_scan_logic_still_works_via_renamed_class(self):
+        """Verify the renamed class has a callable _scan_file method."""
+        import sys
+        test_mod = sys.modules[__name__]
+        cls = getattr(test_mod, "TestNoLiteralWeatherStateReads", None)
+        assert cls is not None, "TestNoLiteralWeatherStateReads class must exist in module"
+        scanner = cls()
+        assert callable(getattr(scanner, "_scan_file", None))
+
+    def test_class_docstring_mentions_line_grep(self):
+        """Docstring must mention 'line-grep' (case-insensitive) to prevent future confusion."""
+        doc = (TestNoLiteralWeatherStateReads.__doc__ or "").lower()
+        assert "line-grep" in doc, (
+            "TestNoLiteralWeatherStateReads docstring must mention 'line-grep' "
+            "to make clear this is NOT an AST walk."
         )
