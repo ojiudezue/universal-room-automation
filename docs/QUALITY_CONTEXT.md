@@ -4,7 +4,7 @@
 **Last Updated:** May 10, 2026 (v4.5.11.3 cycle aftermath)
 **Current Production:** v4.5.11.3
 **Status:** Active quality standards
-**Bug Classes:** 32 documented (7 original + 13 from Jan–Mar 2026 + 2 from v3.20–v3.22 hardening + 1 from v4.1.1 lambda scope + 1 from v4.2.5 closure escape + 3 from v4.2.8–v4.2.11 DB performance + 1 from v4.2.24 sync update_listener + 1 from v4.2.9 maintenance budgeting + 2 from v4.5.11.x AC ramp-down cycle + 1 from v4.7.x EV TOU bookkeeping short-circuit)
+**Bug Classes:** 33 documented (7 original + 13 from Jan–Mar 2026 + 2 from v3.20–v3.22 hardening + 1 from v4.1.1 lambda scope + 1 from v4.2.5 closure escape + 3 from v4.2.8–v4.2.11 DB performance + 1 from v4.2.24 sync update_listener + 1 from v4.2.9 maintenance budgeting + 2 from v4.5.11.x AC ramp-down cycle + 1 from v4.6.15 lambda+async_create_task + 1 from v4.7.x EV TOU bookkeeping short-circuit)
 
 **Quality bar — read every cycle:** Two independent staff-engineer-level code reviews using software engineering best practices. The bug-class catalog below is a regression-prevention reference, NOT the review framework. See `CLAUDE.md` § Review Protocol for the canonical statement.
 
@@ -1633,7 +1633,32 @@ For every class outside `Entity` subclasses that calls `async_listen`/`async_tra
 
 ---
 
-### Bug Class #42: Bookkeeping Short-Circuit Defeated by External State Change ⚠️
+### Bug Class #42: Lambda + async_create_task in HA Scheduler Callback 🚨
+
+**Shape:** A lambda wrapping `self.hass.async_create_task(self._some_coroutine())` is passed to an HA scheduler API (`async_track_time_interval`, `async_track_time_change`, `async_call_later`). HA's `HassJob` machinery inspects the callable to determine if it is a coroutine function, but **lambdas are never recognized as coroutine functions**. HA's frame helper then flags a thread-safety violation ("calls async_create_task from a thread other than the event loop, which may cause crash or data corruption"). **The coroutine returned by the inner `async_create_task` call is silently never awaited** — scheduled work simply does not run. Sensors show stale data; digests never fire.
+
+**v4.6.15 example:** 5 sites used `lambda _now: self.hass.async_create_task(self._async_refresh())` as the callback for `async_track_time_interval` (3 telemetry sensors added in v4.6.13 — `CoordinatorOverrideFrequencySensor`, `CoordinatorComplianceRateSensor`, `URADBSizeSensor`) and `async_track_time_change` (2 NM digest schedulers added in v3.6.29 — morning + evening digests). All 5 silently stopped refreshing. Correlated with multiple HA-core crashes on 2026-05-26 (the live `system_log` showed 18 frame-helper warnings per boot before the fix).
+
+**Sibling pattern (v4.6.3.1):** `async_create_task` called from a dispatcher signal handler fired by a non-event-loop thread. Same frame-helper violation, different entry point. Fixed in v4.6.3.2 by switching to `hass.add_job`. Root cause is the same: calling `async_create_task` outside the event-loop-thread contract.
+
+**Prevention:**
+- **Timer/scheduler callbacks:** pass coroutine functions DIRECTLY to HA scheduler APIs: `async_track_time_interval(hass, self._async_method, interval)`. HA's `HassJob` wraps them with `HassJobType.Coroutinefunction` correctly.
+- **Closures with bound args:** use `functools.partial(self._async_method, arg1, arg2)`. HA's `get_hassjob_callable_job_type()` explicitly unwraps partials before introspection, so this works regardless of Python version.
+- **Dispatcher-signal sync callbacks:** use `self.hass.add_job(coroutine)` instead of `self.hass.async_create_task(coroutine)`. `add_job` is thread-safe (uses `call_soon_threadsafe` internally) and stays correct whether the dispatcher fires on-loop or off-loop.
+- **NEVER** wrap in `lambda: hass.async_create_task(...)` — this pattern is always wrong for scheduler callbacks.
+- **AST regression test:** `quality/tests/test_v4615_threadsafety.py::test_no_lambda_wrapping_async_create_task` walks the URA tree and asserts no lambda body contains an `async_create_task` attribute call. Catches reintroduction at CI time.
+
+**Detection:**
+- **Static:** AST grep for `lambda` nodes containing `async_create_task` attribute calls.
+- **Live:** `ha_get_logs(source="system", search="universal_room_automation")` for entries matching `"calls async_create_task from a thread other than the event loop"`. Zero hits = clean.
+- **Behavioral evidence:** `RuntimeWarning: coroutine '<...>._async_refresh' was never awaited` (in mock/sqlalchemy traces) — the coroutine is created but the task never reaches the loop.
+
+**Discovered:** v4.6.15 (thread-safety hotfix, 2026-05-26) — Tier 2-DB scale, 3 parallel reviewers.
+**Severity:** CRITICAL — silent data staleness + correlated HA-core crashes.
+
+---
+
+### Bug Class #43: Bookkeeping Short-Circuit Defeated by External State Change ⚠️
 
 **Shape:** A control loop maintains a "did we do this?" bookkeeping set (e.g., `_paused_by_us`). On each tick, the loop short-circuits if the ID is already in the set: `if state["is_on"] and evse_id not in self._paused_by_us`. An external actor (user, HA automation, another integration) changes the underlying device state between ticks. The bookkeeping set still says "we already handled it," so the loop skips re-issuing the control command. Policy is silently defeated without any log signal.
 
