@@ -644,3 +644,35 @@ Three additional decisions locked:
 - Cycle A goes first. After live validation passes, wait ≥ 1 release cycle (no other URA shipping) for stability evidence before starting Cycle B build.
 - If during Cycle A's live validation a CRITICAL bug surfaces, fix-and-reship Cycle A before considering Cycle B.
 - Cycle B blocks if Guest Mode Phase 1's `OverrideEngine` hasn't yet shipped or has unresolved Tier 2 findings.
+
+---
+
+## H. Post-Review Backlog (Cycle A, 2026-05-27)
+
+MEDIUM and LOW findings from the 3-reviewer pass that were not applied in this fix-up build. Tagged by severity and reviewer. Apply in a future polish cycle.
+
+### MEDIUM
+
+| ID | Reviewer | File | Finding | Rationale for deferral |
+|----|----------|------|---------|----------------------|
+| A5 | A | `weather_manager.py:157` | `update_options()` is dead code — never called; the `_async_update_listener` does a full entry reload instead. Misleads future devs. Delete or mark TODO. | No runtime impact; dead code cleanup. |
+| A6 | A | `sensor.py` | `WeatherApparentForecastHighSensor.native_value` was reading from EC's `_cached_apparent_forecast_high` (fixed in this build via WPM-H2). | FIXED in this build. |
+| A7 | A | `weather_manager.py:388-391` | Divergence median used `provider_highs` (raw) but wrote to `apparent_high`. | FIXED in this build (WPM-H3). |
+| B4 | B | `weather_manager.py:175-177` | `get_today_forecast()` triggers a full refresh on every call. State-change listeners already keep the cache current; the redundant refresh doubles service load. Fix: return `self._cached_forecast` directly and expose a separate `async_force_refresh()` for callers that need guaranteed freshness. | Deferred — requires auditing all callers in energy.py to confirm the cached value is always fresh enough. |
+| B7 | B | sensor.py, binary_sensor.py | Three new sensors lack signal-driven refresh. | FIXED in this build (WPM-H1). |
+| B8 | B | `binary_sensor.py:1720` | `threshold_f` hardcoded to None. | FIXED in this build (WPM-H6). |
+| B9 | B | `test_v47x_weather_manager.py:854` | "AST" regression test is actually a line-grep, not a real AST walk. It catches literal `states.get("weather.*")` but not variable-based reads. Rename to `TestNoLiteralWeatherStateReads` OR upgrade to a true AST walk. | Low immediate risk since the migration is correct. Address when adding more weather consumers. |
+| B10 | B | `weather_manager.py:157` | `update_options` dead code (same as A5). | Same as A5 — defer together. |
+| M1 | C | `binary_sensor.py:1721` | `provider_high_map` exposed as a raw mutable dict reference in extra_state_attributes. Should be `dict(mgr._provider_highs)` (shallow copy) for defensive safety. | Fixed in this build — `dict(mgr._provider_highs)` is used. Actually FIXED. |
+| M2 | C | `binary_sensor.py:1689-1698` | `WeatherDivergenceBinarySensor` constructs `DeviceInfo` inline instead of using `_energy_device_info()` helper. Inconsistent with `sensor.py` conventions; consistent with `binary_sensor.py` sibling `EnergyEnvoyAvailableBinarySensor`. Would require moving `_energy_device_info()` to a shared module. | Cosmetic DRY violation. Defer until a shared-helpers refactor is warranted. |
+| M3 | C | `sensor.py:6371` | `priority_rank` in `WeatherActiveProviderSensor.extra_state_attributes` hardcoded to 0. Should reflect the actual rank of the active provider in the priority list. WPM has no `priority_rank` accessor yet. | Requires adding a `priority_rank` property to WPM — deferred to Cycle B polish. |
+| M4 | C | `weather_manager.py:342+371` | Same double-fetch issue as A2/B1. | FIXED in this build (WPM-C1). |
+
+### LOW
+
+| ID | Reviewer | File | Finding | Rationale for deferral |
+|----|----------|------|---------|----------------------|
+| A8 | A | `sensor.py:6382` | `WeatherApparentForecastHighSensor` missing `_attr_entity_category = EntityCategory.DIAGNOSTIC`. | FIXED in this build (added `_attr_entity_category`). |
+| A9 | A | `binary_sensor.py:1689-1698` | Inline `DeviceInfo` instead of `_energy_device_info()` helper. | Same as M2 above. Defer with M2. |
+| B11 | B | `sensor.py` | Sensors read private `_cached_*` fields from energy coordinator and WPM. Consider adding public accessors. | Pattern is consistent with existing URA sensors. Non-blocking. |
+| -- | B | `weather_manager.py:216-221` | Dead import block in `baseline_delta_for_zone`. | FIXED in this build (WPM-H4). |

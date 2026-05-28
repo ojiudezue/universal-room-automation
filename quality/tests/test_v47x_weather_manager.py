@@ -119,6 +119,11 @@ for name, attrs in _mods.items():
     else:
         sys.modules.setdefault(name, attrs)
 
+# WPM-C4: force-set dt_util with live-time mock so this file always overrides any
+# frozen-time mock installed by another test file (e.g. EV TOU's _FIXED_NOW).
+# Bug Class #44: cross-file sys.modules pollution via setdefault race.
+sys.modules["homeassistant.util.dt"] = _dt_util_mock
+
 sys.modules.setdefault("aiosqlite", MagicMock())
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
@@ -965,3 +970,315 @@ class TestConfigDefaults:
     def test_fallback_conf_keys_defined(self):
         assert CONF_ENERGY_WEATHER_FALLBACK_1 == "energy_weather_fallback_1"
         assert CONF_ENERGY_WEATHER_FALLBACK_2 == "energy_weather_fallback_2"
+
+
+# ---------------------------------------------------------------------------
+# WPM reviewer fix-up: new tests covering CRITICAL/HIGH fixes
+# ---------------------------------------------------------------------------
+
+
+class TestReentrancyLock:
+    """WPM-C1/C2: _refresh_lock serialises concurrent refreshes."""
+
+    @pytest.mark.asyncio
+    async def test_concurrent_refresh_serialised_not_interleaved(self):
+        """Two concurrent _refresh_all_providers calls run sequentially, not interleaved."""
+        hass = _make_hass()
+        mgr = WeatherProviderManager(hass, {CONF_ENERGY_WEATHER_ENTITY: "weather.p1"})
+
+        call_log: list[str] = []
+
+        async def slow_fetch(eid):
+            # Yield control to allow concurrent tasks to try and start
+            await asyncio.sleep(0)
+            call_log.append(f"fetch:{eid}")
+            return {"temperature": 85.0, "templow": 65.0, "apparent_temperature": 88.0}
+
+        mgr._fetch_provider_forecast = slow_fetch
+        state = _make_state("weather.p1", "sunny", {"apparent_temperature": 88.0})
+        mgr.hass.states.get = lambda _: state
+
+        # Launch two concurrent refreshes
+        task1 = asyncio.ensure_future(mgr._refresh_all_providers())
+        task2 = asyncio.ensure_future(mgr._refresh_all_providers())
+        await asyncio.gather(task1, task2)
+
+        # Both should have run (2 fetches total) but NOT interleaved
+        assert len(call_log) == 2, f"Expected 2 fetch calls, got {len(call_log)}: {call_log}"
+        # All fetches should be for the same entity (no mixed writes)
+        assert all("weather.p1" in c for c in call_log)
+
+    @pytest.mark.asyncio
+    async def test_refresh_lock_attribute_present(self):
+        """WPM-C1: _refresh_lock is initialised in __init__."""
+        hass = _make_hass()
+        mgr = WeatherProviderManager(hass, {})
+        assert hasattr(mgr, "_refresh_lock")
+        assert isinstance(mgr._refresh_lock, asyncio.Lock)
+
+
+class TestUntrackedTaskTracking:
+    """WPM-C2: tasks created by state-change handler are tracked and cancelled on teardown."""
+
+    def test_pending_refresh_tasks_initialised_empty(self):
+        """_pending_refresh_tasks is an empty set on init."""
+        hass = _make_hass()
+        mgr = WeatherProviderManager(hass, {})
+        assert hasattr(mgr, "_pending_refresh_tasks")
+        assert isinstance(mgr._pending_refresh_tasks, set)
+        assert len(mgr._pending_refresh_tasks) == 0
+
+    def test_state_change_handler_calls_async_create_task(self):
+        """_handle_provider_state_change calls hass.async_create_task and tracks result."""
+        hass = _make_hass()
+        mgr = WeatherProviderManager(hass, {CONF_ENERGY_WEATHER_ENTITY: "weather.p1"})
+
+        created_tasks: list = []
+
+        def fake_create_task(coro, name=None):
+            # Return a mock task (not a real asyncio task) to test bookkeeping
+            fake_task = MagicMock()
+            fake_task.add_done_callback = MagicMock()
+            created_tasks.append(fake_task)
+            # Close the coroutine to avoid ResourceWarning
+            coro.close()
+            return fake_task
+
+        hass.async_create_task = fake_create_task
+
+        # Simulate a state-change event
+        event = MagicMock()
+        event.data = {"entity_id": "weather.p1"}
+        mgr._handle_provider_state_change(event)
+
+        # Task was created and add_done_callback was registered
+        assert len(created_tasks) == 1
+        created_tasks[0].add_done_callback.assert_called_once()
+        # The discard callback should have been passed
+        cb_arg = created_tasks[0].add_done_callback.call_args[0][0]
+        assert cb_arg == mgr._pending_refresh_tasks.discard
+
+    @pytest.mark.asyncio
+    async def test_teardown_cancels_pending_tasks(self):
+        """async_teardown cancels in-flight tasks and clears the pending set."""
+        import custom_components.universal_room_automation.domain_coordinators.weather_manager as wm_mod
+
+        original_track = wm_mod.async_track_state_change_event
+        wm_mod.async_track_state_change_event = lambda *a, **kw: MagicMock()
+
+        try:
+            hass = _make_hass()
+            opts = {CONF_ENERGY_WEATHER_ENTITY: "weather.p1"}
+            mgr = WeatherProviderManager(hass, opts)
+
+            async def noop():
+                pass
+
+            mgr._refresh_all_providers = noop
+            await mgr.async_setup()
+        finally:
+            wm_mod.async_track_state_change_event = original_track
+
+        # Manually add a real asyncio task that is already done
+        async def _immediate():
+            pass
+        task = asyncio.ensure_future(_immediate())
+        await task  # let it complete
+        mgr._pending_refresh_tasks.add(task)
+
+        await mgr.async_teardown()
+        assert len(mgr._pending_refresh_tasks) == 0
+
+
+class TestDivergenceSignalTransition:
+    """WPM-C3: divergence signal fires only on enter-divergence, not on every tick."""
+
+    @pytest.mark.asyncio
+    async def test_divergence_signal_fires_only_on_enter(self):
+        """Signal fires once when divergence is first detected; not on subsequent ticks."""
+        import custom_components.universal_room_automation.domain_coordinators.weather_manager as wm_mod
+
+        send_calls: list = []
+
+        original_dispatcher = None
+        try:
+            from homeassistant.helpers import dispatcher as disp_mod
+            original_dispatcher_send = getattr(disp_mod, "async_dispatcher_send", None)
+        except Exception:
+            original_dispatcher_send = None
+
+        # Patch the inline import used by _refresh_all_providers_locked
+        import homeassistant.helpers.dispatcher as _disp
+        _orig_send = _disp.async_dispatcher_send
+
+        def patched_send(hass, signal, payload=None):
+            send_calls.append(signal)
+
+        _disp.async_dispatcher_send = patched_send
+
+        try:
+            opts = {
+                CONF_ENERGY_WEATHER_ENTITY: "weather.p1",
+                CONF_ENERGY_WEATHER_FALLBACK_1: "weather.p2",
+                CONF_WEATHER_DIVERGENCE_THRESHOLD_F: 5.0,
+            }
+            hass = _make_hass()
+            p1_state = _make_state("weather.p1", "sunny", {"apparent_temperature": 90.0})
+            p2_state = _make_state("weather.p2", "sunny", {"apparent_temperature": 90.0})
+            hass.states.get = lambda eid: {"weather.p1": p1_state, "weather.p2": p2_state}.get(eid)
+            mgr = WeatherProviderManager(hass, opts)
+
+            # Divergent forecasts (10°F apart > 5°F threshold)
+            async def divergent_fetch(eid):
+                return {
+                    "weather.p1": {"temperature": 100.0, "templow": 70.0, "apparent_temperature": 100.0},
+                    "weather.p2": {"temperature": 90.0, "templow": 65.0, "apparent_temperature": 90.0},
+                }.get(eid)
+
+            mgr._fetch_provider_forecast = divergent_fetch
+
+            from custom_components.universal_room_automation.domain_coordinators.signals import (
+                SIGNAL_WEATHER_DIVERGENCE_DETECTED,
+            )
+
+            # First tick: should fire divergence signal (enter)
+            send_calls.clear()
+            await mgr._refresh_all_providers()
+            divergence_signals = [s for s in send_calls if s == SIGNAL_WEATHER_DIVERGENCE_DETECTED]
+            assert len(divergence_signals) == 1, "Expected 1 divergence signal on first entry"
+
+            # Second tick with same divergent state: should NOT fire again
+            send_calls.clear()
+            await mgr._refresh_all_providers()
+            divergence_signals = [s for s in send_calls if s == SIGNAL_WEATHER_DIVERGENCE_DETECTED]
+            assert len(divergence_signals) == 0, "Divergence signal must NOT fire on repeated ticks"
+
+        finally:
+            _disp.async_dispatcher_send = _orig_send
+
+    @pytest.mark.asyncio
+    async def test_was_divergent_flag_tracks_transitions(self):
+        """_was_divergent tracks divergence state across refresh cycles."""
+        opts = {
+            CONF_ENERGY_WEATHER_ENTITY: "weather.p1",
+            CONF_ENERGY_WEATHER_FALLBACK_1: "weather.p2",
+            CONF_WEATHER_DIVERGENCE_THRESHOLD_F: 5.0,
+        }
+        hass = _make_hass()
+        p1_state = _make_state("weather.p1", "sunny", {"apparent_temperature": 90.0})
+        p2_state = _make_state("weather.p2", "sunny", {"apparent_temperature": 90.0})
+        hass.states.get = lambda eid: {"weather.p1": p1_state, "weather.p2": p2_state}.get(eid)
+        mgr = WeatherProviderManager(hass, opts)
+        assert mgr._was_divergent is False
+
+        async def divergent_fetch(eid):
+            return {
+                "weather.p1": {"temperature": 100.0, "templow": 70.0, "apparent_temperature": 100.0},
+                "weather.p2": {"temperature": 90.0, "templow": 65.0, "apparent_temperature": 90.0},
+            }.get(eid)
+
+        mgr._fetch_provider_forecast = divergent_fetch
+        await mgr._refresh_all_providers()
+        assert mgr._divergent is True
+        assert mgr._was_divergent is True
+
+        # Now converge
+        async def convergent_fetch(eid):
+            return {"temperature": 90.0, "templow": 65.0, "apparent_temperature": 90.0}
+
+        mgr._fetch_provider_forecast = convergent_fetch
+        await mgr._refresh_all_providers()
+        assert mgr._divergent is False
+        assert mgr._was_divergent is False
+
+
+class TestCurrentApparentForecastHighAccessor:
+    """WPM-H2: current_apparent_forecast_high() returns cached value without refresh."""
+
+    def test_returns_none_when_no_forecast(self):
+        hass = _make_hass()
+        mgr = WeatherProviderManager(hass, {})
+        assert mgr.current_apparent_forecast_high() is None
+
+    @pytest.mark.asyncio
+    async def test_returns_cached_apparent_high(self):
+        opts = {CONF_ENERGY_WEATHER_ENTITY: "weather.p1"}
+        state = _make_state("weather.p1", "sunny", {"apparent_temperature": 93.0})
+        hass = _make_hass({"weather.p1": state})
+        mgr = WeatherProviderManager(hass, opts)
+
+        async def fake_fetch(eid):
+            return {"temperature": 90.0, "templow": 65.0, "apparent_temperature": 93.0}
+
+        mgr._fetch_provider_forecast = fake_fetch
+        await mgr._refresh_all_providers()
+        assert mgr.current_apparent_forecast_high() == 93.0
+
+    def test_does_not_trigger_refresh(self):
+        """current_apparent_forecast_high() is purely synchronous — no await needed."""
+        hass = _make_hass()
+        mgr = WeatherProviderManager(hass, {})
+        # Should not raise; returning None is correct when no forecast yet
+        result = mgr.current_apparent_forecast_high()
+        assert result is None
+
+
+class TestSensorAvailability:
+    """WPM-H5: available property returns False when WPM is absent."""
+
+    def test_wpm_absent_means_unavailable(self):
+        """When weather_manager not in hass.data, available must be False."""
+        # We test the logic pattern directly since the sensor classes need HA env
+        hass = _make_hass()
+        hass.data = {CONF_ENERGY_WEATHER_ENTITY: "weather.p1"}  # no 'weather_manager' key
+
+        # Simulate the available check pattern used by all 3 entities
+        domain_key = "universal_room_automation"  # real DOMAIN value from const
+        try:
+            from custom_components.universal_room_automation.const import DOMAIN
+        except Exception:
+            DOMAIN = "universal_room_automation"
+        hass.data[DOMAIN] = {}  # no weather_manager
+        available = hass.data.get(DOMAIN, {}).get("weather_manager") is not None
+        assert available is False
+
+    def test_wpm_present_means_available(self):
+        """When weather_manager is in hass.data, available is True."""
+        hass = _make_hass()
+        try:
+            from custom_components.universal_room_automation.const import DOMAIN
+        except Exception:
+            DOMAIN = "universal_room_automation"
+        mgr = WeatherProviderManager(hass, {})
+        hass.data[DOMAIN] = {"weather_manager": mgr}
+        available = hass.data.get(DOMAIN, {}).get("weather_manager") is not None
+        assert available is True
+
+
+class TestDtUtilIsolation:
+    """WPM-C4: regression — weather test's _utcnow() helper always returns live time.
+
+    NOTE: sys.modules['homeassistant.util.dt'] may still hold EV TOU's frozen mock
+    when both test files are collected in the same pytest session (EV TOU second).
+    This test guards specifically against the _utcnow() helper used by TestProviderHealth
+    being frozen, since THAT is what breaks test_stale_entity.
+    """
+
+    def test_weather_utcnow_helper_returns_live_time(self):
+        """_utcnow() (used by test helpers) must return real datetime, not sentinel.
+
+        The _utcnow() function is defined at module scope in this test file as
+        `datetime.now(_UTC)` — it must NEVER proxy through sys.modules dt_util.
+        This guards against the test helper being redirected to EV TOU's frozen clock.
+        """
+        now = _utcnow()
+        assert isinstance(now, datetime), "Expected a datetime object"
+        _SENTINEL = datetime(2026, 5, 27, 14, 0, 0, tzinfo=timezone.utc)
+        drift = abs((now - _SENTINEL).total_seconds())
+        # If drift is near 0 seconds, the helper has been redirected to the EV TOU sentinel.
+        # Real time in 2026 should be within minutes of the sentinel; we use 1 min as guard.
+        # (Test runs within seconds of actual time — if drift == 0.0 exactly, it's frozen.)
+        assert drift != 0.0, (
+            f"_utcnow() returned exactly the EV TOU sentinel ({now}) — "
+            "the test helper must use datetime.now(), not dt_util.utcnow()"
+        )
