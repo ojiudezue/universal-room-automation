@@ -1,0 +1,482 @@
+"""v4.7.4 D1/D2/D3/D4 — DPM UI Simplification + Baseline Presets UX Polish.
+
+Source-grep style (matches project convention). Fast, no running HA required.
+
+Deliverables covered:
+  D1 — Strip Surface 1 (async_step_hvac_dynamic_preset) to house-wide only.
+       No per-zone fields; no double-underscore-prefixed keys.
+       Master enable toggle + 5 house-wide tunables.
+
+  D2 — Wrap the 5 tunables in a collapsed HA section block ("Advanced (rarely change)").
+       Only master enable visible by default.
+
+  D3 — Conditional rendering on Surface 2 (async_step_zone_dynamic_preset).
+       New CONF_ZONE_DYNAMIC_PRESET_CUSTOMIZE_BUCKETS flag.
+       Bucket cells moved into collapsed sections.
+       Runtime fallback derives from baseline when customize_buckets=False.
+
+  D4 — Baseline presets restructured into 3 season section blocks.
+       "Reset all to defaults" sub-step (confirmation-gated).
+"""
+
+import json
+import pytest
+
+
+# ===========================================================================
+# Source fixtures
+# ===========================================================================
+
+
+@pytest.fixture(scope="module")
+def config_flow_src() -> str:
+    with open(
+        "custom_components/universal_room_automation/config_flow.py"
+    ) as f:
+        return f.read()
+
+
+@pytest.fixture(scope="module")
+def strings() -> dict:
+    with open(
+        "custom_components/universal_room_automation/strings.json"
+    ) as f:
+        return json.load(f)
+
+
+@pytest.fixture(scope="module")
+def translations_en() -> dict:
+    with open(
+        "custom_components/universal_room_automation/translations/en.json"
+    ) as f:
+        return json.load(f)
+
+
+@pytest.fixture(scope="module")
+def energy_const_src() -> str:
+    with open(
+        "custom_components/universal_room_automation/domain_coordinators/energy_const.py"
+    ) as f:
+        return f.read()
+
+
+@pytest.fixture(scope="module")
+def dynamic_preset_src() -> str:
+    with open(
+        "custom_components/universal_room_automation/domain_coordinators/dynamic_preset.py"
+    ) as f:
+        return f.read()
+
+
+@pytest.fixture(scope="module")
+def init_src() -> str:
+    with open("custom_components/universal_room_automation/__init__.py") as f:
+        return f.read()
+
+
+# ===========================================================================
+# D1 — Surface 1 is house-wide only (no per-zone fields)
+# ===========================================================================
+
+
+class TestD1Surface1HouseWideOnly:
+    """D1: async_step_hvac_dynamic_preset must be stripped to 6 house-wide fields only."""
+
+    def test_d1_surface1_step_exists(self, config_flow_src):
+        assert "async def async_step_hvac_dynamic_preset(" in config_flow_src, (
+            "D1: async_step_hvac_dynamic_preset must exist"
+        )
+
+    def test_d1_surface1_build_schema_exists(self, config_flow_src):
+        assert "def _build_hvac_dynamic_preset_schema(self" in config_flow_src, (
+            "D1: _build_hvac_dynamic_preset_schema must exist as Surface 1 schema builder"
+        )
+
+    def test_d1_surface1_no_per_zone_double_underscore_keys(self, config_flow_src):
+        """D1 CRITICAL: No per-zone keys with __ prefix (the v4.7.2 translation bug).
+
+        Surface 1 previously prefixed zone fields as '<zone_name>__zone_dynamic_preset_*'
+        which broke HA's translation lookup. D1 removes all such prefixed keys.
+        """
+        idx = config_flow_src.find("def _build_hvac_dynamic_preset_schema(self")
+        assert idx > 0, "_build_hvac_dynamic_preset_schema must exist"
+        body = config_flow_src[idx:idx + 3000]
+        assert "__zone_dynamic_preset" not in body, (
+            "D1 CRITICAL: Surface 1 schema must NOT contain __ prefixed zone field keys "
+            "(the v4.7.2 translation bug root cause)"
+        )
+
+    def test_d1_surface1_no_zone_loop_in_step(self, config_flow_src):
+        """D1: The per-zone iteration loop must be removed from async_step_hvac_dynamic_preset."""
+        idx = config_flow_src.find("async def async_step_hvac_dynamic_preset(")
+        assert idx > 0
+        body = config_flow_src[idx:idx + 3000]
+        # Old pattern: iteration over canonical_zones with __ prefix for each zone field.
+        assert "for cz in canonical_zones" not in body or "__zone_dynamic_preset" not in body, (
+            "D1: Surface 1 step must NOT iterate per-zone with __ prefixed keys"
+        )
+
+    def test_d1_surface1_has_enabled_toggle(self, config_flow_src):
+        """D1: CONF_DYNAMIC_PRESET_ENABLED must be a field on Surface 1."""
+        idx = config_flow_src.find("def _build_hvac_dynamic_preset_schema(self")
+        body = config_flow_src[idx:idx + 3000]
+        assert "CONF_DYNAMIC_PRESET_ENABLED" in body, (
+            "D1: Surface 1 must include the master enable toggle (CONF_DYNAMIC_PRESET_ENABLED)"
+        )
+
+    def test_d1_surface1_has_all_5_house_wide_tunables(self, config_flow_src):
+        """D1: All 5 house-wide tuning CONFs must appear in the schema builder."""
+        idx = config_flow_src.find("def _build_hvac_dynamic_preset_schema(self")
+        body = config_flow_src[idx:idx + 3000]
+        tunables = [
+            "CONF_DYNAMIC_PRESET_DELTA_COOL_MAX",
+            "CONF_DYNAMIC_PRESET_DELTA_MILD_MAX",
+            "CONF_DYNAMIC_PRESET_DELTA_HOT_MAX",
+            "CONF_DYNAMIC_PRESET_DWELL_MINUTES",
+            "CONF_DYNAMIC_PRESET_HYSTERESIS_F",
+        ]
+        for conf in tunables:
+            assert conf in body, (
+                f"D1: Surface 1 schema builder must reference {conf}"
+            )
+
+    def test_d1_surface1_description_mentions_zone_manager(self, config_flow_src):
+        """D1: Surface 1 help text must direct users to Zone Manager for per-zone editing."""
+        idx = config_flow_src.find("async def async_step_hvac_dynamic_preset(")
+        body = config_flow_src[idx:idx + 3000]
+        # Either the docstring or the description text should reference per-zone routing.
+        assert "Zone Manager" in body or "zone_manager" in body or "zone manager" in body.lower(), (
+            "D1: Surface 1 must mention Zone Manager for per-zone settings "
+            "(helps users who expect per-zone knobs here)"
+        )
+
+    def test_d1_strings_surface1_has_enabled_translation(self, strings):
+        """D1: strings.json must have translation for dynamic_preset_enabled on Surface 1."""
+        data = strings["options"]["step"]["hvac_dynamic_preset"].get("data", {})
+        assert "dynamic_preset_enabled" in data, (
+            "D1: strings.json hvac_dynamic_preset.data must include dynamic_preset_enabled"
+        )
+
+    def test_d1_translations_surface1_has_enabled_translation(self, translations_en):
+        """D1: translations/en.json must have translation for dynamic_preset_enabled."""
+        data = translations_en["options"]["step"]["hvac_dynamic_preset"].get("data", {})
+        assert "dynamic_preset_enabled" in data, (
+            "D1: translations/en.json hvac_dynamic_preset.data must include dynamic_preset_enabled"
+        )
+
+    def test_d1_strings_surface1_has_6_data_fields(self, strings):
+        """D1: Surface 1 has exactly 6 data fields (master enable + 5 tunables)."""
+        data = strings["options"]["step"]["hvac_dynamic_preset"].get("data", {})
+        assert len(data) == 6, (
+            f"D1: strings.json hvac_dynamic_preset must have exactly 6 data fields, found {len(data)}"
+        )
+
+
+# ===========================================================================
+# D2 — Advanced section collapsing on Surface 1
+# ===========================================================================
+
+
+class TestD2AdvancedSection:
+    """D2: The 5 tunables must be wrapped in a collapsed 'Advanced' section."""
+
+    def test_d2_advanced_section_marked_collapsed(self, config_flow_src):
+        """D2: The 'advanced' section must use collapsed: True flag."""
+        idx = config_flow_src.find("def _build_hvac_dynamic_preset_schema(self")
+        assert idx > 0
+        # Need 4000 chars — collapsed dict is ~3067 chars into the function.
+        body = config_flow_src[idx:idx + 4000]
+        assert '"advanced"' in body or "'advanced'" in body, (
+            "D2: schema must have an 'advanced' section key"
+        )
+        assert '"collapsed": True' in body or '"collapsed":True' in body, (
+            "D2: advanced section must be collapsed by default"
+        )
+
+    def test_d2_advanced_section_contains_5_fields(self, config_flow_src):
+        """D2: The advanced section wraps exactly 5 CONF fields."""
+        idx = config_flow_src.find("def _build_hvac_dynamic_preset_schema(self")
+        body = config_flow_src[idx:idx + 4000]
+        tunables = [
+            "CONF_DYNAMIC_PRESET_DELTA_COOL_MAX",
+            "CONF_DYNAMIC_PRESET_DELTA_MILD_MAX",
+            "CONF_DYNAMIC_PRESET_DELTA_HOT_MAX",
+            "CONF_DYNAMIC_PRESET_DWELL_MINUTES",
+            "CONF_DYNAMIC_PRESET_HYSTERESIS_F",
+        ]
+        for conf in tunables:
+            assert conf in body, (
+                f"D2: advanced section must contain {conf}"
+            )
+
+    def test_d2_section_import_present(self, config_flow_src):
+        """D2: 'from homeassistant.data_entry_flow import section' must be present."""
+        idx = config_flow_src.find("def _build_hvac_dynamic_preset_schema(self")
+        body = config_flow_src[idx:idx + 1000]
+        assert "data_entry_flow import section" in body or "from homeassistant.data_entry_flow import section" in config_flow_src[:idx + 1000], (
+            "D2: must import 'section' from homeassistant.data_entry_flow"
+        )
+
+    def test_d2_strings_have_advanced_section_title(self, strings):
+        """D2: strings.json must have sections.advanced for the section label."""
+        sections = strings["options"]["step"]["hvac_dynamic_preset"].get("sections", {})
+        assert "advanced" in sections, (
+            "D2: strings.json hvac_dynamic_preset must have sections.advanced title"
+        )
+
+    def test_d2_translations_have_advanced_section_title(self, translations_en):
+        """D2: translations/en.json must have sections.advanced for the section label."""
+        sections = translations_en["options"]["step"]["hvac_dynamic_preset"].get("sections", {})
+        assert "advanced" in sections, (
+            "D2: translations/en.json hvac_dynamic_preset must have sections.advanced title"
+        )
+
+
+# ===========================================================================
+# D3 — Conditional rendering on Surface 2
+# ===========================================================================
+
+
+class TestD3Surface2ConditionalRendering:
+    """D3: Surface 2 must use section blocks for bucket cells + sleep cells."""
+
+    def test_d3_customize_buckets_conf_in_energy_const(self, energy_const_src):
+        """D3: CONF_ZONE_DYNAMIC_PRESET_CUSTOMIZE_BUCKETS must be defined in energy_const.py."""
+        assert "CONF_ZONE_DYNAMIC_PRESET_CUSTOMIZE_BUCKETS" in energy_const_src, (
+            "D3: CONF_ZONE_DYNAMIC_PRESET_CUSTOMIZE_BUCKETS must be exported from energy_const.py"
+        )
+
+    def test_d3_customize_buckets_conf_imported_in_surface2(self, config_flow_src):
+        """D3: CONF_ZONE_DYNAMIC_PRESET_CUSTOMIZE_BUCKETS must be imported in Surface 2."""
+        idx = config_flow_src.find("async def async_step_zone_dynamic_preset(")
+        body = config_flow_src[idx:idx + 9000]
+        assert "CONF_ZONE_DYNAMIC_PRESET_CUSTOMIZE_BUCKETS" in body, (
+            "D3: async_step_zone_dynamic_preset must import and use "
+            "CONF_ZONE_DYNAMIC_PRESET_CUSTOMIZE_BUCKETS"
+        )
+
+    def test_d3_surface2_has_customize_buckets_section(self, config_flow_src):
+        """D3: Surface 2 schema must have 'customize_buckets_section' section block."""
+        # Function has a multi-line signature; search without trailing '(self'
+        idx = config_flow_src.find("def _build_dynamic_preset_schema(\n")
+        assert idx > 0, "_build_dynamic_preset_schema must exist"
+        body = config_flow_src[idx:idx + 5000]
+        assert "customize_buckets_section" in body, (
+            "D3: _build_dynamic_preset_schema must define 'customize_buckets_section' section"
+        )
+
+    def test_d3_surface2_has_sleep_section(self, config_flow_src):
+        """D3: Surface 2 schema must have 'sleep_section' section block."""
+        idx = config_flow_src.find("def _build_dynamic_preset_schema(\n")
+        assert idx > 0
+        body = config_flow_src[idx:idx + 5000]
+        assert "sleep_section" in body, (
+            "D3: _build_dynamic_preset_schema must define 'sleep_section' section"
+        )
+
+    def test_d3_both_sections_marked_collapsed(self, config_flow_src):
+        """D3: Both sections must be collapsed by default."""
+        idx = config_flow_src.find("def _build_dynamic_preset_schema(\n")
+        assert idx > 0
+        # Need 7000 chars — sleep_section's collapsed dict is ~6553 chars into the function.
+        body = config_flow_src[idx:idx + 7000]
+        # Count occurrences — should be 2 (one per section)
+        collapsed_count = body.count('"collapsed": True')
+        assert collapsed_count >= 2, (
+            f"D3: Both section blocks must use collapsed: True; found {collapsed_count} occurrences"
+        )
+
+    def test_d3_surface2_has_3_top_level_visible_fields(self, config_flow_src):
+        """D3: Schema builder's top-level (non-section) fields are 3 (enabled, offset, reset_guest)."""
+        idx = config_flow_src.find("def _build_dynamic_preset_schema(\n")
+        assert idx > 0
+        body = config_flow_src[idx:idx + 5000]
+        # The 3 always-visible fields
+        for conf_fragment in ["CONF_ENABLED", "CONF_OFFSET", "CONF_RESET_GUEST"]:
+            assert conf_fragment in body, (
+                f"D3: Surface 2 must have {conf_fragment} as a top-level visible field"
+            )
+
+    def test_d3_customize_buckets_conf_in_surface2_schema(self, config_flow_src):
+        """D3: CONF_CUSTOMIZE_BUCKETS must be a field inside customize_buckets_section."""
+        idx = config_flow_src.find("def _build_dynamic_preset_schema(\n")
+        assert idx > 0
+        body = config_flow_src[idx:idx + 5000]
+        # CONF_CUSTOMIZE_BUCKETS is the unpacked name inside the schema builder
+        assert "CONF_CUSTOMIZE_BUCKETS" in body, (
+            "D3: _build_dynamic_preset_schema must include CONF_CUSTOMIZE_BUCKETS inside the section"
+        )
+
+    def test_d3_surface2_validate_only_when_customize_true(self, config_flow_src):
+        """D3: _validate_dynamic_preset_input must be guarded by customize_buckets check."""
+        idx = config_flow_src.find("async def async_step_zone_dynamic_preset(")
+        body = config_flow_src[idx:idx + 9000]
+        assert "_validate_dynamic_preset_input" in body, (
+            "D3: Surface 2 must still call _validate_dynamic_preset_input (guarded by customize_buckets)"
+        )
+        assert "customize_buckets" in body, (
+            "D3: Surface 2 must branch on customize_buckets to conditionally validate"
+        )
+
+    def test_d3_runtime_fallback_in_dynamic_preset(self, dynamic_preset_src):
+        """D3: dynamic_preset.py must handle customize_buckets=False with baseline derivation."""
+        assert "CONF_ZONE_DYNAMIC_PRESET_CUSTOMIZE_BUCKETS" in dynamic_preset_src, (
+            "D3: dynamic_preset.py must import and check CONF_ZONE_DYNAMIC_PRESET_CUSTOMIZE_BUCKETS"
+        )
+        assert "customize_buckets" in dynamic_preset_src, (
+            "D3: dynamic_preset.py must read customize_buckets from zone_data"
+        )
+
+    def test_d3_strings_have_customize_buckets_section_title(self, strings):
+        """D3: strings.json must have sections.customize_buckets_section label."""
+        sections = strings["options"]["step"]["zone_dynamic_preset"].get("sections", {})
+        assert "customize_buckets_section" in sections, (
+            "D3: strings.json zone_dynamic_preset must have sections.customize_buckets_section"
+        )
+
+    def test_d3_strings_have_sleep_section_title(self, strings):
+        """D3: strings.json must have sections.sleep_section label."""
+        sections = strings["options"]["step"]["zone_dynamic_preset"].get("sections", {})
+        assert "sleep_section" in sections, (
+            "D3: strings.json zone_dynamic_preset must have sections.sleep_section"
+        )
+
+    def test_d3_strings_have_customize_buckets_field(self, strings):
+        """D3: strings.json must have translation for the new customize_buckets checkbox."""
+        data = strings["options"]["step"]["zone_dynamic_preset"].get("data", {})
+        assert "zone_dynamic_preset_customize_buckets" in data, (
+            "D3: strings.json must have zone_dynamic_preset_customize_buckets in data"
+        )
+
+    def test_d3_translations_have_customize_buckets_field(self, translations_en):
+        """D3: translations/en.json must have translation for the customize_buckets checkbox."""
+        data = translations_en["options"]["step"]["zone_dynamic_preset"].get("data", {})
+        assert "zone_dynamic_preset_customize_buckets" in data, (
+            "D3: translations/en.json must have zone_dynamic_preset_customize_buckets in data"
+        )
+
+    def test_d3_migration_in_init(self, init_src):
+        """D3: __init__.py must have the customize_buckets migration helper for ZM entry."""
+        assert "customize_buckets" in init_src, (
+            "D3: __init__.py must contain the v4.7.4 migration for CONF_ZONE_DYNAMIC_PRESET_CUSTOMIZE_BUCKETS"
+        )
+        assert "CONF_ZONE_DYNAMIC_PRESET_CUSTOMIZE_BUCKETS" in init_src, (
+            "D3: __init__.py migration must reference CONF_ZONE_DYNAMIC_PRESET_CUSTOMIZE_BUCKETS"
+        )
+
+
+# ===========================================================================
+# D4 — Baseline Presets UX polish (3 season sections + reset confirm step)
+# ===========================================================================
+
+
+class TestD4BaselinePresetsUXPolish:
+    """D4: Baseline presets form restructured into 3 season sections + reset confirm step."""
+
+    def test_d4_baseline_presets_step_exists(self, config_flow_src):
+        assert "async def async_step_hvac_baseline_presets(" in config_flow_src, (
+            "D4: async_step_hvac_baseline_presets must exist"
+        )
+
+    def test_d4_schema_has_3_section_blocks(self, config_flow_src):
+        """D4: Baseline presets schema must have 3 season sections."""
+        idx = config_flow_src.find("async def async_step_hvac_baseline_presets(")
+        body = config_flow_src[idx:idx + 8000]
+        for season_key in ("summer_section", "shoulder_section", "winter_section"):
+            assert season_key in body, (
+                f"D4: async_step_hvac_baseline_presets must define '{season_key}' section"
+            )
+
+    def test_d4_section_titles_have_month_ranges(self, strings):
+        """D4: Section titles must include the month ranges for user clarity."""
+        sections = strings["options"]["step"]["hvac_baseline_presets"].get("sections", {})
+        assert "summer_section" in sections, "D4: summer_section must be in sections"
+        assert "shoulder_section" in sections, "D4: shoulder_section must be in sections"
+        assert "winter_section" in sections, "D4: winter_section must be in sections"
+        # Each title must mention the season identifier (case-insensitive)
+        for key, expected_fragment in [
+            ("summer_section", "Jun"),
+            ("shoulder_section", "Mar"),
+            ("winter_section", "Dec"),
+        ]:
+            title = sections.get(key, "")
+            assert expected_fragment in title, (
+                f"D4: strings.json sections.{key} must mention month (expected '{expected_fragment}', "
+                f"got '{title}')"
+            )
+
+    def test_d4_reset_all_field_exists_in_schema(self, config_flow_src):
+        """D4: '_reset_all' boolean field must be in the baseline presets schema."""
+        idx = config_flow_src.find("async def async_step_hvac_baseline_presets(")
+        body = config_flow_src[idx:idx + 8000]
+        assert "_reset_all" in body, (
+            "D4: baseline presets schema must include '_reset_all' trigger field"
+        )
+
+    def test_d4_reset_confirm_step_exists(self, config_flow_src):
+        """D4: async_step_hvac_baseline_presets_reset_confirm must be defined."""
+        assert "async def async_step_hvac_baseline_presets_reset_confirm(" in config_flow_src, (
+            "D4: async_step_hvac_baseline_presets_reset_confirm must exist (D4 confirmation-gated reset)"
+        )
+
+    def test_d4_reset_action_clears_all_24_confs(self, config_flow_src):
+        """D4: Reset confirm step must reference all 24 baseline CONF names."""
+        idx = config_flow_src.find("async def async_step_hvac_baseline_presets_reset_confirm(")
+        # Reset confirm is a smaller step; 10000 chars is generous
+        body = config_flow_src[idx:idx + 10000]
+        for season in ("SUMMER", "SHOULDER", "WINTER"):
+            for preset in ("HOME", "SLEEP", "AWAY", "VACATION"):
+                for dim in ("COOL", "HEAT"):
+                    conf = f"CONF_HVAC_BASELINE_{season}_{preset}_{dim}"
+                    assert conf in body, (
+                        f"D4: reset_confirm step must reference {conf} to clear it"
+                    )
+
+    def test_d4_reset_triggers_redirect_to_confirm_step(self, config_flow_src):
+        """D4: When _reset_all is checked, step must navigate to the confirm sub-step."""
+        idx = config_flow_src.find("async def async_step_hvac_baseline_presets(")
+        body = config_flow_src[idx:idx + 12000]
+        assert "hvac_baseline_presets_reset_confirm" in body, (
+            "D4: async_step_hvac_baseline_presets must route to reset_confirm when _reset_all=True"
+        )
+
+    def test_d4_strings_have_reset_confirm_step(self, strings):
+        """D4: strings.json must have the hvac_baseline_presets_reset_confirm step."""
+        assert "hvac_baseline_presets_reset_confirm" in strings["options"]["step"], (
+            "D4: strings.json must define hvac_baseline_presets_reset_confirm step"
+        )
+
+    def test_d4_translations_have_reset_confirm_step(self, translations_en):
+        """D4: translations/en.json must have the hvac_baseline_presets_reset_confirm step."""
+        assert "hvac_baseline_presets_reset_confirm" in translations_en["options"]["step"], (
+            "D4: translations/en.json must define hvac_baseline_presets_reset_confirm step"
+        )
+
+    def test_d4_strings_baseline_sections_exist(self, strings):
+        """D4: strings.json baseline presets step must have sections block."""
+        sections = strings["options"]["step"]["hvac_baseline_presets"].get("sections", {})
+        assert len(sections) == 3, (
+            f"D4: strings.json hvac_baseline_presets must have exactly 3 sections, found {len(sections)}"
+        )
+
+    def test_d4_translations_baseline_sections_exist(self, translations_en):
+        """D4: translations/en.json baseline presets step must have sections block."""
+        sections = translations_en["options"]["step"]["hvac_baseline_presets"].get("sections", {})
+        assert len(sections) == 3, (
+            f"D4: translations/en.json hvac_baseline_presets must have exactly 3 sections, "
+            f"found {len(sections)}"
+        )
+
+    def test_d4_strings_have_reset_all_translation(self, strings):
+        """D4: strings.json must have _reset_all in baseline presets data."""
+        data = strings["options"]["step"]["hvac_baseline_presets"].get("data", {})
+        assert "_reset_all" in data, (
+            "D4: strings.json hvac_baseline_presets.data must include _reset_all field"
+        )
+
+    def test_d4_translations_have_reset_all_translation(self, translations_en):
+        """D4: translations/en.json must have _reset_all in baseline presets data."""
+        data = translations_en["options"]["step"]["hvac_baseline_presets"].get("data", {})
+        assert "_reset_all" in data, (
+            "D4: translations/en.json hvac_baseline_presets.data must include _reset_all field"
+        )

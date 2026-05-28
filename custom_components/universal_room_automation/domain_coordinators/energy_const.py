@@ -229,6 +229,8 @@ CONF_ZONE_DYNAMIC_PRESET_ENABLED: Final = "zone_dynamic_preset_enabled"
 CONF_ZONE_DYNAMIC_PRESET_OFFSET: Final = "zone_dynamic_preset_offset"
 CONF_ZONE_DYNAMIC_PRESET_RESET_OFFSET_GUEST: Final = "zone_dynamic_preset_reset_offset_guest"
 CONF_ZONE_DYNAMIC_PRESET_SLEEP_ENABLED: Final = "zone_dynamic_preset_sleep_enabled"
+# v4.7.4 D3: opt-in flag — when False, runtime derives bucket cells from baseline+offset
+CONF_ZONE_DYNAMIC_PRESET_CUSTOMIZE_BUCKETS: Final = "zone_dynamic_preset_customize_buckets"
 # Per-bucket range keys: "zone_dynamic_preset_<bucket>_home_cool_low/high"
 # and "zone_dynamic_preset_<bucket>_sleep_cool_low/high"
 CONF_ZONE_DYNAMIC_PRESET_COOL_HOME_LOW: Final = "zone_dynamic_preset_cool_home_low"

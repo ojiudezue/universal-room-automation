@@ -145,14 +145,6 @@ class TestD1HvacDynamicPresetStep:
     def test_hvac_dynamic_preset_step_exists(self, config_flow_src):
         assert "async def async_step_hvac_dynamic_preset(" in config_flow_src
 
-    def test_hvac_dynamic_preset_calls_validate_helper(self, config_flow_src):
-        idx = config_flow_src.find("async def async_step_hvac_dynamic_preset(")
-        body = config_flow_src[idx:idx + 4000]
-        assert "_validate_dynamic_preset_input" in body, (
-            "Surface 1 must call _validate_dynamic_preset_input — sync invariant "
-            "with Surface 2"
-        )
-
     def test_hvac_dynamic_preset_calls_schema_builder(self, config_flow_src):
         idx = config_flow_src.find("async def async_step_hvac_dynamic_preset(")
         # Function body can be long — use 12 000 chars to capture all branches
@@ -176,14 +168,6 @@ class TestD1HvacDynamicPresetStep:
     def test_build_hvac_dynamic_preset_schema_exists(self, config_flow_src):
         assert "def _build_hvac_dynamic_preset_schema(" in config_flow_src
 
-    def test_build_schema_calls_build_dynamic_preset_schema_per_zone(self, config_flow_src):
-        idx = config_flow_src.find("def _build_hvac_dynamic_preset_schema(")
-        body = config_flow_src[idx:idx + 3000]
-        assert "_build_dynamic_preset_schema" in body, (
-            "_build_hvac_dynamic_preset_schema must call _build_dynamic_preset_schema "
-            "per zone to enforce the sync invariant between surfaces"
-        )
-
     def test_strings_hvac_dynamic_preset_step_exists(self, strings):
         assert "hvac_dynamic_preset" in strings["options"]["step"], (
             "strings.json must have hvac_dynamic_preset step for Surface 1"
@@ -192,13 +176,11 @@ class TestD1HvacDynamicPresetStep:
     def test_translations_hvac_dynamic_preset_step_exists(self, translations_en):
         assert "hvac_dynamic_preset" in translations_en["options"]["step"]
 
-    def test_per_zone_keys_use_double_underscore_prefix(self, config_flow_src):
-        # Zone-prefixed keys must use f"{zone_name}__{key}" pattern to avoid
-        # collisions across zones in a single-form layout.
-        assert '"__"' in config_flow_src or "f\"{zone" in config_flow_src or "__" in config_flow_src, (
-            "Per-zone keys must use double-underscore separator to prevent "
-            "collisions when multiple zones appear on a single form"
-        )
+    # v4.7.4 D1: test_per_zone_keys_use_double_underscore_prefix DROPPED.
+    # Surface 1 no longer renders per-zone fields — the prefix bug is
+    # prevented by architectural removal, not by pattern assertion.
+    # The D5 AST test (test_v474_translation_coverage.py) provides the
+    # regression guard: asserts no schema key contains '__'.
 
 
 # ===========================================================================
@@ -339,25 +321,24 @@ class TestC1ValidationParityBothSurfaces:
     """C1 fix-up: async_step_zone_dynamic_preset must call
     _validate_dynamic_preset_input (not use inline validation).
 
-    Source-grep checks that:
-    1. Surface 1 (async_step_hvac_dynamic_preset) calls the helper.
-    2. Surface 2 (async_step_zone_dynamic_preset) calls the helper.
-    3. Surface 2 no longer contains the old inline bucket_keys loop.
+    v4.7.4 D1: Surface 1 per-zone validation REMOVED — Surface 1 no longer
+    iterates zones or validates per-zone input. The sync invariant between
+    Surface 1 and Surface 2 is resolved by architectural separation:
+    - Surface 1 = house-wide settings only (no per-zone fields, no prefix)
+    - Surface 2 = per-zone settings (bare keys, one zone at a time)
+    Tests for Surface 1 calling _validate_dynamic_preset_input are DROPPED.
+    Surface 2 validation tests (C1 fix) remain unchanged.
     """
 
-    def test_surface_1_calls_validate_helper(self, config_flow_src):
-        idx = config_flow_src.find("async def async_step_hvac_dynamic_preset(")
-        assert idx > 0, "Surface 1 must exist"
-        body = config_flow_src[idx:idx + 5000]
-        assert "_validate_dynamic_preset_input" in body, (
-            "C1 fix: Surface 1 must call _validate_dynamic_preset_input"
-        )
+    # test_surface_1_calls_validate_helper DROPPED (v4.7.4 D1: Surface 1 has no per-zone fields).
+    # test_validate_helper_called_with_zone_prefix_in_surface_1 DROPPED (same reason).
 
     def test_surface_2_calls_validate_helper(self, config_flow_src):
         """C1 CRITICAL fix: Surface 2 must delegate to shared helper."""
         idx = config_flow_src.find("async def async_step_zone_dynamic_preset(")
         assert idx > 0, "Surface 2 must exist"
-        body = config_flow_src[idx:idx + 5000]
+        # v4.7.4 D3 expanded this function; validate call is ~6100 chars in.
+        body = config_flow_src[idx:idx + 9000]
         assert "_validate_dynamic_preset_input" in body, (
             "C1 fix: Surface 2 (async_step_zone_dynamic_preset) MUST call "
             "_validate_dynamic_preset_input — sync invariant with Surface 1. "
@@ -390,15 +371,8 @@ class TestC1ValidationParityBothSurfaces:
             "— Surface 2 presents bare (unprefixed) keys; Surface 1 uses zone_name prefix"
         )
 
-    def test_validate_helper_called_with_zone_prefix_in_surface_1(self, config_flow_src):
-        """Surface 1 passes zone_prefix=zn (prefixed keys) to the shared helper."""
-        idx = config_flow_src.find("async def async_step_hvac_dynamic_preset(")
-        assert idx > 0
-        body = config_flow_src[idx:idx + 5000]
-        assert "zone_prefix=zn" in body, (
-            "Surface 1 must pass zone_prefix=zn to _validate_dynamic_preset_input "
-            "— keys are prefixed with zone_name to allow multi-zone single form"
-        )
+    # test_validate_helper_called_with_zone_prefix_in_surface_1 DROPPED (v4.7.4 D1).
+    # Surface 1 no longer calls _validate_dynamic_preset_input with any zone prefix.
 
 
 # ===========================================================================

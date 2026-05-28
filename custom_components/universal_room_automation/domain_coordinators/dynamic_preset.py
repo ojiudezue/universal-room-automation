@@ -56,6 +56,7 @@ from .energy_const import (
     CONF_ZONE_DYNAMIC_PRESET_COOL_HOME_LOW,
     CONF_ZONE_DYNAMIC_PRESET_COOL_SLEEP_HIGH,
     CONF_ZONE_DYNAMIC_PRESET_COOL_SLEEP_LOW,
+    CONF_ZONE_DYNAMIC_PRESET_CUSTOMIZE_BUCKETS,
     CONF_ZONE_DYNAMIC_PRESET_ENABLED,
     CONF_ZONE_DYNAMIC_PRESET_EXTREME_HOME_HIGH,
     CONF_ZONE_DYNAMIC_PRESET_EXTREME_HOME_LOW,
@@ -445,9 +446,35 @@ class DynamicPresetOverrideSource:
         else:
             zone_offset = base_offset
 
-        # Read bucket table values
+        # Read bucket table values.
+        # v4.7.4 D3: When customize_buckets=False (or not set), bucket cells may be
+        # absent from zone_data. Derive from seasonal baseline "home" setpoints + offset.
         home_low = zone_data.get(home_low_key)
         home_high = zone_data.get(home_high_key)
+        if (home_low is None or home_high is None) and not zone_data.get(
+            CONF_ZONE_DYNAMIC_PRESET_CUSTOMIZE_BUCKETS, False
+        ):
+            # Derived fallback: use seasonal home baseline as the bucket range.
+            # This gives a meaningful override (the seasonal home setpoints shifted by
+            # the zone's offset) without requiring per-bucket customization.
+            try:
+                from .hvac_preset import PresetManager
+                _pm = PresetManager(self.hass)
+                _season_pair = _pm.get_seasonal_setpoints("home")
+                if _season_pair is not None:
+                    home_high = _season_pair[0]  # cool_setpoint
+                    home_low = home_high - 7.0    # standard 7°F spread
+                    _LOGGER.debug(
+                        "DynamicPreset zone=%s bucket=%s: derived from baseline "
+                        "(cool=%.1f low=%.1f)",
+                        zone_id, bucket, home_high, home_low,
+                    )
+            except Exception:
+                _LOGGER.debug(
+                    "DynamicPreset zone=%s bucket=%s: baseline derivation failed",
+                    zone_id, bucket, exc_info=True,
+                )
+
         if home_low is None or home_high is None:
             _LOGGER.debug(
                 "DynamicPreset zone=%s bucket=%s: home range not configured — no override",
