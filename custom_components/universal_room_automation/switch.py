@@ -422,95 +422,6 @@ class EnergyObservationModeSwitch(SwitchEntity, RestoreEntity):
         return self._get_energy() is not None
 
 
-class OccupancyWeightedPredictionSwitch(SwitchEntity, RestoreEntity):
-    """Toggle occupancy-weighted energy prediction.
-
-    When ON: DailyEnergyPredictor blends Bayesian occupancy probabilities
-    with room power profiles to produce occupancy-shaped consumption estimates.
-    When OFF (default): Standard regression/historical prediction (pre-B4 behavior).
-
-    Entity: switch.ura_energy_occupancy_weighted_prediction
-    Device: URA: Energy Coordinator
-    v4.1.1 B4 L2
-    """
-
-    _attr_has_entity_name = True
-    _attr_icon = "mdi:account-clock"
-    _attr_entity_category = EntityCategory.CONFIG
-
-    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
-        """Initialize."""
-        self.hass = hass
-        self._entry = entry
-        self._attr_unique_id = f"{DOMAIN}_energy_occupancy_weighted_prediction"
-        self._attr_name = "Occupancy Weighted Prediction"
-        self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, "energy_coordinator")},
-            name="URA: Energy Coordinator",
-            manufacturer="Universal Room Automation",
-            model="Energy Coordinator",
-            sw_version=VERSION,
-            via_device=(DOMAIN, "coordinator_manager"),
-        )
-        self._deferred_restore = False
-
-    def _get_energy(self):
-        """Get the energy coordinator instance."""
-        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
-        if manager is None:
-            return None
-        return manager.coordinators.get("energy")
-
-    @property
-    def is_on(self) -> bool:
-        """Return True if occupancy weighting is active."""
-        energy = self._get_energy()
-        if energy is None:
-            return False
-        return getattr(energy, "occupancy_weighted", False)
-
-    async def async_turn_on(self, **kwargs) -> None:
-        """Enable occupancy-weighted prediction."""
-        energy = self._get_energy()
-        if energy is not None:
-            energy.occupancy_weighted = True
-            self.async_write_ha_state()
-
-    async def async_turn_off(self, **kwargs) -> None:
-        """Disable occupancy-weighted prediction."""
-        energy = self._get_energy()
-        if energy is not None:
-            energy.occupancy_weighted = False
-            self.async_write_ha_state()
-
-    async def async_added_to_hass(self) -> None:
-        """Restore state on startup."""
-        await super().async_added_to_hass()
-        last_state = await self.async_get_last_state()
-        if last_state is not None and last_state.state == "on":
-            energy = self._get_energy()
-            if energy is not None:
-                energy.occupancy_weighted = True
-            else:
-                self._deferred_restore = True
-                self.async_on_remove(async_call_later(self.hass, 5, self._retry_restore))
-
-    def _retry_restore(self, _now=None) -> None:
-        """Retry setting occupancy weighted after coordinator initializes."""
-        if not self._deferred_restore:
-            return
-        energy = self._get_energy()
-        if energy is not None:
-            energy.occupancy_weighted = True
-            self._deferred_restore = False
-        else:
-            _LOGGER.warning("Occupancy weighted restore failed — coordinator unavailable after 5s")
-
-    @property
-    def available(self) -> bool:
-        """Only available when energy coordinator is active."""
-        return self._get_energy() is not None
-
 
 # =========================================================================
 # v4.2.10: Energy Coordinator Runtime Toggles
@@ -760,6 +671,21 @@ ECExcessSolarSwitch = _ec_switch_factory(
 ECArbitrageSwitch = _ec_switch_factory(
     "arbitrage_enabled", "arbitrage",
     "Grid Arbitrage", "mdi:battery-charging-wireless", default=False,
+)
+
+# v4.7.2.1: Replaced bespoke OccupancyWeightedPredictionSwitch class with a
+# factory call. The prior bespoke class had no SIGNAL_ENERGY_COORDINATOR_READY
+# subscription and only a single 5s retry — silently lost user's persisted ON
+# state when EC was not yet registered at async_added_to_hass time (startup
+# race Bug Class #5).
+# unique_id suffix "occupancy_weighted_prediction" matches the prior bespoke
+# unique_id ({DOMAIN}_energy_occupancy_weighted_prediction) for entity_id stability.
+OccupancyWeightedPredictionSwitch = _ec_switch_factory(
+    "occupancy_weighted",             # attr_name on EnergyCoordinator
+    "occupancy_weighted_prediction",  # unique_id suffix → {DOMAIN}_energy_occupancy_weighted_prediction
+    "Occupancy Weighted Prediction",  # display name (unchanged)
+    "mdi:account-clock",              # icon (unchanged)
+    default=False,                    # default (unchanged)
 )
 
 _ECEvTouSwitchBase = _ec_switch_factory(

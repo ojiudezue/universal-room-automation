@@ -374,8 +374,9 @@ class EnergyCoordinator(BaseCoordinator):
         # have NOT yet completed their deferred restore.  Each switch calls
         # notify_sub_switch_restore_complete() when _handle_ec_ready lands
         # successfully.  ECSubSwitchesSyncedSensor reads sub_switches_synced().
-        # There are exactly 5 factory-generated EC sub-switches.
-        self._pending_sub_switch_restores: int = 5
+        # There are exactly 6 factory-generated EC sub-switches (v4.7.2.1:
+        # OccupancyWeightedPredictionSwitch converted to factory, +1).
+        self._pending_sub_switch_restores: int = 6
 
         # State tracking
         self._last_battery_decision: dict[str, Any] = {}
