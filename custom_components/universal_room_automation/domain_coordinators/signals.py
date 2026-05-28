@@ -63,6 +63,14 @@ SIGNAL_REGIME_EVENT_EMITTED: Final = "ura_regime_event_emitted"
 SIGNAL_NM_READY: Final = "ura_notification_manager_ready"
 SIGNAL_BAYESIAN_READY: Final = "ura_bayesian_predictor_ready"
 
+# v4.7.x D2: dispatched from EnergyCoordinator.async_setup() after init
+# completes (DB restore + first decision cycle).  EC sub-switches subscribe
+# here so they can reliably restore saved values even when EC coord init is
+# delayed beyond the v4.5.3 retry budget (e.g. Envoy validation race).
+# Mirrors the SIGNAL_DATABASE_READY / SIGNAL_NM_READY / SIGNAL_BAYESIAN_READY
+# pattern — one-shot fire-and-forget after the backing service is registered.
+SIGNAL_ENERGY_COORDINATOR_READY: Final = "ura_energy_coordinator_ready"
+
 
 # ============================================================================
 # Shared data classes for inter-coordinator communication

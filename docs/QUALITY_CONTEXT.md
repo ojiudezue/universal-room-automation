@@ -4,7 +4,7 @@
 **Last Updated:** May 10, 2026 (v4.5.11.3 cycle aftermath)
 **Current Production:** v4.5.11.3
 **Status:** Active quality standards
-**Bug Classes:** 31 documented (7 original + 13 from Jan–Mar 2026 + 2 from v3.20–v3.22 hardening + 1 from v4.1.1 lambda scope + 1 from v4.2.5 closure escape + 3 from v4.2.8–v4.2.11 DB performance + 1 from v4.2.24 sync update_listener + 1 from v4.2.9 maintenance budgeting + 2 from v4.5.11.x AC ramp-down cycle)
+**Bug Classes:** 33 documented (7 original + 13 from Jan–Mar 2026 + 2 from v3.20–v3.22 hardening + 1 from v4.1.1 lambda scope + 1 from v4.2.5 closure escape + 3 from v4.2.8–v4.2.11 DB performance + 1 from v4.2.24 sync update_listener + 1 from v4.2.9 maintenance budgeting + 2 from v4.5.11.x AC ramp-down cycle + 1 from v4.6.15 lambda+async_create_task + 1 from v4.7.x EV TOU bookkeeping short-circuit)
 
 **Quality bar — read every cycle:** Two independent staff-engineer-level code reviews using software engineering best practices. The bug-class catalog below is a regression-prevention reference, NOT the review framework. See `CLAUDE.md` § Review Protocol for the canonical statement.
 
@@ -1655,6 +1655,23 @@ For every class outside `Entity` subclasses that calls `async_listen`/`async_tra
 
 **Discovered:** v4.6.15 (thread-safety hotfix, 2026-05-26) — Tier 2-DB scale, 3 parallel reviewers.
 **Severity:** CRITICAL — silent data staleness + correlated HA-core crashes.
+
+---
+
+### Bug Class #43: Bookkeeping Short-Circuit Defeated by External State Change ⚠️
+
+**Shape:** A control loop maintains a "did we do this?" bookkeeping set (e.g., `_paused_by_us`). On each tick, the loop short-circuits if the ID is already in the set: `if state["is_on"] and evse_id not in self._paused_by_us`. An external actor (user, HA automation, another integration) changes the underlying device state between ticks. The bookkeeping set still says "we already handled it," so the loop skips re-issuing the control command. Policy is silently defeated without any log signal.
+
+**v4.7.x example (D1, v4.7.x EV TOU Hardening):** `energy_pool.py:EVChargerController.determine_actions()` had `if state["is_on"] and evse_id not in self._paused_by_us`. A user who manually re-enabled a paused EVSE switch in HA would cause URA to silently stop enforcing the TOU pause — the bookkeeping set believed the device was already correctly handled. No log warning, no sensor alert. Cost: $1/hr grid charging at mid-peak rate.
+
+**Fix:** Remove the bookkeeping guard from the enforcement path. The control loop must re-issue the command idempotently on every tick during the active policy period. Use the bookkeeping set only for *resuming* (we only resume EVSEs we paused), not for *enforcing* (we always re-enforce if policy is active). Provide a separate, explicit admin override path (e.g., a button + timed window) for legitimate bypasses.
+
+**Detection:** grep for `if state["is_on"] and <entity_id> not in self._paused_by_<reason>` in any decision-cycle path. The guard is correct for resume logic; it is incorrect for enforcement logic.
+
+**Related:** Bug Class #23 (observation mode gating), where policy bypasses are intentional but must be explicit.
+
+**Discovered:** v4.7.x (2026-05-27 live cost-bleed incident; EV charging at mid-peak after manual EVSE re-enable)
+**Severity:** HIGH — silently defeats a cost-control policy with no user-visible signal
 
 ---
 
