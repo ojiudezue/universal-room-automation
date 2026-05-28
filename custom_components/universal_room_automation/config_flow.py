@@ -5012,8 +5012,14 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         - 4 bucket rows × (cool_low + cool_high) for home preset
         - Optional 4 bucket rows for sleep preset
 
-        Canonical HVAC zones only — via _selected_zone_name which was set
-        by the zone-edit menu (iterated from iter_canonical_hvac_zones).
+        HIGH C/H2 fix: Enumerates canonical HVAC zones only (thermostat-
+        deduplicated via iter_canonical_hvac_zones). If the _selected_zone_name
+        coming from async_step_manage_zones is a house zone that is part of a
+        merged canonical zone (e.g., "Master Suite" when the canonical zone is
+        "Entertainment + Master Suite"), we show a canonical zone picker first
+        so the user selects the canonical zone rather than a raw house zone.
+        This prevents config written to a non-canonical name from being
+        silently ignored by the EC evaluation loop.
         """
         import voluptuous as vol
         from homeassistant.components.selector import (
@@ -5051,6 +5057,37 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         MAX_TEMP = 90.0
         SLEEP_FLOOR = 74.0
 
+        # HIGH C/H2: Resolve _selected_zone_name to a canonical HVAC zone.
+        # iter_canonical_hvac_zones merges house zones that share a thermostat
+        # into a single canonical zone (e.g., "Entertainment + Master Suite").
+        # The EC evaluation iterates canonical zones; config must be stored
+        # under the canonical zone_name so lookups succeed.
+        try:
+            from .domain_coordinators.hvac_zones import iter_canonical_hvac_zones
+            canonical_zones = iter_canonical_hvac_zones(self.hass)
+        except Exception:
+            canonical_zones = []
+
+        selected = getattr(self, "_selected_zone_name", None)
+
+        # Build a map: each canonical zone_name (and each constituent house zone
+        # within a merged label) → canonical zone info
+        _canonical_by_name: dict[str, dict] = {}
+        for cz in canonical_zones:
+            _canonical_by_name[cz["zone_name"]] = cz
+            # Also map individual house zones within a merged label
+            for part in cz["zone_name"].split(" + "):
+                part = part.strip()
+                if part and part not in _canonical_by_name:
+                    _canonical_by_name[part] = cz
+
+        # If selected zone is a raw house-zone part of a merged canonical zone,
+        # remap _selected_zone_name to the canonical merged name.
+        if selected and selected in _canonical_by_name:
+            canonical_zone_name = _canonical_by_name[selected]["zone_name"]
+            self._selected_zone_name = canonical_zone_name
+
+        # Re-read after potential remap
         zm_result = self._get_zm_zone_data()
         if not zm_result:
             return self.async_abort(reason="zone_not_found")

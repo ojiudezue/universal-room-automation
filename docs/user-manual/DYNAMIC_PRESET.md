@@ -93,7 +93,7 @@ The form has these fields:
 |---|---|---|
 | Enable for this zone | Off | Zone-level opt-in |
 | Offset (°F) | 0.0 | Added to zone's home_high for sleep_high computation |
-| Reset offset on guest state | Off | Zero offset when house_state = guest |
+| Reset offset on guest state | On (checked by default) | Zero offset when house_state = guest |
 | Enable sleep preset override | Off | Also emit sleep-preset range overrides |
 | Cool bucket — home low / high | — | Setpoints for `cool` bucket, home preset (required when enabled) |
 | Mild bucket — home low / high | — | Setpoints for `mild` bucket, home preset (required when enabled) |
@@ -116,8 +116,8 @@ All four bucket rows (home low/high) are required when the zone is enabled. The 
 
 On the Energy Coordinator device page:
 
-- `number.ura_energy_dynamic_preset_dwell_minutes` — how long a bucket must be stable before transitioning (default 60, range 15–240)
-- `number.ura_energy_dynamic_preset_hysteresis_f` — extra delta required to exit a tighter bucket (default 2.0, range 0.5–5.0)
+- `number.ura_energy_coordinator_dynamic_preset_dwell_minutes` — how long a bucket must be stable before transitioning (default 60, range 15–240)
+- `number.ura_energy_coordinator_dynamic_preset_hysteresis` — extra delta required to exit a tighter bucket (default 2.0, range 0.5–5.0)
 
 Higher dwell = more stable, slower to react to forecast changes. Higher hysteresis = less flapping on bucket boundaries.
 
@@ -125,9 +125,9 @@ Higher dwell = more stable, slower to react to forecast changes. Higher hysteres
 
 After the next EC tick (≤5 min), check:
 
-- `sensor.ura_energy_dynamic_preset_active_bucket_{zone_id}` — current bucket
-- `sensor.ura_energy_dynamic_preset_effective_range_{zone_id}` — resolved cool range as "low–high °F" or "default" (when no override active)
-- `sensor.ura_energy_dynamic_preset_overrides_applied` — global count of zones with active overrides
+- `sensor.ura_energy_coordinator_dynamic_preset_bucket_{zone_id}` — current bucket (e.g., `sensor.ura_energy_coordinator_dynamic_preset_bucket_master_suite`)
+- `sensor.ura_energy_coordinator_dynamic_preset_range_{zone_id}` — resolved cool range as "low–high °F" or "default" (when no override active)
+- `sensor.ura_energy_coordinator_dynamic_preset_overrides_applied` — global count of zones with active overrides
 
 ---
 
@@ -226,21 +226,21 @@ The dwell and hysteresis Number entities persist their values across restarts vi
 
 | Entity ID | Default | Range | Unit |
 |---|---|---|---|
-| `number.ura_energy_dynamic_preset_dwell_minutes` | 60 | 15–240 | min |
-| `number.ura_energy_dynamic_preset_hysteresis_f` | 2.0 | 0.5–5.0 | °F |
+| `number.ura_energy_coordinator_dynamic_preset_dwell_minutes` | 60 | 15–240 | min |
+| `number.ura_energy_coordinator_dynamic_preset_hysteresis` | 2.0 | 0.5–5.0 | °F |
 
 ### Sensors (global)
 
 | Entity ID | Type | Shows |
 |---|---|---|
-| `sensor.ura_energy_dynamic_preset_overrides_applied` | Count | Number of zones with an active non-baseline override |
+| `sensor.ura_energy_coordinator_dynamic_preset_overrides_applied` | Count | Number of zones with an active non-baseline override |
 
-### Sensors (per zone, substituting `{zone_id}` with your zone identifier)
+### Sensors (per zone, substituting `{zone_id}` with your canonical zone identifier, e.g. `master_suite`)
 
 | Entity ID | Shows |
 |---|---|
-| `sensor.ura_energy_dynamic_preset_active_bucket_{zone_id}` | Current bucket: cool / mild / hot / extreme / unknown |
-| `sensor.ura_energy_dynamic_preset_effective_range_{zone_id}` | Resolved cool range "low–high °F" or "default" |
+| `sensor.ura_energy_coordinator_dynamic_preset_bucket_{zone_id}` | Current bucket: cool / mild / hot / extreme / unknown |
+| `sensor.ura_energy_coordinator_dynamic_preset_range_{zone_id}` | Resolved cool range "low–high °F" or "default" |
 
 ---
 
@@ -250,7 +250,7 @@ If you want to trigger HA automations on Dynamic Preset events, listen to these 
 
 | Signal | When fires | Payload keys |
 |---|---|---|
-| `ura_dynamic_preset_transitioned` | Zone bucket changes | `zone_id`, `from_bucket`, `to_bucket`, `at_iso` |
-| `ura_dynamic_preset_overrides_updated` | After each EC tick evaluates all zones | `zone_overrides` (dict of zone_id → override list) |
+| `ura_dynamic_preset_transitioned` | Zone bucket changes | `zone_id`, `previous_bucket`, `new_bucket`, `delta_f`, `now_iso` |
+| `ura_dynamic_preset_overrides_updated` | After each EC tick when overrides change | (no payload) |
 
 Note: these are internal HA dispatcher signals, not HA events on the event bus. Direct HA automation triggers from these signals require a custom listener.

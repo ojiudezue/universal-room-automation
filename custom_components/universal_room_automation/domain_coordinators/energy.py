@@ -2549,12 +2549,15 @@ class EnergyCoordinator(BaseCoordinator):
             # Get house_state for offset-reset check
             house_state = self._get_house_state()
 
-            # Lazily instantiate DynamicPresetOverrideSource (avoids circular import)
+            # Lazily instantiate DynamicPresetOverrideSource (avoids circular import).
+            # Bug Class #45: use bound method _get_cm_options instead of
+            # lambda: cm_options. The lambda would capture the local from the
+            # FIRST call; subsequent calls would see stale config.
             if self._dynamic_preset_source is None:
                 from .dynamic_preset import DynamicPresetOverrideSource
                 self._dynamic_preset_source = DynamicPresetOverrideSource(
                     hass=self.hass,
-                    get_options=lambda: cm_options,
+                    get_options=self._get_cm_options,
                 )
 
             # Enumerate opted-in canonical HVAC zones
@@ -2607,18 +2610,53 @@ class EnergyCoordinator(BaseCoordinator):
                 except Exception:
                     _LOGGER.warning("DynamicPreset zone=%s: evaluation failed", zone_id, exc_info=True)
 
+            # HIGH B3: Only dispatch if overrides actually changed (prevent 864
+            # redundant state-writes/day when no bucket has transitioned).
+            _prev = self._dynamic_preset_overrides
             self._dynamic_preset_overrides = updated_overrides
 
-            # Dispatch signal for sensors to refresh
-            try:
-                from homeassistant.helpers.dispatcher import async_dispatcher_send
-                from .signals import SIGNAL_DYNAMIC_PRESET_OVERRIDES_UPDATED
-                async_dispatcher_send(self.hass, SIGNAL_DYNAMIC_PRESET_OVERRIDES_UPDATED)
-            except Exception:
-                pass
+            _changed = set(updated_overrides.keys()) != set(_prev.keys())
+            if not _changed:
+                for zid, new_ovs in updated_overrides.items():
+                    old_ovs = _prev.get(zid, [])
+                    if len(new_ovs) != len(old_ovs):
+                        _changed = True
+                        break
+                    for n, o in zip(new_ovs, old_ovs):
+                        if (n.cool_low != o.cool_low or n.cool_high != o.cool_high
+                                or n.preset != o.preset):
+                            _changed = True
+                            break
+                    if _changed:
+                        break
+
+            if _changed:
+                try:
+                    from homeassistant.helpers.dispatcher import async_dispatcher_send
+                    from .signals import SIGNAL_DYNAMIC_PRESET_OVERRIDES_UPDATED
+                    async_dispatcher_send(self.hass, SIGNAL_DYNAMIC_PRESET_OVERRIDES_UPDATED)
+                except Exception:
+                    pass
 
         except Exception:
             _LOGGER.warning("DynamicPreset: _async_evaluate_dynamic_presets failed", exc_info=True)
+
+    def _get_cm_options(self) -> dict:
+        """Return current Coordinator Manager options, re-read on every call.
+
+        v4.7.1 fix-up: Bug Class #45 — replaces the stale lambda that captured
+        cm_options from the first evaluate tick. This method is passed as
+        get_options to DynamicPresetOverrideSource so every evaluate_and_emit
+        call reads fresh CONF values (dwell, hysteresis, bucket boundaries).
+        """
+        try:
+            from ..const import DOMAIN as _DOMAIN_KEY, CONF_ENTRY_TYPE, ENTRY_TYPE_COORDINATOR_MANAGER
+            for entry in self.hass.config_entries.async_entries(_DOMAIN_KEY):
+                if {**entry.data, **entry.options}.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_COORDINATOR_MANAGER:
+                    return {**entry.data, **entry.options}
+            return {}
+        except Exception:
+            return {}
 
     def _get_house_state(self) -> str:
         """Return current house_state string from presence coordinator (or empty string)."""

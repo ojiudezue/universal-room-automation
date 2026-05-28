@@ -1611,8 +1611,17 @@ class DynamicPresetDwellMinutesNumber(NumberEntity, RestoreEntity):
 
     async def async_set_native_value(self, value: float) -> None:
         self._value = float(value)
-        # Push to EC's DynamicPresetOverrideSource via CM options proxy
-        # (source reads from get_options() on each evaluate call — Bug #14)
+        # v4.7.1 fix-up HIGH A2/B2/C2: Push to CM entry.options so the
+        # bound method _get_cm_options() picks up the new value on the next
+        # evaluate_and_emit call (Bug Class #32 fix).
+        try:
+            from .domain_coordinators.energy_const import CONF_DYNAMIC_PRESET_DWELL_MINUTES
+            self.hass.config_entries.async_update_entry(
+                self._entry,
+                options={**self._entry.options, CONF_DYNAMIC_PRESET_DWELL_MINUTES: float(value)},
+            )
+        except Exception:
+            pass
         self.async_write_ha_state()
         _LOGGER.info("Dynamic preset dwell set to %.0f minutes", value)
 
@@ -1679,5 +1688,16 @@ class DynamicPresetHysteresisFNumber(NumberEntity, RestoreEntity):
 
     async def async_set_native_value(self, value: float) -> None:
         self._value = float(value)
+        # v4.7.1 fix-up HIGH A2/B2/C2: Push to CM entry.options so the
+        # bound method _get_cm_options() picks up the new value on the next
+        # evaluate_and_emit call (Bug Class #32 fix).
+        try:
+            from .domain_coordinators.energy_const import CONF_DYNAMIC_PRESET_HYSTERESIS_F
+            self.hass.config_entries.async_update_entry(
+                self._entry,
+                options={**self._entry.options, CONF_DYNAMIC_PRESET_HYSTERESIS_F: float(value)},
+            )
+        except Exception:
+            pass
         self.async_write_ha_state()
         _LOGGER.info("Dynamic preset hysteresis set to %.1f°F", value)

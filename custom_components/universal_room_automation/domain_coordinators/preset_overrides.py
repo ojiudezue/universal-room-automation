@@ -238,59 +238,12 @@ class OverrideEngine:
             },
         }
 
-    @staticmethod
-    def build_guest_mode_overrides(
-        zone_id: str,
-        zone_data: dict,
-        house_state_preset: str = "home",
-    ) -> list[PresetOverride]:
-        """Build PresetOverride records from zone_data for guest_mode source.
-
-        Reads CONF_ZONE_GUEST_HOME_COOL_LOW/HIGH etc. from zone_data dict.
-        Returns empty list if zone is opted out or fields are absent.
-
-        Called by HVAC coordinator's _apply_house_state_presets.
-        """
-        from .energy_const import (
-            CONF_ZONE_GUEST_MODE_OPT_OUT,
-            CONF_ZONE_GUEST_HOME_COOL_LOW,
-            CONF_ZONE_GUEST_HOME_COOL_HIGH,
-            CONF_ZONE_GUEST_SLEEP_COOL_LOW,
-            CONF_ZONE_GUEST_SLEEP_COOL_HIGH,
-            GUEST_MODE_PRIORITY,
-        )
-
-        if zone_data.get(CONF_ZONE_GUEST_MODE_OPT_OUT, False):
-            return []
-
-        overrides: list[PresetOverride] = []
-
-        # Home preset
-        home_low = zone_data.get(CONF_ZONE_GUEST_HOME_COOL_LOW)
-        home_high = zone_data.get(CONF_ZONE_GUEST_HOME_COOL_HIGH)
-        if home_low is not None or home_high is not None:
-            overrides.append(PresetOverride(
-                source=OVERRIDE_SOURCE_GUEST_MODE,
-                preset=OVERRIDE_PRESET_HOME,
-                priority=GUEST_MODE_PRIORITY,
-                cool_low=float(home_low) if home_low is not None else None,
-                cool_high=float(home_high) if home_high is not None else None,
-                active_when="house_state == 'guest'",
-                zone_id=zone_id,
-            ))
-
-        # Sleep preset
-        sleep_low = zone_data.get(CONF_ZONE_GUEST_SLEEP_COOL_LOW)
-        sleep_high = zone_data.get(CONF_ZONE_GUEST_SLEEP_COOL_HIGH)
-        if sleep_low is not None or sleep_high is not None:
-            overrides.append(PresetOverride(
-                source=OVERRIDE_SOURCE_GUEST_MODE,
-                preset=OVERRIDE_PRESET_SLEEP,
-                priority=GUEST_MODE_PRIORITY,
-                cool_low=float(sleep_low) if sleep_low is not None else None,
-                cool_high=float(sleep_high) if sleep_high is not None else None,
-                active_when="house_state == 'guest'",
-                zone_id=zone_id,
-            ))
-
-        return overrides
+    # HIGH A3: build_guest_mode_overrides deleted — was dead code (zero callers
+    # in production code). Guest Mode Phase 1 D2 wires the OverrideEngine
+    # directly through HVAC coordinator. When Guest Mode UI ships (v4.7.2),
+    # the caller and this helper can be added together in the same commit so
+    # they are always integration-tested.
+    #
+    # Cycle B test TestBuildGuestModeOverrides was also removed (it tested dead
+    # code). If you are re-adding this method, also re-add those tests and wire
+    # a real caller in the same commit.

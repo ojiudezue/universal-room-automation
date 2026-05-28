@@ -1703,6 +1703,43 @@ For every class outside `Entity` subclasses that calls `async_listen`/`async_tra
 
 ---
 
+### Bug Class #45: Lambda Closure Captures Stale Local Variable 🚨
+
+**Shape:** A `lambda` is created inside a method (or passed as a callable argument) that captures a local variable by name. The local variable is recomputed on every call to the outer method, but the lambda captures the binding at the moment of its first creation — subsequent recomputations of the outer local do not update what the lambda reads.
+
+This is a Python-specific variant of Bug Class #14 (Config Snapshot Staleness). Class #14 describes reading options once at `__init__`; Class #45 describes reading options once at the time the lambda is first created, even though the lambda appears inside a method that runs repeatedly.
+
+**v4.7.1 example (CRIT A1/B1/C1):** In `energy.py::_async_evaluate_dynamic_presets`, the OverrideEngine was constructed with `get_options=lambda: cm_options`, where `cm_options` was a local variable computed by looking up the CM config entry. On subsequent ticks, the method re-ran and recomputed `cm_options`, but the lambda captured the value from the first execution. After a CM options change (e.g., slider adjustment), the engine continued reading the initial snapshot.
+
+```python
+# WRONG: lambda captures the local 'cm_options' at first creation
+engine = OverrideEngine(get_options=lambda: cm_options)
+
+# CORRECT: bound method re-reads entry.options on every call
+engine = OverrideEngine(get_options=self._get_cm_options)
+```
+
+**Why it's easy to miss:** The lambda appears syntactically adjacent to the recomputed local, making it look like it always reads the fresh value. The bug is invisible in unit tests that only exercise the lambda once per test.
+
+**Fix:**
+- Replace `lambda: local_var` with a bound method `self._get_XXX()` that re-fetches from the source on every call (see `_get_cm_options` in `energy.py`).
+- Never capture a computed config dict in a lambda; instead, capture `self` (which is stable) and fetch from `self.hass.config_entries` inside the callable.
+
+**Detection:**
+- **Static:** Grep for `lambda:` inside methods that also contain a `for entry in ... config_entries ...` lookup — any lambda that references the local produced by that lookup is suspect.
+- **AST walk:** Check that no `lambda` expression references a name that is also the target of an assignment inside the same function body.
+- **Behavioral:** A slider/number entity that appears to accept input but whose underlying logic ignores the new value after the first evaluation tick.
+
+**Relationship to existing classes:**
+- Bug Class #14 (Config Snapshot Staleness): same root cause (stale config), different mechanism (lambda vs init-time read).
+- Bug Class #24 (Lambda/Closure Scope Escape): similar name but different problem — #24 is about loop variable capture in closures; #45 is about local variable capture in method-scoped lambdas passed as callables.
+- Bug Class #32 (Form Field With No Runtime Reader): companion class — #32 is when the write path is missing; #45 is when the read path is stale.
+
+**Discovered:** v4.7.1 fix-up, Cycle B Tier 2-DB review pass (Reviewers A, B, C all flagged it at CRITICAL)
+**Severity:** CRITICAL — config changes silently ignored; no error, no log; indistinguishable from correct behavior during initial testing
+
+---
+
 ## ✅ MANDATORY VALIDATION CHECKLIST
 
 **Before EVERY deployment, complete this checklist:**
