@@ -9,14 +9,42 @@
 
 ## Finalize summary (what shifted from earlier drafts)
 
-This rewrite consolidates two rounds of feedback into a single coherent plan. Key architectural moves vs the initial draft:
+This rewrite consolidates three rounds of feedback into a coherent ship-ready plan.
 
-1. **Apparent temperature, not raw dry-bulb.** Cycle A's `WeatherProviderManager` exposes `apparent_forecast_high` (humidity-adjusted) as the primary primitive. Falls back to raw if the provider doesn't expose apparent.
-2. **Delta-based bucket boundaries.** Bucket = f(apparent_forecast_high − home_baseline_high), not absolute °F. Climate-portable. Same Texas-tuned bucket table works for a Wisconsin install.
-3. **Continuous re-evaluation, not morning cron.** Every EC decision cycle (5 min) re-classifies the bucket. Override emit gated by transition + **1-hour dwell hysteresis** (user-specified — weather doesn't move that fast) + ±2°F boundary buffer. Naturally handles HA restart, provider failover, day-starts-hot-cools-down.
-4. **Two cycles ship INDEPENDENTLY.** Cycle A (Weather Provider Manager) has its own version, acceptance criteria, deploy, and live validation. Cycle B (Dynamic Preset Override Source) is a separate version that depends on Cycle A having shipped + stable for ≥1 cycle. Each cycle runs Tier 2-DB-style 3-parallel-reviewer protocol per CLAUDE.md (user explicitly invoked the strictest tier for this new-feature work).
-5. **Observability + control surface audit.** Minimal new entities — 1 master switch, 2 runtime number knobs, 5 new sensors total across both cycles. No "force recompute now" button (continuous eval makes it redundant). No per-zone enable switch (reuse Guest Mode Phase 1's per-zone schema).
-6. **Documentation deliverable in scope.** Updates to 4 existing docs (Energy + HVAC user manuals + explainers) + 1 new doc (`docs/user-manual/DYNAMIC_PRESET.md`) ship with the cycles.
+1. **Apparent temperature, not raw dry-bulb.** Cycle A's `WeatherProviderManager` reads `apparent_temperature` (or `temperature_feels_like` per provider) from the weather entity's `weather.get_forecasts` response. Provider-level fallback to raw temp with `apparent_confidence` flag.
+2. **Delta-based bucket boundaries.** Bucket = f(apparent_forecast_high − home_baseline_high), not absolute °F. Climate-portable.
+3. **Continuous re-evaluation, not morning cron.** Every EC decision cycle (5 min) re-classifies. Override emit gated by transition + **1-hour dwell hysteresis** + ±2°F boundary buffer (asymmetric: strict on enter, hysteresis on exit).
+4. **Two cycles ship INDEPENDENTLY.** Each Tier 2-DB (3 parallel reviewers). Cycle B blocks on Cycle A shipped + stable ≥1 cycle.
+5. **Existing thermostat-dedup resolver reused.** `iter_canonical_hvac_zones` at `hvac_zones.py:693` already handles multi-house-zone-per-thermostat merging (e.g., "Entertainment + Master Suite" share one thermostat → one canonical HVAC zone). Cycle B emits overrides per house zone like every other source; existing actuation chain does the right thing. Bug Class #36 lockstep test guards the contract.
+6. **Per-zone offset mechanism (interim).** Single per-zone `°F offset` field that biases all bucket cool_high values for that zone. Includes a "reset offset to 0 when house_state = guest" checkbox. Stub for future "unoccupied-room relaxation" cycle.
+7. **Sleep floor at 74°F + auto-derive with visible defaults.** Sleep cool_high = max(74, home_high − 1) + zone_offset (offset applied AFTER floor — Back Hallway sleep visibly warmer than Master).
+8. **Hot + Extreme buckets default to the same range (cool_high = 74).** User can edit per-zone if they want a tighter extreme. Sleep matches home in those buckets (floor activates).
+9. **Observability + control surface audit.** Minimal: 1 master switch, 2 runtime number knobs, 5 new sensors total. No force-recompute button, no per-zone-enable switch (reuse Zone Manager extension).
+10. **Documentation deliverable in scope.** 3 doc updates per cycle + 1 new dedicated user manual (`DYNAMIC_PRESET.md`) shipping with Cycle B.
+
+### Scope fence — delta + apparent reuse outside Dynamic Preset
+
+The delta primitive (`baseline_delta_for_zone`) and the apparent-temp primitive **are consumed ONLY by Cycle B's Dynamic Preset Override Source in this plan.**
+
+Explicitly **NOT migrated** in Cycles A + B:
+- EC's pre-cool likelihood threshold (`hvac_predict.py:204`, currently `forecast_high >= precool_forecast_high + 10`)
+- HVAC predictor's `outdoor_temp` reads
+- HVAC AC ramp-down's kWh-rate threshold logic
+
+A future **Cycle C ("Comfort Primitive Migration")** can promote the delta primitive to those consumers. Gating conditions:
+1. Cycle B has been live ≥ 2 weeks with zero CRITICAL/HIGH findings
+2. The delta primitive has demonstrably converged on stable bucket behavior across ≥ 1 week of weather variation
+3. The user explicitly requests the broader migration
+4. Cycle C is its own Tier 2 planning doc with per-consumer validation criteria
+
+### Stub — future per-room "guest room" designation
+
+Two future cycles depend on a shared "per-room guest designation" config flag (`is_guest_room: bool` per Room entry):
+
+- **Unoccupied-room relaxation cycle** (future Cycle, separate plan): empty guest room → emit +1-2°F cool_high override
+- **Guest mode detection confidence enhancement**: sustained occupancy in a designated guest room → high-confidence signal added to Presence Coordinator's existing guest-mode detectors. Anti-flap: "longer than saunter in to clean it" → minimum sustained-occupancy threshold (e.g., 30 min). Builds in `PLANNING_v4.7.x_guest_mode_actuation_phase1.md` when that cycle becomes active.
+
+**Out of scope for Cycles A + B of this plan.** The OverrideEngine schema + `active_when` predicate pattern from Guest Mode Phase 1 already supports the future override-source addition without architectural changes. The current Back Hallway +1°F per-zone offset is the INTERIM placeholder until the per-room logic ships.
 
 ---
 
@@ -69,16 +97,25 @@ Fix: every EC decision tick, classify today's thermal load into a bucket using a
 
 ### A.B.1 Provider list + ranking
 
-New CoordinatorManager CONFs (in `energy_const.py`, since EC owns the existing weather entity CONF):
+**Config UX (entity-level picker, not sensor-level):** the user picks weather entities (3 in priority order). The manager internally reads `apparent_temperature` from each entity's `weather.get_forecasts` response — no separate apparent-temp sensor needed. Most HA weather integrations expose apparent inside the forecast response or as a weather-entity attribute.
+
+**Config strategy: keep `CONF_ENERGY_WEATHER_ENTITY` as primary; add 2 fallback CONFs.** Zero breaking change. Zero migration burden.
+
+New CoordinatorManager CONFs (in `energy_const.py`):
 
 | CONF | Type | Default | Range / values |
 |---|---|---|---|
-| `CONF_WEATHER_PROVIDERS` | list[str] (entity_ids) | empty | ordered list, max 3 |
-| `CONF_WEATHER_STALENESS_MAX_HOURS` | int | 6 | 1-24 |
-| `CONF_WEATHER_DIVERGENCE_THRESHOLD_F` | float | 5.0 | 1-20 |
-| `CONF_WEATHER_FALLBACK_TO_RAW_WHEN_APPARENT_MISSING` | bool | True | — |
+| `CONF_ENERGY_WEATHER_ENTITY` (existing) | str (entity_id) | (user-configured) | weather.* entity — PRIMARY |
+| `CONF_ENERGY_WEATHER_FALLBACK_1` (new) | str (entity_id) | empty | weather.* entity — SECONDARY |
+| `CONF_ENERGY_WEATHER_FALLBACK_2` (new) | str (entity_id) | empty | weather.* entity — TERTIARY |
+| `CONF_WEATHER_STALENESS_MAX_HOURS` (new) | int | 6 | 1-24 |
+| `CONF_WEATHER_DIVERGENCE_THRESHOLD_F` (new) | float | 5.0 | 1-20 |
 
-`CONF_ENERGY_WEATHER_ENTITY` (existing single-entity CONF) is preserved during the migration. **Deprecation strategy:** during Cycle A, `WeatherProviderManager._provider_order` is built from `CONF_WEATHER_PROVIDERS` if set, else falls back to `[CONF_ENERGY_WEATHER_ENTITY]` as a 1-element list. After Cycle A live-validates, a follow-up cycle (out of scope here) removes the single CONF and forces migration.
+**Form lives in CM → Energy step** (the existing screen where `CONF_ENERGY_WEATHER_ENTITY` lives). Three labeled dropdowns (Primary / Secondary / Tertiary), staleness slider, divergence slider. No new step. No HVAC config-flow refactor.
+
+**WeatherProviderManager builds priority list:** `[primary, fallback_1, fallback_2]` filtering empty entries. With a single provider configured, manager runs in 1-element-list mode (functional but no failover headroom).
+
+**Apparent-temp fallback semantics:** if a provider's `weather.get_forecasts` response lacks `apparent_temperature` (or `temperature_feels_like`), manager falls back to raw `temperature` and sets `apparent_confidence = "fallback_raw"` on the sensor. No user error; no extra config to handle this case.
 
 ### A.B.2 Failover semantics
 
@@ -290,6 +327,21 @@ For each zone opted-in:
 
 Builder picks; both meet the Bug #10 requirement.
 
+### B.B.3.5 Multi-house-zone-per-thermostat — REUSE existing resolver
+
+URA already handles the case where multiple house zones share a single thermostat (e.g., Entertainment + Master Suite both served by `climate.master`). Verified during audit (2026-05-27):
+
+- **`hvac_zones.py:693 iter_canonical_hvac_zones(hass) -> list[dict]`** returns thermostat-deduplicated HVAC zones. Each entry includes merged `zone_name` (e.g., `"Entertainment + Master Suite"`), the shared `climate_entity`, OR-merged `ramp_zone_enabled`, etc.
+- **`ZoneManager.async_discover_zones`** (hvac_zones.py:213-345) does the runtime merge.
+- **Lockstep equivalence** between the two paths is enforced by `test_v4513_1_zone_dedup.py` (Bug Class #36 prevention).
+- **Already consumed by** `sensor.py`, `number.py`, `button.py` per-zone entity setup.
+
+**Cycle B implication:** the OverrideEngine emits per house zone (Master Suite separately from Entertainment). Actuation routes through `_apply_house_state_presets` which iterates `self._zone_manager.zones.items()` — the merged canonical set. **Master Suite + Entertainment share a single iteration step** in the merged set; both house zones' overrides converge on the same `climate.master` actuation.
+
+**Conflict-resolution at the actuation layer:** when multiple per-house-zone overrides converge on a single canonical HVAC zone, the OverrideEngine resolves to the **tightest cool_high** (most conservative — guarantees comfort doesn't degrade). Implementation: ~5 lines added inside the existing override-resolve path, NOT a new module.
+
+**No new HVAC zone topology code.** Cycle B adds nothing to `hvac_zones.py`. The per-zone form-save validation reads `iter_canonical_hvac_zones` and warns when shared-thermostat house zones have divergent tables (see §B.B.5).
+
 ### B.B.4 Composition with shared override schema
 
 Cycle B emits override records into Guest Mode Phase 1's `OverrideEngine` schema:
@@ -311,28 +363,64 @@ Cycle B emits override records into Guest Mode Phase 1's `OverrideEngine` schema
 
 **Override removal on bucket change:** when a transition happens, the OLD override (e.g., `dynamic_preset@hot`) is removed and the NEW override (e.g., `dynamic_preset@mild`) is added. `OverrideEngine` exposes a remove-by-source-and-predicate API call for this.
 
-### B.B.5 Per-zone × per-bucket range table
+### B.B.5 Per-zone × per-bucket range table + zone offset
 
-Configured via Zone Manager → zone-edit options-flow step (extends existing step from Guest Mode Phase 1; no new step). Format per zone:
+Configured via Zone Manager → zone-edit options-flow step (extends existing step from Guest Mode Phase 1; no new step).
+
+**Default values (Master Suite — baseline, no offset):**
+
+| Bucket | apparent forecast high | delta vs baseline | home cool_high | sleep cool_high |
+|---|---|---|---|---|
+| cool | ≤ 75°F | δ ≤ −2°F | 77 | 76 |
+| mild | 75–85°F | −2 < δ ≤ +8°F | 76 | 75 |
+| hot | 85–95°F | +8 < δ ≤ +18°F | **74** | **74** (sleep floor activates; matches home) |
+| extreme | > 95°F | δ > +18°F | **74** (defaults to same as hot) | **74** |
+
+**Sleep floor rule:** `sleep_high = max(74, home_high − 1)`. When the auto-derive would push sleep below 74, sleep matches home (no offset). When `home_high ≤ 74`, sleep = max(74, home_high − 1) → sleep is at the floor (74), which can be at-or-above home.
+
+**Per-zone offset (interim mechanism; superseded by future unoccupied-room cycle):**
 
 ```
 [ ] Enable dynamic preset adjustment for this zone
 
-If enabled, defaults for `home` preset:
-  Bucket: cool       low [70.0]  high [77.0]
-  Bucket: mild       low [70.0]  high [76.0]   (defaults from current home preset baseline)
-  Bucket: hot        low [70.0]  high [74.0]
-  Bucket: extreme    low [70.0]  high [73.0]
+Zone offset (°F): [+0.0]   (range: 0 to +3, step 0.5)
+  Applied to all bucket cool_high values for this zone.
+  Use to bias non-bedroom zones warmer (e.g., Back Hallway = +1).
+
+[X] Reset offset to 0 when house_state = guest    (default: checked)
+  Under guest mode, this zone matches the baseline (Master Suite-style)
+  range. Useful when guest rooms are in the offset zone.
+
+If enabled, defaults for `home` preset (offset already applied; user
+can edit each cell):
+  Bucket: cool       low [70.0]  high [<see below>]
+  Bucket: mild       low [70.0]  high [<see below>]
+  Bucket: hot        low [70.0]  high [<see below>]
+  Bucket: extreme    low [70.0]  high [<see below>]
 
 [ ] Also apply to 'sleep' preset (default OFF)
-  If checked, defaults are 1°F LOWER high than home per bucket:
-    Bucket: cool       low [70.0]  high [76.0]
-    Bucket: mild       low [70.0]  high [75.0]
-    Bucket: hot        low [70.0]  high [73.0]
-    Bucket: extreme    low [70.0]  high [72.0]
+  Auto-derived defaults shown when checked; user can edit before save.
+  Rule: sleep_high = max(74, home_high − 1) + zone_offset_under_house_state
 ```
 
-Form-save validation: all 4 buckets must be filled if zone is opted in (no partial tables). `cool_low ≤ cool_high - MIN_DEADBAND` (reuse Guest Mode Phase 1's invariant).
+**Offset application order:** `sleep_effective = max(74, home_high − 1) + offset`. Offset applied AFTER the floor check (option (b) per user spec). Allows Back Hallway sleep = 75 (above the floor) while Master Suite sleep matches the floor at 74.
+
+**Effective table for Back Hallway (+1.0°F offset, guest_mode OFF):**
+
+| Bucket | home cool_high | sleep cool_high |
+|---|---|---|
+| cool | 78 (77+1) | 77 (76+1) |
+| mild | 77 (76+1) | 76 (75+1) |
+| hot | 75 (74+1) | 75 (74+1 — floor + offset) |
+| extreme | 75 | 75 |
+
+When `house_state = guest` and "Reset offset to 0" is checked → Back Hallway matches Master Suite's table (74/74 for hot/extreme).
+
+**Form-save validation:**
+- All 4 buckets must be filled if zone is opted in (no partial tables)
+- `cool_low ≤ cool_high − MIN_DEADBAND` per bucket (reuse Guest Mode Phase 1's invariant)
+- Sleep cool_high MUST be ≥ 74 (the floor) after offset application — form rejects save otherwise
+- **Multi-house-zone-per-thermostat check:** form-save reads `iter_canonical_hvac_zones` (`hvac_zones.py:693`) to detect house zones that share a thermostat. If two share AND have different bucket tables, the form WARNS (does not block): "Master Suite + Entertainment share thermostat `climate.X`. Their bucket tables differ; tighter cool_high will apply at runtime." Inform; let the user decide.
 
 ## B.C. Cycle B Deliverables
 
@@ -476,7 +564,7 @@ Audited 2026-05-27 against `docs/QUALITY_CONTEXT.md` (42 bug classes):
 | #23 Observation Mode Gating | MEDIUM | Cycle B: emit gated at EC decision-cycle level; eval still runs + logs |
 | #32 Form Field With No Runtime Reader | MEDIUM | Source-contract AST tests for every new CONF in both cycles |
 | #35 Button Entity Missing Refresh Signal | N/A | No buttons added (intentional) |
-| #36 Per-Zone Entity Bypasses ZoneManager Dedup | LOW | All new sensors live on CM/integration device; bucket tables live in Zone Manager via existing extension point |
+| #36 Per-Zone Entity Bypasses ZoneManager Dedup | MEDIUM | Cycle B form-save validation uses `iter_canonical_hvac_zones` (the canonical resolver, NOT a rolled-own iteration) per §B.B.3.5. Lockstep test `test_v4513_1_zone_dedup.py` already guards the contract. Any new per-HVAC-zone surface MUST go through this resolver. |
 | #37 API Contract Change | MEDIUM | `EnergyConstraint` adds `apparent_forecast_high_temp` field (additive, back-compat); audit by Reviewer B + Reviewer C |
 | #38 `async_listen` Unsubscribe | MEDIUM | All `async_track_state_change_event` captures unsub into `self._unsub_handles`; cleaned in teardown |
 | #39 Schema Mirror Drift in Test Fixtures | MEDIUM | Test fixtures extract `PresetOverride` shape from production `OverrideEngine`, never hand-copy |
@@ -503,16 +591,21 @@ Per CLAUDE.md, every cycle MUST update relevant user-facing docs. Specific deliv
 
 ---
 
-## E. Open Questions (acceptable to defer to build time)
+## E. Open Questions — RESOLVED 2026-05-27
 
-These are NOT blocking. The cycles can ship with builder's judgment OR a quick async ping to the user:
+All 6 open questions locked during the planning conversation:
 
-1. **Cycle A:** Default provider order when 3 providers configured but priorities unknown — alphabetical fallback? OR force user to drag-rank in the options flow (best practice)?
-2. **Cycle A:** Should the legacy `CONF_ENERGY_WEATHER_ENTITY` be deprecated in Cycle A's release notes (with removal scheduled) or stay indefinitely for back-compat?
-3. **Cycle B:** Default bucket boundaries (delta thresholds) — keep at -2/+8/+18 per this plan OR per-climate-region defaults?
-4. **Cycle B:** Sleep preset auto-tracking — when user opts in for sleep, should defaults auto-derive as 1°F lower-high than home (current plan), OR require user to explicitly fill the sleep table?
-5. **Cycle B:** Should the bucket transition log entry fire an NM notification (severity INFO, opt-in)? Probably no for v1 — log + sensor change is enough.
-6. **Cycle B:** Override priority vs guest_mode — current default is 30 (lower); should there be a CM-level setting to flip it (e.g., during extreme heat, weather should win over comfort guests)?
+1. **Provider order config UX:** Labeled fields ("Primary / Secondary / Tertiary") — option (a). Fields live in existing CM → Energy step. No HVAC config-flow refactor needed.
+2. **Legacy CONF deprecation:** Keep `CONF_ENERGY_WEATHER_ENTITY` as primary; add `CONF_ENERGY_WEATHER_FALLBACK_1` + `CONF_ENERGY_WEATHER_FALLBACK_2` (option (d) — user-proposed compromise). Zero breaking change.
+3. **Default bucket boundaries:** Keep -2/+8/+18 — Texas-tuned. Other users tune via CM options. Bucket-to-range mapping table now shown in §B.B.5 in full detail.
+4. **Sleep auto-tracking:** Option (c) — auto-derived defaults shown to user; user can edit before save.
+5. **NM notification on bucket transition:** Option (b) — opt-in INFO notification, default OFF. Adds `CONF_DYNAMIC_PRESET_NOTIFY_ON_TRANSITION` bool, default False.
+6. **Override priority vs guest_mode:** Hardcoded — dynamic_preset = 30, guest_mode = 50. Predictable. Re-evaluate if extreme-heat scenarios actually bite.
+
+Three additional decisions locked:
+- **Hot and Extreme bucket default to same range** (home cool_high = 74). User can edit to differentiate per-zone if they want.
+- **Sleep floor at 74°F.** `sleep_high = max(74, home_high − 1) + zone_offset` — floor applied first, then offset (so Back Hallway sleep = 75 with +1 offset, while Master sleep = 74).
+- **Per-zone offset is the interim "guest zone" mechanism.** Replaced by the future unoccupied-room-relaxation cycle when that ships.
 
 ---
 
