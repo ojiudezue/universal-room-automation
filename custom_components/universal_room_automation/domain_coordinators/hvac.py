@@ -173,6 +173,14 @@ class HVACCoordinator(BaseCoordinator):
         # Observation mode — sensors run but no actions taken
         self._observation_mode: bool = False
 
+        # v4.7.1 fix-up D2/D3: Guest Mode Actuation Phase 1
+        # Master kill switch — seeded True; runtime-toggled via
+        # HVACGuestModeActuationSwitch (D3 switch on HVAC Coordinator device).
+        self._guest_mode_actuation_enabled: bool = True
+        # Per-zone last-emitted (cool_low, cool_high) to avoid redundant
+        # set_temperature service calls when resolved range is unchanged.
+        self._last_emitted_range: dict[str, tuple[float, float]] = {}
+
         # Diagnostics
         self._decision_logger = None
         self._compliance = None
@@ -893,6 +901,115 @@ class HVACCoordinator(BaseCoordinator):
                     device_id=zone.climate_entity,
                     commanded_state={"preset_mode": effective_preset},
                 )
+
+        # v4.7.1 fix-up D2: After preset changes, apply OverrideEngine temperature
+        # ranges if guest_mode_actuation is enabled (Bug #23 — skip in obs mode).
+        if not self._observation_mode:
+            await self._async_apply_preset_overrides()
+
+    async def _async_apply_preset_overrides(self) -> None:
+        """D2: Apply OverrideEngine temperature ranges to thermostats.
+
+        v4.7.1 Phase 1 D2 (PLANNING_v4.7.x_guest_mode_actuation_phase1.md §5.D2).
+
+        Reads override records from the EC's _dynamic_preset_overrides dict,
+        resolves them via OverrideEngine against the seasonal baseline, and
+        issues set_temperature when the resolved range differs from the
+        last-emitted range (throttle guard).
+
+        Always wrapped in OverrideArrester.suppress so URA's own
+        set_temperature call is not read as a manual override.
+
+        Bug #23: gate is on this method (actuation side), not the source.
+        Bug #19: no async_create_task — awaited inline.
+        Bug #42: no lambda in any callback.
+        """
+        if not self._guest_mode_actuation_enabled:
+            _LOGGER.debug("HVAC: guest_mode_actuation disabled — skipping override apply")
+            return
+
+        try:
+            from ..const import DOMAIN as _DOMAIN_KEY
+            from .preset_overrides import OverrideEngine
+
+            # Get EC's accumulated overrides from the last evaluate tick
+            ec = None
+            manager = self.hass.data.get(_DOMAIN_KEY, {}).get("coordinator_manager")
+            if manager is not None:
+                ec = manager.coordinators.get("energy")
+            if ec is None:
+                return
+
+            all_overrides = getattr(ec, "_dynamic_preset_overrides", {})
+            master_enabled = self._guest_mode_actuation_enabled
+            engine = OverrideEngine()
+
+            target_preset = self._preset_manager.get_preset_for_house_state(
+                self._house_state
+            )
+            if target_preset is None:
+                return
+
+            for zone_id, zone in self._zone_manager.zones.items():
+                zone_overrides = all_overrides.get(zone_id, [])
+
+                # Get baseline from preset manager
+                baseline = self._preset_manager.get_seasonal_setpoints(target_preset)
+                if baseline is None:
+                    continue
+                baseline_cool, _baseline_heat = baseline
+
+                # Determine effective baseline (cool_low=baseline_cool - MIN_DEADBAND, cool_high=baseline_cool)
+                # seasonal setpoints return (cool_setpoint, heat_setpoint) — cool is the high
+                baseline_low = baseline_cool - 7.0  # standard 7°F spread from SEASONAL_DEFAULTS
+                baseline_high = baseline_cool
+
+                # Resolve override for this zone + preset
+                active = engine.get_active_overrides(
+                    zone_id, target_preset, self._house_state, master_enabled, zone_overrides
+                )
+                resolved = engine.resolve_range(baseline_low, baseline_high, active)
+
+                # Throttle: skip if resolved range matches last emitted
+                last = self._last_emitted_range.get(zone_id)
+                resolved_pair = (resolved.cool_low, resolved.cool_high)
+                if last == resolved_pair:
+                    continue
+
+                # Suppress arrester so set_temperature isn't flagged as manual override
+                if self._override_arrester:
+                    self._override_arrester.suppress(zone.climate_entity)
+
+                try:
+                    await self.hass.services.async_call(
+                        "climate",
+                        "set_temperature",
+                        {
+                            "entity_id": zone.climate_entity,
+                            "target_temp_low": resolved.cool_low,
+                            "target_temp_high": resolved.cool_high,
+                        },
+                        blocking=False,
+                    )
+                    self._last_emitted_range[zone_id] = resolved_pair
+                    _LOGGER.info(
+                        "HVAC: set_temperature %s low=%.1f high=%.1f "
+                        "(override_sources=%s, house=%s)",
+                        zone.zone_name,
+                        resolved.cool_low, resolved.cool_high,
+                        list(resolved.sources.values()),
+                        self._house_state,
+                    )
+                except Exception as exc:
+                    _LOGGER.error(
+                        "HVAC: failed set_temperature on %s: %s",
+                        zone.climate_entity, exc,
+                    )
+                    if self._override_arrester:
+                        self._override_arrester.unsuppress(zone.climate_entity)
+
+        except Exception:
+            _LOGGER.warning("HVAC: _async_apply_preset_overrides failed", exc_info=True)
 
     @callback
     def _handle_house_state_changed(self, payload: Any) -> None:

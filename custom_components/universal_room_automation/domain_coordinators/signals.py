@@ -79,6 +79,14 @@ SIGNAL_ENERGY_COORDINATOR_READY: Final = "ura_energy_coordinator_ready"
 SIGNAL_WEATHER_PROVIDER_CHANGED: Final = "ura_weather_provider_changed"
 SIGNAL_WEATHER_DIVERGENCE_DETECTED: Final = "ura_weather_divergence_detected"
 
+# v4.7.1 Cycle B: Dynamic Preset Override Source signals
+# Dispatched by DynamicPresetOverrideSource when a zone transitions to a new bucket.
+# Payload: dict with keys zone_id, previous_bucket, new_bucket, delta_f, now_iso
+SIGNAL_DYNAMIC_PRESET_TRANSITIONED: Final = "ura_dynamic_preset_transitioned"
+# Dispatched when the override list changes (bucket change OR enable/disable).
+# Sensors subscribe to refresh their state.
+SIGNAL_DYNAMIC_PRESET_OVERRIDES_UPDATED: Final = "ura_dynamic_preset_overrides_updated"
+
 
 # ============================================================================
 # Shared data classes for inter-coordinator communication
