@@ -319,7 +319,7 @@ class TestSourceMirrorContract:
         assert "5" in body and "30" in body and "120" in body
 
     def test_factory_retry_clears_flag_on_success(self, switch_source):
-        idx = switch_source.find("def _retry_restore", switch_source.find("_ec_switch_factory"))
+        idx = switch_source.find("def _retry_restore", switch_source.find("def _ec_switch_factory("))
         assert idx > 0
         body = switch_source[idx:idx + 1200]
         assert "if not self._deferred_restore:" in body, (
