@@ -2027,8 +2027,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 else:
                     _LOGGER.info("Notification Manager disabled via config")
 
-                await coordinator_manager.async_start()
+                # B1 fix: assign coordinator_manager to hass.data BEFORE
+                # async_start() so that SIGNAL_ENERGY_COORDINATOR_READY
+                # subscribers (e.g. EC sub-switches in _handle_ec_ready) can
+                # look up the coordinator via hass.data[DOMAIN]["coordinator_manager"]
+                # at signal-fire time.  Mirrors the SIGNAL_DATABASE_READY /
+                # SIGNAL_NM_READY pattern: hass.data slot is set before the
+                # signal is dispatched.  The coordinator_manager object is
+                # fully constructed at this point; async_start() merely drives
+                # async_setup() on each coordinator, so the earlier publish is safe.
                 hass.data[DOMAIN]["coordinator_manager"] = coordinator_manager
+                await coordinator_manager.async_start()
                 _LOGGER.info("Domain Coordinator Manager initialized and started")
 
                 # v4.6.10 D1: Stash setup telemetry — LAST thing in CM init block.

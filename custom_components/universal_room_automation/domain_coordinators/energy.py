@@ -370,6 +370,13 @@ class EnergyCoordinator(BaseCoordinator):
         # Observation mode: sensors compute, no actions executed
         self._observation_mode: bool = False
 
+        # v4.7.x D2 fix-up H1: track how many of the 5 EC sub-switches
+        # have NOT yet completed their deferred restore.  Each switch calls
+        # notify_sub_switch_restore_complete() when _handle_ec_ready lands
+        # successfully.  ECSubSwitchesSyncedSensor reads sub_switches_synced().
+        # There are exactly 5 factory-generated EC sub-switches.
+        self._pending_sub_switch_restores: int = 5
+
         # State tracking
         self._last_battery_decision: dict[str, Any] = {}
         self._tou_transition_count: int = 0
@@ -3726,6 +3733,25 @@ class EnergyCoordinator(BaseCoordinator):
             "forecast_low_temp": self._cached_forecast_low,
             "fan_assist": self._hvac_constraint_mode in ("coast", "shed"),
         }
+
+    # v4.7.x D2 fix-up H1: sub-switch restore completion tracking
+    def notify_sub_switch_restore_complete(self) -> None:
+        """Called by each EC sub-switch when its deferred restore completes.
+
+        Decrements the pending-restore counter.  The counter floor is 0 —
+        redundant calls (e.g. if a switch fires twice) are safe.
+        ECSubSwitchesSyncedSensor calls sub_switches_synced() to read state.
+        """
+        if self._pending_sub_switch_restores > 0:
+            self._pending_sub_switch_restores -= 1
+            _LOGGER.debug(
+                "EC sub-switch restore complete; %d remaining",
+                self._pending_sub_switch_restores,
+            )
+
+    def sub_switches_synced(self) -> bool:
+        """Return True when all 5 EC sub-switches have completed deferred restore."""
+        return self._pending_sub_switch_restores == 0
 
     @property
     def observation_mode(self) -> bool:

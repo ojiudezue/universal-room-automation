@@ -1983,16 +1983,29 @@ class ECSubSwitchesSyncedSensor(AggregationEntity, BinarySensorEntity):
 
     @property
     def is_on(self) -> bool | None:
-        """Return False (problem) when EC is not ready; True when synced.
+        """Return True (problem) when any sub-switch has not completed restore.
 
         NOTE: BinarySensorDeviceClass.PROBLEM convention: True = problem exists.
-        We return True (problem) when EC is not yet registered.
+        We return True (problem) when EC is not yet registered OR when one or
+        more sub-switches still have a pending deferred restore.
+
+        v4.7.x H1 fix-up: uses energy.sub_switches_synced() which reads the
+        per-switch completion counter (notify_sub_switch_restore_complete).
+        EC registered alone is a weaker guarantee — a switch could be stuck at
+        its constructor-seed value even after EC registers.
         """
         energy = self._get_energy()
         if energy is None:
             # EC not yet registered — sub-switches using seed values
             return True  # problem: not synced
-        return False  # problem resolved: EC is registered, synced
+        # EC registered: check whether all sub-switches completed deferred restore
+        try:
+            if not energy.sub_switches_synced():
+                return True  # problem: at least one switch still pending
+        except Exception:
+            # sub_switches_synced() not available on older EC instances
+            pass
+        return False  # no problem: EC registered and all switches synced
 
     @property
     def extra_state_attributes(self) -> dict:
@@ -2004,6 +2017,12 @@ class ECSubSwitchesSyncedSensor(AggregationEntity, BinarySensorEntity):
                 self._ec_ready_at.isoformat() if self._ec_ready_at else None
             ),
         }
+        if energy is not None:
+            try:
+                attrs["pending_sub_switch_restores"] = energy._pending_sub_switch_restores
+                attrs["all_switches_synced"] = energy.sub_switches_synced()
+            except Exception:
+                pass
         if energy is not None and self._ec_ready_at is not None:
             age_s = (dt_util.utcnow() - self._ec_ready_at).total_seconds()
             attrs["seconds_since_ec_ready"] = round(age_s, 1)
