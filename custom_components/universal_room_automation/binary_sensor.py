@@ -1,6 +1,6 @@
 """Binary sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.7.0
+# Universal Room Automation vv4.7.0.1
 # Build: 2026-01-02
 # File: binary_sensor.py
 # v3.2.6: Renamed "Presence" to "Sensor Presence" for clarity
@@ -1738,7 +1738,7 @@ class WeatherDivergenceBinarySensor(AggregationEntity, BinarySensorEntity):
                 return {}
             return {
                 "divergence_f": mgr.divergence_f,
-                "threshold_f": mgr._divergence_threshold_f(),
+                "threshold_f": mgr.divergence_threshold_f,
                 "provider_high_map": dict(mgr._provider_highs),
             }
         except Exception:

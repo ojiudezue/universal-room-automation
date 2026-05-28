@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.7.0
+# Universal Room Automation vv4.7.0.1
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -6388,8 +6388,10 @@ class WeatherActiveProviderSensor(AggregationEntity, SensorEntity):
             mgr = self.hass.data.get(DOMAIN, {}).get("weather_manager")
             if mgr is None:
                 return {}
+            active = mgr.active_provider
+            rank = mgr.priority_rank_for(active) if active is not None else None
             return {
-                "priority_rank": 0,
+                "priority_rank": rank,
                 "healthy_count": mgr.healthy_provider_count,
                 "total_count": mgr.total_provider_count,
                 "failover_reason": mgr.failover_reason,
