@@ -327,20 +327,27 @@ For each zone opted-in:
 
 Builder picks; both meet the Bug #10 requirement.
 
-### B.B.3.5 Multi-house-zone-per-thermostat — REUSE existing resolver
+### B.B.3.5 Canonical HVAC zones — the ONLY surface
 
-URA already handles the case where multiple house zones share a single thermostat (e.g., Entertainment + Master Suite both served by `climate.master`). Verified during audit (2026-05-27):
+**Per user direction (2026-05-27):** Cycle B's configuration UI + override emission both operate at the **canonical HVAC zone** level. House zones are never surfaced to the user in this feature; that's a distraction.
 
-- **`hvac_zones.py:693 iter_canonical_hvac_zones(hass) -> list[dict]`** returns thermostat-deduplicated HVAC zones. Each entry includes merged `zone_name` (e.g., `"Entertainment + Master Suite"`), the shared `climate_entity`, OR-merged `ramp_zone_enabled`, etc.
-- **`ZoneManager.async_discover_zones`** (hvac_zones.py:213-345) does the runtime merge.
-- **Lockstep equivalence** between the two paths is enforced by `test_v4513_1_zone_dedup.py` (Bug Class #36 prevention).
-- **Already consumed by** `sensor.py`, `number.py`, `button.py` per-zone entity setup.
+URA already exposes `iter_canonical_hvac_zones` at `hvac_zones.py:693` — verified during audit:
 
-**Cycle B implication:** the OverrideEngine emits per house zone (Master Suite separately from Entertainment). Actuation routes through `_apply_house_state_presets` which iterates `self._zone_manager.zones.items()` — the merged canonical set. **Master Suite + Entertainment share a single iteration step** in the merged set; both house zones' overrides converge on the same `climate.master` actuation.
+- Returns thermostat-deduplicated HVAC zones. Each entry includes merged `zone_name` (e.g., `"Entertainment + Master Suite"` when those two house zones share a thermostat), the shared `climate_entity`, OR-merged `ramp_zone_enabled`, etc.
+- `ZoneManager.async_discover_zones` (hvac_zones.py:213-345) does the runtime merge — same logic.
+- Lockstep equivalence between the two paths enforced by `test_v4513_1_zone_dedup.py` (Bug Class #36 prevention).
+- Already consumed by `sensor.py`, `number.py`, `button.py` per-zone entity setup.
 
-**Conflict-resolution at the actuation layer:** when multiple per-house-zone overrides converge on a single canonical HVAC zone, the OverrideEngine resolves to the **tightest cool_high** (most conservative — guarantees comfort doesn't degrade). Implementation: ~5 lines added inside the existing override-resolve path, NOT a new module.
+**Cycle B implication — significantly cleaner than I previously drafted:**
 
-**No new HVAC zone topology code.** Cycle B adds nothing to `hvac_zones.py`. The per-zone form-save validation reads `iter_canonical_hvac_zones` and warns when shared-thermostat house zones have divergent tables (see §B.B.5).
+1. The bucket-table form lists ONLY canonical HVAC zones. If Master Suite + Entertainment share a thermostat, the user sees ONE row labeled `"Entertainment + Master Suite"` — never two rows.
+2. The override emission targets canonical HVAC zone identifiers, not house zones. One override per canonical HVAC zone per bucket.
+3. There is no divergent-table problem to detect because the form can't express divergence — there's only one row per canonical zone.
+4. The `OverrideEngine` schema continues to operate on the IDs the form produced (canonical HVAC zone IDs).
+
+**No conflict-resolution logic needed.** The previous draft proposed "tightest cool_high wins" for shared-thermostat house zones, but with canonical-zone-only configuration, the input space makes conflicts impossible. The whole code path was unnecessary.
+
+**No new HVAC zone topology code.** Cycle B adds nothing to `hvac_zones.py`. The form-save validation just calls `iter_canonical_hvac_zones` to enumerate the zones the form should display.
 
 ### B.B.4 Composition with shared override schema
 
@@ -420,7 +427,7 @@ When `house_state = guest` and "Reset offset to 0" is checked → Back Hallway m
 - All 4 buckets must be filled if zone is opted in (no partial tables)
 - `cool_low ≤ cool_high − MIN_DEADBAND` per bucket (reuse Guest Mode Phase 1's invariant)
 - Sleep cool_high MUST be ≥ 74 (the floor) after offset application — form rejects save otherwise
-- **Multi-house-zone-per-thermostat check:** form-save reads `iter_canonical_hvac_zones` (`hvac_zones.py:693`) to detect house zones that share a thermostat. If two share AND have different bucket tables, the form WARNS (does not block): "Master Suite + Entertainment share thermostat `climate.X`. Their bucket tables differ; tighter cool_high will apply at runtime." Inform; let the user decide.
+- **HVAC zones only (per user direction 2026-05-27):** the form enumerates ONLY canonical HVAC zones via `iter_canonical_hvac_zones`. House zones are never listed individually. If multiple house zones share a thermostat (e.g., Master Suite + Entertainment), the user sees one row labeled `"Entertainment + Master Suite"`. No divergent-table possibility because the form can't express it.
 
 ## B.C. Cycle B Deliverables
 
