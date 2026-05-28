@@ -437,3 +437,13 @@ Two bug shapes from the v4.5.11.x debugging cycle are documented in `docs/QUALIT
 - **Bug Class #35** (button without refresh signal) — any new Button entity whose `available` depends on a runtime resource must subscribe to `SIGNAL_HVAC_ENTITIES_UPDATE` in `async_added_to_hass`. Otherwise it caches `available: False` forever after a restart timing-race. All v4.5.11.3+ buttons follow this pattern.
 
 These are documented for both maintenance (when adding new buttons / coord setup code) and for context if you observe the related symptoms (UnboundLocalError tracebacks, or buttons stuck greyed-out).
+
+---
+
+## §6b. Energy Constraint Integration + WeatherProviderManager (v4.7.x Cycle A)
+
+HVAC pre-cool likelihood (`sensor.ura_hvac_pre_cool_likelihood`) uses `forecast_high_temp` from the `EnergyConstraint` signal dispatched by the Energy Coordinator. As of v4.7.x Cycle A, this field continues to carry **raw forecast high** (°F dry-bulb) sourced via `WeatherProviderManager` — the same value as before, but now coming from the ranked-list manager instead of a single provider.
+
+A new field `apparent_forecast_high_temp` was added additively to `EnergyConstraint`. HVAC does not yet consume this field — that migration is deferred to a future Cycle C ("Comfort Primitive Migration") per the plan. For now, HVAC pre-cool likelihood behavior is unchanged.
+
+**What this means for you:** pre-cool likelihood numbers should remain stable post-v4.7.x deploy. If your primary weather provider goes stale or offline, the manager will automatically failover to the secondary/tertiary provider, so pre-cool continues to get a forecast high without intervention.

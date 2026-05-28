@@ -460,3 +460,41 @@ EnergyCoordinator (energy.py)
 Priority: 40 (above Comfort/HVAC at 20-30, below Safety at 100).
 
 Decision interval: 5 minutes (configurable). The 60-90 second buffer within each 5-minute cycle accommodates Enphase command latency.
+
+---
+
+## 15. Weather Provider Manager (v4.7.x Cycle A)
+
+`WeatherProviderManager` replaces single-provider weather reliance with a ranked-list model. Up to three weather entities can be configured in priority order (Primary / Secondary / Tertiary).
+
+### Ranked-list model + apparent temperature
+
+**Config** (CM → Energy step): Primary (`CONF_ENERGY_WEATHER_ENTITY`) + Secondary (`CONF_ENERGY_WEATHER_FALLBACK_1`) + Tertiary (`CONF_ENERGY_WEATHER_FALLBACK_2`).
+
+The manager reads `apparent_temperature` (or `temperature_feels_like` per NWS) from each provider's `weather.get_forecasts` response — this is the felt-temperature accounting for humidity and wind, not raw dry-bulb. When a provider doesn't expose apparent temperature, the manager falls back to raw `temperature` with `apparent_confidence = "fallback_raw"` so callers know the fidelity.
+
+**Failover:** active provider = first healthy provider in priority order. A provider is healthy if its HA entity is not `unavailable`/`unknown`, its `last_changed` is within `CONF_WEATHER_STALENESS_MAX_HOURS` (default 6h), and `weather.get_forecasts` returns a forecast covering today.
+
+**Divergence:** when ≥2 healthy providers report `today_high` values that differ by ≥ `CONF_WEATHER_DIVERGENCE_THRESHOLD_F` (default 5°F), `binary_sensor.ura_weather_divergence` turns ON and the manager logs a WARNING. With divergence, the authoritative apparent_high is the median across healthy providers.
+
+### Sensors
+
+| Entity | State |
+|---|---|
+| `sensor.ura_weather_active_provider` | active entity_id, `none`, or `all_stale` |
+| `sensor.ura_weather_apparent_forecast_high` | today's apparent high °F |
+| `binary_sensor.ura_weather_divergence` | on when providers diverge |
+
+### EC integration (A4 migration)
+
+`EnergyCoordinator._update_forecast_temps()` routes through the manager when available. The `EnergyConstraint` signal payload gains a new field `apparent_forecast_high_temp` (alongside the existing `forecast_high_temp` which carries raw_high for back-compat). HVAC pre-cool likelihood continues to read `forecast_high_temp`; future cycles can migrate to `apparent_forecast_high_temp`.
+
+### Architecture addition
+
+```
+EnergyCoordinator
+└── WeatherProviderManager (weather_manager.py) — ranked providers, failover, apparent-temp
+    ├── async_track_state_change_event per provider (unsub on teardown)
+    ├── weather.get_forecasts service call (inline await, no fire-and-forget)
+    └── baseline_delta_for_zone() → delta for future Cycle B bucket classifier
+```

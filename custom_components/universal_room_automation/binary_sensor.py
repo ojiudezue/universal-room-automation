@@ -129,6 +129,8 @@ async def async_setup_entry(
             EnergyEnvoyAvailableBinarySensor(hass, entry),
             # v3.7.7: L1 Charger status
             EnergyL1ChargerBinarySensor(hass, entry),
+            # v4.7.x Cycle A: WeatherProviderManager divergence flag
+            WeatherDivergenceBinarySensor(hass, entry),
         ]
         async_add_entities(coordinator_binary)
         return
@@ -1658,6 +1660,66 @@ class EnergyL1ChargerBinarySensor(AggregationEntity, BinarySensorEntity):
         if energy is None:
             return None
         return energy.l1_charger_active
+
+
+# ============================================================================
+# v4.7.x Cycle A: Weather Provider Divergence
+# ============================================================================
+
+
+class WeatherDivergenceBinarySensor(AggregationEntity, BinarySensorEntity):
+    """On when ≥2 weather providers disagree beyond the configured threshold.
+
+    Entity: binary_sensor.ura_weather_divergence
+    Device: URA: Energy Coordinator
+    """
+
+    _attr_device_class = BinarySensorDeviceClass.PROBLEM
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:weather-cloudy-alert"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_weather_divergence"
+        self._attr_name = "Weather Divergence"
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .const import VERSION
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "energy_coordinator")},
+            name="URA: Energy Coordinator",
+            manufacturer="Universal Room Automation",
+            model="Energy Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+
+    @property
+    def is_on(self) -> bool | None:
+        """Return True when provider divergence exceeds configured threshold."""
+        try:
+            mgr = self.hass.data.get(DOMAIN, {}).get("weather_manager")
+            if mgr is None:
+                return False
+            return mgr.is_divergent
+        except Exception:
+            return False
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return divergence details."""
+        try:
+            mgr = self.hass.data.get(DOMAIN, {}).get("weather_manager")
+            if mgr is None:
+                return {}
+            return {
+                "divergence_f": mgr.divergence_f,
+                "threshold_f": None,  # populated from options via manager
+                "provider_high_map": mgr._provider_highs,
+            }
+        except Exception:
+            return {}
 
 
 # ============================================================================

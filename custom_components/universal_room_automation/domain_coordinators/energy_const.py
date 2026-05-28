@@ -147,6 +147,9 @@ DEFAULT_SOLCAST_PEAK_TIME_ENTITY: Final = "sensor.solcast_pv_forecast_peak_time_
 
 # Weather
 DEFAULT_WEATHER_ENTITY: Final = "weather.phalanxmadrone"
+# v4.7.x Cycle A: WeatherProviderManager — ranked-list provider with failover
+DEFAULT_WEATHER_STALENESS_MAX_HOURS: Final = 6
+DEFAULT_WEATHER_DIVERGENCE_THRESHOLD_F: Final = 5.0
 
 # EVSE (Emporia WiFi chargers)
 DEFAULT_EVSE_GARAGE_A_POWER_ENTITY: Final = "sensor.garage_a_power_minute_average"
@@ -183,6 +186,11 @@ CONF_ENERGY_SOLCAST_TODAY_ENTITY: Final = "energy_solcast_today_entity"
 CONF_ENERGY_SOLCAST_REMAINING_ENTITY: Final = "energy_solcast_remaining_entity"
 CONF_ENERGY_SOLCAST_TOMORROW_ENTITY: Final = "energy_solcast_tomorrow_entity"
 CONF_ENERGY_WEATHER_ENTITY: Final = "energy_weather_entity"
+# v4.7.x Cycle A: WeatherProviderManager ranked-list fallback providers
+CONF_ENERGY_WEATHER_FALLBACK_1: Final = "energy_weather_fallback_1"
+CONF_ENERGY_WEATHER_FALLBACK_2: Final = "energy_weather_fallback_2"
+CONF_WEATHER_STALENESS_MAX_HOURS: Final = "weather_staleness_max_hours"
+CONF_WEATHER_DIVERGENCE_THRESHOLD_F: Final = "weather_divergence_threshold_f"
 CONF_ENERGY_SOLAR_CLASSIFICATION_MODE: Final = "energy_solar_classification_mode"
 CONF_ENERGY_SOLAR_THRESHOLD_EXCELLENT: Final = "energy_solar_threshold_excellent"
 CONF_ENERGY_SOLAR_THRESHOLD_GOOD: Final = "energy_solar_threshold_good"
