@@ -457,6 +457,7 @@
           "coordinator_hvac": "🌡️ HVAC",
           "coordinator_hvac_settings": "🌡️ HVAC Tuning",
           "hvac_dynamic_preset": "🌡️ HVAC Dynamic Preset",
+          "hvac_baseline_presets": "📅 Baseline Presets (Seasonal)",
           "coordinator_notifications": "🔔 Notifications",
           "coordinator_notifications_persons": "👤 Notification Persons",
           "coordinator_notifications_quiet": "🌙 Quiet Hours",
@@ -910,7 +911,8 @@
         "description": "Configure HVAC Coordinator settings.",
         "menu_options": {
           "coordinator_hvac_settings": "🌡️ HVAC Tuning",
-          "hvac_dynamic_preset": "🌡️ Dynamic Preset"
+          "hvac_dynamic_preset": "🌡️ Dynamic Preset",
+          "hvac_baseline_presets": "📅 Baseline Presets (Seasonal)"
         }
       },
       "coordinator_hvac_settings": {
@@ -985,6 +987,62 @@
           "dynamic_preset_delta_hot_max": "Maximum setpoint increase when outdoor conditions are hot. Range: 10 to 30°F. Default: 18°F.",
           "dynamic_preset_dwell_minutes": "Minutes a bucket condition must persist before adjustments apply. Prevents rapid cycling. Range: 15-240 min. Default: 60.",
           "dynamic_preset_hysteresis_f": "Temperature band around bucket boundary before switching buckets. Prevents flapping at thresholds. Range: 0.5-5.0°F. Default: 2.0."
+        }
+      },
+      "hvac_baseline_presets": {
+        "title": "📅 Baseline Presets (Seasonal)",
+        "description": "Edit the house-wide preset temperature ranges per season. These are the baseline setpoints that every zone uses unless Dynamic Preset is configured per-zone. Cooling setpoint must be at least 3°F above heating setpoint for each row.",
+        "data": {
+          "hvac_baseline_summer_home_cool": "Summer · Home — Cool High (°F)",
+          "hvac_baseline_summer_home_heat": "Summer · Home — Heat Low (°F)",
+          "hvac_baseline_summer_sleep_cool": "Summer · Sleep — Cool High (°F)",
+          "hvac_baseline_summer_sleep_heat": "Summer · Sleep — Heat Low (°F)",
+          "hvac_baseline_summer_away_cool": "Summer · Away — Cool High (°F)",
+          "hvac_baseline_summer_away_heat": "Summer · Away — Heat Low (°F)",
+          "hvac_baseline_summer_vacation_cool": "Summer · Vacation — Cool High (°F)",
+          "hvac_baseline_summer_vacation_heat": "Summer · Vacation — Heat Low (°F)",
+          "hvac_baseline_shoulder_home_cool": "Shoulder · Home — Cool High (°F)",
+          "hvac_baseline_shoulder_home_heat": "Shoulder · Home — Heat Low (°F)",
+          "hvac_baseline_shoulder_sleep_cool": "Shoulder · Sleep — Cool High (°F)",
+          "hvac_baseline_shoulder_sleep_heat": "Shoulder · Sleep — Heat Low (°F)",
+          "hvac_baseline_shoulder_away_cool": "Shoulder · Away — Cool High (°F)",
+          "hvac_baseline_shoulder_away_heat": "Shoulder · Away — Heat Low (°F)",
+          "hvac_baseline_shoulder_vacation_cool": "Shoulder · Vacation — Cool High (°F)",
+          "hvac_baseline_shoulder_vacation_heat": "Shoulder · Vacation — Heat Low (°F)",
+          "hvac_baseline_winter_home_cool": "Winter · Home — Cool High (°F)",
+          "hvac_baseline_winter_home_heat": "Winter · Home — Heat Low (°F)",
+          "hvac_baseline_winter_sleep_cool": "Winter · Sleep — Cool High (°F)",
+          "hvac_baseline_winter_sleep_heat": "Winter · Sleep — Heat Low (°F)",
+          "hvac_baseline_winter_away_cool": "Winter · Away — Cool High (°F)",
+          "hvac_baseline_winter_away_heat": "Winter · Away — Heat Low (°F)",
+          "hvac_baseline_winter_vacation_cool": "Winter · Vacation — Cool High (°F)",
+          "hvac_baseline_winter_vacation_heat": "Winter · Vacation — Heat Low (°F)"
+        },
+        "data_description": {
+          "hvac_baseline_summer_home_cool": "Summer (Jun–Sep) Home preset cooling target. Default: 77°F.",
+          "hvac_baseline_summer_home_heat": "Summer Home preset heating floor. Default: 70°F.",
+          "hvac_baseline_summer_sleep_cool": "Summer Sleep preset cooling target. Default: 76°F.",
+          "hvac_baseline_summer_sleep_heat": "Summer Sleep preset heating floor. Default: 70°F.",
+          "hvac_baseline_summer_away_cool": "Summer Away preset cooling target. Default: 82°F.",
+          "hvac_baseline_summer_away_heat": "Summer Away preset heating floor. Default: 60°F.",
+          "hvac_baseline_summer_vacation_cool": "Summer Vacation preset cooling target. Default: 85°F.",
+          "hvac_baseline_summer_vacation_heat": "Summer Vacation preset heating floor. Default: 58°F.",
+          "hvac_baseline_shoulder_home_cool": "Shoulder (Mar–May, Oct–Nov) Home preset cooling target. Default: 74°F.",
+          "hvac_baseline_shoulder_home_heat": "Shoulder Home preset heating floor. Default: 70°F.",
+          "hvac_baseline_shoulder_sleep_cool": "Shoulder Sleep preset cooling target. Default: 73°F.",
+          "hvac_baseline_shoulder_sleep_heat": "Shoulder Sleep preset heating floor. Default: 68°F.",
+          "hvac_baseline_shoulder_away_cool": "Shoulder Away preset cooling target. Default: 80°F.",
+          "hvac_baseline_shoulder_away_heat": "Shoulder Away preset heating floor. Default: 62°F.",
+          "hvac_baseline_shoulder_vacation_cool": "Shoulder Vacation preset cooling target. Default: 82°F.",
+          "hvac_baseline_shoulder_vacation_heat": "Shoulder Vacation preset heating floor. Default: 58°F.",
+          "hvac_baseline_winter_home_cool": "Winter (Dec–Feb) Home preset cooling target. Default: 72°F.",
+          "hvac_baseline_winter_home_heat": "Winter Home preset heating floor. Default: 70°F.",
+          "hvac_baseline_winter_sleep_cool": "Winter Sleep preset cooling target. Default: 70°F.",
+          "hvac_baseline_winter_sleep_heat": "Winter Sleep preset heating floor. Default: 68°F.",
+          "hvac_baseline_winter_away_cool": "Winter Away preset cooling target. Default: 78°F.",
+          "hvac_baseline_winter_away_heat": "Winter Away preset heating floor. Default: 60°F.",
+          "hvac_baseline_winter_vacation_cool": "Winter Vacation preset cooling target. Default: 80°F.",
+          "hvac_baseline_winter_vacation_heat": "Winter Vacation preset heating floor. Default: 58°F."
         }
       },
       "zone_dynamic_preset": {
@@ -1586,7 +1644,8 @@
       "dynamic_preset_bucket_required_hot": "Hot bucket values are required when Dynamic Preset is enabled. Fill in both cool_low and cool_high for the hot bucket.",
       "dynamic_preset_bucket_required_extreme": "Extreme bucket values are required when Dynamic Preset is enabled. Fill in both cool_low and cool_high for the extreme bucket.",
       "dynamic_preset_range_invalid": "Cool low must be at least 2°F below cool high for each bucket (minimum deadband). Adjust the range and try again.",
-      "dynamic_preset_sleep_below_floor": "Sleep cool high would fall below the 74°F floor after applying the zone offset. Raise the sleep cool high value or reduce the offset."
+      "dynamic_preset_sleep_below_floor": "Sleep cool high would fall below the 74°F floor after applying the zone offset. Raise the sleep cool high value or reduce the offset.",
+      "baseline_preset_invalid_deadband": "Each season/preset row's Cool High must be at least 3°F above its Heat Low. Adjust the values and try again."
     },
     "abort": {
       "no_zones_configured": "No zones have been configured yet. Add a zone from the integration setup first.",
