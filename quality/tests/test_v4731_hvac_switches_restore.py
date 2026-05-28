@@ -10,7 +10,12 @@ Override Arrester), not the user-saved value.
 Bug class #5 (startup race) pattern — same root cause as the v4.7.2.1 fix for
 occupancy-weighted switches, and the v4.5.3 fix for EC sub-switches.
 
-Fix:
+v4.7.3.1 extension: LOW-1 + MED-1 from Tier 1 review.
+  - LOW-1: HVACACResetSwitch and HVACObservationModeSwitch also covered.
+    HVACObservationModeSwitch: 5-second timer retry REPLACED by signal pattern.
+  - MED-1: All 5 switches now use last_state.state not in ("on", "off") guard.
+
+Fix (original 3 switches):
   - SIGNAL_HVAC_COORDINATOR_READY constant added to signals.py.
   - HVACCoordinator.async_setup() dispatches the signal at the end of setup.
   - Three bespoke switches subscribe to the signal via async_dispatcher_connect
@@ -19,11 +24,13 @@ Fix:
     (coord arrives via signal) restore.
   - _handle_hvac_ready uses @callback (not async, not lambda — Bug Class #42/#19).
 
-Affected switches:
+Affected switches (all 5 after extension):
   - HVACGuestModeActuationSwitch (backing: hvac._guest_mode_actuation_enabled)
   - HVACOverrideArresterSwitch (backing: hvac.override_arrester.enabled)
   - HVACACRampMasterSwitch (backing: hvac._override_arrester.ramp_master_enabled,
     accessed via _get_arrester() — structural quirk of this class)
+  - HVACACResetSwitch (backing: hvac.override_arrester.ac_reset_enabled)
+  - HVACObservationModeSwitch (backing: hvac.observation_mode)
 
 Mirror-style tests (the bespoke switch bodies can't be cleanly imported without
 HA core; mirrors the v4.5.3 pattern in test_v4503_ec_switch_restore.py).
@@ -66,6 +73,7 @@ class _MockOverrideArrester:
     def __init__(self):
         self.enabled = True
         self._ramp_master_enabled = False
+        self._ac_reset_enabled = True
 
     @property
     def ramp_master_enabled(self) -> bool:
@@ -75,6 +83,14 @@ class _MockOverrideArrester:
     def ramp_master_enabled(self, value: bool) -> None:
         self._ramp_master_enabled = value
 
+    @property
+    def ac_reset_enabled(self) -> bool:
+        return self._ac_reset_enabled
+
+    @ac_reset_enabled.setter
+    def ac_reset_enabled(self, value: bool) -> None:
+        self._ac_reset_enabled = value
+
 
 class _MockHVAC:
     """Stand-in for HVACCoordinator."""
@@ -82,10 +98,19 @@ class _MockHVAC:
     def __init__(self):
         self._guest_mode_actuation_enabled = True
         self._override_arrester = _MockOverrideArrester()
+        self._observation_mode = False
 
     @property
     def override_arrester(self) -> _MockOverrideArrester:
         return self._override_arrester
+
+    @property
+    def observation_mode(self) -> bool:
+        return self._observation_mode
+
+    @observation_mode.setter
+    def observation_mode(self, value: bool) -> None:
+        self._observation_mode = value
 
 
 # ---------------------------------------------------------------------------
@@ -556,6 +581,297 @@ class TestHVACACRampMasterSwitchRestore:
 
 
 # ---------------------------------------------------------------------------
+# Mirror of HVACACResetSwitch restore logic (v4.7.3.1 extension)
+# ---------------------------------------------------------------------------
+
+class _ACResetMirror:
+    """Mirror of HVACACResetSwitch restore lifecycle.
+
+    Backing field: hvac.override_arrester.ac_reset_enabled (property setter on
+    OverrideArrester), accessed via _get_hvac() consistent with the existing
+    switch body.
+    """
+
+    def __init__(self, get_hvac):
+        self._get_hvac = get_hvac
+        self._deferred_value = None
+        self._signal_callbacks = []
+
+    def _async_on_remove_connect(self, callback_fn):
+        self._signal_callbacks.append(callback_fn)
+
+    def async_added_to_hass(self, last_state):
+        self._async_on_remove_connect(self._handle_hvac_ready)
+
+        if last_state is None or last_state.state not in ("on", "off"):
+            return
+        target = last_state.state == "on"
+        hvac = self._get_hvac()
+        if hvac is not None:
+            hvac.override_arrester.ac_reset_enabled = target
+            self._deferred_value = None
+            return
+        self._deferred_value = target
+
+    def _handle_hvac_ready(self):
+        if self._deferred_value is None:
+            return
+        hvac = self._get_hvac()
+        if hvac is None:
+            return
+        hvac.override_arrester.ac_reset_enabled = self._deferred_value
+        self._deferred_value = None
+
+    def async_turn_on(self):
+        hvac = self._get_hvac()
+        if hvac is not None:
+            hvac.override_arrester.ac_reset_enabled = True
+            self._deferred_value = None
+
+    def async_turn_off(self):
+        hvac = self._get_hvac()
+        if hvac is not None:
+            hvac.override_arrester.ac_reset_enabled = False
+            self._deferred_value = None
+
+
+# ---------------------------------------------------------------------------
+# Mirror of HVACObservationModeSwitch restore logic (v4.7.3.1 extension)
+# ---------------------------------------------------------------------------
+
+class _ObservationModeMirror:
+    """Mirror of HVACObservationModeSwitch restore lifecycle.
+
+    Backing field: hvac.observation_mode (property on HVACCoordinator).
+    v4.7.3.1 extension: old 5-second timer retry replaced by signal pattern.
+    """
+
+    def __init__(self, get_hvac):
+        self._get_hvac = get_hvac
+        self._deferred_value = None
+        self._signal_callbacks = []
+
+    def _async_on_remove_connect(self, callback_fn):
+        self._signal_callbacks.append(callback_fn)
+
+    def async_added_to_hass(self, last_state):
+        self._async_on_remove_connect(self._handle_hvac_ready)
+
+        if last_state is None or last_state.state not in ("on", "off"):
+            return
+        target = last_state.state == "on"
+        hvac = self._get_hvac()
+        if hvac is not None:
+            hvac.observation_mode = target
+            self._deferred_value = None
+            return
+        self._deferred_value = target
+
+    def _handle_hvac_ready(self):
+        if self._deferred_value is None:
+            return
+        hvac = self._get_hvac()
+        if hvac is None:
+            return
+        hvac.observation_mode = self._deferred_value
+        self._deferred_value = None
+
+    def async_turn_on(self):
+        hvac = self._get_hvac()
+        if hvac is not None:
+            hvac.observation_mode = True
+            self._deferred_value = None
+
+    def async_turn_off(self):
+        hvac = self._get_hvac()
+        if hvac is not None:
+            hvac.observation_mode = False
+            self._deferred_value = None
+
+
+# ---------------------------------------------------------------------------
+# Tests: HVACACResetSwitch (v4.7.3.1 extension — LOW-1)
+# ---------------------------------------------------------------------------
+
+class TestHVACACResetSwitchRestore:
+    """Deferred-restore tests for HVACACResetSwitch (v4.7.3.1 extension)."""
+
+    def test_v4731_ac_reset_fast_path_restore_when_coord_present(self):
+        """HVAC coord registered before async_added_to_hass → restore lands immediately."""
+        hvac = _MockHVAC()
+        hvac.override_arrester.ac_reset_enabled = True  # running state
+        switch = _ACResetMirror(lambda: hvac)
+
+        switch.async_added_to_hass(_make_last_state("off"))
+
+        assert hvac.override_arrester.ac_reset_enabled is False, (
+            "fast path must apply restored value immediately"
+        )
+        assert switch._deferred_value is None, "no deferred value after fast path"
+
+    def test_v4731_ac_reset_deferred_restore_via_signal(self):
+        """HVAC coord NOT registered at async_added_to_hass → restore via signal."""
+        hvac_ref = [None]
+        switch = _ACResetMirror(lambda: hvac_ref[0])
+
+        switch.async_added_to_hass(_make_last_state("off"))
+
+        assert switch._deferred_value is False
+        hvac_ref[0] = _MockHVAC()
+        hvac_ref[0].override_arrester.ac_reset_enabled = True
+        switch._handle_hvac_ready()
+
+        assert hvac_ref[0].override_arrester.ac_reset_enabled is False, (
+            "deferred restore must apply value when signal fires"
+        )
+        assert switch._deferred_value is None, "deferred value cleared after restore"
+
+    def test_v4731_ac_reset_off_state_also_survives_restart(self):
+        """OFF state restored correctly (symmetric)."""
+        hvac = _MockHVAC()
+        hvac.override_arrester.ac_reset_enabled = True
+        switch = _ACResetMirror(lambda: hvac)
+
+        switch.async_added_to_hass(_make_last_state("off"))
+        assert hvac.override_arrester.ac_reset_enabled is False
+
+    def test_v4731_ac_reset_no_prior_state_leaves_default(self):
+        """last_state None → no restore; running state untouched."""
+        hvac = _MockHVAC()
+        hvac.override_arrester.ac_reset_enabled = True
+        switch = _ACResetMirror(lambda: hvac)
+
+        switch.async_added_to_hass(None)
+
+        assert hvac.override_arrester.ac_reset_enabled is True
+        assert switch._deferred_value is None
+
+    def test_v4731_ac_reset_unavailable_state_skipped(self):
+        """MED-1: last_state 'unavailable' must NOT set ac_reset_enabled to False."""
+        hvac = _MockHVAC()
+        hvac.override_arrester.ac_reset_enabled = True  # default ON
+        switch = _ACResetMirror(lambda: hvac)
+
+        switch.async_added_to_hass(_make_last_state("unavailable"))
+
+        # Must skip restore entirely — not silently write False.
+        assert hvac.override_arrester.ac_reset_enabled is True, (
+            "'unavailable' state must not be parsed as False (MED-1)"
+        )
+        assert switch._deferred_value is None
+
+    def test_v4731_ac_reset_signal_registered_unconditionally(self):
+        """Signal subscription registered even when coord present."""
+        hvac = _MockHVAC()
+        switch = _ACResetMirror(lambda: hvac)
+
+        switch.async_added_to_hass(_make_last_state("on"))
+        assert len(switch._signal_callbacks) == 1
+
+
+# ---------------------------------------------------------------------------
+# Tests: HVACObservationModeSwitch (v4.7.3.1 extension — LOW-1)
+# ---------------------------------------------------------------------------
+
+class TestHVACObservationModeSwitchRestore:
+    """Deferred-restore tests for HVACObservationModeSwitch (v4.7.3.1 extension).
+
+    Also verifies the old 5-second timer retry has been removed.
+    """
+
+    def test_v4731_observation_mode_fast_path_restore_when_coord_present(self):
+        """HVAC coord registered before async_added_to_hass → restore lands immediately."""
+        hvac = _MockHVAC()
+        hvac.observation_mode = False
+        switch = _ObservationModeMirror(lambda: hvac)
+
+        switch.async_added_to_hass(_make_last_state("on"))
+
+        assert hvac.observation_mode is True, (
+            "fast path must apply restored value immediately"
+        )
+        assert switch._deferred_value is None
+
+    def test_v4731_observation_mode_deferred_restore_via_signal(self):
+        """HVAC coord NOT registered at async_added_to_hass → restore via signal."""
+        hvac_ref = [None]
+        switch = _ObservationModeMirror(lambda: hvac_ref[0])
+
+        switch.async_added_to_hass(_make_last_state("on"))
+
+        assert switch._deferred_value is True
+        hvac_ref[0] = _MockHVAC()
+        hvac_ref[0].observation_mode = False
+        switch._handle_hvac_ready()
+
+        assert hvac_ref[0].observation_mode is True, (
+            "deferred restore must apply value when signal fires"
+        )
+        assert switch._deferred_value is None
+
+    def test_v4731_observation_mode_off_state_also_survives_restart(self):
+        """OFF state (default) restored correctly — both directions must survive."""
+        hvac = _MockHVAC()
+        hvac.observation_mode = True  # simulate non-default running state
+        switch = _ObservationModeMirror(lambda: hvac)
+
+        switch.async_added_to_hass(_make_last_state("off"))
+        assert hvac.observation_mode is False
+
+    def test_v4731_observation_mode_no_prior_state_leaves_default(self):
+        """last_state None → no restore; default OFF untouched."""
+        hvac = _MockHVAC()
+        hvac.observation_mode = False
+        switch = _ObservationModeMirror(lambda: hvac)
+
+        switch.async_added_to_hass(None)
+
+        assert hvac.observation_mode is False
+        assert switch._deferred_value is None
+
+    def test_v4731_observation_mode_unavailable_state_skipped(self):
+        """MED-1: last_state 'unavailable' must NOT set observation_mode to False."""
+        hvac = _MockHVAC()
+        hvac.observation_mode = True  # simulate: was ON, HA restarted with unavailable
+        switch = _ObservationModeMirror(lambda: hvac)
+
+        switch.async_added_to_hass(_make_last_state("unavailable"))
+
+        # Must skip restore entirely — not silently write False.
+        assert hvac.observation_mode is True, (
+            "'unavailable' state must not be parsed as False (MED-1)"
+        )
+        assert switch._deferred_value is None
+
+    def test_v4731_observation_mode_signal_registered_unconditionally(self):
+        """Signal subscription registered even when coord present."""
+        hvac = _MockHVAC()
+        switch = _ObservationModeMirror(lambda: hvac)
+
+        switch.async_added_to_hass(_make_last_state("on"))
+        assert len(switch._signal_callbacks) == 1
+
+    def test_v4731_observation_mode_old_timer_retry_removed(self):
+        """AST check: async_call_later must NOT appear in HVACObservationModeSwitch body."""
+        with open(SWITCH_PY_PATH) as f:
+            source = f.read()
+
+        class_start = source.find("class HVACObservationModeSwitch")
+        assert class_start > 0, "HVACObservationModeSwitch must exist in switch.py"
+        next_class = source.find("\nclass ", class_start + 1)
+        class_body = source[class_start:next_class] if next_class > 0 else source[class_start:]
+
+        assert "async_call_later" not in class_body, (
+            "HVACObservationModeSwitch must NOT use async_call_later — "
+            "old 5-second timer retry must be replaced by SIGNAL_HVAC_COORDINATOR_READY pattern"
+        )
+        assert "_retry_restore" not in class_body, (
+            "HVACObservationModeSwitch must NOT define _retry_restore — "
+            "old timer handler must be removed"
+        )
+
+
+# ---------------------------------------------------------------------------
 # Source-mirror contract: all 3 switches have required structure
 # ---------------------------------------------------------------------------
 
@@ -622,4 +938,80 @@ class TestSourceMirrorContract:
             pre = body[max(0, handle_pos - 30):handle_pos]
             assert "@callback" in pre, (
                 f"{cls}._handle_hvac_ready must be decorated with @callback"
+            )
+
+    # v4.7.3.1 extension: contract tests updated to cover all 5 switches.
+
+    def test_v4731_all_five_switches_have_deferred_value(self, switch_source):
+        """Extension: all 5 bespoke HVAC switches must define _deferred_value."""
+        for cls in (
+            "HVACGuestModeActuationSwitch",
+            "HVACOverrideArresterSwitch",
+            "HVACACRampMasterSwitch",
+            "HVACACResetSwitch",
+            "HVACObservationModeSwitch",
+        ):
+            body = self._class_body(switch_source, cls)
+            assert "self._deferred_value" in body, (
+                f"{cls} must define self._deferred_value"
+            )
+
+    def test_v4731_all_five_switches_subscribe_to_hvac_ready_signal(self, switch_source):
+        """Extension: all 5 switches must subscribe to SIGNAL_HVAC_COORDINATOR_READY."""
+        for cls in (
+            "HVACGuestModeActuationSwitch",
+            "HVACOverrideArresterSwitch",
+            "HVACACRampMasterSwitch",
+            "HVACACResetSwitch",
+            "HVACObservationModeSwitch",
+        ):
+            body = self._class_body(switch_source, cls)
+            assert "SIGNAL_HVAC_COORDINATOR_READY" in body, (
+                f"{cls} must subscribe to SIGNAL_HVAC_COORDINATOR_READY"
+            )
+
+    def test_v4731_all_five_switches_use_async_on_remove(self, switch_source):
+        """Bug Class #38: all 5 switches must pair async_dispatcher_connect with async_on_remove."""
+        for cls in (
+            "HVACGuestModeActuationSwitch",
+            "HVACOverrideArresterSwitch",
+            "HVACACRampMasterSwitch",
+            "HVACACResetSwitch",
+            "HVACObservationModeSwitch",
+        ):
+            body = self._class_body(switch_source, cls)
+            assert "async_on_remove" in body, (
+                f"{cls} must use async_on_remove to track dispatcher unsub (Bug Class #38)"
+            )
+
+    def test_v4731_all_five_switches_handle_hvac_ready_is_callback(self, switch_source):
+        """Bug Class #42/#19: all 5 switches must have @callback on _handle_hvac_ready."""
+        for cls in (
+            "HVACGuestModeActuationSwitch",
+            "HVACOverrideArresterSwitch",
+            "HVACACRampMasterSwitch",
+            "HVACACResetSwitch",
+            "HVACObservationModeSwitch",
+        ):
+            body = self._class_body(switch_source, cls)
+            assert "_handle_hvac_ready" in body, f"{cls} must define _handle_hvac_ready"
+            handle_pos = body.find("def _handle_hvac_ready")
+            pre = body[max(0, handle_pos - 30):handle_pos]
+            assert "@callback" in pre, (
+                f"{cls}._handle_hvac_ready must be decorated with @callback"
+            )
+
+    def test_v4731_all_five_switches_guard_unavailable_state(self, switch_source):
+        """MED-1: all 5 switches must use last_state.state not in ('on', 'off') guard."""
+        for cls in (
+            "HVACGuestModeActuationSwitch",
+            "HVACOverrideArresterSwitch",
+            "HVACACRampMasterSwitch",
+            "HVACACResetSwitch",
+            "HVACObservationModeSwitch",
+        ):
+            body = self._class_body(switch_source, cls)
+            assert 'not in ("on", "off")' in body, (
+                f"{cls} must guard last_state.state with not in ('on', 'off') "
+                "(MED-1 alignment — prevents 'unavailable' parsing as False)"
             )
