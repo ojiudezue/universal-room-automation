@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv4.7.3.1
+# Universal Room Automation vv4.7.4
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -2318,6 +2318,45 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         )
         except Exception as e:
             _LOGGER.warning("Zone slug cleanup failed (non-fatal): %s", e)
+
+        # v4.7.4 migration: for zones with saved per-bucket cells but no
+        # customize_buckets flag, set customize_buckets=True so user sees their
+        # existing customizations in the v4.7.4 UI rather than the simplified view.
+        # Non-fatal — entry loads successfully even if this fails.
+        try:
+            from .domain_coordinators.energy_const import (
+                CONF_ZONE_DYNAMIC_PRESET_CUSTOMIZE_BUCKETS,
+            )
+            _zm_merged = {**entry.data, **entry.options}
+            _zones_raw = _zm_merged.get("zones", {})
+            _migration_needed = False
+            _zones_updated: dict = {k: dict(v) for k, v in _zones_raw.items()}
+            for _zn, _zd in _zones_updated.items():
+                if _zd.get(CONF_ZONE_DYNAMIC_PRESET_CUSTOMIZE_BUCKETS) is None:
+                    # Check if any per-bucket cell is saved
+                    _has_saved_cells = any(
+                        _zd.get(f"zone_dynamic_preset_{_bucket}_home_low") is not None
+                        or _zd.get(f"zone_dynamic_preset_{_bucket}_home_high") is not None
+                        for _bucket in ("cool", "mild", "hot", "extreme")
+                    )
+                    _zd[CONF_ZONE_DYNAMIC_PRESET_CUSTOMIZE_BUCKETS] = _has_saved_cells
+                    if _has_saved_cells:
+                        _migration_needed = True
+                        _LOGGER.info(
+                            "v4.7.4 migration: zone=%s has saved per-bucket cells "
+                            "— setting customize_buckets=True to preserve UI visibility",
+                            _zn,
+                        )
+            if _migration_needed:
+                hass.config_entries.async_update_entry(
+                    entry,
+                    options={**entry.options, "zones": _zones_updated},
+                )
+        except Exception:
+            _LOGGER.debug(
+                "v4.7.4 customize_buckets migration skipped (non-fatal)",
+                exc_info=True,
+            )
 
         # Store zone data reference for music_following and other lookups
         if "zones" not in hass.data[DOMAIN]:
