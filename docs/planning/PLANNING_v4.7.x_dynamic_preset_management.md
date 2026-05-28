@@ -676,3 +676,35 @@ MEDIUM and LOW findings from the 3-reviewer pass that were not applied in this f
 | A9 | A | `binary_sensor.py:1689-1698` | Inline `DeviceInfo` instead of `_energy_device_info()` helper. | Same as M2 above. Defer with M2. |
 | B11 | B | `sensor.py` | Sensors read private `_cached_*` fields from energy coordinator and WPM. Consider adding public accessors. | Pattern is consistent with existing URA sensors. Non-blocking. |
 | -- | B | `weather_manager.py:216-221` | Dead import block in `baseline_delta_for_zone`. | FIXED in this build (WPM-H4). |
+
+---
+
+## I. Post-Review Backlog (v4.7.1 fix-up, Cycle B, 2026-05-28)
+
+MEDIUM and LOW findings from the 3-reviewer Tier 2-DB pass (Reviewers A, B, C) for the v4.7.1 fix-up cycle. All CRITICAL and HIGH items were fixed in this build. The following were explicitly deferred.
+
+### MEDIUM
+
+| ID | Reviewer | File | Finding | Rationale for deferral |
+|----|----------|------|---------|----------------------|
+| A5 | A | `preset_overrides.py:157-202` | `resolve_range` tiebreak rule is simplified (first-seen-at-same-priority wins) vs. spec's "narrowest-range tiebreak + alphabetical source." Safe now because dynamic_preset (priority=30) and guest_mode (priority=50) never tie. If a future source ships at priority=30, resolution is arbitrary. | No tie is possible until a second priority=30 source ships. Document gap; fix when that source is designed. |
+| A6 | A | `preset_overrides.py:137-155` | `_eval_predicate` returns False for unknown predicates with a WARNING log. Safe default, but a typo in `active_when` silently disables overrides. | Warning log is correct. No immediate fix; note for when more predicate types are added. |
+| A7 | A | `dynamic_preset.py:426-500` | `_build_overrides` does not clamp override records to `cool_low <= cool_high - MIN_DEADBAND` before emitting. `resolve_range` clamps post-composition; form validation prevents the bad input path. Negative offsets are not possible under current config schema. | Safe in practice due to form validation + offset range constraint. Add defensive clamp in a polish cycle. |
+| B4 | B | `sensor.py:6586-6610` | `DynamicPresetActiveBucketSensor._try_restore_to_source` silently fails when EC is not yet initialized (returns None), so dwell timers reset to zero after restart. First tick can trigger a bucket transition that pre-restart dwell would have blocked. | After restart weather rarely shifts enough for an immediate transition. Fix: subscribe to `SIGNAL_ENERGY_COORDINATOR_READY` and retry restore (same pattern as EC sub-switch). Defer to polish cycle. |
+| B5 | B | `energy.py:2298-2301` | `_async_evaluate_dynamic_presets` awaited inside the decision cycle with no timing measurement. Per-tick cost = 3 lock acquisitions + 3 synchronous evaluations for 3 canonical zones. No benchmark exists to verify it stays within the EC cycle budget. | Likely within budget (no I/O, pure dict reads + math). Add a DEBUG-level timing log in production to measure actual latency. |
+| B6 | B | `energy.py:2298-2301, 2610` | Observation-mode gating is by omission in Cycle B (no actuation path existed). v4.7.1 fix-up D2 adds the actuation path in `hvac.py`. The observation-mode gate must remain in `_async_apply_preset_overrides` (it is gated on `not self._observation_mode`). Reviewer flagged to ensure gate was not dropped when D2 wired the path. | FIXED in D2 — gate confirmed present in `hvac.py:_async_apply_preset_overrides` at the observation_mode guard. |
+| M1 | C | `sensor.py:6739-6758` | `DynamicPresetRangeSensor.extra_state_attributes` exposes mutable `_dynamic_preset_overrides` reference from the EC. If EC mutates the dict on the next tick while HA serializes attributes, the "last reported" attributes could retroactively change. Fix: return `dict(overrides)` (shallow copy). | Cosmetic race; HA serialization is synchronous in the event loop so mutation during serialization is unlikely in practice. Fix in a defensive hardening pass. |
+| M3 | C | `sensor.py:6558, 6694` | Per-zone sensor `unique_id` uses `zone_id` from `iter_canonical_hvac_zones`. If canonical zone topology changes (thermostat split/merge), old entities are orphaned in HA's entity registry with stale RestoreEntity state. | Inherent to the per-zone entity pattern used across all URA zone sensors. Fix holistically when zone topology refactor is designed. |
+| M4 | C | `sensor.py:6589-6610` | Same as B4 — `_try_restore_to_source` has no deferred retry path via `SIGNAL_ENERGY_COORDINATOR_READY`. | Same as B4. |
+| M5 | C | `sensor.py:6828-6854` | `DynamicPresetOverridesAppliedSensor.extra_state_attributes` calls `source.get_zone_state()` twice per zone per attribute render (once for breakdown, once for dwell_remaining). Two calls may observe microseconds-apart `utcnow()` values. | Cosmetic. Coalesce the two passes in a polish cycle. |
+
+### LOW
+
+| ID | Reviewer | File | Finding | Rationale for deferral |
+|----|----------|------|---------|----------------------|
+| A10 | A | `preset_overrides.py:204-239` | `describe_active` signature has `baseline_low` and `baseline_high` as positional args after 5 other positional args. Future caller could accidentally swap them. Consider keyword-only args after `all_overrides`. | Non-breaking. Address in a polish cycle when adding a new caller. |
+| B8 | B | `dynamic_preset.py:403-414` | `async_dispatcher_send` is called from synchronous `evaluate_and_emit()` — naming is misleading but the call is safe (it's a @callback-decorated synchronous function). | No bug. Documented here for future reference. |
+| B9 | B | `dynamic_preset.py:370-414` | Double-dispatch risk analyzed and confirmed NOT present (lock prevents concurrent evaluate calls per zone). | No bug. Documented for regression guard. |
+| B10 | B | `test_v47x_dynamic_preset.py` | Test file forces `sys.modules` for `homeassistant.util.dt` at module scope — correct approach (Bug Class #44 pattern). Confirm it uses force-set (`sys.modules[name] = ...`), not `setdefault`, for `dt_util`. | Confirmed in review as correctly using force-set. No change needed. |
+| L3 | C | `test_v47x_dynamic_preset.py:665` | Deprecated `asyncio.get_event_loop()` usage in a test. Should use `asyncio.new_event_loop()` or the `@pytest.mark.asyncio` event loop. | Low immediate risk. Fix in next test cleanup pass. |
+| -- | C | `DYNAMIC_PRESET.md:462-467` | "Suggested starting values" table in section 4 has values INVERTED from plan logic. Manual shows hotter buckets with HIGHER `cool_high` (extreme: 80) but plan says tighter buckets = LOWER `cool_high` (extreme=74). Code defaults are correct. Manual is misleading. | Doc-only bug. Fixed entity_id and signal key errors in v4.7.1 fix-up; this section was not updated. Fix in a doc cleanup pass. |

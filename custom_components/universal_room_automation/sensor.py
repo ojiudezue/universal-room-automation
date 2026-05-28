@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.7.0.1
+# Universal Room Automation vv4.7.1
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -221,6 +221,10 @@ async def async_setup_entry(
             # v4.7.x Cycle A: WeatherProviderManager sensors
             WeatherActiveProviderSensor(hass, entry),
             WeatherApparentForecastHighSensor(hass, entry),
+            # v4.7.1 Cycle B: Dynamic Preset global sensors
+            DynamicPresetOverridesAppliedSensor(hass, entry),
+            # v4.7.1 fix-up D4: HVAC active preset overrides diagnostic sensor
+            HVACActivePresetOverridesSensor(hass, entry),
             # v3.7.0-E2: Pool + EV sensors
             EnergyPoolOptimizationSensor(hass, entry),
             EnergyEVChargingStatusSensor(hass, entry),
@@ -337,6 +341,13 @@ async def async_setup_entry(
             )
             coordinator_sensors.append(
                 HVACZonePresetSensor(hass, entry, zone_id)
+            )
+            # v4.7.1 Cycle B: per-zone dynamic preset sensors
+            coordinator_sensors.append(
+                DynamicPresetActiveBucketSensor(hass, entry, zone_id, _zname)
+            )
+            coordinator_sensors.append(
+                DynamicPresetRangeSensor(hass, entry, zone_id, _zname)
             )
             # v4.5.12 D7: per-zone AC ramp-down sensors (3 per zone)
             coordinator_sensors.append(
@@ -6475,6 +6486,540 @@ class WeatherApparentForecastHighSensor(AggregationEntity, SensorEntity):
                 "provider_source": forecast.provider_id,
                 "confidence": forecast.apparent_confidence,
                 "divergence_f": forecast.divergence_f,
+            }
+        except Exception:
+            return {}
+
+
+# ============================================================================
+# v4.7.1 Cycle B: DYNAMIC PRESET SENSORS
+# ============================================================================
+
+
+def _get_dynamic_preset_source(hass):
+    """Return DynamicPresetOverrideSource from EC coordinator (or None)."""
+    try:
+        manager = hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        energy = manager.coordinators.get("energy")
+        if energy is None:
+            return None
+        return getattr(energy, "_dynamic_preset_source", None)
+    except Exception:
+        return None
+
+
+def _get_dynamic_preset_overrides(hass) -> dict:
+    """Return the per-zone overrides dict from EC (or {})."""
+    try:
+        manager = hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return {}
+        energy = manager.coordinators.get("energy")
+        if energy is None:
+            return {}
+        return getattr(energy, "_dynamic_preset_overrides", {}) or {}
+    except Exception:
+        return {}
+
+
+def _wpm_available(hass) -> bool:
+    """Return True when WeatherProviderManager exists and has a cached forecast."""
+    try:
+        mgr = hass.data.get(DOMAIN, {}).get("weather_manager")
+        return mgr is not None and mgr._cached_forecast is not None
+    except Exception:
+        return False
+
+
+class DynamicPresetActiveBucketSensor(AggregationEntity, SensorEntity, RestoreEntity):
+    """Active thermal load bucket for a canonical HVAC zone.
+
+    State: cool | mild | hot | extreme | unavailable
+    Entity: sensor.ura_dynamic_preset_active_bucket_<zone_id>
+    Device: URA: Energy Coordinator
+
+    Restores bucket + last_transition_at on HA restart (Bug #10 compliance).
+    Subscribes to SIGNAL_DYNAMIC_PRESET_TRANSITIONED for reactive updates (WPM-H1 pattern).
+
+    v4.7.1 Cycle B: B3.
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:thermometer-auto"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(
+        self, hass: HomeAssistant, entry: ConfigEntry, zone_id: str, zone_name: str
+    ) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._zone_id = zone_id
+        self._zone_name = zone_name
+        self._attr_unique_id = f"{DOMAIN}_dynamic_preset_active_bucket_{zone_id}"
+        self._attr_name = f"Dynamic Preset Bucket {zone_name}"
+        self._attr_device_info = _energy_device_info()
+        # Cached state for RestoreEntity (Bug #10)
+        self._restored_bucket: str | None = None
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to transition signal and restore state (WPM-H1 + Bug #10)."""
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import (
+            SIGNAL_DYNAMIC_PRESET_OVERRIDES_UPDATED,
+            SIGNAL_DYNAMIC_PRESET_TRANSITIONED,
+        )
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_DYNAMIC_PRESET_TRANSITIONED, self._on_transition,
+            )
+        )
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_DYNAMIC_PRESET_OVERRIDES_UPDATED, self._on_updated,
+            )
+        )
+        # Restore cross-restart state (Bug #10)
+        last_state = await self.async_get_last_state()
+        if last_state is not None and last_state.state not in ("unknown", "unavailable", None):
+            self._restored_bucket = last_state.state
+            # Inject into DynamicPresetOverrideSource when it's available
+            self._try_restore_to_source(last_state)
+
+    def _try_restore_to_source(self, last_state) -> None:
+        """Inject restored state into DynamicPresetOverrideSource (Bug #10)."""
+        from datetime import datetime, timezone
+        try:
+            source = _get_dynamic_preset_source(self.hass)
+            if source is None:
+                return
+            bucket = last_state.state
+            # Try to get last_transition_iso from last_state attributes
+            last_tx_iso = (last_state.attributes or {}).get("last_transition_iso")
+            if last_tx_iso:
+                try:
+                    last_tx = datetime.fromisoformat(last_tx_iso)
+                    if last_tx.tzinfo is None:
+                        last_tx = last_tx.replace(tzinfo=timezone.utc)
+                except (ValueError, TypeError):
+                    last_tx = dt_util.utcnow()
+            else:
+                last_tx = dt_util.utcnow()
+            source.restore_zone_state(self._zone_id, bucket, last_tx)
+        except Exception:
+            pass
+
+    @callback
+    def _on_transition(self, payload=None) -> None:
+        """Handle bucket transition signal — push updated state to HA."""
+        if payload and payload.get("zone_id") == self._zone_id:
+            self.async_write_ha_state()
+
+    @callback
+    def _on_updated(self, _payload=None) -> None:
+        """Handle generic overrides-updated signal."""
+        self.async_write_ha_state()
+
+    @property
+    def available(self) -> bool:
+        """Unavailable when WPM is missing (WPM-H5 pattern)."""
+        return _wpm_available(self.hass)
+
+    @property
+    def native_value(self) -> str | None:
+        """Return current bucket or None."""
+        try:
+            source = _get_dynamic_preset_source(self.hass)
+            if source is None:
+                return self._restored_bucket
+            state = source.get_zone_state(self._zone_id)
+            return state.get("bucket") or self._restored_bucket
+        except Exception:
+            return self._restored_bucket
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return bucket detail attributes."""
+        try:
+            source = _get_dynamic_preset_source(self.hass)
+            overrides = _get_dynamic_preset_overrides(self.hass)
+            zone_overrides = overrides.get(self._zone_id, [])
+
+            state = source.get_zone_state(self._zone_id) if source else {}
+
+            # Get WPM data for delta/apparent high
+            mgr = self.hass.data.get(DOMAIN, {}).get("weather_manager")
+            apparent_high = None
+            delta_f = None
+            baseline_high = None
+            if mgr is not None:
+                apparent_high = mgr.current_apparent_forecast_high()
+                delta_f = mgr.baseline_delta_for_zone(self._zone_id, "home")
+                if apparent_high is not None and delta_f is not None:
+                    baseline_high = apparent_high - delta_f
+
+            return {
+                "delta_f": round(delta_f, 1) if delta_f is not None else None,
+                "apparent_high_f": apparent_high,
+                "baseline_high_f": baseline_high,
+                "last_transition_iso": state.get("last_transition_iso"),
+                "dwell_remaining_min": state.get("dwell_remaining_min"),
+                "active_overrides_count": len(zone_overrides),
+            }
+        except Exception:
+            return {}
+
+
+class DynamicPresetRangeSensor(AggregationEntity, SensorEntity):
+    """Effective home preset range for the current bucket.
+
+    State: "cool_low–cool_high" (e.g. "70.0–76.0") or None when unavailable.
+    Entity: sensor.ura_dynamic_preset_range_<zone_id>
+    Device: URA: Energy Coordinator
+
+    v4.7.1 Cycle B: B3.
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:thermometer-lines"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(
+        self, hass: HomeAssistant, entry: ConfigEntry, zone_id: str, zone_name: str
+    ) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._zone_id = zone_id
+        self._zone_name = zone_name
+        self._attr_unique_id = f"{DOMAIN}_dynamic_preset_range_{zone_id}"
+        self._attr_name = f"Dynamic Preset Range {zone_name}"
+        self._attr_device_info = _energy_device_info()
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to override-updated signal (WPM-H1 pattern)."""
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_DYNAMIC_PRESET_OVERRIDES_UPDATED
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_DYNAMIC_PRESET_OVERRIDES_UPDATED, self._on_updated,
+            )
+        )
+
+    @callback
+    def _on_updated(self, _payload=None) -> None:
+        """Handle overrides-updated signal — push state to HA."""
+        self.async_write_ha_state()
+
+    @property
+    def available(self) -> bool:
+        """Unavailable when WPM is missing (WPM-H5 pattern)."""
+        return _wpm_available(self.hass)
+
+    @property
+    def native_value(self) -> str | None:
+        """Return 'low–high' string for the active home override, or None."""
+        try:
+            overrides = _get_dynamic_preset_overrides(self.hass)
+            zone_overrides = overrides.get(self._zone_id, [])
+            for override in zone_overrides:
+                if override.preset == "home" and override.cool_low is not None and override.cool_high is not None:
+                    return f"{override.cool_low:.1f}–{override.cool_high:.1f}"
+            return None
+        except Exception:
+            return None
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return full grid of effective ranges (home + sleep × 4 buckets)."""
+        try:
+            overrides_dict = _get_dynamic_preset_overrides(self.hass)
+            zone_overrides = overrides_dict.get(self._zone_id, [])
+
+            home_overrides = {o.preset: {"low": o.cool_low, "high": o.cool_high, "bucket": o.bucket}
+                              for o in zone_overrides if o.preset == "home"}
+            sleep_overrides = {o.preset: {"low": o.cool_low, "high": o.cool_high, "bucket": o.bucket}
+                               for o in zone_overrides if o.preset == "sleep"}
+
+            return {
+                "zone_id": self._zone_id,
+                "zone_name": self._zone_name,
+                "home_override": home_overrides.get("home"),
+                "sleep_override": sleep_overrides.get("sleep"),
+                "all_overrides": [
+                    {
+                        "preset": o.preset,
+                        "cool_low": o.cool_low,
+                        "cool_high": o.cool_high,
+                        "bucket": o.bucket,
+                        "source": o.source,
+                    }
+                    for o in zone_overrides
+                ],
+            }
+        except Exception:
+            return {}
+
+
+class DynamicPresetOverridesAppliedSensor(AggregationEntity, SensorEntity):
+    """Count of zones with an active dynamic preset override.
+
+    State: int (count of zones with at least one dynamic_preset override).
+    Entity: sensor.ura_dynamic_preset_overrides_applied
+    Device: URA: Energy Coordinator
+
+    v4.7.1 Cycle B: B3.
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:thermometer-check"
+    # HIGH A4/C-M2: no state_class — this count resets to 0 on restart, so
+    # HA Long-Term Statistics would record a discontinuous time series.
+    # Matches EnergyRecentDecisionsSensor pattern (same volatile-counter reason).
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_dynamic_preset_overrides_applied"
+        self._attr_name = "Dynamic Preset Overrides Applied"
+        self._attr_device_info = _energy_device_info()
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to override-updated and transition signals."""
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import (
+            SIGNAL_DYNAMIC_PRESET_OVERRIDES_UPDATED,
+            SIGNAL_DYNAMIC_PRESET_TRANSITIONED,
+        )
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_DYNAMIC_PRESET_OVERRIDES_UPDATED, self._on_signal,
+            )
+        )
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_DYNAMIC_PRESET_TRANSITIONED, self._on_signal,
+            )
+        )
+
+    @callback
+    def _on_signal(self, _payload=None) -> None:
+        """Handle signal — push updated count to HA."""
+        self.async_write_ha_state()
+
+    @property
+    def available(self) -> bool:
+        """Return True when WPM is set up."""
+        return _wpm_available(self.hass)
+
+    @property
+    def native_value(self) -> int:
+        """Return count of zones with at least one active dynamic preset override."""
+        try:
+            overrides = _get_dynamic_preset_overrides(self.hass)
+            return sum(1 for v in overrides.values() if v)
+        except Exception:
+            return 0
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return per-zone breakdown and dwell-remaining."""
+        try:
+            overrides = _get_dynamic_preset_overrides(self.hass)
+            source = _get_dynamic_preset_source(self.hass)
+            breakdown = []
+            for zone_id, zone_overrides in overrides.items():
+                if not zone_overrides:
+                    continue
+                state = source.get_zone_state(zone_id) if source else {}
+                for o in zone_overrides:
+                    breakdown.append({
+                        "zone": zone_id,
+                        "preset": o.preset,
+                        "cool_low": o.cool_low,
+                        "cool_high": o.cool_high,
+                        "bucket": o.bucket,
+                    })
+
+            skipped_zones = [
+                zone_id for zone_id, v in overrides.items() if not v
+            ]
+            dwell_remaining = {}
+            if source:
+                for zone_id in overrides:
+                    state = source.get_zone_state(zone_id)
+                    dr = state.get("dwell_remaining_min")
+                    if dr is not None:
+                        dwell_remaining[zone_id] = dr
+
+            return {
+                "breakdown": breakdown,
+                "skipped_zones": skipped_zones,
+                "dwell_remaining_per_zone_min": dwell_remaining,
+            }
+        except Exception:
+            return {}
+
+
+# ============================================================================
+# v4.7.1 fix-up D4: HVAC ACTIVE PRESET OVERRIDES DIAGNOSTIC SENSOR
+# ============================================================================
+
+
+class HVACActivePresetOverridesSensor(AggregationEntity, SensorEntity):
+    """D4: Diagnostic sensor — count + detail of active preset overrides across all zones.
+
+    State: integer count of active override records across all zones for the
+    current preset (reading from EC's _dynamic_preset_overrides and
+    OverrideEngine).
+
+    Attributes:
+      - by_zone: {zone_id: [{preset, source, cool_low, cool_high, ...}]}
+      - house_state: current house_state string
+      - master_enabled: bool (HVAC guest_mode_actuation_enabled)
+      - resolved_ranges: {zone_id: {"cool_low":float, "cool_high":float,
+                                    "sources": {field: source_name}}}
+
+    Entity: sensor.ura_hvac_coordinator_active_preset_overrides
+    Device: URA: HVAC Coordinator
+
+    v4.7.1 fix-up D4 (PLANNING_v4.7.x_guest_mode_actuation_phase1.md §5.D4).
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:thermostat-cog"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_hvac_coordinator_active_preset_overrides"
+        self._attr_name = "Active Preset Overrides"
+        self._attr_device_info = _hvac_device_info()
+
+    def _get_hvac(self):
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        return manager.coordinators.get("hvac") if manager else None
+
+    def _get_ec(self):
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        return manager.coordinators.get("energy") if manager else None
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to override-updated and house-state signals."""
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import (
+            SIGNAL_DYNAMIC_PRESET_OVERRIDES_UPDATED,
+            SIGNAL_HOUSE_STATE_CHANGED,
+        )
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_DYNAMIC_PRESET_OVERRIDES_UPDATED, self._on_signal,
+            )
+        )
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_HOUSE_STATE_CHANGED, self._on_signal,
+            )
+        )
+
+    @callback
+    def _on_signal(self, _payload=None) -> None:
+        self.async_write_ha_state()
+
+    @property
+    def available(self) -> bool:
+        return self._get_hvac() is not None
+
+    @property
+    def native_value(self) -> int:
+        """Return total count of active override records across all zones."""
+        try:
+            ec = self._get_ec()
+            if ec is None:
+                return 0
+            hvac = self._get_hvac()
+            if hvac is None:
+                return 0
+            master_enabled = getattr(hvac, "_guest_mode_actuation_enabled", True)
+            if not master_enabled:
+                return 0
+
+            from .domain_coordinators.preset_overrides import OverrideEngine
+            engine = OverrideEngine()
+            house_state = getattr(hvac, "_house_state", "")
+            target_preset = hvac.preset_manager.get_preset_for_house_state(house_state) or "home"
+            all_overrides = getattr(ec, "_dynamic_preset_overrides", {})
+
+            count = 0
+            for zone_id, zone_overrides in all_overrides.items():
+                active = engine.get_active_overrides(
+                    zone_id, target_preset, house_state, master_enabled, zone_overrides
+                )
+                count += len(active)
+            return count
+        except Exception:
+            return 0
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return per-zone breakdown, resolved ranges, and master state."""
+        try:
+            ec = self._get_ec()
+            hvac = self._get_hvac()
+            if ec is None or hvac is None:
+                return {}
+
+            from .domain_coordinators.preset_overrides import OverrideEngine
+            engine = OverrideEngine()
+            house_state = getattr(hvac, "_house_state", "")
+            master_enabled = getattr(hvac, "_guest_mode_actuation_enabled", True)
+            target_preset = hvac.preset_manager.get_preset_for_house_state(house_state) or "home"
+            all_overrides = getattr(ec, "_dynamic_preset_overrides", {})
+
+            by_zone: dict = {}
+            resolved_ranges: dict = {}
+
+            for zone_id, zone_overrides in all_overrides.items():
+                active = engine.get_active_overrides(
+                    zone_id, target_preset, house_state, master_enabled, zone_overrides
+                )
+                if not active:
+                    continue
+                by_zone[zone_id] = [
+                    {
+                        "preset": o.preset,
+                        "source": o.source,
+                        "cool_low": o.cool_low,
+                        "cool_high": o.cool_high,
+                        "priority": o.priority,
+                        "bucket": o.bucket,
+                    }
+                    for o in active
+                ]
+
+                # Get baseline from preset manager
+                baseline = hvac.preset_manager.get_seasonal_setpoints(target_preset)
+                if baseline is not None:
+                    baseline_cool, _ = baseline
+                    baseline_low = baseline_cool - 7.0
+                    baseline_high = baseline_cool
+                    resolved = engine.resolve_range(baseline_low, baseline_high, active)
+                    resolved_ranges[zone_id] = {
+                        "cool_low": resolved.cool_low,
+                        "cool_high": resolved.cool_high,
+                        "sources": resolved.sources,
+                    }
+
+            return {
+                "by_zone": by_zone,
+                "house_state": house_state,
+                "master_enabled": master_enabled,
+                "resolved_ranges": resolved_ranges,
             }
         except Exception:
             return {}

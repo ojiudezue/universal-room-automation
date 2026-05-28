@@ -1,6 +1,6 @@
 """Number platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.7.0.1
+# Universal Room Automation vv4.7.1
 # Build: 2026-01-02
 # File: number.py
 #
@@ -63,6 +63,9 @@ async def async_setup_entry(
             RoutineEventMinSeverityNumber(hass, entry),
             RoutineRegimeBaselineWindowNumber(hass, entry),
             RoutineRegimeRecentWindowNumber(hass, entry),
+            # v4.7.1 Cycle B: Dynamic Preset runtime tunables
+            DynamicPresetDwellMinutesNumber(hass, entry),
+            DynamicPresetHysteresisFNumber(hass, entry),
         ]
         # v4.5.10: 7 HVAC tunable Number entities on the HVAC Coordinator device.
         # Each is a runtime slider; form values seed install-time only,
@@ -1536,3 +1539,165 @@ def _discover_ac_zones(hass: HomeAssistant) -> list[dict]:
     """
     from .domain_coordinators.hvac_zones import iter_canonical_hvac_zones
     return iter_canonical_hvac_zones(hass)
+
+
+# ============================================================================
+# v4.7.1 Cycle B: Dynamic Preset runtime tunable numbers
+# ============================================================================
+
+
+class DynamicPresetDwellMinutesNumber(NumberEntity, RestoreEntity):
+    """Runtime-tunable dwell window for Dynamic Preset bucket transitions.
+
+    Default 60, range 15-240, step 5, unit "min".
+    Entity: number.ura_energy_coordinator_dynamic_preset_dwell_minutes
+    Device: URA: Energy Coordinator
+
+    v4.3.2 mirror pattern: entry.options = initial seed only; RestoreEntity
+    is the canonical runtime store. No async_update_entry writeback.
+
+    v4.7.1 Cycle B: B4.
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:timer-outline"
+    _attr_native_step = 5.0
+    _attr_native_unit_of_measurement = "min"
+    _attr_mode = NumberMode.BOX
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        from homeassistant.helpers.device_registry import DeviceInfo
+        self.hass = hass
+        self._entry = entry
+        self._attr_unique_id = f"{DOMAIN}_energy_dynamic_preset_dwell_minutes"
+        self._attr_name = "Dynamic Preset Dwell Minutes"
+        self._attr_native_min_value = 15.0
+        self._attr_native_max_value = 240.0
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "energy_coordinator")},
+            name="URA: Energy Coordinator",
+            manufacturer="Universal Room Automation",
+            model="Energy Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+        from .domain_coordinators.energy_const import (
+            CONF_DYNAMIC_PRESET_DWELL_MINUTES, DEFAULT_DYNAMIC_PRESET_DWELL_MINUTES
+        )
+        config = {**entry.data, **entry.options}
+        self._value = float(config.get(CONF_DYNAMIC_PRESET_DWELL_MINUTES, DEFAULT_DYNAMIC_PRESET_DWELL_MINUTES))
+
+    def _get_energy(self):
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        return manager.coordinators.get("energy") if manager else None
+
+    @property
+    def available(self) -> bool:
+        return self._get_energy() is not None
+
+    @property
+    def native_value(self) -> float:
+        return self._value
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        last_state = await self.async_get_last_state()
+        if last_state is not None and last_state.state not in ("unknown", "unavailable"):
+            try:
+                self._value = float(last_state.state)
+            except (ValueError, TypeError):
+                pass
+
+    async def async_set_native_value(self, value: float) -> None:
+        self._value = float(value)
+        # v4.7.1 fix-up HIGH A2/B2/C2: Push to CM entry.options so the
+        # bound method _get_cm_options() picks up the new value on the next
+        # evaluate_and_emit call (Bug Class #32 fix).
+        try:
+            from .domain_coordinators.energy_const import CONF_DYNAMIC_PRESET_DWELL_MINUTES
+            self.hass.config_entries.async_update_entry(
+                self._entry,
+                options={**self._entry.options, CONF_DYNAMIC_PRESET_DWELL_MINUTES: float(value)},
+            )
+        except Exception:
+            pass
+        self.async_write_ha_state()
+        _LOGGER.info("Dynamic preset dwell set to %.0f minutes", value)
+
+
+class DynamicPresetHysteresisFNumber(NumberEntity, RestoreEntity):
+    """Runtime-tunable hysteresis buffer for Dynamic Preset bucket boundaries.
+
+    Default 2.0, range 0.5-5.0, step 0.5, unit "°F".
+    Entity: number.ura_energy_coordinator_dynamic_preset_hysteresis_f
+    Device: URA: Energy Coordinator
+
+    v4.7.1 Cycle B: B4.
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:thermometer-alert"
+    _attr_native_step = 0.5
+    _attr_native_unit_of_measurement = "°F"
+    _attr_mode = NumberMode.BOX
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        from homeassistant.helpers.device_registry import DeviceInfo
+        self.hass = hass
+        self._entry = entry
+        self._attr_unique_id = f"{DOMAIN}_energy_dynamic_preset_hysteresis_f"
+        self._attr_name = "Dynamic Preset Hysteresis"
+        self._attr_native_min_value = 0.5
+        self._attr_native_max_value = 5.0
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "energy_coordinator")},
+            name="URA: Energy Coordinator",
+            manufacturer="Universal Room Automation",
+            model="Energy Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+        from .domain_coordinators.energy_const import (
+            CONF_DYNAMIC_PRESET_HYSTERESIS_F, DEFAULT_DYNAMIC_PRESET_HYSTERESIS_F
+        )
+        config = {**entry.data, **entry.options}
+        self._value = float(config.get(CONF_DYNAMIC_PRESET_HYSTERESIS_F, DEFAULT_DYNAMIC_PRESET_HYSTERESIS_F))
+
+    def _get_energy(self):
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        return manager.coordinators.get("energy") if manager else None
+
+    @property
+    def available(self) -> bool:
+        return self._get_energy() is not None
+
+    @property
+    def native_value(self) -> float:
+        return self._value
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        last_state = await self.async_get_last_state()
+        if last_state is not None and last_state.state not in ("unknown", "unavailable"):
+            try:
+                self._value = float(last_state.state)
+            except (ValueError, TypeError):
+                pass
+
+    async def async_set_native_value(self, value: float) -> None:
+        self._value = float(value)
+        # v4.7.1 fix-up HIGH A2/B2/C2: Push to CM entry.options so the
+        # bound method _get_cm_options() picks up the new value on the next
+        # evaluate_and_emit call (Bug Class #32 fix).
+        try:
+            from .domain_coordinators.energy_const import CONF_DYNAMIC_PRESET_HYSTERESIS_F
+            self.hass.config_entries.async_update_entry(
+                self._entry,
+                options={**self._entry.options, CONF_DYNAMIC_PRESET_HYSTERESIS_F: float(value)},
+            )
+        except Exception:
+            pass
+        self.async_write_ha_state()
+        _LOGGER.info("Dynamic preset hysteresis set to %.1f°F", value)

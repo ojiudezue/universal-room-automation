@@ -1,6 +1,6 @@
 """Switch platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.7.0.1
+# Universal Room Automation vv4.7.1
 # Build: 2026-01-02
 # File: switch.py
 #
@@ -146,6 +146,10 @@ async def async_setup_entry(
             ECExcessSolarSwitch(hass, entry),
             ECArbitrageSwitch(hass, entry),
             ECEvTouSwitch(hass, entry),
+            # v4.7.1 Cycle B: Dynamic Preset master kill switch
+            ECDynamicPresetSwitch(hass, entry),
+            # v4.7.1 fix-up D3: Guest Mode Actuation master toggle (HVAC device)
+            HVACGuestModeActuationSwitch(hass, entry),
             # v3.9.0: HVAC transparency switches
             HVACOverrideArresterSwitch(hass, entry),
             HVACACResetSwitch(hass, entry),
@@ -882,6 +886,87 @@ class ECEvTouSwitch(_ECEvTouSwitchBase):
         if now_utc >= until:
             return {"override_active_until_iso": None}
         return {"override_active_until_iso": until.isoformat()}
+
+
+# v4.7.1 Cycle B: Dynamic Preset master kill switch (factory-generated)
+ECDynamicPresetSwitch = _ec_switch_factory(
+    "dynamic_preset_enabled", "dynamic_preset_enabled",
+    "Dynamic Preset Overrides", "mdi:thermometer-auto", default=False,
+)
+
+
+class HVACGuestModeActuationSwitch(SwitchEntity, RestoreEntity):
+    """D3: Master kill switch for Guest Mode HVAC actuation.
+
+    When ON (default): OverrideEngine temperature ranges are applied to
+    thermostats when house_state is guest (or dynamic preset is active).
+    When OFF: _apply_house_state_presets skips the OverrideEngine path
+    entirely and reverts to plain set_preset_mode behavior.
+
+    Entity: switch.ura_hvac_coordinator_guest_mode_actuation_enabled
+    Device: URA: HVAC Coordinator
+
+    v4.7.1 fix-up D3 (PLANNING_v4.7.x_guest_mode_actuation_phase1.md §5.D3 reduced).
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:account-arrow-right"
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        self.hass = hass
+        self._entry = entry
+        self._attr_unique_id = f"{DOMAIN}_hvac_coordinator_guest_mode_actuation_enabled"
+        self._attr_name = "Guest Mode Actuation"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "hvac_coordinator")},
+            name="URA: HVAC Coordinator",
+            manufacturer="Universal Room Automation",
+            model="HVAC Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+
+    def _get_hvac(self):
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        return manager.coordinators.get("hvac") if manager else None
+
+    @property
+    def available(self) -> bool:
+        return self._get_hvac() is not None
+
+    @property
+    def is_on(self) -> bool:
+        hvac = self._get_hvac()
+        if hvac is None:
+            return True  # default ON
+        return getattr(hvac, "_guest_mode_actuation_enabled", True)
+
+    async def async_turn_on(self, **kwargs) -> None:
+        hvac = self._get_hvac()
+        if hvac is not None:
+            hvac._guest_mode_actuation_enabled = True
+            self.async_write_ha_state()
+            _LOGGER.info("HVAC: Guest Mode Actuation enabled")
+
+    async def async_turn_off(self, **kwargs) -> None:
+        hvac = self._get_hvac()
+        if hvac is not None:
+            hvac._guest_mode_actuation_enabled = False
+            # Clear last-emitted range so next enable re-applies baseline
+            if hasattr(hvac, "_last_emitted_range"):
+                hvac._last_emitted_range.clear()
+            self.async_write_ha_state()
+            _LOGGER.info("HVAC: Guest Mode Actuation disabled")
+
+    async def async_added_to_hass(self) -> None:
+        """Restore state and wire cleanup."""
+        await super().async_added_to_hass()
+        last_state = await self.async_get_last_state()
+        if last_state is not None and last_state.state in ("on", "off"):
+            hvac = self._get_hvac()
+            if hvac is not None:
+                hvac._guest_mode_actuation_enabled = (last_state.state == "on")
 
 
 class HVACOverrideArresterSwitch(SwitchEntity, RestoreEntity):
