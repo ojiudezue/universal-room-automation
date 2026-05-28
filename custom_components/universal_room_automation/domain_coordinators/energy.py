@@ -514,6 +514,20 @@ class EnergyCoordinator(BaseCoordinator):
             self._battery.reserve_soc,
         )
 
+        # v4.7.x D2: signal EC-ready so sub-switches can complete deferred
+        # restore if the timer-based retry chain was exhausted before this
+        # point.  Mirrors SIGNAL_NM_READY / SIGNAL_BAYESIAN_READY pattern.
+        try:
+            from homeassistant.helpers.dispatcher import async_dispatcher_send
+            from .signals import SIGNAL_ENERGY_COORDINATOR_READY
+            async_dispatcher_send(self.hass, SIGNAL_ENERGY_COORDINATOR_READY)
+            _LOGGER.debug("SIGNAL_ENERGY_COORDINATOR_READY dispatched")
+        except Exception:
+            _LOGGER.debug(
+                "SIGNAL_ENERGY_COORDINATOR_READY dispatch failed (non-fatal)",
+                exc_info=True,
+            )
+
     async def evaluate(
         self,
         intents: list[Intent],

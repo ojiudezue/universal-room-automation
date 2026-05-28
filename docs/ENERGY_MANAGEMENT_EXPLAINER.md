@@ -163,6 +163,16 @@ When any EVSE is actively charging (power > 100W), the coordinator overrides bat
 
 The hold is released when EVSE charging stops. The `_evse_battery_hold_active` flag tracks this state.
 
+### 6a. EV TOU Policy — strict enforcement model (v4.7.x)
+
+URA's TOU pause for EVSEs is a **strict, idempotent policy**: during peak and mid_peak periods, URA issues a turn-off command every decision cycle regardless of whether the EVSE was manually re-enabled in HA between cycles.
+
+**Why strict?** The original bookkeeping short-circuit (`_paused_by_us` guard) prevented re-pause if the EVSE was already recorded as "paused by us." A user manually re-enabling the EVSE switch in HA would silently defeat the policy until the next HA restart. With the guard removed (v4.7.x D1), URA re-enforces the pause within ≤5 min of any manual override.
+
+**Override path:** the only way to intentionally charge an EV during peak/mid_peak is via `button.ura_energy_coordinator_evse_force_charge_30min`, which opens a 30-minute admin window and fires an NM notification. See `docs/user-manual/ENERGY_COORDINATOR.md §10`.
+
+**Grid Import Cap parallel model:** the Grid Import Cap switch uses separate pause-reason bookkeeping (`_paused_by_grid_cap`). The two policies are independent: Grid Import Cap can coexist with EV TOU Management.
+
 ### Excess Solar EVSE Charging
 
 When surplus solar would otherwise be wasted:

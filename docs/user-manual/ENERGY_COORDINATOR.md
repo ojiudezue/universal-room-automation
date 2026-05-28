@@ -74,6 +74,13 @@ Two switches live on the Energy Coordinator device.
 **What it does:** softer than `Enabled = OFF`. The coordinator still computes decisions but **stops actuating Enphase storage mode + reserve SOC + charge-from-grid**. EVSE controls and HVAC constraints continue to flow. Useful for confirming the strategy matches your intuition before letting it commit.
 **When to enable:** first 1–2 weeks after major config changes (new TOU schedule, new Solcast credentials, new arbitrage settings) so you can verify the *intent* of every decision before it touches your battery.
 
+### `EV TOU Management` — strict policy behavior (v4.7.x)
+**Default:** ON
+**What it does:** when ON, URA pauses all EVSEs during peak and mid_peak TOU periods. **This is a strict, idempotent policy** — if you manually re-enable an EVSE switch in HA, URA will turn it off again on the next decision cycle (≤5 min). Manual HA-side EVSE toggles are intentionally defeated.
+**Rationale:** "All grid charging for EV should happen only during off-peak for every season." The strict enforcement prevents cost leaks caused by accidental or casual EVSE re-enables during high-rate periods.
+**Exception:** excess-solar charging (when battery ≥95% and solar forecast surplus ≥5 kWh) is still allowed during mid_peak — the switch is ON and URA leaves it running.
+**Admin override:** use `button.ura_energy_coordinator_evse_force_charge_30min` for intentional mid-peak charging (see §10 below).
+
 Master gating order — **strict precedence**:
 
 ```
@@ -469,7 +476,35 @@ The `_paused_by_<reason>` set + precedence-rule pattern is the same architecture
 
 ---
 
+---
+
+## 10. Admin override: EVSE force-charge button (v4.7.x)
+
+### Why a button, not a switch?
+A switch is a one-finger swipe — too easy to hit accidentally and leave active. A button + notification + audit trail is the "deliberate action" pattern. The button represents an explicit, time-bounded admin decision.
+
+### `button.ura_energy_coordinator_evse_force_charge_30min`
+**Entity:** `button.ura_energy_coordinator_evse_force_charge_30min`
+**Device:** URA: Energy Coordinator
+
+**What it does when pressed:**
+1. Opens a 30-minute force-charge window during which URA's TOU pause is bypassed for all EVSEs.
+2. Fires an NM info notification: `"EV force-charge window opened until HH:MM. Mid-peak rates apply."` (suppressed if observation mode is active).
+3. Logs the activation with the UTC expiry timestamp.
+
+**Auto-expiry:** the window expires automatically after 30 minutes. On the next decision cycle after expiry, URA resumes enforcing strict TOU pause. No manual cancellation needed — just wait.
+
+**Idempotent re-press:** pressing the button while an override is already active replaces the window (30 min from now), not adds to it. Prevents accidental stacking.
+
+**Override visibility:** `switch.ura_energy_coordinator_ev_tou_management` gains an `override_active_until_iso` attribute that shows the current window's UTC expiry (or `null` when inactive). Check this from Developer Tools → States to confirm the override is active.
+
+**No HA-side bypass:** enabling the EVSE switch directly in HA while TOU is mid_peak/peak is still defeated by URA within ≤5 min (D1 strict enforcement). The force-charge button is the only supported override path.
+
+**When to use:** intentional mid-peak EV charging (guest visiting, departure imminent, grid event). Not for routine off-peak charging — that happens automatically.
+
+---
+
 **See also:**
 - `docs/user-manual/HVAC_COORDINATOR.md` — the climate side of the same brain
 - `docs/readmes/README_v4.5.0.md` — the v4.5.0 battery-strategy redesign cycle (canonical reference)
-- `docs/QUALITY_CONTEXT.md` — bug-class catalog (#1–#35) that reviews check against
+- `docs/QUALITY_CONTEXT.md` — bug-class catalog (#1–#38) that reviews check against

@@ -5729,6 +5729,14 @@ class EnergyBatteryStrategySensor(AggregationEntity, SensorEntity):
         charge_window_opens_at, forecast_outlook, arbitrage_chunk_completed,
         arbitrage_charge_lead_time_min) — all of which come through from
         BatteryStrategy.get_status(). Adds D4 cross-ref `evse_paused_by_arbitrage`.
+
+        v4.7.x D4: adds energy-situation visibility attributes:
+        - optimization_summary: plain-English one-sentence explanation
+        - current_grid_cost_per_hour: live $/hr from current import
+        - next_decision_boundary: next TOU transition + expected action
+        - current_holds_active: list of active holds preventing normal drain
+        - evse_force_charge_until_iso: admin override expiry or None
+        All computed from already-loaded state; no DB queries (Reviewer B).
         """
         manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
         if manager is None:
@@ -5747,7 +5755,131 @@ class EnergyBatteryStrategySensor(AggregationEntity, SensorEntity):
         attrs["evse_paused_by_arbitrage"] = list(
             ev_status.get("paused_by_arbitrage", [])
         )
+
+        # ── v4.7.x D4: energy situation visibility ────────────────────────
+        try:
+            attrs.update(self._build_situation_attrs(energy, ev_status))
+        except Exception:
+            # Never let D4 enrichment break the sensor read
+            pass
+
         return attrs
+
+    def _build_situation_attrs(
+        self, energy: object, ev_status: dict
+    ) -> dict:
+        """Build D4 situation-visibility attribute dict.
+
+        All computation is constant-time over already-loaded coordinator
+        state — no I/O, no DB queries (Reviewer B compliance).
+
+        Bug Class #11/#21: UTC-aware datetimes used throughout.
+        """
+        decision = energy.last_battery_decision or {}
+
+        # ── holds active ─────────────────────────────────────────────────
+        holds: list[str] = []
+        if decision.get("evse_battery_hold"):
+            holds.append("evse_battery_hold")
+        paused_by_arb = ev_status.get("paused_by_arbitrage", [])
+        if paused_by_arb:
+            holds.append("arbitrage_compound_load")
+        paused_by_grid = ev_status.get("paused_by_grid_cap", [])
+        if paused_by_grid:
+            holds.append("grid_import_cap")
+
+        # ── force-charge override expiry ─────────────────────────────────
+        force_charge_until_iso: str | None = ev_status.get("force_charge_until_iso")
+
+        # ── grid cost per hour ───────────────────────────────────────────
+        current_rate = 0.0
+        grid_cost_per_hour: float | None = None
+        try:
+            current_rate = float(energy.tou_rate)
+        except (AttributeError, TypeError, ValueError):
+            pass
+        try:
+            # net_power > 0 means importing from grid (W)
+            net_power_w = float(
+                self.hass.states.get(
+                    energy._battery._get_entity("net_power", "")
+                ).state
+            )
+            if net_power_w > 0:
+                grid_cost_per_hour = round(
+                    (net_power_w / 1000.0) * current_rate, 2
+                )
+            else:
+                grid_cost_per_hour = 0.0
+        except Exception:
+            grid_cost_per_hour = None
+
+        # ── next decision boundary ──────────────────────────────────────
+        next_boundary: dict | None = None
+        try:
+            tou = energy._tou
+            transition = tou.get_next_transition()
+            next_period = transition.get("next_period", "unknown")
+            hours_until = transition.get("hours_until", 0)
+            minutes_until = round(hours_until * 60)
+            # Expected action on transition
+            if next_period == "off_peak":
+                expected_action = "battery will drain toward reserve target"
+            elif next_period in ("peak", "mid_peak"):
+                expected_action = "EV TOU pause will engage; battery holds"
+            else:
+                expected_action = "re-evaluate"
+            next_boundary = {
+                "event": f"{next_period}_starts",
+                "in_minutes": minutes_until,
+                "expected_action": expected_action,
+            }
+        except Exception:
+            next_boundary = None
+
+        # ── plain-English summary ────────────────────────────────────────
+        try:
+            mode = decision.get("mode", "unknown")
+            soc = decision.get("soc")
+            reason = decision.get("reason", "")
+            summary_parts: list[str] = []
+
+            if "evse_battery_hold" in holds:
+                soc_str = f"{int(soc)}%" if soc is not None else "current level"
+                summary_parts.append(
+                    f"Holding battery at {soc_str} because EV is charging."
+                )
+            elif mode in ("drain", "discharge"):
+                summary_parts.append("Battery is discharging to cover home load.")
+            elif mode == "hold":
+                summary_parts.append("Battery is holding charge (no import or export).")
+            elif mode in ("charge", "grid_charge"):
+                summary_parts.append("Battery is charging from the grid (off-peak arbitrage).")
+            elif mode == "charge_solar":
+                summary_parts.append("Battery is charging from solar.")
+            else:
+                summary_parts.append(f"Battery mode: {mode}.")
+
+            if grid_cost_per_hour is not None and grid_cost_per_hour > 0:
+                summary_parts.append(
+                    f"Grid covers current load at ${grid_cost_per_hour:.2f}/hr "
+                    f"(${current_rate:.4f}/kWh)."
+                )
+
+            if force_charge_until_iso:
+                summary_parts.append("Admin force-charge override is active.")
+
+            optimization_summary = " ".join(summary_parts) if summary_parts else reason
+        except Exception:
+            optimization_summary = decision.get("reason", "")
+
+        return {
+            "optimization_summary": optimization_summary,
+            "current_grid_cost_per_hour": grid_cost_per_hour,
+            "next_decision_boundary": next_boundary,
+            "current_holds_active": holds,
+            "evse_force_charge_until_iso": force_charge_until_iso,
+        }
 
 
 class EnergySolarDayClassSensor(AggregationEntity, SensorEntity):
