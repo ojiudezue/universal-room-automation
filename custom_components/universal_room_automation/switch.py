@@ -1,6 +1,6 @@
 """Switch platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.7.1.1
+# Universal Room Automation vv4.7.2
 # Build: 2026-01-02
 # File: switch.py
 #
@@ -146,9 +146,9 @@ async def async_setup_entry(
             ECExcessSolarSwitch(hass, entry),
             ECArbitrageSwitch(hass, entry),
             ECEvTouSwitch(hass, entry),
-            # v4.7.1 Cycle B: Dynamic Preset master kill switch
-            ECDynamicPresetSwitch(hass, entry),
-            # v4.7.1 fix-up D3: Guest Mode Actuation master toggle (HVAC device)
+            # v4.7.2 D2: Dynamic Preset master kill switch (migrated to HVAC device)
+            HVACDynamicPresetSwitch(hass, entry),
+            # v4.7.1 fix-up D3 / v4.7.2 D3: Custom Preset Ranges master toggle (HVAC device)
             HVACGuestModeActuationSwitch(hass, entry),
             # v3.9.0: HVAC transparency switches
             HVACOverrideArresterSwitch(hass, entry),
@@ -888,11 +888,233 @@ class ECEvTouSwitch(_ECEvTouSwitchBase):
         return {"override_active_until_iso": until.isoformat()}
 
 
-# v4.7.1 Cycle B: Dynamic Preset master kill switch (factory-generated)
-ECDynamicPresetSwitch = _ec_switch_factory(
-    "dynamic_preset_enabled", "dynamic_preset_enabled",
-    "Dynamic Preset Overrides", "mdi:thermometer-auto", default=False,
-)
+# v4.7.2 D2: Dynamic Preset master kill switch — HVAC Coordinator device.
+# unique_id PRESERVED from v4.7.1 ECDynamicPresetSwitch for entity_id stability.
+# DeviceInfo.identifiers changed to hvac_coordinator for correct device placement.
+# Default flipped OFF→ON (feature is a no-op for zones without per-zone opt-in).
+
+
+class HVACDynamicPresetSwitch(SwitchEntity, RestoreEntity):
+    """Master kill switch for Dynamic Preset Auto-Adjust.
+
+    Backing field: EnergyCoordinator._dynamic_preset_enabled.
+    Device:        URA: HVAC Coordinator (changed from EC in v4.7.2).
+    unique_id:     {DOMAIN}_energy_dynamic_preset_enabled (PRESERVED — entity_id stable).
+
+    Default ON: DPM is a no-op for any zone without CONF_ZONE_DYNAMIC_PRESET_ENABLED=True,
+    so the OFF default was over-conservative. Existing user-saved OFF is honoured.
+
+    Replicates the SIGNAL_ENERGY_COORDINATOR_READY deferred-restore pattern from
+    _ec_switch_factory (Bug Class #5 + #38 compliance).
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:thermometer-auto"
+    _attr_entity_category = EntityCategory.CONFIG
+
+    _RETRY_DELAYS_S = (5, 30, 120)
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        self.hass = hass
+        self._entry = entry
+        # unique_id PRESERVED from v4.7.1 ECDynamicPresetSwitch — entity_id stable.
+        self._attr_unique_id = f"{DOMAIN}_energy_dynamic_preset_enabled"
+        self._attr_name = "02 · Dynamic Preset Auto-Adjust"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "hvac_coordinator")},
+            name="URA: HVAC Coordinator",
+            manufacturer="Universal Room Automation",
+            model="HVAC Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+        # Default ON (see docstring).
+        self._default: bool = True
+        self._deferred_restore: bool = False
+        self._deferred_value: bool = True
+        self._retry_index: int = 0
+        # B4 fix (v4.7.2 reviewer fix-up): initialize here so direct attribute
+        # access is safe on all code paths (not just the deferred first-install path).
+        self._default_flip_pending_nm: bool = False
+
+    def _get_energy(self):
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        return manager.coordinators.get("energy") if manager else None
+
+    @property
+    def available(self) -> bool:
+        return self._get_energy() is not None
+
+    @property
+    def is_on(self) -> bool:
+        energy = self._get_energy()
+        if energy is None:
+            return self._default
+        return getattr(energy, "dynamic_preset_enabled", self._default)
+
+    async def async_turn_on(self, **kwargs) -> None:
+        energy = self._get_energy()
+        if energy is not None:
+            energy.dynamic_preset_enabled = True
+            self._deferred_restore = False
+            self.async_write_ha_state()
+            _LOGGER.info("HVAC: Dynamic Preset Auto-Adjust enabled")
+
+    async def async_turn_off(self, **kwargs) -> None:
+        energy = self._get_energy()
+        if energy is not None:
+            energy.dynamic_preset_enabled = False
+            self._deferred_restore = False
+            self.async_write_ha_state()
+            _LOGGER.info("HVAC: Dynamic Preset Auto-Adjust disabled")
+
+    async def async_added_to_hass(self) -> None:
+        """Restore state — deferred via SIGNAL_ENERGY_COORDINATOR_READY if EC not yet ready.
+
+        v4.7.2 D2: Replicates _ec_switch_factory deferred-restore pattern.
+        Default flip: first-time install (no saved state) → ON.
+        User-saved OFF: respected (not clobbered by default).
+        NM notification: fires once when default-flip applies (no prior saved state).
+        Bug Class #38: unsubs tracked via async_on_remove.
+        """
+        await super().async_added_to_hass()
+
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_ENERGY_COORDINATOR_READY
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass,
+                SIGNAL_ENERGY_COORDINATOR_READY,
+                self._handle_ec_ready,
+            )
+        )
+
+        last_state = await self.async_get_last_state()
+        if last_state is None:
+            # First-time install — apply default ON and fire NM notification.
+            self._deferred_value = True
+            energy = self._get_energy()
+            if energy is not None:
+                energy.dynamic_preset_enabled = True
+                self._deferred_restore = False
+                self.async_write_ha_state()
+                _LOGGER.info(
+                    "HVACDynamicPresetSwitch: first install — defaulting ON "
+                    "(feature is no-op for zones without per-zone opt-in)"
+                )
+                self._fire_default_on_nm_notification()
+            else:
+                # EC not yet ready — defer and fire NM notification when it arrives.
+                self._deferred_restore = True
+                self._default_flip_pending_nm = True
+                self._retry_index = 0
+                self.async_on_remove(
+                    async_call_later(
+                        self.hass, self._RETRY_DELAYS_S[0], self._retry_restore
+                    )
+                )
+            return
+
+        target = last_state.state == "on"
+        self._deferred_value = target
+        energy = self._get_energy()
+        if energy is not None:
+            energy.dynamic_preset_enabled = target
+            self._deferred_restore = False
+            try:
+                energy.notify_sub_switch_restore_complete()
+            except Exception:
+                pass
+            self.async_write_ha_state()
+            return
+
+        # EC not yet ready — defer restore.
+        self._deferred_restore = True
+        self._retry_index = 0
+        self.async_on_remove(
+            async_call_later(
+                self.hass, self._RETRY_DELAYS_S[0], self._retry_restore
+            )
+        )
+
+    def _fire_default_on_nm_notification(self) -> None:
+        """Fire a one-shot NM info notification on first install after v4.7.2."""
+        try:
+            manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+            nm = manager.coordinators.get("notification_manager") if manager else None
+            if nm is not None:
+                nm.send_info(
+                    "Dynamic Preset Auto-Adjust is now ON by default. "
+                    "It only activates for zones where per-zone DPM is enabled. "
+                    "You can turn it off from the HVAC Coordinator device page."
+                )
+        except Exception:
+            pass
+
+    @callback
+    def _handle_ec_ready(self) -> None:
+        """Handle SIGNAL_ENERGY_COORDINATOR_READY — complete deferred restore.
+
+        Bug Class #42: bound method, not lambda.
+        Bug Class #19: @callback fires synchronously on event loop.
+        """
+        if not self._deferred_restore:
+            return
+        energy = self._get_energy()
+        if energy is None:
+            _LOGGER.warning(
+                "HVACDynamicPresetSwitch: SIGNAL_ENERGY_COORDINATOR_READY fired "
+                "but EC still not in hass.data — restore deferred"
+            )
+            return
+        energy.dynamic_preset_enabled = self._deferred_value
+        self._deferred_restore = False
+        try:
+            energy.notify_sub_switch_restore_complete()
+        except Exception:
+            pass
+        self.async_write_ha_state()
+        _LOGGER.info(
+            "HVACDynamicPresetSwitch: deferred restore completed via "
+            "SIGNAL_ENERGY_COORDINATOR_READY (value=%s)",
+            self._deferred_value,
+        )
+        # Fire NM notification if this was a first-install default-flip.
+        if getattr(self, "_default_flip_pending_nm", False):
+            self._default_flip_pending_nm = False
+            self._fire_default_on_nm_notification()
+
+    @callback
+    def _retry_restore(self, _now=None):
+        if not self._deferred_restore:
+            return
+        energy = self._get_energy()
+        if energy is not None:
+            energy.dynamic_preset_enabled = self._deferred_value
+            self._deferred_restore = False
+            try:
+                energy.notify_sub_switch_restore_complete()
+            except Exception:
+                pass
+            self.async_write_ha_state()
+            if getattr(self, "_default_flip_pending_nm", False):
+                self._default_flip_pending_nm = False
+                self._fire_default_on_nm_notification()
+            return
+        self._retry_index += 1
+        if self._retry_index < len(self._RETRY_DELAYS_S):
+            self.async_on_remove(
+                async_call_later(
+                    self.hass,
+                    self._RETRY_DELAYS_S[self._retry_index],
+                    self._retry_restore,
+                )
+            )
+        else:
+            _LOGGER.warning(
+                "HVACDynamicPresetSwitch: timer retry chain exhausted — waiting for "
+                "SIGNAL_ENERGY_COORDINATOR_READY to complete restore"
+            )
 
 
 class HVACGuestModeActuationSwitch(SwitchEntity, RestoreEntity):
@@ -917,7 +1139,7 @@ class HVACGuestModeActuationSwitch(SwitchEntity, RestoreEntity):
         self.hass = hass
         self._entry = entry
         self._attr_unique_id = f"{DOMAIN}_hvac_coordinator_guest_mode_actuation_enabled"
-        self._attr_name = "Guest Mode Actuation"
+        self._attr_name = "01 · Custom Preset Ranges"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, "hvac_coordinator")},
             name="URA: HVAC Coordinator",

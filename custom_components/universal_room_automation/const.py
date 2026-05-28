@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv4.7.1.1
+# Universal Room Automation vv4.7.2
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v4.7.1.1"
+VERSION: Final = "v4.7.2"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -291,6 +291,10 @@ CONF_ROOM_TYPE: Final = "room_type"
 CONF_AREA_ID: Final = "area_id"
 CONF_OCCUPANCY_TIMEOUT: Final = "occupancy_timeout"
 CONF_OCCUPANCY_DEBOUNCE: Final = "occupancy_debounce"
+
+# v4.7.2 D4: Per-room guest designation + occupancy threshold
+CONF_ROOM_IS_GUEST_ROOM: Final = "room_is_guest_room"
+CONF_ROOM_GUEST_OCCUPANCY_THRESHOLD_MIN: Final = "room_guest_occupancy_threshold_min"
 
 # Room types
 ROOM_TYPE_BEDROOM: Final = "bedroom"

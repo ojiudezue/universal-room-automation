@@ -442,9 +442,11 @@ class StateInferenceEngine:
             if current_state != HouseState.GUEST:
                 self._confidence = 0.8
                 return HouseState.GUEST
-        # Guest mode exit — unidentified gone, return to time-based home
+        # Guest mode exit — unidentified gone AND guest_room gate clear.
         # Exit is immediate (no persistence guard — cheaper to leave than to enter).
-        if current_state == HouseState.GUEST and unidentified_count == 0:
+        # v4.7.2 D5: check guest_gate_armed (OR of both paths) not just unidentified_count
+        # so the guest_room path can hold the state even with unidentified_count==0.
+        if current_state == HouseState.GUEST and unidentified_count == 0 and not guest_gate_armed:
             self._confidence = 0.75
             return self._time_based_home(hour)
 
@@ -559,6 +561,13 @@ class PresenceCoordinator(BaseCoordinator):
         # Guest mode config knobs
         self._guest_persistence_seconds: int = guest_persistence_seconds
         self._guest_require_confidence: str = guest_require_confidence
+
+        # v4.7.2 D5: Sustained-occupancy guest signal (Feature B)
+        # Per-room anti-flap state machine. Keyed by room_name.
+        # {room_name: {"first_seen": Optional[datetime], "current_occupancy_known": bool}}
+        self._guest_room_state: Dict[str, dict] = {}
+        # Per-room listener unsubs (separate from _unsub_listeners for targeted cleanup)
+        self._guest_room_unsubs: Dict[str, Any] = {}
 
     @property
     def inference_engine(self) -> StateInferenceEngine:
@@ -727,6 +736,9 @@ class PresenceCoordinator(BaseCoordinator):
 
             # Discover and subscribe to zone cameras (Tier 2)
             self._discover_zone_cameras()
+
+            # v4.7.2 D5: Discover and subscribe to guest rooms (Feature B)
+            self._discover_guest_rooms()
 
             # Subscribe to geofence (person entity state changes)
             self._subscribe_geofence()
@@ -1548,6 +1560,198 @@ class PresenceCoordinator(BaseCoordinator):
             self._guest_persistence_check_handle()
             self._guest_persistence_check_handle = None
 
+    # ------------------------------------------------------------------
+    # v4.7.2 D5: Sustained-occupancy guest signal (Feature B)
+    # ------------------------------------------------------------------
+
+    def _discover_guest_rooms(self) -> None:
+        """Discover rooms flagged is_guest_room=True and register occupancy listeners.
+
+        Called from async_setup() after _discover_room_sensors().
+        Reads CONF_ROOM_IS_GUEST_ROOM and CONF_ROOM_GUEST_OCCUPANCY_THRESHOLD_MIN
+        from each room entry's options (D4 CONFs). Bug Class #14: reads fresh from
+        options each call.
+
+        For each guest room, subscribes to the room's URA occupancy entity
+        (binary_sensor.{room_slug}_occupied). Bug Class #38: unsubs stored in
+        _guest_room_unsubs; cleaned up on teardown.
+        """
+        from ..const import (
+            CONF_ENTRY_TYPE, CONF_ROOM_NAME, ENTRY_TYPE_ROOM,
+            CONF_ROOM_IS_GUEST_ROOM, CONF_ROOM_GUEST_OCCUPANCY_THRESHOLD_MIN,
+        )
+
+        # Cancel any existing guest-room listeners (handles reconfigure-without-restart).
+        for unsub in self._guest_room_unsubs.values():
+            try:
+                unsub()
+            except Exception:
+                pass
+        self._guest_room_unsubs.clear()
+        self._guest_room_state.clear()
+
+        for entry in self.hass.config_entries.async_entries(DOMAIN):
+            if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ROOM:
+                continue
+            merged = {**entry.data, **entry.options}
+            if not merged.get(CONF_ROOM_IS_GUEST_ROOM, False):
+                continue
+
+            room_name = merged.get(CONF_ROOM_NAME, "")
+            if not room_name:
+                continue
+
+            threshold_min = int(merged.get(CONF_ROOM_GUEST_OCCUPANCY_THRESHOLD_MIN, 30))
+            room_slug = room_name.lower().replace(" ", "_")
+            occupancy_entity_id = f"binary_sensor.{room_slug}_occupied"
+
+            # Initialise anti-flap state for this room.
+            self._guest_room_state[room_name] = {
+                "first_seen": None,
+                "current_occupancy_known": False,
+                "threshold_min": threshold_min,
+            }
+
+            # Subscribe to the room's URA occupancy sensor.
+            # Bug Class #42: listener callback is a bound method; no lambda captures.
+            # Bug Class #38: unsub stored for cleanup.
+            unsub = async_track_state_change_event(
+                self.hass,
+                [occupancy_entity_id],
+                self._handle_guest_room_occupancy_change,
+            )
+            self._guest_room_unsubs[room_name] = unsub
+
+            _LOGGER.info(
+                "D5 guest room registered: '%s' (threshold=%d min, entity=%s)",
+                room_name, threshold_min, occupancy_entity_id,
+            )
+
+    @callback
+    def _handle_guest_room_occupancy_change(self, event: Any) -> None:
+        """Handle occupancy state change for a designated guest room (D5).
+
+        State machine transitions (per plan §4.D5):
+        1. Room occupied + occupant unknown → arm first_seen (if None).
+        2. Room occupied + occupant known → reset first_seen, set known=True.
+        3. Room unoccupied → reset first_seen.
+
+        Bug Class #11: uses dt_util.utcnow() for UTC-aware timestamps.
+        Bug Class #42: @callback bound method, not lambda.
+        Bug Class #19: async_create_task used for inference scheduling — safe because
+        @callback runs on the event loop thread (not a background thread). This matches
+        the established pattern at _handle_occupancy_change and _handle_state_change.
+        """
+        entity_id = event.data.get("entity_id", "")
+        new_state = event.data.get("new_state")
+        if new_state is None:
+            return
+
+        if new_state.state in _UNAVAILABLE_STATES:
+            occupied = False
+        else:
+            occupied = new_state.state == "on"
+
+        # Identify which guest room this entity belongs to.
+        room_name = None
+        for rn, state_dict in self._guest_room_state.items():
+            rn_slug = rn.lower().replace(" ", "_")
+            if f"binary_sensor.{rn_slug}_occupied" == entity_id:
+                room_name = rn
+                break
+
+        if room_name is None:
+            return
+
+        state_dict = self._guest_room_state[room_name]
+        now = dt_util.utcnow()
+
+        if not occupied:
+            # Transition 3: room unoccupied → reset first_seen.
+            if state_dict["first_seen"] is not None:
+                _LOGGER.debug(
+                    "D5 guest room '%s': went unoccupied — resetting first_seen",
+                    room_name,
+                )
+            state_dict["first_seen"] = None
+            state_dict["current_occupancy_known"] = False
+        else:
+            # Room occupied — check if occupant is known.
+            occupant_known = self._is_known_person_in_room(room_name)
+            if occupant_known:
+                # Transition 2: known person → reset, not a guest signal.
+                state_dict["first_seen"] = None
+                state_dict["current_occupancy_known"] = True
+                _LOGGER.debug(
+                    "D5 guest room '%s': known person detected — gate disarmed",
+                    room_name,
+                )
+            else:
+                # Transition 1: unknown occupant → arm first_seen if not already set.
+                if state_dict["first_seen"] is None:
+                    state_dict["first_seen"] = now
+                    _LOGGER.info(
+                        "D5 guest room '%s': unknown occupant — first_seen armed at %s",
+                        room_name, now.isoformat(),
+                    )
+                state_dict["current_occupancy_known"] = False
+
+        # Trigger inference re-evaluation.
+        self.hass.async_create_task(self._run_inference("guest_room_occupancy"))
+
+    def _is_known_person_in_room(self, room_name: str) -> bool:
+        """Return True if any known tracked person is currently in the given room.
+
+        Uses person_coordinator's zone tracker if available.
+        Falls back to False (unknown = safer for guest detection).
+        Bug Class #14: reads fresh from hass.data each call.
+        """
+        try:
+            manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+            if manager is None:
+                return False
+            person_coord = manager.coordinators.get("person")
+            if person_coord is None:
+                return False
+            # Check if any tracked person's current location resolves to this room.
+            tracked = getattr(person_coord, "_tracked_persons", {})
+            for _pid, person_data in tracked.items():
+                location = person_data.get("location", "")
+                if location and location.lower().replace(" ", "_") == room_name.lower().replace(" ", "_"):
+                    return True
+        except Exception:
+            _LOGGER.debug(
+                "D5: could not check known persons in room '%s' (non-fatal)",
+                room_name, exc_info=True,
+            )
+        return False
+
+    def _guest_room_gate_armed(self, now: datetime) -> bool:
+        """Evaluate whether any designated guest room triggers the sustained-occupancy gate.
+
+        Returns True if ANY guest room has:
+        1. An unknown occupant continuously present for >= threshold_min minutes, AND
+        2. The occupant is NOT a known tracked person.
+
+        Exit is immediate: if the condition clears for all rooms, returns False.
+        Bug Class #11: uses UTC-aware now parameter.
+        """
+        for room_name, state_dict in self._guest_room_state.items():
+            first_seen = state_dict.get("first_seen")
+            if first_seen is None:
+                continue
+            if state_dict.get("current_occupancy_known", False):
+                continue
+            threshold_min = state_dict.get("threshold_min", 30)
+            elapsed_min = (now - first_seen).total_seconds() / 60.0
+            if elapsed_min >= threshold_min:
+                _LOGGER.info(
+                    "D5 guest room gate fires: room='%s', elapsed=%.1f min (>= %d min)",
+                    room_name, elapsed_min, threshold_min,
+                )
+                return True
+        return False
+
     def _guest_gate_armed(
         self,
         unidentified_count: int,
@@ -1692,17 +1896,47 @@ class PresenceCoordinator(BaseCoordinator):
                 )
                 self._disarm_guest_gate()
 
-        # Only evaluate the guest gate entry when the house is in a HOME_* state.
-        # When already in GUEST state, skip gate evaluation (already fired;
-        # inference engine handles exit via unidentified_count==0 check).
+        # Evaluate the guest gate when in HOME_* states (entry path) or already
+        # in GUEST state (hold/exit path).  The unid gate (_guest_gate_armed) has
+        # side effects (arms/disarms persistence state) so it is SKIPPED in GUEST
+        # state.  The guest_room gate (_guest_room_gate_armed) is a pure predicate
+        # with no side effects, so it is safe to evaluate in GUEST state and MUST
+        # be evaluated so the exit condition at infer() line 449 gets a truthful
+        # value.  Without this, the exit condition reduces to unidentified_count==0
+        # which causes immediate GUEST→HOME oscillation on every inference cycle.
+        # B1 fix (v4.7.2 reviewer fix-up) — Bug Class #46: Exit-Path Gate Skip.
         if current_state in _home_like_states:
-            guest_armed = self._guest_gate_armed(
+            unid_gate_armed = self._guest_gate_armed(
                 unidentified_count=self._unidentified_count,
                 census_confidence=self._census_confidence,
                 now=now,
             )
+            # v4.7.2 D5: Sustained-occupancy guest room path (additive OR).
+            # Bug Class #11: D5 timestamps are UTC-aware (dt_util.utcnow()).
+            guest_room_gate_armed = self._guest_room_gate_armed(now=dt_util.utcnow())
+            guest_armed = unid_gate_armed or guest_room_gate_armed
+        elif current_state == HouseState.GUEST:
+            # Already in GUEST state — skip unid gate (side-effect-bearing) but
+            # evaluate guest_room gate (pure predicate) so the hold/exit decision
+            # at infer() line 449 is truthful.
+            unid_gate_armed = False
+            # Bug Class #11: D5 timestamps are UTC-aware (dt_util.utcnow()).
+            guest_room_gate_armed = self._guest_room_gate_armed(now=dt_util.utcnow())
+            guest_armed = guest_room_gate_armed
         else:
+            unid_gate_armed = False
+            guest_room_gate_armed = False
             guest_armed = False
+
+        # v4.7.2 D5: Confidence layering math (plan §7).
+        # unid path: 0.8 (existing). guest_room path: 0.9 (higher specificity).
+        # max() when both fire; individual when only one fires.
+        if guest_room_gate_armed and unid_gate_armed:
+            _d5_guest_confidence: float = max(0.8, 0.9)  # = 0.9
+        elif guest_room_gate_armed:
+            _d5_guest_confidence = 0.9
+        else:
+            _d5_guest_confidence = 0.8  # unid path only, or neither (ignored)
 
         new_state = self._inference_engine.infer(
             census_count=self._census_count,
@@ -1711,6 +1945,11 @@ class PresenceCoordinator(BaseCoordinator):
             unidentified_count=self._unidentified_count,
             guest_gate_armed=guest_armed,
         )
+
+        # Override confidence if transitioning to GUEST via the D5 guest_room path.
+        # The inference engine sets 0.8 by default; D5 raises it to 0.9 when warranted.
+        if new_state == HouseState.GUEST and guest_room_gate_armed:
+            self._inference_engine._confidence = _d5_guest_confidence
 
         if new_state is not None:
             accepted = manager.house_state_machine.transition(
@@ -2129,6 +2368,15 @@ class PresenceCoordinator(BaseCoordinator):
 
         # v4.6.2.2: Cancel guest persistence recheck timer on teardown (Bug Class #19)
         self._disarm_guest_gate()
+
+        # v4.7.2 D5: Cancel guest-room occupancy listeners (Bug Class #38)
+        for unsub in self._guest_room_unsubs.values():
+            try:
+                unsub()
+            except Exception:
+                pass
+        self._guest_room_unsubs.clear()
+        self._guest_room_state.clear()
 
         self._cancel_listeners()
 
