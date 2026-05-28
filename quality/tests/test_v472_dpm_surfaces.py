@@ -464,11 +464,16 @@ class TestB2MigrationHelper:
         )
 
     def test_migration_helper_wrapped_in_try_except(self, init_src):
-        """Helper must be non-fatal — wrapped in try/except."""
+        """Helper must be non-fatal — wrapped in try/except.
+
+        v4.7.3 D4 refactored the single-entity helper into a loop; the debug
+        log message was updated.  Test checks for the presence of any
+        'entity reassignment skipped' debug log (version-agnostic).
+        """
         idx = init_src.find(self._CM_ANCHOR)
         body = init_src[idx:idx + 4000]
-        # The try/except block around the migration helper
-        assert "v4.7.2 D2: entity reassignment skipped" in body, (
+        # The try/except block must contain a debug log on failure.
+        assert "entity reassignment skipped" in body, (
             "B2 fix: migration helper must be wrapped in try/except with a debug log "
             "on failure (non-fatal — must not break CM entry setup)"
         )

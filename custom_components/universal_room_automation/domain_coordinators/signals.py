@@ -71,6 +71,14 @@ SIGNAL_BAYESIAN_READY: Final = "ura_bayesian_predictor_ready"
 # pattern — one-shot fire-and-forget after the backing service is registered.
 SIGNAL_ENERGY_COORDINATOR_READY: Final = "ura_energy_coordinator_ready"
 
+# v4.7.3.1: dispatched from HVACCoordinator.async_setup() after init
+# completes (zone discovery + first decision cycle).  Bespoke HVAC switches
+# (HVACGuestModeActuationSwitch, HVACOverrideArresterSwitch,
+# HVACACRampMasterSwitch) subscribe here so they can complete deferred
+# restores when HVAC coord isn't registered at async_added_to_hass time.
+# Parallel pattern to SIGNAL_ENERGY_COORDINATOR_READY above (Bug Class #5).
+SIGNAL_HVAC_COORDINATOR_READY: Final = "ura_hvac_coordinator_ready"
+
 # v4.7.x Cycle A: WeatherProviderManager signals
 # SIGNAL_WEATHER_PROVIDER_CHANGED — dispatched when active provider changes (failover).
 #   Payload: {"active": entity_id | None, "reason": str}

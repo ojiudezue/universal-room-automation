@@ -498,6 +498,19 @@ class HVACCoordinator(BaseCoordinator):
 
         _LOGGER.info("HVAC Coordinator: setup complete")
 
+        # v4.7.3.1: signal HVAC-ready so bespoke HVAC switches can complete
+        # deferred restores (Bug Class #5).  Mirrors SIGNAL_ENERGY_COORDINATOR_READY
+        # in energy.py — one-shot fire-and-forget after setup completes.
+        try:
+            from .signals import SIGNAL_HVAC_COORDINATOR_READY
+            async_dispatcher_send(self.hass, SIGNAL_HVAC_COORDINATOR_READY)
+            _LOGGER.debug("SIGNAL_HVAC_COORDINATOR_READY dispatched")
+        except Exception:
+            _LOGGER.debug(
+                "SIGNAL_HVAC_COORDINATOR_READY dispatch failed (non-fatal)",
+                exc_info=True,
+            )
+
     async def _setup_diagnostics(self) -> None:
         """Initialize diagnostics components."""
         from .coordinator_diagnostics import (

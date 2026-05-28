@@ -297,6 +297,78 @@ SEASONAL_DEFAULTS: Final = {
 }
 
 # ============================================================================
+# v4.7.3 D3: Editable baseline preset CONF keys + DEFAULT integers
+#
+# Naming: CONF_HVAC_BASELINE_<SEASON>_<PRESET>_<DIM>
+#   <SEASON>: SUMMER | SHOULDER | WINTER
+#   <PRESET>: HOME | SLEEP | AWAY | VACATION
+#   <DIM>:    COOL (cool_high) | HEAT (heat_low)
+#
+# DEFAULT_* values mirror SEASONAL_DEFAULTS above so existing users see no
+# behaviour change when CONFs are absent from entry.options.
+# ============================================================================
+
+# --- Summer ---
+CONF_HVAC_BASELINE_SUMMER_HOME_COOL: Final = "hvac_baseline_summer_home_cool"
+CONF_HVAC_BASELINE_SUMMER_HOME_HEAT: Final = "hvac_baseline_summer_home_heat"
+CONF_HVAC_BASELINE_SUMMER_SLEEP_COOL: Final = "hvac_baseline_summer_sleep_cool"
+CONF_HVAC_BASELINE_SUMMER_SLEEP_HEAT: Final = "hvac_baseline_summer_sleep_heat"
+CONF_HVAC_BASELINE_SUMMER_AWAY_COOL: Final = "hvac_baseline_summer_away_cool"
+CONF_HVAC_BASELINE_SUMMER_AWAY_HEAT: Final = "hvac_baseline_summer_away_heat"
+CONF_HVAC_BASELINE_SUMMER_VACATION_COOL: Final = "hvac_baseline_summer_vacation_cool"
+CONF_HVAC_BASELINE_SUMMER_VACATION_HEAT: Final = "hvac_baseline_summer_vacation_heat"
+
+DEFAULT_HVAC_BASELINE_SUMMER_HOME_COOL: Final = 77
+DEFAULT_HVAC_BASELINE_SUMMER_HOME_HEAT: Final = 70
+DEFAULT_HVAC_BASELINE_SUMMER_SLEEP_COOL: Final = 76
+DEFAULT_HVAC_BASELINE_SUMMER_SLEEP_HEAT: Final = 70
+DEFAULT_HVAC_BASELINE_SUMMER_AWAY_COOL: Final = 82
+DEFAULT_HVAC_BASELINE_SUMMER_AWAY_HEAT: Final = 60
+DEFAULT_HVAC_BASELINE_SUMMER_VACATION_COOL: Final = 85
+DEFAULT_HVAC_BASELINE_SUMMER_VACATION_HEAT: Final = 58
+
+# --- Shoulder ---
+CONF_HVAC_BASELINE_SHOULDER_HOME_COOL: Final = "hvac_baseline_shoulder_home_cool"
+CONF_HVAC_BASELINE_SHOULDER_HOME_HEAT: Final = "hvac_baseline_shoulder_home_heat"
+CONF_HVAC_BASELINE_SHOULDER_SLEEP_COOL: Final = "hvac_baseline_shoulder_sleep_cool"
+CONF_HVAC_BASELINE_SHOULDER_SLEEP_HEAT: Final = "hvac_baseline_shoulder_sleep_heat"
+CONF_HVAC_BASELINE_SHOULDER_AWAY_COOL: Final = "hvac_baseline_shoulder_away_cool"
+CONF_HVAC_BASELINE_SHOULDER_AWAY_HEAT: Final = "hvac_baseline_shoulder_away_heat"
+CONF_HVAC_BASELINE_SHOULDER_VACATION_COOL: Final = "hvac_baseline_shoulder_vacation_cool"
+CONF_HVAC_BASELINE_SHOULDER_VACATION_HEAT: Final = "hvac_baseline_shoulder_vacation_heat"
+
+DEFAULT_HVAC_BASELINE_SHOULDER_HOME_COOL: Final = 74
+DEFAULT_HVAC_BASELINE_SHOULDER_HOME_HEAT: Final = 70
+DEFAULT_HVAC_BASELINE_SHOULDER_SLEEP_COOL: Final = 73
+DEFAULT_HVAC_BASELINE_SHOULDER_SLEEP_HEAT: Final = 68
+DEFAULT_HVAC_BASELINE_SHOULDER_AWAY_COOL: Final = 80
+DEFAULT_HVAC_BASELINE_SHOULDER_AWAY_HEAT: Final = 62
+DEFAULT_HVAC_BASELINE_SHOULDER_VACATION_COOL: Final = 82
+DEFAULT_HVAC_BASELINE_SHOULDER_VACATION_HEAT: Final = 58
+
+# --- Winter ---
+CONF_HVAC_BASELINE_WINTER_HOME_COOL: Final = "hvac_baseline_winter_home_cool"
+CONF_HVAC_BASELINE_WINTER_HOME_HEAT: Final = "hvac_baseline_winter_home_heat"
+CONF_HVAC_BASELINE_WINTER_SLEEP_COOL: Final = "hvac_baseline_winter_sleep_cool"
+CONF_HVAC_BASELINE_WINTER_SLEEP_HEAT: Final = "hvac_baseline_winter_sleep_heat"
+CONF_HVAC_BASELINE_WINTER_AWAY_COOL: Final = "hvac_baseline_winter_away_cool"
+CONF_HVAC_BASELINE_WINTER_AWAY_HEAT: Final = "hvac_baseline_winter_away_heat"
+CONF_HVAC_BASELINE_WINTER_VACATION_COOL: Final = "hvac_baseline_winter_vacation_cool"
+CONF_HVAC_BASELINE_WINTER_VACATION_HEAT: Final = "hvac_baseline_winter_vacation_heat"
+
+DEFAULT_HVAC_BASELINE_WINTER_HOME_COOL: Final = 72
+DEFAULT_HVAC_BASELINE_WINTER_HOME_HEAT: Final = 70
+DEFAULT_HVAC_BASELINE_WINTER_SLEEP_COOL: Final = 70
+DEFAULT_HVAC_BASELINE_WINTER_SLEEP_HEAT: Final = 68
+DEFAULT_HVAC_BASELINE_WINTER_AWAY_COOL: Final = 78
+DEFAULT_HVAC_BASELINE_WINTER_AWAY_HEAT: Final = 60
+DEFAULT_HVAC_BASELINE_WINTER_VACATION_COOL: Final = 80
+DEFAULT_HVAC_BASELINE_WINTER_VACATION_HEAT: Final = 58
+
+# Minimum deadband between cool_high and heat_low for baseline presets
+BASELINE_MIN_DEADBAND: Final = 3
+
+# ============================================================================
 # House state -> preset mapping
 # ============================================================================
 

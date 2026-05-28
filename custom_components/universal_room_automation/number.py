@@ -1,6 +1,6 @@
 """Number platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.7.2
+# Universal Room Automation vv4.7.3
 # Build: 2026-01-02
 # File: number.py
 #
@@ -1551,12 +1551,14 @@ class DynamicPresetDwellMinutesNumber(NumberEntity, RestoreEntity):
 
     Default 60, range 15-240, step 5, unit "min".
     Entity: number.ura_energy_coordinator_dynamic_preset_dwell_minutes
-    Device: URA: Energy Coordinator
+    Device: URA: HVAC Coordinator (migrated from EC in v4.7.3 D4)
 
     v4.3.2 mirror pattern: entry.options = initial seed only; RestoreEntity
     is the canonical runtime store. No async_update_entry writeback.
 
     v4.7.1 Cycle B: B4.
+    v4.7.3 D4: DeviceInfo.identifiers changed to hvac_coordinator; unique_id
+    preserved for entity_id stability.
     """
 
     _attr_has_entity_name = True
@@ -1571,14 +1573,14 @@ class DynamicPresetDwellMinutesNumber(NumberEntity, RestoreEntity):
         self.hass = hass
         self._entry = entry
         self._attr_unique_id = f"{DOMAIN}_energy_dynamic_preset_dwell_minutes"
-        self._attr_name = "Dynamic Preset Dwell Minutes"
+        self._attr_name = "03 · Dynamic Preset Dwell (minutes)"
         self._attr_native_min_value = 15.0
         self._attr_native_max_value = 240.0
         self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, "energy_coordinator")},
-            name="URA: Energy Coordinator",
+            identifiers={(DOMAIN, "hvac_coordinator")},
+            name="URA: HVAC Coordinator",
             manufacturer="Universal Room Automation",
-            model="Energy Coordinator",
+            model="HVAC Coordinator",
             sw_version=VERSION,
             via_device=(DOMAIN, "coordinator_manager"),
         )
@@ -1631,9 +1633,11 @@ class DynamicPresetHysteresisFNumber(NumberEntity, RestoreEntity):
 
     Default 2.0, range 0.5-5.0, step 0.5, unit "°F".
     Entity: number.ura_energy_coordinator_dynamic_preset_hysteresis_f
-    Device: URA: Energy Coordinator
+    Device: URA: HVAC Coordinator (migrated from EC in v4.7.3 D4)
 
     v4.7.1 Cycle B: B4.
+    v4.7.3 D4: DeviceInfo.identifiers changed to hvac_coordinator; unique_id
+    preserved for entity_id stability.
     """
 
     _attr_has_entity_name = True
@@ -1648,14 +1652,14 @@ class DynamicPresetHysteresisFNumber(NumberEntity, RestoreEntity):
         self.hass = hass
         self._entry = entry
         self._attr_unique_id = f"{DOMAIN}_energy_dynamic_preset_hysteresis_f"
-        self._attr_name = "Dynamic Preset Hysteresis"
+        self._attr_name = "04 · Dynamic Preset Hysteresis (°F)"
         self._attr_native_min_value = 0.5
         self._attr_native_max_value = 5.0
         self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, "energy_coordinator")},
-            name="URA: Energy Coordinator",
+            identifiers={(DOMAIN, "hvac_coordinator")},
+            name="URA: HVAC Coordinator",
             manufacturer="Universal Room Automation",
-            model="Energy Coordinator",
+            model="HVAC Coordinator",
             sw_version=VERSION,
             via_device=(DOMAIN, "coordinator_manager"),
         )
