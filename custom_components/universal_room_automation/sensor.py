@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.6.13
+# Universal Room Automation vv4.7.0.1
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -176,6 +176,8 @@ async def async_setup_entry(
             HouseStateConfidenceSensor(hass, entry),
             PresenceAnomalySensor(hass, entry),
             PresenceComplianceSensor(hass, entry),
+            # v4.6.9 D1: Routine awareness next-state prediction
+            PresenceNextStateSensor(hass, entry),
             # v3.6.0-c2: Safety Coordinator sensors
             SafetyStatusSensor(hass, entry),
             SafetyActiveHazardsSensor(hass, entry),
@@ -191,6 +193,10 @@ async def async_setup_entry(
             SecurityOpenEntriesSensor(hass, entry),
             SecurityLastLockSweepSensor(hass, entry),
             SecurityExpectedArrivalsSensor(hass, entry),
+            # v4.6.9 D2: Locks + cameras roll-up aggregator
+            SecurityAggregatorSensor(hass, entry),
+            # v4.6.9 D3: Energy Coordinator decision stream timeline
+            EnergyRecentDecisionsSensor(hass, entry),
             # v3.6.27: Music Following Coordinator sensors
             MusicFollowingAnomalySensor(hass, entry),
             MusicFollowingTransfersTodaySensor(hass, entry),
@@ -212,6 +218,11 @@ async def async_setup_entry(
             EnergyTOUSeasonSensor(hass, entry),
             EnergyBatteryStrategySensor(hass, entry),
             EnergySolarDayClassSensor(hass, entry),
+            # v4.7.x Cycle A: WeatherProviderManager sensors
+            WeatherActiveProviderSensor(hass, entry),
+            WeatherApparentForecastHighSensor(hass, entry),
+            # v4.7.1 Cycle B: Dynamic Preset global sensors
+            DynamicPresetOverridesAppliedSensor(hass, entry),
             # v3.7.0-E2: Pool + EV sensors
             EnergyPoolOptimizationSensor(hass, entry),
             EnergyEVChargingStatusSensor(hass, entry),
@@ -273,6 +284,8 @@ async def async_setup_entry(
             SafetyActiveCooldownsSensor(hass, entry),
             # v4.6.11 D4.8: Safety events summary (last 24h from activity log)
             SafetyEventsSummarySensor(hass, entry),
+            # v4.6.9 D5: Safety recent-events ring buffer (last 20 events, newest first)
+            SafetyRecentEventsSensor(hass, entry),
             SecurityAuthorizedGuestsSensor(hass, entry),
             # Activity Log sensor
             URALastActivitySensor(hass, entry),
@@ -326,6 +339,13 @@ async def async_setup_entry(
             )
             coordinator_sensors.append(
                 HVACZonePresetSensor(hass, entry, zone_id)
+            )
+            # v4.7.1 Cycle B: per-zone dynamic preset sensors
+            coordinator_sensors.append(
+                DynamicPresetActiveBucketSensor(hass, entry, zone_id, _zname)
+            )
+            coordinator_sensors.append(
+                DynamicPresetRangeSensor(hass, entry, zone_id, _zname)
             )
             # v4.5.12 D7: per-zone AC ramp-down sensors (3 per zone)
             coordinator_sensors.append(
@@ -3769,6 +3789,172 @@ class PresenceComplianceSensor(AggregationEntity, SensorEntity):
             return 100.0
 
 
+# ============================================================================
+# v4.6.9 D1: Presence Coordinator — Next-State Prediction Sensor
+# ============================================================================
+
+
+try:
+    from enum import StrEnum as _StrEnum
+except ImportError:
+    from enum import Enum as _BaseEnum
+
+    class _StrEnum(str, _BaseEnum):  # type: ignore[no-redef]
+        """Python < 3.11 StrEnum backport."""
+
+
+class _NextStateVocab(_StrEnum):
+    """Bug Class #22: StrEnum for the next-state prediction vocabulary.
+
+    Vocabulary matches the plan's PWA hook contract:
+      home_day | home_night | away | sleep | guest | vacation | unknown
+    """
+    HOME_DAY = "home_day"
+    HOME_NIGHT = "home_night"
+    AWAY = "away"
+    SLEEP = "sleep"
+    GUEST = "guest"
+    VACATION = "vacation"
+    UNKNOWN = "unknown"
+
+
+class PresenceNextStateSensor(AggregationEntity, SensorEntity):
+    """Routine awareness next-state prediction sensor.
+
+    Entity: sensor.ura_presence_coordinator_next_state
+    Device: URA: Presence Coordinator
+    State: predicted house state (home_day | home_night | away | sleep |
+           guest | vacation | unknown)
+    Attributes (flat, PWA-parseable):
+      confidence: float (0.0-1.0)
+      predicted_at_iso: str (ISO 8601 UTC)
+      model: str (model id / version)
+      current_state: str (current house state, for cross-check)
+      transition_eta_minutes: int | null
+
+    v4.6.9 D1: The Routine Awareness v4.6.0 cycle introduced regime shift
+    *detection* (RegimeDetector, nightly batch) but not forward next-state
+    prediction.  PresenceCoordinator.get_next_state_prediction() currently
+    returns a placeholder_v0 shape (state="unknown", confidence=0.0).
+    A real model is planned for v4.7.x.
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:crystal-ball"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .const import VERSION
+        self._attr_unique_id = f"{DOMAIN}_next_state"
+        self._attr_name = "Next State"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "presence_coordinator")},
+            name="URA: Presence Coordinator",
+            manufacturer="Universal Room Automation",
+            model="Presence Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+
+    def _get_prediction(self) -> dict | None:
+        """Read the prediction from the presence coordinator.
+
+        Bug Class #14 (config staleness): called on every populator access —
+        never caches; always reads from the live coordinator.
+        """
+        try:
+            manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+            if manager is None:
+                return None
+            presence = manager.coordinators.get("presence")
+            if presence is None:
+                return None
+            return presence.get_next_state_prediction()
+        except Exception:
+            _LOGGER.debug(
+                "PresenceNextStateSensor: error reading prediction", exc_info=True
+            )
+            return None
+
+    @property
+    def native_value(self) -> str:
+        """Return the predicted next house state.
+
+        Tier 2-DB Reviewer A H3 fix: return the vocabulary value "unknown"
+        when prediction is unavailable — NOT the HA STATE_UNAVAILABLE constant.
+        The HA constant ("unavailable") would be stored as a string state in
+        the PWA's read path (useUraSensorState.state) and bypass the proper
+        unavailable signalling. The PWA's hook maps "unknown" → unavailable=True
+        via its state-vocab check.
+
+        Bug Class #29: covers the null-model branch — never returns "—"/"N/A"/"".
+        Bug Class #22: state value is validated against _NextStateVocab.
+        """
+        prediction = self._get_prediction()
+        if prediction is None:
+            return _NextStateVocab.UNKNOWN.value
+        raw = prediction.get("state", "unknown")
+        # Validate against vocabulary — default to "unknown" on bad value
+        try:
+            return _NextStateVocab(raw).value
+        except ValueError:
+            _LOGGER.debug(
+                "PresenceNextStateSensor: unexpected state value %r — using unknown", raw
+            )
+            return _NextStateVocab.UNKNOWN.value
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return flat PWA-parseable attribute dict.
+
+        Bug Class #37 (stable attribute shape): keys are always present;
+        null values use None (not absent keys).
+        All values are JSON-serializable: float, str, int, or None.
+        No Decimal, no datetime objects, no nested dicts.
+        """
+        prediction = self._get_prediction()
+        if prediction is None:
+            return {
+                "confidence": 0.0,
+                "predicted_at_iso": None,
+                "model": None,
+                "current_state": None,
+                "transition_eta_minutes": None,
+            }
+        eta = prediction.get("transition_eta_minutes")
+        return {
+            "confidence": float(prediction.get("confidence", 0.0)),
+            "predicted_at_iso": prediction.get("predicted_at_iso"),
+            "model": prediction.get("model"),
+            "current_state": prediction.get("current_state"),
+            "transition_eta_minutes": int(eta) if eta is not None else None,
+        }
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to house-state change signal for live updates.
+
+        Bug Class #1 (coordinator lifecycle): super() called first; subscription
+        cleaned up via async_on_remove (no untracked listeners).
+        Bug Class #19 (untracked background tasks): no tasks created here.
+        """
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_HOUSE_STATE_CHANGED
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_HOUSE_STATE_CHANGED, self._handle_update,
+            )
+        )
+        _LOGGER.debug("PresenceNextStateSensor: subscribed to SIGNAL_HOUSE_STATE_CHANGED")
+
+    @callback
+    def _handle_update(self, *args: Any) -> None:
+        """Schedule a state refresh when house state changes."""
+        self.async_schedule_update_ha_state()
+
+
 class IntegrationHouseStateSensor(AggregationEntity, SensorEntity):
     """House state sensor duplicated on the URA integration device.
 
@@ -4667,6 +4853,229 @@ class SecurityExpectedArrivalsSensor(AggregationEntity, SensorEntity):
     @callback
     def _handle_update(self) -> None:
         """Handle security entity update signal."""
+        self.async_schedule_update_ha_state()
+
+
+class SecurityAggregatorSensor(AggregationEntity, SensorEntity):
+    """Locks + cameras roll-up aggregator.
+
+    Entity: sensor.ura_security_coordinator_aggregator
+    Device: URA: Security Coordinator
+    State: armed | disarmed | partial | alert  (StrEnum _SecurityAggStatus)
+
+    v4.6.9 D2: Single sensor that rolls up all configured lock.* and
+    camera.* entities into a security overview the PWA dashboard can bind.
+
+    Bug-class guards:
+      #22 — state vocabulary is _SecurityAggStatus (StrEnum); never raw str
+      #23 — observation mode does NOT gate state computation; only action
+             dispatch is gated in the coordinator. Dashboard shows reality.
+      #29 — every status branch (armed/disarmed/partial/alert) is exercised
+             by mandatory tests and by the no-entities branch.
+      #11 — last_state_change_iso is UTC ISO 8601 str (never datetime obj).
+      #37 — extra_state_attributes is a flat dict of ints + one str|None.
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:shield-home"
+    # Tier 2-DB Reviewer A C1 fix: string-state sensor (armed|disarmed|partial|alert)
+    # — NOT a numeric measurement. Omit state_class entirely (matches pattern at
+    # SecurityArmedStateSensor:2976 "_attr_state_class = None  # Enum state").
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_aggregator"
+        self._attr_name = "Aggregator"
+        self._attr_device_info = _security_device_info()
+
+    def _get_aggregator(self) -> dict | None:
+        """Fetch live aggregator state from the security coordinator.
+
+        Returns None when the coordinator is unavailable so callers can
+        fall back gracefully without repeating the manager lookup.
+        """
+        try:
+            manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+            if manager is None:
+                return None
+            security = manager.coordinators.get("security")
+            if security is None:
+                return None
+            return security.get_security_aggregator_state()
+        except Exception:
+            _LOGGER.debug(
+                "SecurityAggregatorSensor: get_security_aggregator_state() failed",
+                exc_info=True,
+            )
+            return None
+
+    @property
+    def native_value(self) -> str:
+        """Return overall security status — armed | disarmed | partial | alert."""
+        agg = self._get_aggregator()
+        if agg is None:
+            return "disarmed"
+        return agg["status"]
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return flat lock/camera counts + last_state_change_iso.
+
+        Shape is always stable (Bug Class #37): all 9 keys are always
+        present regardless of whether locks/cameras are configured.
+        """
+        agg = self._get_aggregator()
+        if agg is None:
+            return {
+                "locks_total": 0,
+                "locks_locked": 0,
+                "locks_unlocked": 0,
+                "locks_jammed": 0,
+                "cameras_total": 0,
+                "cameras_streaming": 0,
+                "cameras_idle": 0,
+                "cameras_offline": 0,
+                "last_state_change_iso": None,
+            }
+        return {
+            "locks_total": agg["locks_total"],
+            "locks_locked": agg["locks_locked"],
+            "locks_unlocked": agg["locks_unlocked"],
+            "locks_jammed": agg["locks_jammed"],
+            "cameras_total": agg["cameras_total"],
+            "cameras_streaming": agg["cameras_streaming"],
+            "cameras_idle": agg["cameras_idle"],
+            "cameras_offline": agg["cameras_offline"],
+            "last_state_change_iso": agg["last_state_change_iso"],
+        }
+
+    @property
+    def icon(self) -> str:
+        """Dynamic icon based on aggregator status."""
+        val = self.native_value
+        if val == "alert":
+            return "mdi:shield-alert"
+        if val == "armed":
+            return "mdi:shield-lock"
+        if val == "partial":
+            return "mdi:shield-half-full"
+        return "mdi:shield-off-outline"
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to security entity updates."""
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_SECURITY_ENTITIES_UPDATE
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_SECURITY_ENTITIES_UPDATE, self._handle_update
+            )
+        )
+
+    @callback
+    def _handle_update(self) -> None:
+        """Handle security entity update signal."""
+        self.async_schedule_update_ha_state()
+
+
+class EnergyRecentDecisionsSensor(AggregationEntity, SensorEntity):
+    """Energy Coordinator decision stream timeline.
+
+    Entity: sensor.ura_energy_coordinator_recent_decisions
+    Device: URA: Energy Coordinator
+    State: int — number of decisions in the last 24h (never '—'/None/unknown)
+
+    v4.6.9 D3: Exposes the in-memory decision ring buffer from EnergyCoordinator
+    as a PWA-consumable sensor. State is always int (0 when buffer empty).
+
+    Bug-class guards:
+      #11  — all timestamps are UTC ISO 8601 strings (dt_util.utcnow().isoformat())
+      #22  — tou_period values come from TOURateEngine._VALID_PERIODS vocabulary
+             (peak | mid_peak | off_peak); never redefined here
+      #25  — buffer is deque(maxlen=20); hard cap enforced in coordinator
+      #29  — empty-buffer branch returns 0 + empty list (not null/unknown)
+      #37  — extra_state_attributes has stable shape: decisions + last_action_at_iso
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:format-list-bulleted-type"
+    # Tier 2-DB Reviewer C M1: state is a sliding-window count from a volatile
+    # in-memory ring buffer (resets on HA restart). HA long-term statistics
+    # would record a discontinuous time series for it. state_class=None opts
+    # out of LTS recording; matches the pattern at SecurityAggregatorSensor.
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_recent_decisions"
+        self._attr_name = "Recent Decisions"
+        self._attr_device_info = _energy_device_info()
+
+    def _get_decisions_data(self) -> dict | None:
+        """Fetch decision stream data from EnergyCoordinator.
+
+        Returns None when the coordinator is unavailable; callers fall back
+        gracefully to the empty-buffer shape.
+        """
+        try:
+            manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+            if manager is None:
+                return None
+            energy = manager.coordinators.get("energy")
+            if energy is None:
+                return None
+            return energy.get_recent_decisions()
+        except Exception:
+            _LOGGER.debug(
+                "EnergyRecentDecisionsSensor: get_recent_decisions() failed",
+                exc_info=True,
+            )
+            return None
+
+    @property
+    def native_value(self) -> int:
+        """Return number of decisions in the last 24h.
+
+        Bug Class #29: always returns int 0 on empty buffer — never None/unknown.
+        """
+        data = self._get_decisions_data()
+        if data is None:
+            return 0
+        return int(data.get("count_24h", 0))
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return flat decisions list + last_action_at_iso.
+
+        Bug Class #37: both keys are always present regardless of buffer state.
+        Bug Class #25: list is capped at 20 entries (enforced by deque in coordinator).
+        """
+        data = self._get_decisions_data()
+        if data is None:
+            return {
+                "decisions": [],
+                "last_action_at_iso": None,
+            }
+        return {
+            "decisions": data.get("decisions", []),
+            "last_action_at_iso": data.get("last_action_at_iso"),
+        }
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to energy entity updates."""
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_ENERGY_ENTITIES_UPDATE
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_ENERGY_ENTITIES_UPDATE, self._handle_update
+            )
+        )
+
+    @callback
+    def _handle_update(self) -> None:
+        """Handle energy entity update signal."""
         self.async_schedule_update_ha_state()
 
 
@@ -5729,6 +6138,14 @@ class EnergyBatteryStrategySensor(AggregationEntity, SensorEntity):
         charge_window_opens_at, forecast_outlook, arbitrage_chunk_completed,
         arbitrage_charge_lead_time_min) — all of which come through from
         BatteryStrategy.get_status(). Adds D4 cross-ref `evse_paused_by_arbitrage`.
+
+        v4.7.x D4: adds energy-situation visibility attributes:
+        - optimization_summary: plain-English one-sentence explanation
+        - current_grid_cost_per_hour: live $/hr from current import
+        - next_decision_boundary: next TOU transition + expected action
+        - current_holds_active: list of active holds preventing normal drain
+        - evse_force_charge_until_iso: admin override expiry or None
+        All computed from already-loaded state; no DB queries (Reviewer B).
         """
         manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
         if manager is None:
@@ -5747,7 +6164,131 @@ class EnergyBatteryStrategySensor(AggregationEntity, SensorEntity):
         attrs["evse_paused_by_arbitrage"] = list(
             ev_status.get("paused_by_arbitrage", [])
         )
+
+        # ── v4.7.x D4: energy situation visibility ────────────────────────
+        try:
+            attrs.update(self._build_situation_attrs(energy, ev_status))
+        except Exception:
+            # Never let D4 enrichment break the sensor read
+            pass
+
         return attrs
+
+    def _build_situation_attrs(
+        self, energy: object, ev_status: dict
+    ) -> dict:
+        """Build D4 situation-visibility attribute dict.
+
+        All computation is constant-time over already-loaded coordinator
+        state — no I/O, no DB queries (Reviewer B compliance).
+
+        Bug Class #11/#21: UTC-aware datetimes used throughout.
+        """
+        decision = energy.last_battery_decision or {}
+
+        # ── holds active ─────────────────────────────────────────────────
+        holds: list[str] = []
+        if decision.get("evse_battery_hold"):
+            holds.append("evse_battery_hold")
+        paused_by_arb = ev_status.get("paused_by_arbitrage", [])
+        if paused_by_arb:
+            holds.append("arbitrage_compound_load")
+        paused_by_grid = ev_status.get("paused_by_grid_cap", [])
+        if paused_by_grid:
+            holds.append("grid_import_cap")
+
+        # ── force-charge override expiry ─────────────────────────────────
+        force_charge_until_iso: str | None = ev_status.get("force_charge_until_iso")
+
+        # ── grid cost per hour ───────────────────────────────────────────
+        current_rate = 0.0
+        grid_cost_per_hour: float | None = None
+        try:
+            current_rate = float(energy.tou_rate)
+        except (AttributeError, TypeError, ValueError):
+            pass
+        try:
+            # net_power > 0 means importing from grid (W)
+            net_power_w = float(
+                self.hass.states.get(
+                    energy._battery._get_entity("net_power", "")
+                ).state
+            )
+            if net_power_w > 0:
+                grid_cost_per_hour = round(
+                    (net_power_w / 1000.0) * current_rate, 2
+                )
+            else:
+                grid_cost_per_hour = 0.0
+        except Exception:
+            grid_cost_per_hour = None
+
+        # ── next decision boundary ──────────────────────────────────────
+        next_boundary: dict | None = None
+        try:
+            tou = energy._tou
+            transition = tou.get_next_transition()
+            next_period = transition.get("next_period", "unknown")
+            hours_until = transition.get("hours_until", 0)
+            minutes_until = round(hours_until * 60)
+            # Expected action on transition
+            if next_period == "off_peak":
+                expected_action = "battery will drain toward reserve target"
+            elif next_period in ("peak", "mid_peak"):
+                expected_action = "EV TOU pause will engage; battery holds"
+            else:
+                expected_action = "re-evaluate"
+            next_boundary = {
+                "event": f"{next_period}_starts",
+                "in_minutes": minutes_until,
+                "expected_action": expected_action,
+            }
+        except Exception:
+            next_boundary = None
+
+        # ── plain-English summary ────────────────────────────────────────
+        try:
+            mode = decision.get("mode", "unknown")
+            soc = decision.get("soc")
+            reason = decision.get("reason", "")
+            summary_parts: list[str] = []
+
+            if "evse_battery_hold" in holds:
+                soc_str = f"{int(soc)}%" if soc is not None else "current level"
+                summary_parts.append(
+                    f"Holding battery at {soc_str} because EV is charging."
+                )
+            elif mode in ("drain", "discharge"):
+                summary_parts.append("Battery is discharging to cover home load.")
+            elif mode == "hold":
+                summary_parts.append("Battery is holding charge (no import or export).")
+            elif mode in ("charge", "grid_charge"):
+                summary_parts.append("Battery is charging from the grid (off-peak arbitrage).")
+            elif mode == "charge_solar":
+                summary_parts.append("Battery is charging from solar.")
+            else:
+                summary_parts.append(f"Battery mode: {mode}.")
+
+            if grid_cost_per_hour is not None and grid_cost_per_hour > 0:
+                summary_parts.append(
+                    f"Grid covers current load at ${grid_cost_per_hour:.2f}/hr "
+                    f"(${current_rate:.4f}/kWh)."
+                )
+
+            if force_charge_until_iso:
+                summary_parts.append("Admin force-charge override is active.")
+
+            optimization_summary = " ".join(summary_parts) if summary_parts else reason
+        except Exception:
+            optimization_summary = decision.get("reason", "")
+
+        return {
+            "optimization_summary": optimization_summary,
+            "current_grid_cost_per_hour": grid_cost_per_hour,
+            "next_decision_boundary": next_boundary,
+            "current_holds_active": holds,
+            "evse_force_charge_until_iso": force_charge_until_iso,
+        }
 
 
 class EnergySolarDayClassSensor(AggregationEntity, SensorEntity):
@@ -5792,6 +6333,532 @@ class EnergySolarDayClassSensor(AggregationEntity, SensorEntity):
             "forecast_today_kwh": battery.solcast_today,
             "forecast_remaining_kwh": battery.solcast_remaining,
         }
+
+
+# ============================================================================
+# v4.7.x Cycle A: WEATHER PROVIDER MANAGER SENSORS
+# ============================================================================
+
+
+class WeatherActiveProviderSensor(AggregationEntity, SensorEntity):
+    """Active weather provider entity ID (or 'none' / 'all_stale').
+
+    Entity: sensor.ura_weather_active_provider
+    Device: URA: Energy Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:weather-partly-cloudy"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_weather_active_provider"
+        self._attr_name = "Weather Active Provider"
+        self._attr_device_info = _energy_device_info()
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to SIGNAL_WEATHER_PROVIDER_CHANGED for reactive updates (WPM-H1)."""
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_WEATHER_PROVIDER_CHANGED
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_WEATHER_PROVIDER_CHANGED, self._on_weather_signal,
+            )
+        )
+
+    @callback
+    def _on_weather_signal(self, _payload=None) -> None:
+        """Handle provider-changed or divergence signal."""
+        self.async_write_ha_state()
+
+    @property
+    def available(self) -> bool:
+        """Return False when WeatherProviderManager is not set up (WPM-H5)."""
+        return self.hass.data.get(DOMAIN, {}).get("weather_manager") is not None
+
+    @property
+    def native_value(self) -> str:
+        """Return active provider entity_id, 'none', or 'all_stale'."""
+        try:
+            mgr = self.hass.data.get(DOMAIN, {}).get("weather_manager")
+            if mgr is None:
+                return "none"
+            return mgr.provider_status_str
+        except Exception:
+            return "none"
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return provider list health details."""
+        try:
+            mgr = self.hass.data.get(DOMAIN, {}).get("weather_manager")
+            if mgr is None:
+                return {}
+            active = mgr.active_provider
+            rank = mgr.priority_rank_for(active) if active is not None else None
+            return {
+                "priority_rank": rank,
+                "healthy_count": mgr.healthy_provider_count,
+                "total_count": mgr.total_provider_count,
+                "failover_reason": mgr.failover_reason,
+                "apparent_confidence": mgr.apparent_confidence,
+                "provider_health": mgr.provider_health_map,
+            }
+        except Exception:
+            return {}
+
+
+class WeatherApparentForecastHighSensor(AggregationEntity, SensorEntity):
+    """Today's apparent forecast high temperature from the active provider.
+
+    Entity: sensor.ura_weather_apparent_forecast_high
+    Device: URA: Energy Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:thermometer-chevron-up"
+    _attr_native_unit_of_measurement = "°F"
+    _attr_state_class = "measurement"
+    _attr_suggested_display_precision = 1
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_weather_apparent_forecast_high"
+        self._attr_name = "Weather Apparent Forecast High"
+        self._attr_device_info = _energy_device_info()
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to provider-changed signal for reactive updates (WPM-H1)."""
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_WEATHER_PROVIDER_CHANGED
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_WEATHER_PROVIDER_CHANGED, self._on_weather_signal,
+            )
+        )
+
+    @callback
+    def _on_weather_signal(self, _payload=None) -> None:
+        """Handle provider-changed signal — push updated value to HA."""
+        self.async_write_ha_state()
+
+    @property
+    def available(self) -> bool:
+        """Return False when WeatherProviderManager is absent or has no forecast (WPM-H5)."""
+        try:
+            mgr = self.hass.data.get(DOMAIN, {}).get("weather_manager")
+            return mgr is not None and mgr._cached_forecast is not None
+        except Exception:
+            return False
+
+    @property
+    def native_value(self) -> float | None:
+        """Return today's apparent high directly from WPM (WPM-H2 — no EC indirection)."""
+        try:
+            mgr = self.hass.data.get(DOMAIN, {}).get("weather_manager")
+            if mgr is None:
+                return None
+            return mgr.current_apparent_forecast_high()
+        except Exception:
+            return None
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return forecast detail attributes sourced entirely from WPM (WPM-H2)."""
+        try:
+            mgr = self.hass.data.get(DOMAIN, {}).get("weather_manager")
+            if mgr is None:
+                return {}
+            forecast = mgr._cached_forecast
+            if forecast is None:
+                return {}
+            return {
+                "raw_high": forecast.raw_high,
+                "apparent_low": forecast.apparent_low,
+                "provider_source": forecast.provider_id,
+                "confidence": forecast.apparent_confidence,
+                "divergence_f": forecast.divergence_f,
+            }
+        except Exception:
+            return {}
+
+
+# ============================================================================
+# v4.7.1 Cycle B: DYNAMIC PRESET SENSORS
+# ============================================================================
+
+
+def _get_dynamic_preset_source(hass):
+    """Return DynamicPresetOverrideSource from EC coordinator (or None)."""
+    try:
+        manager = hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        energy = manager.coordinators.get("energy")
+        if energy is None:
+            return None
+        return getattr(energy, "_dynamic_preset_source", None)
+    except Exception:
+        return None
+
+
+def _get_dynamic_preset_overrides(hass) -> dict:
+    """Return the per-zone overrides dict from EC (or {})."""
+    try:
+        manager = hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return {}
+        energy = manager.coordinators.get("energy")
+        if energy is None:
+            return {}
+        return getattr(energy, "_dynamic_preset_overrides", {}) or {}
+    except Exception:
+        return {}
+
+
+def _wpm_available(hass) -> bool:
+    """Return True when WeatherProviderManager exists and has a cached forecast."""
+    try:
+        mgr = hass.data.get(DOMAIN, {}).get("weather_manager")
+        return mgr is not None and mgr._cached_forecast is not None
+    except Exception:
+        return False
+
+
+class DynamicPresetActiveBucketSensor(AggregationEntity, SensorEntity, RestoreEntity):
+    """Active thermal load bucket for a canonical HVAC zone.
+
+    State: cool | mild | hot | extreme | unavailable
+    Entity: sensor.ura_dynamic_preset_active_bucket_<zone_id>
+    Device: URA: Energy Coordinator
+
+    Restores bucket + last_transition_at on HA restart (Bug #10 compliance).
+    Subscribes to SIGNAL_DYNAMIC_PRESET_TRANSITIONED for reactive updates (WPM-H1 pattern).
+
+    v4.7.1 Cycle B: B3.
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:thermometer-auto"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(
+        self, hass: HomeAssistant, entry: ConfigEntry, zone_id: str, zone_name: str
+    ) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._zone_id = zone_id
+        self._zone_name = zone_name
+        self._attr_unique_id = f"{DOMAIN}_dynamic_preset_active_bucket_{zone_id}"
+        self._attr_name = f"Dynamic Preset Bucket {zone_name}"
+        self._attr_device_info = _energy_device_info()
+        # Cached state for RestoreEntity (Bug #10)
+        self._restored_bucket: str | None = None
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to transition signal and restore state (WPM-H1 + Bug #10)."""
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import (
+            SIGNAL_DYNAMIC_PRESET_OVERRIDES_UPDATED,
+            SIGNAL_DYNAMIC_PRESET_TRANSITIONED,
+        )
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_DYNAMIC_PRESET_TRANSITIONED, self._on_transition,
+            )
+        )
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_DYNAMIC_PRESET_OVERRIDES_UPDATED, self._on_updated,
+            )
+        )
+        # Restore cross-restart state (Bug #10)
+        last_state = await self.async_get_last_state()
+        if last_state is not None and last_state.state not in ("unknown", "unavailable", None):
+            self._restored_bucket = last_state.state
+            # Inject into DynamicPresetOverrideSource when it's available
+            self._try_restore_to_source(last_state)
+
+    def _try_restore_to_source(self, last_state) -> None:
+        """Inject restored state into DynamicPresetOverrideSource (Bug #10)."""
+        from datetime import datetime, timezone
+        try:
+            source = _get_dynamic_preset_source(self.hass)
+            if source is None:
+                return
+            bucket = last_state.state
+            # Try to get last_transition_iso from last_state attributes
+            last_tx_iso = (last_state.attributes or {}).get("last_transition_iso")
+            if last_tx_iso:
+                try:
+                    last_tx = datetime.fromisoformat(last_tx_iso)
+                    if last_tx.tzinfo is None:
+                        last_tx = last_tx.replace(tzinfo=timezone.utc)
+                except (ValueError, TypeError):
+                    last_tx = dt_util.utcnow()
+            else:
+                last_tx = dt_util.utcnow()
+            source.restore_zone_state(self._zone_id, bucket, last_tx)
+        except Exception:
+            pass
+
+    @callback
+    def _on_transition(self, payload=None) -> None:
+        """Handle bucket transition signal — push updated state to HA."""
+        if payload and payload.get("zone_id") == self._zone_id:
+            self.async_write_ha_state()
+
+    @callback
+    def _on_updated(self, _payload=None) -> None:
+        """Handle generic overrides-updated signal."""
+        self.async_write_ha_state()
+
+    @property
+    def available(self) -> bool:
+        """Unavailable when WPM is missing (WPM-H5 pattern)."""
+        return _wpm_available(self.hass)
+
+    @property
+    def native_value(self) -> str | None:
+        """Return current bucket or None."""
+        try:
+            source = _get_dynamic_preset_source(self.hass)
+            if source is None:
+                return self._restored_bucket
+            state = source.get_zone_state(self._zone_id)
+            return state.get("bucket") or self._restored_bucket
+        except Exception:
+            return self._restored_bucket
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return bucket detail attributes."""
+        try:
+            source = _get_dynamic_preset_source(self.hass)
+            overrides = _get_dynamic_preset_overrides(self.hass)
+            zone_overrides = overrides.get(self._zone_id, [])
+
+            state = source.get_zone_state(self._zone_id) if source else {}
+
+            # Get WPM data for delta/apparent high
+            mgr = self.hass.data.get(DOMAIN, {}).get("weather_manager")
+            apparent_high = None
+            delta_f = None
+            baseline_high = None
+            if mgr is not None:
+                apparent_high = mgr.current_apparent_forecast_high()
+                delta_f = mgr.baseline_delta_for_zone(self._zone_id, "home")
+                if apparent_high is not None and delta_f is not None:
+                    baseline_high = apparent_high - delta_f
+
+            return {
+                "delta_f": round(delta_f, 1) if delta_f is not None else None,
+                "apparent_high_f": apparent_high,
+                "baseline_high_f": baseline_high,
+                "last_transition_iso": state.get("last_transition_iso"),
+                "dwell_remaining_min": state.get("dwell_remaining_min"),
+                "active_overrides_count": len(zone_overrides),
+            }
+        except Exception:
+            return {}
+
+
+class DynamicPresetRangeSensor(AggregationEntity, SensorEntity):
+    """Effective home preset range for the current bucket.
+
+    State: "cool_low–cool_high" (e.g. "70.0–76.0") or None when unavailable.
+    Entity: sensor.ura_dynamic_preset_range_<zone_id>
+    Device: URA: Energy Coordinator
+
+    v4.7.1 Cycle B: B3.
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:thermometer-lines"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(
+        self, hass: HomeAssistant, entry: ConfigEntry, zone_id: str, zone_name: str
+    ) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._zone_id = zone_id
+        self._zone_name = zone_name
+        self._attr_unique_id = f"{DOMAIN}_dynamic_preset_range_{zone_id}"
+        self._attr_name = f"Dynamic Preset Range {zone_name}"
+        self._attr_device_info = _energy_device_info()
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to override-updated signal (WPM-H1 pattern)."""
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_DYNAMIC_PRESET_OVERRIDES_UPDATED
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_DYNAMIC_PRESET_OVERRIDES_UPDATED, self._on_updated,
+            )
+        )
+
+    @callback
+    def _on_updated(self, _payload=None) -> None:
+        """Handle overrides-updated signal — push state to HA."""
+        self.async_write_ha_state()
+
+    @property
+    def available(self) -> bool:
+        """Unavailable when WPM is missing (WPM-H5 pattern)."""
+        return _wpm_available(self.hass)
+
+    @property
+    def native_value(self) -> str | None:
+        """Return 'low–high' string for the active home override, or None."""
+        try:
+            overrides = _get_dynamic_preset_overrides(self.hass)
+            zone_overrides = overrides.get(self._zone_id, [])
+            for override in zone_overrides:
+                if override.preset == "home" and override.cool_low is not None and override.cool_high is not None:
+                    return f"{override.cool_low:.1f}–{override.cool_high:.1f}"
+            return None
+        except Exception:
+            return None
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return full grid of effective ranges (home + sleep × 4 buckets)."""
+        try:
+            overrides_dict = _get_dynamic_preset_overrides(self.hass)
+            zone_overrides = overrides_dict.get(self._zone_id, [])
+
+            home_overrides = {o.preset: {"low": o.cool_low, "high": o.cool_high, "bucket": o.bucket}
+                              for o in zone_overrides if o.preset == "home"}
+            sleep_overrides = {o.preset: {"low": o.cool_low, "high": o.cool_high, "bucket": o.bucket}
+                               for o in zone_overrides if o.preset == "sleep"}
+
+            return {
+                "zone_id": self._zone_id,
+                "zone_name": self._zone_name,
+                "home_override": home_overrides.get("home"),
+                "sleep_override": sleep_overrides.get("sleep"),
+                "all_overrides": [
+                    {
+                        "preset": o.preset,
+                        "cool_low": o.cool_low,
+                        "cool_high": o.cool_high,
+                        "bucket": o.bucket,
+                        "source": o.source,
+                    }
+                    for o in zone_overrides
+                ],
+            }
+        except Exception:
+            return {}
+
+
+class DynamicPresetOverridesAppliedSensor(AggregationEntity, SensorEntity):
+    """Count of zones with an active dynamic preset override.
+
+    State: int (count of zones with at least one dynamic_preset override).
+    Entity: sensor.ura_dynamic_preset_overrides_applied
+    Device: URA: Energy Coordinator
+
+    v4.7.1 Cycle B: B3.
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:thermometer-check"
+    _attr_state_class = "measurement"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_dynamic_preset_overrides_applied"
+        self._attr_name = "Dynamic Preset Overrides Applied"
+        self._attr_device_info = _energy_device_info()
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to override-updated and transition signals."""
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import (
+            SIGNAL_DYNAMIC_PRESET_OVERRIDES_UPDATED,
+            SIGNAL_DYNAMIC_PRESET_TRANSITIONED,
+        )
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_DYNAMIC_PRESET_OVERRIDES_UPDATED, self._on_signal,
+            )
+        )
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_DYNAMIC_PRESET_TRANSITIONED, self._on_signal,
+            )
+        )
+
+    @callback
+    def _on_signal(self, _payload=None) -> None:
+        """Handle signal — push updated count to HA."""
+        self.async_write_ha_state()
+
+    @property
+    def available(self) -> bool:
+        """Return True when WPM is set up."""
+        return _wpm_available(self.hass)
+
+    @property
+    def native_value(self) -> int:
+        """Return count of zones with at least one active dynamic preset override."""
+        try:
+            overrides = _get_dynamic_preset_overrides(self.hass)
+            return sum(1 for v in overrides.values() if v)
+        except Exception:
+            return 0
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return per-zone breakdown and dwell-remaining."""
+        try:
+            overrides = _get_dynamic_preset_overrides(self.hass)
+            source = _get_dynamic_preset_source(self.hass)
+            breakdown = []
+            for zone_id, zone_overrides in overrides.items():
+                if not zone_overrides:
+                    continue
+                state = source.get_zone_state(zone_id) if source else {}
+                for o in zone_overrides:
+                    breakdown.append({
+                        "zone": zone_id,
+                        "preset": o.preset,
+                        "cool_low": o.cool_low,
+                        "cool_high": o.cool_high,
+                        "bucket": o.bucket,
+                    })
+
+            skipped_zones = [
+                zone_id for zone_id, v in overrides.items() if not v
+            ]
+            dwell_remaining = {}
+            if source:
+                for zone_id in overrides:
+                    state = source.get_zone_state(zone_id)
+                    dr = state.get("dwell_remaining_min")
+                    if dr is not None:
+                        dwell_remaining[zone_id] = dr
+
+            return {
+                "breakdown": breakdown,
+                "skipped_zones": skipped_zones,
+                "dwell_remaining_per_zone_min": dwell_remaining,
+            }
+        except Exception:
+            return {}
 
 
 # ============================================================================
@@ -7230,7 +8297,25 @@ class HVACPreCoolLikelihoodSensor(AggregationEntity, SensorEntity):
         hvac = manager.coordinators.get("hvac")
         if hvac is None:
             return {}
-        return hvac.predictor.get_prediction_attrs()
+        # v4.6.9 D4: merge prediction attrs with intent enrichment attrs.
+        # get_intent_attrs() returns the 6 D4 keys (all str/float/int/None — no
+        # nested dicts, no Decimal, no "—" strings); Bug Class #37 contract for
+        # the D4 keys is flat.
+        # Tier 2-DB Reviewer C H1: NOTE that the pre-existing
+        # `get_prediction_attrs()` already returns `zone_demand: dict[str,str]`
+        # — that is one nested dict that pre-dates v4.6.9 and is consumed by
+        # other PWA surfaces; we don't strip it. So the merged result is NOT
+        # uniformly flat (one nested key, plus 6 + ~6 flat keys). PWA
+        # `useUraSensorAttrs<HvacIntentAttrs>` reads only the 6 D4 keys.
+        attrs = dict(hvac.predictor.get_prediction_attrs())
+        try:
+            intent = hvac.predictor.get_intent_attrs()
+            attrs.update(intent)
+        except Exception:  # noqa: BLE001
+            # Defensive guard: if intent attrs fail for any reason, the base
+            # prediction attrs are still returned intact.
+            pass
+        return attrs
 
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
@@ -10699,6 +11784,121 @@ class SafetyEventsSummarySensor(AggregationEntity, SensorEntity):
 
 
 # ============================================================================
+# v4.6.9 D5: Safety Coordinator — Recent Events Aggregator
+# ============================================================================
+
+
+class SafetyRecentEventsSensor(AggregationEntity, SensorEntity):
+    """Safety Coordinator recent-events ring buffer sensor.
+
+    Entity: sensor.ura_safety_coordinator_recent_events
+    Device: URA: Safety Coordinator
+    State: int — count of events in the last 24h (never '—'/None/unknown)
+
+    v4.6.9 D5: Exposes the in-memory event ring buffer from SafetyCoordinator
+    as a PWA-consumable sensor. State is always int (0 when buffer empty).
+
+    Bug-class guards:
+      #11  — all timestamps are UTC ISO 8601 strings (dt_util.utcnow().isoformat())
+      #22  — severity uses EventSeverity StrEnum (info|advisory|alert|critical)
+      #25  — buffer is deque(maxlen=20); hard cap enforced in coordinator
+      #29  — empty-buffer branch returns 0 + empty list (not null/unknown)
+      #37  — extra_state_attributes has stable shape: events, last_event_at_iso,
+              severity_breakdown always present regardless of buffer state
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:shield-alert"
+    # Tier 2-DB Reviewer C M1: state is a sliding-window count from a volatile
+    # in-memory ring buffer (resets on HA restart). HA long-term statistics
+    # would record a discontinuous time series for it. state_class=None opts
+    # out of LTS recording.
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_recent_events"
+        self._attr_name = "Recent Events"
+        self._attr_device_info = _safety_device_info()
+
+    def _get_events_data(self) -> dict | None:
+        """Fetch recent-events data from SafetyCoordinator.
+
+        Returns None when the coordinator is unavailable; callers fall back
+        gracefully to the empty-buffer shape.
+        """
+        try:
+            manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+            if manager is None:
+                return None
+            safety = manager.coordinators.get("safety")
+            if safety is None:
+                return None
+            return safety.get_recent_events()
+        except Exception:
+            _LOGGER.debug(
+                "SafetyRecentEventsSensor: get_recent_events() failed",
+                exc_info=True,
+            )
+            return None
+
+    @property
+    def native_value(self) -> int:
+        """Return number of events in the last 24h.
+
+        Bug Class #29: always returns int 0 on empty buffer — never None/unknown.
+        """
+        data = self._get_events_data()
+        if data is None:
+            return 0
+        return int(data.get("count_24h", 0))
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return flat events list, last_event_at_iso, and severity_breakdown.
+
+        Bug Class #37: all three keys are always present regardless of buffer state.
+        Bug Class #25: events list capped at 20 entries (enforced by deque in coordinator).
+        """
+        data = self._get_events_data()
+        if data is None:
+            return {
+                "events": [],
+                "last_event_at_iso": None,
+                "severity_breakdown": {
+                    "info": 0,
+                    "advisory": 0,
+                    "alert": 0,
+                    "critical": 0,
+                },
+            }
+        return {
+            "events": data.get("events", []),
+            "last_event_at_iso": data.get("last_event_at_iso"),
+            "severity_breakdown": data.get(
+                "severity_breakdown",
+                {"info": 0, "advisory": 0, "alert": 0, "critical": 0},
+            ),
+        }
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to safety entity updates."""
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_SAFETY_ENTITIES_UPDATE
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_SAFETY_ENTITIES_UPDATE, self._handle_update
+            )
+        )
+
+    @callback
+    def _handle_update(self) -> None:
+        """Handle safety entity update signal."""
+        self.async_schedule_update_ha_state()
+
+
+# ============================================================================
 # v4.6.13 — Coordinator Telemetry Sensor Set (Dashboard Cycle C)
 # ============================================================================
 #
@@ -10872,9 +12072,15 @@ class CoordinatorOverrideFrequencySensor(AggregationEntity, SensorEntity):
         )
         from .domain_coordinators.signals import SIGNAL_DATABASE_READY
         # Bug Class #38: capture unsub into async_on_remove.
+        # Pass coroutine function directly — HA's HassJob machinery handles
+        # thread-safe scheduling. Wrapping in a lambda + async_create_task
+        # triggers HA's frame helper warning "calls async_create_task from a
+        # thread other than the event loop, which may cause crash or data
+        # corruption" and leaves the coroutine never-awaited (verified
+        # 2026-05-26).
         self._unsub_timer = async_track_time_interval(
             self.hass,
-            lambda _now: self.hass.async_create_task(self._async_refresh()),
+            self._async_refresh,
             timedelta(seconds=OVERRIDE_FREQUENCY_REFRESH_S),
         )
         self.async_on_remove(
@@ -10887,7 +12093,14 @@ class CoordinatorOverrideFrequencySensor(AggregationEntity, SensorEntity):
             await self._async_refresh()
         else:
             def _handle_db_ready(*_a, **_kw) -> None:
-                self.hass.async_create_task(self._async_refresh())
+                # Bug Class #42 (v4.6.15) + v4.6.3.2 precedent:
+                # use hass.add_job (thread-safe) NOT async_create_task in a
+                # dispatcher-signal sync callback. SIGNAL_DATABASE_READY is
+                # dispatched on-loop in this codebase today (verified Reviewer B
+                # 2026-05-26), but the URARecentAnomaliesSensor v4.6.3.1
+                # incident proved dispatchers CAN fire from non-event-loop
+                # threads. add_job stays correct in either case.
+                self.hass.add_job(self._async_refresh())
                 if self._unsub_db_ready is not None:
                     self._unsub_db_ready()
                     self._unsub_db_ready = None
@@ -10900,7 +12113,13 @@ class CoordinatorOverrideFrequencySensor(AggregationEntity, SensorEntity):
                 if self._unsub_db_ready is not None else None
             )
 
-    async def _async_refresh(self) -> None:
+    async def _async_refresh(self, _now=None) -> None:
+        """Recompute override-frequency rolling count.
+
+        `_now` parameter accepts the datetime passed by HA's
+        async_track_time_interval scheduler. Default None for the
+        in-process initial-refresh call.
+        """
         try:
             database = self.hass.data.get(DOMAIN, {}).get("database")
             if database is None:
@@ -10990,9 +12209,11 @@ class CoordinatorComplianceRateSensor(AggregationEntity, SensorEntity):
             COMPLIANCE_RATE_REFRESH_S,
         )
         from .domain_coordinators.signals import SIGNAL_DATABASE_READY
+        # Pass coroutine function directly — see CoordinatorOverrideFrequencySensor
+        # for rationale (frame-helper warning + never-awaited coroutine bug).
         self._unsub_timer = async_track_time_interval(
             self.hass,
-            lambda _now: self.hass.async_create_task(self._async_refresh()),
+            self._async_refresh,
             timedelta(seconds=COMPLIANCE_RATE_REFRESH_S),
         )
         self.async_on_remove(
@@ -11005,7 +12226,14 @@ class CoordinatorComplianceRateSensor(AggregationEntity, SensorEntity):
             await self._async_refresh()
         else:
             def _handle_db_ready(*_a, **_kw) -> None:
-                self.hass.async_create_task(self._async_refresh())
+                # Bug Class #42 (v4.6.15) + v4.6.3.2 precedent:
+                # use hass.add_job (thread-safe) NOT async_create_task in a
+                # dispatcher-signal sync callback. SIGNAL_DATABASE_READY is
+                # dispatched on-loop in this codebase today (verified Reviewer B
+                # 2026-05-26), but the URARecentAnomaliesSensor v4.6.3.1
+                # incident proved dispatchers CAN fire from non-event-loop
+                # threads. add_job stays correct in either case.
+                self.hass.add_job(self._async_refresh())
                 if self._unsub_db_ready is not None:
                     self._unsub_db_ready()
                     self._unsub_db_ready = None
@@ -11018,8 +12246,13 @@ class CoordinatorComplianceRateSensor(AggregationEntity, SensorEntity):
                 if self._unsub_db_ready is not None else None
             )
 
-    async def _async_refresh(self) -> None:
-        """Aggregate get_compliance_rate across mapped emit-labels."""
+    async def _async_refresh(self, _now=None) -> None:
+        """Aggregate get_compliance_rate across mapped emit-labels.
+
+        `_now` parameter accepts the datetime passed by HA's
+        async_track_time_interval scheduler when called as the timer
+        callback. Default None for the in-process initial-refresh call.
+        """
         try:
             database = self.hass.data.get(DOMAIN, {}).get("database")
             if database is None:
@@ -11115,9 +12348,11 @@ class URADBSizeSensor(AggregationEntity, SensorEntity):
         from .domain_coordinators.coordinator_telemetry_const import (
             DB_SIZE_REFRESH_S,
         )
+        # Pass coroutine function directly — see CoordinatorOverrideFrequencySensor
+        # for rationale (frame-helper warning + never-awaited coroutine bug).
         self._unsub_timer = async_track_time_interval(
             self.hass,
-            lambda _now: self.hass.async_create_task(self._async_refresh()),
+            self._async_refresh,
             timedelta(seconds=DB_SIZE_REFRESH_S),
         )
         self.async_on_remove(
@@ -11125,7 +12360,13 @@ class URADBSizeSensor(AggregationEntity, SensorEntity):
         )
         await self._async_refresh()
 
-    async def _async_refresh(self) -> None:
+    async def _async_refresh(self, _now=None) -> None:
+        """Refresh DB size from filesystem stat (no DB query).
+
+        `_now` parameter accepts the datetime passed by HA's
+        async_track_time_interval scheduler. Default None for the
+        in-process initial-refresh call.
+        """
         import os
         try:
             database = self.hass.data.get(DOMAIN, {}).get("database")

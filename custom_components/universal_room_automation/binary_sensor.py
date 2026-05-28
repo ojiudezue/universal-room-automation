@@ -1,6 +1,6 @@
 """Binary sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.6.13
+# Universal Room Automation vv4.7.0.1
 # Build: 2026-01-02
 # File: binary_sensor.py
 # v3.2.6: Renamed "Presence" to "Sensor Presence" for clarity
@@ -129,6 +129,10 @@ async def async_setup_entry(
             EnergyEnvoyAvailableBinarySensor(hass, entry),
             # v3.7.7: L1 Charger status
             EnergyL1ChargerBinarySensor(hass, entry),
+            # v4.7.x D2: EC sub-switch sync health sensor
+            ECSubSwitchesSyncedSensor(hass, entry),
+            # v4.7.x Cycle A: WeatherProviderManager divergence flag
+            WeatherDivergenceBinarySensor(hass, entry),
         ]
         async_add_entities(coordinator_binary)
         return
@@ -1661,6 +1665,87 @@ class EnergyL1ChargerBinarySensor(AggregationEntity, BinarySensorEntity):
 
 
 # ============================================================================
+# v4.7.x Cycle A: Weather Provider Divergence
+# ============================================================================
+
+
+class WeatherDivergenceBinarySensor(AggregationEntity, BinarySensorEntity):
+    """On when ≥2 weather providers disagree beyond the configured threshold.
+
+    Entity: binary_sensor.ura_weather_divergence
+    Device: URA: Energy Coordinator
+    """
+
+    _attr_device_class = BinarySensorDeviceClass.PROBLEM
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:weather-cloudy-alert"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_weather_divergence"
+        self._attr_name = "Weather Divergence"
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .const import VERSION
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "energy_coordinator")},
+            name="URA: Energy Coordinator",
+            manufacturer="Universal Room Automation",
+            model="Energy Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to SIGNAL_WEATHER_DIVERGENCE_DETECTED for reactive updates (WPM-H1)."""
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_WEATHER_DIVERGENCE_DETECTED
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_WEATHER_DIVERGENCE_DETECTED, self._on_divergence_signal,
+            )
+        )
+
+    @callback
+    def _on_divergence_signal(self, _payload=None) -> None:
+        """Handle divergence signal — push updated state to HA."""
+        self.async_write_ha_state()
+
+    @property
+    def available(self) -> bool:
+        """Return False when WeatherProviderManager is not set up (WPM-H5)."""
+        return self.hass.data.get(DOMAIN, {}).get("weather_manager") is not None
+
+    @property
+    def is_on(self) -> bool | None:
+        """Return True when provider divergence exceeds configured threshold."""
+        try:
+            mgr = self.hass.data.get(DOMAIN, {}).get("weather_manager")
+            if mgr is None:
+                return False
+            return mgr.is_divergent
+        except Exception:
+            return False
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return divergence details including configured threshold (WPM-H6)."""
+        try:
+            mgr = self.hass.data.get(DOMAIN, {}).get("weather_manager")
+            if mgr is None:
+                return {}
+            return {
+                "divergence_f": mgr.divergence_f,
+                "threshold_f": mgr.divergence_threshold_f,
+                "provider_high_map": dict(mgr._provider_highs),
+            }
+        except Exception:
+            return {}
+
+
+# ============================================================================
 # v4.0.0-B2: Bayesian Occupancy Anomaly
 # ============================================================================
 
@@ -1816,3 +1901,151 @@ class OccupancyAnomalyBinarySensor(UniversalRoomEntity, BinarySensorEntity):
             room_id=room_name,
         )
         await db.save_anomaly_event(event)
+
+
+# ============================================================================
+# v4.7.x D2: EC Sub-Switch Sync Health Sensor
+# ============================================================================
+
+
+class ECSubSwitchesSyncedSensor(AggregationEntity, BinarySensorEntity):
+    """Reports whether the 5 EC sub-switches have completed their saved-state restore.
+
+    Entity: binary_sensor.ura_energy_coordinator_sub_switches_synced
+    Device: URA: Energy Coordinator
+
+    True  — Energy Coordinator is registered and all 5 sub-switches have had
+            the opportunity to restore their saved values via
+            SIGNAL_ENERGY_COORDINATOR_READY.
+    False — EC coordinator is not yet registered (startup race in progress)
+            or at least one switch still has a pending deferred restore.
+
+    When False persists for >10 min, the URA sub-switch restore is likely
+    stuck and should be investigated (check HA logs for "deferred restore"
+    warnings for the affected switch).
+
+    Bug Class #5 (startup race), #10 (cross-restart state loss), #38 (unsub).
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:toggle-switch-variant"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_device_class = BinarySensorDeviceClass.PROBLEM
+
+    # Sub-switch unique-id suffixes (used to look up switch entities)
+    _SUB_SWITCH_SUFFIXES = (
+        "grid_import_cap",
+        "load_shedding",
+        "excess_solar",
+        "arbitrage",
+        "ev_tou_management",
+    )
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_energy_coordinator_sub_switches_synced"
+        self._attr_name = "EC Sub-Switches Synced"
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .const import VERSION
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "energy_coordinator")},
+            name="URA: Energy Coordinator",
+            manufacturer="Universal Room Automation",
+            model="Energy Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+        # Track when EC first became ready (for >10 min mismatch detection)
+        self._ec_ready_at: dt_util.dt.datetime | None = None
+
+    def _get_energy(self):
+        """Return EnergyCoordinator or None."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        return manager.coordinators.get("energy") if manager else None
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to EC-ready and energy-update signals.
+
+        Bug Class #38: unsub tracked via async_on_remove.
+        """
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import (
+            SIGNAL_ENERGY_COORDINATOR_READY,
+            SIGNAL_ENERGY_ENTITIES_UPDATE,
+        )
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_ENERGY_COORDINATOR_READY, self._handle_ec_ready
+            )
+        )
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_ENERGY_ENTITIES_UPDATE, self._handle_update
+            )
+        )
+
+    @callback
+    def _handle_ec_ready(self) -> None:
+        """Record EC-ready timestamp and refresh state."""
+        if self._ec_ready_at is None:
+            self._ec_ready_at = dt_util.utcnow()
+            _LOGGER.info(
+                "ECSubSwitchesSyncedSensor: EC coordinator ready at %s",
+                self._ec_ready_at.isoformat(),
+            )
+        self.async_schedule_update_ha_state()
+
+    @callback
+    def _handle_update(self) -> None:
+        """Refresh state on each energy decision cycle."""
+        self.async_schedule_update_ha_state()
+
+    @property
+    def is_on(self) -> bool | None:
+        """Return True (problem) when any sub-switch has not completed restore.
+
+        NOTE: BinarySensorDeviceClass.PROBLEM convention: True = problem exists.
+        We return True (problem) when EC is not yet registered OR when one or
+        more sub-switches still have a pending deferred restore.
+
+        v4.7.x H1 fix-up: uses energy.sub_switches_synced() which reads the
+        per-switch completion counter (notify_sub_switch_restore_complete).
+        EC registered alone is a weaker guarantee — a switch could be stuck at
+        its constructor-seed value even after EC registers.
+        """
+        energy = self._get_energy()
+        if energy is None:
+            # EC not yet registered — sub-switches using seed values
+            return True  # problem: not synced
+        # EC registered: check whether all sub-switches completed deferred restore
+        try:
+            if not energy.sub_switches_synced():
+                return True  # problem: at least one switch still pending
+        except Exception:
+            # sub_switches_synced() not available on older EC instances
+            pass
+        return False  # no problem: EC registered and all switches synced
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return sync details for diagnostics."""
+        energy = self._get_energy()
+        attrs: dict = {
+            "ec_registered": energy is not None,
+            "ec_ready_at": (
+                self._ec_ready_at.isoformat() if self._ec_ready_at else None
+            ),
+        }
+        if energy is not None:
+            try:
+                attrs["pending_sub_switch_restores"] = energy._pending_sub_switch_restores
+                attrs["all_switches_synced"] = energy.sub_switches_synced()
+            except Exception:
+                pass
+        if energy is not None and self._ec_ready_at is not None:
+            age_s = (dt_util.utcnow() - self._ec_ready_at).total_seconds()
+            attrs["seconds_since_ec_ready"] = round(age_s, 1)
+            attrs["mismatch_alert"] = age_s > 600  # >10 min still checking
+        return attrs

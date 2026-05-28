@@ -946,21 +946,41 @@ button { background: none; border: none; cursor: pointer; padding: 0; }
    Mobile (≤480px)
    ============================================================ */
 
-body.mobile { max-width: 390px; margin: 0 auto; border-left: 1px dashed var(--glass-border); border-right: 1px dashed var(--glass-border); }
-body.mobile .app { grid-template-columns: 1fr; }
+/* v5.0.3 mobile-overflow fix:
+   The 12-col grid template defaults to repeat(12, 1fr). Each 1fr won't shrink
+   below the intrinsic min-content of its child (card text + padding ~80px),
+   so the grid container is forced ≥ 960px wide regardless of viewport,
+   producing horizontal scroll on phones. Switching to minmax(0, 1fr) lets
+   columns shrink to 0; combined with col-N → span 12 below, every card lands
+   on its own row and the parent grid fits the viewport.
+
+   Same fix for .controls-bar which uses the same 12-col template.
+
+   max-width on body.mobile was 390px — removed. The previous value was a
+   prototype-mode-toggle from the static P6 fragment that capped the layout
+   to a phone-shaped column even on a real phone (since the iframe is
+   already device-width); the cap was forcing horizontal overflow on
+   tablets and larger phones. */
+body.mobile { margin: 0 auto; }
+body.mobile .app { grid-template-columns: minmax(0, 1fr); }
 body.mobile .rail { display: none; }
-body.mobile .main { padding: var(--space-md); }
+body.mobile .main { padding: var(--space-md); min-width: 0; }
+body.mobile .grid { grid-template-columns: repeat(12, minmax(0, 1fr)); gap: var(--space-md); }
+body.mobile .controls-bar { grid-template-columns: repeat(12, minmax(0, 1fr)); }
 body.mobile .col-2, body.mobile .col-3, body.mobile .col-4, body.mobile .col-5, body.mobile .col-6 { grid-column: span 12; }
 body.mobile .col-7, body.mobile .col-8, body.mobile .col-9 { grid-column: span 12; }
 body.mobile .knob.span-2, body.mobile .knob.span-3, body.mobile .knob.span-4 { grid-column: span 6; }
 body.mobile .knob.span-6 { grid-column: span 12; }
-body.mobile .grid { gap: var(--space-md); }
 body.mobile .page-header { flex-direction: column; align-items: flex-start; gap: var(--space-sm); }
 body.mobile .mobile-tabs { display: flex; }
 body.mobile .desktop-only { display: none; }
-body.mobile .status-bar { padding: var(--space-sm) var(--space-md); gap: var(--space-sm); font-size: var(--text-xs); }
+body.mobile .status-bar { padding: var(--space-sm) var(--space-md); gap: var(--space-sm); font-size: var(--text-xs); flex-wrap: wrap; }
 body.mobile .timeline-row { grid-template-columns: 40px 1fr; }
 body.mobile .timeline-row > :last-child { grid-column: 2; }
+/* Defensive: prevent any wide tabular numbers / mono text from forcing a card wider than its column. */
+body.mobile .card { min-width: 0; }
+body.mobile .card-row { flex-wrap: wrap; min-width: 0; }
+body.mobile .tabular, body.mobile .mono { overflow-wrap: anywhere; }
 
 /* Mobile tab bar at top — only visible on mobile */
 .mobile-tabs {
@@ -983,11 +1003,27 @@ body.mobile .timeline-row > :last-child { grid-column: 2; }
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 12px;
+  /* Generous tap targets — iOS HIG recommends 44px min; we hit ~40 with padding. */
+  padding: 10px 14px;
+  min-height: 40px;
   border-radius: var(--radius-md);
   font-size: var(--text-sm);
   color: var(--text-secondary);
   flex-shrink: 0;
+  /* v5.0.4 iOS tab-tap fix: buttons inside an overflow-x:auto container
+     have ambiguous tap-vs-scroll semantics on iOS Safari / WKWebView.
+     `touch-action: manipulation` tells iOS "this is a click target;
+     don't classify minor finger drift as scroll" — fixes the case where
+     tapping a tab did nothing because iOS was waiting to see if it
+     was the start of a scroll gesture. */
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: rgba(25, 118, 210, 0.18);
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  /* Strip iOS's default button styling that can interfere. */
+  -webkit-appearance: none;
+  appearance: none;
 }
 
 .mobile-tabs button.active {

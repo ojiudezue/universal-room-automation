@@ -431,6 +431,103 @@ camera coverage overlay, blind spot visualization, occupancy heatmaps.
 Large effort for primarily visual value — deferred until core intelligence
 is complete.
 
+### v4.7.x SLOT CONTENTION — three ready-to-build plans (2026-05-25)
+
+Three Tier 2+ feature cycles are queued against the v4.7.x slot. Order below
+is warmest-first + dependency-respecting; user assigns actual v-numbers at
+deploy time.
+
+1. **Guest Mode Actuation Phase 1** (~11h, Tier 2) — warmest user-driven
+   feature; OWNS the override schema Dynamic Preset Mgmt depends on
+2. **AnomalyType discriminator** (~90 LoC + migration, Tier 2-DB) — "on tap"
+   per 2026-05-18 directive; no plan doc yet
+3. **Appliance Coordinator v3** (~36-46h, Tier 2-DB) — largest; independent
+   of items 1+2; can run parallel after Guest Mode P1
+4. **Dynamic Preset Mgmt Cycle A** (weather redundancy, Tier 2) — useful
+   standalone; prereq for B
+5. **Dynamic Preset Mgmt Cycle B** (preset adjustment, Tier 2) — needs A
+   shipped + Guest Mode P1 schema stable
+6. **Routine Awareness Phase 2** (guest-mode filter, Tier 1 ~120 LoC) — needs
+   Guest Mode P1; could roll into same release
+
+---
+
+### v4.7.x — Appliance Coordinator v3 (B5: cost-deferral + interrupt-at-start + PWA-consumable surfaces)
+**Effort:** ~36-46 hours / 12 deliverables / Tier 2-DB
+**Priority:** MEDIUM-HIGH
+**Status:** v3 plan landed 2026-05-23 at `docs/planning/PLANNING_v4.7.x_APPLIANCE_COORDINATOR_v3.md` (supersedes v1.1 + v2.0)
+
+New domain coordinator that defers LG ThinQ washer/dishwasher/washtower starts
+to cheaper TOU windows, interrupts manual starts that fire in peak (when the
+appliance is `interruptible_at_start`), and skips Rainbird sprinkler cycles
+based on weather forecast. Provider plugin pattern for future brands.
+
+**v3 absorbed all v1.1 user reax** (verified 2026-05-25): interrupt-at-start
+caveat, per-appliance strictness, multi-vector power, hardened v4.6.x anomaly
+framework, TOU bidirectional helper, Rainbird kill switch, dashboard surfaces.
+**v3 added on top of v2:** Dashboard target swap (Dashboard v5.0+ HA panel →
+URA PWA v6.0+ standalone) with explicit `useUraSensor*` hook contract, Tier
+2-DB classification with 3 parallel reviewers (A data integrity / B migration
++ signal chain / C new surfaces + PWA contract), 14-sensor Dashboard Hooks
+contract table, flat-attr discipline.
+
+**Ship plan:**
+- v4.7.0 — D3 + D11 + D12 + D1 + D2 + D4 + D6 + D10 (LG cost-deferral + interrupt + PWA observability)
+- v4.7.1 — D5 (reload resilience)
+- v4.7.2 — D7 + D8 (sprinkler skip + Rainbird kill switch)
+- v4.8.0 — D9 (GenericPowerSensorProvider, deferred)
+
+### v4.7.x — Guest Mode Actuation Phase 1 (HVAC Preset Range Overrides)
+**Effort:** ~11 hours / ~470 prod + ~350 test LoC across ~9 files
+**Priority:** HIGH (user-driven feature, warmest in current queue)
+**Status:** Plan filed 2026-05-24 at `docs/planning/PLANNING_v4.7.x_guest_mode_actuation_phase1.md`
+**Tier:** Tier 2
+
+URA detects guest mode reliably since v4.6.2.2 but takes zero action. Phase 1
+introduces a shared per-(zone, preset, range) `OverrideEngine`, plumbs it into
+the HVAC preset-apply path so `climate.set_temperature(target_temp_high, _low)`
+is issued (arrester-suppressed) on every `set_preset_mode`, and surfaces
+`sensor.ura_active_preset_overrides` as the "why is my Master capped at 74°F
+right now" debug path. Composition rule shipped: per-field highest-priority
+wins, narrowest-range tiebreak.
+
+User's concrete ask: Back Hallway `home` narrows 70–77 → **70–75 °F** under
+guest; `sleep` unchanged (70–78); `away` always 65–80. Generalizes to per-zone
+per-preset override tables.
+
+**Phase 2+ (separate Tier 2 cycles, one per coordinator):** Arrester
+suppression under guest, Lighting circadian suppression, Music Following
+disable, NM routing changes, Cover Controller skips. Each reuses the schema
+and engine.
+
+**Phase 3 (Tier 1):** `guest_minutes_today`, `routine_status.guest_minutes_in_recent_window`,
+anomaly-detector exclusion of guest periods from baselines.
+
+### v4.7.x — Dynamic Preset Management (Weather-Forecast-Driven)
+**Effort:** TWO Tier 2 cycles (Cycle A weather redundancy + Cycle B preset adjustment)
+**Priority:** HIGH (composes with Guest Mode override schema — same surface area)
+**Status:** Plan filed 2026-05-24 at `docs/planning/PLANNING_v4.7.x_dynamic_preset_management.md`
+**Tier:** Tier 2 each cycle
+**Hard prerequisite:** Cycle A ships before Cycle B; Cycle B depends on the Guest
+Mode Phase 1 override schema being shipped + stable.
+
+Cycle A delivers a `WeatherProviderManager` with ≥2 (target 3) prioritized
+weather providers, failover, staleness window, divergence detection, and
+3 new sensors (active provider, today's high, divergence binary). Eliminates
+URA's current single-provider blind spot — every existing weather consumer
+(HVAC predictor, etc.) migrates through the manager.
+
+Cycle B layers a `WeatherDrivenPresetOverrideSource` onto the shared override
+schema. Each morning (~06:00 local, NOT midnight) classifies today's
+forecast into 4 buckets (cool / mild / hot / extreme) and emits per-zone
+preset-range overrides. Default priority 30 (lower than guest_mode=50);
+overrides expire at local midnight. 2 new sensors + 1 user-pressable
+recompute button.
+
+6 open user questions defer the data decisions (bucket boundaries, per-zone
+range tables, opt-in zones, priority tiebreak, recompute hour, include
+`sleep` preset) — engineering is straightforward once user fills the tables.
+
 ### Sensor Health Surfacing — chattering + stuck-on detection
 **Effort:** 1-2 cycles (~150-300 LoC + DB migration + dashboard tile)
 **Priority:** MEDIUM (preventative — catches silently-degrading sensors before they corrupt automation)

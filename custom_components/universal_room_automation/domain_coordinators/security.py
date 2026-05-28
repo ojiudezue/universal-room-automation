@@ -102,6 +102,18 @@ class ArmedState(StrEnum):
     ARMED_VACATION = "armed_vacation"
 
 
+class _SecurityAggStatus(StrEnum):
+    """v4.6.9 D2 — overall status vocabulary for SecurityAggregatorSensor.
+
+    Bug Class #22 guard: StrEnum; never raw string literals in the sensor.
+    """
+
+    ARMED = "armed"
+    DISARMED = "disarmed"
+    PARTIAL = "partial"
+    ALERT = "alert"
+
+
 class EntryVerdict(StrEnum):
     SANCTIONED = "sanctioned"
     NOTIFY = "notify"
@@ -1709,6 +1721,127 @@ class SecurityCoordinator(BaseCoordinator):
         if self._armed_state == ArmedState.DISARMED:
             return "disarmed"
         return "armed"
+
+    def get_security_aggregator_state(self) -> dict[str, Any]:
+        """Return locks + cameras roll-up for SecurityAggregatorSensor.
+
+        v4.6.9 D2: Enumerates lock.* entities from _lock_entities and
+        camera.* entities from _camera_entities (both come from config, set
+        in __init__).  Live per-entity state is read from the HA state machine
+        at call time — no caching.
+
+        Returns a dict with keys:
+          status: str — armed | disarmed | partial | alert  (StrEnum value)
+          locks_total, locks_locked, locks_unlocked, locks_jammed: int
+          cameras_total, cameras_streaming, cameras_idle, cameras_offline: int
+          last_state_change_iso: str | None  (UTC ISO 8601)
+
+        Observation mode does NOT suppress this method (Bug Class #23) — the
+        dashboard must reflect reality even when actions are gated.
+        """
+        # --- Lock enumeration ---
+        locks_total = len(self._lock_entities)
+        locks_locked = 0
+        locks_unlocked = 0
+        locks_jammed = 0
+
+        lock_last_changed: datetime | None = None
+        for entity_id in self._lock_entities:
+            try:
+                state = self.hass.states.get(entity_id)
+            except Exception:
+                state = None
+            if state is None:
+                locks_jammed += 1
+                continue
+            s = state.state
+            if s == "locked":
+                locks_locked += 1
+            elif s == "unlocked":
+                locks_unlocked += 1
+            else:
+                # jammed, unavailable, unknown — all count as jammed
+                locks_jammed += 1
+            try:
+                lc = state.last_changed
+                if lc is not None:
+                    if lock_last_changed is None or lc > lock_last_changed:
+                        lock_last_changed = lc
+            except Exception:
+                pass
+
+        # --- Camera enumeration ---
+        cameras_total = len(self._camera_entities)
+        cameras_streaming = 0
+        cameras_idle = 0
+        cameras_offline = 0
+
+        camera_last_changed: datetime | None = None
+        for entity_id in self._camera_entities:
+            try:
+                state = self.hass.states.get(entity_id)
+            except Exception:
+                state = None
+            if state is None:
+                cameras_offline += 1
+                continue
+            s = state.state
+            if s == "streaming":
+                cameras_streaming += 1
+            elif s in ("unavailable", "unknown"):
+                cameras_offline += 1
+            else:
+                # idle, recording, or any other active-but-not-streaming state
+                cameras_idle += 1
+            try:
+                lc = state.last_changed
+                if lc is not None:
+                    if camera_last_changed is None or lc > camera_last_changed:
+                        camera_last_changed = lc
+            except Exception:
+                pass
+
+        # --- last_state_change_iso: most recent across locks + cameras ---
+        candidates = [t for t in (lock_last_changed, camera_last_changed) if t is not None]
+        if candidates:
+            most_recent = max(candidates)
+            try:
+                last_state_change_iso: str | None = most_recent.isoformat()
+            except Exception:
+                last_state_change_iso = None
+        else:
+            last_state_change_iso = None
+
+        # --- Overall status computation ---
+        # Priority order: alert > armed > partial > disarmed
+        if locks_jammed > 0 or self._active_alert:
+            status = _SecurityAggStatus.ALERT
+        elif locks_total == 0 and cameras_total == 0:
+            status = _SecurityAggStatus.DISARMED
+        elif locks_locked == locks_total and cameras_streaming >= 1:
+            status = _SecurityAggStatus.ARMED
+        elif locks_locked > 0 or cameras_streaming > 0:
+            status = _SecurityAggStatus.PARTIAL
+        else:
+            status = _SecurityAggStatus.DISARMED
+
+        _LOGGER.debug(
+            "Security aggregator: status=%s locks=%d/%d cameras=%d/%d streaming",
+            status.value, locks_locked, locks_total, cameras_streaming, cameras_total,
+        )
+
+        return {
+            "status": status.value,
+            "locks_total": locks_total,
+            "locks_locked": locks_locked,
+            "locks_unlocked": locks_unlocked,
+            "locks_jammed": locks_jammed,
+            "cameras_total": cameras_total,
+            "cameras_streaming": cameras_streaming,
+            "cameras_idle": cameras_idle,
+            "cameras_offline": cameras_offline,
+            "last_state_change_iso": last_state_change_iso,
+        }
 
     def get_compliance_summary(self) -> dict[str, Any]:
         """Return lock compliance summary."""

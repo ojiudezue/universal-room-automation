@@ -1,6 +1,6 @@
 """Button platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.6.13
+# Universal Room Automation vv4.7.0.1
 # Build: 2026-01-04
 # File: button.py
 #
@@ -48,6 +48,8 @@ async def async_setup_entry(
             AcknowledgeRoutineChangesButton(hass, entry),
             # v4.6.3 D13: anomaly subsystem diagnostic dump button
             AnomalyDiagnosticDumpButton(hass, entry),
+            # v4.7.x D3: admin force-charge override for EVSE TOU pause
+            EVSEForceChargeButton(hass, entry),
         ]
         # v4.5.11: 3 buttons per AC zone (force_nudge / cancel_nudge /
         # clear_lockout). Discovers zones from Zone Manager entries — same
@@ -1166,3 +1168,151 @@ class AnomalyDiagnosticDumpButton(ButtonEntity):
             "URA ANOMALY DIAGNOSTIC DUMP: %s",
             json.dumps(dump, default=str, indent=None),
         )
+
+
+# ============================================================================
+# v4.7.x D3: EVSE Force-Charge Admin Override Button
+# ============================================================================
+
+
+class EVSEForceChargeButton(ButtonEntity):
+    """Admin override button that opens a 30-min EV force-charge window.
+
+    Entity: button.ura_energy_coordinator_evse_force_charge_30min
+    Device: URA: Energy Coordinator
+
+    Pressing this button opens a 30-minute window during which URA's TOU
+    pause logic is bypassed for all EVSEs.  The override is intentionally
+    an admin button (not a switch) to require deliberate action.
+
+    Idempotent: pressing while an override is already active replaces the
+    window (extends from now, not additive).
+
+    Auto-expires: URA resumes enforcing TOU pause on the next decision cycle
+    after the 30-minute window elapses.  No HA-side bypass is possible
+    without this button — D1's strict re-pause enforces this.
+
+    Bug Class #35: wired to SIGNAL_ENERGY_ENTITIES_UPDATE so the button
+    availability reflects live EC state.
+    Bug Class #38: dispatcher unsub tracked via async_on_remove.
+    Bug Class #23: NM notification gated by observation mode in energy.py.
+    Bug Class #11/#21: override-until stored as UTC-aware datetime.
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:ev-station"
+    _OVERRIDE_MINUTES = 30
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .const import VERSION
+
+        self.hass = hass
+        self._entry = entry
+        self._attr_unique_id = f"{DOMAIN}_evse_force_charge_30min"
+        self._attr_name = "EVSE Force-Charge 30 min"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "energy_coordinator")},
+            name="URA: Energy Coordinator",
+            manufacturer="Universal Room Automation",
+            model="Energy Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+
+    def _get_energy(self):
+        """Return the EnergyCoordinator instance or None."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        return manager.coordinators.get("energy") if manager else None
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to EC-ready and energy-update signals.
+
+        v4.7.x D3 + Bug Class #35: availability re-evaluated when EC
+        registers (SIGNAL_ENERGY_COORDINATOR_READY) and after each decision
+        cycle (SIGNAL_ENERGY_ENTITIES_UPDATE).
+        """
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import (
+            SIGNAL_ENERGY_COORDINATOR_READY,
+            SIGNAL_ENERGY_ENTITIES_UPDATE,
+        )
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_ENERGY_COORDINATOR_READY, self._handle_ready
+            )
+        )
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_ENERGY_ENTITIES_UPDATE, self._handle_ready
+            )
+        )
+
+    @callback
+    def _handle_ready(self) -> None:
+        """Re-evaluate availability when EC becomes ready."""
+        self.async_schedule_update_ha_state()
+
+    @property
+    def available(self) -> bool:
+        """Available when the Energy Coordinator is running."""
+        return self._get_energy() is not None
+
+    async def async_press(self) -> None:
+        """Open (or extend) the 30-minute force-charge override window.
+
+        Actions on press:
+        1. Compute expiry as utcnow() + 30 min (UTC-aware, Bug Class #11/#21).
+        2. Call ev_controller.set_force_charge_override(until).
+        3. Send NM info notification: "EV force-charge window opened until HH:MM."
+        4. Log info with expiry ISO string.
+
+        Idempotent: replaces existing window rather than stacking.
+        """
+        from datetime import timedelta
+        from homeassistant.util import dt as dt_util
+
+        energy = self._get_energy()
+        if energy is None:
+            _LOGGER.warning("EVSEForceChargeButton: Energy Coordinator not available")
+            return
+
+        now_utc = dt_util.utcnow()
+        until_utc = now_utc + timedelta(minutes=self._OVERRIDE_MINUTES)
+
+        # Write to the EV controller (D1/D3 integration point)
+        energy.ev_controller.set_force_charge_override(until_utc)
+
+        # Convert to local time for human-readable notification
+        until_local = dt_util.as_local(until_utc)
+        until_str = until_local.strftime("%H:%M")
+
+        _LOGGER.info(
+            "EVSE force-charge override opened until %s (UTC: %s)",
+            until_str,
+            until_utc.isoformat(),
+        )
+
+        # NM notification — Bug Class #23: gated by observation mode.
+        # _send_nm_alert itself does not gate obs mode; button must check.
+        try:
+            if not energy._observation_mode:
+                await energy._send_nm_alert(
+                    title="EV Force-Charge Override Active",
+                    message=(
+                        f"EV force-charge window opened until {until_str}. "
+                        f"Mid-peak rates apply. Override auto-expires in "
+                        f"{self._OVERRIDE_MINUTES} min."
+                    ),
+                    severity="low",
+                )
+            else:
+                _LOGGER.debug(
+                    "EVSEForceChargeButton: NM notification suppressed (observation mode)"
+                )
+        except Exception:
+            _LOGGER.debug(
+                "EVSEForceChargeButton: NM notification failed (non-fatal)",
+                exc_info=True,
+            )

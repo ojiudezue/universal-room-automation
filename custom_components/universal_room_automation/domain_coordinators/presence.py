@@ -589,6 +589,47 @@ class PresenceCoordinator(BaseCoordinator):
         """Return confidence of current state inference."""
         return self._inference_engine.confidence
 
+    def get_next_state_prediction(self) -> dict:
+        """Return the next-state prediction in the D1 PWA contract shape.
+
+        v4.6.9 D1: No predictive model exists yet — this is a placeholder.
+        The routine awareness v4.6.0 cycle introduced regime shift *detection*
+        (RegimeDetector, nightly batch) but not forward next-state prediction.
+        A real model (e.g. time-of-day Bayesian transition forecaster) is
+        planned for v4.7.x.
+
+        Until then we emit:
+          state       = "unknown"
+          confidence  = 0.0
+          model       = "placeholder_v0"
+
+        This satisfies the PWA hook contract (no "—"/None as state value)
+        while making the gap explicit.  The TODO below is the v4.7.x hook-in.
+
+        TODO(v4.7.x): Replace this stub with a real model call, e.g.:
+          forecaster = self.hass.data[DOMAIN].get("routine_forecaster")
+          if forecaster is not None:
+              return forecaster.get_next_state_prediction()
+        """
+        # function-local import — Bug Class #34
+        try:
+            from homeassistant.util import dt as _dt_util
+            predicted_at_iso = _dt_util.utcnow().isoformat()
+        except Exception:
+            from datetime import datetime, timezone
+            predicted_at_iso = datetime.now(timezone.utc).isoformat()
+
+        current_state = self.house_state
+
+        return {
+            "state": "unknown",
+            "confidence": 0.0,
+            "predicted_at_iso": predicted_at_iso,
+            "model": "placeholder_v0",
+            "current_state": current_state,
+            "transition_eta_minutes": None,
+        }
+
     async def async_setup(self) -> None:
         """Set up the Presence Coordinator.
 

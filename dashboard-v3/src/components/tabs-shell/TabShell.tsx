@@ -1,37 +1,53 @@
 /**
- * Tab shell — renders the active P6 tab's content via dangerouslySetInnerHTML.
+ * Tab shell — routes the active tab id to its React component.
  *
- * Strategy: each .html file in this directory is a verbatim extract from
- * docs/dashboard-prototypes/v4/p6-light-styled.html, preserving class names
- * and structure. The CSS already lives in p6-shared.css (imported globally),
- * so the HTML renders correctly without any JSX conversion.
+ * v5.0.2 perf: each tab is lazy-loaded via React.lazy + Suspense so first
+ * paint only downloads the active tab's code chunk. Home is the default
+ * landing tab, so its chunk gets pre-fetched on idle to avoid a Suspense
+ * flash for the most common navigation.
  *
  * Lucide SVGs use <use href="#lc-X"/> — the sprite must be present in the
- * DOM once. _lucide-sprite.html provides it, injected at the top of the
- * main content area.
+ * DOM once. _lucide-sprite.html provides it; LucideSprite() mounts it.
  *
- * When tabs go live in dashboard cycle D3-D7, this file is gradually
- * replaced by per-tab React components with real entity wiring. The .html
- * fragments stay as visual reference.
+ * The static .html fragments at dashboard-v3/src/components/tabs-shell/*.html
+ * remain as the visual reference that the React ports were diffed against.
  */
+import { lazy, Suspense } from "react";
 import type { TabId } from "../layout/Rail";
 
-// Vite supports ?raw imports natively — each .html file is loaded as a string.
-import lucideSprite from "./_lucide-sprite.html?raw";
-import home from "./home.html?raw";
-import house from "./house.html?raw";
-import zones from "./zones.html?raw";
-import rooms from "./rooms.html?raw";
-import energy from "./energy.html?raw";
-import hvac from "./hvac.html?raw";
-import presence from "./presence.html?raw";
-import security from "./security.html?raw";
-import safety from "./safety.html?raw";
-import diagnostics from "./diagnostics.html?raw";
+const Diagnostics = lazy(() =>
+  import("../tabs/Diagnostics").then((m) => ({ default: m.Diagnostics })),
+);
+const Energy = lazy(() =>
+  import("../tabs/Energy").then((m) => ({ default: m.Energy })),
+);
+const Home = lazy(() =>
+  import("../tabs/Home").then((m) => ({ default: m.Home })),
+);
+const House = lazy(() =>
+  import("../tabs/House").then((m) => ({ default: m.House })),
+);
+const HVAC = lazy(() =>
+  import("../tabs/HVAC").then((m) => ({ default: m.HVAC })),
+);
+const Zones = lazy(() =>
+  import("../tabs/Zones").then((m) => ({ default: m.Zones })),
+);
+const Rooms = lazy(() =>
+  import("../tabs/Rooms").then((m) => ({ default: m.Rooms })),
+);
+const Presence = lazy(() =>
+  import("../tabs/Presence").then((m) => ({ default: m.Presence })),
+);
+const Safety = lazy(() =>
+  import("../tabs/Safety").then((m) => ({ default: m.Safety })),
+);
+const Security = lazy(() =>
+  import("../tabs/Security").then((m) => ({ default: m.Security })),
+);
 
-const TAB_HTML: Record<TabId, string> = {
-  home, house, zones, rooms, energy, hvac, presence, security, safety, diagnostics,
-};
+// Lucide sprite still mounts statically from the .html fragment.
+import lucideSprite from "./_lucide-sprite.html?raw";
 
 interface Props {
   active: TabId;
@@ -43,14 +59,50 @@ export function LucideSprite() {
   return <div dangerouslySetInnerHTML={{ __html: lucideSprite }} />;
 }
 
-// Tab sections in the P6 source use `class="tab"` (hidden by CSS) and only
-// the visible one has `class="tab active"`. Since React already isolates the
-// active tab (we only render its HTML), force the active class on whatever
-// section opens the rendered fragment.
-function withActiveClass(html: string): string {
-  return html.replace(/class="tab"/, 'class="tab active"');
+function renderTab(active: TabId) {
+  switch (active) {
+    case "diagnostics":
+      return <Diagnostics />;
+    case "energy":
+      return <Energy />;
+    case "home":
+      return <Home />;
+    case "house":
+      return <House />;
+    case "hvac":
+      return <HVAC />;
+    case "zones":
+      return <Zones />;
+    case "rooms":
+      return <Rooms />;
+    case "presence":
+      return <Presence />;
+    case "safety":
+      return <Safety />;
+    case "security":
+      return <Security />;
+  }
+}
+
+// Suspense fallback: matches the page-header skeleton so tab-switch doesn't
+// look broken while the lazy chunk loads. The fallback IS visible on the
+// VERY first paint of a never-visited tab; cached tabs (HA frontend caches
+// chunk URLs) load synchronously and skip the fallback.
+function TabSuspenseFallback() {
+  return (
+    <section className="tab active">
+      <header className="page-header">
+        <div>
+          <h1 className="page-title">Loading…</h1>
+          <div className="page-subtitle dim">…</div>
+        </div>
+      </header>
+    </section>
+  );
 }
 
 export function TabShell({ active }: Props) {
-  return <div dangerouslySetInnerHTML={{ __html: withActiveClass(TAB_HTML[active]) }} />;
+  return (
+    <Suspense fallback={<TabSuspenseFallback />}>{renderTab(active)}</Suspense>
+  );
 }

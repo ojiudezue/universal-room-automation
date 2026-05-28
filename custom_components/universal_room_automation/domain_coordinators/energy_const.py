@@ -147,6 +147,9 @@ DEFAULT_SOLCAST_PEAK_TIME_ENTITY: Final = "sensor.solcast_pv_forecast_peak_time_
 
 # Weather
 DEFAULT_WEATHER_ENTITY: Final = "weather.phalanxmadrone"
+# v4.7.x Cycle A: WeatherProviderManager — ranked-list provider with failover
+DEFAULT_WEATHER_STALENESS_MAX_HOURS: Final = 6
+DEFAULT_WEATHER_DIVERGENCE_THRESHOLD_F: Final = 5.0
 
 # EVSE (Emporia WiFi chargers)
 DEFAULT_EVSE_GARAGE_A_POWER_ENTITY: Final = "sensor.garage_a_power_minute_average"
@@ -183,6 +186,78 @@ CONF_ENERGY_SOLCAST_TODAY_ENTITY: Final = "energy_solcast_today_entity"
 CONF_ENERGY_SOLCAST_REMAINING_ENTITY: Final = "energy_solcast_remaining_entity"
 CONF_ENERGY_SOLCAST_TOMORROW_ENTITY: Final = "energy_solcast_tomorrow_entity"
 CONF_ENERGY_WEATHER_ENTITY: Final = "energy_weather_entity"
+# v4.7.x Cycle A: WeatherProviderManager ranked-list fallback providers
+CONF_ENERGY_WEATHER_FALLBACK_1: Final = "energy_weather_fallback_1"
+CONF_ENERGY_WEATHER_FALLBACK_2: Final = "energy_weather_fallback_2"
+CONF_WEATHER_STALENESS_MAX_HOURS: Final = "weather_staleness_max_hours"
+CONF_WEATHER_DIVERGENCE_THRESHOLD_F: Final = "weather_divergence_threshold_f"
+
+# v4.7.1 Cycle B: Dynamic Preset Override Source
+# Bucket boundary deltas (apparent_high - zone_home_cool_high)
+CONF_DYNAMIC_PRESET_DELTA_COOL_MAX: Final = "dynamic_preset_delta_cool_max"
+CONF_DYNAMIC_PRESET_DELTA_MILD_MAX: Final = "dynamic_preset_delta_mild_max"
+CONF_DYNAMIC_PRESET_DELTA_HOT_MAX: Final = "dynamic_preset_delta_hot_max"
+# Runtime tunable knobs
+CONF_DYNAMIC_PRESET_DWELL_MINUTES: Final = "dynamic_preset_dwell_minutes"
+CONF_DYNAMIC_PRESET_HYSTERESIS_F: Final = "dynamic_preset_hysteresis_f"
+# Master kill switch (persisted in RestoreEntity; also readable via CM options)
+CONF_DYNAMIC_PRESET_ENABLED: Final = "dynamic_preset_enabled"
+# Notification on bucket transition (opt-in, default OFF)
+CONF_DYNAMIC_PRESET_NOTIFY_ON_TRANSITION: Final = "dynamic_preset_notify_on_transition"
+# Defaults
+DEFAULT_DYNAMIC_PRESET_DELTA_COOL_MAX: Final = -2.0
+DEFAULT_DYNAMIC_PRESET_DELTA_MILD_MAX: Final = 8.0
+DEFAULT_DYNAMIC_PRESET_DELTA_HOT_MAX: Final = 18.0
+DEFAULT_DYNAMIC_PRESET_DWELL_MINUTES: Final = 60
+DEFAULT_DYNAMIC_PRESET_HYSTERESIS_F: Final = 2.0
+DEFAULT_DYNAMIC_PRESET_ENABLED: Final = False
+DEFAULT_DYNAMIC_PRESET_NOTIFY_ON_TRANSITION: Final = False
+# Priority (lower than guest_mode=50; higher = wins)
+DYNAMIC_PRESET_PRIORITY: Final = 30
+GUEST_MODE_PRIORITY: Final = 50
+# Minimum deadband for cool_low ≤ cool_high validation
+MIN_DEADBAND: Final = 2.0
+# Buckets
+BUCKET_COOL: Final = "cool"
+BUCKET_MILD: Final = "mild"
+BUCKET_HOT: Final = "hot"
+BUCKET_EXTREME: Final = "extreme"
+BUCKET_NAMES: Final = (BUCKET_COOL, BUCKET_MILD, BUCKET_HOT, BUCKET_EXTREME)
+
+# Per-zone dynamic preset CONF keys (stored in zones dict of Zone Manager entry)
+CONF_ZONE_DYNAMIC_PRESET_ENABLED: Final = "zone_dynamic_preset_enabled"
+CONF_ZONE_DYNAMIC_PRESET_OFFSET: Final = "zone_dynamic_preset_offset"
+CONF_ZONE_DYNAMIC_PRESET_RESET_OFFSET_GUEST: Final = "zone_dynamic_preset_reset_offset_guest"
+CONF_ZONE_DYNAMIC_PRESET_SLEEP_ENABLED: Final = "zone_dynamic_preset_sleep_enabled"
+# Per-bucket range keys: "zone_dynamic_preset_<bucket>_home_cool_low/high"
+# and "zone_dynamic_preset_<bucket>_sleep_cool_low/high"
+CONF_ZONE_DYNAMIC_PRESET_COOL_HOME_LOW: Final = "zone_dynamic_preset_cool_home_low"
+CONF_ZONE_DYNAMIC_PRESET_COOL_HOME_HIGH: Final = "zone_dynamic_preset_cool_home_high"
+CONF_ZONE_DYNAMIC_PRESET_MILD_HOME_LOW: Final = "zone_dynamic_preset_mild_home_low"
+CONF_ZONE_DYNAMIC_PRESET_MILD_HOME_HIGH: Final = "zone_dynamic_preset_mild_home_high"
+CONF_ZONE_DYNAMIC_PRESET_HOT_HOME_LOW: Final = "zone_dynamic_preset_hot_home_low"
+CONF_ZONE_DYNAMIC_PRESET_HOT_HOME_HIGH: Final = "zone_dynamic_preset_hot_home_high"
+CONF_ZONE_DYNAMIC_PRESET_EXTREME_HOME_LOW: Final = "zone_dynamic_preset_extreme_home_low"
+CONF_ZONE_DYNAMIC_PRESET_EXTREME_HOME_HIGH: Final = "zone_dynamic_preset_extreme_home_high"
+CONF_ZONE_DYNAMIC_PRESET_COOL_SLEEP_LOW: Final = "zone_dynamic_preset_cool_sleep_low"
+CONF_ZONE_DYNAMIC_PRESET_COOL_SLEEP_HIGH: Final = "zone_dynamic_preset_cool_sleep_high"
+CONF_ZONE_DYNAMIC_PRESET_MILD_SLEEP_LOW: Final = "zone_dynamic_preset_mild_sleep_low"
+CONF_ZONE_DYNAMIC_PRESET_MILD_SLEEP_HIGH: Final = "zone_dynamic_preset_mild_sleep_high"
+CONF_ZONE_DYNAMIC_PRESET_HOT_SLEEP_LOW: Final = "zone_dynamic_preset_hot_sleep_low"
+CONF_ZONE_DYNAMIC_PRESET_HOT_SLEEP_HIGH: Final = "zone_dynamic_preset_hot_sleep_high"
+CONF_ZONE_DYNAMIC_PRESET_EXTREME_SLEEP_LOW: Final = "zone_dynamic_preset_extreme_sleep_low"
+CONF_ZONE_DYNAMIC_PRESET_EXTREME_SLEEP_HIGH: Final = "zone_dynamic_preset_extreme_sleep_high"
+
+# Guest mode actuation (Phase 1 schema — owned by dynamic_preset plan as shared schema)
+CONF_GUEST_MODE_ACTUATION_ENABLED: Final = "guest_mode_actuation_enabled"
+CONF_PRESET_OVERRIDES: Final = "preset_overrides"
+CONF_ZONE_GUEST_MODE_OPT_OUT: Final = "zone_guest_mode_opt_out"
+# Per-zone guest mode override CONF keys
+CONF_ZONE_GUEST_HOME_COOL_LOW: Final = "zone_guest_home_cool_low"
+CONF_ZONE_GUEST_HOME_COOL_HIGH: Final = "zone_guest_home_cool_high"
+CONF_ZONE_GUEST_SLEEP_COOL_LOW: Final = "zone_guest_sleep_cool_low"
+CONF_ZONE_GUEST_SLEEP_COOL_HIGH: Final = "zone_guest_sleep_cool_high"
+
 CONF_ENERGY_SOLAR_CLASSIFICATION_MODE: Final = "energy_solar_classification_mode"
 CONF_ENERGY_SOLAR_THRESHOLD_EXCELLENT: Final = "energy_solar_threshold_excellent"
 CONF_ENERGY_SOLAR_THRESHOLD_GOOD: Final = "energy_solar_threshold_good"

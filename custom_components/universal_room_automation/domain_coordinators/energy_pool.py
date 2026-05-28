@@ -7,6 +7,7 @@ additional controllable loads.
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 from typing import Any
 
 from homeassistant.core import HomeAssistant
@@ -204,6 +205,10 @@ class EVChargerController:
         self._power_sensor_unavail_count: dict[str, int] = {}  # evse_id → consecutive misses
         self._power_sensor_alerted: set[str] = set()  # evse_ids already alerted
         self._power_sensor_unavail_since: dict[str, str] = {}  # evse_id → ISO timestamp
+        # v4.7.x D3: URA-side admin override — open 30-min force-charge window.
+        # Non-None when override is active; UTC-aware datetime at which it expires.
+        # Only settable via EVSEForceChargeButton; never from HA UI directly.
+        self._force_charge_until: datetime | None = None
 
     def _get_evse_state(self, evse_id: str) -> dict[str, Any]:
         """Get current state of an EVSE.
@@ -265,8 +270,33 @@ class EVChargerController:
         }
 
     def determine_actions(self, tou_period: str) -> list[dict[str, Any]]:
-        """Determine EV charger actions based on TOU period."""
+        """Determine EV charger actions based on TOU period.
+
+        v4.7.x D1: Strict TOU enforcement — the `_paused_by_us` short-circuit
+        is removed so URA re-pauses idempotently each decision tick even if
+        the user manually re-enabled the EVSE in HA.  Manual HA-side overrides
+        are reversed within ≤5 min (one decision interval).  The excess-solar
+        exception (already handled above this path) is unchanged.
+
+        v4.7.x D3: `_force_charge_until` opens a timed admin-bypass window set
+        exclusively via `EVSEForceChargeButton`.  When the window is active and
+        unexpired, TOU pause is skipped for all EVSEs.  Auto-expires: once the
+        current UTC time passes the stored timestamp, normal pausing resumes on
+        the next tick.
+        """
+        from homeassistant.util import dt as dt_util
+
         actions: list[dict[str, Any]] = []
+
+        # v4.7.x D3: check force-charge override (UTC-safe, Bug Class #11/#21)
+        force_charge_active = False
+        if self._force_charge_until is not None:
+            now_utc = dt_util.utcnow()
+            if now_utc < self._force_charge_until:
+                force_charge_active = True
+            else:
+                _LOGGER.info("EV: force-charge override expired — resuming strict TOU")
+                self._force_charge_until = None
 
         for evse_id, config in self._evse.items():
             switch_entity = config.get("switch", "")
@@ -279,8 +309,18 @@ class EVChargerController:
                 # Skip if excess solar is actively charging this EVSE
                 if evse_id in self._excess_solar_active:
                     continue
-                # Pause charging during peak/mid-peak
-                if state["is_on"] and evse_id not in self._paused_by_us:
+                # v4.7.x D3: Skip pause if admin force-charge override is active
+                if force_charge_active:
+                    _LOGGER.debug(
+                        "EV: %s TOU pause bypassed — admin force-charge override active",
+                        evse_id,
+                    )
+                    continue
+                # v4.7.x D1: Re-pause idempotently — no `_paused_by_us` guard.
+                # URA turns the switch off on every tick while peak/mid_peak is
+                # active.  This defeats manual HA-side re-enables within one
+                # decision cycle.
+                if state["is_on"]:
                     actions.append({
                         "service": "switch.turn_off",
                         "target": switch_entity,
@@ -311,6 +351,26 @@ class EVChargerController:
                     self._paused_by_us.discard(evse_id)
 
         return actions
+
+    # -------------------------------------------------------------------------
+    # v4.7.x D3: Admin force-charge override API
+    # -------------------------------------------------------------------------
+
+    @property
+    def force_charge_until(self) -> datetime | None:
+        """Return the UTC expiry of the current force-charge window, or None."""
+        return self._force_charge_until
+
+    def set_force_charge_override(self, until: datetime) -> None:
+        """Open (or extend) the force-charge window to `until` (UTC-aware).
+
+        Idempotent: re-pressing the button replaces (not stacks) the window.
+        The caller is responsible for supplying a UTC-aware datetime.
+        """
+        self._force_charge_until = until
+        _LOGGER.info(
+            "EV: force-charge override set until %s", until.isoformat()
+        )
 
     def determine_excess_solar_actions(
         self,
@@ -690,6 +750,13 @@ class EVChargerController:
 
     def get_status(self) -> dict[str, Any]:
         """Return EV charging status for sensor."""
+        # v4.7.x D3: include force-charge override expiry (ISO string or None)
+        from homeassistant.util import dt as dt_util
+        force_until_iso: str | None = None
+        if self._force_charge_until is not None:
+            now_utc = dt_util.utcnow()
+            if now_utc < self._force_charge_until:
+                force_until_iso = self._force_charge_until.isoformat()
         status: dict[str, Any] = {
             "paused_by_energy": list(self._paused_by_us),
             "paused_by_grid_cap": list(self._paused_by_grid_cap),
@@ -698,6 +765,8 @@ class EVChargerController:
             "paused_by_arbitrage": list(self._paused_by_arbitrage),
             "excess_solar_active": bool(self._excess_solar_active),
             "excess_solar_evses": list(self._excess_solar_active),
+            # v4.7.x D3: admin override window (None = not active)
+            "force_charge_until_iso": force_until_iso,
         }
         for evse_id in self._evse:
             evse_state = self._get_evse_state(evse_id)

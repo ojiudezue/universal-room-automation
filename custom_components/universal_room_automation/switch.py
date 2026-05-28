@@ -1,6 +1,6 @@
 """Switch platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.6.13
+# Universal Room Automation vv4.7.0.1
 # Build: 2026-01-02
 # File: switch.py
 #
@@ -146,6 +146,8 @@ async def async_setup_entry(
             ECExcessSolarSwitch(hass, entry),
             ECArbitrageSwitch(hass, entry),
             ECEvTouSwitch(hass, entry),
+            # v4.7.1 Cycle B: Dynamic Preset master kill switch
+            ECDynamicPresetSwitch(hass, entry),
             # v3.9.0: HVAC transparency switches
             HVACOverrideArresterSwitch(hass, entry),
             HVACACResetSwitch(hass, entry),
@@ -605,6 +607,24 @@ def _ec_switch_factory(
 
         async def async_added_to_hass(self):
             await super().async_added_to_hass()
+
+            # v4.7.x D2: Subscribe to SIGNAL_ENERGY_COORDINATOR_READY so that
+            # deferred restore completes even when EC init takes longer than the
+            # v4.5.3 retry budget (e.g. Envoy validation race at startup).
+            # Unsub is tracked via async_on_remove — Bug Class #38.
+            # The subscription is registered unconditionally so it fires even
+            # when restore lands immediately (signal is a no-op then because
+            # _deferred_restore is already False).
+            from homeassistant.helpers.dispatcher import async_dispatcher_connect
+            from .domain_coordinators.signals import SIGNAL_ENERGY_COORDINATOR_READY
+            self.async_on_remove(
+                async_dispatcher_connect(
+                    self.hass,
+                    SIGNAL_ENERGY_COORDINATOR_READY,
+                    self._handle_ec_ready,
+                )
+            )
+
             last_state = await self.async_get_last_state()
             if last_state is None:
                 # First-time install (no prior RestoreEntity state):
@@ -618,14 +638,63 @@ def _ec_switch_factory(
                 setattr(energy, attr_name, target)
                 # Restore landed immediately; no retry needed.
                 self._deferred_restore = False
+                # v4.7.x H1 fix-up: notify EC that this switch completed
+                # restore so ECSubSwitchesSyncedSensor can track real sync.
+                try:
+                    energy.notify_sub_switch_restore_complete()
+                except Exception:
+                    pass
+                self.async_write_ha_state()
                 return
-            # Coord not registered yet → defer + retry chain.
+            # Coord not registered yet → mark deferred; SIGNAL_ENERGY_COORDINATOR_READY
+            # will fire _handle_ec_ready once EC finishes async_setup().
+            # The v4.5.3 timer chain is kept as a fast-path for the short window
+            # between platform setup and coordinator registration.
             self._deferred_restore = True
             self._retry_index = 0
             self.async_on_remove(
                 async_call_later(
                     self.hass, self._RETRY_DELAYS_S[0], self._retry_restore
                 )
+            )
+
+        @callback
+        def _handle_ec_ready(self) -> None:
+            """Handle SIGNAL_ENERGY_COORDINATOR_READY — complete deferred restore.
+
+            v4.7.x D2: Called when EC coord finishes async_setup().  If this
+            switch still has a pending deferred restore (_deferred_restore is
+            True), write the saved value to the coordinator now.  If restore
+            already landed via the timer chain, this is a no-op.
+
+            Bug Class #42: uses bound method, NOT a lambda.
+            Bug Class #19: no async_create_task — @callback fires synchronously
+            on the event loop.
+            """
+            if not self._deferred_restore:
+                return
+            energy = self._get_energy()
+            if energy is None:
+                _LOGGER.warning(
+                    "EC switch %s: SIGNAL_ENERGY_COORDINATOR_READY fired but "
+                    "coord still not in hass.data — restore deferred",
+                    unique_suffix,
+                )
+                return
+            setattr(energy, attr_name, self._deferred_value)
+            self._deferred_restore = False
+            # v4.7.x H1 fix-up: notify EC that this switch completed deferred
+            # restore so ECSubSwitchesSyncedSensor tracks real per-switch sync.
+            try:
+                energy.notify_sub_switch_restore_complete()
+            except Exception:
+                pass
+            self.async_write_ha_state()
+            _LOGGER.info(
+                "EC switch %s: deferred restore completed via SIGNAL_ENERGY_COORDINATOR_READY"
+                " (value=%s)",
+                unique_suffix,
+                self._deferred_value,
             )
 
         @callback
@@ -636,9 +705,17 @@ def _ec_switch_factory(
             if energy is not None:
                 setattr(energy, attr_name, self._deferred_value)
                 self._deferred_restore = False
+                # v4.7.x H1 fix-up: notify EC that this switch completed
+                # restore (timer path) so ECSubSwitchesSyncedSensor tracks real sync.
+                try:
+                    energy.notify_sub_switch_restore_complete()
+                except Exception:
+                    pass
+                self.async_write_ha_state()
                 return
             # Coord still not ready — schedule the next retry if any
-            # remain in the chain.
+            # remain in the chain.  SIGNAL_ENERGY_COORDINATOR_READY is the
+            # unbounded fallback; the timer chain is a fast-path only.
             self._retry_index += 1
             if self._retry_index < len(self._RETRY_DELAYS_S):
                 self.async_on_remove(
@@ -650,12 +727,12 @@ def _ec_switch_factory(
                 )
             else:
                 _LOGGER.warning(
-                    "EC switch %s: deferred restore exhausted retries "
-                    "(coord never became available); leaving runtime at "
-                    "constructor-seeded value",
+                    "EC switch %s: timer retry chain exhausted — waiting for "
+                    "SIGNAL_ENERGY_COORDINATOR_READY to complete restore",
                     unique_suffix,
                 )
-                self._deferred_restore = False
+                # _deferred_restore stays True so _handle_ec_ready still fires
+                # when the signal eventually arrives.
 
         @property
         def available(self) -> bool:
@@ -682,9 +759,137 @@ ECArbitrageSwitch = _ec_switch_factory(
     "arbitrage_enabled", "arbitrage",
     "Grid Arbitrage", "mdi:battery-charging-wireless", default=False,
 )
-ECEvTouSwitch = _ec_switch_factory(
+
+_ECEvTouSwitchBase = _ec_switch_factory(
     "ev_tou_enabled", "ev_tou_management",
     "EV TOU Management", "mdi:ev-station", default=True,
+)
+
+
+class ECEvTouSwitch(_ECEvTouSwitchBase):
+    """EV TOU Management switch with force-charge override attribute.
+
+    v4.7.x D3: extends the factory-generated base to expose
+    `override_active_until_iso` so the PWA and HA UI can show when a
+    force-charge admin window is active.
+
+    v4.7.x B2 fix-up: restores the force-charge override window across
+    entry reloads.  The `override_active_until_iso` attribute is persisted
+    in HA's state store (RestoreEntity).  On restore, if the ISO expiry is
+    still in the future, the window is re-applied to the EV controller.
+    An active window is NOT silently dropped on reload — the user's admin
+    intent is honoured for the remainder of the original 30-min window.
+    """
+
+    async def async_added_to_hass(self) -> None:
+        """Restore on/off state AND force-charge override across reloads.
+
+        The base class handles on/off RestoreEntity restore and the
+        SIGNAL_ENERGY_COORDINATOR_READY subscription.  This override adds
+        the override-expiry restore on top.
+
+        B2 fix-up: reads override_active_until_iso from last state attrs.
+        Idempotent: expired ISO → no restore; future ISO → window re-applied.
+        """
+        await super().async_added_to_hass()
+        # Read the persisted override expiry from the last saved state attrs.
+        last_state = await self.async_get_last_state()
+        if last_state is None:
+            return
+        override_iso = last_state.attributes.get("override_active_until_iso")
+        if not override_iso:
+            return
+        try:
+            from datetime import datetime, timezone
+            from homeassistant.util import dt as dt_util
+            persisted_until = datetime.fromisoformat(override_iso)
+            # Ensure UTC-aware (attributes store as ISO string with offset)
+            if persisted_until.tzinfo is None:
+                persisted_until = persisted_until.replace(tzinfo=timezone.utc)
+            now_utc = dt_util.utcnow()
+            if persisted_until <= now_utc:
+                # Override already expired — nothing to restore
+                _LOGGER.debug(
+                    "ECEvTouSwitch: persisted override expired (was %s), skipping restore",
+                    override_iso,
+                )
+                return
+            # Override is still active — re-apply it to the EV controller
+            energy = self._get_energy()
+            if energy is not None:
+                energy.ev_controller.set_force_charge_override(persisted_until)
+                _LOGGER.info(
+                    "ECEvTouSwitch: force-charge override restored from state (expires %s)",
+                    override_iso,
+                )
+            else:
+                # EC not yet registered — the deferred-restore path in the
+                # base class will fire _handle_ec_ready later, but that only
+                # restores the on/off state.  Store the pending override here
+                # so _handle_ec_ready can apply it when EC becomes available.
+                self._pending_override_until = persisted_until
+        except Exception:
+            _LOGGER.debug(
+                "ECEvTouSwitch: failed to parse persisted override ISO %r (non-fatal)",
+                override_iso,
+                exc_info=True,
+            )
+
+    @callback
+    def _handle_ec_ready(self) -> None:
+        """Extend base restore with pending force-charge override re-application.
+
+        If a force-charge window was persisted and EC was not available at
+        async_added_to_hass time, apply it now.
+        """
+        super()._handle_ec_ready()
+        pending = getattr(self, "_pending_override_until", None)
+        if pending is None:
+            return
+        try:
+            from homeassistant.util import dt as dt_util
+            now_utc = dt_util.utcnow()
+            if pending <= now_utc:
+                _LOGGER.debug(
+                    "ECEvTouSwitch: pending override expired before EC registered; skipping"
+                )
+                self._pending_override_until = None
+                return
+            energy = self._get_energy()
+            if energy is not None:
+                energy.ev_controller.set_force_charge_override(pending)
+                _LOGGER.info(
+                    "ECEvTouSwitch: deferred force-charge override applied (expires %s)",
+                    pending.isoformat(),
+                )
+                self._pending_override_until = None
+        except Exception:
+            _LOGGER.debug(
+                "ECEvTouSwitch: deferred override apply failed (non-fatal)",
+                exc_info=True,
+            )
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return override expiry attribute (None when no override active)."""
+        energy = self._get_energy()
+        if energy is None:
+            return {}
+        ev = energy.ev_controller
+        until = ev.force_charge_until
+        if until is None:
+            return {"override_active_until_iso": None}
+        from homeassistant.util import dt as dt_util
+        now_utc = dt_util.utcnow()
+        if now_utc >= until:
+            return {"override_active_until_iso": None}
+        return {"override_active_until_iso": until.isoformat()}
+
+
+# v4.7.1 Cycle B: Dynamic Preset master kill switch (factory-generated)
+ECDynamicPresetSwitch = _ec_switch_factory(
+    "dynamic_preset_enabled", "dynamic_preset_enabled",
+    "Dynamic Preset Overrides", "mdi:thermometer-auto", default=False,
 )
 
 

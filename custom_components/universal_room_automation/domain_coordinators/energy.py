@@ -8,6 +8,7 @@ Priority 40 (higher than HVAC at 30, lower than Safety at 100).
 from __future__ import annotations
 
 import asyncio
+import collections
 import logging
 from typing import Any
 
@@ -218,7 +219,10 @@ class EnergyCoordinator(BaseCoordinator):
         self._ev = EVChargerController(hass, evse_config=evse_config)
         self._smart_plugs = SmartPlugController(hass, plug_entities=smart_plug_entities)
 
-        # v3.11.0: Configured weather entity (for DB logging)
+        # v3.11.0: Configured weather entity (for DB logging).
+        # v4.7.x Cycle A: _weather_entity is the fallback when WeatherProviderManager
+        # is not yet set up. At runtime, _get_active_weather_entity() resolves via
+        # the manager first, falling back here. See A4 migration note.
         from .energy_const import DEFAULT_WEATHER_ENTITY
         self._weather_entity: str = ec.get(CONF_ENERGY_WEATHER_ENTITY, DEFAULT_WEATHER_ENTITY)
 
@@ -366,6 +370,13 @@ class EnergyCoordinator(BaseCoordinator):
         # Observation mode: sensors compute, no actions executed
         self._observation_mode: bool = False
 
+        # v4.7.x D2 fix-up H1: track how many of the 5 EC sub-switches
+        # have NOT yet completed their deferred restore.  Each switch calls
+        # notify_sub_switch_restore_complete() when _handle_ec_ready lands
+        # successfully.  ECSubSwitchesSyncedSensor reads sub_switches_synced().
+        # There are exactly 5 factory-generated EC sub-switches.
+        self._pending_sub_switch_restores: int = 5
+
         # State tracking
         self._last_battery_decision: dict[str, Any] = {}
         self._tou_transition_count: int = 0
@@ -389,6 +400,20 @@ class EnergyCoordinator(BaseCoordinator):
         # Cached forecast temps (updated each decision cycle via async service)
         self._cached_forecast_high: float | None = None
         self._cached_forecast_low: float | None = None
+        # v4.7.x Cycle A: apparent-temp forecast high from WeatherProviderManager
+        self._cached_apparent_forecast_high: float | None = None
+
+        # v4.7.1 Cycle B: Dynamic Preset Override Source
+        # Master enable — seeded from CM options; runtime-tunable via switch
+        from .energy_const import CONF_DYNAMIC_PRESET_ENABLED, DEFAULT_DYNAMIC_PRESET_ENABLED
+        self._dynamic_preset_enabled: bool = ec.get(
+            CONF_DYNAMIC_PRESET_ENABLED, DEFAULT_DYNAMIC_PRESET_ENABLED
+        )
+        # Lazily instantiated on first evaluate call (avoids circular import at __init__).
+        self._dynamic_preset_source: Any = None
+        # Accumulated overrides per zone from the most recent evaluate call.
+        # Key: zone_id, Value: list[PresetOverride]
+        self._dynamic_preset_overrides: dict[str, list] = {}
 
         # Envoy availability tracking
         self._envoy_unavailable_count: int = 0
@@ -437,6 +462,99 @@ class EnergyCoordinator(BaseCoordinator):
             scope="forecast",
             max_samples=365,
         )
+
+        # v4.6.9 D3: Decision stream ring buffer — capped at 20 entries.
+        # Bug Class #25 (bounded list): deque(maxlen=20) enforces the hard cap.
+        # Each entry: { timestamp_iso, action, reason, tou_period, target_entity }
+        self._decision_buffer: collections.deque = collections.deque(maxlen=20)
+
+    # ------------------------------------------------------------------
+    # v4.6.9 D3: Decision stream helpers
+    # ------------------------------------------------------------------
+
+    def _record_decision(
+        self,
+        action: str,
+        reason: str,
+        target_entity: str | None = None,
+    ) -> None:
+        """Append a decision entry to the ring buffer.
+
+        **Threading contract** (Tier 2-DB Reviewer A H1): MUST be called from
+        the HA event loop. Do NOT invoke from a thread executor — deque mutation
+        is safe under CPython's GIL but `get_recent_decisions()` snapshots via
+        `list(buffer)` and a concurrent appender from a thread could observe
+        a partial view. All current callers are event-loop-bound; future
+        sensor platforms must follow the same constraint.
+
+        Bug Class #11: timestamp is UTC ISO 8601 string, never a datetime obj.
+        Bug Class #22: tou_period is read directly from TOURateEngine._VALID_PERIODS
+                       vocabulary (peak | mid_peak | off_peak).
+        Bug Class #25: deque(maxlen=20) enforces hard cap — no list growth.
+        """
+        from homeassistant.util import dt as dt_util
+        try:
+            tou_period: str = self._tou.get_current_period()
+        except Exception:
+            tou_period = "off_peak"
+        entry: dict[str, Any] = {
+            "timestamp_iso": dt_util.utcnow().isoformat(),
+            "action": action,
+            "reason": reason,
+            "tou_period": tou_period,
+            "target_entity": target_entity,
+        }
+        self._decision_buffer.append(entry)
+        _LOGGER.debug(
+            "Energy decision recorded: action=%s reason=%s tou_period=%s target=%s",
+            action, reason, tou_period, target_entity,
+        )
+
+    def get_recent_decisions(self) -> dict[str, Any]:
+        """Return decision stream data for the sensor.
+
+        Returns a dict with:
+          - decisions: list[dict] — last 20 decisions, newest first
+          - count_24h: int — number of decisions in the last 24h
+          - last_action_at_iso: str | None — timestamp of most recent entry
+
+        Bug Class #29: covers empty-buffer branch (count_24h=0, empty list).
+        Bug Class #37: stable shape — all three keys always present.
+        """
+        # Tier 2-DB Reviewer A H2 fix: imports at function top, not loop body.
+        from datetime import datetime, timedelta, timezone
+
+        from homeassistant.util import dt as dt_util
+
+        all_entries = list(self._decision_buffer)  # oldest→newest
+        newest_first = list(reversed(all_entries))
+
+        if not newest_first:
+            return {
+                "decisions": [],
+                "count_24h": 0,
+                "last_action_at_iso": None,
+            }
+
+        cutoff = dt_util.utcnow() - timedelta(hours=24)
+        count_24h = 0
+        for entry in all_entries:
+            try:
+                ts = datetime.fromisoformat(entry["timestamp_iso"])
+                if ts.tzinfo is None:
+                    ts = ts.replace(tzinfo=timezone.utc)
+                if ts >= cutoff:
+                    count_24h += 1
+            except Exception:
+                pass
+
+        last_action_at_iso: str | None = newest_first[0].get("timestamp_iso") if newest_first else None
+
+        return {
+            "decisions": newest_first,
+            "count_24h": count_24h,
+            "last_action_at_iso": last_action_at_iso,
+        }
 
     def _build_entity_map(self, config: dict[str, str] | None) -> dict[str, str]:
         """Build entity mapping from config keys to battery strategy keys."""
@@ -513,6 +631,20 @@ class EnergyCoordinator(BaseCoordinator):
             self._decision_interval,
             self._battery.reserve_soc,
         )
+
+        # v4.7.x D2: signal EC-ready so sub-switches can complete deferred
+        # restore if the timer-based retry chain was exhausted before this
+        # point.  Mirrors SIGNAL_NM_READY / SIGNAL_BAYESIAN_READY pattern.
+        try:
+            from homeassistant.helpers.dispatcher import async_dispatcher_send
+            from .signals import SIGNAL_ENERGY_COORDINATOR_READY
+            async_dispatcher_send(self.hass, SIGNAL_ENERGY_COORDINATOR_READY)
+            _LOGGER.debug("SIGNAL_ENERGY_COORDINATOR_READY dispatched")
+        except Exception:
+            _LOGGER.debug(
+                "SIGNAL_ENERGY_COORDINATOR_READY dispatch failed (non-fatal)",
+                exc_info=True,
+            )
 
     async def evaluate(
         self,
@@ -1455,7 +1587,9 @@ class EnergyCoordinator(BaseCoordinator):
 
             outside_temp = None
             outside_humidity = None
-            weather_state = self.hass.states.get(self._weather_entity)
+            # v4.7.x Cycle A: route through WeatherProviderManager (A4 migration)
+            _active_weather_eid = self._get_active_weather_entity()
+            weather_state = self.hass.states.get(_active_weather_eid) if _active_weather_eid else None
             if weather_state and weather_state.attributes:
                 outside_temp = weather_state.attributes.get("temperature")
                 outside_humidity = weather_state.attributes.get("humidity")
@@ -1534,7 +1668,9 @@ class EnergyCoordinator(BaseCoordinator):
         if db is None:
             return
         try:
-            weather_state = self.hass.states.get(self._weather_entity)
+            # v4.7.x Cycle A: route through WeatherProviderManager (A4 migration)
+            _active_weather_eid = self._get_active_weather_entity()
+            weather_state = self.hass.states.get(_active_weather_eid) if _active_weather_eid else None
             outside_temp = None
             outside_humidity = None
             weather_condition = None
@@ -1905,6 +2041,12 @@ class EnergyCoordinator(BaseCoordinator):
             new_period = self._tou.check_period_transition()
             if new_period:
                 self._tou_transition_count += 1
+                # v4.6.9 D3: TOU transition is a user-visible decision event.
+                self._record_decision(
+                    action=f"tou_transition_{new_period}",
+                    reason=f"TOU period changed to {new_period}",
+                    target_entity=None,
+                )
                 # v3.13.3: Track SOC at peak start for battery degradation detection
                 if new_period == "peak":
                     soc = self._battery.battery_soc
@@ -1959,6 +2101,20 @@ class EnergyCoordinator(BaseCoordinator):
             decision["evse_battery_hold"] = self._evse_battery_hold_active
 
             self._last_battery_decision = decision
+
+            # v4.6.9 D3: Record battery strategy decision in the ring buffer.
+            # Only record when the mode has actions (non-trivial decision) or
+            # when EVSE hold is active — avoids flooding the buffer with idle cycles.
+            _bat_actions = decision.get("actions", [])
+            if _bat_actions or decision.get("evse_battery_hold"):
+                _bat_target: str | None = (
+                    _bat_actions[0].get("target") if _bat_actions else None
+                )
+                self._record_decision(
+                    action=f"battery_{decision.get('mode', 'unknown')}",
+                    reason=decision.get("reason", ""),
+                    target_entity=_bat_target,
+                )
 
             # Execute actions (skipped in observation mode)
             if not self._observation_mode:
@@ -2139,6 +2295,11 @@ class EnergyCoordinator(BaseCoordinator):
                 self._last_profile_save_hour = current_hour
                 await self._save_power_profiles()
 
+            # v4.7.1 Cycle B: Dynamic Preset Override Source evaluation
+            # Runs after forecast update (needs WPM cached forecast).
+            # Gated by observation_mode on the actuation side (Bug #23 — eval always runs).
+            await self._async_evaluate_dynamic_presets()
+
             # E6: HVAC constraint determination
             self._update_hvac_constraint(period)
 
@@ -2244,12 +2405,65 @@ class EnergyCoordinator(BaseCoordinator):
         except Exception:
             _LOGGER.exception("Energy: failed to execute %s on %s", service, target)
 
+    def _get_active_weather_entity(self) -> str | None:
+        """Return the active weather entity ID.
+
+        v4.7.x Cycle A: Prefers WeatherProviderManager.active_provider;
+        falls back to self._weather_entity (legacy CONF_ENERGY_WEATHER_ENTITY).
+        """
+        try:
+            from ..const import DOMAIN as _DOMAIN_KEY
+            weather_mgr = self.hass.data.get(_DOMAIN_KEY, {}).get("weather_manager")
+            if weather_mgr is not None:
+                active = weather_mgr.active_provider
+                if active:
+                    return active
+        except Exception:
+            pass
+        return self._weather_entity or None
+
     async def _update_forecast_temps(self) -> None:
         """Fetch daily forecast high/low via weather.get_forecasts service.
 
-        Caches results in _cached_forecast_high/_cached_forecast_low.
+        v4.7.x Cycle A: Routes through WeatherProviderManager when available,
+        falling back to the legacy single-provider path for back-compat.
+        Caches results in _cached_forecast_high/_cached_forecast_low +
+        _cached_apparent_forecast_high.
         Modern HA (2024.3+) removed forecast from weather entity attributes.
         """
+        # v4.7.x: Try WeatherProviderManager first (A4 migration)
+        try:
+            from ..const import DOMAIN as _DOMAIN_KEY
+            weather_mgr = self.hass.data.get(_DOMAIN_KEY, {}).get("weather_manager")
+        except Exception:
+            weather_mgr = None
+
+        if weather_mgr is not None:
+            try:
+                forecast = await weather_mgr.get_today_forecast()
+                if forecast is not None:
+                    if forecast.raw_high is not None:
+                        self._cached_forecast_high = forecast.raw_high
+                    if forecast.raw_low is not None:
+                        self._cached_forecast_low = forecast.raw_low
+                    # Cache apparent high separately for EnergyConstraint payload
+                    self._cached_apparent_forecast_high = forecast.apparent_high
+                    _LOGGER.debug(
+                        "Forecast temps via WeatherProviderManager: "
+                        "raw_high=%s raw_low=%s apparent_high=%s provider=%s",
+                        self._cached_forecast_high,
+                        self._cached_forecast_low,
+                        self._cached_apparent_forecast_high,
+                        forecast.provider_id,
+                    )
+                    return
+            except Exception as exc:
+                _LOGGER.warning(
+                    "WeatherProviderManager.get_today_forecast failed, "
+                    "falling back to legacy path: %s", exc
+                )
+
+        # Legacy path: direct hass.services.async_call using predictor's weather entity
         weather_eid = None
         if self._predictor:
             weather_eid = getattr(self._predictor, "_weather_entity", None)
@@ -2294,6 +2508,131 @@ class EnergyCoordinator(BaseCoordinator):
                 )
         except Exception as exc:
             _LOGGER.warning("Failed to fetch weather forecast for %s: %s", weather_eid, exc)
+
+    async def _async_evaluate_dynamic_presets(self) -> None:
+        """Evaluate dynamic-preset overrides for all opted-in canonical HVAC zones.
+
+        v4.7.1 Cycle B: Called once per EC decision tick (5-min cadence).
+        Evaluation always runs (even in observation mode — Bug #23: gate is on actuation side).
+        Results stored in self._dynamic_preset_overrides for sensor visibility.
+
+        Does nothing when:
+        - Master kill switch is OFF (CONF_DYNAMIC_PRESET_ENABLED=False)
+        - WeatherProviderManager has no cached forecast
+        """
+        try:
+            from ..const import DOMAIN as _DOMAIN_KEY, CONF_ENTRY_TYPE, ENTRY_TYPE_COORDINATOR_MANAGER
+            from .energy_const import CONF_DYNAMIC_PRESET_DWELL_MINUTES, CONF_DYNAMIC_PRESET_HYSTERESIS_F
+
+            # Read master enable from EC attribute (mirrors how other EC sub-switches work)
+            if not self._dynamic_preset_enabled:
+                _LOGGER.debug("DynamicPreset: master switch OFF — skipping evaluation")
+                return
+
+            # Read current CM options for DynamicPresetOverrideSource config (Bug #14)
+            cm_options: dict = {}
+            for entry in self.hass.config_entries.async_entries(_DOMAIN_KEY):
+                if {**entry.data, **entry.options}.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_COORDINATOR_MANAGER:
+                    cm_options = {**entry.data, **entry.options}
+                    break
+
+            # Get WPM forecast availability (Bug #5 — defer if no forecast)
+            weather_mgr = self.hass.data.get(_DOMAIN_KEY, {}).get("weather_manager")
+            if weather_mgr is None:
+                _LOGGER.debug("DynamicPreset: no WeatherProviderManager — skipping")
+                return
+            apparent_high = weather_mgr.current_apparent_forecast_high()
+            if apparent_high is None:
+                _LOGGER.debug("DynamicPreset: no cached forecast — skipping")
+                return
+
+            # Get house_state for offset-reset check
+            house_state = self._get_house_state()
+
+            # Lazily instantiate DynamicPresetOverrideSource (avoids circular import)
+            if self._dynamic_preset_source is None:
+                from .dynamic_preset import DynamicPresetOverrideSource
+                self._dynamic_preset_source = DynamicPresetOverrideSource(
+                    hass=self.hass,
+                    get_options=lambda: cm_options,
+                )
+
+            # Enumerate opted-in canonical HVAC zones
+            from .hvac_zones import iter_canonical_hvac_zones
+            from ..const import ENTRY_TYPE_ZONE_MANAGER
+            canonical_zones = iter_canonical_hvac_zones(self.hass)
+
+            # Build zone_data lookup from Zone Manager entry
+            zm_zones: dict = {}
+            for entry in self.hass.config_entries.async_entries(_DOMAIN_KEY):
+                merged = {**entry.data, **entry.options}
+                if merged.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_ZONE_MANAGER:
+                    zm_zones = merged.get("zones", {})
+                    break
+
+            updated_overrides: dict[str, list] = {}
+            for zone_info in canonical_zones:
+                zone_id = zone_info["zone_id"]
+                zone_name = zone_info["zone_name"]
+
+                # Get zone_data from Zone Manager
+                zone_data = zm_zones.get(zone_name, zm_zones.get(zone_id, {}))
+
+                # Get delta for this zone from WPM
+                try:
+                    delta = weather_mgr.baseline_delta_for_zone(zone_id, "home")
+                    baseline_high = None
+                    if delta is not None and apparent_high is not None:
+                        baseline_high = apparent_high - delta
+                except Exception:
+                    _LOGGER.debug("DynamicPreset zone=%s: delta computation failed", zone_id, exc_info=True)
+                    delta = None
+                    baseline_high = None
+
+                try:
+                    overrides = await self._dynamic_preset_source.async_evaluate_and_emit(
+                        zone_id=zone_id,
+                        zone_data=zone_data,
+                        delta=delta,
+                        house_state=house_state,
+                        apparent_high=apparent_high,
+                        baseline_high=baseline_high,
+                    )
+                    updated_overrides[zone_id] = overrides
+                    if overrides:
+                        _LOGGER.debug(
+                            "DynamicPreset zone=%s: %d override(s) emitted (obs_mode=%s)",
+                            zone_id, len(overrides), self._observation_mode,
+                        )
+                except Exception:
+                    _LOGGER.warning("DynamicPreset zone=%s: evaluation failed", zone_id, exc_info=True)
+
+            self._dynamic_preset_overrides = updated_overrides
+
+            # Dispatch signal for sensors to refresh
+            try:
+                from homeassistant.helpers.dispatcher import async_dispatcher_send
+                from .signals import SIGNAL_DYNAMIC_PRESET_OVERRIDES_UPDATED
+                async_dispatcher_send(self.hass, SIGNAL_DYNAMIC_PRESET_OVERRIDES_UPDATED)
+            except Exception:
+                pass
+
+        except Exception:
+            _LOGGER.warning("DynamicPreset: _async_evaluate_dynamic_presets failed", exc_info=True)
+
+    def _get_house_state(self) -> str:
+        """Return current house_state string from presence coordinator (or empty string)."""
+        try:
+            from ..const import DOMAIN as _DOMAIN_KEY
+            manager = self.hass.data.get(_DOMAIN_KEY, {}).get("coordinator_manager")
+            if manager is None:
+                return ""
+            presence = manager.coordinators.get("presence")
+            if presence is None:
+                return ""
+            return str(getattr(presence, "_house_state", ""))
+        except Exception:
+            return ""
 
     def _update_hvac_constraint(self, tou_period: str) -> None:
         """Determine HVAC constraint mode based on TOU, SOC, weather, and import.
@@ -2362,6 +2701,12 @@ class EnergyCoordinator(BaseCoordinator):
         )
         if constraint_key != self._last_published_constraint:
             self._last_published_constraint = constraint_key
+            # v4.6.9 D3: Record HVAC constraint change in decision buffer.
+            self._record_decision(
+                action=f"hvac_constraint_{self._hvac_constraint_mode}",
+                reason=reason,
+                target_entity=None,
+            )
             from .signals import EnergyConstraint, SIGNAL_ENERGY_CONSTRAINT
             from homeassistant.helpers.dispatcher import async_dispatcher_send
 
@@ -2375,6 +2720,8 @@ class EnergyCoordinator(BaseCoordinator):
                 solar_class=solar_class,
                 forecast_high_temp=forecast_high,
                 soc=soc if soc > 0 else None,
+                # v4.7.x Cycle A: apparent-temp alongside raw_high (Bug #37 — additive)
+                apparent_forecast_high_temp=self._cached_apparent_forecast_high,
             )
             async_dispatcher_send(
                 self.hass, SIGNAL_ENERGY_CONSTRAINT, constraint
@@ -2481,6 +2828,15 @@ class EnergyCoordinator(BaseCoordinator):
             )
             # Execute the actual shed action
             self._execute_shed_action(shed_target, activate=True)
+            # v4.6.9 D3: Record load shedding escalation in decision buffer.
+            self._record_decision(
+                action="load_shed_escalate",
+                reason=(
+                    f"Load shedding escalated to level {self._load_shedding_active_level} "
+                    f"(shedding {shed_target}, import {import_kw:.1f} kW > {threshold:.1f} kW)"
+                ),
+                target_entity=None,
+            )
             # Activity log: load shedding escalation
             from ..const import DOMAIN
             activity_logger = self.hass.data.get(DOMAIN, {}).get("activity_logger")
@@ -3164,6 +3520,16 @@ class EnergyCoordinator(BaseCoordinator):
         _LOGGER.info("EV TOU management: %s", "enabled" if value else "disabled")
 
     @property
+    def dynamic_preset_enabled(self) -> bool:
+        """Whether the Dynamic Preset Override Source is active (v4.7.1 Cycle B)."""
+        return self._dynamic_preset_enabled
+
+    @dynamic_preset_enabled.setter
+    def dynamic_preset_enabled(self, value: bool) -> None:
+        self._dynamic_preset_enabled = value
+        _LOGGER.info("Dynamic preset overrides: %s", "enabled" if value else "disabled")
+
+    @property
     def offpeak_drain_targets(self) -> dict[str, int]:
         """Current off-peak drain SOC targets by solar quality."""
         return self._battery._drain_targets
@@ -3519,6 +3885,25 @@ class EnergyCoordinator(BaseCoordinator):
             "forecast_low_temp": self._cached_forecast_low,
             "fan_assist": self._hvac_constraint_mode in ("coast", "shed"),
         }
+
+    # v4.7.x D2 fix-up H1: sub-switch restore completion tracking
+    def notify_sub_switch_restore_complete(self) -> None:
+        """Called by each EC sub-switch when its deferred restore completes.
+
+        Decrements the pending-restore counter.  The counter floor is 0 —
+        redundant calls (e.g. if a switch fires twice) are safe.
+        ECSubSwitchesSyncedSensor calls sub_switches_synced() to read state.
+        """
+        if self._pending_sub_switch_restores > 0:
+            self._pending_sub_switch_restores -= 1
+            _LOGGER.debug(
+                "EC sub-switch restore complete; %d remaining",
+                self._pending_sub_switch_restores,
+            )
+
+    def sub_switches_synced(self) -> bool:
+        """Return True when all 5 EC sub-switches have completed deferred restore."""
+        return self._pending_sub_switch_restores == 0
 
     @property
     def observation_mode(self) -> bool:
