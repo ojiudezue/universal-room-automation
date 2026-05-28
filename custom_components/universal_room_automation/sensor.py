@@ -6388,8 +6388,10 @@ class WeatherActiveProviderSensor(AggregationEntity, SensorEntity):
             mgr = self.hass.data.get(DOMAIN, {}).get("weather_manager")
             if mgr is None:
                 return {}
+            active = mgr.active_provider
+            rank = mgr.priority_rank_for(active) if active is not None else None
             return {
-                "priority_rank": 0,
+                "priority_rank": rank,
                 "healthy_count": mgr.healthy_provider_count,
                 "total_count": mgr.total_provider_count,
                 "failover_reason": mgr.failover_reason,

@@ -1738,7 +1738,7 @@ class WeatherDivergenceBinarySensor(AggregationEntity, BinarySensorEntity):
                 return {}
             return {
                 "divergence_f": mgr.divergence_f,
-                "threshold_f": mgr._divergence_threshold_f(),
+                "threshold_f": mgr.divergence_threshold_f,
                 "provider_high_map": dict(mgr._provider_highs),
             }
         except Exception:

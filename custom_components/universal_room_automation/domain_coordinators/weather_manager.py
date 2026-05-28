@@ -170,14 +170,6 @@ class WeatherProviderManager:
 
         _LOGGER.debug("WeatherProviderManager: listeners and tasks cancelled")
 
-    def update_options(self, options: dict[str, Any]) -> None:
-        """Update options snapshot (called from CM options-update listener).
-
-        Bug #14: _refresh_config()-equivalent — caller must call async_teardown()
-        then async_setup() when the provider list changes.
-        """
-        self._options = dict(options)
-
     # -------------------------------------------------------------------------
     # Public API
     # -------------------------------------------------------------------------
@@ -261,6 +253,23 @@ class WeatherProviderManager:
         return float(self._options.get(
             CONF_WEATHER_DIVERGENCE_THRESHOLD_F, DEFAULT_WEATHER_DIVERGENCE_THRESHOLD_F
         ))
+
+    @property
+    def divergence_threshold_f(self) -> float:
+        """Public accessor for the configured divergence threshold in degrees F."""
+        return self._divergence_threshold_f()
+
+    def priority_rank_for(self, entity_id: str) -> int | None:
+        """Return 0-indexed rank of entity_id in the configured provider list.
+
+        Returns 0 for primary, 1 for fallback_1, 2 for fallback_2.
+        Returns None if entity_id is not in the configured provider list.
+        """
+        providers = self._build_provider_list()
+        try:
+            return providers.index(entity_id)
+        except ValueError:
+            return None
 
     def _check_provider_health(self, entity_id: str) -> WeatherProviderHealth:
         """Derive health status for a single provider from current HA state."""
