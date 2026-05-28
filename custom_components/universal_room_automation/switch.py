@@ -1,6 +1,6 @@
 """Switch platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.7.3
+# Universal Room Automation vv4.7.3.1
 # Build: 2026-01-02
 # File: switch.py
 #
@@ -1055,6 +1055,7 @@ class HVACGuestModeActuationSwitch(SwitchEntity, RestoreEntity):
     Device: URA: HVAC Coordinator
 
     v4.7.1 fix-up D3 (PLANNING_v4.7.x_guest_mode_actuation_phase1.md §5.D3 reduced).
+    v4.7.3.1: deferred-restore via SIGNAL_HVAC_COORDINATOR_READY (Bug Class #5/#38).
     """
 
     _attr_has_entity_name = True
@@ -1074,6 +1075,8 @@ class HVACGuestModeActuationSwitch(SwitchEntity, RestoreEntity):
             sw_version=VERSION,
             via_device=(DOMAIN, "coordinator_manager"),
         )
+        # v4.7.3.1: deferred-restore state (Bug Class #5).
+        self._deferred_value: bool | None = None
 
     def _get_hvac(self):
         manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
@@ -1094,6 +1097,7 @@ class HVACGuestModeActuationSwitch(SwitchEntity, RestoreEntity):
         hvac = self._get_hvac()
         if hvac is not None:
             hvac._guest_mode_actuation_enabled = True
+            self._deferred_value = None
             self.async_write_ha_state()
             _LOGGER.info("HVAC: Guest Mode Actuation enabled")
 
@@ -1101,6 +1105,7 @@ class HVACGuestModeActuationSwitch(SwitchEntity, RestoreEntity):
         hvac = self._get_hvac()
         if hvac is not None:
             hvac._guest_mode_actuation_enabled = False
+            self._deferred_value = None
             # Clear last-emitted range so next enable re-applies baseline
             if hasattr(hvac, "_last_emitted_range"):
                 hvac._last_emitted_range.clear()
@@ -1108,13 +1113,67 @@ class HVACGuestModeActuationSwitch(SwitchEntity, RestoreEntity):
             _LOGGER.info("HVAC: Guest Mode Actuation disabled")
 
     async def async_added_to_hass(self) -> None:
-        """Restore state and wire cleanup."""
+        """Restore state — deferred via SIGNAL_HVAC_COORDINATOR_READY if needed.
+
+        v4.7.3.1: Bug Class #5 fix. Subscribes to SIGNAL_HVAC_COORDINATOR_READY
+        (Bug Class #38: unsub tracked via async_on_remove).
+        """
         await super().async_added_to_hass()
+
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_HVAC_COORDINATOR_READY
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass,
+                SIGNAL_HVAC_COORDINATOR_READY,
+                self._handle_hvac_ready,
+            )
+        )
+
         last_state = await self.async_get_last_state()
-        if last_state is not None and last_state.state in ("on", "off"):
-            hvac = self._get_hvac()
-            if hvac is not None:
-                hvac._guest_mode_actuation_enabled = (last_state.state == "on")
+        if last_state is None or last_state.state not in ("on", "off"):
+            # No prior state — default ON is truth; nothing to restore.
+            return
+        target = last_state.state == "on"
+        hvac = self._get_hvac()
+        if hvac is not None:
+            # Fast path: HVAC coord already registered.
+            hvac._guest_mode_actuation_enabled = target
+            self._deferred_value = None
+            self.async_write_ha_state()
+            return
+        # Deferred path: HVAC coord not yet registered.
+        self._deferred_value = target
+        _LOGGER.debug(
+            "HVACGuestModeActuationSwitch: HVAC coord not ready — deferring restore "
+            "(value=%s)",
+            target,
+        )
+
+    @callback
+    def _handle_hvac_ready(self) -> None:
+        """Handle SIGNAL_HVAC_COORDINATOR_READY — complete deferred restore.
+
+        Bug Class #42: bound method, not lambda.
+        Bug Class #19: @callback fires synchronously on the event loop.
+        """
+        if self._deferred_value is None:
+            return
+        hvac = self._get_hvac()
+        if hvac is None:
+            _LOGGER.warning(
+                "HVACGuestModeActuationSwitch: SIGNAL_HVAC_COORDINATOR_READY fired "
+                "but HVAC coord still not in hass.data — restore deferred"
+            )
+            return
+        hvac._guest_mode_actuation_enabled = self._deferred_value
+        _LOGGER.info(
+            "HVACGuestModeActuationSwitch: deferred restore landed via "
+            "SIGNAL_HVAC_COORDINATOR_READY (value=%s)",
+            self._deferred_value,
+        )
+        self._deferred_value = None
+        self.async_write_ha_state()
 
 
 class HVACOverrideArresterSwitch(SwitchEntity, RestoreEntity):
@@ -1125,6 +1184,8 @@ class HVACOverrideArresterSwitch(SwitchEntity, RestoreEntity):
 
     Entity: switch.ura_hvac_override_arrester
     Device: URA: HVAC Coordinator
+
+    v4.7.3.1: deferred-restore via SIGNAL_HVAC_COORDINATOR_READY (Bug Class #5/#38).
     """
 
     _attr_has_entity_name = True
@@ -1145,6 +1206,8 @@ class HVACOverrideArresterSwitch(SwitchEntity, RestoreEntity):
             sw_version=VERSION,
             via_device=(DOMAIN, "coordinator_manager"),
         )
+        # v4.7.3.1: deferred-restore state (Bug Class #5).
+        self._deferred_value: bool | None = None
 
     def _get_hvac(self):
         """Get the HVAC coordinator instance."""
@@ -1166,6 +1229,7 @@ class HVACOverrideArresterSwitch(SwitchEntity, RestoreEntity):
         hvac = self._get_hvac()
         if hvac is not None:
             hvac.override_arrester.enabled = True
+            self._deferred_value = None
             self.async_write_ha_state()
 
     async def async_turn_off(self, **kwargs) -> None:
@@ -1173,16 +1237,71 @@ class HVACOverrideArresterSwitch(SwitchEntity, RestoreEntity):
         hvac = self._get_hvac()
         if hvac is not None:
             hvac.override_arrester.enabled = False
+            self._deferred_value = None
             self.async_write_ha_state()
 
     async def async_added_to_hass(self) -> None:
-        """Restore previous state on startup."""
+        """Restore previous state — deferred via SIGNAL_HVAC_COORDINATOR_READY if needed.
+
+        v4.7.3.1: Bug Class #5 fix. Subscribes to SIGNAL_HVAC_COORDINATOR_READY
+        (Bug Class #38: unsub tracked via async_on_remove).
+        """
         await super().async_added_to_hass()
+
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_HVAC_COORDINATOR_READY
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass,
+                SIGNAL_HVAC_COORDINATOR_READY,
+                self._handle_hvac_ready,
+            )
+        )
+
         last_state = await self.async_get_last_state()
-        if last_state is not None:
-            hvac = self._get_hvac()
-            if hvac is not None:
-                hvac.override_arrester.enabled = last_state.state == "on"
+        if last_state is None or last_state.state not in ("on", "off"):
+            # No prior state or transient state — default ON is truth; nothing to restore.
+            return
+        target = last_state.state == "on"
+        hvac = self._get_hvac()
+        if hvac is not None:
+            # Fast path: HVAC coord already registered.
+            hvac.override_arrester.enabled = target
+            self._deferred_value = None
+            self.async_write_ha_state()
+            return
+        # Deferred path: HVAC coord not yet registered.
+        self._deferred_value = target
+        _LOGGER.debug(
+            "HVACOverrideArresterSwitch: HVAC coord not ready — deferring restore "
+            "(value=%s)",
+            target,
+        )
+
+    @callback
+    def _handle_hvac_ready(self) -> None:
+        """Handle SIGNAL_HVAC_COORDINATOR_READY — complete deferred restore.
+
+        Bug Class #42: bound method, not lambda.
+        Bug Class #19: @callback fires synchronously on the event loop.
+        """
+        if self._deferred_value is None:
+            return
+        hvac = self._get_hvac()
+        if hvac is None:
+            _LOGGER.warning(
+                "HVACOverrideArresterSwitch: SIGNAL_HVAC_COORDINATOR_READY fired "
+                "but HVAC coord still not in hass.data — restore deferred"
+            )
+            return
+        hvac.override_arrester.enabled = self._deferred_value
+        _LOGGER.info(
+            "HVACOverrideArresterSwitch: deferred restore landed via "
+            "SIGNAL_HVAC_COORDINATOR_READY (value=%s)",
+            self._deferred_value,
+        )
+        self._deferred_value = None
+        self.async_write_ha_state()
 
     @property
     def available(self) -> bool:
@@ -1200,6 +1319,9 @@ class HVACACResetSwitch(SwitchEntity, RestoreEntity):
 
     Entity: switch.ura_hvac_ac_reset
     Device: URA: HVAC Coordinator
+
+    v4.7.3.1 extension: deferred-restore via SIGNAL_HVAC_COORDINATOR_READY
+    (Bug Class #5/#38).
     """
 
     _attr_has_entity_name = True
@@ -1220,6 +1342,8 @@ class HVACACResetSwitch(SwitchEntity, RestoreEntity):
             sw_version=VERSION,
             via_device=(DOMAIN, "coordinator_manager"),
         )
+        # v4.7.3.1 extension: deferred-restore state (Bug Class #5).
+        self._deferred_value: bool | None = None
 
     def _get_hvac(self):
         """Get the HVAC coordinator instance."""
@@ -1241,6 +1365,7 @@ class HVACACResetSwitch(SwitchEntity, RestoreEntity):
         hvac = self._get_hvac()
         if hvac is not None:
             hvac.override_arrester.ac_reset_enabled = True
+            self._deferred_value = None
             self.async_write_ha_state()
 
     async def async_turn_off(self, **kwargs) -> None:
@@ -1248,16 +1373,70 @@ class HVACACResetSwitch(SwitchEntity, RestoreEntity):
         hvac = self._get_hvac()
         if hvac is not None:
             hvac.override_arrester.ac_reset_enabled = False
+            self._deferred_value = None
             self.async_write_ha_state()
 
     async def async_added_to_hass(self) -> None:
-        """Restore previous state on startup."""
+        """Restore previous state — deferred via SIGNAL_HVAC_COORDINATOR_READY if needed.
+
+        v4.7.3.1 extension: Bug Class #5 fix. Subscribes to SIGNAL_HVAC_COORDINATOR_READY
+        (Bug Class #38: unsub tracked via async_on_remove).
+        """
         await super().async_added_to_hass()
+
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_HVAC_COORDINATOR_READY
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass,
+                SIGNAL_HVAC_COORDINATOR_READY,
+                self._handle_hvac_ready,
+            )
+        )
+
         last_state = await self.async_get_last_state()
-        if last_state is not None:
-            hvac = self._get_hvac()
-            if hvac is not None:
-                hvac.override_arrester.ac_reset_enabled = last_state.state == "on"
+        if last_state is None or last_state.state not in ("on", "off"):
+            # No prior state or transient state — default ON is truth; nothing to restore.
+            return
+        target = last_state.state == "on"
+        hvac = self._get_hvac()
+        if hvac is not None:
+            # Fast path: HVAC coord already registered.
+            hvac.override_arrester.ac_reset_enabled = target
+            self._deferred_value = None
+            self.async_write_ha_state()
+            return
+        # Deferred path: HVAC coord not yet registered.
+        self._deferred_value = target
+        _LOGGER.debug(
+            "HVACACResetSwitch: HVAC coord not ready — deferring restore (value=%s)",
+            target,
+        )
+
+    @callback
+    def _handle_hvac_ready(self) -> None:
+        """Handle SIGNAL_HVAC_COORDINATOR_READY — complete deferred restore.
+
+        Bug Class #42: bound method, not lambda.
+        Bug Class #19: @callback fires synchronously on the event loop.
+        """
+        if self._deferred_value is None:
+            return
+        hvac = self._get_hvac()
+        if hvac is None:
+            _LOGGER.warning(
+                "HVACACResetSwitch: SIGNAL_HVAC_COORDINATOR_READY fired "
+                "but HVAC coord still not in hass.data — restore deferred"
+            )
+            return
+        hvac.override_arrester.ac_reset_enabled = self._deferred_value
+        _LOGGER.info(
+            "HVACACResetSwitch: deferred restore landed via "
+            "SIGNAL_HVAC_COORDINATOR_READY (value=%s)",
+            self._deferred_value,
+        )
+        self._deferred_value = None
+        self.async_write_ha_state()
 
     @property
     def available(self) -> bool:
@@ -1274,6 +1453,9 @@ class HVACObservationModeSwitch(SwitchEntity, RestoreEntity):
 
     Entity: switch.ura_hvac_observation_mode
     Device: URA: HVAC Coordinator
+
+    v4.7.3.1 extension: replaced 5-second timer retry with deferred-restore
+    via SIGNAL_HVAC_COORDINATOR_READY (Bug Class #5/#38).
     """
 
     _attr_has_entity_name = True
@@ -1294,7 +1476,8 @@ class HVACObservationModeSwitch(SwitchEntity, RestoreEntity):
             sw_version=VERSION,
             via_device=(DOMAIN, "coordinator_manager"),
         )
-        self._deferred_restore = False
+        # v4.7.3.1 extension: deferred-restore state (Bug Class #5).
+        self._deferred_value: bool | None = None
 
     def _get_hvac(self):
         """Get the HVAC coordinator instance."""
@@ -1316,6 +1499,7 @@ class HVACObservationModeSwitch(SwitchEntity, RestoreEntity):
         hvac = self._get_hvac()
         if hvac is not None:
             hvac.observation_mode = True
+            self._deferred_value = None
             self.async_write_ha_state()
 
     async def async_turn_off(self, **kwargs) -> None:
@@ -1323,32 +1507,72 @@ class HVACObservationModeSwitch(SwitchEntity, RestoreEntity):
         hvac = self._get_hvac()
         if hvac is not None:
             hvac.observation_mode = False
+            self._deferred_value = None
             self.async_write_ha_state()
 
     async def async_added_to_hass(self) -> None:
-        """Restore previous state on startup."""
-        await super().async_added_to_hass()
-        last_state = await self.async_get_last_state()
-        if last_state is not None and last_state.state == "on":
-            hvac = self._get_hvac()
-            if hvac is not None:
-                hvac.observation_mode = True
-            else:
-                # Deferred retry: coordinator may not be initialized yet
-                self._deferred_restore = True
-                self.async_on_remove(async_call_later(self.hass, 5, self._retry_restore))
+        """Restore previous state — deferred via SIGNAL_HVAC_COORDINATOR_READY if needed.
 
-    def _retry_restore(self, _now=None) -> None:
-        """Retry setting observation mode after coordinator initializes."""
-        if not self._deferred_restore:
+        v4.7.3.1 extension: Bug Class #5 fix. Replaces the old 5-second timer retry
+        with the signal-based deferred-restore pattern. Subscribes to
+        SIGNAL_HVAC_COORDINATOR_READY (Bug Class #38: unsub tracked via async_on_remove).
+        """
+        await super().async_added_to_hass()
+
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_HVAC_COORDINATOR_READY
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass,
+                SIGNAL_HVAC_COORDINATOR_READY,
+                self._handle_hvac_ready,
+            )
+        )
+
+        last_state = await self.async_get_last_state()
+        if last_state is None or last_state.state not in ("on", "off"):
+            # No prior state or transient state — default OFF is truth; nothing to restore.
             return
+        target = last_state.state == "on"
         hvac = self._get_hvac()
         if hvac is not None:
-            hvac.observation_mode = True
-            self._deferred_restore = False
-            _LOGGER.info("HVAC observation mode restored (deferred)")
-        else:
-            _LOGGER.warning("HVAC observation mode restore failed — coordinator still unavailable after 5s")
+            # Fast path: HVAC coord already registered.
+            hvac.observation_mode = target
+            self._deferred_value = None
+            self.async_write_ha_state()
+            return
+        # Deferred path: HVAC coord not yet registered.
+        self._deferred_value = target
+        _LOGGER.debug(
+            "HVACObservationModeSwitch: HVAC coord not ready — deferring restore "
+            "(value=%s)",
+            target,
+        )
+
+    @callback
+    def _handle_hvac_ready(self) -> None:
+        """Handle SIGNAL_HVAC_COORDINATOR_READY — complete deferred restore.
+
+        Bug Class #42: bound method, not lambda.
+        Bug Class #19: @callback fires synchronously on the event loop.
+        """
+        if self._deferred_value is None:
+            return
+        hvac = self._get_hvac()
+        if hvac is None:
+            _LOGGER.warning(
+                "HVACObservationModeSwitch: SIGNAL_HVAC_COORDINATOR_READY fired "
+                "but HVAC coord still not in hass.data — restore deferred"
+            )
+            return
+        hvac.observation_mode = self._deferred_value
+        _LOGGER.info(
+            "HVACObservationModeSwitch: deferred restore landed via "
+            "SIGNAL_HVAC_COORDINATOR_READY (value=%s)",
+            self._deferred_value,
+        )
+        self._deferred_value = None
+        self.async_write_ha_state()
 
     @property
     def available(self) -> bool:
@@ -1905,6 +2129,11 @@ class HVACACRampMasterSwitch(SwitchEntity, RestoreEntity):
 
     Entity: switch.ura_hvac_ac_ramp_master
     Device: URA: HVAC Coordinator
+
+    v4.7.3.1: deferred-restore via SIGNAL_HVAC_COORDINATOR_READY (Bug Class #5/#38).
+    Note: backing target is hvac._override_arrester.ramp_master_enabled (sub-object
+    property), accessed via _get_arrester() — not directly on the HVAC coord.
+    _handle_hvac_ready uses _get_arrester() for the same reason.
     """
 
     _attr_has_entity_name = True
@@ -1924,6 +2153,8 @@ class HVACACRampMasterSwitch(SwitchEntity, RestoreEntity):
             sw_version=VERSION,
             via_device=(DOMAIN, "coordinator_manager"),
         )
+        # v4.7.3.1: deferred-restore state (Bug Class #5).
+        self._deferred_value: bool | None = None
 
     def _get_arrester(self):
         manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
@@ -1943,22 +2174,81 @@ class HVACACRampMasterSwitch(SwitchEntity, RestoreEntity):
         arr = self._get_arrester()
         if arr is not None:
             arr.ramp_master_enabled = True
+            self._deferred_value = None
             self.async_write_ha_state()
 
     async def async_turn_off(self, **kwargs) -> None:
         arr = self._get_arrester()
         if arr is not None:
             arr.ramp_master_enabled = False  # setter cancels in-flight nudges
+            self._deferred_value = None
             self.async_write_ha_state()
 
     async def async_added_to_hass(self) -> None:
-        """Restore previous state. Default OFF on first install."""
+        """Restore previous state — deferred via SIGNAL_HVAC_COORDINATOR_READY if needed.
+
+        v4.7.3.1: Bug Class #5 fix. Subscribes to SIGNAL_HVAC_COORDINATOR_READY
+        (Bug Class #38: unsub tracked via async_on_remove).
+        Default OFF on first install — feature is invasive (user must opt in).
+        """
         await super().async_added_to_hass()
+
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_HVAC_COORDINATOR_READY
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass,
+                SIGNAL_HVAC_COORDINATOR_READY,
+                self._handle_hvac_ready,
+            )
+        )
+
         last_state = await self.async_get_last_state()
-        if last_state is not None:
-            arr = self._get_arrester()
-            if arr is not None:
-                arr.ramp_master_enabled = last_state.state == "on"
+        if last_state is None or last_state.state not in ("on", "off"):
+            # No prior state or transient state — default OFF is truth; nothing to restore.
+            return
+        target = last_state.state == "on"
+        arr = self._get_arrester()
+        if arr is not None:
+            # Fast path: HVAC coord already registered (arrester available).
+            arr.ramp_master_enabled = target
+            self._deferred_value = None
+            self.async_write_ha_state()
+            return
+        # Deferred path: arrester not yet available (HVAC coord not registered).
+        self._deferred_value = target
+        _LOGGER.debug(
+            "HVACACRampMasterSwitch: HVAC coord not ready — deferring restore "
+            "(value=%s)",
+            target,
+        )
+
+    @callback
+    def _handle_hvac_ready(self) -> None:
+        """Handle SIGNAL_HVAC_COORDINATOR_READY — complete deferred restore.
+
+        Bug Class #42: bound method, not lambda.
+        Bug Class #19: @callback fires synchronously on the event loop.
+        Note: uses _get_arrester() (not _get_hvac()) — backing field lives
+        on hvac._override_arrester, consistent with the rest of this class.
+        """
+        if self._deferred_value is None:
+            return
+        arr = self._get_arrester()
+        if arr is None:
+            _LOGGER.warning(
+                "HVACACRampMasterSwitch: SIGNAL_HVAC_COORDINATOR_READY fired "
+                "but arrester still not in hass.data — restore deferred"
+            )
+            return
+        arr.ramp_master_enabled = self._deferred_value
+        _LOGGER.info(
+            "HVACACRampMasterSwitch: deferred restore landed via "
+            "SIGNAL_HVAC_COORDINATOR_READY (value=%s)",
+            self._deferred_value,
+        )
+        self._deferred_value = None
+        self.async_write_ha_state()
 
     @property
     def available(self) -> bool:
