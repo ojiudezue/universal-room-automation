@@ -403,6 +403,18 @@ class EnergyCoordinator(BaseCoordinator):
         # v4.7.x Cycle A: apparent-temp forecast high from WeatherProviderManager
         self._cached_apparent_forecast_high: float | None = None
 
+        # v4.7.1 Cycle B: Dynamic Preset Override Source
+        # Master enable — seeded from CM options; runtime-tunable via switch
+        from .energy_const import CONF_DYNAMIC_PRESET_ENABLED, DEFAULT_DYNAMIC_PRESET_ENABLED
+        self._dynamic_preset_enabled: bool = ec.get(
+            CONF_DYNAMIC_PRESET_ENABLED, DEFAULT_DYNAMIC_PRESET_ENABLED
+        )
+        # Lazily instantiated on first evaluate call (avoids circular import at __init__).
+        self._dynamic_preset_source: Any = None
+        # Accumulated overrides per zone from the most recent evaluate call.
+        # Key: zone_id, Value: list[PresetOverride]
+        self._dynamic_preset_overrides: dict[str, list] = {}
+
         # Envoy availability tracking
         self._envoy_unavailable_count: int = 0
         self._envoy_last_available: str | None = None
@@ -2283,6 +2295,11 @@ class EnergyCoordinator(BaseCoordinator):
                 self._last_profile_save_hour = current_hour
                 await self._save_power_profiles()
 
+            # v4.7.1 Cycle B: Dynamic Preset Override Source evaluation
+            # Runs after forecast update (needs WPM cached forecast).
+            # Gated by observation_mode on the actuation side (Bug #23 — eval always runs).
+            await self._async_evaluate_dynamic_presets()
+
             # E6: HVAC constraint determination
             self._update_hvac_constraint(period)
 
@@ -2491,6 +2508,131 @@ class EnergyCoordinator(BaseCoordinator):
                 )
         except Exception as exc:
             _LOGGER.warning("Failed to fetch weather forecast for %s: %s", weather_eid, exc)
+
+    async def _async_evaluate_dynamic_presets(self) -> None:
+        """Evaluate dynamic-preset overrides for all opted-in canonical HVAC zones.
+
+        v4.7.1 Cycle B: Called once per EC decision tick (5-min cadence).
+        Evaluation always runs (even in observation mode — Bug #23: gate is on actuation side).
+        Results stored in self._dynamic_preset_overrides for sensor visibility.
+
+        Does nothing when:
+        - Master kill switch is OFF (CONF_DYNAMIC_PRESET_ENABLED=False)
+        - WeatherProviderManager has no cached forecast
+        """
+        try:
+            from ..const import DOMAIN as _DOMAIN_KEY, CONF_ENTRY_TYPE, ENTRY_TYPE_COORDINATOR_MANAGER
+            from .energy_const import CONF_DYNAMIC_PRESET_DWELL_MINUTES, CONF_DYNAMIC_PRESET_HYSTERESIS_F
+
+            # Read master enable from EC attribute (mirrors how other EC sub-switches work)
+            if not self._dynamic_preset_enabled:
+                _LOGGER.debug("DynamicPreset: master switch OFF — skipping evaluation")
+                return
+
+            # Read current CM options for DynamicPresetOverrideSource config (Bug #14)
+            cm_options: dict = {}
+            for entry in self.hass.config_entries.async_entries(_DOMAIN_KEY):
+                if {**entry.data, **entry.options}.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_COORDINATOR_MANAGER:
+                    cm_options = {**entry.data, **entry.options}
+                    break
+
+            # Get WPM forecast availability (Bug #5 — defer if no forecast)
+            weather_mgr = self.hass.data.get(_DOMAIN_KEY, {}).get("weather_manager")
+            if weather_mgr is None:
+                _LOGGER.debug("DynamicPreset: no WeatherProviderManager — skipping")
+                return
+            apparent_high = weather_mgr.current_apparent_forecast_high()
+            if apparent_high is None:
+                _LOGGER.debug("DynamicPreset: no cached forecast — skipping")
+                return
+
+            # Get house_state for offset-reset check
+            house_state = self._get_house_state()
+
+            # Lazily instantiate DynamicPresetOverrideSource (avoids circular import)
+            if self._dynamic_preset_source is None:
+                from .dynamic_preset import DynamicPresetOverrideSource
+                self._dynamic_preset_source = DynamicPresetOverrideSource(
+                    hass=self.hass,
+                    get_options=lambda: cm_options,
+                )
+
+            # Enumerate opted-in canonical HVAC zones
+            from .hvac_zones import iter_canonical_hvac_zones
+            from ..const import ENTRY_TYPE_ZONE_MANAGER
+            canonical_zones = iter_canonical_hvac_zones(self.hass)
+
+            # Build zone_data lookup from Zone Manager entry
+            zm_zones: dict = {}
+            for entry in self.hass.config_entries.async_entries(_DOMAIN_KEY):
+                merged = {**entry.data, **entry.options}
+                if merged.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_ZONE_MANAGER:
+                    zm_zones = merged.get("zones", {})
+                    break
+
+            updated_overrides: dict[str, list] = {}
+            for zone_info in canonical_zones:
+                zone_id = zone_info["zone_id"]
+                zone_name = zone_info["zone_name"]
+
+                # Get zone_data from Zone Manager
+                zone_data = zm_zones.get(zone_name, zm_zones.get(zone_id, {}))
+
+                # Get delta for this zone from WPM
+                try:
+                    delta = weather_mgr.baseline_delta_for_zone(zone_id, "home")
+                    baseline_high = None
+                    if delta is not None and apparent_high is not None:
+                        baseline_high = apparent_high - delta
+                except Exception:
+                    _LOGGER.debug("DynamicPreset zone=%s: delta computation failed", zone_id, exc_info=True)
+                    delta = None
+                    baseline_high = None
+
+                try:
+                    overrides = await self._dynamic_preset_source.async_evaluate_and_emit(
+                        zone_id=zone_id,
+                        zone_data=zone_data,
+                        delta=delta,
+                        house_state=house_state,
+                        apparent_high=apparent_high,
+                        baseline_high=baseline_high,
+                    )
+                    updated_overrides[zone_id] = overrides
+                    if overrides:
+                        _LOGGER.debug(
+                            "DynamicPreset zone=%s: %d override(s) emitted (obs_mode=%s)",
+                            zone_id, len(overrides), self._observation_mode,
+                        )
+                except Exception:
+                    _LOGGER.warning("DynamicPreset zone=%s: evaluation failed", zone_id, exc_info=True)
+
+            self._dynamic_preset_overrides = updated_overrides
+
+            # Dispatch signal for sensors to refresh
+            try:
+                from homeassistant.helpers.dispatcher import async_dispatcher_send
+                from .signals import SIGNAL_DYNAMIC_PRESET_OVERRIDES_UPDATED
+                async_dispatcher_send(self.hass, SIGNAL_DYNAMIC_PRESET_OVERRIDES_UPDATED)
+            except Exception:
+                pass
+
+        except Exception:
+            _LOGGER.warning("DynamicPreset: _async_evaluate_dynamic_presets failed", exc_info=True)
+
+    def _get_house_state(self) -> str:
+        """Return current house_state string from presence coordinator (or empty string)."""
+        try:
+            from ..const import DOMAIN as _DOMAIN_KEY
+            manager = self.hass.data.get(_DOMAIN_KEY, {}).get("coordinator_manager")
+            if manager is None:
+                return ""
+            presence = manager.coordinators.get("presence")
+            if presence is None:
+                return ""
+            return str(getattr(presence, "_house_state", ""))
+        except Exception:
+            return ""
 
     def _update_hvac_constraint(self, tou_period: str) -> None:
         """Determine HVAC constraint mode based on TOU, SOC, weather, and import.
@@ -3376,6 +3518,16 @@ class EnergyCoordinator(BaseCoordinator):
     def ev_tou_enabled(self, value: bool) -> None:
         self._ev_tou_enabled = value
         _LOGGER.info("EV TOU management: %s", "enabled" if value else "disabled")
+
+    @property
+    def dynamic_preset_enabled(self) -> bool:
+        """Whether the Dynamic Preset Override Source is active (v4.7.1 Cycle B)."""
+        return self._dynamic_preset_enabled
+
+    @dynamic_preset_enabled.setter
+    def dynamic_preset_enabled(self, value: bool) -> None:
+        self._dynamic_preset_enabled = value
+        _LOGGER.info("Dynamic preset overrides: %s", "enabled" if value else "disabled")
 
     @property
     def offpeak_drain_targets(self) -> dict[str, int]:

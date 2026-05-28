@@ -4474,6 +4474,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 "zone_energy",  # v4.1.0: Zone power/energy sensors
                 "zone_persons",  # v3.18.5
                 "zone_cameras",  # v3.19.0
+                "zone_dynamic_preset",  # v4.7.1 Cycle B: Dynamic Preset per-zone config
             ],
         )
 
@@ -4999,6 +5000,241 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             )
 
         return self.async_abort(reason="zone_not_found")
+
+    async def async_step_zone_dynamic_preset(self, user_input=None):
+        """Configure Dynamic Preset per-zone options (v4.7.1 Cycle B).
+
+        Extends the zone-edit step with the §B.B.5 form fields:
+        - enable checkbox
+        - offset (0 to +3, step 0.5)
+        - "Reset offset under guest_mode" checkbox (default checked)
+        - sleep preset section (default OFF)
+        - 4 bucket rows × (cool_low + cool_high) for home preset
+        - Optional 4 bucket rows for sleep preset
+
+        Canonical HVAC zones only — via _selected_zone_name which was set
+        by the zone-edit menu (iterated from iter_canonical_hvac_zones).
+        """
+        import voluptuous as vol
+        from homeassistant.components.selector import (
+            selector,
+            NumberSelector,
+            NumberSelectorConfig,
+            NumberSelectorMode,
+            BooleanSelector,
+        )
+        from .domain_coordinators.energy_const import (
+            CONF_ZONE_DYNAMIC_PRESET_ENABLED,
+            CONF_ZONE_DYNAMIC_PRESET_OFFSET,
+            CONF_ZONE_DYNAMIC_PRESET_RESET_OFFSET_GUEST,
+            CONF_ZONE_DYNAMIC_PRESET_SLEEP_ENABLED,
+            CONF_ZONE_DYNAMIC_PRESET_COOL_HOME_LOW,
+            CONF_ZONE_DYNAMIC_PRESET_COOL_HOME_HIGH,
+            CONF_ZONE_DYNAMIC_PRESET_MILD_HOME_LOW,
+            CONF_ZONE_DYNAMIC_PRESET_MILD_HOME_HIGH,
+            CONF_ZONE_DYNAMIC_PRESET_HOT_HOME_LOW,
+            CONF_ZONE_DYNAMIC_PRESET_HOT_HOME_HIGH,
+            CONF_ZONE_DYNAMIC_PRESET_EXTREME_HOME_LOW,
+            CONF_ZONE_DYNAMIC_PRESET_EXTREME_HOME_HIGH,
+            CONF_ZONE_DYNAMIC_PRESET_COOL_SLEEP_LOW,
+            CONF_ZONE_DYNAMIC_PRESET_COOL_SLEEP_HIGH,
+            CONF_ZONE_DYNAMIC_PRESET_MILD_SLEEP_LOW,
+            CONF_ZONE_DYNAMIC_PRESET_MILD_SLEEP_HIGH,
+            CONF_ZONE_DYNAMIC_PRESET_HOT_SLEEP_LOW,
+            CONF_ZONE_DYNAMIC_PRESET_HOT_SLEEP_HIGH,
+            CONF_ZONE_DYNAMIC_PRESET_EXTREME_SLEEP_LOW,
+            CONF_ZONE_DYNAMIC_PRESET_EXTREME_SLEEP_HIGH,
+            MIN_DEADBAND,
+        )
+
+        MIN_TEMP = 60.0
+        MAX_TEMP = 90.0
+        SLEEP_FLOOR = 74.0
+
+        zm_result = self._get_zm_zone_data()
+        if not zm_result:
+            return self.async_abort(reason="zone_not_found")
+
+        zm_entry, zone_name, zone_data = zm_result
+
+        if user_input is not None:
+            errors = {}
+
+            enabled = user_input.get(CONF_ZONE_DYNAMIC_PRESET_ENABLED, False)
+            sleep_enabled = user_input.get(CONF_ZONE_DYNAMIC_PRESET_SLEEP_ENABLED, False)
+
+            if enabled:
+                # Validate all 4 home buckets must be present
+                bucket_keys = [
+                    (CONF_ZONE_DYNAMIC_PRESET_COOL_HOME_LOW, CONF_ZONE_DYNAMIC_PRESET_COOL_HOME_HIGH, "cool"),
+                    (CONF_ZONE_DYNAMIC_PRESET_MILD_HOME_LOW, CONF_ZONE_DYNAMIC_PRESET_MILD_HOME_HIGH, "mild"),
+                    (CONF_ZONE_DYNAMIC_PRESET_HOT_HOME_LOW, CONF_ZONE_DYNAMIC_PRESET_HOT_HOME_HIGH, "hot"),
+                    (CONF_ZONE_DYNAMIC_PRESET_EXTREME_HOME_LOW, CONF_ZONE_DYNAMIC_PRESET_EXTREME_HOME_HIGH, "extreme"),
+                ]
+                for low_key, high_key, bname in bucket_keys:
+                    low = user_input.get(low_key)
+                    high = user_input.get(high_key)
+                    if low is None or high is None:
+                        errors["base"] = f"dynamic_preset_bucket_required_{bname}"
+                        break
+                    if float(low) > float(high) - MIN_DEADBAND:
+                        errors["base"] = "dynamic_preset_range_invalid"
+                        break
+
+                # Sleep floor validation
+                if not errors and sleep_enabled:
+                    offset = float(user_input.get(CONF_ZONE_DYNAMIC_PRESET_OFFSET, 0.0))
+                    for _, high_key, _ in bucket_keys:
+                        sleep_high_key = high_key.replace("home_high", "sleep_high")
+                        sleep_high = user_input.get(sleep_high_key)
+                        if sleep_high is not None and float(sleep_high) + offset < SLEEP_FLOOR:
+                            errors["base"] = "dynamic_preset_sleep_below_floor"
+                            break
+
+            if not errors:
+                merged = {**zm_entry.data, **zm_entry.options}
+                zones = {k: dict(v) for k, v in merged.get("zones", {}).items()}
+                zones.setdefault(zone_name, {})
+                zones[zone_name].update(user_input)
+                self.hass.config_entries.async_update_entry(
+                    zm_entry,
+                    options={**zm_entry.options, "zones": zones},
+                )
+                return await self.async_step_zone_config_menu()
+
+            return self.async_show_form(
+                step_id="zone_dynamic_preset",
+                data_schema=self._build_dynamic_preset_schema(
+                    zone_data, user_input,
+                    MIN_TEMP, MAX_TEMP,
+                    CONF_ZONE_DYNAMIC_PRESET_ENABLED,
+                    CONF_ZONE_DYNAMIC_PRESET_OFFSET,
+                    CONF_ZONE_DYNAMIC_PRESET_RESET_OFFSET_GUEST,
+                    CONF_ZONE_DYNAMIC_PRESET_SLEEP_ENABLED,
+                    CONF_ZONE_DYNAMIC_PRESET_COOL_HOME_LOW, CONF_ZONE_DYNAMIC_PRESET_COOL_HOME_HIGH,
+                    CONF_ZONE_DYNAMIC_PRESET_MILD_HOME_LOW, CONF_ZONE_DYNAMIC_PRESET_MILD_HOME_HIGH,
+                    CONF_ZONE_DYNAMIC_PRESET_HOT_HOME_LOW, CONF_ZONE_DYNAMIC_PRESET_HOT_HOME_HIGH,
+                    CONF_ZONE_DYNAMIC_PRESET_EXTREME_HOME_LOW, CONF_ZONE_DYNAMIC_PRESET_EXTREME_HOME_HIGH,
+                    CONF_ZONE_DYNAMIC_PRESET_COOL_SLEEP_LOW, CONF_ZONE_DYNAMIC_PRESET_COOL_SLEEP_HIGH,
+                    CONF_ZONE_DYNAMIC_PRESET_MILD_SLEEP_LOW, CONF_ZONE_DYNAMIC_PRESET_MILD_SLEEP_HIGH,
+                    CONF_ZONE_DYNAMIC_PRESET_HOT_SLEEP_LOW, CONF_ZONE_DYNAMIC_PRESET_HOT_SLEEP_HIGH,
+                    CONF_ZONE_DYNAMIC_PRESET_EXTREME_SLEEP_LOW, CONF_ZONE_DYNAMIC_PRESET_EXTREME_SLEEP_HIGH,
+                ),
+                errors=errors,
+                description_placeholders={"zone_name": zone_name},
+            )
+
+        # Initial render: use zone_data as defaults
+        return self.async_show_form(
+            step_id="zone_dynamic_preset",
+            data_schema=self._build_dynamic_preset_schema(
+                zone_data, zone_data,
+                MIN_TEMP, MAX_TEMP,
+                CONF_ZONE_DYNAMIC_PRESET_ENABLED,
+                CONF_ZONE_DYNAMIC_PRESET_OFFSET,
+                CONF_ZONE_DYNAMIC_PRESET_RESET_OFFSET_GUEST,
+                CONF_ZONE_DYNAMIC_PRESET_SLEEP_ENABLED,
+                CONF_ZONE_DYNAMIC_PRESET_COOL_HOME_LOW, CONF_ZONE_DYNAMIC_PRESET_COOL_HOME_HIGH,
+                CONF_ZONE_DYNAMIC_PRESET_MILD_HOME_LOW, CONF_ZONE_DYNAMIC_PRESET_MILD_HOME_HIGH,
+                CONF_ZONE_DYNAMIC_PRESET_HOT_HOME_LOW, CONF_ZONE_DYNAMIC_PRESET_HOT_HOME_HIGH,
+                CONF_ZONE_DYNAMIC_PRESET_EXTREME_HOME_LOW, CONF_ZONE_DYNAMIC_PRESET_EXTREME_HOME_HIGH,
+                CONF_ZONE_DYNAMIC_PRESET_COOL_SLEEP_LOW, CONF_ZONE_DYNAMIC_PRESET_COOL_SLEEP_HIGH,
+                CONF_ZONE_DYNAMIC_PRESET_MILD_SLEEP_LOW, CONF_ZONE_DYNAMIC_PRESET_MILD_SLEEP_HIGH,
+                CONF_ZONE_DYNAMIC_PRESET_HOT_SLEEP_LOW, CONF_ZONE_DYNAMIC_PRESET_HOT_SLEEP_HIGH,
+                CONF_ZONE_DYNAMIC_PRESET_EXTREME_SLEEP_LOW, CONF_ZONE_DYNAMIC_PRESET_EXTREME_SLEEP_HIGH,
+            ),
+            description_placeholders={"zone_name": zone_name},
+        )
+
+    def _build_dynamic_preset_schema(
+        self, source_data: dict, current_data: dict,
+        min_temp: float, max_temp: float,
+        *conf_keys,
+    ) -> "vol.Schema":
+        """Build the voluptuous schema for zone_dynamic_preset step.
+
+        source_data: zone_data from ZM entry (persisted values)
+        current_data: user_input on re-render (or source_data on first load)
+        """
+        import voluptuous as vol
+        (
+            CONF_ENABLED, CONF_OFFSET, CONF_RESET_GUEST, CONF_SLEEP_ENABLED,
+            CONF_COOL_HOME_LOW, CONF_COOL_HOME_HIGH,
+            CONF_MILD_HOME_LOW, CONF_MILD_HOME_HIGH,
+            CONF_HOT_HOME_LOW, CONF_HOT_HOME_HIGH,
+            CONF_EXTREME_HOME_LOW, CONF_EXTREME_HOME_HIGH,
+            CONF_COOL_SLEEP_LOW, CONF_COOL_SLEEP_HIGH,
+            CONF_MILD_SLEEP_LOW, CONF_MILD_SLEEP_HIGH,
+            CONF_HOT_SLEEP_LOW, CONF_HOT_SLEEP_HIGH,
+            CONF_EXTREME_SLEEP_LOW, CONF_EXTREME_SLEEP_HIGH,
+        ) = conf_keys
+
+        def _f(key, default):
+            v = current_data.get(key, source_data.get(key))
+            return float(v) if v is not None else default
+
+        def _b(key, default):
+            v = current_data.get(key, source_data.get(key))
+            return bool(v) if v is not None else default
+
+        return vol.Schema({
+            vol.Optional(CONF_ENABLED, default=_b(CONF_ENABLED, False)): bool,
+            vol.Optional(CONF_OFFSET, default=_f(CONF_OFFSET, 0.0)): vol.All(
+                vol.Coerce(float), vol.Range(min=0.0, max=3.0)
+            ),
+            vol.Optional(CONF_RESET_GUEST, default=_b(CONF_RESET_GUEST, True)): bool,
+            vol.Optional(CONF_SLEEP_ENABLED, default=_b(CONF_SLEEP_ENABLED, False)): bool,
+            # home preset bucket ranges
+            vol.Optional(CONF_COOL_HOME_LOW, default=_f(CONF_COOL_HOME_LOW, 70.0)): vol.All(
+                vol.Coerce(float), vol.Range(min=min_temp, max=max_temp)
+            ),
+            vol.Optional(CONF_COOL_HOME_HIGH, default=_f(CONF_COOL_HOME_HIGH, 77.0)): vol.All(
+                vol.Coerce(float), vol.Range(min=min_temp, max=max_temp)
+            ),
+            vol.Optional(CONF_MILD_HOME_LOW, default=_f(CONF_MILD_HOME_LOW, 70.0)): vol.All(
+                vol.Coerce(float), vol.Range(min=min_temp, max=max_temp)
+            ),
+            vol.Optional(CONF_MILD_HOME_HIGH, default=_f(CONF_MILD_HOME_HIGH, 76.0)): vol.All(
+                vol.Coerce(float), vol.Range(min=min_temp, max=max_temp)
+            ),
+            vol.Optional(CONF_HOT_HOME_LOW, default=_f(CONF_HOT_HOME_LOW, 70.0)): vol.All(
+                vol.Coerce(float), vol.Range(min=min_temp, max=max_temp)
+            ),
+            vol.Optional(CONF_HOT_HOME_HIGH, default=_f(CONF_HOT_HOME_HIGH, 74.0)): vol.All(
+                vol.Coerce(float), vol.Range(min=min_temp, max=max_temp)
+            ),
+            vol.Optional(CONF_EXTREME_HOME_LOW, default=_f(CONF_EXTREME_HOME_LOW, 70.0)): vol.All(
+                vol.Coerce(float), vol.Range(min=min_temp, max=max_temp)
+            ),
+            vol.Optional(CONF_EXTREME_HOME_HIGH, default=_f(CONF_EXTREME_HOME_HIGH, 74.0)): vol.All(
+                vol.Coerce(float), vol.Range(min=min_temp, max=max_temp)
+            ),
+            # sleep preset bucket ranges (shown when CONF_SLEEP_ENABLED is True)
+            vol.Optional(CONF_COOL_SLEEP_LOW, default=_f(CONF_COOL_SLEEP_LOW, 70.0)): vol.All(
+                vol.Coerce(float), vol.Range(min=min_temp, max=max_temp)
+            ),
+            vol.Optional(CONF_COOL_SLEEP_HIGH, default=_f(CONF_COOL_SLEEP_HIGH, 76.0)): vol.All(
+                vol.Coerce(float), vol.Range(min=min_temp, max=max_temp)
+            ),
+            vol.Optional(CONF_MILD_SLEEP_LOW, default=_f(CONF_MILD_SLEEP_LOW, 70.0)): vol.All(
+                vol.Coerce(float), vol.Range(min=min_temp, max=max_temp)
+            ),
+            vol.Optional(CONF_MILD_SLEEP_HIGH, default=_f(CONF_MILD_SLEEP_HIGH, 75.0)): vol.All(
+                vol.Coerce(float), vol.Range(min=min_temp, max=max_temp)
+            ),
+            vol.Optional(CONF_HOT_SLEEP_LOW, default=_f(CONF_HOT_SLEEP_LOW, 70.0)): vol.All(
+                vol.Coerce(float), vol.Range(min=min_temp, max=max_temp)
+            ),
+            vol.Optional(CONF_HOT_SLEEP_HIGH, default=_f(CONF_HOT_SLEEP_HIGH, 74.0)): vol.All(
+                vol.Coerce(float), vol.Range(min=min_temp, max=max_temp)
+            ),
+            vol.Optional(CONF_EXTREME_SLEEP_LOW, default=_f(CONF_EXTREME_SLEEP_LOW, 70.0)): vol.All(
+                vol.Coerce(float), vol.Range(min=min_temp, max=max_temp)
+            ),
+            vol.Optional(CONF_EXTREME_SLEEP_HIGH, default=_f(CONF_EXTREME_SLEEP_HIGH, 74.0)): vol.All(
+                vol.Coerce(float), vol.Range(min=min_temp, max=max_temp)
+            ),
+        })
 
     # =========================================================================
     # ROOM OPTIONS (for room entries)

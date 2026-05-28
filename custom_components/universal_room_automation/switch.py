@@ -146,6 +146,8 @@ async def async_setup_entry(
             ECExcessSolarSwitch(hass, entry),
             ECArbitrageSwitch(hass, entry),
             ECEvTouSwitch(hass, entry),
+            # v4.7.1 Cycle B: Dynamic Preset master kill switch
+            ECDynamicPresetSwitch(hass, entry),
             # v3.9.0: HVAC transparency switches
             HVACOverrideArresterSwitch(hass, entry),
             HVACACResetSwitch(hass, entry),
@@ -882,6 +884,13 @@ class ECEvTouSwitch(_ECEvTouSwitchBase):
         if now_utc >= until:
             return {"override_active_until_iso": None}
         return {"override_active_until_iso": until.isoformat()}
+
+
+# v4.7.1 Cycle B: Dynamic Preset master kill switch (factory-generated)
+ECDynamicPresetSwitch = _ec_switch_factory(
+    "dynamic_preset_enabled", "dynamic_preset_enabled",
+    "Dynamic Preset Overrides", "mdi:thermometer-auto", default=False,
+)
 
 
 class HVACOverrideArresterSwitch(SwitchEntity, RestoreEntity):
