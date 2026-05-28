@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.6.15
+# Universal Room Automation vv4.7.0
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -218,6 +218,9 @@ async def async_setup_entry(
             EnergyTOUSeasonSensor(hass, entry),
             EnergyBatteryStrategySensor(hass, entry),
             EnergySolarDayClassSensor(hass, entry),
+            # v4.7.x Cycle A: WeatherProviderManager sensors
+            WeatherActiveProviderSensor(hass, entry),
+            WeatherApparentForecastHighSensor(hass, entry),
             # v3.7.0-E2: Pool + EV sensors
             EnergyPoolOptimizationSensor(hass, entry),
             EnergyEVChargingStatusSensor(hass, entry),
@@ -6126,6 +6129,14 @@ class EnergyBatteryStrategySensor(AggregationEntity, SensorEntity):
         charge_window_opens_at, forecast_outlook, arbitrage_chunk_completed,
         arbitrage_charge_lead_time_min) — all of which come through from
         BatteryStrategy.get_status(). Adds D4 cross-ref `evse_paused_by_arbitrage`.
+
+        v4.7.x D4: adds energy-situation visibility attributes:
+        - optimization_summary: plain-English one-sentence explanation
+        - current_grid_cost_per_hour: live $/hr from current import
+        - next_decision_boundary: next TOU transition + expected action
+        - current_holds_active: list of active holds preventing normal drain
+        - evse_force_charge_until_iso: admin override expiry or None
+        All computed from already-loaded state; no DB queries (Reviewer B).
         """
         manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
         if manager is None:
@@ -6144,7 +6155,131 @@ class EnergyBatteryStrategySensor(AggregationEntity, SensorEntity):
         attrs["evse_paused_by_arbitrage"] = list(
             ev_status.get("paused_by_arbitrage", [])
         )
+
+        # ── v4.7.x D4: energy situation visibility ────────────────────────
+        try:
+            attrs.update(self._build_situation_attrs(energy, ev_status))
+        except Exception:
+            # Never let D4 enrichment break the sensor read
+            pass
+
         return attrs
+
+    def _build_situation_attrs(
+        self, energy: object, ev_status: dict
+    ) -> dict:
+        """Build D4 situation-visibility attribute dict.
+
+        All computation is constant-time over already-loaded coordinator
+        state — no I/O, no DB queries (Reviewer B compliance).
+
+        Bug Class #11/#21: UTC-aware datetimes used throughout.
+        """
+        decision = energy.last_battery_decision or {}
+
+        # ── holds active ─────────────────────────────────────────────────
+        holds: list[str] = []
+        if decision.get("evse_battery_hold"):
+            holds.append("evse_battery_hold")
+        paused_by_arb = ev_status.get("paused_by_arbitrage", [])
+        if paused_by_arb:
+            holds.append("arbitrage_compound_load")
+        paused_by_grid = ev_status.get("paused_by_grid_cap", [])
+        if paused_by_grid:
+            holds.append("grid_import_cap")
+
+        # ── force-charge override expiry ─────────────────────────────────
+        force_charge_until_iso: str | None = ev_status.get("force_charge_until_iso")
+
+        # ── grid cost per hour ───────────────────────────────────────────
+        current_rate = 0.0
+        grid_cost_per_hour: float | None = None
+        try:
+            current_rate = float(energy.tou_rate)
+        except (AttributeError, TypeError, ValueError):
+            pass
+        try:
+            # net_power > 0 means importing from grid (W)
+            net_power_w = float(
+                self.hass.states.get(
+                    energy._battery._get_entity("net_power", "")
+                ).state
+            )
+            if net_power_w > 0:
+                grid_cost_per_hour = round(
+                    (net_power_w / 1000.0) * current_rate, 2
+                )
+            else:
+                grid_cost_per_hour = 0.0
+        except Exception:
+            grid_cost_per_hour = None
+
+        # ── next decision boundary ──────────────────────────────────────
+        next_boundary: dict | None = None
+        try:
+            tou = energy._tou
+            transition = tou.get_next_transition()
+            next_period = transition.get("next_period", "unknown")
+            hours_until = transition.get("hours_until", 0)
+            minutes_until = round(hours_until * 60)
+            # Expected action on transition
+            if next_period == "off_peak":
+                expected_action = "battery will drain toward reserve target"
+            elif next_period in ("peak", "mid_peak"):
+                expected_action = "EV TOU pause will engage; battery holds"
+            else:
+                expected_action = "re-evaluate"
+            next_boundary = {
+                "event": f"{next_period}_starts",
+                "in_minutes": minutes_until,
+                "expected_action": expected_action,
+            }
+        except Exception:
+            next_boundary = None
+
+        # ── plain-English summary ────────────────────────────────────────
+        try:
+            mode = decision.get("mode", "unknown")
+            soc = decision.get("soc")
+            reason = decision.get("reason", "")
+            summary_parts: list[str] = []
+
+            if "evse_battery_hold" in holds:
+                soc_str = f"{int(soc)}%" if soc is not None else "current level"
+                summary_parts.append(
+                    f"Holding battery at {soc_str} because EV is charging."
+                )
+            elif mode in ("drain", "discharge"):
+                summary_parts.append("Battery is discharging to cover home load.")
+            elif mode == "hold":
+                summary_parts.append("Battery is holding charge (no import or export).")
+            elif mode in ("charge", "grid_charge"):
+                summary_parts.append("Battery is charging from the grid (off-peak arbitrage).")
+            elif mode == "charge_solar":
+                summary_parts.append("Battery is charging from solar.")
+            else:
+                summary_parts.append(f"Battery mode: {mode}.")
+
+            if grid_cost_per_hour is not None and grid_cost_per_hour > 0:
+                summary_parts.append(
+                    f"Grid covers current load at ${grid_cost_per_hour:.2f}/hr "
+                    f"(${current_rate:.4f}/kWh)."
+                )
+
+            if force_charge_until_iso:
+                summary_parts.append("Admin force-charge override is active.")
+
+            optimization_summary = " ".join(summary_parts) if summary_parts else reason
+        except Exception:
+            optimization_summary = decision.get("reason", "")
+
+        return {
+            "optimization_summary": optimization_summary,
+            "current_grid_cost_per_hour": grid_cost_per_hour,
+            "next_decision_boundary": next_boundary,
+            "current_holds_active": holds,
+            "evse_force_charge_until_iso": force_charge_until_iso,
+        }
 
 
 class EnergySolarDayClassSensor(AggregationEntity, SensorEntity):
@@ -6189,6 +6324,158 @@ class EnergySolarDayClassSensor(AggregationEntity, SensorEntity):
             "forecast_today_kwh": battery.solcast_today,
             "forecast_remaining_kwh": battery.solcast_remaining,
         }
+
+
+# ============================================================================
+# v4.7.x Cycle A: WEATHER PROVIDER MANAGER SENSORS
+# ============================================================================
+
+
+class WeatherActiveProviderSensor(AggregationEntity, SensorEntity):
+    """Active weather provider entity ID (or 'none' / 'all_stale').
+
+    Entity: sensor.ura_weather_active_provider
+    Device: URA: Energy Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:weather-partly-cloudy"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_weather_active_provider"
+        self._attr_name = "Weather Active Provider"
+        self._attr_device_info = _energy_device_info()
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to SIGNAL_WEATHER_PROVIDER_CHANGED for reactive updates (WPM-H1)."""
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_WEATHER_PROVIDER_CHANGED
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_WEATHER_PROVIDER_CHANGED, self._on_weather_signal,
+            )
+        )
+
+    @callback
+    def _on_weather_signal(self, _payload=None) -> None:
+        """Handle provider-changed or divergence signal."""
+        self.async_write_ha_state()
+
+    @property
+    def available(self) -> bool:
+        """Return False when WeatherProviderManager is not set up (WPM-H5)."""
+        return self.hass.data.get(DOMAIN, {}).get("weather_manager") is not None
+
+    @property
+    def native_value(self) -> str:
+        """Return active provider entity_id, 'none', or 'all_stale'."""
+        try:
+            mgr = self.hass.data.get(DOMAIN, {}).get("weather_manager")
+            if mgr is None:
+                return "none"
+            return mgr.provider_status_str
+        except Exception:
+            return "none"
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return provider list health details."""
+        try:
+            mgr = self.hass.data.get(DOMAIN, {}).get("weather_manager")
+            if mgr is None:
+                return {}
+            return {
+                "priority_rank": 0,
+                "healthy_count": mgr.healthy_provider_count,
+                "total_count": mgr.total_provider_count,
+                "failover_reason": mgr.failover_reason,
+                "apparent_confidence": mgr.apparent_confidence,
+                "provider_health": mgr.provider_health_map,
+            }
+        except Exception:
+            return {}
+
+
+class WeatherApparentForecastHighSensor(AggregationEntity, SensorEntity):
+    """Today's apparent forecast high temperature from the active provider.
+
+    Entity: sensor.ura_weather_apparent_forecast_high
+    Device: URA: Energy Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:thermometer-chevron-up"
+    _attr_native_unit_of_measurement = "°F"
+    _attr_state_class = "measurement"
+    _attr_suggested_display_precision = 1
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_weather_apparent_forecast_high"
+        self._attr_name = "Weather Apparent Forecast High"
+        self._attr_device_info = _energy_device_info()
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to provider-changed signal for reactive updates (WPM-H1)."""
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_WEATHER_PROVIDER_CHANGED
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_WEATHER_PROVIDER_CHANGED, self._on_weather_signal,
+            )
+        )
+
+    @callback
+    def _on_weather_signal(self, _payload=None) -> None:
+        """Handle provider-changed signal — push updated value to HA."""
+        self.async_write_ha_state()
+
+    @property
+    def available(self) -> bool:
+        """Return False when WeatherProviderManager is absent or has no forecast (WPM-H5)."""
+        try:
+            mgr = self.hass.data.get(DOMAIN, {}).get("weather_manager")
+            return mgr is not None and mgr._cached_forecast is not None
+        except Exception:
+            return False
+
+    @property
+    def native_value(self) -> float | None:
+        """Return today's apparent high directly from WPM (WPM-H2 — no EC indirection)."""
+        try:
+            mgr = self.hass.data.get(DOMAIN, {}).get("weather_manager")
+            if mgr is None:
+                return None
+            return mgr.current_apparent_forecast_high()
+        except Exception:
+            return None
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return forecast detail attributes sourced entirely from WPM (WPM-H2)."""
+        try:
+            mgr = self.hass.data.get(DOMAIN, {}).get("weather_manager")
+            if mgr is None:
+                return {}
+            forecast = mgr._cached_forecast
+            if forecast is None:
+                return {}
+            return {
+                "raw_high": forecast.raw_high,
+                "apparent_low": forecast.apparent_low,
+                "provider_source": forecast.provider_id,
+                "confidence": forecast.apparent_confidence,
+                "divergence_f": forecast.divergence_f,
+            }
+        except Exception:
+            return {}
 
 
 # ============================================================================

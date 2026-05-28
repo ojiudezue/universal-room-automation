@@ -229,6 +229,44 @@ Deferred to Phase 2+: lighting, music following, NM, security, energy, Bayesian/
 - **Phase 3 (Tier 1 visibility):** `guest_minutes_today` attribute, `routine_status.guest_minutes_in_recent_window`, anomaly-detector exclusion of guest periods.
 - **Parallel (Dynamic Preset Mgmt):** Adds `source="weather_forecast"`. Composes via this engine.
 
+### Phase 2 candidate: Per-Room Guest Designation + High-Confidence Guest Signal
+
+**Captured 2026-05-27 from Dynamic Preset Mgmt planning discussion. Build during Phase 2 work, not Phase 1.**
+
+Two distinct features share a foundation — adding a per-Room config flag `is_guest_room: bool` (Room entry config):
+
+**Feature A — Unoccupied guest room relaxation (consumed by Dynamic Preset Mgmt):**
+- Empty guest room (no occupancy ≥ N min) AND no regular occupant present → emit an override that bumps `cool_high` by 1-2°F warmer
+- Particularly important at night (don't cool a zone where no one is sleeping)
+- Per-ROOM, not per-zone — zones like Back Hallway contain a mix of guest bedrooms + powder rooms + other non-bedroom spaces; the relaxation should be granular to the guest bedroom only
+- Composes through OverrideEngine as a new `source = "unoccupied_guest_room"` with appropriate priority
+
+**Feature B — High-confidence guest signal (consumed by Presence Coordinator's existing guest-mode detection):**
+- Sustained occupancy in a designated guest room → high-confidence guest signal added to Presence Coordinator's existing guest-mode detectors
+- Anti-flap: requires sustained occupancy "longer than saunter in to clean it" — minimum threshold ≥ 30 minutes (configurable, but defaults to a value high enough to filter the cleaning-staff false positive)
+- Distinguishes from regular family occupancy via known-person filter: only unknown persons sustained-occupying a guest room counts
+
+**Shared foundation (build during Phase 2):**
+1. Per-Room config field `is_guest_room: bool` (default False) on Room entry options-flow step
+2. Per-Room field `guest_room_unoccupied_offset_f` (default +1.0) — how much warmer when unoccupied
+3. Per-Room field `guest_room_occupancy_threshold_min` (default 30) — sustained-occupancy time before high-confidence guest signal fires
+4. New override source `unoccupied_guest_room` with `active_when` predicate "room is guest room AND occupancy_no_change > threshold AND no_regular_occupant"
+5. Presence Coordinator integration: subscribe to per-room state-change events on designated guest rooms; when sustained-occupancy threshold crossed AND occupant is unknown, increment guest-mode confidence score
+
+**Bug class prevention:**
+- #11 (UTC vs local timezone) — occupancy duration math uses `dt_util.utcnow()` consistently
+- #19 (untracked tasks) — state-change listeners registered with `async_on_remove` cleanup
+- #36 (per-zone entity dedup) — per-room not per-zone; rooms have their own canonical iteration
+
+**Acceptance hints (for the build cycle to formalize):**
+- Designate one room as guest room; leave empty for >30 min → bucket override bumps that room's effective preset 1°F warmer
+- Have an unknown person sustain occupancy in the guest room for ≥30 min → Presence Coordinator's guest-mode confidence score rises; transitions house state to `guest` if threshold met
+- Have a known family member sustain occupancy → no guest signal change
+
+**Reference:** see `PLANNING_v4.7.x_dynamic_preset_management.md` "Stub — future per-room guest designation" section for the parallel framing of Feature A.
+
+**Build order:** Phase 1 first (this plan). Once that ships + lives ≥1 week, file a separate planning doc for these Phase 2 features — likely as a small Tier 2 cycle since the foundation (per-room config + override schema) is reusing infrastructure that's already there.
+
 ## 11. File touch list
 
 - `const.py` — +3 CONF + defaults

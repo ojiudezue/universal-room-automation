@@ -60,9 +60,9 @@ This is the headliner. It replaced v3.11.0's SOC-trigger arbitrage that wasted o
 
 ---
 
-## 3. The kill-switches (master toggles)
+## 3. The kill-switches (master toggles + sub-feature toggles)
 
-Two switches live on the Energy Coordinator device.
+Seven switches live on the URA: Energy Coordinator device page. **The 5 sub-feature switches require the EC coordinator to have started successfully** — if Envoy validation fails at boot (entity missing / unparseable serial / critical derived entities not registered), all 5 sub-switches show `unavailable` until the coord recovers. Master `Enabled` and `Observation Mode` stay available regardless.
 
 ### `Enabled`
 **Default:** ON
@@ -73,6 +73,36 @@ Two switches live on the Energy Coordinator device.
 **Default:** OFF
 **What it does:** softer than `Enabled = OFF`. The coordinator still computes decisions but **stops actuating Enphase storage mode + reserve SOC + charge-from-grid**. EVSE controls and HVAC constraints continue to flow. Useful for confirming the strategy matches your intuition before letting it commit.
 **When to enable:** first 1–2 weeks after major config changes (new TOU schedule, new Solcast credentials, new arbitrage settings) so you can verify the *intent* of every decision before it touches your battery.
+
+### `Grid Import Cap`
+**Default:** OFF
+**What it does:** when ON, every decision tick the coordinator compares live net grid import (from Envoy's net-power sensor) against the configured `energy_grid_import_cap_kw` (3-20 kW, default 8 kW, configured via options-flow slider). If import exceeds the cap, **any actively charging EVSE is paused** (`switch.turn_off`). Resumes only when import drops below `cap_kw − 1.0 kW` (hysteresis band).
+**Acts on EVSEs only.** Non-EV loads (HVAC, water heater, plug loads) are NOT throttled — if they alone exceed the cap, the diagnostic sensor `sensor.ura_energy_coordinator_energy_grid_demand` shows >100% but URA takes no action.
+**Tracked independently from TOU pausing** — an EVSE can be paused-by-TOU AND paused-by-cap simultaneously; resume only fires when neither flag is set.
+**When to enable:** if your service has a real hard limit (e.g., 60A DER breaker → ~14 kW continuous). Set the cap a few kW below the breaker rating.
+
+### `Load Shedding`
+**Default:** OFF
+**What it does:** enables the 4-level cascade when sustained grid import exceeds the configured threshold for the sustained-minutes window. Level 1 = pool pump speed reduction, 2 = EV chargers off, 3 = smart plugs off, 4 = HVAC energy-constraint signal (coast/shed offset to HVAC). Recovery is reverse order when import drops back below threshold.
+**Different from Grid Import Cap:** load-shedding is a graduated cascade with 4 priorities; grid-import-cap is a simple binary on/off acting only on EVSEs. The cap fires faster (1 decision tick) and finer (only EVSEs); load shedding requires sustained breach (default 5 min) and walks down a hierarchy.
+
+### `Excess Solar Charging`
+**Default:** OFF
+**What it does:** when ON and battery SOC ≥ `energy_excess_solar_soc` (default 95%) AND remaining today solar ≥ `energy_excess_solar_kwh` (default 5 kWh) AND current TOU is off-peak or mid-peak (never peak), **turn ON EVSEs** to absorb surplus solar that would otherwise be exported. Only turns off EVSEs that URA itself turned on (tracked via `_excess_solar_active` set) — won't fight a user who manually started charging.
+**When to enable:** if your utility's net-metering doesn't credit exports as well as import-displacement (asymmetric rates), or if your battery is small relative to your daily PV production.
+
+### `Grid Arbitrage`
+**Default:** OFF
+**What it does:** allows the four-phase battery state machine to do overnight grid-charging on poor-solar-tomorrow days. When `tomorrow_solar_class` is `poor`/`very_poor` AND the charge window is open (next high-rate transition within `arbitrage_charge_lead_time_min`), enables `charge_from_grid` to fill the battery from cheap off-peak grid.
+**Gated by `Peak Buffer Target`** — stops charging when SOC reaches the target.
+**Storm prep takes priority** — if a storm forecast is active, that path runs instead of arbitrage.
+
+### `EV TOU Management` — strict policy behavior (v4.7.x)
+**Default:** ON
+**What it does:** when ON, URA pauses all EVSEs during peak and mid_peak TOU periods. **This is a strict, idempotent policy** — if you manually re-enable an EVSE switch in HA, URA will turn it off again on the next decision cycle (≤5 min). Manual HA-side EVSE toggles are intentionally defeated.
+**Rationale:** "All grid charging for EV should happen only during off-peak for every season." The strict enforcement prevents cost leaks caused by accidental or casual EVSE re-enables during high-rate periods.
+**Exception:** excess-solar charging (when battery ≥95% and solar forecast surplus ≥5 kWh) is still allowed during mid_peak — the switch is ON and URA leaves it running.
+**Admin override:** use `button.ura_energy_coordinator_evse_force_charge_30min` for intentional mid-peak charging (see §10 below).
 
 Master gating order — **strict precedence**:
 
@@ -155,13 +185,26 @@ These are set in **Coordinator Manager → Energy** at install time. Most are en
 | **Utility Meter Entity** | If your utility provides a smart-meter integration separate from Envoy |
 | **TOU Rate File** | Path to your utility's TOU schedule JSON (lives in `/config/`) |
 
-### Load shedding
+### Load shedding (cascade)
 | Field | What to set it to |
 |---|---|
-| **Load Shedding Enabled** | Master toggle for the shed signal to HVAC + other coords |
-| **Load Shedding Threshold (kW)** | Grid-import kW that triggers shed (default 12 kW — sized for a 60A DER breaker) |
-| **Load Shedding Sustained Minutes** | How long the import must exceed threshold before shed fires (default 5 min) |
-| **Load Shedding Mode** | `advisory` (sensor only) or `actuate` (broadcasts shed signal) |
+| **Load Shedding Enabled** | Master toggle (also exposed as `switch.ura_energy_coordinator_load_shedding`) |
+| **Load Shedding Threshold (kW)** | Grid-import kW that triggers shed (default 5 kW; can also be `auto` for 90th-percentile auto-learn after 30+ days of data) |
+| **Load Shedding Sustained Minutes** | How long the import must exceed threshold before shed fires (default 15 min) |
+| **Load Shedding Mode** | `fixed` or `auto_learned` (the threshold-determination method) |
+
+### Grid Import Cap (single-tier, EVSE-only)
+| Field | What to set it to |
+|---|---|
+| **Grid Import Cap Enabled** | Master toggle (also exposed as `switch.ura_energy_coordinator_grid_import_cap`) |
+| **Grid Import Cap (kW)** | Slider 3-20 kW, default 8 kW. Acts only on EVSEs. 1.0 kW hysteresis is hardcoded. |
+
+### Excess Solar Charging
+| Field | What to set it to |
+|---|---|
+| **Excess Solar Enabled** | Master (also `switch.ura_energy_coordinator_excess_solar_charging`) |
+| **Excess Solar SOC Threshold** | Battery SOC at which excess-solar EVSE activation is allowed (default 95%) |
+| **Excess Solar kWh Threshold** | Remaining today's forecast solar that triggers (default 5 kWh) |
 
 ### HVAC constraint offsets
 The HVAC Coordinator reads these to know how aggressively to coast / precool / preheat based on energy state.
@@ -194,6 +237,17 @@ The Energy Coordinator device hosts 40+ sensors. These are the ones to put on a 
 - **`TOU Rate`** — current $/kWh.
 - **`Current Rate`** / **`Delivery Rate`** — the rate URA used in the last cost calculation (sanity check).
 - **`Situation`** — high-level state machine label combining energy state + occupancy state (used by HVAC).
+
+### v4.6.8 canonical rate + cost surfaces
+
+| Sensor | Value | Notes |
+|---|---|---|
+| `sensor.ura_energy_coordinator_current_effective_rate` | Current effective $/kWh (base + delivery + transmission) | Read this for "what I pay if I import right now" |
+| `sensor.ura_energy_coordinator_zone_<zone>_cost_today` | Per-zone cost from per-zone-power × TOU rate | v4.6.8 |
+| `sensor.ura_energy_coordinator_whole_house_cost_today` | House cost rollup | v4.6.8 |
+| `sensor.ura_energy_coordinator_zone_<zone>_cost_per_hour` | Live $/h burn rate per zone | v4.6.8 |
+
+**Why this matters:** prior to v4.6.8, multiple call sites computed cost from different rate lookups (some forgot delivery+transmission). The reconciliation made `TOURateEngine.get_effective_import_rate(now)` the single source of truth. All zone/house/appliance cost math now agrees.
 
 ### Today + cycle accounting
 - **`Energy Import Today`** / **`Energy Export Today`** — kWh totals reset at midnight.
@@ -469,7 +523,64 @@ The `_paused_by_<reason>` set + precedence-rule pattern is the same architecture
 
 ---
 
+---
+
+## 10. Admin override: EVSE force-charge button (v4.7.x)
+
+### Why a button, not a switch?
+A switch is a one-finger swipe — too easy to hit accidentally and leave active. A button + notification + audit trail is the "deliberate action" pattern. The button represents an explicit, time-bounded admin decision.
+
+### `button.ura_energy_coordinator_evse_force_charge_30min`
+**Entity:** `button.ura_energy_coordinator_evse_force_charge_30min`
+**Device:** URA: Energy Coordinator
+
+**What it does when pressed:**
+1. Opens a 30-minute force-charge window during which URA's TOU pause is bypassed for all EVSEs.
+2. Fires an NM info notification: `"EV force-charge window opened until HH:MM. Mid-peak rates apply."` (suppressed if observation mode is active).
+3. Logs the activation with the UTC expiry timestamp.
+
+**Auto-expiry:** the window expires automatically after 30 minutes. On the next decision cycle after expiry, URA resumes enforcing strict TOU pause. No manual cancellation needed — just wait.
+
+**Idempotent re-press:** pressing the button while an override is already active replaces the window (30 min from now), not adds to it. Prevents accidental stacking.
+
+**Override visibility:** `switch.ura_energy_coordinator_ev_tou_management` gains an `override_active_until_iso` attribute that shows the current window's UTC expiry (or `null` when inactive). Check this from Developer Tools → States to confirm the override is active.
+
+**No HA-side bypass:** enabling the EVSE switch directly in HA while TOU is mid_peak/peak is still defeated by URA within ≤5 min (D1 strict enforcement). The force-charge button is the only supported override path.
+
+**When to use:** intentional mid-peak EV charging (guest visiting, departure imminent, grid event). Not for routine off-peak charging — that happens automatically.
+
+---
+
+## 11. Weather Provider Manager (v4.7.x Cycle A)
+
+### Sensors
+
+| Entity ID | Purpose |
+|---|---|
+| `sensor.ura_weather_active_provider` | Active weather entity_id, or `none` / `all_stale` |
+| `sensor.ura_weather_apparent_forecast_high` | Today's apparent-temperature forecast high (°F) |
+| `binary_sensor.ura_weather_divergence` | On when ≥2 providers disagree beyond threshold |
+
+### Form fields
+
+These fields live in the CM → Energy step, alongside the existing Primary weather picker.
+
+| Field | CONF key | Default | Description |
+|---|---|---|---|
+| Primary weather provider | `CONF_ENERGY_WEATHER_ENTITY` | (user-configured) | Existing field — first-choice provider |
+| Secondary weather provider | `CONF_ENERGY_WEATHER_FALLBACK_1` | (empty) | Failover if primary is stale/unavailable |
+| Tertiary weather provider | `CONF_ENERGY_WEATHER_FALLBACK_2` | (empty) | Second-level failover |
+| Weather staleness limit | `CONF_WEATHER_STALENESS_MAX_HOURS` | 6h | Provider state older than this is treated as stale |
+| Divergence threshold | `CONF_WEATHER_DIVERGENCE_THRESHOLD_F` | 5°F | When ≥2 providers differ by this much, divergence sensor turns ON |
+
+**Migration from single-provider config:** your existing `CONF_ENERGY_WEATHER_ENTITY` value is preserved as the Primary provider. No changes required. Adding Secondary/Tertiary is opt-in.
+
+**Apparent temperature vs raw temperature:** the manager reads `apparent_temperature` (felt temperature accounting for humidity + wind) from each provider's `weather.get_forecasts` response. If a provider doesn't expose apparent temperature, it falls back to raw `temperature` with an `apparent_confidence = "fallback_raw"` flag visible on `sensor.ura_weather_apparent_forecast_high` attributes.
+
+---
+
 **See also:**
 - `docs/user-manual/HVAC_COORDINATOR.md` — the climate side of the same brain
 - `docs/readmes/README_v4.5.0.md` — the v4.5.0 battery-strategy redesign cycle (canonical reference)
-- `docs/QUALITY_CONTEXT.md` — bug-class catalog (#1–#35) that reviews check against
+- `docs/QUALITY_CONTEXT.md` — bug-class catalog (#1–#43) that reviews check against
+- `docs/ENERGY_MANAGEMENT_EXPLAINER.md §15` — Weather Provider Manager architecture detail

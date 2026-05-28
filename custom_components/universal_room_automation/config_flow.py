@@ -2759,6 +2759,13 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             DEFAULT_GRID_IMPORT_CAP_KW,
             CONF_ENERGY_EV_BATTERY_DRAIN_SOC,
             DEFAULT_EV_BATTERY_DRAIN_SOC_THRESHOLD,
+            # v4.7.x Cycle A: WeatherProviderManager ranked-list providers
+            CONF_ENERGY_WEATHER_FALLBACK_1,
+            CONF_ENERGY_WEATHER_FALLBACK_2,
+            CONF_WEATHER_STALENESS_MAX_HOURS,
+            CONF_WEATHER_DIVERGENCE_THRESHOLD_F,
+            DEFAULT_WEATHER_STALENESS_MAX_HOURS,
+            DEFAULT_WEATHER_DIVERGENCE_THRESHOLD_F,
         )
         from .const import CONF_OCCUPANCY_WEIGHTED_ENERGY
         from .domain_coordinators.energy_const import (
@@ -2870,6 +2877,50 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 description={"suggested_value": weather_default},
             ): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="weather")
+            ),
+            # v4.7.x Cycle A: WeatherProviderManager — Secondary provider
+            vol.Optional(
+                CONF_ENERGY_WEATHER_FALLBACK_1,
+                description={
+                    "suggested_value": self._get_current(CONF_ENERGY_WEATHER_FALLBACK_1),
+                },
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="weather")
+            ),
+            # v4.7.x Cycle A: WeatherProviderManager — Tertiary provider
+            vol.Optional(
+                CONF_ENERGY_WEATHER_FALLBACK_2,
+                description={
+                    "suggested_value": self._get_current(CONF_ENERGY_WEATHER_FALLBACK_2),
+                },
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="weather")
+            ),
+            # v4.7.x Cycle A: Staleness limit (hours)
+            vol.Optional(
+                CONF_WEATHER_STALENESS_MAX_HOURS,
+                default=self._get_current(
+                    CONF_WEATHER_STALENESS_MAX_HOURS, DEFAULT_WEATHER_STALENESS_MAX_HOURS
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=1, max=24, step=1,
+                    unit_of_measurement="h",
+                    mode=selector.NumberSelectorMode.SLIDER,
+                )
+            ),
+            # v4.7.x Cycle A: Divergence threshold (°F)
+            vol.Optional(
+                CONF_WEATHER_DIVERGENCE_THRESHOLD_F,
+                default=self._get_current(
+                    CONF_WEATHER_DIVERGENCE_THRESHOLD_F, DEFAULT_WEATHER_DIVERGENCE_THRESHOLD_F
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=1, max=20, step=0.5,
+                    unit_of_measurement="°F",
+                    mode=selector.NumberSelectorMode.SLIDER,
+                )
             ),
             # v3.11.0: Solar forecast entity selectors
             vol.Optional(

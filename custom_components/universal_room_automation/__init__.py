@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv4.6.15
+# Universal Room Automation vv4.7.0
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -1484,6 +1484,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
                 coordinator_manager = CoordinatorManager(hass)
 
+                # v4.7.x Cycle A: Construct WeatherProviderManager singleton.
+                # Stored at hass.data[DOMAIN]["weather_manager"] for Energy +
+                # HVAC + sensors to consume. Sets up its own state listeners.
+                try:
+                    from .domain_coordinators.weather_manager import (
+                        WeatherProviderManager,
+                    )
+                    weather_manager = WeatherProviderManager(hass, cm_config)
+                    await weather_manager.async_setup()
+                    hass.data[DOMAIN]["weather_manager"] = weather_manager
+                except Exception as exc:  # pragma: no cover
+                    _LOGGER.warning(
+                        "WeatherProviderManager setup failed: %s", exc, exc_info=True
+                    )
+
                 # v3.6.0-c1: Register Presence Coordinator
                 if cm_config.get(CONF_PRESENCE_ENABLED, True):
                     from .domain_coordinators.presence import PresenceCoordinator
@@ -2012,8 +2027,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 else:
                     _LOGGER.info("Notification Manager disabled via config")
 
-                await coordinator_manager.async_start()
+                # B1 fix: assign coordinator_manager to hass.data BEFORE
+                # async_start() so that SIGNAL_ENERGY_COORDINATOR_READY
+                # subscribers (e.g. EC sub-switches in _handle_ec_ready) can
+                # look up the coordinator via hass.data[DOMAIN]["coordinator_manager"]
+                # at signal-fire time.  Mirrors the SIGNAL_DATABASE_READY /
+                # SIGNAL_NM_READY pattern: hass.data slot is set before the
+                # signal is dispatched.  The coordinator_manager object is
+                # fully constructed at this point; async_start() merely drives
+                # async_setup() on each coordinator, so the earlier publish is safe.
                 hass.data[DOMAIN]["coordinator_manager"] = coordinator_manager
+                await coordinator_manager.async_start()
                 _LOGGER.info("Domain Coordinator Manager initialized and started")
 
                 # v4.6.10 D1: Stash setup telemetry — LAST thing in CM init block.
@@ -2622,6 +2646,17 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if coordinator_manager:
             await coordinator_manager.async_stop()
             del hass.data[DOMAIN]["coordinator_manager"]
+
+        # v4.7.x Cycle A: Tear down WeatherProviderManager state listeners
+        weather_manager = hass.data[DOMAIN].pop("weather_manager", None)
+        if weather_manager is not None:
+            try:
+                await weather_manager.async_teardown()
+            except Exception:
+                _LOGGER.warning(
+                    "WeatherProviderManager teardown failed during unload",
+                    exc_info=True,
+                )
 
         # Activity log: clean up daily prune timer
         unsub_activity_prune = hass.data[DOMAIN].pop("unsub_activity_prune", None)

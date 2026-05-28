@@ -23,6 +23,41 @@ All four controllers share the same `ZoneManager` (one HVAC zone per thermostat)
 
 ---
 
+## 1b. The two pillars: house-state presets + seasonal defaults
+
+Every HVAC decision starts from two lookups:
+
+**1. House state → preset name** (`HOUSE_STATE_PRESET_MAP` in `hvac_const.py`):
+
+| House state | → Preset |
+|---|---|
+| `home_day` / `home_evening` / `home_night` / `arriving` / `waking` / `guest` | `home` |
+| `sleep` | `sleep` |
+| `away` | `away` |
+| `vacation` | `vacation` |
+
+URA's presence + house-state machine picks the state; this table maps it to one of 4 preset names. The same preset name is applied to every URA-managed zone unless that zone is opted out.
+
+**2. Preset name + season → setpoint range** (`SEASONAL_DEFAULTS`):
+
+Summer (Jun-Sep):
+
+| Preset | Cool ≤ | Heat ≥ |
+|---|---|---|
+| home | 77 | 70 |
+| sleep | 76 | 70 |
+| away | 82 | 60 |
+| vacation | 85 | 58 |
+
+Shoulder (Mar-May, Oct-Nov): home 70-74 / sleep 68-73 / away 62-80 / vacation 58-82
+Winter (Dec-Feb): home 70-72 / sleep 68-70 / away 60-78 / vacation 58-80
+
+URA does NOT directly set `target_temp_high/low` today — it calls `climate.set_preset_mode(preset_name)` and relies on the thermostat's own preset machinery to resolve the range. (v4.7.x Guest Mode Actuation will add direct `set_temperature` overrides on top of this.)
+
+**Override Arrester is suppressed during URA writes** — so the arrester doesn't fight URA's own legitimate preset changes.
+
+---
+
 ## 2. The kill-switches (master toggles)
 
 Eight switches live on the HVAC Coordinator device. Each gates a specific subsystem. **All eight are independent** — you can flip any combination.
@@ -206,6 +241,73 @@ Plus the legacy CONF_HVAC_* tunables (Compromise Minutes, AC Reset Timeout, Fan 
 
 ---
 
+## 6b. Energy Constraint integration (EC → HVAC)
+
+EC dispatches `SIGNAL_ENERGY_CONSTRAINT` to HVAC each decision cycle. Payload modes + default offsets:
+
+| Mode | Default offset | Trigger (from EC) | HVAC response |
+|---|---|---|---|
+| `normal` | 0 | Baseline (no constraint active) | Apply preset setpoints as-is |
+| `pre_cool` | −2.0°F | Forecast high ≥ `hvac_precool_forecast_high` (default 90°F) AND peak window coming | Lower setpoints to chill house ahead of peak |
+| `pre_heat` | +2.0°F | Forecast low < `hvac_preheat_forecast_low` (default 35°F) | Raise heat setpoints early to warm house ahead of peak |
+| `coast` | +3.0°F | Load-shedding cascade reached level 4 (HVAC tier) | Widen deadband, reduce cycling |
+| `shed` | +5.0°F | Sustained import + aggressive shed | Aggressive setpoint relaxation |
+
+Offsets ADD to the current preset range. Summer `home` is 70-77; with `coast` +3°F it becomes 70-80°F. Reverts on `mode=normal`.
+
+**Diagnostic sensor:** `sensor.ura_energy_coordinator_hvac_constraint` — current mode + offset + reason + forecast_high. Watch this to see what EC is asking HVAC to do.
+
+**Configured via CM options:**
+- `energy_constraint_coast_offset` (default 3.0°F)
+- `energy_constraint_precool_offset` (default −2.0°F)
+- `energy_constraint_preheat_offset` (default 2.0°F)
+- `energy_constraint_shed_offset` (default 5.0°F)
+
+---
+
+## 6c. AC Ramp-Down state machine (v4.5.11) — visual
+
+Per-zone state machine (`hvac_override.py:check_ac_reset`). Default OFF at master; enable per-zone.
+
+```
+IDLE
+  │ overshoot + kwh_rate > threshold
+  ▼
+DETECTING (counting consecutive samples + minutes)
+  │ all gates pass → samples ≥ sustained_samples AND elapsed ≥ detection_time_gate
+  ▼
+NUDGING  (setpoint raised by ac_nudge_size for ac_nudge_duration)
+  │ nudge timer expires
+  ▼
+AWAITING_EVALUATION  (10 min, sensor settles)
+  │ post-nudge kwh_rate STILL above threshold
+  ▼
+ESCALATING  (hard reset: climate.turn_off → wait → climate.turn_on)
+  │
+  ├─→ succeeded → IDLE
+  └─→ daily limit exceeded → LOCKED_OUT (until next day rollover OR manual clear)
+```
+
+Each per-zone state is exposed at `sensor.ura_hvac_coordinator_<zone>_ac_ramp_state`.
+
+---
+
+## 6d. Pre-Cool Likelihood predictor
+
+`HVACPredictor` produces a 0-100% likelihood that today's peak window will trigger a pre-cool action. Inputs:
+- Forecast peak outdoor temp (today)
+- Forecast peak time (anchor period)
+- Current TOU period
+- House state + occupancy
+
+**Sensor:** `sensor.ura_hvac_coordinator_pre_cool_likelihood`
+- State: integer percent (0-100)
+- Attributes: `forecast_peak_outside_f`, `forecast_peak_time_iso`, `anchor_period` (e.g. `peak_4pm_8pm`), `anchor_starts_in_minutes`, `solar_intent`, `prior_day_at_this_hour_f`
+
+User-facing as a "will URA pre-cool today?" dashboard hint. Not a control surface — informational.
+
+---
+
 ## 7. Three-layer gating model
 
 Two features use the same gating shape: **Solar Cover Management** and **AC Ramp-Down**. Memorize this once, apply to both.
@@ -309,6 +411,64 @@ kwh_avoided_for_event = delta_kw × (estimated_remaining_overshoot / 60)
 **This is NOT baseline-matched.** A precise estimate would compare today's kWh against a similar-weather day with the feature disabled. We don't have that data (yet). The current estimate is conservative — it under-counts savings rather than over-counts.
 
 **Use the kWh-avoided number for trend-watching ("is the feature working?"), not for billing accuracy.** Tech debt note in `docs/TECH_DEBT.md` documents the limitation; future Span historical-API integration could replace the rough estimate with true comparable-day matching.
+
+---
+
+## 10. Sensor reference (URA: HVAC Coordinator device)
+
+### Mode + status
+
+| Sensor | Value |
+|---|---|
+| `sensor.ura_hvac_coordinator_mode` | Current overall mode (normal / pre_cool / pre_heat / coast / shed) |
+| `sensor.ura_hvac_coordinator_zone_<n>_status` | Per-zone status (idle / cooling / heating / fan_only / off) |
+| `sensor.ura_hvac_coordinator_zone_preset_<n>` | Per-zone effective preset right now |
+| `sensor.ura_hvac_coordinator_arrester_state` | Override arrester per-zone state |
+
+### Diagnostics + telemetry
+
+| Sensor | Value |
+|---|---|
+| `sensor.ura_hvac_coordinator_anomaly` | Active anomaly count (kWh-rate, runtime, override-frequency) |
+| `sensor.ura_hvac_coordinator_compliance` | % of decisions complied with (no manual override) |
+| `sensor.ura_hvac_coordinator_override_frequency` | Manual overrides per 24h (rolling window) |
+| `sensor.ura_hvac_coordinator_comfort_risk` | Current comfort-risk class (low / medium / high) |
+| `sensor.ura_hvac_coordinator_pre_cool_likelihood` | 0-100% predictor (see §6d) |
+
+### AC Ramp-Down (per-zone, v4.5.11)
+
+| Sensor | Value |
+|---|---|
+| `sensor.ura_hvac_coordinator_<zone>_ac_ramp_state` | State machine state (idle / detecting / nudging / awaiting_evaluation / escalating / locked_out) |
+| `sensor.ura_hvac_coordinator_<zone>_ac_ramp_last_action` | ISO timestamp of last nudge/reset/lockout |
+| `sensor.ura_hvac_coordinator_<zone>_ac_ramp_kwh_rate` | Live kWh-rate reading from `ac_load_sensor` |
+| `sensor.ura_hvac_coordinator_<zone>_ac_nudges_today` | Count |
+| `sensor.ura_hvac_coordinator_<zone>_ac_resets_today` | Count |
+
+### Mirror on Energy device
+
+`sensor.ura_energy_coordinator_hvac_constraint` — what EC is currently asking HVAC to do (mode + offset + reason).
+
+---
+
+## 11. Architecture
+
+```
+HVACCoordinator (hvac.py)              priority 30
+├── PresetManager (hvac_preset.py)     — seasonal defaults + house_state → preset map
+├── ZoneManager (hvac_zones.py)        — per-zone state, per-zone managed opt-out
+├── CoverController (hvac_covers.py)   — motorized blinds, solar gain, solar banking
+├── SwitchFanController (hvac_fans.py) — per-zone fan on/off with hysteresis
+├── HVACPredictor (hvac_predict.py)    — pre-cool / pre-heat likelihood
+└── OverrideArrester (hvac_override.py) — user-override detection + AC ramp-down state machine
+```
+
+**Signals consumed:**
+- `SIGNAL_HOUSE_STATE_CHANGED` (from Presence) — triggers preset re-evaluation
+- `SIGNAL_ENERGY_CONSTRAINT` (from Energy) — applies setpoint offsets
+- `SIGNAL_SAFETY_HAZARD` (from Safety) — emergency-heat-off on smoke/CO
+
+**Decision interval:** 5 minutes. Re-issuing the same `set_preset_mode` for an already-active preset is idempotent.
 
 ---
 
@@ -437,3 +597,13 @@ Two bug shapes from the v4.5.11.x debugging cycle are documented in `docs/QUALIT
 - **Bug Class #35** (button without refresh signal) — any new Button entity whose `available` depends on a runtime resource must subscribe to `SIGNAL_HVAC_ENTITIES_UPDATE` in `async_added_to_hass`. Otherwise it caches `available: False` forever after a restart timing-race. All v4.5.11.3+ buttons follow this pattern.
 
 These are documented for both maintenance (when adding new buttons / coord setup code) and for context if you observe the related symptoms (UnboundLocalError tracebacks, or buttons stuck greyed-out).
+
+---
+
+## §6b. Energy Constraint Integration + WeatherProviderManager (v4.7.x Cycle A)
+
+HVAC pre-cool likelihood (`sensor.ura_hvac_pre_cool_likelihood`) uses `forecast_high_temp` from the `EnergyConstraint` signal dispatched by the Energy Coordinator. As of v4.7.x Cycle A, this field continues to carry **raw forecast high** (°F dry-bulb) sourced via `WeatherProviderManager` — the same value as before, but now coming from the ranked-list manager instead of a single provider.
+
+A new field `apparent_forecast_high_temp` was added additively to `EnergyConstraint`. HVAC does not yet consume this field — that migration is deferred to a future Cycle C ("Comfort Primitive Migration") per the plan. For now, HVAC pre-cool likelihood behavior is unchanged.
+
+**What this means for you:** pre-cool likelihood numbers should remain stable post-v4.7.x deploy. If your primary weather provider goes stale or offline, the manager will automatically failover to the secondary/tertiary provider, so pre-cool continues to get a forecast high without intervention.

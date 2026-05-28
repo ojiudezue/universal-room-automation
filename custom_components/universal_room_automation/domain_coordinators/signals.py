@@ -63,6 +63,22 @@ SIGNAL_REGIME_EVENT_EMITTED: Final = "ura_regime_event_emitted"
 SIGNAL_NM_READY: Final = "ura_notification_manager_ready"
 SIGNAL_BAYESIAN_READY: Final = "ura_bayesian_predictor_ready"
 
+# v4.7.x D2: dispatched from EnergyCoordinator.async_setup() after init
+# completes (DB restore + first decision cycle).  EC sub-switches subscribe
+# here so they can reliably restore saved values even when EC coord init is
+# delayed beyond the v4.5.3 retry budget (e.g. Envoy validation race).
+# Mirrors the SIGNAL_DATABASE_READY / SIGNAL_NM_READY / SIGNAL_BAYESIAN_READY
+# pattern — one-shot fire-and-forget after the backing service is registered.
+SIGNAL_ENERGY_COORDINATOR_READY: Final = "ura_energy_coordinator_ready"
+
+# v4.7.x Cycle A: WeatherProviderManager signals
+# SIGNAL_WEATHER_PROVIDER_CHANGED — dispatched when active provider changes (failover).
+#   Payload: {"active": entity_id | None, "reason": str}
+# SIGNAL_WEATHER_DIVERGENCE_DETECTED — dispatched when ≥2 providers diverge beyond threshold.
+#   Payload: {"divergence_f": float, "provider_highs": dict}
+SIGNAL_WEATHER_PROVIDER_CHANGED: Final = "ura_weather_provider_changed"
+SIGNAL_WEATHER_DIVERGENCE_DETECTED: Final = "ura_weather_divergence_detected"
+
 
 # ============================================================================
 # Shared data classes for inter-coordinator communication
@@ -91,6 +107,10 @@ class EnergyConstraint:
     solar_class: str = ""
     forecast_high_temp: float | None = None
     soc: int | None = None
+    # v4.7.x Cycle A: apparent-temperature forecast high (from WeatherProviderManager).
+    # Added additively alongside forecast_high_temp to preserve back-compat (Bug #37).
+    # forecast_high_temp continues to carry raw_high for existing HVAC consumers.
+    apparent_forecast_high_temp: float | None = None
 
 
 @dataclass
