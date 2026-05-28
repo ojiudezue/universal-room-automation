@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv4.7.4
+# Universal Room Automation vv4.7.4.1
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -2348,9 +2348,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                             _zn,
                         )
             if _migration_needed:
-                hass.config_entries.async_update_entry(
-                    entry,
-                    options={**entry.options, "zones": _zones_updated},
+                # Defer the entry update via a background task so we don't trigger
+                # _async_update_listener → reload → re-entrant async_setup_entry
+                # while still mid-setup. Bug Class #46.
+                _new_options = {**entry.options, "zones": _zones_updated}
+                hass.async_create_task(
+                    _v474_defer_customize_buckets_persist(hass, entry, _new_options),
+                    name="ura_v474_customize_buckets_migration",
                 )
         except Exception:
             _LOGGER.debug(
@@ -3142,6 +3146,30 @@ async def _async_register_notification_services(hass: HomeAssistant) -> None:
         )
 
     _LOGGER.info("Registered notification manager services")
+
+
+async def _v474_defer_customize_buckets_persist(
+    hass: HomeAssistant, entry: ConfigEntry, new_options: dict
+) -> None:
+    """Persist the v4.7.4 customize_buckets migration after async_setup_entry returns.
+
+    Triggers the standard options-update flow once setup is complete, avoiding
+    the re-entrant reload that blew bootstrap-2 budget on cold install
+    (incident 2026-05-28; root cause: async_update_entry from inside
+    async_setup_entry triggers the registered update_listener → reload).
+
+    The deferred update_listener-fired reload is benign here — by the time it
+    fires, the original setup_entry has completed, so the reload runs as a
+    clean second pass with the migration flag already set (idempotent).
+    """
+    try:
+        hass.config_entries.async_update_entry(entry, options=new_options)
+    except Exception:
+        _LOGGER.warning(
+            "v4.7.4 customize_buckets deferred persist failed (non-fatal); "
+            "migration will retry on next entry load",
+            exc_info=True,
+        )
 
 
 async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
