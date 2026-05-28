@@ -218,6 +218,9 @@ async def async_setup_entry(
             EnergyTOUSeasonSensor(hass, entry),
             EnergyBatteryStrategySensor(hass, entry),
             EnergySolarDayClassSensor(hass, entry),
+            # v4.7.x Cycle A: WeatherProviderManager sensors
+            WeatherActiveProviderSensor(hass, entry),
+            WeatherApparentForecastHighSensor(hass, entry),
             # v3.7.0-E2: Pool + EV sensors
             EnergyPoolOptimizationSensor(hass, entry),
             EnergyEVChargingStatusSensor(hass, entry),
@@ -6321,6 +6324,117 @@ class EnergySolarDayClassSensor(AggregationEntity, SensorEntity):
             "forecast_today_kwh": battery.solcast_today,
             "forecast_remaining_kwh": battery.solcast_remaining,
         }
+
+
+# ============================================================================
+# v4.7.x Cycle A: WEATHER PROVIDER MANAGER SENSORS
+# ============================================================================
+
+
+class WeatherActiveProviderSensor(AggregationEntity, SensorEntity):
+    """Active weather provider entity ID (or 'none' / 'all_stale').
+
+    Entity: sensor.ura_weather_active_provider
+    Device: URA: Energy Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:weather-partly-cloudy"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_weather_active_provider"
+        self._attr_name = "Weather Active Provider"
+        self._attr_device_info = _energy_device_info()
+
+    @property
+    def native_value(self) -> str:
+        """Return active provider entity_id, 'none', or 'all_stale'."""
+        try:
+            mgr = self.hass.data.get(DOMAIN, {}).get("weather_manager")
+            if mgr is None:
+                return "none"
+            return mgr.provider_status_str
+        except Exception:
+            return "none"
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return provider list health details."""
+        try:
+            mgr = self.hass.data.get(DOMAIN, {}).get("weather_manager")
+            if mgr is None:
+                return {}
+            return {
+                "priority_rank": 0,
+                "healthy_count": mgr.healthy_provider_count,
+                "total_count": mgr.total_provider_count,
+                "failover_reason": mgr.failover_reason,
+                "apparent_confidence": mgr.apparent_confidence,
+                "provider_health": mgr.provider_health_map,
+            }
+        except Exception:
+            return {}
+
+
+class WeatherApparentForecastHighSensor(AggregationEntity, SensorEntity):
+    """Today's apparent forecast high temperature from the active provider.
+
+    Entity: sensor.ura_weather_apparent_forecast_high
+    Device: URA: Energy Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:thermometer-chevron-up"
+    _attr_native_unit_of_measurement = "°F"
+    _attr_state_class = "measurement"
+    _attr_suggested_display_precision = 1
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_weather_apparent_forecast_high"
+        self._attr_name = "Weather Apparent Forecast High"
+        self._attr_device_info = _energy_device_info()
+
+    @property
+    def native_value(self) -> float | None:
+        """Return today's apparent high from active provider."""
+        try:
+            manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+            if manager is None:
+                return None
+            energy = manager.coordinators.get("energy")
+            if energy is None:
+                return None
+            return energy._cached_apparent_forecast_high
+        except Exception:
+            return None
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Return forecast detail attributes."""
+        try:
+            manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+            mgr = self.hass.data.get(DOMAIN, {}).get("weather_manager")
+            attrs: dict = {}
+            if manager is not None:
+                energy = manager.coordinators.get("energy")
+                if energy is not None:
+                    attrs["raw_high"] = energy._cached_forecast_high
+            if mgr is not None:
+                forecast = mgr._cached_forecast
+                if forecast is not None:
+                    attrs["apparent_low"] = forecast.apparent_low
+                    attrs["provider_source"] = forecast.provider_id
+                    attrs["confidence"] = forecast.apparent_confidence
+                    attrs["divergence_f"] = forecast.divergence_f
+                    attrs["median_across_providers"] = forecast.apparent_high
+            return attrs
+        except Exception:
+            return {}
 
 
 # ============================================================================

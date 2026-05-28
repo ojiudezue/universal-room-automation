@@ -1484,6 +1484,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
                 coordinator_manager = CoordinatorManager(hass)
 
+                # v4.7.x Cycle A: Construct WeatherProviderManager singleton.
+                # Stored at hass.data[DOMAIN]["weather_manager"] for Energy +
+                # HVAC + sensors to consume. Sets up its own state listeners.
+                try:
+                    from .domain_coordinators.weather_manager import (
+                        WeatherProviderManager,
+                    )
+                    weather_manager = WeatherProviderManager(hass, cm_config)
+                    await weather_manager.async_setup()
+                    hass.data[DOMAIN]["weather_manager"] = weather_manager
+                except Exception as exc:  # pragma: no cover
+                    _LOGGER.warning(
+                        "WeatherProviderManager setup failed: %s", exc, exc_info=True
+                    )
+
                 # v3.6.0-c1: Register Presence Coordinator
                 if cm_config.get(CONF_PRESENCE_ENABLED, True):
                     from .domain_coordinators.presence import PresenceCoordinator
@@ -2622,6 +2637,17 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if coordinator_manager:
             await coordinator_manager.async_stop()
             del hass.data[DOMAIN]["coordinator_manager"]
+
+        # v4.7.x Cycle A: Tear down WeatherProviderManager state listeners
+        weather_manager = hass.data[DOMAIN].pop("weather_manager", None)
+        if weather_manager is not None:
+            try:
+                await weather_manager.async_teardown()
+            except Exception:
+                _LOGGER.warning(
+                    "WeatherProviderManager teardown failed during unload",
+                    exc_info=True,
+                )
 
         # Activity log: clean up daily prune timer
         unsub_activity_prune = hass.data[DOMAIN].pop("unsub_activity_prune", None)

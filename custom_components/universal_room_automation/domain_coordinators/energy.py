@@ -219,7 +219,10 @@ class EnergyCoordinator(BaseCoordinator):
         self._ev = EVChargerController(hass, evse_config=evse_config)
         self._smart_plugs = SmartPlugController(hass, plug_entities=smart_plug_entities)
 
-        # v3.11.0: Configured weather entity (for DB logging)
+        # v3.11.0: Configured weather entity (for DB logging).
+        # v4.7.x Cycle A: _weather_entity is the fallback when WeatherProviderManager
+        # is not yet set up. At runtime, _get_active_weather_entity() resolves via
+        # the manager first, falling back here. See A4 migration note.
         from .energy_const import DEFAULT_WEATHER_ENTITY
         self._weather_entity: str = ec.get(CONF_ENERGY_WEATHER_ENTITY, DEFAULT_WEATHER_ENTITY)
 
@@ -390,6 +393,8 @@ class EnergyCoordinator(BaseCoordinator):
         # Cached forecast temps (updated each decision cycle via async service)
         self._cached_forecast_high: float | None = None
         self._cached_forecast_low: float | None = None
+        # v4.7.x Cycle A: apparent-temp forecast high from WeatherProviderManager
+        self._cached_apparent_forecast_high: float | None = None
 
         # Envoy availability tracking
         self._envoy_unavailable_count: int = 0
@@ -1563,7 +1568,9 @@ class EnergyCoordinator(BaseCoordinator):
 
             outside_temp = None
             outside_humidity = None
-            weather_state = self.hass.states.get(self._weather_entity)
+            # v4.7.x Cycle A: route through WeatherProviderManager (A4 migration)
+            _active_weather_eid = self._get_active_weather_entity()
+            weather_state = self.hass.states.get(_active_weather_eid) if _active_weather_eid else None
             if weather_state and weather_state.attributes:
                 outside_temp = weather_state.attributes.get("temperature")
                 outside_humidity = weather_state.attributes.get("humidity")
@@ -1642,7 +1649,9 @@ class EnergyCoordinator(BaseCoordinator):
         if db is None:
             return
         try:
-            weather_state = self.hass.states.get(self._weather_entity)
+            # v4.7.x Cycle A: route through WeatherProviderManager (A4 migration)
+            _active_weather_eid = self._get_active_weather_entity()
+            weather_state = self.hass.states.get(_active_weather_eid) if _active_weather_eid else None
             outside_temp = None
             outside_humidity = None
             weather_condition = None
@@ -2372,12 +2381,65 @@ class EnergyCoordinator(BaseCoordinator):
         except Exception:
             _LOGGER.exception("Energy: failed to execute %s on %s", service, target)
 
+    def _get_active_weather_entity(self) -> str | None:
+        """Return the active weather entity ID.
+
+        v4.7.x Cycle A: Prefers WeatherProviderManager.active_provider;
+        falls back to self._weather_entity (legacy CONF_ENERGY_WEATHER_ENTITY).
+        """
+        try:
+            from ..const import DOMAIN as _DOMAIN_KEY
+            weather_mgr = self.hass.data.get(_DOMAIN_KEY, {}).get("weather_manager")
+            if weather_mgr is not None:
+                active = weather_mgr.active_provider
+                if active:
+                    return active
+        except Exception:
+            pass
+        return self._weather_entity or None
+
     async def _update_forecast_temps(self) -> None:
         """Fetch daily forecast high/low via weather.get_forecasts service.
 
-        Caches results in _cached_forecast_high/_cached_forecast_low.
+        v4.7.x Cycle A: Routes through WeatherProviderManager when available,
+        falling back to the legacy single-provider path for back-compat.
+        Caches results in _cached_forecast_high/_cached_forecast_low +
+        _cached_apparent_forecast_high.
         Modern HA (2024.3+) removed forecast from weather entity attributes.
         """
+        # v4.7.x: Try WeatherProviderManager first (A4 migration)
+        try:
+            from ..const import DOMAIN as _DOMAIN_KEY
+            weather_mgr = self.hass.data.get(_DOMAIN_KEY, {}).get("weather_manager")
+        except Exception:
+            weather_mgr = None
+
+        if weather_mgr is not None:
+            try:
+                forecast = await weather_mgr.get_today_forecast()
+                if forecast is not None:
+                    if forecast.raw_high is not None:
+                        self._cached_forecast_high = forecast.raw_high
+                    if forecast.raw_low is not None:
+                        self._cached_forecast_low = forecast.raw_low
+                    # Cache apparent high separately for EnergyConstraint payload
+                    self._cached_apparent_forecast_high = forecast.apparent_high
+                    _LOGGER.debug(
+                        "Forecast temps via WeatherProviderManager: "
+                        "raw_high=%s raw_low=%s apparent_high=%s provider=%s",
+                        self._cached_forecast_high,
+                        self._cached_forecast_low,
+                        self._cached_apparent_forecast_high,
+                        forecast.provider_id,
+                    )
+                    return
+            except Exception as exc:
+                _LOGGER.warning(
+                    "WeatherProviderManager.get_today_forecast failed, "
+                    "falling back to legacy path: %s", exc
+                )
+
+        # Legacy path: direct hass.services.async_call using predictor's weather entity
         weather_eid = None
         if self._predictor:
             weather_eid = getattr(self._predictor, "_weather_entity", None)
@@ -2509,6 +2571,8 @@ class EnergyCoordinator(BaseCoordinator):
                 solar_class=solar_class,
                 forecast_high_temp=forecast_high,
                 soc=soc if soc > 0 else None,
+                # v4.7.x Cycle A: apparent-temp alongside raw_high (Bug #37 — additive)
+                apparent_forecast_high_temp=self._cached_apparent_forecast_high,
             )
             async_dispatcher_send(
                 self.hass, SIGNAL_ENERGY_CONSTRAINT, constraint

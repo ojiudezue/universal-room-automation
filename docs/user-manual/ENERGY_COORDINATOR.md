@@ -551,7 +551,36 @@ A switch is a one-finger swipe — too easy to hit accidentally and leave active
 
 ---
 
+## 11. Weather Provider Manager (v4.7.x Cycle A)
+
+### Sensors
+
+| Entity ID | Purpose |
+|---|---|
+| `sensor.ura_weather_active_provider` | Active weather entity_id, or `none` / `all_stale` |
+| `sensor.ura_weather_apparent_forecast_high` | Today's apparent-temperature forecast high (°F) |
+| `binary_sensor.ura_weather_divergence` | On when ≥2 providers disagree beyond threshold |
+
+### Form fields
+
+These fields live in the CM → Energy step, alongside the existing Primary weather picker.
+
+| Field | CONF key | Default | Description |
+|---|---|---|---|
+| Primary weather provider | `CONF_ENERGY_WEATHER_ENTITY` | (user-configured) | Existing field — first-choice provider |
+| Secondary weather provider | `CONF_ENERGY_WEATHER_FALLBACK_1` | (empty) | Failover if primary is stale/unavailable |
+| Tertiary weather provider | `CONF_ENERGY_WEATHER_FALLBACK_2` | (empty) | Second-level failover |
+| Weather staleness limit | `CONF_WEATHER_STALENESS_MAX_HOURS` | 6h | Provider state older than this is treated as stale |
+| Divergence threshold | `CONF_WEATHER_DIVERGENCE_THRESHOLD_F` | 5°F | When ≥2 providers differ by this much, divergence sensor turns ON |
+
+**Migration from single-provider config:** your existing `CONF_ENERGY_WEATHER_ENTITY` value is preserved as the Primary provider. No changes required. Adding Secondary/Tertiary is opt-in.
+
+**Apparent temperature vs raw temperature:** the manager reads `apparent_temperature` (felt temperature accounting for humidity + wind) from each provider's `weather.get_forecasts` response. If a provider doesn't expose apparent temperature, it falls back to raw `temperature` with an `apparent_confidence = "fallback_raw"` flag visible on `sensor.ura_weather_apparent_forecast_high` attributes.
+
+---
+
 **See also:**
 - `docs/user-manual/HVAC_COORDINATOR.md` — the climate side of the same brain
 - `docs/readmes/README_v4.5.0.md` — the v4.5.0 battery-strategy redesign cycle (canonical reference)
-- `docs/QUALITY_CONTEXT.md` — bug-class catalog (#1–#38) that reviews check against
+- `docs/QUALITY_CONTEXT.md` — bug-class catalog (#1–#43) that reviews check against
+- `docs/ENERGY_MANAGEMENT_EXPLAINER.md §15` — Weather Provider Manager architecture detail
