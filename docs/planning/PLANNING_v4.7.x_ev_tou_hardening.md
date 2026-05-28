@@ -211,3 +211,116 @@ Release "done" when:
 - Triggers: 2026-05-27 live diagnostic showing EV TOU off + EVSE charging at mid-peak
 - Predecessor: `memory/project_ec_startup_race_evidence.md` — this cycle ships the resilience code that memory was waiting on
 - Sibling: Dynamic Preset Management Cycle B (independent timeline; can ship in either order)
+
+---
+
+## Post-review backlog
+
+Findings from Reviewer A and Reviewer B that were NOT fixed in the fix-up
+build (CRITICAL/HIGH applied; MEDIUM/LOW deferred per cycle protocol).
+File the items below against the next qualifying cycle that touches the
+relevant files.
+
+### MEDIUM findings (4 total)
+
+**A.M1 — `set_force_charge_override` lacks timezone-awareness validation (energy_pool.py)**
+- Reviewer: A
+- Bug Class: #11, #21
+- Detail: Method docstring says caller must supply UTC-aware datetime but performs
+  no validation.  A naive datetime would crash `determine_actions()` at the
+  `now_utc < self._force_charge_until` comparison.
+- The sole current caller (`EVSEForceChargeButton.async_press`) passes
+  `dt_util.utcnow() + timedelta(...)` which is always aware.  Not exploitable today.
+- Deferred because: single call site is correct; only a risk if a future caller
+  passes naive datetime.
+- Fix: add `if until.tzinfo is None: raise ValueError("force_charge_until must be timezone-aware")` in `set_force_charge_override`.
+
+**A.M2 — `ECEvTouSwitch.extra_state_attributes` no None guard on `ev_controller` (switch.py)**
+- Reviewer: A
+- Bug Class: #11
+- Detail: After the EC registration guard (`energy is None` returns `{}`), the code
+  trusts `energy.ev_controller` is not None.  `EVChargerController` constructor
+  does no I/O so it cannot fail in practice; risk is very low.
+- Deferred because: likelihood is extremely low; EC constructor always assigns `_ev`.
+- Fix: wrap `ev = energy.ev_controller; until = ev.force_charge_until` in
+  `try/except AttributeError: return {}` for defense-in-depth.
+
+**A.M3 / B.B8 — `dt_util.dt.datetime` type annotation is fragile (binary_sensor.py:1939)**
+- Reviewer: A, B
+- Bug Class: None (type safety)
+- Detail: `self._ec_ready_at: dt_util.dt.datetime | None = None` uses an indirect
+  path through the dt_util module's internal alias.  Should be
+  `from datetime import datetime; self._ec_ready_at: datetime | None = None`.
+- Deferred because: annotation-only; no runtime impact with `from __future__ import annotations`.
+- Fix: import `datetime` from standard library and use it directly.
+
+**A.M4 / B.B4 — `button.py` accesses private `energy._observation_mode` and `energy._send_nm_alert`**
+- Reviewer: A, B
+- Bug Class: #23 (observation mode); encapsulation violation
+- Detail: `EVSEForceChargeButton.async_press` reads `energy._observation_mode` (should
+  use `energy.observation_mode` public property) and calls `energy._send_nm_alert`
+  (private method).  Observation mode gating is functionally correct; the issue is
+  coupling that breaks silently if private API changes.
+- Deferred because: gating logic is correct; no functional defect today.
+- Fix: change `energy._observation_mode` to `energy.observation_mode`.  For
+  `_send_nm_alert`, either promote it or add `energy.send_force_charge_notification()`.
+
+### LOW findings (5 total)
+
+**A.L1 — Duplicate deferred import in energy_pool.py (cosmetic)**
+- Reviewer: A
+- Detail: `from homeassistant.util import dt as dt_util` appears as deferred import
+  inside both `determine_actions()` and `get_status()`.  Consistent with the
+  file's existing deferred-import pattern; no impact.
+- Fix: No change needed (style only; keep for consistency with other methods).
+
+**A.L2 — `_SUB_SWITCH_SUFFIXES` dead code in binary_sensor.py (now partially used)**
+- Reviewer: A
+- Detail: The tuple was originally dead code.  The H1 fix-up uses the counter
+  approach on EC rather than iterating these suffixes, so the tuple is still
+  not referenced by any method.
+- Fix: Either remove the tuple (clean-up) or document it as an exploratory
+  scaffold for a future per-suffix entity-registry lookup approach.
+
+**B.B5 — `ECEvTouSwitch.extra_state_attributes` duplicates expired-override check (switch.py)**
+- Reviewer: B
+- Bug Class: DRY violation / divergent expiry logic
+- Detail: Two paths independently call `dt_util.utcnow()` to check expiry:
+  `energy_pool.get_status()` and `ECEvTouSwitch.extra_state_attributes`.  In a
+  race between the two reads the switch could show `None` while the sensor still
+  shows the ISO string.
+- Deferred because: race window is sub-millisecond; no user-visible impact.
+- Fix: have `ECEvTouSwitch.extra_state_attributes` delegate to
+  `ev_controller.get_status()["force_charge_until_iso"]` rather than
+  rechecking expiry independently.
+
+**B.B6 — `sensor.py` accesses `energy._tou` and `energy._battery` (private attrs)**
+- Reviewer: B
+- Bug Class: Same encapsulation issue as A.M4/B.B4
+- Detail: `_build_situation_attrs` accesses `energy._tou` and `energy._battery._get_entity(...)`.
+  EnergyCoordinator exposes `tou_engine` (line 3343) and `battery_strategy` (line 3348)
+  as public properties; use those instead.
+- Deferred because: sensors commonly read coordinator internals; no functional defect.
+- Fix: replace `energy._tou` with `energy.tou_engine` and `energy._battery` with
+  `energy.battery_strategy` in `_build_situation_attrs`.
+
+**B.B7 — Test file sys.modules + `_FIXED_NOW` contaminates process-wide dt_util mock**
+- Reviewer: B
+- Bug Class: Test isolation
+- Detail: `sys.modules.setdefault(...)` at import time means whichever test file
+  loads first wins the process-wide `homeassistant.util.dt.utcnow` mock.  D3 tests
+  are immune (use far-future/far-past timestamps).  Risk increases if pytest
+  collection order changes (e.g. pytest-randomly plugin).
+- Deferred because: low risk in current ordering; `setdefault` prevents overwriting.
+- Fix: refactor time mocking from `sys.modules` mutation to scoped
+  `unittest.mock.patch` inside each test class or method.
+
+**B.B9 — No test coverage for `ECEvTouSwitch.extra_state_attributes` (now partially covered)**
+- Reviewer: B
+- Detail: D3 tests exercise the controller layer (`EVChargerController.get_status()`)
+  but not the switch entity's attribute rendering.  The B2 fix-up adds
+  `async_added_to_hass` override which is partially covered by the new B2 tests;
+  the `extra_state_attributes` rendering itself remains without a test.
+- Fix: add a test that verifies `extra_state_attributes` returns
+  `{"override_active_until_iso": None}` when inactive, the ISO string when active,
+  and `{}` when EC is not registered.
