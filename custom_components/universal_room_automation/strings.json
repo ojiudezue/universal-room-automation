@@ -455,6 +455,8 @@
           "coordinator_music_following": "🎵 Music Following",
           "coordinator_energy": "⚡ Energy",
           "coordinator_hvac": "🌡️ HVAC",
+          "coordinator_hvac_settings": "🌡️ HVAC Tuning",
+          "hvac_dynamic_preset": "🌡️ HVAC Dynamic Preset",
           "coordinator_notifications": "🔔 Notifications",
           "coordinator_notifications_persons": "👤 Notification Persons",
           "coordinator_notifications_quiet": "🌙 Quiet Hours",
@@ -502,7 +504,8 @@
           "zone_hvac": "🌡️ Zone HVAC",
           "zone_energy": "⚡ Zone Energy",
           "zone_persons": "👤 Primary Persons",
-          "zone_cameras": "📷 Zone Cameras"
+          "zone_cameras": "📷 Zone Cameras",
+          "zone_dynamic_preset": "🌡️ Dynamic Preset (per-zone)"
         }
       },
       "zone_hvac": {
@@ -848,6 +851,14 @@
       },
       "coordinator_hvac": {
         "title": "🌡️ HVAC Coordinator",
+        "description": "Configure HVAC Coordinator settings.",
+        "menu_options": {
+          "coordinator_hvac_settings": "🌡️ HVAC Tuning",
+          "hvac_dynamic_preset": "🌡️ Dynamic Preset"
+        }
+      },
+      "coordinator_hvac_settings": {
+        "title": "🌡️ HVAC Coordinator Tuning",
         "description": "Manages zone presets, override detection, fan control, cover management, and pre-conditioning.",
         "data": {
           "hvac_max_sleep_offset": "Sleep Temperature Offset",
@@ -900,6 +911,72 @@
           "hvac_solar_bank_soc_min": "Battery state-of-charge above which surplus solar is dumped into thermal banking instead of grid export. Lower = more aggressive banking; higher = more battery headroom for evening. Default: 95%.",
           "hvac_precool_forecast_high": "When tomorrow's forecast high exceeds this, HVAC pre-cools occupied zones before peak hours. Lower = more pre-cooling; higher = pre-cool only on extreme days. Default: 90°F.",
           "hvac_preheat_forecast_low": "When outdoor temp drops below this in winter, HVAC pre-heats occupied zones before off-peak ends. Higher = more pre-heating; lower = pre-heat only on coldest days. Default: 35°F."
+        }
+      },
+      "hvac_dynamic_preset": {
+        "title": "🌡️ Dynamic Preset Auto-Adjust",
+        "description": "Configure Dynamic Preset house-wide settings and per-zone temperature ranges. Master switch controls DPM globally; per-zone settings only apply for zones with DPM enabled.",
+        "data": {
+          "dynamic_preset_delta_cool_max": "Cool Bucket Max Delta",
+          "dynamic_preset_delta_mild_max": "Mild Bucket Max Delta",
+          "dynamic_preset_delta_hot_max": "Hot Bucket Max Delta",
+          "dynamic_preset_dwell_minutes": "Bucket Dwell Minutes",
+          "dynamic_preset_hysteresis_f": "Bucket Hysteresis (°F)"
+        },
+        "data_description": {
+          "dynamic_preset_delta_cool_max": "Maximum setpoint reduction (negative) when outdoor conditions are cool. Range: -10 to 0°F. Default: -2°F.",
+          "dynamic_preset_delta_mild_max": "Maximum setpoint increase when outdoor conditions are mild. Range: 0 to 15°F. Default: 8°F.",
+          "dynamic_preset_delta_hot_max": "Maximum setpoint increase when outdoor conditions are hot. Range: 10 to 30°F. Default: 18°F.",
+          "dynamic_preset_dwell_minutes": "Minutes a bucket condition must persist before adjustments apply. Prevents rapid cycling. Range: 15-240 min. Default: 60.",
+          "dynamic_preset_hysteresis_f": "Temperature band around bucket boundary before switching buckets. Prevents flapping at thresholds. Range: 0.5-5.0°F. Default: 2.0."
+        }
+      },
+      "zone_dynamic_preset": {
+        "title": "🌡️ Zone Dynamic Preset",
+        "description": "Configure per-zone Dynamic Preset temperature ranges for zone '{zone_name}'. Enable DPM for this zone and set target setpoint ranges for each outdoor condition bucket.",
+        "data": {
+          "zone_dynamic_preset_enabled": "Enable DPM for this zone",
+          "zone_dynamic_preset_offset": "Offset",
+          "zone_dynamic_preset_reset_offset_guest": "Reset offset during Guest Mode",
+          "zone_dynamic_preset_sleep_enabled": "Enable sleep preset ranges",
+          "zone_dynamic_preset_cool_home_low": "Cool: Home Low",
+          "zone_dynamic_preset_cool_home_high": "Cool: Home High",
+          "zone_dynamic_preset_mild_home_low": "Mild: Home Low",
+          "zone_dynamic_preset_mild_home_high": "Mild: Home High",
+          "zone_dynamic_preset_hot_home_low": "Hot: Home Low",
+          "zone_dynamic_preset_hot_home_high": "Hot: Home High",
+          "zone_dynamic_preset_extreme_home_low": "Extreme: Home Low",
+          "zone_dynamic_preset_extreme_home_high": "Extreme: Home High",
+          "zone_dynamic_preset_cool_sleep_low": "Cool: Sleep Low",
+          "zone_dynamic_preset_cool_sleep_high": "Cool: Sleep High",
+          "zone_dynamic_preset_mild_sleep_low": "Mild: Sleep Low",
+          "zone_dynamic_preset_mild_sleep_high": "Mild: Sleep High",
+          "zone_dynamic_preset_hot_sleep_low": "Hot: Sleep Low",
+          "zone_dynamic_preset_hot_sleep_high": "Hot: Sleep High",
+          "zone_dynamic_preset_extreme_sleep_low": "Extreme: Sleep Low",
+          "zone_dynamic_preset_extreme_sleep_high": "Extreme: Sleep High"
+        },
+        "data_description": {
+          "zone_dynamic_preset_enabled": "When enabled, DPM adjusts this zone's thermostat setpoints based on outdoor conditions.",
+          "zone_dynamic_preset_offset": "Additional °F offset applied on top of bucket adjustments (0-3°F, step 0.5). Useful for zones that consistently run warm/cool.",
+          "zone_dynamic_preset_reset_offset_guest": "When Guest Mode is active, reset this zone's offset to 0 to maintain comfortable temperatures for guests.",
+          "zone_dynamic_preset_sleep_enabled": "Enable separate temperature ranges for sleep preset. When off, sleep uses the same ranges as home preset.",
+          "zone_dynamic_preset_cool_home_low": "Minimum cooling setpoint (°F) for home preset in cool outdoor conditions.",
+          "zone_dynamic_preset_cool_home_high": "Maximum cooling setpoint (°F) for home preset in cool outdoor conditions.",
+          "zone_dynamic_preset_mild_home_low": "Minimum cooling setpoint (°F) for home preset in mild outdoor conditions.",
+          "zone_dynamic_preset_mild_home_high": "Maximum cooling setpoint (°F) for home preset in mild outdoor conditions.",
+          "zone_dynamic_preset_hot_home_low": "Minimum cooling setpoint (°F) for home preset in hot outdoor conditions.",
+          "zone_dynamic_preset_hot_home_high": "Maximum cooling setpoint (°F) for home preset in hot outdoor conditions.",
+          "zone_dynamic_preset_extreme_home_low": "Minimum cooling setpoint (°F) for home preset in extreme heat conditions.",
+          "zone_dynamic_preset_extreme_home_high": "Maximum cooling setpoint (°F) for home preset in extreme heat conditions.",
+          "zone_dynamic_preset_cool_sleep_low": "Minimum cooling setpoint (°F) for sleep preset in cool conditions.",
+          "zone_dynamic_preset_cool_sleep_high": "Maximum cooling setpoint (°F) for sleep preset in cool conditions.",
+          "zone_dynamic_preset_mild_sleep_low": "Minimum cooling setpoint (°F) for sleep preset in mild conditions.",
+          "zone_dynamic_preset_mild_sleep_high": "Maximum cooling setpoint (°F) for sleep preset in mild conditions.",
+          "zone_dynamic_preset_hot_sleep_low": "Minimum cooling setpoint (°F) for sleep preset in hot conditions.",
+          "zone_dynamic_preset_hot_sleep_high": "Maximum cooling setpoint (°F) for sleep preset in hot conditions.",
+          "zone_dynamic_preset_extreme_sleep_low": "Minimum cooling setpoint (°F) for sleep preset in extreme conditions.",
+          "zone_dynamic_preset_extreme_sleep_high": "Maximum cooling setpoint (°F) for sleep preset in extreme conditions."
         }
       },
       "coordinator_music_following": {
@@ -1106,7 +1183,9 @@
           "shared_space_auto_off_hour": "Auto-Off Hour",
           "shared_space_warning": "Warning Flash",
           "occupancy_timeout": "Occupancy Timeout",
-          "occupancy_debounce": "Motion Detection Delay"
+          "occupancy_debounce": "Motion Detection Delay",
+          "room_is_guest_room": "Is Guest Room",
+          "room_guest_occupancy_threshold_min": "Guest Signal Threshold"
         },
         "data_description": {
           "room_name": "A friendly name for this room",
@@ -1117,7 +1196,9 @@
           "shared_space_auto_off_hour": "Hour (0-23) to turn off devices",
           "shared_space_warning": "Flash lights before auto-off",
           "occupancy_timeout": "Seconds until room is marked vacant",
-          "occupancy_debounce": "Milliseconds to wait before confirming occupancy after motion. Lower = faster, higher = fewer false triggers. 0 for pre-filtered sensors."
+          "occupancy_debounce": "Milliseconds to wait before confirming occupancy after motion. Lower = faster, higher = fewer false triggers. 0 for pre-filtered sensors.",
+          "room_is_guest_room": "When enabled, sustained unknown occupancy in this room will arm the guest signal (see Guest Signal Threshold below).",
+          "room_guest_occupancy_threshold_min": "Minutes of continuous unknown occupancy before Guest Mode is triggered via the sustained-occupancy path. Range: 5-240 min. Default: 30."
         }
       },
       "sensors": {

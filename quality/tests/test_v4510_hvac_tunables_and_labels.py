@@ -384,12 +384,13 @@ class TestNewCONFsWiredEndToEnd:
         "CONF_HVAC_PREHEAT_FORECAST_LOW",
     ])
     def test_conf_in_form_step(self, config_flow_src, conf):
-        idx = config_flow_src.find("async def async_step_coordinator_hvac")
-        assert idx > 0
+        # v4.7.2 D1: coordinator_hvac is now a menu; form step is coordinator_hvac_settings.
+        idx = config_flow_src.find("async def async_step_coordinator_hvac_settings")
+        assert idx > 0, "async_step_coordinator_hvac_settings not found in config_flow.py"
         end = config_flow_src.find("\n    async def ", idx + 1)
         body = config_flow_src[idx:end] if end > 0 else config_flow_src[idx:]
         assert conf in body, (
-            f"{conf} must have a form field in coordinator_hvac step "
+            f"{conf} must have a form field in coordinator_hvac_settings step "
             f"(Bug Class #32 prevention)"
         )
 
@@ -483,7 +484,9 @@ class TestCoverHysteresisValidation:
             return json.load(f)
 
     def test_validation_block_present(self, config_flow_src):
-        idx = config_flow_src.find("async def async_step_coordinator_hvac")
+        # v4.7.2 D1: form step renamed to coordinator_hvac_settings
+        idx = config_flow_src.find("async def async_step_coordinator_hvac_settings")
+        assert idx > 0, "async_step_coordinator_hvac_settings not found"
         end = config_flow_src.find("\n    async def ", idx + 1)
         body = config_flow_src[idx:end] if end > 0 else config_flow_src[idx:]
         assert "cover_temp_hysteresis_too_small" in body, (
@@ -500,12 +503,12 @@ class TestCoverHysteresisValidation:
         assert "3" in msg and "Cover" in msg
 
     def test_form_show_passes_errors(self, config_flow_src):
-        # Find the show_form for coordinator_hvac
-        idx = config_flow_src.find('step_id="coordinator_hvac"')
-        assert idx > 0
+        # v4.7.2 D1: form step is coordinator_hvac_settings; show_form uses that step_id
+        idx = config_flow_src.find('step_id="coordinator_hvac_settings"')
+        assert idx > 0, 'step_id="coordinator_hvac_settings" not found in config_flow.py'
         body = config_flow_src[idx:idx + 200]
         assert "errors=errors" in body, (
-            "async_show_form for coordinator_hvac must pass errors dict"
+            "async_show_form for coordinator_hvac_settings must pass errors dict"
         )
 
 
@@ -564,7 +567,8 @@ class TestLabelRenames:
 
     def test_form_label_for_vacancy_sweep_synced(self, strings):
         """The config-flow form label should also reflect the rename."""
-        step = strings["options"]["step"]["coordinator_hvac"]
+        # v4.7.2 D1: form step moved to coordinator_hvac_settings
+        step = strings["options"]["step"]["coordinator_hvac_settings"]
         assert step["data"]["zone_vacancy_sweep_enabled"] == "Vacancy Auto-Off"
 
 
@@ -599,12 +603,13 @@ class TestStringsAndTranslations:
         "hvac_preheat_forecast_low",
     ])
     def test_strings_label_present(self, strings, conf_key):
-        step = strings["options"]["step"]["coordinator_hvac"]
+        # v4.7.2 D1: coordinator_hvac is now a menu; form step moved to coordinator_hvac_settings
+        step = strings["options"]["step"]["coordinator_hvac_settings"]
         assert conf_key in step["data"], (
-            f"strings.json coordinator_hvac.data missing label for {conf_key}"
+            f"strings.json coordinator_hvac_settings.data missing label for {conf_key}"
         )
         assert conf_key in step["data_description"], (
-            f"strings.json coordinator_hvac.data_description missing helper for {conf_key}"
+            f"strings.json coordinator_hvac_settings.data_description missing helper for {conf_key}"
         )
 
     @pytest.mark.parametrize("conf_key", [
@@ -620,7 +625,8 @@ class TestStringsAndTranslations:
         "hvac_preheat_forecast_low",
     ])
     def test_translations_en_synced(self, en_translations, conf_key):
-        step = en_translations["options"]["step"]["coordinator_hvac"]
+        # v4.7.2 D1: form step moved to coordinator_hvac_settings
+        step = en_translations["options"]["step"]["coordinator_hvac_settings"]
         assert conf_key in step["data"]
         assert conf_key in step["data_description"]
 

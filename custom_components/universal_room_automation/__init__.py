@@ -2354,6 +2354,40 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         cm_platforms = list(INTEGRATION_PLATFORMS) + [Platform.NUMBER]
         await hass.config_entries.async_forward_entry_setups(entry, cm_platforms)
 
+        # v4.7.2 D2: defensive entity_registry device-reassignment for the
+        # HVACDynamicPresetSwitch (migrated from EC device to HVAC Coordinator
+        # device).  HA may auto-reassign when DeviceInfo.identifiers changes on
+        # next platform setup; this helper is idempotent — it no-ops if HA already
+        # moved the entity.  B2 fix (v4.7.2 reviewer fix-up).
+        try:
+            from homeassistant.helpers import entity_registry as er
+            from homeassistant.helpers import device_registry as dr_mod
+            _er = er.async_get(hass)
+            _old_entity_id = f"switch.{DOMAIN}_energy_dynamic_preset_enabled"
+            _ent_entry = _er.async_get(_old_entity_id)
+            if _ent_entry is not None:
+                _dr = dr_mod.async_get(hass)
+                _target_device = _dr.async_get_device(
+                    identifiers={(DOMAIN, "hvac_coordinator")}
+                )
+                if (
+                    _target_device is not None
+                    and _ent_entry.device_id != _target_device.id
+                ):
+                    _er.async_update_entity(
+                        _old_entity_id, device_id=_target_device.id
+                    )
+                    _LOGGER.info(
+                        "v4.7.2 D2: reassigned %s to HVAC Coordinator device",
+                        _old_entity_id,
+                    )
+        except Exception:
+            _LOGGER.debug(
+                "v4.7.2 D2: entity reassignment skipped "
+                "(entity not registered yet or registry unavailable)",
+                exc_info=True,
+            )
+
         entry.async_on_unload(entry.add_update_listener(_async_update_listener))
         _LOGGER.info("Coordinator Manager entry setup complete")
         return True

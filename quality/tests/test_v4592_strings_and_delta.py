@@ -198,9 +198,11 @@ class TestOccupiedCoverCloseDeltaWired:
         )
 
     def test_strings_label_present(self, strings):
-        step = strings["options"]["step"]["coordinator_hvac"]
+        # v4.7.2: coordinator_hvac is now a menu step; the settings form
+        # moved to coordinator_hvac_settings.
+        step = strings["options"]["step"]["coordinator_hvac_settings"]
         assert "hvac_occupied_cover_close_delta" in step["data"], (
-            "strings.json coordinator_hvac.data missing label for new CONF"
+            "strings.json coordinator_hvac_settings.data missing label for new CONF"
         )
         assert "hvac_occupied_cover_close_delta" in step["data_description"], (
             "Helper text required so user understands the threshold semantics"
@@ -210,7 +212,8 @@ class TestOccupiedCoverCloseDeltaWired:
         """en.json must mirror strings.json for the new keys."""
         with open("custom_components/universal_room_automation/translations/en.json") as f:
             en = json.load(f)
-        step = en["options"]["step"]["coordinator_hvac"]
+        # v4.7.2: coordinator_hvac is now a menu step; form is coordinator_hvac_settings
+        step = en["options"]["step"]["coordinator_hvac_settings"]
         assert "hvac_occupied_cover_close_delta" in step["data"]
         assert "hvac_occupied_cover_close_delta" in step["data_description"]
 

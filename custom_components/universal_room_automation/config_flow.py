@@ -44,6 +44,9 @@ from .const import (
     CONF_AREA_ID,
     CONF_OCCUPANCY_TIMEOUT,
     CONF_OCCUPANCY_DEBOUNCE,
+    # v4.7.2 D4: Per-room guest designation
+    CONF_ROOM_IS_GUEST_ROOM,
+    CONF_ROOM_GUEST_OCCUPANCY_THRESHOLD_MIN,
     ROOM_TYPE_BEDROOM,
     ROOM_TYPE_CLOSET,
     ROOM_TYPE_BATHROOM,
@@ -3288,10 +3291,26 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         )
 
     async def async_step_coordinator_hvac(self, user_input=None):
+        """HVAC Coordinator submenu.
+
+        v4.7.2 D1: Converted from form to menu to expose Dynamic Preset step.
+        Routes to: coordinator_hvac_settings (existing tuning form) or
+        hvac_dynamic_preset (new D1 Surface 1).
+        """
+        return self.async_show_menu(
+            step_id="coordinator_hvac",
+            menu_options=[
+                "coordinator_hvac_settings",
+                "hvac_dynamic_preset",
+            ],
+        )
+
+    async def async_step_coordinator_hvac_settings(self, user_input=None):
         """Configure HVAC Coordinator settings.
 
         v3.8.6: Sleep offset, override compromise, fan tuning, cover entities.
         v3.18.5: Person-to-zone mapping moved to per-zone zone_persons step.
+        v4.7.2: Moved from async_step_coordinator_hvac (now a menu).
         """
         from .domain_coordinators.hvac_const import (
             CONF_HVAC_MAX_SLEEP_OFFSET,
@@ -3644,10 +3663,406 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         data_schema = vol.Schema(schema_dict)
 
         return self.async_show_form(
-            step_id="coordinator_hvac",
+            step_id="coordinator_hvac_settings",
             data_schema=data_schema,
             errors=errors,
         )
+
+    # =========================================================================
+    # v4.7.2 D1: HVAC Coordinator → Dynamic Preset (Surface 1)
+    # =========================================================================
+
+    async def async_step_hvac_dynamic_preset(self, user_input=None):
+        """HVAC Coordinator → Configure → Dynamic Preset (Surface 1, v4.7.2 D1).
+
+        Reachable via: CM entry → Configure → HVAC → Dynamic Preset.
+
+        Form layout:
+        1. House-wide bucket boundary settings (5 fields):
+           CONF_DYNAMIC_PRESET_DELTA_COOL_MAX, _MILD_MAX, _HOT_MAX,
+           CONF_DYNAMIC_PRESET_DWELL_MINUTES, CONF_DYNAMIC_PRESET_HYSTERESIS_F.
+        2. Per-zone repeat sections (N rows) via iter_canonical_hvac_zones.
+           Each row inlines the same fields as Surface 2 via
+           _build_dynamic_preset_schema(zone_name).
+
+        Note: the master enable for Dynamic Preset Auto-Adjust is the D2
+        HVACDynamicPresetSwitch entity on the HVAC Coordinator device page.
+        It is NOT a form field on this step — the switch entity provides a
+        better UX surface (automatable; always visible on device card).
+
+        Sync invariant: calls _build_hvac_dynamic_preset_schema and
+        _validate_dynamic_preset_input — same helpers as Surface 2
+        (async_step_zone_dynamic_preset). Both surfaces produce identical
+        error keys for identical bad input.
+        """
+        import voluptuous as vol
+        from .domain_coordinators.energy_const import (
+            CONF_ZONE_DYNAMIC_PRESET_ENABLED,
+            CONF_ZONE_DYNAMIC_PRESET_OFFSET,
+            CONF_ZONE_DYNAMIC_PRESET_RESET_OFFSET_GUEST,
+            CONF_ZONE_DYNAMIC_PRESET_SLEEP_ENABLED,
+            CONF_ZONE_DYNAMIC_PRESET_COOL_HOME_LOW,
+            CONF_ZONE_DYNAMIC_PRESET_COOL_HOME_HIGH,
+            CONF_ZONE_DYNAMIC_PRESET_MILD_HOME_LOW,
+            CONF_ZONE_DYNAMIC_PRESET_MILD_HOME_HIGH,
+            CONF_ZONE_DYNAMIC_PRESET_HOT_HOME_LOW,
+            CONF_ZONE_DYNAMIC_PRESET_HOT_HOME_HIGH,
+            CONF_ZONE_DYNAMIC_PRESET_EXTREME_HOME_LOW,
+            CONF_ZONE_DYNAMIC_PRESET_EXTREME_HOME_HIGH,
+            CONF_ZONE_DYNAMIC_PRESET_COOL_SLEEP_LOW,
+            CONF_ZONE_DYNAMIC_PRESET_COOL_SLEEP_HIGH,
+            CONF_ZONE_DYNAMIC_PRESET_MILD_SLEEP_LOW,
+            CONF_ZONE_DYNAMIC_PRESET_MILD_SLEEP_HIGH,
+            CONF_ZONE_DYNAMIC_PRESET_HOT_SLEEP_LOW,
+            CONF_ZONE_DYNAMIC_PRESET_HOT_SLEEP_HIGH,
+            CONF_ZONE_DYNAMIC_PRESET_EXTREME_SLEEP_LOW,
+            CONF_ZONE_DYNAMIC_PRESET_EXTREME_SLEEP_HIGH,
+            CONF_DYNAMIC_PRESET_DELTA_COOL_MAX,
+            CONF_DYNAMIC_PRESET_DELTA_MILD_MAX,
+            CONF_DYNAMIC_PRESET_DELTA_HOT_MAX,
+            CONF_DYNAMIC_PRESET_DWELL_MINUTES,
+            CONF_DYNAMIC_PRESET_HYSTERESIS_F,
+            MIN_DEADBAND,
+        )
+
+        MIN_TEMP = 60.0
+        MAX_TEMP = 90.0
+        SLEEP_FLOOR = 74.0
+
+        # Resolve canonical HVAC zones for per-zone repeat sections.
+        try:
+            from .domain_coordinators.hvac_zones import iter_canonical_hvac_zones
+            canonical_zones = iter_canonical_hvac_zones(self.hass)
+        except Exception:
+            canonical_zones = []
+
+        # Locate the Zone Manager entry for per-zone storage.
+        try:
+            from .const import ENTRY_TYPE_ZONE_MANAGER
+            zm_entry = None
+            for _ce in self.hass.config_entries.async_entries(DOMAIN):
+                if _ce.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_ZONE_MANAGER:
+                    zm_entry = _ce
+                    break
+        except Exception:
+            zm_entry = None
+
+        if user_input is not None:
+            errors = {}
+
+            # Validate house-wide bucket boundary ordering:
+            # DELTA_COOL_MAX < DELTA_MILD_MAX < DELTA_HOT_MAX
+            cool_max = float(user_input.get(CONF_DYNAMIC_PRESET_DELTA_COOL_MAX, -2.0))
+            mild_max = float(user_input.get(CONF_DYNAMIC_PRESET_DELTA_MILD_MAX, 8.0))
+            hot_max = float(user_input.get(CONF_DYNAMIC_PRESET_DELTA_HOT_MAX, 18.0))
+            if not (cool_max < mild_max < hot_max):
+                errors["base"] = "dynamic_preset_bucket_boundary_disorder"
+
+            if not errors:
+                # Validate per-zone preset ranges using shared helper.
+                for cz in canonical_zones:
+                    zn = cz["zone_name"]
+                    zone_errors = self._validate_dynamic_preset_input(
+                        user_input, zn, SLEEP_FLOOR,
+                        CONF_ZONE_DYNAMIC_PRESET_ENABLED,
+                        CONF_ZONE_DYNAMIC_PRESET_OFFSET,
+                        CONF_ZONE_DYNAMIC_PRESET_SLEEP_ENABLED,
+                        CONF_ZONE_DYNAMIC_PRESET_COOL_HOME_LOW, CONF_ZONE_DYNAMIC_PRESET_COOL_HOME_HIGH,
+                        CONF_ZONE_DYNAMIC_PRESET_MILD_HOME_LOW, CONF_ZONE_DYNAMIC_PRESET_MILD_HOME_HIGH,
+                        CONF_ZONE_DYNAMIC_PRESET_HOT_HOME_LOW, CONF_ZONE_DYNAMIC_PRESET_HOT_HOME_HIGH,
+                        CONF_ZONE_DYNAMIC_PRESET_EXTREME_HOME_LOW, CONF_ZONE_DYNAMIC_PRESET_EXTREME_HOME_HIGH,
+                        MIN_DEADBAND,
+                        zone_prefix=zn,
+                    )
+                    if zone_errors:
+                        errors["base"] = zone_errors
+                        break
+
+            if not errors:
+                # Store house-wide CONFs in CM entry options.
+                cm_update = {
+                    CONF_DYNAMIC_PRESET_DELTA_COOL_MAX: cool_max,
+                    CONF_DYNAMIC_PRESET_DELTA_MILD_MAX: mild_max,
+                    CONF_DYNAMIC_PRESET_DELTA_HOT_MAX: hot_max,
+                    CONF_DYNAMIC_PRESET_DWELL_MINUTES: user_input.get(
+                        CONF_DYNAMIC_PRESET_DWELL_MINUTES, 60
+                    ),
+                    CONF_DYNAMIC_PRESET_HYSTERESIS_F: user_input.get(
+                        CONF_DYNAMIC_PRESET_HYSTERESIS_F, 2.0
+                    ),
+                }
+                self.hass.config_entries.async_update_entry(
+                    self._config_entry,
+                    options={**self._config_entry.options, **cm_update},
+                )
+
+                # Store per-zone CONFs in ZM entry options (same storage path as Surface 2).
+                if zm_entry is not None and canonical_zones:
+                    merged_zm = {**zm_entry.data, **zm_entry.options}
+                    zones = {k: dict(v) for k, v in merged_zm.get("zones", {}).items()}
+                    for cz in canonical_zones:
+                        zn = cz["zone_name"]
+                        zones.setdefault(zn, {})
+                        # Extract per-zone fields from user_input using zone-prefixed keys.
+                        zone_field_keys = [
+                            CONF_ZONE_DYNAMIC_PRESET_ENABLED,
+                            CONF_ZONE_DYNAMIC_PRESET_OFFSET,
+                            CONF_ZONE_DYNAMIC_PRESET_RESET_OFFSET_GUEST,
+                            CONF_ZONE_DYNAMIC_PRESET_SLEEP_ENABLED,
+                            CONF_ZONE_DYNAMIC_PRESET_COOL_HOME_LOW, CONF_ZONE_DYNAMIC_PRESET_COOL_HOME_HIGH,
+                            CONF_ZONE_DYNAMIC_PRESET_MILD_HOME_LOW, CONF_ZONE_DYNAMIC_PRESET_MILD_HOME_HIGH,
+                            CONF_ZONE_DYNAMIC_PRESET_HOT_HOME_LOW, CONF_ZONE_DYNAMIC_PRESET_HOT_HOME_HIGH,
+                            CONF_ZONE_DYNAMIC_PRESET_EXTREME_HOME_LOW, CONF_ZONE_DYNAMIC_PRESET_EXTREME_HOME_HIGH,
+                            CONF_ZONE_DYNAMIC_PRESET_COOL_SLEEP_LOW, CONF_ZONE_DYNAMIC_PRESET_COOL_SLEEP_HIGH,
+                            CONF_ZONE_DYNAMIC_PRESET_MILD_SLEEP_LOW, CONF_ZONE_DYNAMIC_PRESET_MILD_SLEEP_HIGH,
+                            CONF_ZONE_DYNAMIC_PRESET_HOT_SLEEP_LOW, CONF_ZONE_DYNAMIC_PRESET_HOT_SLEEP_HIGH,
+                            CONF_ZONE_DYNAMIC_PRESET_EXTREME_SLEEP_LOW, CONF_ZONE_DYNAMIC_PRESET_EXTREME_SLEEP_HIGH,
+                        ]
+                        zone_update = {}
+                        for key in zone_field_keys:
+                            prefixed_key = f"{zn}__{key}"
+                            if prefixed_key in user_input:
+                                zone_update[key] = user_input[prefixed_key]
+                        if zone_update:
+                            zones[zn].update(zone_update)
+                    self.hass.config_entries.async_update_entry(
+                        zm_entry,
+                        options={**zm_entry.options, "zones": zones},
+                    )
+
+                return self.async_create_entry(title="", data=self._config_entry.options)
+
+            # Re-render with errors.
+            return self.async_show_form(
+                step_id="hvac_dynamic_preset",
+                data_schema=self._build_hvac_dynamic_preset_schema(
+                    canonical_zones, zm_entry, user_input, user_input,
+                    MIN_TEMP, MAX_TEMP,
+                    CONF_ZONE_DYNAMIC_PRESET_ENABLED, CONF_ZONE_DYNAMIC_PRESET_OFFSET,
+                    CONF_ZONE_DYNAMIC_PRESET_RESET_OFFSET_GUEST,
+                    CONF_ZONE_DYNAMIC_PRESET_SLEEP_ENABLED,
+                    CONF_ZONE_DYNAMIC_PRESET_COOL_HOME_LOW, CONF_ZONE_DYNAMIC_PRESET_COOL_HOME_HIGH,
+                    CONF_ZONE_DYNAMIC_PRESET_MILD_HOME_LOW, CONF_ZONE_DYNAMIC_PRESET_MILD_HOME_HIGH,
+                    CONF_ZONE_DYNAMIC_PRESET_HOT_HOME_LOW, CONF_ZONE_DYNAMIC_PRESET_HOT_HOME_HIGH,
+                    CONF_ZONE_DYNAMIC_PRESET_EXTREME_HOME_LOW, CONF_ZONE_DYNAMIC_PRESET_EXTREME_HOME_HIGH,
+                    CONF_ZONE_DYNAMIC_PRESET_COOL_SLEEP_LOW, CONF_ZONE_DYNAMIC_PRESET_COOL_SLEEP_HIGH,
+                    CONF_ZONE_DYNAMIC_PRESET_MILD_SLEEP_LOW, CONF_ZONE_DYNAMIC_PRESET_MILD_SLEEP_HIGH,
+                    CONF_ZONE_DYNAMIC_PRESET_HOT_SLEEP_LOW, CONF_ZONE_DYNAMIC_PRESET_HOT_SLEEP_HIGH,
+                    CONF_ZONE_DYNAMIC_PRESET_EXTREME_SLEEP_LOW, CONF_ZONE_DYNAMIC_PRESET_EXTREME_SLEEP_HIGH,
+                    CONF_DYNAMIC_PRESET_DELTA_COOL_MAX, CONF_DYNAMIC_PRESET_DELTA_MILD_MAX,
+                    CONF_DYNAMIC_PRESET_DELTA_HOT_MAX, CONF_DYNAMIC_PRESET_DWELL_MINUTES,
+                    CONF_DYNAMIC_PRESET_HYSTERESIS_F,
+                ),
+                errors=errors,
+            )
+
+        # Initial render.
+        return self.async_show_form(
+            step_id="hvac_dynamic_preset",
+            data_schema=self._build_hvac_dynamic_preset_schema(
+                canonical_zones, zm_entry, None, None,
+                MIN_TEMP, MAX_TEMP,
+                CONF_ZONE_DYNAMIC_PRESET_ENABLED, CONF_ZONE_DYNAMIC_PRESET_OFFSET,
+                CONF_ZONE_DYNAMIC_PRESET_RESET_OFFSET_GUEST,
+                CONF_ZONE_DYNAMIC_PRESET_SLEEP_ENABLED,
+                CONF_ZONE_DYNAMIC_PRESET_COOL_HOME_LOW, CONF_ZONE_DYNAMIC_PRESET_COOL_HOME_HIGH,
+                CONF_ZONE_DYNAMIC_PRESET_MILD_HOME_LOW, CONF_ZONE_DYNAMIC_PRESET_MILD_HOME_HIGH,
+                CONF_ZONE_DYNAMIC_PRESET_HOT_HOME_LOW, CONF_ZONE_DYNAMIC_PRESET_HOT_HOME_HIGH,
+                CONF_ZONE_DYNAMIC_PRESET_EXTREME_HOME_LOW, CONF_ZONE_DYNAMIC_PRESET_EXTREME_HOME_HIGH,
+                CONF_ZONE_DYNAMIC_PRESET_COOL_SLEEP_LOW, CONF_ZONE_DYNAMIC_PRESET_COOL_SLEEP_HIGH,
+                CONF_ZONE_DYNAMIC_PRESET_MILD_SLEEP_LOW, CONF_ZONE_DYNAMIC_PRESET_MILD_SLEEP_HIGH,
+                CONF_ZONE_DYNAMIC_PRESET_HOT_SLEEP_LOW, CONF_ZONE_DYNAMIC_PRESET_HOT_SLEEP_HIGH,
+                CONF_ZONE_DYNAMIC_PRESET_EXTREME_SLEEP_LOW, CONF_ZONE_DYNAMIC_PRESET_EXTREME_SLEEP_HIGH,
+                CONF_DYNAMIC_PRESET_DELTA_COOL_MAX, CONF_DYNAMIC_PRESET_DELTA_MILD_MAX,
+                CONF_DYNAMIC_PRESET_DELTA_HOT_MAX, CONF_DYNAMIC_PRESET_DWELL_MINUTES,
+                CONF_DYNAMIC_PRESET_HYSTERESIS_F,
+            ),
+        )
+
+    def _validate_dynamic_preset_input(
+        self,
+        user_input: dict,
+        zone_name: str,
+        sleep_floor: float,
+        conf_enabled: str,
+        conf_offset: str,
+        conf_sleep_enabled: str,
+        conf_cool_home_low: str,
+        conf_cool_home_high: str,
+        conf_mild_home_low: str,
+        conf_mild_home_high: str,
+        conf_hot_home_low: str,
+        conf_hot_home_high: str,
+        conf_extreme_home_low: str,
+        conf_extreme_home_high: str,
+        min_deadband: float,
+        zone_prefix: str = "",
+    ) -> str:
+        """Shared per-zone preset validation helper (v4.7.2 D1).
+
+        Validates per-zone bucket ranges extracted from user_input.
+        When zone_prefix is set, keys are expected as f"{zone_prefix}__{key}".
+        Returns an error string key on failure, empty string on success.
+
+        Sync invariant: called by both Surface 1 (async_step_hvac_dynamic_preset)
+        and Surface 2 (async_step_zone_dynamic_preset). Error keys are identical.
+        """
+        def _key(k):
+            return f"{zone_prefix}__{k}" if zone_prefix else k
+
+        enabled = user_input.get(_key(conf_enabled), False)
+        if not enabled:
+            return ""
+
+        sleep_enabled = user_input.get(_key(conf_sleep_enabled), False)
+        bucket_pairs = [
+            (_key(conf_cool_home_low), _key(conf_cool_home_high), "cool"),
+            (_key(conf_mild_home_low), _key(conf_mild_home_high), "mild"),
+            (_key(conf_hot_home_low), _key(conf_hot_home_high), "hot"),
+            (_key(conf_extreme_home_low), _key(conf_extreme_home_high), "extreme"),
+        ]
+        for low_key, high_key, bname in bucket_pairs:
+            low = user_input.get(low_key)
+            high = user_input.get(high_key)
+            if low is None or high is None:
+                return f"dynamic_preset_bucket_required_{bname}"
+            if float(low) > float(high) - min_deadband:
+                return "dynamic_preset_range_invalid"
+
+        if sleep_enabled:
+            offset = float(user_input.get(_key(conf_offset), 0.0))
+            sleep_high_keys = [
+                _key(conf_cool_home_high).replace("home_high", "sleep_high"),
+                _key(conf_mild_home_high).replace("home_high", "sleep_high"),
+                _key(conf_hot_home_high).replace("home_high", "sleep_high"),
+                _key(conf_extreme_home_high).replace("home_high", "sleep_high"),
+            ]
+            for shk in sleep_high_keys:
+                sleep_high = user_input.get(shk)
+                if sleep_high is not None and float(sleep_high) + offset < sleep_floor:
+                    return "dynamic_preset_sleep_below_floor"
+
+        return ""
+
+    def _build_hvac_dynamic_preset_schema(
+        self,
+        canonical_zones: list,
+        zm_entry,
+        source_data,
+        current_data,
+        min_temp: float,
+        max_temp: float,
+        *conf_keys,
+    ) -> "vol.Schema":
+        """Build voluptuous schema for hvac_dynamic_preset (Surface 1, v4.7.2 D1).
+
+        House-wide settings sit above per-zone repeat sections.
+        Per-zone field keys are prefixed with f"{zone_name}__" to allow all zones
+        in a single form without key collisions.
+
+        Calls _build_dynamic_preset_schema for each zone's sub-schema to enforce
+        sync invariant (shared schema text between Surface 1 and Surface 2).
+        """
+        import voluptuous as vol
+        from .domain_coordinators.energy_const import (
+            CONF_DYNAMIC_PRESET_DELTA_COOL_MAX,
+            CONF_DYNAMIC_PRESET_DELTA_MILD_MAX,
+            CONF_DYNAMIC_PRESET_DELTA_HOT_MAX,
+            CONF_DYNAMIC_PRESET_DWELL_MINUTES,
+            CONF_DYNAMIC_PRESET_HYSTERESIS_F,
+        )
+
+        (
+            CONF_ENABLED, CONF_OFFSET, CONF_RESET_GUEST, CONF_SLEEP_ENABLED,
+            CONF_COOL_HOME_LOW, CONF_COOL_HOME_HIGH,
+            CONF_MILD_HOME_LOW, CONF_MILD_HOME_HIGH,
+            CONF_HOT_HOME_LOW, CONF_HOT_HOME_HIGH,
+            CONF_EXTREME_HOME_LOW, CONF_EXTREME_HOME_HIGH,
+            CONF_COOL_SLEEP_LOW, CONF_COOL_SLEEP_HIGH,
+            CONF_MILD_SLEEP_LOW, CONF_MILD_SLEEP_HIGH,
+            CONF_HOT_SLEEP_LOW, CONF_HOT_SLEEP_HIGH,
+            CONF_EXTREME_SLEEP_LOW, CONF_EXTREME_SLEEP_HIGH,
+            CONF_DELTA_COOL, CONF_DELTA_MILD, CONF_DELTA_HOT,
+            CONF_DWELL, CONF_HYSTERESIS,
+        ) = conf_keys
+
+        def _f_cm(key, default):
+            if current_data and key in current_data:
+                v = current_data[key]
+            elif source_data and key in source_data:
+                v = source_data[key]
+            else:
+                v = self._config_entry.options.get(key)
+            return float(v) if v is not None else default
+
+        schema_fields = {
+            vol.Optional(
+                CONF_DELTA_COOL,
+                default=_f_cm(CONF_DELTA_COOL, -2.0),
+            ): vol.All(vol.Coerce(float), vol.Range(min=-10.0, max=0.0)),
+            vol.Optional(
+                CONF_DELTA_MILD,
+                default=_f_cm(CONF_DELTA_MILD, 8.0),
+            ): vol.All(vol.Coerce(float), vol.Range(min=0.0, max=15.0)),
+            vol.Optional(
+                CONF_DELTA_HOT,
+                default=_f_cm(CONF_DELTA_HOT, 18.0),
+            ): vol.All(vol.Coerce(float), vol.Range(min=10.0, max=30.0)),
+            vol.Optional(
+                CONF_DWELL,
+                default=int(_f_cm(CONF_DWELL, 60)),
+            ): vol.All(vol.Coerce(int), vol.Range(min=15, max=240)),
+            vol.Optional(
+                CONF_HYSTERESIS,
+                default=_f_cm(CONF_HYSTERESIS, 2.0),
+            ): vol.All(vol.Coerce(float), vol.Range(min=0.5, max=5.0)),
+        }
+
+        # Per-zone repeat sections — prefix keys to avoid collisions.
+        for cz in canonical_zones:
+            zn = cz["zone_name"]
+            # Retrieve saved zone data from ZM entry for defaults.
+            zone_data: dict = {}
+            if zm_entry is not None:
+                zm_opts = {**zm_entry.data, **zm_entry.options}
+                zone_data = zm_opts.get("zones", {}).get(zn, {})
+
+            # Build per-zone source/current from zone_data and user_input.
+            zone_source = zone_data
+            zone_current: dict = {}
+            if current_data:
+                # Extract prefixed keys from user_input back to bare keys.
+                prefix = f"{zn}__"
+                zone_current = {
+                    k[len(prefix):]: v
+                    for k, v in current_data.items()
+                    if k.startswith(prefix)
+                }
+
+            # Get the per-zone sub-schema from shared helper (sync invariant).
+            inner_schema = self._build_dynamic_preset_schema(
+                zone_source, zone_current if zone_current else zone_source,
+                min_temp, max_temp,
+                CONF_ENABLED, CONF_OFFSET, CONF_RESET_GUEST, CONF_SLEEP_ENABLED,
+                CONF_COOL_HOME_LOW, CONF_COOL_HOME_HIGH,
+                CONF_MILD_HOME_LOW, CONF_MILD_HOME_HIGH,
+                CONF_HOT_HOME_LOW, CONF_HOT_HOME_HIGH,
+                CONF_EXTREME_HOME_LOW, CONF_EXTREME_HOME_HIGH,
+                CONF_COOL_SLEEP_LOW, CONF_COOL_SLEEP_HIGH,
+                CONF_MILD_SLEEP_LOW, CONF_MILD_SLEEP_HIGH,
+                CONF_HOT_SLEEP_LOW, CONF_HOT_SLEEP_HIGH,
+                CONF_EXTREME_SLEEP_LOW, CONF_EXTREME_SLEEP_HIGH,
+            )
+            # Re-key with zone prefix so all zones fit in one flat form dict.
+            for inner_key, validator in inner_schema.schema.items():
+                bare_key = inner_key.schema if hasattr(inner_key, "schema") else str(inner_key)
+                default = inner_key.default() if (hasattr(inner_key, "default") and callable(inner_key.default)) else None
+                if default is not None:
+                    schema_fields[vol.Optional(f"{zn}__{bare_key}", default=default)] = validator
+                else:
+                    schema_fields[vol.Optional(f"{zn}__{bare_key}")] = validator
+
+        return vol.Schema(schema_fields)
 
     async def async_step_coordinator_security(self, user_input=None):
         """Configure Security Coordinator settings.
@@ -5097,36 +5512,24 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         if user_input is not None:
             errors = {}
 
-            enabled = user_input.get(CONF_ZONE_DYNAMIC_PRESET_ENABLED, False)
-            sleep_enabled = user_input.get(CONF_ZONE_DYNAMIC_PRESET_SLEEP_ENABLED, False)
-
-            if enabled:
-                # Validate all 4 home buckets must be present
-                bucket_keys = [
-                    (CONF_ZONE_DYNAMIC_PRESET_COOL_HOME_LOW, CONF_ZONE_DYNAMIC_PRESET_COOL_HOME_HIGH, "cool"),
-                    (CONF_ZONE_DYNAMIC_PRESET_MILD_HOME_LOW, CONF_ZONE_DYNAMIC_PRESET_MILD_HOME_HIGH, "mild"),
-                    (CONF_ZONE_DYNAMIC_PRESET_HOT_HOME_LOW, CONF_ZONE_DYNAMIC_PRESET_HOT_HOME_HIGH, "hot"),
-                    (CONF_ZONE_DYNAMIC_PRESET_EXTREME_HOME_LOW, CONF_ZONE_DYNAMIC_PRESET_EXTREME_HOME_HIGH, "extreme"),
-                ]
-                for low_key, high_key, bname in bucket_keys:
-                    low = user_input.get(low_key)
-                    high = user_input.get(high_key)
-                    if low is None or high is None:
-                        errors["base"] = f"dynamic_preset_bucket_required_{bname}"
-                        break
-                    if float(low) > float(high) - MIN_DEADBAND:
-                        errors["base"] = "dynamic_preset_range_invalid"
-                        break
-
-                # Sleep floor validation
-                if not errors and sleep_enabled:
-                    offset = float(user_input.get(CONF_ZONE_DYNAMIC_PRESET_OFFSET, 0.0))
-                    for _, high_key, _ in bucket_keys:
-                        sleep_high_key = high_key.replace("home_high", "sleep_high")
-                        sleep_high = user_input.get(sleep_high_key)
-                        if sleep_high is not None and float(sleep_high) + offset < SLEEP_FLOOR:
-                            errors["base"] = "dynamic_preset_sleep_below_floor"
-                            break
+            # C1 fix (v4.7.2 reviewer fix-up): call shared helper — sync invariant
+            # with Surface 1 (async_step_hvac_dynamic_preset). Both surfaces must
+            # produce identical error keys for identical bad input. Zone keys are
+            # bare (no prefix) because Surface 2 presents a single zone at a time.
+            zone_error = self._validate_dynamic_preset_input(
+                user_input, zone_name, SLEEP_FLOOR,
+                CONF_ZONE_DYNAMIC_PRESET_ENABLED,
+                CONF_ZONE_DYNAMIC_PRESET_OFFSET,
+                CONF_ZONE_DYNAMIC_PRESET_SLEEP_ENABLED,
+                CONF_ZONE_DYNAMIC_PRESET_COOL_HOME_LOW, CONF_ZONE_DYNAMIC_PRESET_COOL_HOME_HIGH,
+                CONF_ZONE_DYNAMIC_PRESET_MILD_HOME_LOW, CONF_ZONE_DYNAMIC_PRESET_MILD_HOME_HIGH,
+                CONF_ZONE_DYNAMIC_PRESET_HOT_HOME_LOW, CONF_ZONE_DYNAMIC_PRESET_HOT_HOME_HIGH,
+                CONF_ZONE_DYNAMIC_PRESET_EXTREME_HOME_LOW, CONF_ZONE_DYNAMIC_PRESET_EXTREME_HOME_HIGH,
+                MIN_DEADBAND,
+                zone_prefix="",
+            )
+            if zone_error:
+                errors["base"] = zone_error
 
             if not errors:
                 merged = {**zm_entry.data, **zm_entry.options}
@@ -5388,6 +5791,23 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             selector.NumberSelectorConfig(
                 min=0, max=2000, step=50,
                 unit_of_measurement="ms",
+                mode=selector.NumberSelectorMode.BOX,
+            )
+        )
+
+        # v4.7.2 D4: Per-room guest designation fields
+        schema_fields[vol.Optional(
+            CONF_ROOM_IS_GUEST_ROOM,
+            default=self._get_current(CONF_ROOM_IS_GUEST_ROOM, False),
+        )] = selector.BooleanSelector()
+
+        schema_fields[vol.Optional(
+            CONF_ROOM_GUEST_OCCUPANCY_THRESHOLD_MIN,
+            default=self._get_current(CONF_ROOM_GUEST_OCCUPANCY_THRESHOLD_MIN, 30),
+        )] = selector.NumberSelector(
+            selector.NumberSelectorConfig(
+                min=5, max=240, step=5,
+                unit_of_measurement="min",
                 mode=selector.NumberSelectorMode.BOX,
             )
         )
