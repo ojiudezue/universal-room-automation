@@ -3294,14 +3294,17 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         """HVAC Coordinator submenu.
 
         v4.7.2 D1: Converted from form to menu to expose Dynamic Preset step.
-        Routes to: coordinator_hvac_settings (existing tuning form) or
-        hvac_dynamic_preset (new D1 Surface 1).
+        v4.7.3 D1: Added hvac_baseline_presets as a third menu option.
+        Routes to: coordinator_hvac_settings (existing tuning form),
+        hvac_dynamic_preset (Surface 1, v4.7.2 D1), or
+        hvac_baseline_presets (new seasonal baseline editor, v4.7.3 D1).
         """
         return self.async_show_menu(
             step_id="coordinator_hvac",
             menu_options=[
                 "coordinator_hvac_settings",
                 "hvac_dynamic_preset",
+                "hvac_baseline_presets",
             ],
         )
 
@@ -4063,6 +4066,151 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     schema_fields[vol.Optional(f"{zn}__{bare_key}")] = validator
 
         return vol.Schema(schema_fields)
+
+    async def async_step_hvac_baseline_presets(self, user_input=None):
+        """HVAC Coordinator → Configure → Baseline Presets (Seasonal).
+
+        v4.7.3 D1: 24 numeric inputs (3 seasons × 4 presets × 2 dims).
+        Defaults read from SEASONAL_DEFAULTS for fresh installs; from
+        entry.options for users who've saved before. Saves to CM entry.options.
+
+        Validation: each row's cool_high must exceed heat_low + BASELINE_MIN_DEADBAND.
+        """
+        import voluptuous as vol
+        from .domain_coordinators.hvac_const import (
+            BASELINE_MIN_DEADBAND,
+            CONF_HVAC_BASELINE_SUMMER_HOME_COOL,
+            CONF_HVAC_BASELINE_SUMMER_HOME_HEAT,
+            CONF_HVAC_BASELINE_SUMMER_SLEEP_COOL,
+            CONF_HVAC_BASELINE_SUMMER_SLEEP_HEAT,
+            CONF_HVAC_BASELINE_SUMMER_AWAY_COOL,
+            CONF_HVAC_BASELINE_SUMMER_AWAY_HEAT,
+            CONF_HVAC_BASELINE_SUMMER_VACATION_COOL,
+            CONF_HVAC_BASELINE_SUMMER_VACATION_HEAT,
+            CONF_HVAC_BASELINE_SHOULDER_HOME_COOL,
+            CONF_HVAC_BASELINE_SHOULDER_HOME_HEAT,
+            CONF_HVAC_BASELINE_SHOULDER_SLEEP_COOL,
+            CONF_HVAC_BASELINE_SHOULDER_SLEEP_HEAT,
+            CONF_HVAC_BASELINE_SHOULDER_AWAY_COOL,
+            CONF_HVAC_BASELINE_SHOULDER_AWAY_HEAT,
+            CONF_HVAC_BASELINE_SHOULDER_VACATION_COOL,
+            CONF_HVAC_BASELINE_SHOULDER_VACATION_HEAT,
+            CONF_HVAC_BASELINE_WINTER_HOME_COOL,
+            CONF_HVAC_BASELINE_WINTER_HOME_HEAT,
+            CONF_HVAC_BASELINE_WINTER_SLEEP_COOL,
+            CONF_HVAC_BASELINE_WINTER_SLEEP_HEAT,
+            CONF_HVAC_BASELINE_WINTER_AWAY_COOL,
+            CONF_HVAC_BASELINE_WINTER_AWAY_HEAT,
+            CONF_HVAC_BASELINE_WINTER_VACATION_COOL,
+            CONF_HVAC_BASELINE_WINTER_VACATION_HEAT,
+            DEFAULT_HVAC_BASELINE_SUMMER_HOME_COOL,
+            DEFAULT_HVAC_BASELINE_SUMMER_HOME_HEAT,
+            DEFAULT_HVAC_BASELINE_SUMMER_SLEEP_COOL,
+            DEFAULT_HVAC_BASELINE_SUMMER_SLEEP_HEAT,
+            DEFAULT_HVAC_BASELINE_SUMMER_AWAY_COOL,
+            DEFAULT_HVAC_BASELINE_SUMMER_AWAY_HEAT,
+            DEFAULT_HVAC_BASELINE_SUMMER_VACATION_COOL,
+            DEFAULT_HVAC_BASELINE_SUMMER_VACATION_HEAT,
+            DEFAULT_HVAC_BASELINE_SHOULDER_HOME_COOL,
+            DEFAULT_HVAC_BASELINE_SHOULDER_HOME_HEAT,
+            DEFAULT_HVAC_BASELINE_SHOULDER_SLEEP_COOL,
+            DEFAULT_HVAC_BASELINE_SHOULDER_SLEEP_HEAT,
+            DEFAULT_HVAC_BASELINE_SHOULDER_AWAY_COOL,
+            DEFAULT_HVAC_BASELINE_SHOULDER_AWAY_HEAT,
+            DEFAULT_HVAC_BASELINE_SHOULDER_VACATION_COOL,
+            DEFAULT_HVAC_BASELINE_SHOULDER_VACATION_HEAT,
+            DEFAULT_HVAC_BASELINE_WINTER_HOME_COOL,
+            DEFAULT_HVAC_BASELINE_WINTER_HOME_HEAT,
+            DEFAULT_HVAC_BASELINE_WINTER_SLEEP_COOL,
+            DEFAULT_HVAC_BASELINE_WINTER_SLEEP_HEAT,
+            DEFAULT_HVAC_BASELINE_WINTER_AWAY_COOL,
+            DEFAULT_HVAC_BASELINE_WINTER_AWAY_HEAT,
+            DEFAULT_HVAC_BASELINE_WINTER_VACATION_COOL,
+            DEFAULT_HVAC_BASELINE_WINTER_VACATION_HEAT,
+        )
+
+        # 12 cool/heat row pairs in (cool_conf, heat_conf, cool_default, heat_default) order
+        _ROWS = [
+            (CONF_HVAC_BASELINE_SUMMER_HOME_COOL, CONF_HVAC_BASELINE_SUMMER_HOME_HEAT,
+             DEFAULT_HVAC_BASELINE_SUMMER_HOME_COOL, DEFAULT_HVAC_BASELINE_SUMMER_HOME_HEAT),
+            (CONF_HVAC_BASELINE_SUMMER_SLEEP_COOL, CONF_HVAC_BASELINE_SUMMER_SLEEP_HEAT,
+             DEFAULT_HVAC_BASELINE_SUMMER_SLEEP_COOL, DEFAULT_HVAC_BASELINE_SUMMER_SLEEP_HEAT),
+            (CONF_HVAC_BASELINE_SUMMER_AWAY_COOL, CONF_HVAC_BASELINE_SUMMER_AWAY_HEAT,
+             DEFAULT_HVAC_BASELINE_SUMMER_AWAY_COOL, DEFAULT_HVAC_BASELINE_SUMMER_AWAY_HEAT),
+            (CONF_HVAC_BASELINE_SUMMER_VACATION_COOL, CONF_HVAC_BASELINE_SUMMER_VACATION_HEAT,
+             DEFAULT_HVAC_BASELINE_SUMMER_VACATION_COOL, DEFAULT_HVAC_BASELINE_SUMMER_VACATION_HEAT),
+            (CONF_HVAC_BASELINE_SHOULDER_HOME_COOL, CONF_HVAC_BASELINE_SHOULDER_HOME_HEAT,
+             DEFAULT_HVAC_BASELINE_SHOULDER_HOME_COOL, DEFAULT_HVAC_BASELINE_SHOULDER_HOME_HEAT),
+            (CONF_HVAC_BASELINE_SHOULDER_SLEEP_COOL, CONF_HVAC_BASELINE_SHOULDER_SLEEP_HEAT,
+             DEFAULT_HVAC_BASELINE_SHOULDER_SLEEP_COOL, DEFAULT_HVAC_BASELINE_SHOULDER_SLEEP_HEAT),
+            (CONF_HVAC_BASELINE_SHOULDER_AWAY_COOL, CONF_HVAC_BASELINE_SHOULDER_AWAY_HEAT,
+             DEFAULT_HVAC_BASELINE_SHOULDER_AWAY_COOL, DEFAULT_HVAC_BASELINE_SHOULDER_AWAY_HEAT),
+            (CONF_HVAC_BASELINE_SHOULDER_VACATION_COOL, CONF_HVAC_BASELINE_SHOULDER_VACATION_HEAT,
+             DEFAULT_HVAC_BASELINE_SHOULDER_VACATION_COOL, DEFAULT_HVAC_BASELINE_SHOULDER_VACATION_HEAT),
+            (CONF_HVAC_BASELINE_WINTER_HOME_COOL, CONF_HVAC_BASELINE_WINTER_HOME_HEAT,
+             DEFAULT_HVAC_BASELINE_WINTER_HOME_COOL, DEFAULT_HVAC_BASELINE_WINTER_HOME_HEAT),
+            (CONF_HVAC_BASELINE_WINTER_SLEEP_COOL, CONF_HVAC_BASELINE_WINTER_SLEEP_HEAT,
+             DEFAULT_HVAC_BASELINE_WINTER_SLEEP_COOL, DEFAULT_HVAC_BASELINE_WINTER_SLEEP_HEAT),
+            (CONF_HVAC_BASELINE_WINTER_AWAY_COOL, CONF_HVAC_BASELINE_WINTER_AWAY_HEAT,
+             DEFAULT_HVAC_BASELINE_WINTER_AWAY_COOL, DEFAULT_HVAC_BASELINE_WINTER_AWAY_HEAT),
+            (CONF_HVAC_BASELINE_WINTER_VACATION_COOL, CONF_HVAC_BASELINE_WINTER_VACATION_HEAT,
+             DEFAULT_HVAC_BASELINE_WINTER_VACATION_COOL, DEFAULT_HVAC_BASELINE_WINTER_VACATION_HEAT),
+        ]
+
+        errors: dict[str, str] = {}
+
+        if user_input is not None:
+            # Validate deadband: each cool_high must exceed heat_low + BASELINE_MIN_DEADBAND
+            for cool_key, heat_key, _cd, _hd in _ROWS:
+                cool_val = float(user_input.get(cool_key, 77))
+                heat_val = float(user_input.get(heat_key, 70))
+                if cool_val - heat_val < BASELINE_MIN_DEADBAND:
+                    errors["base"] = "baseline_preset_invalid_deadband"
+                    break
+
+            if not errors:
+                _LOGGER.info(
+                    "HVAC baseline presets saved to CM entry.options",
+                )
+                return self.async_create_entry(
+                    title="",
+                    data={**self._config_entry.options, **user_input},
+                )
+
+        # Build schema — 24 NumberSelector fields
+        _COOL_MIN = 65
+        _COOL_MAX = 95
+        _HEAT_MIN = 55
+        _HEAT_MAX = 80
+
+        schema_dict = {}
+        for cool_key, heat_key, cool_default, heat_default in _ROWS:
+            schema_dict[vol.Optional(
+                cool_key,
+                default=self._get_current(cool_key, cool_default),
+            )] = selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=_COOL_MIN, max=_COOL_MAX, step=1,
+                    unit_of_measurement="°F",
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            )
+            schema_dict[vol.Optional(
+                heat_key,
+                default=self._get_current(heat_key, heat_default),
+            )] = selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=_HEAT_MIN, max=_HEAT_MAX, step=1,
+                    unit_of_measurement="°F",
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            )
+
+        return self.async_show_form(
+            step_id="hvac_baseline_presets",
+            data_schema=vol.Schema(schema_dict),
+            errors=errors,
+        )
 
     async def async_step_coordinator_security(self, user_input=None):
         """Configure Security Coordinator settings.

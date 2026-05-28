@@ -16,6 +16,30 @@ from homeassistant.core import HomeAssistant
 from homeassistant.util import dt as dt_util
 
 from .hvac_const import (
+    CONF_HVAC_BASELINE_SUMMER_HOME_COOL,
+    CONF_HVAC_BASELINE_SUMMER_HOME_HEAT,
+    CONF_HVAC_BASELINE_SUMMER_SLEEP_COOL,
+    CONF_HVAC_BASELINE_SUMMER_SLEEP_HEAT,
+    CONF_HVAC_BASELINE_SUMMER_AWAY_COOL,
+    CONF_HVAC_BASELINE_SUMMER_AWAY_HEAT,
+    CONF_HVAC_BASELINE_SUMMER_VACATION_COOL,
+    CONF_HVAC_BASELINE_SUMMER_VACATION_HEAT,
+    CONF_HVAC_BASELINE_SHOULDER_HOME_COOL,
+    CONF_HVAC_BASELINE_SHOULDER_HOME_HEAT,
+    CONF_HVAC_BASELINE_SHOULDER_SLEEP_COOL,
+    CONF_HVAC_BASELINE_SHOULDER_SLEEP_HEAT,
+    CONF_HVAC_BASELINE_SHOULDER_AWAY_COOL,
+    CONF_HVAC_BASELINE_SHOULDER_AWAY_HEAT,
+    CONF_HVAC_BASELINE_SHOULDER_VACATION_COOL,
+    CONF_HVAC_BASELINE_SHOULDER_VACATION_HEAT,
+    CONF_HVAC_BASELINE_WINTER_HOME_COOL,
+    CONF_HVAC_BASELINE_WINTER_HOME_HEAT,
+    CONF_HVAC_BASELINE_WINTER_SLEEP_COOL,
+    CONF_HVAC_BASELINE_WINTER_SLEEP_HEAT,
+    CONF_HVAC_BASELINE_WINTER_AWAY_COOL,
+    CONF_HVAC_BASELINE_WINTER_AWAY_HEAT,
+    CONF_HVAC_BASELINE_WINTER_VACATION_COOL,
+    CONF_HVAC_BASELINE_WINTER_VACATION_HEAT,
     HOUSE_STATE_PRESET_MAP,
     SEASONAL_DEFAULTS,
     SEASON_SHOULDER,
@@ -24,6 +48,24 @@ from .hvac_const import (
     SUMMER_MONTHS,
     WINTER_MONTHS,
 )
+
+# Map (season, preset) -> (CONF_COOL_KEY, CONF_HEAT_KEY) for D2 override lookup.
+# Built once at module load so get_seasonal_setpoints pays zero dict-construction
+# cost per call.
+_BASELINE_CONF_MAP: dict[tuple[str, str], tuple[str, str]] = {
+    (SEASON_SUMMER, "home"): (CONF_HVAC_BASELINE_SUMMER_HOME_COOL, CONF_HVAC_BASELINE_SUMMER_HOME_HEAT),
+    (SEASON_SUMMER, "sleep"): (CONF_HVAC_BASELINE_SUMMER_SLEEP_COOL, CONF_HVAC_BASELINE_SUMMER_SLEEP_HEAT),
+    (SEASON_SUMMER, "away"): (CONF_HVAC_BASELINE_SUMMER_AWAY_COOL, CONF_HVAC_BASELINE_SUMMER_AWAY_HEAT),
+    (SEASON_SUMMER, "vacation"): (CONF_HVAC_BASELINE_SUMMER_VACATION_COOL, CONF_HVAC_BASELINE_SUMMER_VACATION_HEAT),
+    (SEASON_SHOULDER, "home"): (CONF_HVAC_BASELINE_SHOULDER_HOME_COOL, CONF_HVAC_BASELINE_SHOULDER_HOME_HEAT),
+    (SEASON_SHOULDER, "sleep"): (CONF_HVAC_BASELINE_SHOULDER_SLEEP_COOL, CONF_HVAC_BASELINE_SHOULDER_SLEEP_HEAT),
+    (SEASON_SHOULDER, "away"): (CONF_HVAC_BASELINE_SHOULDER_AWAY_COOL, CONF_HVAC_BASELINE_SHOULDER_AWAY_HEAT),
+    (SEASON_SHOULDER, "vacation"): (CONF_HVAC_BASELINE_SHOULDER_VACATION_COOL, CONF_HVAC_BASELINE_SHOULDER_VACATION_HEAT),
+    (SEASON_WINTER, "home"): (CONF_HVAC_BASELINE_WINTER_HOME_COOL, CONF_HVAC_BASELINE_WINTER_HOME_HEAT),
+    (SEASON_WINTER, "sleep"): (CONF_HVAC_BASELINE_WINTER_SLEEP_COOL, CONF_HVAC_BASELINE_WINTER_SLEEP_HEAT),
+    (SEASON_WINTER, "away"): (CONF_HVAC_BASELINE_WINTER_AWAY_COOL, CONF_HVAC_BASELINE_WINTER_AWAY_HEAT),
+    (SEASON_WINTER, "vacation"): (CONF_HVAC_BASELINE_WINTER_VACATION_COOL, CONF_HVAC_BASELINE_WINTER_VACATION_HEAT),
+}
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -80,6 +122,11 @@ class PresetManager:
     ) -> tuple[float, float] | None:
         """Get (cool_setpoint, heat_setpoint) for a preset in current season.
 
+        v4.7.3 D2: Prefers CM entry.options overrides over SEASONAL_DEFAULTS.
+        Per-CONF granularity — saving one field does not silently override the
+        other 23.  Falls back to SEASONAL_DEFAULTS for any field not present
+        in entry.options, so existing users see zero behaviour change.
+
         Returns None if preset not in seasonal defaults.
         """
         if season is None:
@@ -89,7 +136,40 @@ class PresetManager:
         if season_ranges is None:
             return None
 
-        return season_ranges.get(preset)
+        default_pair = season_ranges.get(preset)
+        if default_pair is None:
+            return None
+
+        # D2: check for per-CONF overrides stored in CM entry.options.
+        conf_pair = _BASELINE_CONF_MAP.get((season, preset))
+        if conf_pair is None:
+            return default_pair
+
+        cm_options: dict = {}
+        try:
+            from ..const import CONF_ENTRY_TYPE, DOMAIN, ENTRY_TYPE_COORDINATOR_MANAGER
+            for ce in self.hass.config_entries.async_entries(DOMAIN):
+                if ce.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_COORDINATOR_MANAGER:
+                    cm_options = ce.options
+                    break
+        except Exception:
+            _LOGGER.debug(
+                "HVAC: get_seasonal_setpoints could not read CM entry options "
+                "(falling back to SEASONAL_DEFAULTS)",
+                exc_info=True,
+            )
+
+        conf_cool_key, conf_heat_key = conf_pair
+        cool = float(cm_options.get(conf_cool_key, default_pair[0]))
+        heat = float(cm_options.get(conf_heat_key, default_pair[1]))
+        _LOGGER.debug(
+            "HVAC: baseline setpoints [%s/%s] cool=%.1f heat=%.1f "
+            "(from_options=%s/%s)",
+            season, preset, cool, heat,
+            conf_cool_key in cm_options,
+            conf_heat_key in cm_options,
+        )
+        return (cool, heat)
 
     def compute_energy_offset(
         self,
