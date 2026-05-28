@@ -3941,7 +3941,7 @@ class EnergyCoordinator(BaseCoordinator):
             )
 
     def sub_switches_synced(self) -> bool:
-        """Return True when all 5 EC sub-switches have completed deferred restore."""
+        """Return True when all 6 EC sub-switches have completed deferred restore."""
         return self._pending_sub_switch_restores == 0
 
     @property
