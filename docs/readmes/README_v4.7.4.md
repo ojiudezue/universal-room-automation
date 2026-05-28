@@ -111,6 +111,21 @@ The v4.7.2 sync-invariant test class (`test_v472_dpm_storage_roundtrip_both_surf
 
 ---
 
+## Post-Review Fix-Up
+
+Applied after Tier 2 review. Reviewer A found 1 HIGH, 2 MEDIUM, 1 LOW. Reviewer B was clean.
+
+| Finding | Severity | File | Fix |
+|---|---|---|---|
+| HIGH-1: `customize_buckets` read from `user_input` instead of `_buckets_raw`, bypassing bucket-range validation when HA delivers section data as a nested dict | HIGH | `config_flow.py:5625` | Changed to `_buckets_raw.get(CONF_ZONE_DYNAMIC_PRESET_CUSTOMIZE_BUCKETS, user_input.get(..., False))` |
+| MED-1: `_ALL_BASELINE_CONFS` defined but never referenced | MEDIUM | `config_flow.py:4000-4001` | Deleted dead constant |
+| MED-2: `_flat_for_validate` merged `_buckets_raw` but not `_sleep_raw`, so `CONF_SLEEP_ENABLED` was invisible to the validator when sleep section was delivered as a nested dict | MEDIUM | `config_flow.py:5628-5631` | Added `_sleep_raw` merge loop into `_flat_for_validate` |
+| LOW-1: `isinstance(_buckets_raw, dict)` and `isinstance(_sleep_raw, dict)` guards in save path always True | LOW | `config_flow.py:5658+5660` | Removed redundant guards |
+
+New tests added: `TestPostReviewFixup` class in `quality/tests/test_v474_dpm_ui.py` — 7 tests covering all 4 findings (HIGH-1 and MED-2 parameterized for both flat and nested delivery modes).
+
+---
+
 ## Migration Safety
 
 - **Existing per-bucket customizations preserved:** Zones with saved per-bucket CONFs under v4.7.2/v4.7.3 automatically get `customize_buckets = True` on first v4.7.4 load. Users see their saved values in the expanded UI sections.

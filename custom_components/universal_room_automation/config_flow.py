@@ -3996,9 +3996,6 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
              DEFAULT_HVAC_BASELINE_WINTER_VACATION_COOL, DEFAULT_HVAC_BASELINE_WINTER_VACATION_HEAT),
         ]
         _ALL_ROWS = _SUMMER_ROWS + _SHOULDER_ROWS + _WINTER_ROWS
-        # All 24 baseline CONF keys (for reset)
-        _ALL_BASELINE_CONFS = [ck for rows in (_SUMMER_ROWS, _SHOULDER_ROWS, _WINTER_ROWS)
-                               for ck, hk, _c, _h in rows for ck in (ck, hk)]
 
         errors: dict[str, str] = {}
 
@@ -5622,11 +5619,21 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
 
             # v4.7.4 D3: Reconstruct a flat lookup for the validator only when
             # customize_buckets is True (bucket cells were rendered on the form).
-            customize_buckets = bool(user_input.get(CONF_ZONE_DYNAMIC_PRESET_CUSTOMIZE_BUCKETS, False))
+            customize_buckets = bool(
+                _buckets_raw.get(
+                    CONF_ZONE_DYNAMIC_PRESET_CUSTOMIZE_BUCKETS,
+                    user_input.get(CONF_ZONE_DYNAMIC_PRESET_CUSTOMIZE_BUCKETS, False),
+                )
+            )
             if customize_buckets:
-                # Build a flat dict merging top-level + section contents for validator
+                # Build a flat dict merging top-level + section contents for validator.
+                # Both _buckets_raw and _sleep_raw must be merged so the validator can
+                # read CONF_SLEEP_ENABLED when sleep ranges are in a nested section dict.
                 _flat_for_validate = {**user_input}
                 for _k, _v in _buckets_raw.items():
+                    if _k not in _flat_for_validate:
+                        _flat_for_validate[_k] = _v
+                for _k, _v in _sleep_raw.items():
                     if _k not in _flat_for_validate:
                         _flat_for_validate[_k] = _v
 
@@ -5655,10 +5662,10 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 zone_update = {k: v for k, v in user_input.items()
                                if not isinstance(v, dict)}
                 for _k, _v in _buckets_raw.items():
-                    if isinstance(_buckets_raw, dict) and not isinstance(_v, dict):
+                    if not isinstance(_v, dict):
                         zone_update[_k] = _v
                 for _k, _v in _sleep_raw.items():
-                    if isinstance(_sleep_raw, dict) and not isinstance(_v, dict):
+                    if not isinstance(_v, dict):
                         zone_update[_k] = _v
                 zones[zone_name].update(zone_update)
                 _LOGGER.info(

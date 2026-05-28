@@ -480,3 +480,112 @@ class TestD4BaselinePresetsUXPolish:
         assert "_reset_all" in data, (
             "D4: translations/en.json hvac_baseline_presets.data must include _reset_all field"
         )
+
+
+# ===========================================================================
+# Post-review fixup tests (v4.7.4 reviewer A findings)
+# ===========================================================================
+
+
+class TestPostReviewFixup:
+    """Tests for the 4 findings addressed in the v4.7.4 post-review fixup.
+
+    HIGH-1: customize_buckets must be read from _buckets_raw (section dict), not
+            user_input, to handle both nested and flat HA delivery modes.
+    MED-1:  Dead code _ALL_BASELINE_CONFS must not exist.
+    MED-2:  _flat_for_validate must merge _sleep_raw alongside _buckets_raw.
+    LOW-1:  Redundant isinstance(_buckets_raw/sleep_raw, dict) guards removed.
+    """
+
+    # -----------------------------------------------------------------------
+    # HIGH-1 + MED-2: customize_buckets extraction — both delivery modes
+    # -----------------------------------------------------------------------
+
+    @pytest.mark.parametrize("mode", ["flat", "nested"])
+    def test_v474_d3_customize_buckets_extracted_from_section(
+        self, config_flow_src, mode
+    ):
+        """HIGH-1: customize_buckets must be read from _buckets_raw with fallback to
+        user_input, covering both HA delivery modes (flat and nested).
+
+        Mode flat:   customize_buckets arrives in user_input directly (legacy flat delivery).
+        Mode nested: customize_buckets arrives inside customize_buckets_section dict.
+
+        Both modes must be handled by reading from _buckets_raw first.
+        """
+        # Find the block where _buckets_raw is assigned and customize_buckets is read.
+        assert "_buckets_raw = user_input.get(" in config_flow_src, (
+            "HIGH-1: _buckets_raw must be assigned from user_input.get('customize_buckets_section', ...)"
+        )
+        assert "_buckets_raw.get(\n                    CONF_ZONE_DYNAMIC_PRESET_CUSTOMIZE_BUCKETS" in config_flow_src, (
+            f"HIGH-1 [{mode}]: customize_buckets primary read must use _buckets_raw.get() "
+            "to handle nested HA section delivery"
+        )
+        # The old bare single-scope assignment must not exist.
+        # (The fallback user_input.get(...) as an argument to _buckets_raw.get() is fine.)
+        assert "bool(user_input.get(CONF_ZONE_DYNAMIC_PRESET_CUSTOMIZE_BUCKETS, False))" not in config_flow_src, (
+            f"HIGH-1 [{mode}]: bare bool(user_input.get(CONF_ZONE_DYNAMIC_PRESET_CUSTOMIZE_BUCKETS)) "
+            "must not exist — it was the old single-scope read that missed nested delivery"
+        )
+
+    @pytest.mark.parametrize("mode", ["flat", "nested"])
+    def test_v474_d3_sleep_raw_merged_into_flat_for_validate(
+        self, config_flow_src, mode
+    ):
+        """MED-2: _flat_for_validate must merge _sleep_raw as well as _buckets_raw so
+        CONF_SLEEP_ENABLED is visible to the validator in both delivery modes.
+        """
+        # Locate the validate block — it must merge _sleep_raw items.
+        assert "_sleep_raw.items()" in config_flow_src, (
+            f"MED-2 [{mode}]: _sleep_raw must be iterated somewhere in the save/validate path"
+        )
+        # The flat-for-validate block should contain both merge loops.
+        # We verify by checking that _flat_for_validate is built AND _sleep_raw items
+        # are merged in the same function body (async_step_zone_dynamic_preset).
+        start = config_flow_src.find("async_step_zone_dynamic_preset")
+        end = config_flow_src.find("\n    async_step_", start + 1)
+        body = config_flow_src[start:end] if end != -1 else config_flow_src[start:]
+        assert "_flat_for_validate" in body, (
+            f"MED-2 [{mode}]: _flat_for_validate must be built in async_step_zone_dynamic_preset"
+        )
+        assert "_sleep_raw" in body, (
+            f"MED-2 [{mode}]: _sleep_raw must be merged into the validator dict in "
+            "async_step_zone_dynamic_preset"
+        )
+        # Both merge loops must appear in the validate block (before the validator call).
+        validate_call_pos = body.find("_validate_dynamic_preset_input")
+        sleep_merge_pos = body.find("for _k, _v in _sleep_raw.items():\n                    if _k not in _flat_for_validate")
+        assert sleep_merge_pos != -1, (
+            f"MED-2 [{mode}]: _sleep_raw items must be merged into _flat_for_validate "
+            "before the validator is called"
+        )
+        assert sleep_merge_pos < validate_call_pos, (
+            f"MED-2 [{mode}]: _sleep_raw merge must appear BEFORE the validator call"
+        )
+
+    # -----------------------------------------------------------------------
+    # MED-1: Dead code _ALL_BASELINE_CONFS must not exist
+    # -----------------------------------------------------------------------
+
+    def test_v474_med1_all_baseline_confs_dead_code_removed(self, config_flow_src):
+        """MED-1: _ALL_BASELINE_CONFS was defined but never referenced.
+        It must be deleted to avoid misleading future developers.
+        """
+        assert "_ALL_BASELINE_CONFS" not in config_flow_src, (
+            "MED-1: _ALL_BASELINE_CONFS dead-code constant must be deleted from config_flow.py"
+        )
+
+    # -----------------------------------------------------------------------
+    # LOW-1: Redundant isinstance guards removed from save path
+    # -----------------------------------------------------------------------
+
+    def test_v474_low1_redundant_isinstance_guards_removed(self, config_flow_src):
+        """LOW-1: isinstance(_buckets_raw, dict) and isinstance(_sleep_raw, dict) guards
+        in the save path are always True and must be removed.
+        """
+        assert "isinstance(_buckets_raw, dict)" not in config_flow_src, (
+            "LOW-1: redundant isinstance(_buckets_raw, dict) guard must be removed from save path"
+        )
+        assert "isinstance(_sleep_raw, dict)" not in config_flow_src, (
+            "LOW-1: redundant isinstance(_sleep_raw, dict) guard must be removed from save path"
+        )
