@@ -747,18 +747,25 @@ class TestNumberEntities:
         assert "zone.kwh_rate_threshold = float(self._value)" in body
 
     def test_discover_ac_zones_reads_zone_manager(self, number_src):
+        # v4.5.13.1: _discover_ac_zones delegates to iter_canonical_hvac_zones
+        # (which internally reads ENTRY_TYPE_ZONE_MANAGER). The function body
+        # in number.py is a thin wrapper — verify delegation exists.
         assert "def _discover_ac_zones(" in number_src
         idx = number_src.find("def _discover_ac_zones(")
         body = number_src[idx:idx + 2000]
-        assert "ENTRY_TYPE_ZONE_MANAGER" in body
-        assert "CONF_ZONE_THERMOSTAT" in body
+        assert "iter_canonical_hvac_zones" in body, (
+            "_discover_ac_zones must delegate to iter_canonical_hvac_zones "
+            "(v4.5.13.1 refactor eliminates cross-platform zone_id drift, Bug Class #36)"
+        )
 
     def test_setup_entry_wires_v4511_numbers(self, number_src):
         # In async_setup_entry, the v4.5.11 factories must be iterated
-        # for the CM entry (same place v4.5.10 numbers are added)
+        # for the CM entry (same place v4.5.10 numbers are added).
+        # v4.5.13.1.1: factory receives explicit keyword args (not **zone_spec)
+        # to keep the factory signature stable as zone_spec grew to 5 keys.
         assert "_build_hvac_v4511_numbers()" in number_src
         assert "_discover_ac_zones(hass)" in number_src
-        assert "_hvac_zone_kwh_threshold_factory(**zone_spec)" in number_src
+        assert "_hvac_zone_kwh_threshold_factory(" in number_src
 
     def test_per_zone_default_is_0_8_kw(self, number_src):
         """3-ton heuristic: ~25-30% of rated. User raises to 1.0 for 4-ton

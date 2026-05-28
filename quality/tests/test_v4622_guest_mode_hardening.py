@@ -508,31 +508,32 @@ def test_guest_gate_disarms_when_confidence_regresses():
 
 
 def test_guest_gate_exit_is_immediate():
-    """The exit path (count=0 → leave GUEST) is not governed by _guest_gate_armed.
-    Verify that the inference engine's infer() still fires the exit immediately
-    when unidentified_count=0 even when guest_gate_armed=False.
+    """The exit path (count=0 → leave GUEST) fires when both gates clear.
+
+    v4.7.2 D5: The exit condition was updated from:
+      unidentified_count == 0
+    to:
+      unidentified_count == 0 AND not guest_gate_armed
+    so that the sustained-occupancy guest-room path (guest_room_gate_armed)
+    can hold GUEST state even when unidentified_count is 0.
+    Exit remains immediate when the composite gate (OR of both paths) clears.
     """
-    # We test via the StateInferenceEngine directly.
-    # We need to isolate it from HA imports, so we use AST to confirm the
-    # exit branch is in infer() and does NOT check guest_gate_armed.
-    # Source-grep approach:
     infer_idx = PRESENCE_SRC.find("def infer(")
     assert infer_idx >= 0, "StateInferenceEngine.infer not found"
 
-    # Find the exit branch: "current_state == HouseState.GUEST and unidentified_count == 0"
+    # The exit branch must still check unidentified_count == 0 (base condition preserved).
     exit_pattern = "current_state == HouseState.GUEST and unidentified_count == 0"
     assert exit_pattern in PRESENCE_SRC, (
         "Exit branch (guest→home on unidentified_count==0) must remain in infer(). "
-        "Expected: if current_state == HouseState.GUEST and unidentified_count == 0"
+        "Expected substring: if current_state == HouseState.GUEST and unidentified_count == 0"
     )
 
-    # Verify the exit branch does NOT reference guest_gate_armed
-    # Find the exit-branch block within infer()
-    guest_exit_idx = PRESENCE_SRC.find(exit_pattern, infer_idx)
-    # Get a slice around the exit branch
-    block = PRESENCE_SRC[guest_exit_idx: guest_exit_idx + 200]
-    assert "guest_gate_armed" not in block, (
-        "Exit branch must NOT reference guest_gate_armed — exit is always immediate"
+    # v4.7.2 D5: Exit also checks not guest_gate_armed so the guest_room path
+    # can hold GUEST state. Verify the D5 combined exit pattern is present.
+    d5_exit_pattern = "unidentified_count == 0 and not guest_gate_armed"
+    assert d5_exit_pattern in PRESENCE_SRC, (
+        "v4.7.2 D5: exit branch must check 'unidentified_count == 0 and not guest_gate_armed' "
+        "to allow guest_room_gate to hold GUEST state without unid_count > 0."
     )
 
 
