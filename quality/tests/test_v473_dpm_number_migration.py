@@ -186,7 +186,10 @@ class TestD4MigrationHelperHandlesAllThreeEntities:
         """D4: entity lookup must use async_get_entity_id (critical per v4.7.2 B2 lesson)."""
         idx = init_src.find("_HVAC_DEVICE_MIGRATIONS")
         assert idx > 0
-        body = init_src[idx:idx + 2000]
+        # v4.7.7: window widened from 2000 → 6000 after the v4.7.7 B3
+        # per-zone DPM sensor enumeration loop was inserted between the
+        # static list declaration and the consumer try/except block.
+        body = init_src[idx:idx + 6000]
         assert "async_get_entity_id" in body, (
             "D4: migration helper must use async_get_entity_id to look up entity_id from unique_id. "
             "entity_id is NOT predictable from unique_id — lesson from v4.7.2 B2 reviewer fix-up."
@@ -195,15 +198,21 @@ class TestD4MigrationHelperHandlesAllThreeEntities:
     def test_migration_helper_iterates_over_list(self, init_src):
         """Loop pattern: must iterate over the migration list."""
         idx = init_src.find("_HVAC_DEVICE_MIGRATIONS")
-        body = init_src[idx:idx + 2000]
+        # v4.7.7: window widened from 2000 → 6000 (see above).
+        body = init_src[idx:idx + 6000]
         assert "for _platform, _unique_id in _HVAC_DEVICE_MIGRATIONS" in body, (
             "D4: migration helper must iterate over _HVAC_DEVICE_MIGRATIONS with "
             "'for _platform, _unique_id in _HVAC_DEVICE_MIGRATIONS'"
         )
 
     def test_migration_helper_list_has_three_entries(self, init_src):
-        """Migration list must contain exactly 3 tuples."""
-        import re
+        """Migration list must contain at least 3 static tuples.
+
+        v4.7.7 B3 added a 4th static entry (DPM OverridesApplied global
+        sensor) and a runtime loop that appends per-zone sensor tuples.
+        The original "exactly 3" assertion was rewritten to "at least 3"
+        so v4.7.7's additive expansion does not regress this assertion.
+        """
         idx = init_src.find("_HVAC_DEVICE_MIGRATIONS = [")
         assert idx > 0, "_HVAC_DEVICE_MIGRATIONS must be assigned as a list"
         bracket_start = init_src.find("[", idx)
@@ -211,6 +220,8 @@ class TestD4MigrationHelperHandlesAllThreeEntities:
         list_src = init_src[bracket_start:bracket_end + 1]
         # Count entries by counting tuple open-parens
         entry_count = list_src.count("(\"")
-        assert entry_count == 3, (
-            f"D4: _HVAC_DEVICE_MIGRATIONS must have exactly 3 entries, found {entry_count}"
+        # v4.7.2 D2 + v4.7.3 D4 ship 3 static entries; v4.7.7 B3 adds
+        # the global OverridesApplied sensor as a 4th static entry.
+        assert entry_count >= 3, (
+            f"D4: _HVAC_DEVICE_MIGRATIONS must have at least 3 entries, found {entry_count}"
         )

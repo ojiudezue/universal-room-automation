@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.7.6.1
+# Universal Room Automation vv4.7.7
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -6524,6 +6524,24 @@ def _get_dynamic_preset_overrides(hass) -> dict:
         return {}
 
 
+def _get_dynamic_preset_skip_reasons(hass) -> dict:
+    """v4.7.7 B2: per-zone skip_reason from EC's last DPM eval (or {}).
+
+    Read by `DynamicPresetOverridesAppliedSensor.extra_state_attributes`
+    to surface why each zone was skipped this tick.
+    """
+    try:
+        manager = hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return {}
+        energy = manager.coordinators.get("energy")
+        if energy is None:
+            return {}
+        return getattr(energy, "_dynamic_preset_skip_reasons", {}) or {}
+    except Exception:
+        return {}
+
+
 def _wpm_available(hass) -> bool:
     """Return True when WeatherProviderManager exists and has a cached forecast."""
     try:
@@ -6559,7 +6577,10 @@ class DynamicPresetActiveBucketSensor(AggregationEntity, SensorEntity, RestoreEn
         self._zone_name = zone_name
         self._attr_unique_id = f"{DOMAIN}_dynamic_preset_active_bucket_{zone_id}"
         self._attr_name = f"Dynamic Preset Bucket {zone_name}"
-        self._attr_device_info = _energy_device_info()
+        # v4.7.7 B3: migrated from Energy to HVAC Coordinator device card.
+        # Registry device_id is reassigned via _HVAC_DEVICE_MIGRATIONS in
+        # __init__.py for entities created before v4.7.7.
+        self._attr_device_info = _hvac_device_info()
         # Cached state for RestoreEntity (Bug #10)
         self._restored_bucket: str | None = None
 
@@ -6695,7 +6716,8 @@ class DynamicPresetRangeSensor(AggregationEntity, SensorEntity):
         self._zone_name = zone_name
         self._attr_unique_id = f"{DOMAIN}_dynamic_preset_range_{zone_id}"
         self._attr_name = f"Dynamic Preset Range {zone_name}"
-        self._attr_device_info = _energy_device_info()
+        # v4.7.7 B3: migrated from Energy to HVAC Coordinator device card.
+        self._attr_device_info = _hvac_device_info()
 
     async def async_added_to_hass(self) -> None:
         """Subscribe to override-updated signal (WPM-H1 pattern)."""
@@ -6785,7 +6807,8 @@ class DynamicPresetOverridesAppliedSensor(AggregationEntity, SensorEntity):
         super().__init__(hass, entry)
         self._attr_unique_id = f"{DOMAIN}_dynamic_preset_overrides_applied"
         self._attr_name = "Dynamic Preset Overrides Applied"
-        self._attr_device_info = _energy_device_info()
+        # v4.7.7 B3: migrated from Energy to HVAC Coordinator device card.
+        self._attr_device_info = _hvac_device_info()
 
     async def async_added_to_hass(self) -> None:
         """Subscribe to override-updated and transition signals."""
@@ -6848,6 +6871,20 @@ class DynamicPresetOverridesAppliedSensor(AggregationEntity, SensorEntity):
             skipped_zones = [
                 zone_id for zone_id, v in overrides.items() if not v
             ]
+            # v4.7.7 B2: surface the reason per skipped zone. Reasons are
+            # captured in energy.py:_async_evaluate_dynamic_presets per
+            # tick and stored on the EC instance. List-of-dicts so a
+            # frontend card can render a tooltip per zone.
+            # Bug Class #45 safe: dict-comprehension keyed by zone_id,
+            # no lambda closure over loop variables.
+            reasons_by_zone = _get_dynamic_preset_skip_reasons(self.hass)
+            skipped_zones_with_reason = [
+                {
+                    "zone_id": zone_id,
+                    "reason": reasons_by_zone.get(zone_id, "unknown"),
+                }
+                for zone_id in skipped_zones
+            ]
             dwell_remaining = {}
             if source:
                 for zone_id in overrides:
@@ -6859,6 +6896,7 @@ class DynamicPresetOverridesAppliedSensor(AggregationEntity, SensorEntity):
             return {
                 "breakdown": breakdown,
                 "skipped_zones": skipped_zones,
+                "skipped_zones_with_reason": skipped_zones_with_reason,
                 "dwell_remaining_per_zone_min": dwell_remaining,
             }
         except Exception:

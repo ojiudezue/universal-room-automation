@@ -439,6 +439,15 @@ class EnergyCoordinator(BaseCoordinator):
         # Accumulated overrides per zone from the most recent evaluate call.
         # Key: zone_id, Value: list[PresetOverride]
         self._dynamic_preset_overrides: dict[str, list] = {}
+        # v4.7.7 B2: skip_reason per zone from the most recent evaluate call.
+        # Populated when overrides is empty for that zone; missing key means
+        # the zone produced overrides (no skip).
+        # Allowed reasons: gate_disabled / no_forecast_delta / dwell_pending
+        #   / unknown_bucket / home_range_not_configured
+        #   / canonical_label_mismatch / evaluation_failed
+        # Read by DynamicPresetOverridesAppliedSensor.extra_state_attributes
+        # to expose the per-zone reason on the existing skipped_zones attr.
+        self._dynamic_preset_skip_reasons: dict[str, str] = {}
 
         # Envoy availability tracking
         self._envoy_unavailable_count: int = 0
@@ -2670,6 +2679,9 @@ class EnergyCoordinator(BaseCoordinator):
                     break
 
             updated_overrides: dict[str, list] = {}
+            # v4.7.7 B2: per-zone skip reasons captured for sensor exposure.
+            # Built per-tick; replaces the previous tick's snapshot.
+            updated_skip_reasons: dict[str, str] = {}
             for zone_info in canonical_zones:
                 zone_id = zone_info["zone_id"]
                 zone_name = zone_info["zone_name"]
@@ -2691,6 +2703,9 @@ class EnergyCoordinator(BaseCoordinator):
                 #      shadow a real canonical resolution.
                 # See QUALITY_CONTEXT.md "Lazy Canonical Resolution".
                 zone_data = zm_zones.get(zone_name)
+                # v4.7.7 B2: track whether canonical resolution failed for
+                # this zone so we can surface it as skip_reason later.
+                _canonical_resolution_failed = False
                 if not zone_data and " + " in zone_name:
                     parts = [p.strip() for p in zone_name.split(" + ")]
                     parts = [p for p in parts if p]
@@ -2698,6 +2713,7 @@ class EnergyCoordinator(BaseCoordinator):
                     if matched_parts:
                         zone_data = zm_zones[matched_parts[0]]
                     else:
+                        _canonical_resolution_failed = True
                         _LOGGER.warning(
                             "DynamicPreset zone=%s: canonical-merged label "
                             "did not resolve to any known house zone "
@@ -2719,13 +2735,18 @@ class EnergyCoordinator(BaseCoordinator):
                     baseline_high = None
 
                 try:
-                    overrides = await self._dynamic_preset_source.async_evaluate_and_emit(
-                        zone_id=zone_id,
-                        zone_data=zone_data,
-                        delta=delta,
-                        house_state=house_state,
-                        apparent_high=apparent_high,
-                        baseline_high=baseline_high,
+                    # v4.7.7 B2: use the reason-aware variant so we can
+                    # surface why each zone was skipped in the
+                    # `skipped_zones_with_reason` sensor attribute.
+                    overrides, skip_reason = await (
+                        self._dynamic_preset_source.async_evaluate_with_reason(
+                            zone_id=zone_id,
+                            zone_data=zone_data,
+                            delta=delta,
+                            house_state=house_state,
+                            apparent_high=apparent_high,
+                            baseline_high=baseline_high,
+                        )
                     )
                     updated_overrides[zone_id] = overrides
                     if overrides:
@@ -2733,13 +2754,36 @@ class EnergyCoordinator(BaseCoordinator):
                             "DynamicPreset zone=%s: %d override(s) emitted (obs_mode=%s)",
                             zone_id, len(overrides), self._observation_mode,
                         )
+                    else:
+                        # v4.7.7 A-M1 fix-up: canonical_label_mismatch only
+                        # takes precedence when canonical resolution failed
+                        # AND the zone_id fallback at line 2723-2724 also
+                        # returned empty data. If the fallback succeeded
+                        # with non-empty zone_data, the downstream eval ran
+                        # against real data and its skip_reason (e.g.,
+                        # dwell_pending, home_range_not_configured) is the
+                        # legitimate cause — overwriting it with
+                        # canonical_label_mismatch would mislead diagnosis.
+                        reason = (
+                            "canonical_label_mismatch"
+                            if _canonical_resolution_failed and not zone_data
+                            else skip_reason
+                        )
+                        if reason:
+                            updated_skip_reasons[zone_id] = reason
                 except Exception:
                     _LOGGER.warning("DynamicPreset zone=%s: evaluation failed", zone_id, exc_info=True)
+                    updated_overrides.setdefault(zone_id, [])
+                    updated_skip_reasons[zone_id] = "evaluation_failed"
 
             # HIGH B3: Only dispatch if overrides actually changed (prevent 864
             # redundant state-writes/day when no bucket has transitioned).
             _prev = self._dynamic_preset_overrides
             self._dynamic_preset_overrides = updated_overrides
+            # v4.7.7 B2: persist the per-tick skip reasons so the sensor
+            # extra_state_attributes can read them on demand. Replaces the
+            # previous tick's snapshot wholesale (no per-zone merge).
+            self._dynamic_preset_skip_reasons = updated_skip_reasons
 
             _changed = set(updated_overrides.keys()) != set(_prev.keys())
             if not _changed:
