@@ -52,39 +52,35 @@ def _migrate_excess_solar_entity_id(hass: HomeAssistant, entry: ConfigEntry) -> 
     The unique_id stays "{DOMAIN}_energy_excess_solar" so HACS / history /
     long-term stats are preserved. Only the entity_id changes.
 
-    Idempotent guard: uses entry.runtime_data flag to ensure this runs at
-    most once per entry setup. Bug Class #46-safe: calls
-    entity_registry.async_update_entity(), not async_update_entry.
+    v4.7.6 fix-up B-H3 / C-M6: idempotency is enforced by the registry
+    lookup itself — once renamed, `registry.async_get(legacy_entity_id)`
+    returns None and the migration is a no-op. The prior `entry.runtime_data`
+    guard was non-functional (URA never initializes runtime_data) and
+    risked stomping a stray dict into the typed-data slot if HA later
+    starts using it. Removed.
+
+    Bug Class #46-safe: calls entity_registry.async_update_entity(),
+    not async_update_entry.
     """
     from homeassistant.helpers import entity_registry as er
-    runtime = getattr(entry, "runtime_data", None)
-    if isinstance(runtime, dict) and runtime.get("_v476_alias_migrated"):
-        return
     registry = er.async_get(hass)
     legacy_entity_id = "switch.ura_energy_coordinator_excess_solar_charging"
     new_entity_id = "switch.ura_energy_coordinator_evse_solar_aware_charging"
     legacy_unique_id = f"{DOMAIN}_energy_excess_solar"
     entity_entry = registry.async_get(legacy_entity_id)
-    if entity_entry is not None and entity_entry.unique_id == legacy_unique_id:
-        # If new entity_id is already taken by something else, skip — never
-        # collide. The unique_id pin in the factory still preserves history.
-        if registry.async_get(new_entity_id) is None:
-            registry.async_update_entity(
-                legacy_entity_id, new_entity_id=new_entity_id,
-            )
-            _LOGGER.info(
-                "v4.7.6 D3.1: renamed %s → %s (unique_id %s preserved)",
-                legacy_entity_id, new_entity_id, legacy_unique_id,
-            )
-    # Mark migration done so we don't re-check every reload (best-effort —
-    # runtime_data may not be a dict on older HA shapes).
-    try:
-        if isinstance(runtime, dict):
-            runtime["_v476_alias_migrated"] = True
-        else:
-            entry.runtime_data = {"_v476_alias_migrated": True}
-    except Exception:  # pragma: no cover
-        pass
+    if entity_entry is None or entity_entry.unique_id != legacy_unique_id:
+        return  # Already migrated, or never existed under the legacy slug.
+    # If new entity_id is already taken by something else, skip — never
+    # collide. The unique_id pin in the factory still preserves history.
+    if registry.async_get(new_entity_id) is not None:
+        return
+    registry.async_update_entity(
+        legacy_entity_id, new_entity_id=new_entity_id,
+    )
+    _LOGGER.info(
+        "v4.7.6 D3.1: renamed %s → %s (unique_id %s preserved)",
+        legacy_entity_id, new_entity_id, legacy_unique_id,
+    )
 
 
 async def async_setup_entry(
@@ -773,7 +769,16 @@ class ECEvTouSwitch(_ECEvTouSwitchBase):
     still in the future, the window is re-applied to the EV controller.
     An active window is NOT silently dropped on reload — the user's admin
     intent is honoured for the remainder of the original 30-min window.
+
+    v4.7.6 fix-up C-H3: exposes `_attr_translation_key = "ev_tou_management"`
+    so HA can render the per-entity description shipped in strings.json /
+    translations/en.json (see `entity.switch.ev_tou_management.description`).
+    The translation block also supplies `name` to preserve the existing
+    "EVSE TOU Management" label — translation_key takes precedence over
+    `_attr_name` when both are set.
     """
+
+    _attr_translation_key = "ev_tou_management"
 
     async def async_added_to_hass(self) -> None:
         """Restore on/off state AND force-charge override across reloads.

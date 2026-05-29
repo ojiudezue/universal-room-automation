@@ -2257,11 +2257,15 @@ class EnergyCoordinator(BaseCoordinator):
                 # v4.2.21: Smart plug battery drain protection
                 # v4.3.4 fix: same kW/W unit fix as EV drain above.
                 # v4.7.6 D1 mirror: reserve_soc threaded through.
+                # v4.7.6 fix-up A-H1: propagate Force-Charge state from EVPool
+                # so plug pause rules respect the same admin override.
+                force_charge_active = self._ev._is_force_charge_active()
                 plug_drain_actions = self._smart_plugs.determine_battery_drain_actions(
                     battery_power_w=self._battery.battery_power_w,
                     battery_soc=self._battery.battery_soc,
                     soc_threshold=self._ev_battery_drain_soc,
                     reserve_soc=getattr(self._battery, "reserve_soc", None),
+                    force_charge_active=force_charge_active,
                 )
                 for action_spec in plug_drain_actions:
                     await self._execute_service_action(action_spec)
@@ -2276,6 +2280,7 @@ class EnergyCoordinator(BaseCoordinator):
                         soc_threshold=self._fill_priority_soc,
                         excess_solar_kwh_threshold=self._excess_solar_kwh,
                         safety_margin_kwh=DEFAULT_FILL_PRIORITY_SAFETY_MARGIN_KWH,
+                        force_charge_active=force_charge_active,
                     )
                     for action_spec in plug_fp_actions:
                         await self._execute_service_action(action_spec)
@@ -3808,7 +3813,13 @@ class EnergyCoordinator(BaseCoordinator):
         Gated by observation mode (Bug Class #23 — gate at dispatch, not in
         handler) because `_send_nm_alert` does not gate observation_mode.
         """
-        currently_paused = bool(self._ev._paused_by_fill_priority)
+        # v4.7.6 fix-up B-H4: include L1 plug fill-priority set in the
+        # currently_paused union so the NM trip fires on L1-only pauses
+        # (D4 L1 plug parity). Previously only EVPool's set was checked.
+        currently_paused = bool(
+            self._ev._paused_by_fill_priority
+            or self._smart_plugs._paused_by_fill_priority
+        )
         if not currently_paused:
             # Reset edge-detection state when nothing is paused this tick.
             self._fill_priority_was_empty = True
@@ -3817,14 +3828,17 @@ class EnergyCoordinator(BaseCoordinator):
         if not self._fill_priority_was_empty:
             return  # Already paused last tick — no rising edge.
 
-        # Rising edge detected. Update state regardless of trip outcome.
-        self._fill_priority_was_empty = False
-
+        # v4.7.6 fix-up B-M4: defer the rising-edge consumption until AFTER
+        # the observation-mode gate so an observation-mode-suppressed tick
+        # doesn't burn the day's edge token silently.
         if self._observation_mode:
             _LOGGER.debug(
                 "Fill-priority rising edge in observation mode — NM trip suppressed"
             )
             return
+
+        # Past the obs-mode gate — consume the rising edge.
+        self._fill_priority_was_empty = False
 
         from homeassistant.util import dt as dt_util
         today_iso = dt_util.now().date().isoformat()
@@ -3849,8 +3863,10 @@ class EnergyCoordinator(BaseCoordinator):
                 location="energy",
             )
             _LOGGER.info(
-                "Fill-priority NM trip fired (date=%s, paused=%s)",
-                today_iso, list(self._ev._paused_by_fill_priority),
+                "Fill-priority NM trip fired (date=%s, ev_paused=%s, plug_paused=%s)",
+                today_iso,
+                list(self._ev._paused_by_fill_priority),
+                list(self._smart_plugs._paused_by_fill_priority),
             )
         except Exception:
             _LOGGER.warning(
@@ -3912,7 +3928,12 @@ class EnergyCoordinator(BaseCoordinator):
         as peer entries with the same 6-key shape as EVSEs.
         """
         try:
-            plug_status = self._smart_plugs.get_status()
+            # v4.7.6 fix-up C-H1 / A-L3: thread the configured target SOC
+            # into the plug surface so its `pause_reason_human` renders the
+            # peer-shaped target string (matches EV format).
+            plug_status = self._smart_plugs.get_status(
+                fill_priority_target_soc=self._fill_priority_soc,
+            )
         except Exception:  # pragma: no cover — defensive
             plug_status = {}
         return self._ev.get_status(
@@ -4276,8 +4297,13 @@ class EnergyCoordinator(BaseCoordinator):
             "tou": tou_info,
             "battery": battery_status,
             "pool": self._pool.get_status(),
-            "ev": self._ev.get_status(),
-            "smart_plugs": self._smart_plugs.get_status(),
+            # v4.7.6 fix-up C-H1: thread target SOC for consistent rendering.
+            "ev": self._ev.get_status(
+                fill_priority_target_soc=self._fill_priority_soc,
+            ),
+            "smart_plugs": self._smart_plugs.get_status(
+                fill_priority_target_soc=self._fill_priority_soc,
+            ),
             "circuits": self._circuits.get_status(),
             "generator": self._generator.get_status(),
             "billing": self._billing.get_status(),
