@@ -416,7 +416,15 @@ class TestIdempotentRepause:
 
 class TestPruneRemovedEVSEs:
     def test_prune_removed_evses_clears_state(self):
-        """update_evse_config drops a removed EVSE's tracking state."""
+        """Removing an EVSE from config drops its tracking state on the next prune.
+
+        v4.7.6 fix-up B-H1: `update_evse_config` was removed (dead code — no
+        production caller; config updates go through HA's options-flow reload
+        which rebuilds EVPool from scratch via `async_setup_entry`). The
+        canonical state-cleanup path is `_prune_removed_evses()` which is
+        invoked from `__init__`. Tests drive it directly here to verify the
+        invariant holds after the config dict mutates.
+        """
         ev, hass = _make_ev()
         # Pause garage_a
         ev.determine_battery_drain_actions(
@@ -424,8 +432,13 @@ class TestPruneRemovedEVSEs:
         )
         assert "garage_a" in ev._paused_by_battery_drain
         assert "garage_a" in ev._pause_dispatch_ts
-        # Remove garage_a via config update
-        ev.update_evse_config({})
+        # Mutate config to remove garage_a, then run the canonical prune.
+        # This mirrors what the legacy update_evse_config wrapper did
+        # without re-introducing the dead wrapper itself.
+        ev._evse = {}
+        ev._prune_removed_evses()
         assert "garage_a" not in ev._paused_by_battery_drain
         assert "garage_a" not in ev._pause_dispatch_ts
         assert "garage_a" not in ev._observed_off_since_pause
+        # v4.7.6 fix-up A-H2 / A-H3: dispatch_owners is also pruned.
+        assert "garage_a" not in ev._dispatch_owners
