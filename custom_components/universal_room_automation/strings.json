@@ -422,6 +422,7 @@
     "error": {
       "no_occupancy_sensors": "At least one occupancy sensor (motion, presence, or combined) is required",
       "zone_name_exists": "A zone with this name already exists",
+      "zone_name_contains_plus": "Zone name must not contain ' + ' (reserved as canonical merge separator)",
       "unknown": "An unknown error occurred. Please check logs for details."
     },
     "abort": {
@@ -498,7 +499,7 @@
       },
       "zone_config_menu": {
         "title": "Zone Configuration",
-        "description": "What would you like to configure for this zone?",
+        "description": "What would you like to configure for this zone?{banner}",
         "menu_options": {
           "zone_rooms": "🏠 Zone Rooms",
           "zone_media": "🎵 Zone Media",
