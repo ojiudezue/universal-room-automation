@@ -422,6 +422,7 @@
     "error": {
       "no_occupancy_sensors": "At least one occupancy sensor (motion, presence, or combined) is required",
       "zone_name_exists": "A zone with this name already exists",
+      "zone_name_contains_plus": "Zone name must not contain ' + ' (reserved as canonical merge separator)",
       "unknown": "An unknown error occurred. Please check logs for details."
     },
     "abort": {

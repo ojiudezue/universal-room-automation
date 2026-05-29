@@ -1788,6 +1788,32 @@ the setup path as a Bug Class #46 violation and use lazy derivation instead.
 
 ---
 
+### Bug Class #47 — Lazy Canonical Resolution UI Surface Violation
+
+**Symptom.** A UI surface (config flow, options flow, panels, services) calls
+`iter_canonical_hvac_zones` and presents the user with a merged canonical
+label (e.g., `"Entertainment + Master Suite"`) that the user can't reconcile
+against their own configuration. Saves under the merged key silently drop
+half the data when read back through the raw `entry.options["zones"]` shape.
+
+**Sub-class (post-review v4.7.5):** zone names that contain the literal
+`" + "` substring collide with the canonical merge separator emitted by
+`hvac_zones.py:788` (`f"{existing['zone_name']} + {zm_zone_name}"`). The
+read-side split fallback in `energy.py` cannot distinguish a real
+user-chosen name from a synthesized merge label. Fix: reject `" + "` in
+zone names at config-flow validate time (see `config_flow.py`
+`_ZONE_NAME_PLUS_SEPARATOR_RE`).
+
+**Locked by:** `quality/tests/test_v475_d3_canonical_runtime_only.py`
+(AST-scan asserts `config_flow.py` does not import or call
+`iter_canonical_hvac_zones`) and the zone-name validator in
+`async_step_zone_setup` / `async_step_zone_rooms`.
+
+**Fix pattern.** Derive sibling sets locally from `entry.options["zones"]`
+(see `_get_shared_thermostat_siblings`). Never persist a derived view.
+
+---
+
 ### Lazy Canonical Resolution (architectural rule, v4.7.5)
 
 **Principle.** The HVAC coordinator's canonical zone merge

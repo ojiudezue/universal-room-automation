@@ -444,6 +444,43 @@ Per CLAUDE.md, two reviewers dispatched in parallel with explicit, disjoint focu
 
 ## 11. Plan Completion Tracking — Explicitly Deferred Items
 
+### Post-Review Fix-Up Status (added 2026-05-29)
+
+| Finding | Severity | Status | Notes |
+|---|---|---|---|
+| A-H1 / B-H2 — `zone_rooms` bypasses `_auto_mirror_to_siblings` | HIGH | **FIXED** | Routed through helper with new `rename_from` kwarg; M4 AST test added. |
+| A-H2 — `MIRROR_KEYS_ZONE_ENERGY` scope | HIGH | **FIXED** | Audited `async_step_zone_energy` schema — only `CONF_ZONE_POWER_SENSORS` + `CONF_ZONE_ENERGY_SENSORS` exist today; both are thermostat-tied and included; `test_v475_d4_energy_mirror_set_covers_step_schema` locks the contract. |
+| A-H3 — `" + "` split collision | HIGH | **FIXED** | Validate-time rejection at zone-create + zone-rename (`_ZONE_NAME_PLUS_SEPARATOR_RE`); `energy.py` 3-step resolution with explicit fallback ordering + WARNING when unresolved; Bug Class #47 formalized in `QUALITY_CONTEXT.md`. |
+| B-H1 — `async_step_zone_config_menu` legacy path | HIGH | **FIXED** | Explicit `if zone_name is None` guard; legacy `zone_entry` capture preserved; comment explains both paths. |
+| B-H3 — `zone_energy` + `zone_dpm` missing `old_thermostat` | HIGH | **FIXED** | Both steps now thread `old_thermostat` to the helper; new test `test_v475_d4_unlink_mirrors_energy_to_old_sibling`; helper logs WARNING if reassignment payload omits `CONF_ZONE_THERMOSTAT` from `mirror_keys`. |
+| A-M1 — D3 allowlist test scope drift | MEDIUM | **FIXED** | `_collect_callers` now also walks `quality/tests/`; allowlist extended to match QUALITY_CONTEXT.md docstring. |
+| A-M3 — `zone_id`/`zone_name` collision | MEDIUM | **FIXED** | `energy.py` uses explicit 3-step resolution (raw match → split fallback → zone_id last). |
+| A-M4 — No AST test for editor-step → helper routing | MEDIUM | **FIXED** | `test_v475_d4_every_save_step_routes_through_mirror_helper` added. |
+| A-M6 — D5 mutation test under-asserts runtime coverage | MEDIUM | **FIXED** | `test_v475_d5_mutation_actually_catches_missing_mode_at_runtime` actually runs `async_step_manage_zones` under a stub missing `LIST` and asserts AttributeError. Set-difference test kept as `test_v475_d5_select_mode_set_difference_logic`. |
+| B-M1 — helper sync/async naming mismatch | MEDIUM | **DOC ONLY** | Renaming `_auto_mirror_to_siblings` would touch 7 call sites; docstring now explicitly states "synchronous; do NOT await". B-M1 OK with either fix. |
+| B-M2 — `asyncio.get_event_loop()` deprecation in D5 | MEDIUM | **FIXED** | Replaced with `_run_coro_isolated` helper that runs on a fresh loop AND restores the prior loop — avoided suite-run pollution observed in `test_v47x_dynamic_preset` (Python-3.9 `asyncio.Lock()` ctor). |
+| B-M3 — read-after-write race docstring | MEDIUM | **FIXED** | `_auto_mirror_to_siblings` docstring now carries the explicit "no `await` between mirror call and form render" caveat. |
+| A-M2 — banner read-only convention | MEDIUM | DEFERRED | Read-only block; low risk; not blocking. Backlog: extract a `_render_shared_thermostat_banner` helper in v4.7.5.x. |
+| A-M5 — Plan §11 close-out | MEDIUM | **FIXED (this table)** | Per-finding fix-up status captured here. |
+| B-M4 — `_StubHass` missing `async_create_task` | MEDIUM | DEFERRED | Trip-wire add. Not blocking. Backlog: v4.7.5.x test-fixture hardening pass. |
+| A-L1 — banner translation surface | LOW | DEFERRED | en-only consistent with rest of integration. |
+| A-L2 — banner shows entity_id, not friendly name | LOW | DEFERRED | Single-user install knows entity IDs; backlog. |
+| A-L3 — RestoreEntity coexistence test | LOW | DEFERRED | No test surface today; backlog v4.7.5.x. |
+| A-L4 — LIST member runtime verification | LOW | PARTIALLY FIXED | D5 mutation test now exercises the live runtime path; post-deploy live validation is the final verification. |
+| A-L5 — unlink test missing `update_calls == 1` assertion | LOW | **FIXED** | `test_v475_d4_unlink_mirrors_energy_to_old_sibling` includes the `len(...) == 1` assertion. |
+| A-L6 — D4 module-load order risk | LOW | DEFERRED | Order-independent today; observed pass; backlog if Bug Class #44 recurs. |
+| A-L7 — broad `Exception` swallow in siblings lookup | LOW | DEFERRED | Load-bearing (must never break the form); backlog if narrowing is requested. |
+| B-L1 — banner broad except masks ImportError class | LOW | DEFERRED | Same as A-L7. |
+| B-L2 — helper no-op INFO log | LOW | DEFERRED | Minor logging polish. |
+| B-L3 — D4 fixture intra-test mutation | LOW | DEFERRED | Function-scope fixture today; safe. |
+| B-L4 — banner `{banner}` placeholder lint | LOW | DEFERRED | Single render site. |
+
+**Bug Class #47 added to `QUALITY_CONTEXT.md`** — "Lazy Canonical Resolution UI Surface Violation" with the `" + "` substring collision documented as a sub-class.
+
+**Cycle test counts post-fix-up:** 31/31 v4.7.5 cycle tests pass (up from 27 pre-fix-up after new test additions). Full suite: 4113 passed / 55 failed / 2 skipped / 14 errors — **zero NEW failures vs `pre-review-v4.7.5` baseline** (was 4109 passed / 55 failed — +4 new passing tests from this fix-up). All baseline failures and errors are pre-existing infrastructure issues unrelated to this cycle (`test_activity_logger.py` `ModuleNotFoundError`).
+
+**LoC delta** on top of `pre-review-v4.7.5`: see `git diff pre-review-v4.7.5..HEAD`.
+
 ### Build-cycle status (post-build, pre-review)
 
 | Deliverable | Status | Notes |

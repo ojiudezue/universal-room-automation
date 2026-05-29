@@ -590,3 +590,149 @@ def test_v475_d4_dpm_mirror_set_contains_master_toggle_and_buckets():
     assert not missing, (
         f"v4.7.5 D4: MIRROR_KEYS_ZONE_DPM missing keys {missing}"
     )
+
+
+# =============================================================================
+# v4.7.5 post-review M4 — every per-zone editor step routes through the
+# centralised _auto_mirror_to_siblings helper. If a future maintainer inlines
+# `async_update_entry` again on any of these steps, this test fails and the
+# Option C invariant ("one save = one update_entry") is locked.
+# =============================================================================
+
+
+def test_v475_d4_every_save_step_routes_through_mirror_helper():
+    """All 7 zone editor save paths must call self._auto_mirror_to_siblings.
+
+    AST-scan config_flow.py; for each AsyncFunctionDef in the expected set,
+    assert that its body (at any nesting depth) contains a Call to
+    `self._auto_mirror_to_siblings(...)`. Catches the H1-class regression
+    (zone_rooms used inline async_update_entry, contradicting its comment).
+    """
+    import ast as _ast
+
+    cf_path = os.path.join(_COMPONENT_DIR, "config_flow.py")
+    with open(cf_path) as _f:
+        src = _f.read()
+    tree = _ast.parse(src)
+
+    expected_callers = {
+        "async_step_zone_rooms",
+        "async_step_zone_media",
+        "async_step_zone_hvac",
+        "async_step_zone_energy",
+        "async_step_zone_persons",
+        "async_step_zone_cameras",
+        "async_step_zone_dynamic_preset",
+    }
+
+    found_callers: set[str] = set()
+    for node in _ast.walk(tree):
+        if not isinstance(node, _ast.AsyncFunctionDef):
+            continue
+        if node.name not in expected_callers:
+            continue
+        for sub in _ast.walk(node):
+            if not isinstance(sub, _ast.Call):
+                continue
+            func = sub.func
+            if (
+                isinstance(func, _ast.Attribute)
+                and func.attr == "_auto_mirror_to_siblings"
+                and isinstance(func.value, _ast.Name)
+                and func.value.id == "self"
+            ):
+                found_callers.add(node.name)
+                break
+
+    missing = expected_callers - found_callers
+    assert not missing, (
+        "v4.7.5 D4 (post-review M4): the following per-zone editor steps do "
+        "NOT call self._auto_mirror_to_siblings — Option C 'one save = one "
+        f"update_entry' invariant broken on: {sorted(missing)}. "
+        "Route each step through the helper (per-house-zone steps use an "
+        "empty MIRROR_KEYS_* set; the helper is then a save-only path)."
+    )
+
+
+# =============================================================================
+# v4.7.5 post-review A-H2 — MIRROR_KEYS_ZONE_ENERGY covers every thermostat-
+# tied CONF the zone_energy step writes. If a new shared-circuit field is
+# added to the energy form schema, it MUST be added to MIRROR_KEYS_ZONE_ENERGY
+# (or explicitly documented as per-house-zone).
+# =============================================================================
+
+
+def test_v475_d4_energy_mirror_set_covers_step_schema():
+    """Every CONF key written by async_step_zone_energy must be in the mirror set.
+
+    Today the schema accepts CONF_ZONE_POWER_SENSORS + CONF_ZONE_ENERGY_SENSORS
+    only — both are physical AC sub-circuit sensors tied to the shared
+    thermostat. The mirror set must include them; a future contributor adding
+    a third thermostat-tied energy CONF must update this test + the set.
+    """
+    expected_thermostat_tied = {
+        "zone_power_sensors",
+        "zone_energy_sensors",
+    }
+    missing = expected_thermostat_tied - _CF_MOD.MIRROR_KEYS_ZONE_ENERGY
+    assert not missing, (
+        "v4.7.5 D4 (post-review A-H2): MIRROR_KEYS_ZONE_ENERGY narrowed past "
+        f"the thermostat-tied set; missing keys {missing}. Every per-zone "
+        "energy CONF on async_step_zone_energy that tracks the shared AC "
+        "sub-circuit MUST be in this set — otherwise saving on one sibling "
+        "leaves the other stale."
+    )
+
+
+# =============================================================================
+# v4.7.5 post-review (Reviewer B H3) — zone_energy + zone_dynamic_preset save
+# paths pass old_thermostat to the mirror helper so the unlink branch fires
+# on those steps too (not just zone_hvac).
+# =============================================================================
+
+
+def test_v475_d4_unlink_mirrors_energy_to_old_sibling():
+    """Saving zone_energy after a thermostat reassignment mirrors the new
+    energy payload to the OLD sibling one final time so the previous sibling
+    group reflects the final pre-unlink state."""
+    zm = _StubEntry(
+        data={ENTRY_TYPE_KEY: ENTRY_TYPE_ZONE_MANAGER},
+        options={
+            "zones": {
+                "Entertainment": {
+                    CONF_ZONE_THERMOSTAT: "climate.thermo_1",
+                    "zone_power_sensors": ["sensor.t1_power_old"],
+                },
+                "Master Suite": {
+                    CONF_ZONE_THERMOSTAT: "climate.thermo_2",
+                    "zone_power_sensors": ["sensor.t1_power_old"],
+                },
+                "Office": {
+                    CONF_ZONE_THERMOSTAT: "climate.thermo_2",
+                    "zone_power_sensors": ["sensor.t2_power_old"],
+                },
+            },
+        },
+    )
+    flow = _make_flow_with_zm(zm, selected_zone="Master Suite")
+    # Master Suite already moved to thermo_2 (via a prior HVAC save); now the
+    # user saves new energy sensors on Master Suite. The unlink branch mirrors
+    # the new sensors to Entertainment (the OLD sibling) AND Office (the NEW
+    # sibling), in one async_update_entry call.
+    saved_payload = {
+        "zone_power_sensors": ["sensor.t2_power_new"],
+    }
+    mirrored = flow._auto_mirror_to_siblings(
+        zm,
+        "Master Suite",
+        saved_payload,
+        _CF_MOD.MIRROR_KEYS_ZONE_ENERGY,
+        old_thermostat="climate.thermo_1",
+    )
+    # Office (new sibling) AND Entertainment (old sibling) both mirrored
+    assert set(mirrored) == {"Office", "Entertainment"}
+    new_zones = zm.options["zones"]
+    assert new_zones["Entertainment"]["zone_power_sensors"] == ["sensor.t2_power_new"]
+    assert new_zones["Office"]["zone_power_sensors"] == ["sensor.t2_power_new"]
+    # And it folded into ONE async_update_entry
+    assert len(flow.hass.config_entries.update_calls) == 1

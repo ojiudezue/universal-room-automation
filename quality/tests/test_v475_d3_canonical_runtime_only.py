@@ -57,16 +57,32 @@ def _file_has_real_canonical_reference(path):
 
 
 def _collect_callers():
-    """Walk the component tree; return relative-path hits for the symbol."""
+    """Walk component + quality/tests trees; return relative-path hits.
+
+    v4.7.5 post-review (A-M1): also scan `quality/tests/` so the test scope
+    matches the QUALITY_CONTEXT.md docstring claim that tests are an approved
+    caller category. Without this, a future contributor wiring the canonical
+    merge into a test would be silently allowed.
+    """
     hits = []
-    for root, _dirs, files in os.walk(_COMPONENT_DIR):
-        for fn in files:
-            if not fn.endswith(".py"):
-                continue
-            full = os.path.join(root, fn)
-            if _file_has_real_canonical_reference(full):
-                rel = os.path.relpath(full, _COMPONENT_DIR)
-                hits.append(rel)
+    scan_roots = [
+        (_COMPONENT_DIR, _COMPONENT_DIR),
+        (
+            os.path.join(_REPO_ROOT, "quality", "tests"),
+            _REPO_ROOT,
+        ),
+    ]
+    for scan_dir, rel_anchor in scan_roots:
+        if not os.path.isdir(scan_dir):
+            continue
+        for root, _dirs, files in os.walk(scan_dir):
+            for fn in files:
+                if not fn.endswith(".py"):
+                    continue
+                full = os.path.join(root, fn)
+                if _file_has_real_canonical_reference(full):
+                    rel = os.path.relpath(full, rel_anchor)
+                    hits.append(rel)
     return hits
 
 
@@ -87,11 +103,16 @@ def test_v475_d3_no_canonical_in_config_flow():
 
 def test_v475_d3_canonical_callers_all_in_allowlist():
     """Every file that references iter_canonical_hvac_zones must be on the allowlist."""
+    # v4.7.5 post-review (A-M1): test-tree paths come back relative to
+    # _REPO_ROOT (e.g., "quality/tests/test_v475_d3...py"); component-tree
+    # paths come back relative to _COMPONENT_DIR (e.g., "button.py",
+    # "domain_coordinators/energy.py"). Allowlist covers both.
     allowlist_prefixes = (
         "domain_coordinators/",     # coordinator runtime
         "button.py",                 # per-zone platform setup
         "number.py",                 # per-zone platform setup
         "sensor.py",                 # per-zone platform setup
+        "quality/tests/",            # tests / fixtures / lockstep checks
     )
     hits = _collect_callers()
     violations = [

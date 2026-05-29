@@ -2580,21 +2580,37 @@ class EnergyCoordinator(BaseCoordinator):
                 zone_name = zone_info["zone_name"]
 
                 # Get zone_data from Zone Manager.
-                # v4.7.5 D3 Lazy Canonical Resolution: when zone_name is a
-                # MERGED canonical label (e.g. "Entertainment + Master Suite"),
-                # split on " + " and use the first constituent that exists in
-                # the raw zones dict. Pre-v4.7.5, DPM data was persisted under
-                # the merged key by a config-flow hack; post-v4.7.5 (Option C
-                # auto-mirror) all constituent house zones carry identical
-                # DPM data, so picking any of them is correct.
+                # v4.7.5 D3 Lazy Canonical Resolution (post-review M3+A-H3):
+                # tightened 3-step resolution:
+                #   1) Direct match on the raw zone_name (covers solo zones
+                #      AND post-v4.7.5 mirrored siblings where any constituent
+                #      key returns equivalent data).
+                #   2) Merged canonical label — split on " + " and resolve to
+                #      the first constituent that's present in zm_zones.
+                #      Zone names containing " + " are rejected at
+                #      config-flow validate time (see config_flow.py
+                #      _ZONE_NAME_PLUS_SEPARATOR_RE), so a positive " + "
+                #      check here cannot collide with a real zone name.
+                #   3) Fallback on zone_id (legacy / migration paths only) —
+                #      kept last so a zone literally named "zone_N" can't
+                #      shadow a real canonical resolution.
                 # See QUALITY_CONTEXT.md "Lazy Canonical Resolution".
-                zone_data = zm_zones.get(zone_name, zm_zones.get(zone_id, {}))
+                zone_data = zm_zones.get(zone_name)
                 if not zone_data and " + " in zone_name:
-                    for _part in zone_name.split(" + "):
-                        _part = _part.strip()
-                        if _part in zm_zones:
-                            zone_data = zm_zones[_part]
-                            break
+                    parts = [p.strip() for p in zone_name.split(" + ")]
+                    parts = [p for p in parts if p]
+                    matched_parts = [p for p in parts if p in zm_zones]
+                    if matched_parts:
+                        zone_data = zm_zones[matched_parts[0]]
+                    else:
+                        _LOGGER.warning(
+                            "DynamicPreset zone=%s: canonical-merged label "
+                            "did not resolve to any known house zone "
+                            "(parts=%s, zm_zones keys=%s); skipping DPM eval",
+                            zone_name, parts, list(zm_zones.keys()),
+                        )
+                if not zone_data:
+                    zone_data = zm_zones.get(zone_id, {})
 
                 # Get delta for this zone from WPM
                 try:

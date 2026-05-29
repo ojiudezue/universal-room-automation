@@ -362,9 +362,10 @@ class TestC1ValidationParityBothSurfaces:
         """Surface 2 passes zone_prefix='' (bare keys) to the shared helper."""
         idx = config_flow_src.find("async def async_step_zone_dynamic_preset(")
         assert idx > 0
-        # Surface 2 is a large function — use 7000-char window to reach the
-        # validate call (which is ~5400 chars into the function body).
-        body = config_flow_src[idx:idx + 7000]
+        # Surface 2 is a large function — use 8000-char window to reach the
+        # validate call (~7040 chars into the function body post-v4.7.5
+        # unlink wiring).
+        body = config_flow_src[idx:idx + 8000]
         # zone_prefix="" means keys are not prefixed (Surface 2 shows one zone at a time).
         assert 'zone_prefix=""' in body or "zone_prefix=''" in body, (
             "C1 fix: Surface 2 must pass zone_prefix='' to _validate_dynamic_preset_input "

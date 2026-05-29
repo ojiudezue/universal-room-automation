@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import uuid
 import voluptuous as vol
 from homeassistant import config_entries
@@ -292,6 +293,17 @@ from .const import (
     DEFAULT_ANOMALY_SENSITIVITY,
     ANOMALY_SENSITIVITY_OPTIONS,
 )
+
+
+# =============================================================================
+# v4.7.5 — Zone name validation
+# =============================================================================
+# The canonical merge in hvac_zones.py:788 produces labels of the form
+# `"<existing> + <new>"` joined by the literal `" + "`. The lazy canonical
+# resolution in energy.py splits merged labels back on `" + "`. A real zone
+# name containing the literal `" + "` substring would collide with the
+# separator (Bug Class #47 sub-class). Reject at config-flow validate time.
+_ZONE_NAME_PLUS_SEPARATOR_RE = re.compile(r"\s\+\s")
 
 
 # =============================================================================
@@ -714,10 +726,16 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
         
         if user_input is not None:
             zone_name = user_input.get(CONF_ZONE_NAME, "").strip()
-            
+
             # Validate zone name
             if not zone_name:
                 errors["base"] = "zone_name_exists"
+            elif _ZONE_NAME_PLUS_SEPARATOR_RE.search(zone_name):
+                # v4.7.5 post-review (A-H3, Bug Class #47 sub-class): reject
+                # ' + ' in zone names so the canonical merge label produced by
+                # iter_canonical_hvac_zones (hvac_zones.py:788) — and the
+                # `" + "` split fallback in energy.py — stay unambiguous.
+                errors["base"] = "zone_name_contains_plus"
             else:
                 # Check for duplicate zone names
                 existing_zones = self._get_existing_zones()
@@ -2075,18 +2093,30 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         mirror_keys,
         *,
         old_thermostat: str | None = None,
+        rename_from: str | None = None,
     ) -> list[str]:
         """v4.7.5 D4 Option C: mirror mirror_keys into shared-thermostat siblings.
 
-        Caller has already constructed `saved_zone_data` for `saved_zone_name`
-        but has NOT yet called `async_update_entry`. This helper folds the save
-        + the sibling mirrors into a SINGLE `async_update_entry` call so the
-        update_listener fires exactly once per user save.
+        v4.7.5 post-review note (sync vs async): This helper is synchronous
+        (`def`, not `async def`) because `async_update_entry` is itself sync
+        despite the `async_` prefix. Callers MUST NOT prefix the invocation
+        with `await` — doing so raises TypeError on a bool. See Reviewer B M1.
+
+        Caller has constructed `saved_zone_data` for `saved_zone_name` and the
+        helper folds the save + the sibling mirrors into a SINGLE
+        `async_update_entry` call so the update_listener fires exactly once
+        per user save. **The helper itself calls `async_update_entry`** — the
+        caller MUST NOT call it separately before invoking the helper.
 
         Returns the list of sibling zone names that were mirrored to (for
         log + description_placeholder cue on the next render). Returns an empty
         list when mirror_keys is empty (per-house-zone fields like rooms or
         media) OR when zone has no thermostat OR has no siblings.
+
+        `rename_from` (v4.7.5 post-review H1 fix): for `async_step_zone_rooms`
+        (which renames the zone key), pass the OLD zone name. The helper pops
+        the old key before writing the new one — keeping the rename atomic
+        with the save in a single `async_update_entry` call.
 
         Unlink path (PLANNING_v4.7.5 §D4 "unlink" edge case):
             If `old_thermostat` differs from the new thermostat in
@@ -2095,15 +2125,44 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             mirrored to going forward. Both groups are written within the SAME
             async_update_entry call (atomic — no double update_listener fire).
 
+            **Reviewer B post-review safety check (M3):** Callers MUST NOT
+            `await` any unrelated work between this call and returning a
+            menu/form render — the scheduled reload task may begin at the next
+            event-loop iteration and the rendered state should reflect the
+            user's save.
+
         Bug Class #46 safety: this helper runs from options-flow handlers,
         AFTER bootstrap-2 has closed. Per QUALITY_CONTEXT.md Bug Class #46
         §"When async_update_entry IS safe" condition 2, options-flow callers
         are explicitly safe.
         """
+        # v4.7.5 post-review (Reviewer B H3 sub-issue): if a thermostat
+        # reassignment is in flight but the mirror_keys set doesn't carry
+        # CONF_ZONE_THERMOSTAT, the unlink mirror won't be persisted to old
+        # siblings via the saved_zone_data payload — warn loudly so future
+        # contributors notice.
+        if (
+            old_thermostat
+            and mirror_keys
+            and CONF_ZONE_THERMOSTAT not in mirror_keys
+            and saved_zone_data.get(CONF_ZONE_THERMOSTAT) != old_thermostat
+        ):
+            _LOGGER.warning(
+                "v4.7.5: thermostat reassignment without CONF_ZONE_THERMOSTAT "
+                "in mirror_keys — unlink semantics may be incomplete. "
+                "saved_zone=%s mirror_keys=%s",
+                saved_zone_name, sorted(mirror_keys),
+            )
+
         merged = {**zm_entry.data, **zm_entry.options}
         # Deep copy zone dicts so we never mutate entry.options/data in place
         # (Bug Class #7 stale data source + async_update_entry no-op skip).
         zones = {k: dict(v) for k, v in merged.get("zones", {}).items()}
+
+        # Rename support (H1 fix): pop old key BEFORE writing new key so the
+        # saved zone lands at its renamed location.
+        if rename_from and rename_from != saved_zone_name and rename_from in zones:
+            zones[saved_zone_name] = zones.pop(rename_from)
 
         # 1. Persist the saved zone's own data (mirrors the per-step pattern
         # the editor steps already use; this helper centralises the write).
@@ -5229,17 +5288,24 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         explaining that HVAC/energy/DPM saves auto-mirror to those siblings.
         """
         # v3.6.0-c2.3: Allow routing via _selected_zone_name (ZM flow)
+        # v4.7.5 post-review (Reviewer B H1 fix): make the legacy zone-entry
+        # path control flow explicit. `zone_name` is only set on the ZM-flow
+        # path; on the legacy `_get_zone_entry()` path it remains None and the
+        # banner is intentionally skipped (legacy zone entries have no
+        # shared-thermostat-sibling concept). The abort guard catches
+        # zone_not_found on the legacy path.
         zone_name = getattr(self, "_selected_zone_name", None)
+        zone_entry = None
         if not zone_name:
             zone_entry = self._get_zone_entry()
             if not zone_entry:
                 return self.async_abort(reason="zone_not_found")
 
         # v4.7.5 D4 banner: detect shared-thermostat siblings, build placeholders.
-        # When no siblings: banner is empty string so the static description
-        # renders as before.
+        # When no siblings (or legacy-entry path with zone_name=None): banner
+        # is empty string so the static description renders as before.
         banner = ""
-        if zone_name:
+        if zone_name is not None:
             try:
                 zm_entry = self._find_zone_manager_entry()
                 if zm_entry is not None:
@@ -5319,6 +5385,25 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             selected_rooms = user_input.get(CONF_ZONE_ROOMS, [])
             old_zone_name = orig_zone_name if zm_result else current_zone_name
 
+            # v4.7.5 post-review (A-H3): reject ' + ' in zone names so the
+            # canonical merge separator stays unambiguous.
+            if zone_name and _ZONE_NAME_PLUS_SEPARATOR_RE.search(zone_name):
+                return self.async_show_form(
+                    step_id="zone_rooms",
+                    data_schema=vol.Schema({
+                        vol.Required(CONF_ZONE_NAME, default=zone_name): str,
+                        vol.Optional(CONF_ZONE_DESCRIPTION, default=current_zone_desc): str,
+                        vol.Optional(CONF_ZONE_ROOMS, default=selected_rooms): selector.SelectSelector(
+                            selector.SelectSelectorConfig(
+                                options=[],
+                                multiple=True,
+                                mode=selector.SelectSelectorMode.LIST,
+                            )
+                        ),
+                    }),
+                    errors={"base": "zone_name_contains_plus"},
+                )
+
             # Update each selected room's zone assignment
             for room_entry_id in selected_rooms:
                 room_entry = self.hass.config_entries.async_get_entry(room_entry_id)
@@ -5354,33 +5439,27 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
 
             if zm_result:
                 # v3.6.0-c2.3: Update zone in ZM entry's zones dict.
-                # v4.7.5 D4: rooms are per-house-zone (MIRROR_KEYS_ZONE_ROOMS
-                # is empty by design — Entertainment has different rooms than
-                # Master Suite). Use the auto-mirror helper anyway so the
-                # rename path stays atomic with the save (one
-                # async_update_entry total, even when the zone is renamed).
-                merged = {**zm_entry.data, **zm_entry.options}
-                # Deep copy inner dicts to avoid in-place mutation of
-                # entry.options (async_update_entry skips save if equal).
-                zones = {
-                    k: dict(v) for k, v in merged.get("zones", {}).items()
+                # v4.7.5 D4 (post-review H1 fix): route rooms through
+                # _auto_mirror_to_siblings so the helper handles save + rename
+                # atomically in ONE async_update_entry call. MIRROR_KEYS_ZONE_ROOMS
+                # is empty by design (Entertainment has different rooms than
+                # Master Suite) — helper is a no-op for the mirror itself, but
+                # the centralized save path keeps the "one save = one
+                # update_entry" invariant intact.
+                rooms_payload = {
+                    CONF_ZONE_DESCRIPTION: user_input.get(
+                        CONF_ZONE_DESCRIPTION, ""
+                    ),
+                    CONF_ZONE_ROOMS: selected_rooms,
                 }
-                # Handle rename: pop the old key first so the helper's
-                # `zones.setdefault(saved_zone_name)` lands on the new key.
-                if old_zone_name != zone_name and old_zone_name in zones:
-                    zones[zone_name] = zones.pop(old_zone_name)
-                else:
-                    zones.setdefault(zone_name, {})
-                zones[zone_name][CONF_ZONE_DESCRIPTION] = user_input.get(
-                    CONF_ZONE_DESCRIPTION, ""
-                )
-                zones[zone_name][CONF_ZONE_ROOMS] = selected_rooms
-                # Persist the renamed/updated zones dict; mirror is a no-op for
-                # rooms since MIRROR_KEYS_ZONE_ROOMS is empty (per-house-zone
-                # field by design). Single async_update_entry.
-                self.hass.config_entries.async_update_entry(
+                self._auto_mirror_to_siblings(
                     zm_entry,
-                    options={**zm_entry.options, "zones": zones},
+                    zone_name,
+                    rooms_payload,
+                    MIRROR_KEYS_ZONE_ROOMS,
+                    rename_from=(
+                        old_zone_name if old_zone_name != zone_name else None
+                    ),
                 )
                 self._selected_zone_name = zone_name
                 return await self.async_step_zone_config_menu()
@@ -5643,6 +5722,10 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             zm_entry, zone_name, zone_data = zm_result
             current_power = zone_data.get(CONF_ZONE_POWER_SENSORS, [])
             current_energy = zone_data.get(CONF_ZONE_ENERGY_SENSORS, [])
+            # v4.7.5 post-review (Reviewer B H3): capture old thermostat so the
+            # unlink path can mirror to the previous sibling group one final
+            # time if a thermostat reassignment is in flight in this session.
+            current_thermostat = zone_data.get(CONF_ZONE_THERMOSTAT)
         else:
             current_power = zone_entry.options.get(
                 CONF_ZONE_POWER_SENSORS,
@@ -5652,14 +5735,21 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 CONF_ZONE_ENERGY_SENSORS,
                 zone_entry.data.get(CONF_ZONE_ENERGY_SENSORS, []),
             )
+            # Legacy entries don't carry shared-thermostat semantics.
+            current_thermostat = None
 
         if user_input is not None:
             if zm_result:
                 # v4.7.5 D4: zone power/energy sensors track the shared AC
                 # sub-circuit; auto-mirror to sibling house zones.
+                # v4.7.5 post-review (Reviewer B H3): pass old_thermostat so
+                # the helper's unlink path mirrors energy data to the previous
+                # sibling group when a thermostat reassignment happens during
+                # this options-flow session.
                 self._auto_mirror_to_siblings(
                     zm_entry, zone_name, dict(user_input),
                     MIRROR_KEYS_ZONE_ENERGY,
+                    old_thermostat=current_thermostat,
                 )
                 return await self.async_step_zone_config_menu()
             elif self._selected_zone_entry_id:
@@ -5878,6 +5968,8 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             return self.async_abort(reason="zone_not_found")
 
         zm_entry, zone_name, zone_data = zm_result
+        # v4.7.5 post-review (B-H3): unlink-path old_thermostat for DPM.
+        current_thermostat = zone_data.get(CONF_ZONE_THERMOSTAT)
 
         if user_input is not None:
             errors = {}
@@ -5944,6 +6036,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 )
                 self._auto_mirror_to_siblings(
                     zm_entry, zone_name, zone_update, MIRROR_KEYS_ZONE_DPM,
+                    old_thermostat=current_thermostat,
                 )
                 return await self.async_step_zone_config_menu()
 

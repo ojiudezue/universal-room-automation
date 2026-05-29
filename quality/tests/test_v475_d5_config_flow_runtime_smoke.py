@@ -327,13 +327,11 @@ def test_v475_d5_no_dead_homeassistant_components_selector_import():
 # =============================================================================
 
 
-def test_v475_d5_mutation_proves_coverage():
-    """Synthesise a stub missing DROPDOWN and confirm the verifier flags it.
+def test_v475_d5_select_mode_set_difference_logic():
+    """The set-difference verifier surfaces DROPDOWN when the stub omits it.
 
-    Without DROPDOWN in the stub, the reference set still contains DROPDOWN
-    (it's in the source) — but DROPDOWN is not in the available member set.
-    The mutation test asserts the verifier raises, proving the mechanism
-    is real and not a false-positive-only check.
+    Proves the AST-grep mechanism (`_collect_selector_attribute_refs`) is
+    real — separate from the runtime mutation proof below.
     """
     mutated_modes = {"LIST"}  # DROPDOWN intentionally removed
     refs = _collect_selector_attribute_refs("SelectSelectorMode")
@@ -344,13 +342,51 @@ def test_v475_d5_mutation_proves_coverage():
         "logic is broken and v4.7.4.2 would not be caught."
     )
 
-    # Also confirm loading under a stub missing the LIST member raises at
-    # body-execution time IF a class-body uses .LIST (the D1 picker). The
-    # module-level body doesn't touch selectors directly; method bodies do.
-    # So this part is conservative — we don't expect _load_config_flow to
-    # raise just by importing the module. But the missing-attribute pattern
-    # would surface inside any method that is CALLED.
-    # The set-difference check above is the load-bearing mutation proof.
+
+def test_v475_d5_mutation_actually_catches_missing_mode_at_runtime():
+    """Strengthened mutation proof (post-review A-M6).
+
+    The set-difference check above is necessary but not sufficient — D5's
+    whole point is to catch RUNTIME AttributeError on `selector.X.Y` that
+    source-grep can't see. Here we stub `SelectSelectorMode` WITHOUT `LIST`
+    (the D1 picker mode) and call `async_step_manage_zones` — the schema
+    build references `selector.SelectSelectorMode.LIST` and should raise
+    AttributeError. Without this raise, D5 would not have caught v4.7.4.2.
+    """
+    # Stub the SelectSelectorMode without LIST (DROPDOWN only)
+    cf = _load_config_flow({"DROPDOWN"}, _DEFAULT_TEXT_TYPES)
+    OptionsFlow = cf.UniversalRoomAutomationOptionsFlow
+
+    class _Entry:
+        data = {"entry_type": "zone_manager"}
+        options = {"zones": {"Office": {"zone_thermostat": "climate.office"}}}
+
+    class _Hass:
+        class config_entries:
+            @staticmethod
+            def async_entries(_d):
+                return [_Entry()]
+
+    flow = OptionsFlow.__new__(OptionsFlow)
+    flow.hass = _Hass()
+    flow._config_entry = _Entry()
+    flow._selected_zone_name = None
+    flow._selected_zone_entry_id = None
+
+    with pytest.raises(AttributeError) as excinfo:
+        _run_coro_isolated(
+            flow.async_step_manage_zones(user_input=None)
+        )
+
+    # The AttributeError MUST mention LIST — otherwise we hit a different
+    # AttributeError and the mutation didn't actually exercise the right path.
+    assert "LIST" in str(excinfo.value), (
+        "v4.7.5 D5 mutation (post-review A-M6): the AttributeError did not "
+        "mention 'LIST'. Either the picker stopped using "
+        "SelectSelectorMode.LIST (then update D1) OR a different code path "
+        "raised first (test fixture drift). Without this raise, D5 would "
+        f"not have caught the v4.7.4.2 class of bug. Got: {excinfo.value!r}"
+    )
 
 
 # =============================================================================
@@ -358,12 +394,37 @@ def test_v475_d5_mutation_proves_coverage():
 # =============================================================================
 
 
+def _run_coro_isolated(coro):
+    """v4.7.5 post-review (B-M2 + pollution fix): run a coroutine on an
+    isolated event loop, then restore the prior loop so downstream tests
+    that construct asyncio primitives at module/test scope (e.g.,
+    test_v47x_dynamic_preset's `asyncio.Lock()` in DynamicPresetOverrideSource
+    init) continue to find a usable current loop.
+
+    asyncio.run() leaves no current loop set, which on Python 3.9 causes
+    later asyncio.Lock() ctors to raise "There is no current event loop".
+    """
+    import asyncio as _asyncio
+    try:
+        _prev_loop = _asyncio.get_event_loop_policy().get_event_loop()
+    except RuntimeError:
+        _prev_loop = None
+    _loop = _asyncio.new_event_loop()
+    _asyncio.set_event_loop(_loop)
+    try:
+        return _loop.run_until_complete(coro)
+    finally:
+        _loop.close()
+        if _prev_loop is not None and not _prev_loop.is_closed():
+            _asyncio.set_event_loop(_prev_loop)
+        else:
+            _asyncio.set_event_loop(_asyncio.new_event_loop())
+
+
 def test_v475_d5_manage_zones_step_instantiates_without_attr_error():
     """Call async_step_manage_zones with user_input=None and assert no
     AttributeError on a homeassistant.* module. This is the practical
     "render the form" smoke test for the D1 surface."""
-    import asyncio
-
     cf = _load_config_flow(_DEFAULT_SELECT_MODES, _DEFAULT_TEXT_TYPES)
     OptionsFlow = cf.UniversalRoomAutomationOptionsFlow
 
@@ -383,7 +444,7 @@ def test_v475_d5_manage_zones_step_instantiates_without_attr_error():
     flow._selected_zone_name = None
     flow._selected_zone_entry_id = None
 
-    result = asyncio.get_event_loop().run_until_complete(
+    result = _run_coro_isolated(
         flow.async_step_manage_zones(user_input=None)
     )
     # The stubbed async_show_form returns a dict {"type": "form", ...}
