@@ -928,3 +928,377 @@ class TestPeakClearReleasesDispatchOwner:
         )
         assert "switch.plug_a" not in sp._paused_by_fill_priority
         assert "switch.plug_a" not in sp._dispatch_owners
+
+
+# ---------------------------------------------------------------------------
+# v4.7.6 fix-up pass 3 — B-M3 tick-snapshot for fill_priority_soc
+# ---------------------------------------------------------------------------
+
+class TestFillPrioritySocTickSnapshot:
+    """B-M3: `_async_decision_cycle` reads `_fill_priority_soc` once into a
+    tick-local snapshot and passes the snapshot to determine_fill_priority_actions
+    (both EV and L1 plug) AND to `_check_fill_priority_nm_trip`. This guards
+    against a mid-tick `set_fill_priority_soc` write changing the threshold
+    between the EV branch and the L1 branch.
+    """
+
+    def test_decision_cycle_captures_fill_priority_soc_snapshot(self):
+        """Source-level: actuation block captures `fill_priority_soc_tick`
+        at the top, and the post-snapshot fill_priority call-sites pass
+        the snapshot — not the live attr.
+        """
+        src_path = os.path.join(
+            os.path.dirname(__file__), "..", "..",
+            "custom_components", "universal_room_automation",
+            "domain_coordinators", "energy.py",
+        )
+        with open(src_path) as f:
+            src = f.read()
+        idx = src.find("async def _async_decision_cycle")
+        assert idx > 0, "tick function must exist"
+        end = src.find("\n    async def ", idx + 1)
+        if end < 0:
+            end = len(src)
+        slice_ = src[idx:end]
+        assert "fill_priority_soc_tick = int(self._fill_priority_soc)" in slice_, (
+            "B-M3: tick-snapshot assignment missing"
+        )
+        # Both EV and plug fill_priority call sites must pass the snapshot.
+        assert slice_.count("soc_threshold=fill_priority_soc_tick") >= 2, (
+            "B-M3: at least 2 fill_priority sites must use the tick-snapshot "
+            "(EV path + L1 plug path)"
+        )
+        # NM trip helper must be called with the tick-snapshot kwarg.
+        assert "fill_priority_soc_tick=fill_priority_soc_tick" in slice_, (
+            "B-M3: _check_fill_priority_nm_trip must receive tick-snapshot"
+        )
+
+    def test_nm_trip_signature_accepts_snapshot_kwarg(self):
+        """_check_fill_priority_nm_trip accepts the tick-snapshot kwarg."""
+        src_path = os.path.join(
+            os.path.dirname(__file__), "..", "..",
+            "custom_components", "universal_room_automation",
+            "domain_coordinators", "energy.py",
+        )
+        with open(src_path) as f:
+            src = f.read()
+        idx = src.find("def _check_fill_priority_nm_trip")
+        assert idx > 0
+        sig_end = src.find(") -> None:", idx)
+        assert sig_end > 0
+        sig = src[idx:sig_end]
+        assert "fill_priority_soc_tick" in sig, (
+            "B-M3: _check_fill_priority_nm_trip must accept "
+            "fill_priority_soc_tick kwarg"
+        )
+
+
+# ---------------------------------------------------------------------------
+# v4.7.6 fix-up pass 3 — B-M4 observation-mode trip swallow (regression-lock)
+# ---------------------------------------------------------------------------
+
+class TestFillPriorityObsModeDoesNotConsumeRisingEdge:
+    """B-M4: observation-mode-suppressed trip MUST NOT advance the day token /
+    consume `_fill_priority_was_empty`. When obs-mode flips OFF, the next
+    rising edge should still fire (real user-visible event).
+
+    Source-level lock: the `_fill_priority_was_empty = False` mutation must
+    appear AFTER the observation-mode return, not before. Pass 1 fixed this
+    surgically; pass 3 locks it with a regression test.
+    """
+
+    def test_was_empty_mutated_after_observation_gate(self):
+        src_path = os.path.join(
+            os.path.dirname(__file__), "..", "..",
+            "custom_components", "universal_room_automation",
+            "domain_coordinators", "energy.py",
+        )
+        with open(src_path) as f:
+            src = f.read()
+        idx = src.find("def _check_fill_priority_nm_trip")
+        assert idx > 0
+        end = src.find("\n    @property", idx)
+        if end < 0:
+            end = src.find("\n    def ", idx + 1)
+        slice_ = src[idx:end]
+        # The observation-mode return must precede the consume of the
+        # rising edge.
+        obs_idx = slice_.find("if self._observation_mode:")
+        consume_idx = slice_.find("self._fill_priority_was_empty = False")
+        assert obs_idx > 0, "B-M4: observation_mode gate must exist"
+        assert consume_idx > 0, "B-M4: was_empty mutation must exist"
+        assert obs_idx < consume_idx, (
+            "B-M4: observation_mode gate MUST appear before the "
+            "_fill_priority_was_empty = False mutation; otherwise an "
+            "obs-mode-suppressed tick burns the day token silently and "
+            "blocks re-trip when obs-mode flips back on."
+        )
+
+
+# ---------------------------------------------------------------------------
+# v4.7.6 fix-up pass 3 — B-M7 double-unsub guard on Number entities
+# ---------------------------------------------------------------------------
+
+class TestNumberDoubleUnsubGuard:
+    """B-M7: `FillPrioritySOCNumber` and `EVBatteryDrainSOCNumber` use the
+    defer-retry-via-dispatcher pattern. The original code:
+        unsub_holder.append(async_dispatcher_connect(...))
+        self.async_on_remove(unsub_holder[0])
+    invoked `unsub_holder[0]()` from the callback on signal-fire AND
+    registered the SAME unsub for entity-removal → double-unsub error.
+
+    Pass 3 introduces a `_safe_unsub()` wrapper guarded by a one-shot
+    flag and routes BOTH paths through it.
+    """
+
+    def test_fill_priority_uses_safe_unsub_wrapper(self):
+        src_path = os.path.join(
+            os.path.dirname(__file__), "..", "..",
+            "custom_components", "universal_room_automation",
+            "number.py",
+        )
+        with open(src_path) as f:
+            src = f.read()
+        idx = src.find("class FillPrioritySOCNumber")
+        assert idx > 0
+        end = src.find("\nclass ", idx + 1)
+        if end < 0:
+            end = len(src)
+        slice_ = src[idx:end]
+        # Safe-unsub wrapper exists.
+        assert "def _safe_unsub" in slice_, (
+            "B-M7: FillPrioritySOCNumber must define _safe_unsub() guard"
+        )
+        # async_on_remove is wired to the wrapper, not to unsub_holder[0]
+        # directly.
+        assert "self.async_on_remove(_safe_unsub)" in slice_, (
+            "B-M7: FillPrioritySOCNumber must register _safe_unsub via "
+            "async_on_remove (not unsub_holder[0])"
+        )
+        # Direct double-call pattern eliminated.
+        assert "self.async_on_remove(unsub_holder[0])" not in slice_, (
+            "B-M7: FillPrioritySOCNumber must NOT register unsub_holder[0] "
+            "directly — double-unsub bug"
+        )
+
+    def test_ev_battery_drain_uses_safe_unsub_wrapper(self):
+        """Same fix backported to EVBatteryDrainSOCNumber (same lineage)."""
+        src_path = os.path.join(
+            os.path.dirname(__file__), "..", "..",
+            "custom_components", "universal_room_automation",
+            "number.py",
+        )
+        with open(src_path) as f:
+            src = f.read()
+        idx = src.find("class EVBatteryDrainSOCNumber")
+        assert idx > 0
+        end = src.find("\nclass ", idx + 1)
+        if end < 0:
+            end = len(src)
+        slice_ = src[idx:end]
+        assert "def _safe_unsub" in slice_, (
+            "B-M7: EVBatteryDrainSOCNumber must define _safe_unsub() guard"
+        )
+        assert "self.async_on_remove(_safe_unsub)" in slice_, (
+            "B-M7: EVBatteryDrainSOCNumber must register _safe_unsub"
+        )
+        assert "self.async_on_remove(unsub_holder[0])" not in slice_, (
+            "B-M7: EVBatteryDrainSOCNumber must NOT register "
+            "unsub_holder[0] directly — double-unsub bug"
+        )
+
+
+# ---------------------------------------------------------------------------
+# v4.7.6 fix-up pass 3 — C-M2 per-EVSE self_modulates only when configured
+# ---------------------------------------------------------------------------
+
+class TestPerEvseSelfModulatesOnlyWhenConfigured:
+    """C-M2: `garage_a_self_modulates` and `garage_b_self_modulates` were
+    statically present in the options schema for ALL installs, exposing a
+    meaningless toggle for unconfigured EVSEs. Fix: inject the
+    BooleanSelector ONLY when the matching CONF_ENERGY_EVSE_<X>_ENTITY
+    is configured. Mirrors the L1-plug fix from pass 2.
+    """
+
+    def test_config_flow_injects_evse_checkbox_only_when_configured(self):
+        src_path = os.path.join(
+            os.path.dirname(__file__), "..", "..",
+            "custom_components", "universal_room_automation",
+            "config_flow.py",
+        )
+        with open(src_path) as f:
+            src = f.read()
+        # Static garage_a / garage_b checkbox lines must be GONE.
+        assert '"garage_a_self_modulates"' not in src or (
+            "_evse_logical_id_for_conf" in src
+        ), (
+            "C-M2: static garage_a_self_modulates Optional must be replaced "
+            "with the conditional injection loop"
+        )
+        # The conditional injection loop must exist.
+        assert "_evse_logical_id_for_conf" in src, (
+            "C-M2: config_flow must iterate configured EVSEs to inject "
+            "self_modulates checkbox conditionally"
+        )
+        assert "CONF_ENERGY_EVSE_A_ENTITY" in src
+        assert "CONF_ENERGY_EVSE_B_ENTITY" in src
+        # The loop must guard injection by self._get_current(_conf_key).
+        idx = src.find("_evse_logical_id_for_conf")
+        end = src.find("data_schema = vol.Schema", idx)
+        assert end > idx
+        loop_slice = src[idx:end]
+        assert "self._get_current(_conf_key)" in loop_slice, (
+            "C-M2: must guard checkbox injection on configured EVSE entity"
+        )
+
+
+# ---------------------------------------------------------------------------
+# v4.7.6 fix-up pass 3 — C-M3 unified keyspace across visibility attrs
+# ---------------------------------------------------------------------------
+
+class TestEvseConfigKeyspaceConsistency:
+    """C-M3 lock-in: For any given device (EVSE OR L1 plug), the keys
+    used in `evse_config`, `pause_reason_human`, and `pause_dispatch_state`
+    must agree. EVSE side uses logical ids; L1 plug side uses entity_ids.
+    Within a single device family the keys must match across attrs so
+    dashboards iterating one attr can cross-reference another.
+    """
+
+    def test_evse_logical_id_consistent_across_attrs(self):
+        """EVSE 'garage_a' appears with same key in all 3 attrs."""
+        hass = MockHass()
+        hass.set_state("switch.garage_a", "on")
+        ev = EVChargerController(hass, evse_config={
+            "garage_a": {
+                "switch": "switch.garage_a",
+                "self_modulates": False,
+            },
+        })
+        ev._paused_by_fill_priority.add("garage_a")
+        ev._pause_dispatch_ts["garage_a"] = 0.0
+        ev._observed_off_since_pause["garage_a"] = True
+        status = ev.get_status(fill_priority_target_soc=80)
+        # Key consistency: same key across all 3 attrs.
+        assert "garage_a" in status["evse_config"]
+        assert "garage_a" in status["pause_reason_human"]
+        assert "garage_a" in status["pause_dispatch_state"]
+
+    def test_plug_entity_id_consistent_across_attrs(self):
+        """L1 plug entity_id appears with same key in all 3 attrs."""
+        hass = MockHass()
+        hass.set_state("switch.moes_plug_garage_a", "on")
+        sp = SmartPlugController(
+            hass,
+            plug_entities=["switch.moes_plug_garage_a"],
+            plug_config={
+                "switch.moes_plug_garage_a": {"self_modulates": True},
+            },
+        )
+        sp._paused_by_fill_priority.add("switch.moes_plug_garage_a")
+        sp._pause_dispatch_ts["switch.moes_plug_garage_a"] = 0.0
+        plug_status = sp.get_status()
+        assert "switch.moes_plug_garage_a" in plug_status["evse_config"]
+        assert "switch.moes_plug_garage_a" in plug_status["pause_reason_human"]
+        assert "switch.moes_plug_garage_a" in plug_status["pause_dispatch_state"]
+
+
+# ---------------------------------------------------------------------------
+# v4.7.6 fix-up pass 3 — C-M4 Force-Charge button references config location
+# ---------------------------------------------------------------------------
+
+class TestForceChargeButtonHelperTextReferencesConfigLocation:
+    """C-M4: Force-Charge button helper text must point users at the
+    location where `self_modulates` is configured (the URA Coordinator
+    Manager → Configure → Energy Coordinator step). Without this,
+    a user reads about self_modulating EVSEs on the button but has no
+    affordance for finding the toggle.
+    """
+
+    def test_button_helper_references_config_flow_location(self):
+        src_path = os.path.join(
+            os.path.dirname(__file__), "..", "..",
+            "custom_components", "universal_room_automation",
+            "button.py",
+        )
+        with open(src_path) as f:
+            src = f.read()
+        idx = src.find("class EVSEForceChargeButton")
+        assert idx > 0
+        end = src.find("\nclass ", idx + 1)
+        if end < 0:
+            end = len(src)
+        slice_ = src[idx:end]
+        # Helper must reference Configure / Energy Coordinator step (where
+        # self_modulates lives).
+        assert "Configure" in slice_, (
+            "C-M4: docstring must reference Configure step location"
+        )
+        assert "Energy Coordinator" in slice_, (
+            "C-M4: docstring must name the Energy Coordinator config step"
+        )
+
+
+# ---------------------------------------------------------------------------
+# v4.7.6 fix-up pass 3 — C-M5 L1 plug charging heuristic opt-out
+# ---------------------------------------------------------------------------
+
+class TestL1PlugChargingOptOut:
+    """C-M5: An L1 plug switched ON with no car (lamp, stove plug used as
+    a smart plug) would render `charging: True` under the legacy
+    `is_on AND not paused` heuristic. Per-plug `assume_charging_when_on`
+    flag (default True for back-compat) lets the user opt that specific
+    plug out. When False AND is_on, `energy_status` becomes "idle" and
+    `charging` is False.
+    """
+
+    def test_legacy_default_is_charging_true(self):
+        """Default (no opt-out): is_on AND not paused → charging True."""
+        hass = MockHass()
+        hass.set_state("switch.dumb_plug", "on")
+        sp = SmartPlugController(
+            hass, plug_entities=["switch.dumb_plug"],
+        )
+        plug_status = sp.get_status()
+        entry = plug_status["plug_entries"]["switch.dumb_plug"]
+        assert entry["charging"] is True
+        assert entry["energy_status"] == "charging"
+
+    def test_assume_charging_when_on_false_renders_idle(self):
+        """Opt-out: is_on AND not paused but flag False → charging False."""
+        hass = MockHass()
+        hass.set_state("switch.always_on_lamp", "on")
+        sp = SmartPlugController(
+            hass,
+            plug_entities=["switch.always_on_lamp"],
+            plug_config={
+                "switch.always_on_lamp": {
+                    "assume_charging_when_on": False,
+                },
+            },
+        )
+        plug_status = sp.get_status()
+        entry = plug_status["plug_entries"]["switch.always_on_lamp"]
+        assert entry["charging"] is False, (
+            "C-M5: assume_charging_when_on=False must yield charging=False"
+        )
+        assert entry["energy_status"] == "idle", (
+            "C-M5: opt-out plug should render energy_status='idle' when on"
+        )
+
+    def test_opt_out_off_is_off(self):
+        """Sanity: plug off + opt-out → energy_status='off'."""
+        hass = MockHass()
+        hass.set_state("switch.always_on_lamp", "off")
+        sp = SmartPlugController(
+            hass,
+            plug_entities=["switch.always_on_lamp"],
+            plug_config={
+                "switch.always_on_lamp": {
+                    "assume_charging_when_on": False,
+                },
+            },
+        )
+        plug_status = sp.get_status()
+        entry = plug_status["plug_entries"]["switch.always_on_lamp"]
+        assert entry["charging"] is False
+        assert entry["energy_status"] == "off"

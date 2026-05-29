@@ -751,12 +751,25 @@ class EVBatteryDrainSOCNumber(NumberEntity, RestoreEntity):
         if not self._push_to_coordinator():
             from homeassistant.helpers.dispatcher import async_dispatcher_connect
             from .domain_coordinators.signals import SIGNAL_ENERGY_ENTITIES_UPDATE
+            # v4.7.6 fix-up B-M7: guard against double-unsub. The original
+            # pattern called `unsub_holder[0]()` on signal-fire AND registered
+            # the same callable via `async_on_remove`, which fires it again
+            # on entity removal → HA raises on the second unsub. Wrap the
+            # unsub in a one-shot guard so both paths are safe.
             unsub_holder: list = []
+            unsubbed = [False]
+
+            def _safe_unsub() -> None:
+                if unsubbed[0]:
+                    return
+                if unsub_holder:
+                    unsubbed[0] = True
+                    unsub_holder[0]()
 
             @callback
             def _on_energy_tick(*_args, **_kwargs):
-                if self._push_to_coordinator() and unsub_holder:
-                    unsub_holder[0]()
+                if self._push_to_coordinator() and unsub_holder and not unsubbed[0]:
+                    _safe_unsub()
                     _LOGGER.debug(
                         "EV battery drain SOC slider pushed to EC after deferred ready",
                     )
@@ -766,7 +779,7 @@ class EVBatteryDrainSOCNumber(NumberEntity, RestoreEntity):
                     self.hass, SIGNAL_ENERGY_ENTITIES_UPDATE, _on_energy_tick,
                 )
             )
-            self.async_on_remove(unsub_holder[0])
+            self.async_on_remove(_safe_unsub)
 
     async def async_set_native_value(self, value: float) -> None:
         self._value = int(value)
@@ -857,19 +870,30 @@ class FillPrioritySOCNumber(NumberEntity, RestoreEntity):
         if not self._push_to_coordinator():
             from homeassistant.helpers.dispatcher import async_dispatcher_connect
             from .domain_coordinators.signals import SIGNAL_ENERGY_ENTITIES_UPDATE
+            # v4.7.6 fix-up B-M7: see EVBatteryDrainSOCNumber for the same
+            # double-unsub guard. Wrap the dispatcher unsub in a one-shot
+            # so signal-fire and entity-removal don't both call it.
             unsub_holder: list = []
+            unsubbed = [False]
+
+            def _safe_unsub() -> None:
+                if unsubbed[0]:
+                    return
+                if unsub_holder:
+                    unsubbed[0] = True
+                    unsub_holder[0]()
 
             @callback
             def _on_energy_tick(*_a, **_kw):
-                if self._push_to_coordinator() and unsub_holder:
-                    unsub_holder[0]()
+                if self._push_to_coordinator() and unsub_holder and not unsubbed[0]:
+                    _safe_unsub()
 
             unsub_holder.append(
                 async_dispatcher_connect(
                     self.hass, SIGNAL_ENERGY_ENTITIES_UPDATE, _on_energy_tick,
                 )
             )
-            self.async_on_remove(unsub_holder[0])
+            self.async_on_remove(_safe_unsub)
 
     async def async_set_native_value(self, value: float) -> None:
         self._value = int(value)

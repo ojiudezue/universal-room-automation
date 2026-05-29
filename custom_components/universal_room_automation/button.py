@@ -1187,6 +1187,11 @@ class EVSEForceChargeButton(ButtonEntity):
     battery state. Resets automatically after the window expires; press
     again to extend.
 
+    v4.7.6 fix-up C-M4: To configure each EVSE's or L1 plug's
+    `self_modulates` flag, edit the URA Coordinator Manager entry →
+    Configure → Energy Coordinator step. Per-EVSE and per-plug
+    BooleanSelectors appear there for every configured device.
+
     Pressing this button opens a 30-minute window during which URA's TOU
     pause logic is bypassed for all EVSEs.  The override is intentionally
     an admin button (not a switch) to require deliberate action.

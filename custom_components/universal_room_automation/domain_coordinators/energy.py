@@ -2141,6 +2141,16 @@ class EnergyCoordinator(BaseCoordinator):
                     target_entity=_bat_target,
                 )
 
+            # v4.7.6 fix-up B-M3: snapshot the runtime-mutable EV thresholds
+            # once at the start of the actuation block. `_fill_priority_soc`
+            # has a sync setter (FillPrioritySOCNumber.async_set_native_value
+            # → set_fill_priority_soc) that can land between reads inside
+            # this tick. Without a snapshot, the drain branch and the fill
+            # priority branch (and the NM trip message) could each observe a
+            # different value within the same tick. Excess-solar threshold
+            # has no setter today; left unsnapshotted intentionally.
+            fill_priority_soc_tick = int(self._fill_priority_soc)
+
             # Execute actions (skipped in observation mode)
             if not self._observation_mode:
                 for action_spec in decision.get("actions", []):
@@ -2220,11 +2230,12 @@ class EnergyCoordinator(BaseCoordinator):
                 # switch — same toggle controls both turn-ON and pause sides).
                 if self._excess_solar_enabled:
                     from .energy_const import DEFAULT_FILL_PRIORITY_SAFETY_MARGIN_KWH
+                    # v4.7.6 fix-up B-M3: pass tick-snapshot, not live attr.
                     fp_actions = self._ev.determine_fill_priority_actions(
                         soc=self._battery.battery_soc,
                         remaining_forecast_kwh=self._battery.solcast_remaining,
                         tou_period=period,
-                        soc_threshold=self._fill_priority_soc,
+                        soc_threshold=fill_priority_soc_tick,
                         excess_solar_kwh_threshold=self._excess_solar_kwh,
                         safety_margin_kwh=DEFAULT_FILL_PRIORITY_SAFETY_MARGIN_KWH,
                     )
@@ -2232,7 +2243,11 @@ class EnergyCoordinator(BaseCoordinator):
                         await self._execute_service_action(action_spec)
                     # v4.7.6 D4: NM trip on rising edge — first fill-priority
                     # pause per day. Gated by observation mode (Bug Class #23).
-                    await self._check_fill_priority_nm_trip()
+                    # v4.7.6 fix-up B-M3: pass tick-snapshot for the NM
+                    # message so it agrees with the threshold used above.
+                    await self._check_fill_priority_nm_trip(
+                        fill_priority_soc_tick=fill_priority_soc_tick,
+                    )
 
                 # v4.2.19: EVSE power sensor health check
                 evse_alerts = self._ev.check_power_sensor_health()
@@ -2273,11 +2288,13 @@ class EnergyCoordinator(BaseCoordinator):
                 # v4.7.6 D2 mirror: L1 plug fill-priority pause
                 if self._excess_solar_enabled:
                     from .energy_const import DEFAULT_FILL_PRIORITY_SAFETY_MARGIN_KWH
+                    # v4.7.6 fix-up B-M3: same tick-snapshot used for L2 EV
+                    # so L2 and L1 evaluate against the same threshold.
                     plug_fp_actions = self._smart_plugs.determine_fill_priority_actions(
                         soc=self._battery.battery_soc,
                         remaining_forecast_kwh=self._battery.solcast_remaining,
                         tou_period=period,
-                        soc_threshold=self._fill_priority_soc,
+                        soc_threshold=fill_priority_soc_tick,
                         excess_solar_kwh_threshold=self._excess_solar_kwh,
                         safety_margin_kwh=DEFAULT_FILL_PRIORITY_SAFETY_MARGIN_KWH,
                         force_charge_active=force_charge_active,
@@ -3803,7 +3820,10 @@ class EnergyCoordinator(BaseCoordinator):
         self._fill_priority_soc = int(value)
         _LOGGER.info("EV fill-priority SOC threshold set to %d%%", int(value))
 
-    async def _check_fill_priority_nm_trip(self) -> None:
+    async def _check_fill_priority_nm_trip(
+        self,
+        fill_priority_soc_tick: int | None = None,
+    ) -> None:
         """v4.7.6 D4: Fire NM trip once per day on first fill-priority pause.
 
         Edge detection: tracks previous-tick `_paused_by_fill_priority` empty
@@ -3812,6 +3832,12 @@ class EnergyCoordinator(BaseCoordinator):
 
         Gated by observation mode (Bug Class #23 — gate at dispatch, not in
         handler) because `_send_nm_alert` does not gate observation_mode.
+
+        v4.7.6 fix-up B-M3: `fill_priority_soc_tick` is the tick-snapshot
+        captured at the top of `_async_decision_cycle`. Used in the NM
+        message body so the threshold reported matches what the rule used
+        even if `set_fill_priority_soc` ran mid-tick. Falls back to the
+        live attr when omitted (test paths only).
         """
         # v4.7.6 fix-up B-H4: include L1 plug fill-priority set in the
         # currently_paused union so the NM trip fires on L1-only pauses
@@ -3849,11 +3875,18 @@ class EnergyCoordinator(BaseCoordinator):
         soc = self._battery.battery_soc
         remaining = self._battery.solcast_remaining
         try:
+            # v4.7.6 fix-up B-M3: prefer tick-snapshot threshold for the
+            # message body. Falls back to live attr if caller didn't pass.
+            target_soc_for_msg = (
+                int(fill_priority_soc_tick)
+                if fill_priority_soc_tick is not None
+                else int(self._fill_priority_soc)
+            )
             await self._send_nm_alert(
                 title="EVSE Paused for Battery Fill",
                 message=(
                     f"EVSE paused for battery fill "
-                    f"(SOC {soc:.0f}%, target {self._fill_priority_soc}%, "
+                    f"(SOC {soc:.0f}%, target {target_soc_for_msg}%, "
                     f"solar forecast {remaining:.1f} kWh remaining)"
                     if soc is not None and remaining is not None
                     else "EVSE paused for battery fill (fill-priority active)"

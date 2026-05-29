@@ -1839,7 +1839,21 @@ class SmartPlugController:
                 or entity_id in self._paused_by_fill_priority
                 or entity_id in self._paused_by_us
             )
-            charging = is_on and not paused
+            # v4.7.6 fix-up C-M5: `charging` heuristic for L1 plugs.
+            # Default (legacy): `is_on AND not paused`. This wrongly reports
+            # `charging: True` for an always-on plug serving a non-charging
+            # load (lamp, fridge). Per-plug opt-out via `assume_charging_when_on`
+            # in plug_config — when set to False, the plug never renders
+            # `charging: True` from switch state alone (no power sensor is
+            # configured per L1 plug today, so power-based derivation isn't
+            # available). When set to False and is_on, `energy_status` becomes
+            # "idle" instead of "charging" — communicates the limitation
+            # without surfacing a false-charging claim.
+            plug_cfg = self._plug_config.get(entity_id, {})
+            assume_charging_when_on = bool(
+                plug_cfg.get("assume_charging_when_on", True)
+            )
+            charging = is_on and not paused and assume_charging_when_on
             # v4.7.6 fix-up A-M2: precedence aligned with EVPool —
             # fill_priority > drain > TOU > activity.
             if entity_id in self._paused_by_fill_priority:

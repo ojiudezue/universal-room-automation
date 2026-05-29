@@ -3514,19 +3514,11 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     mode=selector.NumberSelectorMode.SLIDER,
                 )
             ),
-            # v4.7.6 D3.4: Per-EVSE self_modulates checkboxes. Default False
-            # (Option B — smart manual-override detection). Toggle True for
-            # smart EVSEs with native solar/schedule modes (Emporia, Tesla
-            # Wall Connector). Stored on the per-EVSE config dict; consumed
-            # by EVPool._self_modulates_for(evse_id).
-            vol.Optional(
-                "garage_a_self_modulates",
-                default=self._get_current("garage_a_self_modulates", False),
-            ): selector.BooleanSelector(),
-            vol.Optional(
-                "garage_b_self_modulates",
-                default=self._get_current("garage_b_self_modulates", False),
-            ): selector.BooleanSelector(),
+            # v4.7.6 D3.4: Per-EVSE self_modulates checkboxes are injected
+            # dynamically below (one BooleanSelector per configured EVSE).
+            # See the loop after `_schema_dict` is built. EVSEs whose key
+            # is absent from `cm_config` will retain `source: "default"`
+            # in EVPool.get_status() (mirrors C-M2 fix for L1 plugs).
             # v4.7.6 D6.4 / fix-up C-H2: Per-L1-plug self_modulates fields
             # are injected dynamically below (one BooleanSelector per
             # configured plug, suffixed `<plug_entity_id>_self_modulates`).
@@ -3612,6 +3604,27 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             # feeds into.  Exposing a setting that has no runtime effect is
             # misleading.  Re-introduce if an AnomalyDetector is added to energy.
         }
+        # v4.7.6 fix-up C-M2: inject per-EVSE self_modulates checkbox
+        # ONLY for EVSEs that have a configured power entity. Previously
+        # `garage_a_self_modulates` AND `garage_b_self_modulates` were both
+        # statically present even on single-EVSE installs, exposing a
+        # meaningless toggle and stamping the absent EVSE as
+        # `source: "explicit"` in evse_config sensor attr.
+        # Field key shape: `<evse_logical_id>_self_modulates`. Absent keys
+        # remain `source: "default"` in EVPool.get_status().
+        _evse_logical_id_for_conf = {
+            CONF_ENERGY_EVSE_A_ENTITY: "garage_a",
+            CONF_ENERGY_EVSE_B_ENTITY: "garage_b",
+        }
+        for _conf_key, _evse_logical_id in _evse_logical_id_for_conf.items():
+            if self._get_current(_conf_key):
+                _field_key = f"{_evse_logical_id}_self_modulates"
+                _schema_dict[
+                    vol.Optional(
+                        _field_key,
+                        default=self._get_current(_field_key, False),
+                    )
+                ] = selector.BooleanSelector()
         # v4.7.6 fix-up C-H2: inject per-L1-plug self_modulates checkbox
         # for every plug already configured in CONF_ENERGY_L1_CHARGER_ENTITIES.
         # Field key shape: `<plug_entity_id>_self_modulates`. Absent keys
