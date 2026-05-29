@@ -269,7 +269,9 @@ class TestD3Surface2ConditionalRendering:
         """D3: Surface 2 schema must have 'sleep_section' section block."""
         idx = config_flow_src.find("def _build_dynamic_preset_schema(\n")
         assert idx > 0
-        body = config_flow_src[idx:idx + 5000]
+        # v4.7.4.3 added ~20 lines of _customize_buckets_value() before the schema;
+        # increase window from 5000 to 7000 to keep sleep_section in scope.
+        body = config_flow_src[idx:idx + 7000]
         assert "sleep_section" in body, (
             "D3: _build_dynamic_preset_schema must define 'sleep_section' section"
         )
@@ -278,8 +280,9 @@ class TestD3Surface2ConditionalRendering:
         """D3: Both sections must be collapsed by default."""
         idx = config_flow_src.find("def _build_dynamic_preset_schema(\n")
         assert idx > 0
-        # Need 7000 chars — sleep_section's collapsed dict is ~6553 chars into the function.
-        body = config_flow_src[idx:idx + 7000]
+        # v4.7.4.3 added ~20 lines of _customize_buckets_value() before the schema;
+        # increase window from 7000 to 8500 so both collapsed dicts are in scope.
+        body = config_flow_src[idx:idx + 8500]
         # Count occurrences — should be 2 (one per section)
         collapsed_count = body.count('"collapsed": True')
         assert collapsed_count >= 2, (
@@ -356,12 +359,20 @@ class TestD3Surface2ConditionalRendering:
         )
 
     def test_d3_migration_in_init(self, init_src):
-        """D3: __init__.py must have the customize_buckets migration helper for ZM entry."""
+        """D3: __init__.py must reference customize_buckets (drop comment since v4.7.4.3).
+
+        v4.7.4.3 removed the eager migration that called async_update_entry inside
+        async_setup_entry (Bug Class #46: re-entrant reload on cold boot). The migration
+        block is replaced by a drop comment; lazy derivation now lives in config_flow.py.
+        The test verifies the drop comment is present (positive anchor for the fix).
+        """
         assert "customize_buckets" in init_src, (
-            "D3: __init__.py must contain the v4.7.4 migration for CONF_ZONE_DYNAMIC_PRESET_CUSTOMIZE_BUCKETS"
+            "D3: __init__.py must reference customize_buckets (v4.7.4.3 drop comment "
+            "documents removal of eager migration — Bug Class #46 fix)"
         )
-        assert "CONF_ZONE_DYNAMIC_PRESET_CUSTOMIZE_BUCKETS" in init_src, (
-            "D3: __init__.py migration must reference CONF_ZONE_DYNAMIC_PRESET_CUSTOMIZE_BUCKETS"
+        assert "v4.7.4.3" in init_src, (
+            "D3: __init__.py must have the v4.7.4.3 drop comment documenting removal "
+            "of the eager customize_buckets migration (Bug Class #46 fix)"
         )
 
 

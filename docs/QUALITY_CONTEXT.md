@@ -1740,6 +1740,35 @@ engine = OverrideEngine(get_options=self._get_cm_options)
 
 ---
 
+### Bug Class #46 — `async_update_entry` from within `async_setup_entry` triggers re-entrant reload
+
+**Shape:** A migration helper calls `hass.config_entries.async_update_entry(entry, options=...)` while still inside `async_setup_entry`. HA's update_listener machinery fires the registered update callback, which typically reloads the entry. On cold install or first boot after upgrade, the double-pass through `async_setup_entry` can blow HA's 120s bootstrap-2 budget, surfacing as `CancelledError: Global task timeout: Bootstrap stage 2 timeout` at whatever `await` happens to be running when the budget hits zero — NOT necessarily the actual slow path.
+
+**v4.7.4 example:** Migration helper at `__init__.py:2319` set `CONF_ZONE_DYNAMIC_PRESET_CUSTOMIZE_BUCKETS=True` for zones with saved per-bucket cells, then called `async_update_entry`. On cold HA boot after HACS upgrade, the reload re-entered setup; user's HA bootstrap-2 timed out at TOU engine load on first boot. Second boot worked because migration already persisted → idempotent no-op.
+
+**Prevention:** Do NOT call `async_update_entry` from anywhere in the setup path — including deferred tasks fired during bootstrap-2. The canonical fix is to derive migrated values lazily at read time (e.g., in the config-flow schema builder) instead of persisting them eagerly. This avoids the update_listener chain entirely. The value then persists naturally the next time the user saves the form.
+
+**Detection:**
+- Static: grep for `async_update_entry` calls textually inside `async_setup_entry` body. Most should be moved out entirely, not just deferred.
+- Live: `Bootstrap stage 2 timeout` in HA core log with traceback pointing to `async_setup_entry` is the symptom; the file:line in the trace is often misleading (catches whatever await is running).
+
+**Severity:** HIGH on cold install only; subsequent boots succeed because the migration is idempotent. Worst-case: user can't recover without SSH-level restart or HACS rollback.
+
+**Incomplete fix incident (v4.7.4.1 → v4.7.4.3):**
+v4.7.4.1's first attempt deferred the `async_update_entry` call via
+`hass.async_create_task`, but the deferred task still triggered the same
+reload chain — `async_setup_entry` still ran twice within the same
+bootstrap-2 budget window. v4.7.4.3 shipped the true fix: drop the
+migration entirely and derive the flag lazily at read time. **The
+canonical fix for this bug class is to AVOID `async_update_entry` from
+ANYWHERE in the setup path — including deferred tasks fired during
+bootstrap-2 — by deriving migrated values at read time instead of
+persisting them eagerly.**
+
+**Filed 2026-05-28** after v4.7.4 first-boot incident.
+
+---
+
 ## ✅ MANDATORY VALIDATION CHECKLIST
 
 **Before EVERY deployment, complete this checklist:**
