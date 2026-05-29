@@ -2579,8 +2579,22 @@ class EnergyCoordinator(BaseCoordinator):
                 zone_id = zone_info["zone_id"]
                 zone_name = zone_info["zone_name"]
 
-                # Get zone_data from Zone Manager
+                # Get zone_data from Zone Manager.
+                # v4.7.5 D3 Lazy Canonical Resolution: when zone_name is a
+                # MERGED canonical label (e.g. "Entertainment + Master Suite"),
+                # split on " + " and use the first constituent that exists in
+                # the raw zones dict. Pre-v4.7.5, DPM data was persisted under
+                # the merged key by a config-flow hack; post-v4.7.5 (Option C
+                # auto-mirror) all constituent house zones carry identical
+                # DPM data, so picking any of them is correct.
+                # See QUALITY_CONTEXT.md "Lazy Canonical Resolution".
                 zone_data = zm_zones.get(zone_name, zm_zones.get(zone_id, {}))
+                if not zone_data and " + " in zone_name:
+                    for _part in zone_name.split(" + "):
+                        _part = _part.strip()
+                        if _part in zm_zones:
+                            zone_data = zm_zones[_part]
+                            break
 
                 # Get delta for this zone from WPM
                 try:

@@ -498,7 +498,7 @@
       },
       "zone_config_menu": {
         "title": "Zone Configuration",
-        "description": "What would you like to configure for this zone?",
+        "description": "What would you like to configure for this zone?{banner}",
         "menu_options": {
           "zone_rooms": "🏠 Zone Rooms",
           "zone_media": "🎵 Zone Media",
