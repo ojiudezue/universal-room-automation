@@ -5540,15 +5540,6 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         # Tombstone: do NOT reintroduce the old import path.
         # Regression guard: quality/tests/test_v4742_dead_import_removed.py
         import voluptuous as vol
-<<<<<<< HEAD
-        # v4.7.4.2: removed dead `from homeassistant.components.selector import (...)`
-        # block. (a) HA 2026.5.4 moved selector to homeassistant.helpers.selector —
-        # the old import path raises ModuleNotFoundError. (b) The imported names
-        # were never used in this handler (schema uses raw vol.All/Coerce/Range/bool).
-        # Empty error modal on form open was the symptom; root cause traced from
-        # HA core log 2026-05-29.
-=======
->>>>>>> worktree-agent-a22ad56da66a8e20e
         from .domain_coordinators.energy_const import (
             CONF_ZONE_DYNAMIC_PRESET_ENABLED,
             CONF_ZONE_DYNAMIC_PRESET_OFFSET,

@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv4.7.4.3
+# Universal Room Automation vv4.7.4.4
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -2325,50 +2325,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         except Exception as e:
             _LOGGER.warning("Zone slug cleanup failed (non-fatal): %s", e)
 
-<<<<<<< HEAD
-        # v4.7.4 migration: for zones with saved per-bucket cells but no
-        # customize_buckets flag, set customize_buckets=True so user sees their
-        # existing customizations in the v4.7.4 UI rather than the simplified view.
-        # Non-fatal — entry loads successfully even if this fails.
-        try:
-            from .domain_coordinators.energy_const import (
-                CONF_ZONE_DYNAMIC_PRESET_CUSTOMIZE_BUCKETS,
-            )
-            _zm_merged = {**entry.data, **entry.options}
-            _zones_raw = _zm_merged.get("zones", {})
-            _migration_needed = False
-            _zones_updated: dict = {k: dict(v) for k, v in _zones_raw.items()}
-            for _zn, _zd in _zones_updated.items():
-                if _zd.get(CONF_ZONE_DYNAMIC_PRESET_CUSTOMIZE_BUCKETS) is None:
-                    # Check if any per-bucket cell is saved
-                    _has_saved_cells = any(
-                        _zd.get(f"zone_dynamic_preset_{_bucket}_home_low") is not None
-                        or _zd.get(f"zone_dynamic_preset_{_bucket}_home_high") is not None
-                        for _bucket in ("cool", "mild", "hot", "extreme")
-                    )
-                    _zd[CONF_ZONE_DYNAMIC_PRESET_CUSTOMIZE_BUCKETS] = _has_saved_cells
-                    if _has_saved_cells:
-                        _migration_needed = True
-                        _LOGGER.info(
-                            "v4.7.4 migration: zone=%s has saved per-bucket cells "
-                            "— setting customize_buckets=True to preserve UI visibility",
-                            _zn,
-                        )
-            if _migration_needed:
-                # Defer the entry update via a background task so we don't trigger
-                # _async_update_listener → reload → re-entrant async_setup_entry
-                # while still mid-setup. Bug Class #46.
-                _new_options = {**entry.options, "zones": _zones_updated}
-                hass.async_create_task(
-                    _v474_defer_customize_buckets_persist(hass, entry, _new_options),
-                    name="ura_v474_customize_buckets_migration",
-                )
-        except Exception:
-            _LOGGER.debug(
-                "v4.7.4 customize_buckets migration skipped (non-fatal)",
-                exc_info=True,
-            )
-=======
         # v4.7.4.3: customize_buckets eager migration REMOVED (Bug Class #46).
         # v4.7.4 and v4.7.4.1 both called async_update_entry from inside
         # async_setup_entry (directly or via a deferred task), triggering the
@@ -2379,7 +2335,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # _build_dynamic_preset_schema (config_flow.py) — zero side effects,
         # no update_entry call, no reload. Value persists naturally on next
         # form save by the user.
->>>>>>> worktree-agent-a22ad56da66a8e20e
 
         # Store zone data reference for music_following and other lookups
         if "zones" not in hass.data[DOMAIN]:
@@ -3167,28 +3122,12 @@ async def _async_register_notification_services(hass: HomeAssistant) -> None:
     _LOGGER.info("Registered notification manager services")
 
 
-async def _v474_defer_customize_buckets_persist(
-    hass: HomeAssistant, entry: ConfigEntry, new_options: dict
-) -> None:
-    """Persist the v4.7.4 customize_buckets migration after async_setup_entry returns.
-
-    Triggers the standard options-update flow once setup is complete, avoiding
-    the re-entrant reload that blew bootstrap-2 budget on cold install
-    (incident 2026-05-28; root cause: async_update_entry from inside
-    async_setup_entry triggers the registered update_listener → reload).
-
-    The deferred update_listener-fired reload is benign here — by the time it
-    fires, the original setup_entry has completed, so the reload runs as a
-    clean second pass with the migration flag already set (idempotent).
-    """
-    try:
-        hass.config_entries.async_update_entry(entry, options=new_options)
-    except Exception:
-        _LOGGER.warning(
-            "v4.7.4 customize_buckets deferred persist failed (non-fatal); "
-            "migration will retry on next entry load",
-            exc_info=True,
-        )
+# v4.7.4.3: the v4.7.4.1 customize_buckets deferred-persist helper was
+# deleted (do not reintroduce — test_v4743_no_eager_migration.py guards
+# the name against ANY reappearance, including comments).
+# Bug Class #46: even deferred, the helper's async_update_entry call still
+# triggered the update_listener -> reload chain within bootstrap-2 budget.
+# Replaced by lazy derivation in _build_dynamic_preset_schema (config_flow.py).
 
 
 async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
