@@ -119,6 +119,7 @@ class EnergyCoordinator(BaseCoordinator):
         pool_speed_entity: str | None = None,
         evse_config: dict | None = None,
         smart_plug_entities: list[str] | None = None,
+        plug_config: dict | None = None,
         solar_classification_mode: str = "automatic",
         custom_solar_thresholds: dict[str, float] | None = None,
         tou_engine: TOURateEngine | None = None,
@@ -217,7 +218,11 @@ class EnergyCoordinator(BaseCoordinator):
         # E2: Pool, EV, Smart Plugs
         self._pool = PoolOptimizer(hass, pool_speed_entity=pool_speed_entity)
         self._ev = EVChargerController(hass, evse_config=evse_config)
-        self._smart_plugs = SmartPlugController(hass, plug_entities=smart_plug_entities)
+        self._smart_plugs = SmartPlugController(
+            hass,
+            plug_entities=smart_plug_entities,
+            plug_config=plug_config,
+        )
 
         # v3.11.0: Configured weather entity (for DB logging).
         # v4.7.x Cycle A: _weather_entity is the fallback when WeatherProviderManager
@@ -254,6 +259,25 @@ class EnergyCoordinator(BaseCoordinator):
         self._ev_battery_drain_soc: int = int(ec.get(
             CONF_ENERGY_EV_BATTERY_DRAIN_SOC,
             DEFAULT_EV_BATTERY_DRAIN_SOC_THRESHOLD))
+
+        # v4.7.6 D2/D3.2: EV fill-priority pause SOC threshold (runtime-tunable
+        # via number.ura_energy_coordinator_fill_priority_soc). Seeded from
+        # entry.options on first install; RestoreEntity is canonical thereafter.
+        from .energy_const import (
+            CONF_ENERGY_FILL_PRIORITY_SOC,
+            DEFAULT_FILL_PRIORITY_SOC,
+        )
+        self._fill_priority_soc: int = int(ec.get(
+            CONF_ENERGY_FILL_PRIORITY_SOC,
+            DEFAULT_FILL_PRIORITY_SOC,
+        ))
+
+        # v4.7.6 D4: edge-detection state for "first fill-priority pause per day"
+        # NM trip. Tracks previous-tick non-empty state.
+        self._fill_priority_was_empty: bool = True
+        # ISO date string (YYYY-MM-DD) of the day we last fired the NM trip;
+        # resets implicitly at midnight when the date string changes.
+        self._fill_priority_nm_trip_date: str | None = None
 
         # E3: Circuit monitoring + generator
         # v4.2.0: Configurable circuit sources
@@ -2180,13 +2204,35 @@ class EnergyCoordinator(BaseCoordinator):
                 # kW on newer Envoy installs, W on older ones). The drain
                 # rule's `< -100` threshold is in W; passing kW broke the
                 # comparison and silently disabled the protection.
+                #
+                # v4.7.6 D1: reserve_soc threaded through for the refined
+                # `battery_out_of_capacity` resume gate.
                 drain_actions = self._ev.determine_battery_drain_actions(
                     battery_power_w=self._battery.battery_power_w,
                     battery_soc=self._battery.battery_soc,
                     soc_threshold=self._ev_battery_drain_soc,
+                    reserve_soc=getattr(self._battery, "reserve_soc", None),
                 )
                 for action_spec in drain_actions:
                     await self._execute_service_action(action_spec)
+
+                # v4.7.6 D2: EV fill-priority pause (gated by excess_solar
+                # switch — same toggle controls both turn-ON and pause sides).
+                if self._excess_solar_enabled:
+                    from .energy_const import DEFAULT_FILL_PRIORITY_SAFETY_MARGIN_KWH
+                    fp_actions = self._ev.determine_fill_priority_actions(
+                        soc=self._battery.battery_soc,
+                        remaining_forecast_kwh=self._battery.solcast_remaining,
+                        tou_period=period,
+                        soc_threshold=self._fill_priority_soc,
+                        excess_solar_kwh_threshold=self._excess_solar_kwh,
+                        safety_margin_kwh=DEFAULT_FILL_PRIORITY_SAFETY_MARGIN_KWH,
+                    )
+                    for action_spec in fp_actions:
+                        await self._execute_service_action(action_spec)
+                    # v4.7.6 D4: NM trip on rising edge — first fill-priority
+                    # pause per day. Gated by observation mode (Bug Class #23).
+                    await self._check_fill_priority_nm_trip()
 
                 # v4.2.19: EVSE power sensor health check
                 evse_alerts = self._ev.check_power_sensor_health()
@@ -2200,19 +2246,39 @@ class EnergyCoordinator(BaseCoordinator):
                     )
 
                 # E2: Smart plug control
-                plug_actions = self._smart_plugs.determine_actions(period)
-                for action_spec in plug_actions:
-                    await self._execute_service_action(action_spec)
+                # v4.7.6 D6.1: gate L1 plug TOU under the same EVSE TOU
+                # Management toggle as L2 EVSEs. L1 plugs are peer "small
+                # EVSE" devices per the v4.7.6 user decision.
+                if self._ev_tou_enabled:
+                    plug_actions = self._smart_plugs.determine_actions(period)
+                    for action_spec in plug_actions:
+                        await self._execute_service_action(action_spec)
 
                 # v4.2.21: Smart plug battery drain protection
                 # v4.3.4 fix: same kW/W unit fix as EV drain above.
+                # v4.7.6 D1 mirror: reserve_soc threaded through.
                 plug_drain_actions = self._smart_plugs.determine_battery_drain_actions(
                     battery_power_w=self._battery.battery_power_w,
                     battery_soc=self._battery.battery_soc,
                     soc_threshold=self._ev_battery_drain_soc,
+                    reserve_soc=getattr(self._battery, "reserve_soc", None),
                 )
                 for action_spec in plug_drain_actions:
                     await self._execute_service_action(action_spec)
+
+                # v4.7.6 D2 mirror: L1 plug fill-priority pause
+                if self._excess_solar_enabled:
+                    from .energy_const import DEFAULT_FILL_PRIORITY_SAFETY_MARGIN_KWH
+                    plug_fp_actions = self._smart_plugs.determine_fill_priority_actions(
+                        soc=self._battery.battery_soc,
+                        remaining_forecast_kwh=self._battery.solcast_remaining,
+                        tou_period=period,
+                        soc_threshold=self._fill_priority_soc,
+                        excess_solar_kwh_threshold=self._excess_solar_kwh,
+                        safety_margin_kwh=DEFAULT_FILL_PRIORITY_SAFETY_MARGIN_KWH,
+                    )
+                    for action_spec in plug_fp_actions:
+                        await self._execute_service_action(action_spec)
 
             # E3: Circuit anomaly checks
             circuit_anomalies = self._circuits.check_anomalies()
@@ -3716,6 +3782,82 @@ class EnergyCoordinator(BaseCoordinator):
         _LOGGER.info("EV battery drain SOC threshold set to %d%%", int(value))
 
     @property
+    def fill_priority_soc(self) -> int:
+        """Current EV fill-priority pause threshold (v4.7.6 D2).
+
+        When SOC < this AND solar forecast remaining >= excess_solar_kwh,
+        URA pauses EVSEs/L1 plugs so the home battery fills first.
+        """
+        return self._fill_priority_soc
+
+    def set_fill_priority_soc(self, value: int) -> None:
+        """Update EV fill-priority pause threshold at runtime (v4.7.6 D3.2).
+
+        Slider write goes through here; takes effect on next decision tick.
+        """
+        self._fill_priority_soc = int(value)
+        _LOGGER.info("EV fill-priority SOC threshold set to %d%%", int(value))
+
+    async def _check_fill_priority_nm_trip(self) -> None:
+        """v4.7.6 D4: Fire NM trip once per day on first fill-priority pause.
+
+        Edge detection: tracks previous-tick `_paused_by_fill_priority` empty
+        state. Trips LOW NM alert when transitioning empty → non-empty AND the
+        trip hasn't fired today.
+
+        Gated by observation mode (Bug Class #23 — gate at dispatch, not in
+        handler) because `_send_nm_alert` does not gate observation_mode.
+        """
+        currently_paused = bool(self._ev._paused_by_fill_priority)
+        if not currently_paused:
+            # Reset edge-detection state when nothing is paused this tick.
+            self._fill_priority_was_empty = True
+            return
+
+        if not self._fill_priority_was_empty:
+            return  # Already paused last tick — no rising edge.
+
+        # Rising edge detected. Update state regardless of trip outcome.
+        self._fill_priority_was_empty = False
+
+        if self._observation_mode:
+            _LOGGER.debug(
+                "Fill-priority rising edge in observation mode — NM trip suppressed"
+            )
+            return
+
+        from homeassistant.util import dt as dt_util
+        today_iso = dt_util.now().date().isoformat()
+        if self._fill_priority_nm_trip_date == today_iso:
+            return  # Already tripped today.
+
+        self._fill_priority_nm_trip_date = today_iso
+        soc = self._battery.battery_soc
+        remaining = self._battery.solcast_remaining
+        try:
+            await self._send_nm_alert(
+                title="EVSE Paused for Battery Fill",
+                message=(
+                    f"EVSE paused for battery fill "
+                    f"(SOC {soc:.0f}%, target {self._fill_priority_soc}%, "
+                    f"solar forecast {remaining:.1f} kWh remaining)"
+                    if soc is not None and remaining is not None
+                    else "EVSE paused for battery fill (fill-priority active)"
+                ),
+                severity="low",
+                hazard_type="evse_fill_priority",
+                location="energy",
+            )
+            _LOGGER.info(
+                "Fill-priority NM trip fired (date=%s, paused=%s)",
+                today_iso, list(self._ev._paused_by_fill_priority),
+            )
+        except Exception:
+            _LOGGER.warning(
+                "Fill-priority NM trip dispatch failed (non-fatal)", exc_info=True
+            )
+
+    @property
     def tou_period(self) -> str:
         """Current TOU period."""
         return self._tou.get_current_period()
@@ -3763,8 +3905,20 @@ class EnergyCoordinator(BaseCoordinator):
 
     @property
     def ev_status(self) -> dict[str, Any]:
-        """Current EV charging status."""
-        return self._ev.get_status()
+        """Current EV charging status.
+
+        v4.7.6 D4 + D6.3: threads the configured fill-priority target SOC
+        and bridges in the SmartPlugController status so L1 plugs appear
+        as peer entries with the same 6-key shape as EVSEs.
+        """
+        try:
+            plug_status = self._smart_plugs.get_status()
+        except Exception:  # pragma: no cover — defensive
+            plug_status = {}
+        return self._ev.get_status(
+            fill_priority_target_soc=self._fill_priority_soc,
+            plug_status=plug_status,
+        )
 
     # E3 accessors
     @property

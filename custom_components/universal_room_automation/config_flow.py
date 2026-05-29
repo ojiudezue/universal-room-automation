@@ -3052,6 +3052,9 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             CONF_ENERGY_EXCESS_SOLAR_KWH,
             DEFAULT_EXCESS_SOLAR_SOC_THRESHOLD,
             DEFAULT_EXCESS_SOLAR_KWH_THRESHOLD,
+            # v4.7.6 D3.2: fill-priority SOC threshold
+            CONF_ENERGY_FILL_PRIORITY_SOC,
+            DEFAULT_FILL_PRIORITY_SOC,
             CONF_ENERGY_GRID_IMPORT_CAP_ENABLED,
             CONF_ENERGY_GRID_IMPORT_CAP_KW,
             DEFAULT_GRID_IMPORT_CAP_KW,
@@ -3497,6 +3500,37 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     mode=selector.NumberSelectorMode.SLIDER,
                 )
             ),
+            # v4.7.6 D3.2: Fill-priority pause SOC threshold (turn-OFF side
+            # of the EVSE solar-aware gate, companion to excess_solar_soc).
+            vol.Optional(
+                CONF_ENERGY_FILL_PRIORITY_SOC,
+                default=self._get_current(CONF_ENERGY_FILL_PRIORITY_SOC, DEFAULT_FILL_PRIORITY_SOC),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=50, max=95, step=5,
+                    unit_of_measurement="%",
+                    mode=selector.NumberSelectorMode.SLIDER,
+                )
+            ),
+            # v4.7.6 D3.4: Per-EVSE self_modulates checkboxes. Default False
+            # (Option B — smart manual-override detection). Toggle True for
+            # smart EVSEs with native solar/schedule modes (Emporia, Tesla
+            # Wall Connector). Stored on the per-EVSE config dict; consumed
+            # by EVPool._self_modulates_for(evse_id).
+            vol.Optional(
+                "garage_a_self_modulates",
+                default=self._get_current("garage_a_self_modulates", False),
+            ): selector.BooleanSelector(),
+            vol.Optional(
+                "garage_b_self_modulates",
+                default=self._get_current("garage_b_self_modulates", False),
+            ): selector.BooleanSelector(),
+            # v4.7.6 D6.4: Per-L1-plug self_modulates (single bool — most
+            # installs have 0-1 L1 plugs). Applies to ALL configured plugs.
+            vol.Optional(
+                "l1_plug_self_modulates",
+                default=self._get_current("l1_plug_self_modulates", False),
+            ): selector.BooleanSelector(),
             # v4.0.18: Grid import cap
             vol.Optional(
                 CONF_ENERGY_GRID_IMPORT_CAP_ENABLED,

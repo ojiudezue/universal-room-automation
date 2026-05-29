@@ -1787,12 +1787,31 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     evse_b_power = cm_config.get(CONF_ENERGY_EVSE_B_ENTITY)
                     if evse_b_power:
                         evse_config["garage_b"]["power"] = evse_b_power
+                    # v4.7.6 D3.4: per-EVSE self_modulates flag from config flow.
+                    # Default False (Option B / smart manual-override detection).
+                    if "garage_a_self_modulates" in cm_config:
+                        evse_config["garage_a"]["self_modulates"] = bool(
+                            cm_config.get("garage_a_self_modulates", False)
+                        )
+                    if "garage_b_self_modulates" in cm_config:
+                        evse_config["garage_b"]["self_modulates"] = bool(
+                            cm_config.get("garage_b_self_modulates", False)
+                        )
 
                     # Smart plug entities
                     smart_plug_entities = cm_config.get(
                         CONF_ENERGY_L1_CHARGER_ENTITIES,
                         DEFAULT_L1_CHARGER_ENTITIES,
                     )
+                    # v4.7.6 D6.4: per-plug self_modulates — single bool applied
+                    # to all configured plugs (most installs have 0-1).
+                    plug_self_modulates = bool(
+                        cm_config.get("l1_plug_self_modulates", False)
+                    )
+                    plug_config = {
+                        plug_id: {"self_modulates": plug_self_modulates}
+                        for plug_id in (smart_plug_entities or [])
+                    }
 
                     # Solar classification config
                     solar_mode = cm_config.get(
@@ -1828,6 +1847,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         entity_config=energy_entity_config or None,
                         evse_config=evse_config,
                         smart_plug_entities=smart_plug_entities,
+                        plug_config=plug_config,
                         solar_classification_mode=solar_mode,
                         custom_solar_thresholds=custom_solar_thresholds,
                         tou_engine=tou_engine,

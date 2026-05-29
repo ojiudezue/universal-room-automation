@@ -1181,6 +1181,12 @@ class EVSEForceChargeButton(ButtonEntity):
     Entity: button.ura_energy_coordinator_evse_force_charge_30min
     Device: URA: Energy Coordinator
 
+    v4.7.6 D3.5: Override URA's solar-aware EV gating for the next 30
+    minutes. Use this when an EVSE is marked self-modulating (URA re-pauses
+    every cycle) but you need it to charge now regardless of solar or
+    battery state. Resets automatically after the window expires; press
+    again to extend.
+
     Pressing this button opens a 30-minute window during which URA's TOU
     pause logic is bypassed for all EVSEs.  The override is intentionally
     an admin button (not a switch) to require deliberate action.
