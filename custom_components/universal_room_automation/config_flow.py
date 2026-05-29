@@ -5534,13 +5534,12 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         silently ignored by the EC evaluation loop.
         """
         import voluptuous as vol
-        from homeassistant.components.selector import (
-            selector,
-            NumberSelector,
-            NumberSelectorConfig,
-            NumberSelectorMode,
-            BooleanSelector,
-        )
+        # v4.7.4.2: removed dead `from homeassistant.components.selector import (...)`
+        # block. (a) HA 2026.5.4 moved selector to homeassistant.helpers.selector —
+        # the old import path raises ModuleNotFoundError. (b) The imported names
+        # were never used in this handler (schema uses raw vol.All/Coerce/Range/bool).
+        # Empty error modal on form open was the symptom; root cause traced from
+        # HA core log 2026-05-29.
         from .domain_coordinators.energy_const import (
             CONF_ZONE_DYNAMIC_PRESET_ENABLED,
             CONF_ZONE_DYNAMIC_PRESET_OFFSET,
