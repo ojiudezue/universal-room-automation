@@ -361,11 +361,26 @@ def test_v475_d5_mutation_actually_catches_missing_mode_at_runtime():
         data = {"entry_type": "zone_manager"}
         options = {"zones": {"Office": {"zone_thermostat": "climate.office"}}}
 
+    # v4.7.5 post-review (B-M4): trip-wire records hass.async_create_task so
+    # the runtime smoke step also catches a future regression that schedules
+    # background work from a form-render path.
     class _Hass:
         class config_entries:
             @staticmethod
             def async_entries(_d):
                 return [_Entry()]
+
+        def __init__(self):
+            self.created_tasks: list = []
+
+        def async_create_task(self, coro, *args, **kwargs):
+            try:
+                coro.close()
+            except AttributeError:
+                pass
+            name = kwargs.get("name") if kwargs else None
+            self.created_tasks.append(name if name is not None else "<unnamed>")
+            return None
 
     flow = OptionsFlow.__new__(OptionsFlow)
     flow.hass = _Hass()
@@ -438,6 +453,18 @@ def test_v475_d5_manage_zones_step_instantiates_without_attr_error():
             @staticmethod
             def async_entries(_d): return [_Entry()]
 
+        def __init__(self):
+            self.created_tasks: list = []
+
+        def async_create_task(self, coro, *args, **kwargs):
+            try:
+                coro.close()
+            except AttributeError:
+                pass
+            name = kwargs.get("name") if kwargs else None
+            self.created_tasks.append(name if name is not None else "<unnamed>")
+            return None
+
     flow = OptionsFlow.__new__(OptionsFlow)
     flow.hass = _Hass()
     flow._config_entry = _Entry()
@@ -452,4 +479,12 @@ def test_v475_d5_manage_zones_step_instantiates_without_attr_error():
         f"v4.7.5 D5: async_step_manage_zones returned {result!r}; expected "
         "a stubbed async_show_form payload. Indicates the method bailed out "
         "or raised before reaching show_form."
+    )
+    # v4.7.5 post-review (B-M4): rendering the picker form is a synchronous
+    # read-only path. A future regression that schedules background work
+    # during render (e.g., dispatcher refresh, async reload) is forbidden.
+    assert flow.hass.created_tasks == [], (
+        "v4.7.5 D5 (B-M4): async_step_manage_zones scheduled background "
+        f"tasks while rendering: {flow.hass.created_tasks!r}. Form-render "
+        "paths must stay synchronous — Bug Class #42 prevention."
     )

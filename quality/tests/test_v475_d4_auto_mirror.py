@@ -278,8 +278,38 @@ class _RecordingConfigEntries:
 
 
 class _StubHass:
+    """Stub HA core for D4 helper exercises.
+
+    v4.7.5 post-review (B-M4): records `async_create_task` calls. The mirror
+    helper today runs synchronously inside the options-flow handler and MUST
+    NOT schedule background tasks (Bug Class #42 — lambda/async_create_task
+    in scheduler callbacks). The trip-wire makes a future regression visible
+    in tests instead of in production. Tests that exercise the helper's
+    save+mirror paths assert `created_tasks == []`.
+    """
+
     def __init__(self, entries):
         self.config_entries = _RecordingConfigEntries(entries)
+        self.created_tasks: list = []
+
+    def async_create_task(self, coro, *args, **kwargs):
+        """v4.7.5 post-review B-M4 trip-wire.
+
+        Records every `hass.async_create_task(...)` call. Closes the
+        coroutine immediately so pytest does not emit
+        `RuntimeWarning: coroutine '...' was never awaited`. Returns None
+        because the helper assigns nothing to the return value.
+        """
+        # Eagerly close the coroutine to silence "never awaited" warnings.
+        try:
+            coro.close()
+        except AttributeError:
+            # Non-coroutine inputs (e.g., already-scheduled task objects)
+            # don't need closing; just record the call.
+            pass
+        name = kwargs.get("name") if kwargs else None
+        self.created_tasks.append(name if name is not None else "<unnamed>")
+        return None
 
 
 def _make_flow_with_zm(zm_entry, selected_zone=None):
@@ -349,6 +379,15 @@ def test_v475_d4_mirror_helper_round_trip(shared_thermostat_zm):
     assert new_zones["Master Suite"][CONF_HVAC_AC_RAMP_ZONE_ENABLED] is False
     # Office must not be touched
     assert CONF_HVAC_AC_LOAD_SENSOR not in new_zones["Office"]
+    # v4.7.5 post-review (B-M4): helper must not schedule background tasks.
+    assert flow.hass.created_tasks == [], (
+        "v4.7.5 D4 (B-M4 trip-wire): _auto_mirror_to_siblings scheduled "
+        f"background tasks via hass.async_create_task: {flow.hass.created_tasks}. "
+        "Helper runs synchronously inside the options-flow handler — adding "
+        "background tasks risks Bug Class #42 (lambda/async_create_task in "
+        "scheduler callbacks). If new task scheduling is intentional, update "
+        "this assertion AND the helper docstring."
+    )
 
 
 # =============================================================================
@@ -432,6 +471,8 @@ def test_v475_d4_no_mirror_when_unique_thermostat(shared_thermostat_zm):
     # Entertainment / Master Suite untouched
     assert new_zones["Entertainment"][CONF_HVAC_AC_LOAD_SENSOR] == "sensor.legacy_load"
     assert new_zones["Master Suite"][CONF_HVAC_AC_LOAD_SENSOR] == "sensor.legacy_load"
+    # v4.7.5 post-review (B-M4): no-sibling save path also schedules no tasks.
+    assert flow.hass.created_tasks == []
 
 
 # =============================================================================
@@ -491,6 +532,9 @@ def test_v475_d4_unlink_mirrors_to_old_and_new():
     assert new_zones["Entertainment"][CONF_ZONE_THERMOSTAT] == "climate.thermo_2"
     # Office (new sibling) also got the mirror
     assert new_zones["Office"][CONF_HVAC_AC_LOAD_SENSOR] == "sensor.t2_new"
+    # v4.7.5 post-review (B-M4): unlink path is still a single sync write —
+    # zero scheduled background tasks even when mirroring OLD + NEW groups.
+    assert flow.hass.created_tasks == []
 
 
 # =============================================================================
@@ -736,3 +780,120 @@ def test_v475_d4_unlink_mirrors_energy_to_old_sibling():
     assert new_zones["Office"]["zone_power_sensors"] == ["sensor.t2_power_new"]
     # And it folded into ONE async_update_entry
     assert len(flow.hass.config_entries.update_calls) == 1
+
+
+# =============================================================================
+# v4.7.5 post-review (B-M4) — _StubHass `async_create_task` trip-wire.
+# Helper must not schedule background tasks on ANY save path. A future
+# regression that adds `hass.async_create_task(...)` inside the helper would
+# slip past every other D4 test silently — this one nails it.
+# =============================================================================
+
+
+def test_v475_d4_helper_does_not_schedule_background_tasks(shared_thermostat_zm):
+    """The mirror helper runs synchronously and MUST NOT call
+    hass.async_create_task on any path (Bug Class #42 prevention)."""
+    flow = _make_flow_with_zm(shared_thermostat_zm, selected_zone="Entertainment")
+    saved_payload = {
+        CONF_ZONE_THERMOSTAT: "climate.studyb_zone_1",
+        CONF_HVAC_AC_LOAD_SENSOR: "sensor.foo_new",
+    }
+    flow._auto_mirror_to_siblings(
+        shared_thermostat_zm,
+        "Entertainment",
+        saved_payload,
+        _CF_MOD.MIRROR_KEYS_ZONE_HVAC,
+    )
+    assert flow.hass.created_tasks == [], (
+        "v4.7.5 D4 (B-M4): _auto_mirror_to_siblings must not schedule "
+        "background tasks — it runs synchronously inside the options-flow "
+        "handler. Tasks scheduled: %r" % flow.hass.created_tasks
+    )
+
+
+def test_v475_d4_stub_hass_records_async_create_task_calls(shared_thermostat_zm):
+    """Sanity: the trip-wire itself works — explicitly calling
+    `hass.async_create_task(...)` populates `created_tasks`. Without this
+    self-test, a broken stub would silently accept any helper behavior."""
+    flow = _make_flow_with_zm(shared_thermostat_zm, selected_zone="Entertainment")
+
+    async def _noop():
+        return None
+
+    # Stub records both unnamed and named calls
+    flow.hass.async_create_task(_noop())
+    flow.hass.async_create_task(_noop(), name="probe")
+    assert flow.hass.created_tasks == ["<unnamed>", "probe"], (
+        "v4.7.5 D4 B-M4 trip-wire self-test: _StubHass.async_create_task did "
+        "not record the calls. The B-M4 assertions in other tests would pass "
+        f"vacuously. Got: {flow.hass.created_tasks!r}"
+    )
+
+
+# =============================================================================
+# v4.7.5 post-review (A-M2) — `_render_shared_thermostat_banner` is a
+# read-only helper. The same inputs must produce the same output across
+# repeated calls AND must not mutate `entry.options` / `entry.data`.
+# =============================================================================
+
+
+def test_v475_d4_render_banner_is_side_effect_free(shared_thermostat_zm):
+    """The banner helper reads only — repeated calls return identical strings
+    and leave the ZM entry unchanged."""
+    import copy
+
+    flow = _make_flow_with_zm(shared_thermostat_zm, selected_zone="Entertainment")
+    flow._selected_zone_name = "Entertainment"
+
+    # Snapshot before
+    data_before = copy.deepcopy(shared_thermostat_zm.data)
+    options_before = copy.deepcopy(shared_thermostat_zm.options)
+
+    banner1 = flow._render_shared_thermostat_banner("Entertainment")
+    banner2 = flow._render_shared_thermostat_banner("Entertainment")
+    banner3 = flow._render_shared_thermostat_banner("Entertainment")
+
+    # Same input → same output
+    assert banner1 == banner2 == banner3, (
+        "v4.7.5 D4 (A-M2): _render_shared_thermostat_banner is supposed to be "
+        "a pure read-only helper; repeated calls returned divergent strings: "
+        f"{banner1!r} vs {banner2!r} vs {banner3!r}"
+    )
+    # Non-empty for shared-thermostat zone
+    assert "Master Suite" in banner1
+    assert "climate.studyb_zone_1" in banner1
+
+    # No mutation of the entry
+    assert shared_thermostat_zm.data == data_before, (
+        "v4.7.5 D4 (A-M2): banner helper mutated entry.data — the read-only "
+        "contract is broken."
+    )
+    assert shared_thermostat_zm.options == options_before, (
+        "v4.7.5 D4 (A-M2): banner helper mutated entry.options — the "
+        "read-only contract is broken."
+    )
+    # No background tasks scheduled either
+    assert flow.hass.created_tasks == [], (
+        "v4.7.5 D4 (A-M2 + B-M4): banner helper scheduled background tasks: "
+        f"{flow.hass.created_tasks!r}"
+    )
+
+
+def test_v475_d4_render_banner_empty_for_solo_zone(shared_thermostat_zm):
+    """Office has a unique thermostat → banner is empty string (not None)."""
+    flow = _make_flow_with_zm(shared_thermostat_zm, selected_zone="Office")
+    banner = flow._render_shared_thermostat_banner("Office")
+    assert banner == "", (
+        f"v4.7.5 D4 (A-M2): solo-thermostat zone should return empty banner; "
+        f"got {banner!r}"
+    )
+
+
+def test_v475_d4_render_banner_empty_for_none_zone_name(shared_thermostat_zm):
+    """Legacy zone-entry path passes zone_name=None → banner is empty."""
+    flow = _make_flow_with_zm(shared_thermostat_zm, selected_zone=None)
+    banner = flow._render_shared_thermostat_banner(None)
+    assert banner == "", (
+        "v4.7.5 D4 (A-M2): legacy zone-entry path (zone_name=None) must "
+        f"return empty banner; got {banner!r}"
+    )

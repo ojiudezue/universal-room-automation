@@ -5277,6 +5277,61 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             errors=errors,
         )
 
+    def _render_shared_thermostat_banner(self, zone_name: str | None) -> str:
+        """v4.7.5 D4 (post-review A-M2): render the shared-thermostat banner
+        text for `zone_config_menu`.
+
+        READ-ONLY HELPER. This method MUST stay side-effect-free: it only
+        reads `entry.data` / `entry.options` and returns a formatted string.
+        Do NOT extend with mutation (no `async_update_entry`, no dispatcher
+        sends, no `hass.async_create_task`). The banner is rendered inside a
+        try/except that swallows to `_LOGGER.debug` — any mutation in here
+        would be silently lost on error. Bug Class #7 (Stale Data Source)
+        guard: even though we only read, the safety contract is explicit so
+        future maintainers do not accidentally introduce a derived-value
+        write-back path.
+
+        Args:
+            zone_name: The selected zone name on the ZM flow, or None on the
+                legacy zone-entry path (where the banner is intentionally
+                empty — legacy entries have no sibling concept).
+
+        Returns:
+            A non-empty banner string (prefixed with two newlines so it
+            renders below the static description) when the zone has at least
+            one shared-thermostat sibling; empty string otherwise (including
+            on any error — the menu render must never fail).
+        """
+        if zone_name is None:
+            return ""
+        try:
+            zm_entry = self._find_zone_manager_entry()
+            if zm_entry is None:
+                return ""
+            siblings = self._get_shared_thermostat_siblings(
+                zm_entry, zone_name,
+            )
+            if not siblings:
+                return ""
+            merged = {**zm_entry.data, **zm_entry.options}
+            zones = merged.get("zones", {})
+            thermostat = zones.get(zone_name, {}).get(
+                CONF_ZONE_THERMOSTAT, ""
+            )
+            sibling_text = ", ".join(siblings)
+            return (
+                f"\n\n**Shared thermostat:** This zone shares "
+                f"thermostat `{thermostat}` with {sibling_text}. "
+                "HVAC, energy, and Dynamic Preset settings saved "
+                "here also apply to those zones automatically."
+            )
+        except Exception:  # noqa: BLE001 — never fail menu render
+            _LOGGER.debug(
+                "v4.7.5 banner derivation failed for zone=%s",
+                zone_name, exc_info=True,
+            )
+            return ""
+
     async def async_step_zone_config_menu(self, user_input=None):
         """Show zone configuration submenu after selecting a zone (v3.3.3).
 
@@ -5302,34 +5357,12 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 return self.async_abort(reason="zone_not_found")
 
         # v4.7.5 D4 banner: detect shared-thermostat siblings, build placeholders.
-        # When no siblings (or legacy-entry path with zone_name=None): banner
-        # is empty string so the static description renders as before.
-        banner = ""
-        if zone_name is not None:
-            try:
-                zm_entry = self._find_zone_manager_entry()
-                if zm_entry is not None:
-                    siblings = self._get_shared_thermostat_siblings(
-                        zm_entry, zone_name,
-                    )
-                    if siblings:
-                        merged = {**zm_entry.data, **zm_entry.options}
-                        zones = merged.get("zones", {})
-                        thermostat = zones.get(zone_name, {}).get(
-                            CONF_ZONE_THERMOSTAT, ""
-                        )
-                        sibling_text = ", ".join(siblings)
-                        banner = (
-                            f"\n\n**Shared thermostat:** This zone shares "
-                            f"thermostat `{thermostat}` with {sibling_text}. "
-                            "HVAC, energy, and Dynamic Preset settings saved "
-                            "here also apply to those zones automatically."
-                        )
-            except Exception:  # noqa: BLE001 — never fail menu render
-                _LOGGER.debug(
-                    "v4.7.5 banner derivation failed for zone=%s",
-                    zone_name, exc_info=True,
-                )
+        # v4.7.5 post-review (A-M2): banner rendering extracted into a dedicated
+        # read-only helper. Keeping the derivation as a side-effect-free method
+        # matches the surrounding `_build_*` / `_get_*` convention used in this
+        # file and makes the read-only contract explicit at the call site (the
+        # method takes no writable state and returns only a string).
+        banner = self._render_shared_thermostat_banner(zone_name)
 
         return self.async_show_menu(
             step_id="zone_config_menu",
