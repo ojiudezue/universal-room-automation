@@ -1787,12 +1787,41 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     evse_b_power = cm_config.get(CONF_ENERGY_EVSE_B_ENTITY)
                     if evse_b_power:
                         evse_config["garage_b"]["power"] = evse_b_power
+                    # v4.7.6 D3.4: per-EVSE self_modulates flag from config flow.
+                    # Default False (Option B / smart manual-override detection).
+                    if "garage_a_self_modulates" in cm_config:
+                        evse_config["garage_a"]["self_modulates"] = bool(
+                            cm_config.get("garage_a_self_modulates", False)
+                        )
+                    if "garage_b_self_modulates" in cm_config:
+                        evse_config["garage_b"]["self_modulates"] = bool(
+                            cm_config.get("garage_b_self_modulates", False)
+                        )
 
                     # Smart plug entities
                     smart_plug_entities = cm_config.get(
                         CONF_ENERGY_L1_CHARGER_ENTITIES,
                         DEFAULT_L1_CHARGER_ENTITIES,
                     )
+                    # v4.7.6 D6.4 / fix-up C-H2: per-plug self_modulates.
+                    # Build {plug_id: {self_modulates: bool}} from per-plug
+                    # config keys (`<plug_entity_id>_self_modulates`). When
+                    # a plug's key is ABSENT we OMIT `self_modulates` so
+                    # SmartPlugController.get_status() reports
+                    # `source: "default"`. When the key is present, the
+                    # bool is stored and `source: "explicit"`.
+                    plug_config = {}
+                    for plug_id in (smart_plug_entities or []):
+                        per_plug_key = f"{plug_id}_self_modulates"
+                        if per_plug_key in cm_config:
+                            plug_config[plug_id] = {
+                                "self_modulates": bool(
+                                    cm_config.get(per_plug_key, False)
+                                )
+                            }
+                        else:
+                            # Absent — keep empty dict so source="default".
+                            plug_config[plug_id] = {}
 
                     # Solar classification config
                     solar_mode = cm_config.get(
@@ -1828,6 +1857,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         entity_config=energy_entity_config or None,
                         evse_config=evse_config,
                         smart_plug_entities=smart_plug_entities,
+                        plug_config=plug_config,
                         solar_classification_mode=solar_mode,
                         custom_solar_thresholds=custom_solar_thresholds,
                         tou_engine=tou_engine,

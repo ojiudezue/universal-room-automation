@@ -43,6 +43,46 @@ def _room_switch_entity_id(coordinator: "UniversalRoomCoordinator", suffix: str)
     return f"switch.{slug}_{suffix}"
 
 
+def _migrate_excess_solar_entity_id(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """v4.7.6 D3.1: Rename the excess-solar switch entity_id (one-shot).
+
+    Before: switch.ura_energy_coordinator_excess_solar_charging
+    After:  switch.ura_energy_coordinator_evse_solar_aware_charging
+
+    The unique_id stays "{DOMAIN}_energy_excess_solar" so HACS / history /
+    long-term stats are preserved. Only the entity_id changes.
+
+    v4.7.6 fix-up B-H3 / C-M6: idempotency is enforced by the registry
+    lookup itself — once renamed, `registry.async_get(legacy_entity_id)`
+    returns None and the migration is a no-op. The prior `entry.runtime_data`
+    guard was non-functional (URA never initializes runtime_data) and
+    risked stomping a stray dict into the typed-data slot if HA later
+    starts using it. Removed.
+
+    Bug Class #46-safe: calls entity_registry.async_update_entity(),
+    not async_update_entry.
+    """
+    from homeassistant.helpers import entity_registry as er
+    registry = er.async_get(hass)
+    legacy_entity_id = "switch.ura_energy_coordinator_excess_solar_charging"
+    new_entity_id = "switch.ura_energy_coordinator_evse_solar_aware_charging"
+    legacy_unique_id = f"{DOMAIN}_energy_excess_solar"
+    entity_entry = registry.async_get(legacy_entity_id)
+    if entity_entry is None or entity_entry.unique_id != legacy_unique_id:
+        return  # Already migrated, or never existed under the legacy slug.
+    # If new entity_id is already taken by something else, skip — never
+    # collide. The unique_id pin in the factory still preserves history.
+    if registry.async_get(new_entity_id) is not None:
+        return
+    registry.async_update_entity(
+        legacy_entity_id, new_entity_id=new_entity_id,
+    )
+    _LOGGER.info(
+        "v4.7.6 D3.1: renamed %s → %s (unique_id %s preserved)",
+        legacy_entity_id, new_entity_id, legacy_unique_id,
+    )
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: ConfigEntry,
@@ -56,8 +96,12 @@ async def async_setup_entry(
         async_add_entities([DomainCoordinatorsSwitch(hass, entry)])
         return
 
-    # v3.6.0-c2.4: CM entry — per-coordinator toggles
     if entry_type == ENTRY_TYPE_COORDINATOR_MANAGER:
+        # v4.7.6 D3.1: one-shot entity_id alias migration (Bug Class #46-safe).
+        try:
+            _migrate_excess_solar_entity_id(hass, entry)
+        except Exception:
+            _LOGGER.debug("v4.7.6 alias migration failed (non-fatal)", exc_info=True)
         async_add_entities([
             CoordinatorEnabledSwitch(
                 hass, entry,
@@ -430,7 +474,8 @@ class EnergyObservationModeSwitch(SwitchEntity, RestoreEntity):
 
 
 def _ec_switch_factory(
-    attr_name: str, unique_suffix: str, name: str, icon: str, default: bool = False
+    attr_name: str, unique_suffix: str, name: str, icon: str, default: bool = False,
+    unique_id_override=None,  # Optional[str] — bare for Python 3.9 compat
 ):
     """Factory for EC toggle switches — avoids 200 lines of boilerplate.
 
@@ -474,7 +519,12 @@ def _ec_switch_factory(
         def __init__(self, hass, entry):
             self.hass = hass
             self._entry = entry
-            self._attr_unique_id = f"{DOMAIN}_energy_{unique_suffix}"
+            # v4.7.6 D3.1: unique_id_override pins the unique_id to a legacy
+            # slug while exposing a new entity_id / friendly name. Used by
+            # the excess-solar → evse-solar-aware rename to preserve HACS
+            # entity history. Default behavior (None) is unchanged.
+            _suffix = unique_id_override if unique_id_override is not None else unique_suffix
+            self._attr_unique_id = f"{DOMAIN}_energy_{_suffix}"
             self._attr_name = name
             self._attr_device_info = DeviceInfo(
                 identifiers={(DOMAIN, "energy_coordinator")},
@@ -664,10 +714,19 @@ ECLoadSheddingSwitch = _ec_switch_factory(
     "_load_shedding_enabled", "load_shedding",
     "Load Shedding", "mdi:flash-alert", default=False,
 )
-ECExcessSolarSwitch = _ec_switch_factory(
-    "_excess_solar_enabled", "excess_solar",
-    "Excess Solar Charging", "mdi:solar-power", default=False,
+# v4.7.6 D3.1: Renamed Excess Solar Charging → EVSE Solar-Aware Charging.
+# unique_id is pinned to the legacy slug ("excess_solar") via unique_id_override
+# so HACS/entity history is preserved. Friendly name and entity_id slug update;
+# entity_id alias migration runs at platform setup (see
+# `_migrate_excess_solar_entity_id` below — Bug Class #46-safe).
+ECEVSESolarAwareSwitch = _ec_switch_factory(
+    "_excess_solar_enabled", "evse_solar_aware",
+    "EVSE Solar-Aware Charging", "mdi:solar-power", default=False,
+    unique_id_override="excess_solar",
 )
+# Back-compat alias: keep old name resolvable for imports that may still
+# reference it. Removed in a future release once dashboards are updated.
+ECExcessSolarSwitch = ECEVSESolarAwareSwitch
 ECArbitrageSwitch = _ec_switch_factory(
     "arbitrage_enabled", "arbitrage",
     "Grid Arbitrage", "mdi:battery-charging-wireless", default=False,
@@ -688,9 +747,12 @@ OccupancyWeightedPredictionSwitch = _ec_switch_factory(
     default=False,                    # default (unchanged)
 )
 
+# v4.7.6 D6.2: Renamed friendly name "EV TOU Management" → "EVSE TOU Management"
+# to reflect that L1 plugs (peer "small EVSE" devices) are now gated by this
+# toggle too. entity_id and unique_id are unchanged for HACS/dashboard continuity.
 _ECEvTouSwitchBase = _ec_switch_factory(
     "ev_tou_enabled", "ev_tou_management",
-    "EV TOU Management", "mdi:ev-station", default=True,
+    "EVSE TOU Management", "mdi:ev-station", default=True,
 )
 
 
@@ -707,7 +769,16 @@ class ECEvTouSwitch(_ECEvTouSwitchBase):
     still in the future, the window is re-applied to the EV controller.
     An active window is NOT silently dropped on reload — the user's admin
     intent is honoured for the remainder of the original 30-min window.
+
+    v4.7.6 fix-up C-H3: exposes `_attr_translation_key = "ev_tou_management"`
+    so HA can render the per-entity description shipped in strings.json /
+    translations/en.json (see `entity.switch.ev_tou_management.description`).
+    The translation block also supplies `name` to preserve the existing
+    "EVSE TOU Management" label — translation_key takes precedence over
+    `_attr_name` when both are set.
     """
+
+    _attr_translation_key = "ev_tou_management"
 
     async def async_added_to_hass(self) -> None:
         """Restore on/off state AND force-charge override across reloads.

@@ -845,9 +845,13 @@
           "energy_peak_buffer_target": "Peak Buffer Target",
           "energy_solcast_day_3_entity": "Solar Forecast Day-After-Tomorrow (D+2)",
           "energy_multi_day_horizon_enabled": "Multi-Day Forecast Horizon (D+2)",
-          "energy_excess_solar_enabled": "Excess Solar EV Charging",
-          "energy_excess_solar_soc": "Excess Solar SOC Threshold",
+          "energy_excess_solar_enabled": "EVSE Solar-Aware Charging",
+          "energy_excess_solar_soc": "Excess Solar SOC Threshold (Turn-On)",
           "energy_excess_solar_kwh": "Excess Solar Forecast Threshold",
+          "energy_fill_priority_soc": "Fill-Priority SOC Threshold (Pause)",
+          "garage_a_self_modulates": "Garage A: Self-Modulating EVSE",
+          "garage_b_self_modulates": "Garage B: Self-Modulating EVSE",
+          "l1_plug_self_modulates": "L1 Plugs: Self-Modulating",
           "energy_grid_import_cap_enabled": "EV Grid Import Cap",
           "energy_grid_import_cap_kw": "Grid Import Cap (kW)",
           "energy_ev_battery_drain_soc": "EV Battery Drain SOC Threshold (%)",
@@ -897,9 +901,13 @@
           "energy_peak_buffer_target": "SOC target for arbitrage charging. Charging stops when battery reaches this level; HOLD locks the buffer here until the high-rate window begins. v4.5.0: replaces 'Arbitrage SOC Target'. Default: 80%.",
           "energy_solcast_day_3_entity": "Solcast forecast for D+2 (day-after-tomorrow). Used by the multi-day horizon toggle to broaden the arbitrage gate when D+2 is poor.",
           "energy_multi_day_horizon_enabled": "When ON, the arbitrage gate also fires when day-after-tomorrow (D+2) is forecast poor/very_poor. Drain-target fallback path picks the more conservative of D+1 and D+2 when arbitrage is disabled. Default: OFF (calibrate first).",
-          "energy_excess_solar_enabled": "Enable advanced EVSE management: excess solar EV charging (turns on EVSEs when battery full + high forecast remaining) and battery hold (prevents battery discharge during EV charging).",
-          "energy_excess_solar_soc": "Battery SOC above which excess solar triggers EV charging. Default: 95%.",
+          "energy_excess_solar_enabled": "Manages EV charging based on solar production and battery state. When battery is full (>= Excess Solar SOC) and solar surplus is available, EVSEs turn ON even during off-peak pause. When battery is below the Fill-Priority SOC and solar forecast is healthy, EVSEs PAUSE so the battery fills first. Off-peak TOU pause and battery drain protection run independently.",
+          "energy_excess_solar_soc": "When SOC is at or above this and solar forecast is healthy, URA turns EVSEs ON even during off-peak pause. Default: 95%.",
           "energy_excess_solar_kwh": "Remaining solar forecast (kWh) above which excess solar triggers EV charging. Default: 5.0 kWh.",
+          "energy_fill_priority_soc": "When SOC is below this and solar forecast is healthy, URA pauses EV charging so the battery fills first. Default: 80%. Excess Solar SOC (default 95%) remains the turn-ON threshold; the middle band (80-95) lets EVs run on TOU schedule without solar-aware interference.",
+          "garage_a_self_modulates": "Check for smart EVSEs with native solar/schedule modes (Emporia, Tesla Wall Connector). URA will re-pause every cycle. Leave unchecked for any other hardware — URA detects real user overrides and backs off for 1 hour while still re-pausing across dispatch lag.",
+          "garage_b_self_modulates": "Check for smart EVSEs with native solar/schedule modes (Emporia, Tesla Wall Connector). URA will re-pause every cycle. Leave unchecked for any other hardware — URA detects real user overrides and backs off for 1 hour while still re-pausing across dispatch lag.",
+          "l1_plug_self_modulates": "Check when L1 plugs have native solar/schedule modes. URA re-pauses every cycle. Leave unchecked for dumb plugs — URA detects user overrides and backs off for 1 hour.",
           "energy_grid_import_cap_enabled": "Pause EV charging when total grid import exceeds the cap. Resumes when import drops below cap minus 1 kW hysteresis.",
           "energy_grid_import_cap_kw": "Maximum grid import in kW before pausing EV charging. Default: 8 kW.",
           "energy_ev_battery_drain_soc": "Pause EV charging when battery SOC drops below this threshold AND the battery is discharging. Resumes when battery recovers or off-peak starts. Default: 50%.",
@@ -1643,6 +1651,14 @@
         "error": {
           "envoy_validation_still_failing": "Validation still failing. Errors: {errors}. Check the config again."
         }
+      }
+    }
+  },
+  "entity": {
+    "switch": {
+      "ev_tou_management": {
+        "name": "EVSE TOU Management",
+        "description": "Pauses ALL EVSE-class devices (L2 wall connectors and L1 plug-style chargers) during peak and mid-peak TOU periods. Each device's `self_modulates` flag (in its config step) governs whether URA enforces idempotent re-pause or honors external HA automation."
       }
     }
   }
