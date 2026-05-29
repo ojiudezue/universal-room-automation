@@ -612,6 +612,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         _LOGGER.info("Setting up Universal Room Automation integration entry")
         hass.data[DOMAIN]["integration"] = entry
         
+        # Bug Class #46 note: the following async_update_entry calls are SAFE because
+        # they execute BEFORE entry.add_update_listener(_async_update_listener) is
+        # registered at line ~2526. No re-entrant reload can fire. If you add a new
+        # async_update_entry call AFTER the update_listener registration site, defer
+        # it via lazy derivation at read time (see v4.7.4.3 customize_buckets pattern).
+
         # v3.3.5.4: Migrate zone names to proper zone entries (run once)
         # v3.5.3: Check entry.data (durable) with fallback to entry.options (legacy)
         if not entry.data.get("zone_migration_done") and not entry.options.get("zone_migration_done"):

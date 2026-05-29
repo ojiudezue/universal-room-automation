@@ -4,7 +4,7 @@
 **Last Updated:** May 10, 2026 (v4.5.11.3 cycle aftermath)
 **Current Production:** v4.5.11.3
 **Status:** Active quality standards
-**Bug Classes:** 33 documented (7 original + 13 from Jan–Mar 2026 + 2 from v3.20–v3.22 hardening + 1 from v4.1.1 lambda scope + 1 from v4.2.5 closure escape + 3 from v4.2.8–v4.2.11 DB performance + 1 from v4.2.24 sync update_listener + 1 from v4.2.9 maintenance budgeting + 2 from v4.5.11.x AC ramp-down cycle + 1 from v4.6.15 lambda+async_create_task + 1 from v4.7.x EV TOU bookkeeping short-circuit)
+**Bug Classes:** 46 documented (7 original + 13 from Jan–Mar 2026 + 2 from v3.20–v3.22 hardening + 1 from v4.1.1 lambda scope + 1 from v4.2.5 closure escape + 3 from v4.2.8–v4.2.11 DB performance + 1 from v4.2.24 sync update_listener + 1 from v4.2.9 maintenance budgeting + 2 from v4.5.11.x AC ramp-down cycle + 1 from v4.6.15 lambda+async_create_task + 1 from v4.7.x EV TOU bookkeeping short-circuit + 1 from v4.7.4 async_update_entry re-entrancy)
 
 **Quality bar — read every cycle:** Two independent staff-engineer-level code reviews using software engineering best practices. The bug-class catalog below is a regression-prevention reference, NOT the review framework. See `CLAUDE.md` § Review Protocol for the canonical statement.
 
@@ -1766,6 +1766,25 @@ bootstrap-2 — by deriving migrated values at read time instead of
 persisting them eagerly.**
 
 **Filed 2026-05-28** after v4.7.4 first-boot incident.
+
+**When `async_update_entry` IS safe in `async_setup_entry`:**
+The following conditions make an `async_update_entry` call within the integration
+setup path safe from the re-entrant reload hazard:
+
+1. **Called before `entry.add_update_listener(...)` is registered.** If no
+   update_listener has been registered yet, `async_update_entry` cannot trigger
+   a reload. The 7 migration calls in `__init__.py` (lines 621, 658, 676, 689,
+   701, 740, 1087) all fire before the listener is registered at line ~2526 and
+   are therefore safe. If the `add_update_listener` call is ever moved earlier
+   in the setup sequence, those calls become Bug Class #46 violations.
+
+2. **Called from outside `async_setup_entry` entirely** (e.g., from a service
+   handler, a post-startup deferred task that runs after bootstrap-2 closes, or
+   an OptionsFlow `async_create_entry` handler). These are safe because
+   bootstrap-2 has already completed by the time they fire.
+
+Outside of these two conditions, treat any new `async_update_entry` call inside
+the setup path as a Bug Class #46 violation and use lazy derivation instead.
 
 ---
 

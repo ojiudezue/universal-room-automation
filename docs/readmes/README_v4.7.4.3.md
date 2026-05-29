@@ -69,3 +69,37 @@ Instead, derive the `customize_buckets` flag **lazily at read time** in `_build_
 ## Deferred Items
 
 None. This is a complete fix with no known deferred items.
+
+---
+
+## Post-Review Fix-Up (2026-05-28)
+
+Tier 1 adversarial review (commit 8f5d5d1) found 4 findings. All 4 addressed:
+
+### CRITICAL-1 — v4.7.4.2 dead-import fix accidentally reverted
+**File:** `config_flow.py` (around the `async_step_zone_dynamic_preset` function body)
+**Fix:** Deleted `from homeassistant.components.selector import (selector, NumberSelector, ...)` block
+that was reintroduced in the initial v4.7.4.3 build. Replaced with a tombstone comment documenting
+why the import was removed in v4.7.4.2 and must not return.
+**Regression test added:** `quality/tests/test_v4742_dead_import_removed.py` —
+`test_v4742_v4743_no_broken_selector_import()` greps config_flow.py for the broken import path
+and fails if it reappears.
+
+### HIGH-1 — QUALITY_CONTEXT.md bug class count regressed 46 → 33
+**File:** `docs/QUALITY_CONTEXT.md` line 7
+**Fix:** Restored count from `33` to `46`. Count reflects actual Bug Class headers (#1–#46,
+with #18 absent — never existed). Also added the v4.7.4 async_update_entry re-entrancy class
+to the count description.
+
+### MED-1 — Version strings show v4.7.4 instead of v4.7.4.3
+**Decision:** No action taken on file-header comment version strings. This is a pre-existing
+pattern across all releases — file headers have never been updated to sub-patch versions.
+`manifest.json` and the primary `const.py` VERSION string are handled by `deploy.sh`.
+The 13 file-header occurrences are documentation artifacts that pre-date this release.
+
+### LOW-1 — Pre-existing async_update_entry calls in ENTRY_TYPE_INTEGRATION setup
+**File:** `__init__.py` (first of the 7 migration sites, near line 621)
+**Fix:** Added a Bug Class #46 safety analysis comment above the first `async_update_entry`
+migration call explaining why all 7 calls are safe (all precede `add_update_listener`
+registration at line ~2526). Extended Bug Class #46 in `docs/QUALITY_CONTEXT.md` with a
+"When async_update_entry IS safe" sub-section listing the two safe conditions.

@@ -5533,14 +5533,13 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         This prevents config written to a non-canonical name from being
         silently ignored by the EC evaluation loop.
         """
+        # v4.7.4.2 + v4.7.4.3: The dead selector import block was removed.
+        # HA 2026.5.4+ moved selectors to homeassistant.helpers.selector;
+        # the old homeassistant.components.selector path raises ModuleNotFoundError.
+        # All selector imports in this file use homeassistant.helpers.selector.
+        # Tombstone: do NOT reintroduce the old import path.
+        # Regression guard: quality/tests/test_v4742_dead_import_removed.py
         import voluptuous as vol
-        from homeassistant.components.selector import (
-            selector,
-            NumberSelector,
-            NumberSelectorConfig,
-            NumberSelectorMode,
-            BooleanSelector,
-        )
         from .domain_coordinators.energy_const import (
             CONF_ZONE_DYNAMIC_PRESET_ENABLED,
             CONF_ZONE_DYNAMIC_PRESET_OFFSET,
