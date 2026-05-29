@@ -329,6 +329,43 @@ class DynamicPresetOverrideSource:
 
         Returns:
             List of PresetOverride records for this zone (may be empty).
+
+        Notes on skip_reason exposure (v4.7.7 B2): callers wanting the
+        skip reason should use `evaluate_with_reason()` which returns
+        `(overrides, skip_reason)`. The skip_reason taxonomy is one of:
+        gate_disabled / no_forecast_delta / dwell_pending /
+        unknown_bucket / home_range_not_configured / None.
+        """
+        overrides, _reason = self.evaluate_with_reason(
+            zone_id=zone_id,
+            zone_data=zone_data,
+            delta=delta,
+            house_state=house_state,
+            apparent_high=apparent_high,
+            baseline_high=baseline_high,
+            now=now,
+        )
+        return overrides
+
+    def evaluate_with_reason(
+        self,
+        zone_id: str,
+        zone_data: dict,
+        delta: float | None,
+        house_state: str,
+        apparent_high: float | None = None,
+        baseline_high: float | None = None,
+        now: datetime | None = None,
+    ) -> tuple[list[PresetOverride], str | None]:
+        """v4.7.7 B2: Like `evaluate_and_emit` but also returns the
+        skip_reason when overrides is empty.
+
+        Returns:
+            (overrides, skip_reason)
+            - overrides non-empty -> skip_reason is None
+            - overrides empty -> skip_reason in {"gate_disabled",
+              "no_forecast_delta", "dwell_pending", "unknown_bucket",
+              "home_range_not_configured"}
         """
         if now is None:
             now = dt_util.utcnow()
@@ -339,12 +376,12 @@ class DynamicPresetOverrideSource:
 
         # --- Gate 1: zone opted-in
         if not zone_data.get(CONF_ZONE_DYNAMIC_PRESET_ENABLED, False):
-            return []
+            return [], "gate_disabled"
 
         # --- Gate 2: WPM has forecast
         if delta is None:
             _LOGGER.debug("DynamicPreset zone=%s: no forecast delta — skipping", zone_id)
-            return []
+            return [], "no_forecast_delta"
 
         # --- Read config fresh (Bug #14)
         options = self._get_options()
@@ -357,6 +394,12 @@ class DynamicPresetOverrideSource:
         # --- Classify fresh bucket
         fresh_bucket = classify_bucket(delta, cool_max, mild_max, hot_max)
         current_bucket = self._active_bucket.get(zone_id)
+
+        # v4.7.7 B2: track whether a wanted transition was blocked by dwell.
+        # We still emit the CURRENT bucket's overrides (no override change),
+        # but if those come back empty for a config reason and dwell was
+        # pending, we want the dwell reason surfaced to the user.
+        dwell_was_pending = False
 
         # --- Check if transition is warranted
         if current_bucket is None:
@@ -374,6 +417,7 @@ class DynamicPresetOverrideSource:
             elapsed_min = (now - last_tx).total_seconds() / 60.0
 
             if elapsed_min < dwell_min:
+                dwell_was_pending = True
                 _LOGGER.debug(
                     "DynamicPreset zone=%s: bucket would change %s→%s "
                     "but dwell not elapsed (%.0f/%.0f min)",
@@ -414,15 +458,27 @@ class DynamicPresetOverrideSource:
                 except Exception:  # pragma: no cover
                     _LOGGER.debug("DynamicPreset: signal dispatch failed", exc_info=True)
 
-        # --- Build override records for the current bucket
-        overrides = self._build_overrides(
+        # --- Build override records for the current bucket.
+        # v4.7.7 B2: capture skip_reason from build path so the caller
+        # can surface it (unknown_bucket / home_range_not_configured).
+        overrides, build_reason = self._build_overrides_with_reason(
             zone_id=zone_id,
             zone_data=zone_data,
             bucket=current_bucket,
             house_state=house_state,
         )
 
-        return overrides
+        if overrides:
+            return overrides, None
+        # No overrides — prefer the build-path reason when present,
+        # else fall back to dwell_pending if a transition was wanted.
+        if build_reason is not None:
+            return overrides, build_reason
+        if dwell_was_pending:
+            return overrides, "dwell_pending"
+        # Should not happen — _build_overrides_with_reason returns a
+        # reason when it returns []. Defensive fallback.
+        return overrides, "home_range_not_configured"
 
     def _build_overrides(
         self,
@@ -431,10 +487,36 @@ class DynamicPresetOverrideSource:
         bucket: str,
         house_state: str,
     ) -> list[PresetOverride]:
-        """Build PresetOverride records from zone_data for the given bucket."""
+        """Build PresetOverride records from zone_data for the given bucket.
+
+        v4.7.7 B2: kept as thin wrapper around `_build_overrides_with_reason`
+        for any out-of-tree callers; internal callers use the reason-aware
+        variant directly.
+        """
+        overrides, _ = self._build_overrides_with_reason(
+            zone_id, zone_data, bucket, house_state,
+        )
+        return overrides
+
+    def _build_overrides_with_reason(
+        self,
+        zone_id: str,
+        zone_data: dict,
+        bucket: str,
+        house_state: str,
+    ) -> tuple[list[PresetOverride], str | None]:
+        """v4.7.7 B2: like `_build_overrides` but returns the skip_reason
+        when overrides comes back empty.
+
+        Returns:
+            (overrides, skip_reason)
+            - overrides non-empty -> skip_reason is None
+            - overrides empty -> skip_reason in {"unknown_bucket",
+              "home_range_not_configured"}
+        """
         if bucket not in _BUCKET_CONF_KEYS:
             _LOGGER.warning("DynamicPreset: unknown bucket %r for zone=%s", bucket, zone_id)
-            return []
+            return [], "unknown_bucket"
 
         home_low_key, home_high_key, sleep_low_key, sleep_high_key = _BUCKET_CONF_KEYS[bucket]
 
@@ -480,7 +562,7 @@ class DynamicPresetOverrideSource:
                 "DynamicPreset zone=%s bucket=%s: home range not configured — no override",
                 zone_id, bucket,
             )
-            return []
+            return [], "home_range_not_configured"
 
         # Apply offset to high values
         effective_home_high = float(home_high) + zone_offset
@@ -524,7 +606,7 @@ class DynamicPresetOverrideSource:
                 bucket=bucket,
             ))
 
-        return overrides
+        return overrides, None
 
     # -------------------------------------------------------------------------
     # Async wrapper (re-entrancy guard)
@@ -547,6 +629,32 @@ class DynamicPresetOverrideSource:
         """
         async with self._eval_lock:
             return self.evaluate_and_emit(
+                zone_id=zone_id,
+                zone_data=zone_data,
+                delta=delta,
+                house_state=house_state,
+                apparent_high=apparent_high,
+                baseline_high=baseline_high,
+                now=now,
+            )
+
+    async def async_evaluate_with_reason(
+        self,
+        zone_id: str,
+        zone_data: dict,
+        delta: float | None,
+        house_state: str,
+        apparent_high: float | None = None,
+        baseline_high: float | None = None,
+        now: datetime | None = None,
+    ) -> tuple[list[PresetOverride], str | None]:
+        """v4.7.7 B2: async wrapper around `evaluate_with_reason`.
+
+        Same re-entrancy guard as `async_evaluate_and_emit` — the
+        underlying eval is synchronous and fast.
+        """
+        async with self._eval_lock:
+            return self.evaluate_with_reason(
                 zone_id=zone_id,
                 zone_data=zone_data,
                 delta=delta,

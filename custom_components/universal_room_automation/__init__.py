@@ -2417,7 +2417,32 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             ("switch", f"{DOMAIN}_energy_dynamic_preset_enabled"),        # v4.7.2 D2
             ("number", f"{DOMAIN}_energy_dynamic_preset_dwell_minutes"),   # v4.7.3 D4
             ("number", f"{DOMAIN}_energy_dynamic_preset_hysteresis_f"),    # v4.7.3 D4
+            # v4.7.7 B3: DPM observability sensors — global aggregate +
+            # per-zone Active Bucket + Range sensors — joined the master
+            # switch on the HVAC Coordinator device card. Per-zone unique_ids
+            # are appended in the loop below since iter_canonical_hvac_zones
+            # requires hass at runtime (not at module load).
+            ("sensor", f"{DOMAIN}_dynamic_preset_overrides_applied"),
         ]
+        try:
+            # v4.7.7 B3: extend the static list with per-zone DPM sensor
+            # unique_ids. Mirrors the v4.7.2/v4.7.3 device-reassignment
+            # idempotency guard below (skip if device_id already correct).
+            from .domain_coordinators.hvac_zones import iter_canonical_hvac_zones
+            for _z in iter_canonical_hvac_zones(hass):
+                _zone_id = _z["zone_id"]
+                _HVAC_DEVICE_MIGRATIONS.append(
+                    ("sensor", f"{DOMAIN}_dynamic_preset_active_bucket_{_zone_id}")
+                )
+                _HVAC_DEVICE_MIGRATIONS.append(
+                    ("sensor", f"{DOMAIN}_dynamic_preset_range_{_zone_id}")
+                )
+        except Exception:
+            _LOGGER.debug(
+                "v4.7.7 B3: per-zone DPM sensor enumeration skipped",
+                exc_info=True,
+            )
+
         try:
             from homeassistant.helpers import entity_registry as er
             from homeassistant.helpers import device_registry as dr_mod
@@ -2441,12 +2466,138 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         _entity_id, device_id=_target_device.id
                     )
                     _LOGGER.info(
-                        "v4.7.3 D4 migration: reassigned %s to HVAC Coordinator device",
+                        "v4.7.3 D4 / v4.7.7 B3 migration: reassigned %s to "
+                        "HVAC Coordinator device",
                         _entity_id,
                     )
         except Exception:
             _LOGGER.debug(
-                "v4.7.3 D4: entity reassignment skipped "
+                "v4.7.3 D4 / v4.7.7 B3: entity reassignment skipped "
+                "(entity not registered yet or registry unavailable)",
+                exc_info=True,
+            )
+
+        # =====================================================================
+        # v4.7.7 B1: orphan registry sweep for legacy
+        # `dynamic_preset_bucket_*` entities.
+        #
+        # The class was renamed to DynamicPresetActiveBucketSensor
+        # (sensor.py:6536) with unique_id
+        # f"{DOMAIN}_dynamic_preset_active_bucket_{zone_id}".
+        # Pre-rename entries with unique_id
+        # f"{DOMAIN}_dynamic_preset_bucket_{zone_id}" have no producing
+        # class and sit in Unknown state forever.
+        #
+        # CRITICAL: legacy prefix `dynamic_preset_bucket_` is a STRICT
+        # prefix of the current `dynamic_preset_active_bucket_`. The
+        # exclusion clause on the current prefix is the only thing that
+        # keeps the live entities from being swept too.
+        # =====================================================================
+        try:
+            from homeassistant.helpers import entity_registry as er
+            _er = er.async_get(hass)
+            _legacy_prefix = f"{DOMAIN}_dynamic_preset_bucket_"
+            _current_prefix = f"{DOMAIN}_dynamic_preset_active_bucket_"
+            # Materialize the entity values up-front — async_remove mutates
+            # the registry mid-iteration.
+            _to_remove = []
+            for _ent_entry in list(_er.entities.values()):
+                if _ent_entry.platform != DOMAIN:
+                    continue
+                if not _ent_entry.unique_id.startswith(_legacy_prefix):
+                    continue
+                if _ent_entry.unique_id.startswith(_current_prefix):
+                    # STRICT guard: active class — never sweep.
+                    continue
+                _to_remove.append(_ent_entry.entity_id)
+            for _entity_id in _to_remove:
+                _er.async_remove(_entity_id)
+                _LOGGER.info(
+                    "v4.7.7 B1: removed stale dynamic_preset_bucket entity %s "
+                    "(legacy unique_id; current class uses active_bucket prefix)",
+                    _entity_id,
+                )
+        except Exception:
+            _LOGGER.debug("v4.7.7 B1: orphan sweep skipped", exc_info=True)
+
+        # =====================================================================
+        # v4.7.7 A4: AC ramp sensor entity_id ↔ friendly-name scrambling fix.
+        #
+        # Root cause: unique_id is built from canonical zone_id (stable
+        # across boots) but _attr_name uses zone_name (merged display label,
+        # ordering-dependent across boots). HA generates the entity_id
+        # slug from the FIRST _attr_name it saw at unique_id registration —
+        # so a different merge ordering on a later boot produces the
+        # mismatch: `_back_hallway` displaying "Entertainment + Master
+        # Suite", etc.
+        #
+        # Fix: rename entity_ids to canonical zone_id form. Migration is
+        # ONLY applied to the two diagnostic ramp sensors (state +
+        # last_action) — neither has SensorStateClass.MEASUREMENT, so no
+        # LTS history is broken. The third ramp sensor (kwh_rate) HAS
+        # SensorStateClass.MEASUREMENT (sensor.py:8968) and is left alone
+        # to preserve Long-Term Statistics history — accepting the
+        # scrambling on that one entity. See plan §A4 LTS trade-off.
+        #
+        # Bug Class #46-safe: this block ONLY mutates the entity registry
+        # via async_update_entity(entity_id, new_entity_id=...). It does
+        # NOT call async_update_entry on the config entry, and it runs
+        # BEFORE entry.add_update_listener registration below.
+        # =====================================================================
+        try:
+            from homeassistant.helpers import entity_registry as er
+            from .domain_coordinators.hvac_zones import iter_canonical_hvac_zones
+            _er = er.async_get(hass)
+            # The two diagnostic ramp sensor classes (no LTS). kwh_rate is
+            # intentionally omitted — see block-header comment.
+            _RAMP_SENSORS_NO_LTS = (
+                "hvac_ac_ramp_state",
+                "hvac_ac_ramp_last_action",
+            )
+            for _z in iter_canonical_hvac_zones(hass):
+                _zone_id = _z["zone_id"]
+                for _slug_root in _RAMP_SENSORS_NO_LTS:
+                    _uid = f"{DOMAIN}_{_slug_root}_{_zone_id}"
+                    _current_entity_id = _er.async_get_entity_id(
+                        "sensor", DOMAIN, _uid,
+                    )
+                    if _current_entity_id is None:
+                        continue
+                    _canonical_entity_id = (
+                        f"sensor.ura_{_slug_root}_{_zone_id}"
+                    )
+                    if _current_entity_id == _canonical_entity_id:
+                        # Idempotent: already canonical.
+                        continue
+                    # Confirm the target slug isn't already taken by
+                    # something else — async_update_entity raises on
+                    # collision.
+                    _existing = _er.async_get(_canonical_entity_id)
+                    if (
+                        _existing is not None
+                        and _existing.unique_id != _uid
+                    ):
+                        _LOGGER.warning(
+                            "v4.7.7 A4: cannot rename %s to %s — slug "
+                            "already taken by unique_id=%s",
+                            _current_entity_id,
+                            _canonical_entity_id,
+                            _existing.unique_id,
+                        )
+                        continue
+                    _er.async_update_entity(
+                        _current_entity_id,
+                        new_entity_id=_canonical_entity_id,
+                    )
+                    _LOGGER.info(
+                        "v4.7.7 A4 migration: renamed %s -> %s "
+                        "(canonical zone_id form; resolves entity_id ↔ "
+                        "friendly-name scrambling)",
+                        _current_entity_id, _canonical_entity_id,
+                    )
+        except Exception:
+            _LOGGER.debug(
+                "v4.7.7 A4: ramp sensor entity_id migration skipped "
                 "(entity not registered yet or registry unavailable)",
                 exc_info=True,
             )

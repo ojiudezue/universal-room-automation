@@ -92,6 +92,12 @@ class OverrideArrester:
         self._ac_reset_timeout = ac_reset_timeout
         self._enabled = enabled
         self._ac_reset_enabled = True
+        # v4.7.7 A2: AC Nudge decouple — independent toggle for the soft-nudge
+        # detection iteration. Default ON. Setter has NO cancel-in-flight
+        # side-effect (rationale: a restore timer is part of completing the
+        # in-flight action cleanly; flipping nudge OFF mid-cycle should NOT
+        # strand zones at +nudge_size°F). See plan §A2 setter side-effect.
+        self._ac_nudge_enabled = True
 
         # Listener unsubscribes
         self._state_unsubs: list[CALLBACK_TYPE] = []
@@ -481,6 +487,33 @@ class OverrideArrester:
                 )
         _LOGGER.info("AC Reset %s", "enabled" if value else "disabled")
 
+    @property
+    def ac_nudge_enabled(self) -> bool:
+        """v4.7.7 A2: Return whether AC soft-nudge detection is active.
+
+        Independent of `ac_reset_enabled`. Gates the soft-nudge detection
+        iteration in `check_ac_reset`; does NOT gate the hard-reset
+        escalation (that's `ac_reset_enabled`'s job in
+        `_perform_hard_reset_escalation`).
+        """
+        return self._ac_nudge_enabled
+
+    @ac_nudge_enabled.setter
+    def ac_nudge_enabled(self, value: bool) -> None:
+        """v4.7.7 A2: Set AC nudge enabled state.
+
+        Deliberately NO side-effect on OFF — an in-flight nudge has a
+        restore timer that must fire to return the zone to its original
+        setpoint. Cancelling mid-flight would strand the zone at
+        +nudge_size°F. Future ticks will simply skip new soft-nudge work
+        via the Gate 0a/0b split in `check_ac_reset`.
+        """
+        self._ac_nudge_enabled = bool(value)
+        _LOGGER.info(
+            "AC Nudge %s",
+            "enabled" if self._ac_nudge_enabled else "disabled",
+        )
+
     @enabled.setter
     def enabled(self, value: bool) -> None:
         """Set arrester enabled state. Cancels in-flight timers on disable."""
@@ -830,7 +863,9 @@ class OverrideArrester:
         Called from the 5-minute HVAC decision cycle.
 
         Gating order (any failure -> skip zone, set ramp_state, continue):
-          0. _ac_reset_enabled (legacy backward-compat kill-switch)
+          0a. _ac_nudge_enabled AND _ac_reset_enabled both False -> return
+          0b. _ac_nudge_enabled False -> return (soft-nudge entry point
+              has no work; AC Reset can still be invoked by direct triggers)
           1. _ramp_master_enabled (v4.5.11 master switch)
           2. zone.ramp_zone_enabled (per-zone opt-out)
           3. zone.ac_load_sensor configured (graceful degrade if not)
@@ -841,9 +876,31 @@ class OverrideArrester:
           8. overshoot sustained for detection_time_gate minutes
           9. not already mid-nudge or mid-evaluation
         All gates passed -> _handle_overshoot_detected.
+
+        v4.7.7 A2: Gate 0 split. Pre-v4.7.7 Gate 0 single-toggle
+        `_ac_reset_enabled` gated BOTH the soft-nudge iteration AND the
+        hard-reset escalation, which is why turning AC Reset OFF disabled
+        nudges too. The escalation guard now lives at the top of
+        `_perform_hard_reset_escalation` (A3), and Gate 0 here only governs
+        the soft-nudge iteration entry.
         """
-        # Gate 0: legacy backward-compat kill-switch
-        if not self._ac_reset_enabled:
+        # v4.7.7 A2 — Gate 0a: both features off -> arrester soft-nudge
+        # work disabled entirely. Mirror behavior matches single-snapshot
+        # Bug Class #20 (reload race): we read both flags once into local
+        # vars to guarantee a stable view across this tick.
+        _nudge_on = self._ac_nudge_enabled
+        _reset_on = self._ac_reset_enabled
+        if not _nudge_on and not _reset_on:
+            return
+        # v4.7.7 A2 — Gate 0b: nudge off, reset on. `check_ac_reset` is the
+        # soft-nudge entry point; with nudges disabled it has no work.
+        # AC Reset can still be invoked via direct triggers (e.g. the
+        # force_reset button).
+        if not _nudge_on:
+            _LOGGER.debug(
+                "AC Nudge disabled — skipping soft-nudge detection "
+                "(AC Reset state=%s)", "on" if _reset_on else "off",
+            )
             return
         # Gate 1: v4.5.11 master switch (default OFF)
         if not self._ramp_master_enabled:
@@ -1455,9 +1512,31 @@ class OverrideArrester:
         Cap hit -> _engage_lockout. Min-interval gate fail -> log + skip.
         Both pass -> increment counter, fire _perform_ac_reset (existing
         v3.18.x off->wait->restore logic with verify+retry).
+
+        v4.7.7 A3: early-return guard. When `_ac_reset_enabled=False`
+        (decoupled-off via v4.7.7), the escalation path is a no-op:
+        set ramp_state IDLE and return WITHOUT engaging lockout, DB
+        writes, or daily-cap math. Fixes the lockout side-effect bug
+        where `_hard_reset_daily_limit=0` previously fired
+        `_engage_lockout` on the FIRST failed nudge eval because
+        `int(state.get("hard_reset_count", 0)) >= 0` was true
+        immediately.
         """
         zone_id = zone.zone_id
         now = dt_util.now()
+
+        # v4.7.7 A3: clean skip when reset feature is decoupled-disabled.
+        # The soft-nudge already ran (Gate 0a/0b passed) but escalation
+        # is the AC-Reset surface — without it enabled, there's no
+        # legitimate work here. NO lockout, NO DB writes.
+        if not self._ac_reset_enabled:
+            zone.ramp_state = AC_RAMP_STATE_IDLE
+            _LOGGER.debug(
+                "Hard reset on %s skipped — AC Reset feature disabled "
+                "(soft-nudge ran but escalation is decoupled-off)",
+                zone.zone_name,
+            )
+            return
 
         if self._db is None:
             zone.ramp_state = AC_RAMP_STATE_IDLE

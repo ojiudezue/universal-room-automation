@@ -454,8 +454,11 @@ class TestDetectionLogic:
     def test_check_ac_reset_dispatches_handler_when_all_gates_pass(
         self, hvac_override_src,
     ):
+        # v4.7.7: window widened from 6000 → 9000 after the v4.7.7 A2
+        # Gate 0 split (Gate 0a + Gate 0b + snapshot locals + debug log)
+        # added ~30 lines before `_handle_overshoot_detected`.
         idx = hvac_override_src.find("async def check_ac_reset(")
-        body = hvac_override_src[idx:idx + 6000]
+        body = hvac_override_src[idx:idx + 9000]
         assert "await self._handle_overshoot_detected(" in body
 
 
@@ -623,10 +626,12 @@ class TestHardResetEscalation:
         """Don't reinvent the off→wait→restore lifecycle — reuse
         _perform_ac_reset (v3.18.x verify+retry pathway). Tests this by
         confirming the call exists in escalation."""
+        # v4.7.7: window widened from 3000 → 4000 after the v4.7.7 A3
+        # early-return guard added ~10 lines at the top of the method.
         idx = hvac_override_src.find(
             "async def _perform_hard_reset_escalation("
         )
-        body = hvac_override_src[idx:idx + 3000]
+        body = hvac_override_src[idx:idx + 4000]
         assert "await self._perform_ac_reset(zone)" in body
 
 
