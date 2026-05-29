@@ -434,14 +434,20 @@ class TestDetectionLogic:
     def test_check_ac_reset_per_zone_threshold(self, hvac_override_src):
         """kWh threshold is read from ZoneState (per-zone), not from a
         house-wide attr — your 4-ton unit can use 1.0 while 3-tons use 0.8."""
+        # v4.7.7 fix-up: window widened from 6000 → 9000 after A-M2
+        # docstring + Gate 0b inline comment expansion pushed gate body
+        # past the prior boundary.
         idx = hvac_override_src.find("async def check_ac_reset(")
-        body = hvac_override_src[idx:idx + 6000]
+        body = hvac_override_src[idx:idx + 9000]
         assert "zone.kwh_rate_threshold" in body
         assert "if kwh_rate > zone.kwh_rate_threshold" in body
 
     def test_check_ac_reset_three_sample_debounce(self, hvac_override_src):
+        # v4.7.7 fix-up: window widened from 6000 → 9000 after A-M2
+        # docstring + Gate 0b inline comment expansion. _sustained_samples
+        # token now sits past byte 6000 from method start.
         idx = hvac_override_src.find("async def check_ac_reset(")
-        body = hvac_override_src[idx:idx + 6000]
+        body = hvac_override_src[idx:idx + 9000]
         assert "kwh_samples_above_threshold" in body
         assert "self._sustained_samples" in body
 
@@ -628,10 +634,13 @@ class TestHardResetEscalation:
         confirming the call exists in escalation."""
         # v4.7.7: window widened from 3000 → 4000 after the v4.7.7 A3
         # early-return guard added ~10 lines at the top of the method.
+        # v4.7.7 fix-up: further widened from 4000 → 5000 after the
+        # B-L1 TOCTOU comment block (live-read intent) added ~8 lines
+        # above the existing A3 early-return.
         idx = hvac_override_src.find(
             "async def _perform_hard_reset_escalation("
         )
-        body = hvac_override_src[idx:idx + 4000]
+        body = hvac_override_src[idx:idx + 5000]
         assert "await self._perform_ac_reset(zone)" in body
 
 
