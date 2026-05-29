@@ -1785,6 +1785,71 @@ setup path safe from the re-entrant reload hazard:
 
 Outside of these two conditions, treat any new `async_update_entry` call inside
 the setup path as a Bug Class #46 violation and use lazy derivation instead.
+
+---
+
+### Bug Class #47 — Lazy Canonical Resolution UI Surface Violation
+
+**Symptom.** A UI surface (config flow, options flow, panels, services) calls
+`iter_canonical_hvac_zones` and presents the user with a merged canonical
+label (e.g., `"Entertainment + Master Suite"`) that the user can't reconcile
+against their own configuration. Saves under the merged key silently drop
+half the data when read back through the raw `entry.options["zones"]` shape.
+
+**Sub-class (post-review v4.7.5):** zone names that contain the literal
+`" + "` substring collide with the canonical merge separator emitted by
+`hvac_zones.py:788` (`f"{existing['zone_name']} + {zm_zone_name}"`). The
+read-side split fallback in `energy.py` cannot distinguish a real
+user-chosen name from a synthesized merge label. Fix: reject `" + "` in
+zone names at config-flow validate time (see `config_flow.py`
+`_ZONE_NAME_PLUS_SEPARATOR_RE`).
+
+**Locked by:** `quality/tests/test_v475_d3_canonical_runtime_only.py`
+(AST-scan asserts `config_flow.py` does not import or call
+`iter_canonical_hvac_zones`) and the zone-name validator in
+`async_step_zone_setup` / `async_step_zone_rooms`.
+
+**Fix pattern.** Derive sibling sets locally from `entry.options["zones"]`
+(see `_get_shared_thermostat_siblings`). Never persist a derived view.
+
+---
+
+### Lazy Canonical Resolution (architectural rule, v4.7.5)
+
+**Principle.** The HVAC coordinator's canonical zone merge
+(`iter_canonical_hvac_zones` in `domain_coordinators/hvac_zones.py`) is a
+*runtime-only* concept. Any UI surface (the config flow, options flow handlers,
+panels, services that render zone choices to the user) MUST show the raw house
+zones from `entry.options["zones"]` and MUST NOT call `iter_canonical_hvac_zones`.
+
+**Mirror to Bug Class #46.** Class #46 says: never persist a derived view
+eagerly via `async_update_entry` inside `async_setup_entry`. Lazy Canonical
+Resolution says: never persist or render a derived view (canonical zone label)
+in the UI either. Derive lazily at read time — once on the runtime path, in
+the coordinator that needs it.
+
+**Enforcement.**
+1. `iter_canonical_hvac_zones` callers are restricted to:
+   - `domain_coordinators/` (coordinator runtime + per-tick evaluation)
+   - per-zone platform setup in `button.py`, `number.py`, `sensor.py`
+     (Bug Class #36 dedup)
+   - `quality/tests/`
+2. `config_flow.py` MUST NOT import or call `iter_canonical_hvac_zones`.
+   AST-locked by `quality/tests/test_v475_d3_canonical_runtime_only.py`.
+3. When a runtime consumer needs zone-config data for a canonical merged
+   label, it MUST resolve back to a constituent raw house zone — split the
+   merged name on `" + "` and pick the first one present in
+   `entry.options["zones"]`. The Option C auto-mirror (v4.7.5) guarantees
+   identical data across all sibling house zones, so the choice is
+   deterministic.
+
+**Reference:** see `energy.py::_async_evaluate_dynamic_presets` (`zone_data =
+zm_zones.get(zone_name, …)` + `" + "` split fallback) and
+`config_flow.py::_get_shared_thermostat_siblings` (computes sibling sets
+locally without ever calling the merge function).
+
+**Filed 2026-05-29** after v4.7.5 build (PLANNING_v4.7.5_zone_manager_ux.md
+§D3).
 ---
 
 ## ✅ MANDATORY VALIDATION CHECKLIST

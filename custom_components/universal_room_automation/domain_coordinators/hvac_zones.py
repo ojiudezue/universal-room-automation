@@ -690,6 +690,35 @@ def _zone_id_from_thermostat_pure(
     return f"zone_{n}"
 
 
+# =============================================================================
+# v4.7.5 D3 — Caller inventory for iter_canonical_hvac_zones
+# =============================================================================
+# Per PLANNING_v4.7.5 §D3 and QUALITY_CONTEXT.md "Lazy Canonical Resolution":
+# `iter_canonical_hvac_zones` is permitted ONLY on runtime / coordinator /
+# platform-setup code paths. UI surfaces (config_flow.py) MUST NOT call this —
+# they read raw house zones from `entry.options["zones"]` and let the runtime
+# resolve canonical lazily.
+#
+# Approved callers as of v4.7.5 (run `grep -rn iter_canonical_hvac_zones
+# custom_components/` to re-verify any time the file moves):
+#   - button.py:600        — per-zone button platform setup (Bug Class #36).
+#   - number.py:1541       — per-zone number platform setup (Bug Class #36).
+#   - sensor.py:334        — per-zone sensor platform setup (Bug Class #36).
+#   - domain_coordinators/energy.py:2567
+#                          — EC's dynamic-preset evaluation loop (runtime).
+#   - quality/tests/*      — fixtures / lockstep tests.
+# Forbidden:
+#   - custom_components/universal_room_automation/config_flow.py — any call
+#     here is a Bug Class #47 violation. Regression-locked by
+#     quality/tests/test_v475_d3_canonical_runtime_only.py.
+#
+# If a new platform needs canonical zones, add it to the allowlist above AND
+# extend the D3 test's allowlist. If a UI surface needs zone metadata, derive
+# it locally from `entry.options["zones"]` (see config_flow.py
+# `_get_shared_thermostat_siblings` for the pattern).
+# =============================================================================
+
+
 def iter_canonical_hvac_zones(hass: HomeAssistant) -> list[dict]:
     """Return canonical HVAC zones (thermostat-deduplicated).
 
