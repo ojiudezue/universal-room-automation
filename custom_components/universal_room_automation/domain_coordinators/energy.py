@@ -2147,9 +2147,14 @@ class EnergyCoordinator(BaseCoordinator):
             # → set_fill_priority_soc) that can land between reads inside
             # this tick. Without a snapshot, the drain branch and the fill
             # priority branch (and the NM trip message) could each observe a
-            # different value within the same tick. Excess-solar threshold
-            # has no setter today; left unsnapshotted intentionally.
+            # different value within the same tick.
+            #
+            # v4.7.6.1 D1: snapshot _excess_solar_soc too — same race now
+            # that ExcessSolarSOCNumber.async_set_native_value can land
+            # between the excess-solar branch read at line ~2192 and any
+            # downstream readers. Mirrors the B-M3 fix exactly.
             fill_priority_soc_tick = int(self._fill_priority_soc)
+            excess_solar_soc_tick = int(self._excess_solar_soc)
 
             # Execute actions (skipped in observation mode)
             if not self._observation_mode:
@@ -2187,9 +2192,11 @@ class EnergyCoordinator(BaseCoordinator):
                 if self._excess_solar_enabled:
                     soc = self._battery.battery_soc
                     remaining = self._battery.solcast_remaining
+                    # v4.7.6.1 D1: read tick-snapshot, not live attr — same
+                    # race-mitigation pattern as fill_priority_soc_tick.
                     excess_actions = self._ev.determine_excess_solar_actions(
                         soc, remaining, period,
-                        soc_threshold=self._excess_solar_soc,
+                        soc_threshold=excess_solar_soc_tick,
                         kwh_threshold=self._excess_solar_kwh,
                     )
                     for action_spec in excess_actions:
@@ -3819,6 +3826,26 @@ class EnergyCoordinator(BaseCoordinator):
         """
         self._fill_priority_soc = int(value)
         _LOGGER.info("EV fill-priority SOC threshold set to %d%%", int(value))
+
+    @property
+    def excess_solar_soc(self) -> int:
+        """Current EV excess-solar turn-ON SOC threshold (v4.7.6.1 D1).
+
+        When home battery SOC >= this AND solar surplus is available, URA
+        turns EVSEs/L1 plugs ON even during off-peak pause so the surplus
+        is consumed rather than exported.
+        """
+        return self._excess_solar_soc
+
+    def set_excess_solar_soc(self, value: int) -> None:
+        """Update EV excess-solar turn-ON SOC threshold at runtime (v4.7.6.1 D1).
+
+        Slider write goes through here; takes effect on next decision tick
+        via the tick-snapshot in _async_evaluate_dynamic_presets (Bug Class
+        #14 mitigation — mirrors the v4.7.6 B-M3 fix for fill_priority_soc).
+        """
+        self._excess_solar_soc = int(value)
+        _LOGGER.info("EV excess-solar SOC threshold set to %d%%", int(value))
 
     async def _check_fill_priority_nm_trip(
         self,

@@ -170,11 +170,17 @@ def test_staleness_number_range_7_to_90():
 
 
 def test_staleness_number_registered_in_cm_setup():
-    """BayesianCellStalenessNumber must be in the CM entity list."""
+    """BayesianCellStalenessNumber must be in the CM entity list.
+
+    v4.7.6.1: window widened from 2000 to 2500 chars because D1 added
+    ExcessSolarSOCNumber + 3-line comment, pushing later entities past the
+    previous window. The CM `entities = [` list now spans ~1900 chars; the
+    window must comfortably contain it.
+    """
     src = _number_src()
     idx = src.find("ENTRY_TYPE_COORDINATOR_MANAGER")
     assert idx >= 0
-    block = src[idx:idx + 2000]
+    block = src[idx:idx + 2500]
     assert "BayesianCellStalenessNumber" in block, (
         "BayesianCellStalenessNumber must be instantiated in CM async_setup_entry block"
     )
