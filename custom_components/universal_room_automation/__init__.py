@@ -1803,15 +1803,25 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         CONF_ENERGY_L1_CHARGER_ENTITIES,
                         DEFAULT_L1_CHARGER_ENTITIES,
                     )
-                    # v4.7.6 D6.4: per-plug self_modulates — single bool applied
-                    # to all configured plugs (most installs have 0-1).
-                    plug_self_modulates = bool(
-                        cm_config.get("l1_plug_self_modulates", False)
-                    )
-                    plug_config = {
-                        plug_id: {"self_modulates": plug_self_modulates}
-                        for plug_id in (smart_plug_entities or [])
-                    }
+                    # v4.7.6 D6.4 / fix-up C-H2: per-plug self_modulates.
+                    # Build {plug_id: {self_modulates: bool}} from per-plug
+                    # config keys (`<plug_entity_id>_self_modulates`). When
+                    # a plug's key is ABSENT we OMIT `self_modulates` so
+                    # SmartPlugController.get_status() reports
+                    # `source: "default"`. When the key is present, the
+                    # bool is stored and `source: "explicit"`.
+                    plug_config = {}
+                    for plug_id in (smart_plug_entities or []):
+                        per_plug_key = f"{plug_id}_self_modulates"
+                        if per_plug_key in cm_config:
+                            plug_config[plug_id] = {
+                                "self_modulates": bool(
+                                    cm_config.get(per_plug_key, False)
+                                )
+                            }
+                        else:
+                            # Absent — keep empty dict so source="default".
+                            plug_config[plug_id] = {}
 
                     # Solar classification config
                     solar_mode = cm_config.get(

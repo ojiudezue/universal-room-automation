@@ -458,7 +458,12 @@ class TestConfigFlowEVSEStepImportsAndRenders:
         assert "CONF_ENERGY_FILL_PRIORITY_SOC" in src
         assert "DEFAULT_FILL_PRIORITY_SOC" in src
         assert "garage_a_self_modulates" in src
-        assert "l1_plug_self_modulates" in src
+        # v4.7.6 fix-up C-H2: legacy single `l1_plug_self_modulates` bool
+        # replaced by per-plug `<plug_entity_id>_self_modulates` fields
+        # injected dynamically from the configured plug list. The marker
+        # we grep for is the new shape comment + the schema-extension loop.
+        assert "_self_modulates" in src  # generic per-plug suffix
+        assert "C-H2" in src  # fix-up provenance comment
 
     def test_energy_const_new_symbols_present(self):
         from custom_components.universal_room_automation.domain_coordinators import energy_const as ec
@@ -526,3 +531,400 @@ class TestAdversarialEVSE:
             hass.set_state("switch.garage_a", "on")
         assert pause_count == 5
         assert "garage_a" not in ev._battery_drain_cooldown
+
+
+# ---------------------------------------------------------------------------
+# v4.7.6 fix-up A-H1: Force-Charge precedence across pause rules
+# ---------------------------------------------------------------------------
+
+def _make_force_charge_ev():
+    """Build an EVChargerController with garage_a configured + force-charge.
+
+    Reads `dt_util.utcnow()` at call time so the test stays tz-compatible
+    regardless of whether an earlier test in the suite replaced the
+    mock with a tz-aware variant.
+    """
+    hass = MockHass()
+    hass.set_state("switch.garage_a", "on")
+    hass.set_state("sensor.garage_a_power_minute_average", "5000")
+    ev = EVChargerController(hass, evse_config={
+        "garage_a": {
+            "switch": "switch.garage_a",
+            "power": "sensor.garage_a_power_minute_average",
+        },
+    })
+    # Open a 30-min force-charge window starting now. Derive from
+    # dt_util.utcnow() so naive/aware shape matches `_is_force_charge_active`.
+    from homeassistant.util import dt as dt_util
+    from datetime import timedelta
+    ev.set_force_charge_override(dt_util.utcnow() + timedelta(minutes=30))
+    return ev, hass
+
+
+class TestForceChargeOverridesAllPauseRules:
+    """v4.7.6 fix-up A-H1: Force-Charge bypasses drain AND fill-priority."""
+
+    def test_force_charge_skips_drain(self):
+        ev, _ = _make_force_charge_ev()
+        # Drain conditions met (negative power, low SOC) — but FC active.
+        actions = ev.determine_battery_drain_actions(
+            battery_power_w=-500.0, battery_soc=45.0, soc_threshold=50,
+        )
+        # No turn_off should be issued — force-charge bypasses drain.
+        assert all(a.get("service") != "switch.turn_off" for a in actions)
+        assert "garage_a" not in ev._paused_by_battery_drain
+
+    def test_force_charge_releases_existing_drain_pause(self):
+        """If already paused by drain, opening FC releases the membership."""
+        ev, _ = _make_force_charge_ev()
+        # Inject pre-existing pause state.
+        ev._paused_by_battery_drain.add("garage_a")
+        ev._claim_pause_dispatch_owner("garage_a", "battery_drain")
+        # Tick with drain conditions; FC is still active.
+        ev.determine_battery_drain_actions(
+            battery_power_w=-500.0, battery_soc=45.0, soc_threshold=50,
+        )
+        assert "garage_a" not in ev._paused_by_battery_drain
+        # Dispatch owner for drain released; if no other owner, full wipe.
+        assert "garage_a" not in ev._dispatch_owners
+
+    def test_force_charge_skips_fill_priority(self):
+        ev, _ = _make_force_charge_ev()
+        actions = ev.determine_fill_priority_actions(
+            soc=51.0,
+            remaining_forecast_kwh=10.0,
+            tou_period="offpeak",
+            soc_threshold=80,
+            excess_solar_kwh_threshold=5.0,
+        )
+        assert all(a.get("service") != "switch.turn_off" for a in actions)
+        assert "garage_a" not in ev._paused_by_fill_priority
+
+    def test_force_charge_releases_existing_fill_priority_pause(self):
+        ev, _ = _make_force_charge_ev()
+        ev._paused_by_fill_priority.add("garage_a")
+        ev._claim_pause_dispatch_owner("garage_a", "fill_priority")
+        ev.determine_fill_priority_actions(
+            soc=51.0,
+            remaining_forecast_kwh=10.0,
+            tou_period="offpeak",
+            soc_threshold=80,
+            excess_solar_kwh_threshold=5.0,
+        )
+        assert "garage_a" not in ev._paused_by_fill_priority
+        assert "garage_a" not in ev._dispatch_owners
+
+
+class TestForceChargeOverridesPlugPauseRules:
+    """v4.7.6 fix-up A-H1 mirror on SmartPlugController."""
+
+    def test_force_charge_plug_drain_skipped(self):
+        hass = MockHass()
+        hass.set_state("switch.plug_a", "on")
+        sp = SmartPlugController(hass, plug_entities=["switch.plug_a"])
+        actions = sp.determine_battery_drain_actions(
+            battery_power_w=-500.0, battery_soc=45.0, soc_threshold=50,
+            force_charge_active=True,
+        )
+        assert all(a.get("service") != "switch.turn_off" for a in actions)
+        assert "switch.plug_a" not in sp._paused_by_battery_drain
+
+    def test_force_charge_plug_drain_releases_existing(self):
+        hass = MockHass()
+        hass.set_state("switch.plug_a", "on")
+        sp = SmartPlugController(hass, plug_entities=["switch.plug_a"])
+        sp._paused_by_battery_drain.add("switch.plug_a")
+        sp._claim_pause_dispatch_owner("switch.plug_a", "battery_drain")
+        sp.determine_battery_drain_actions(
+            battery_power_w=-500.0, battery_soc=45.0, soc_threshold=50,
+            force_charge_active=True,
+        )
+        assert "switch.plug_a" not in sp._paused_by_battery_drain
+        assert "switch.plug_a" not in sp._dispatch_owners
+
+    def test_force_charge_plug_fill_priority_skipped(self):
+        hass = MockHass()
+        hass.set_state("switch.plug_a", "on")
+        sp = SmartPlugController(hass, plug_entities=["switch.plug_a"])
+        actions = sp.determine_fill_priority_actions(
+            soc=51.0,
+            remaining_forecast_kwh=10.0,
+            tou_period="offpeak",
+            soc_threshold=80,
+            excess_solar_kwh_threshold=5.0,
+            force_charge_active=True,
+        )
+        assert all(a.get("service") != "switch.turn_off" for a in actions)
+        assert "switch.plug_a" not in sp._paused_by_fill_priority
+
+    def test_force_charge_plug_fill_priority_releases_existing(self):
+        hass = MockHass()
+        hass.set_state("switch.plug_a", "on")
+        sp = SmartPlugController(hass, plug_entities=["switch.plug_a"])
+        sp._paused_by_fill_priority.add("switch.plug_a")
+        sp._claim_pause_dispatch_owner("switch.plug_a", "fill_priority")
+        sp.determine_fill_priority_actions(
+            soc=51.0,
+            remaining_forecast_kwh=10.0,
+            tou_period="offpeak",
+            soc_threshold=80,
+            excess_solar_kwh_threshold=5.0,
+            force_charge_active=True,
+        )
+        assert "switch.plug_a" not in sp._paused_by_fill_priority
+        assert "switch.plug_a" not in sp._dispatch_owners
+
+
+# ---------------------------------------------------------------------------
+# v4.7.6 fix-up A-H2 / A-H3: reference-counted dispatch ownership
+# ---------------------------------------------------------------------------
+
+class TestDispatchOwnerRefCounting:
+    """Cross-rule pause handoff must not clobber shared dispatch tracking."""
+
+    def test_claim_then_release_single_owner_wipes(self):
+        hass = MockHass()
+        hass.set_state("switch.garage_a", "off")
+        ev = EVChargerController(hass, evse_config={
+            "garage_a": {"switch": "switch.garage_a"},
+        })
+        ev._claim_pause_dispatch_owner("garage_a", "battery_drain")
+        ev._pause_dispatch_ts["garage_a"] = 100.0
+        ev._observed_off_since_pause["garage_a"] = True
+        ev._release_pause_dispatch_owner("garage_a", "battery_drain")
+        assert "garage_a" not in ev._dispatch_owners
+        assert "garage_a" not in ev._pause_dispatch_ts
+        assert "garage_a" not in ev._observed_off_since_pause
+
+    def test_handoff_preserves_dispatch_state(self):
+        """drain releases while FP still holds — tracking survives."""
+        hass = MockHass()
+        hass.set_state("switch.garage_a", "off")
+        ev = EVChargerController(hass, evse_config={
+            "garage_a": {"switch": "switch.garage_a"},
+        })
+        # Both rules claim ownership of the same EVSE's dispatch tracking.
+        ev._claim_pause_dispatch_owner("garage_a", "battery_drain")
+        ev._claim_pause_dispatch_owner("garage_a", "fill_priority")
+        ev._pause_dispatch_ts["garage_a"] = 100.0
+        ev._observed_off_since_pause["garage_a"] = True
+        # Drain releases; FP still owns.
+        ev._release_pause_dispatch_owner("garage_a", "battery_drain")
+        assert "garage_a" in ev._dispatch_owners
+        assert ev._dispatch_owners["garage_a"] == {"fill_priority"}
+        # Dispatch tracking MUST still be present — FP's manual-override
+        # detection depends on it.
+        assert "garage_a" in ev._pause_dispatch_ts
+        assert ev._observed_off_since_pause["garage_a"] is True
+        # FP also releases — full wipe.
+        ev._release_pause_dispatch_owner("garage_a", "fill_priority")
+        assert "garage_a" not in ev._dispatch_owners
+        assert "garage_a" not in ev._pause_dispatch_ts
+        assert "garage_a" not in ev._observed_off_since_pause
+
+    def test_release_unknown_owner_idempotent(self):
+        """Releasing a never-claimed owner is a no-op."""
+        hass = MockHass()
+        ev = EVChargerController(hass, evse_config={
+            "garage_a": {"switch": "switch.garage_a"},
+        })
+        # Pre-condition: tracking present but never claimed (legacy code path).
+        ev._pause_dispatch_ts["garage_a"] = 50.0
+        # Release path with no owners — wipes dispatch as fallback.
+        ev._release_pause_dispatch_owner("garage_a", "battery_drain")
+        assert "garage_a" not in ev._pause_dispatch_ts
+
+    def test_plug_handoff_preserves_dispatch_state(self):
+        """SmartPlugController mirror of the EV handoff invariant."""
+        hass = MockHass()
+        sp = SmartPlugController(hass, plug_entities=["switch.plug_a"])
+        sp._claim_pause_dispatch_owner("switch.plug_a", "battery_drain")
+        sp._claim_pause_dispatch_owner("switch.plug_a", "fill_priority")
+        sp._pause_dispatch_ts["switch.plug_a"] = 100.0
+        sp._observed_off_since_pause["switch.plug_a"] = True
+        sp._release_pause_dispatch_owner("switch.plug_a", "battery_drain")
+        assert sp._dispatch_owners["switch.plug_a"] == {"fill_priority"}
+        assert "switch.plug_a" in sp._pause_dispatch_ts
+
+
+# ---------------------------------------------------------------------------
+# v4.7.6 fix-up B-H4: NM trip union includes L1 plug fill-priority set
+# ---------------------------------------------------------------------------
+
+class TestNMTripUnionIncludesPlugs:
+    def test_nm_trip_currently_paused_union_source(self):
+        """Source check: _check_fill_priority_nm_trip unions EV + plug sets."""
+        import os
+        energy_path = os.path.join(_dc_path, "energy.py")
+        src = open(energy_path).read()
+        # The union assignment shape should mention both controllers' sets.
+        # Look near `_check_fill_priority_nm_trip` for the union expression.
+        idx = src.find("def _check_fill_priority_nm_trip")
+        assert idx != -1
+        slice_ = src[idx:idx + 2500]
+        # B-H4 marker: both sets unioned for the currently_paused calc.
+        assert "self._smart_plugs._paused_by_fill_priority" in slice_
+        assert "self._ev._paused_by_fill_priority" in slice_
+
+
+# ---------------------------------------------------------------------------
+# v4.7.6 fix-up C-H2: per-plug self_modulates source distinction
+# ---------------------------------------------------------------------------
+
+class TestPerPlugSelfModulatesRoundTrip:
+    def test_plug_a_explicit_plug_b_default(self):
+        """Plug A has explicit self_modulates=True; plug B has no key (default)."""
+        hass = MockHass()
+        hass.set_state("switch.plug_a", "off")
+        hass.set_state("switch.plug_b", "off")
+        # Mirror what __init__.py builds: explicit dict for A, empty for B.
+        sp = SmartPlugController(
+            hass,
+            plug_entities=["switch.plug_a", "switch.plug_b"],
+            plug_config={
+                "switch.plug_a": {"self_modulates": True},
+                "switch.plug_b": {},  # absent key → source: default
+            },
+        )
+        status = sp.get_status()
+        cfg = status["evse_config"]
+        assert cfg["switch.plug_a"] == {
+            "self_modulates": True, "source": "explicit",
+        }
+        assert cfg["switch.plug_b"] == {
+            "self_modulates": False, "source": "default",
+        }
+
+
+# ---------------------------------------------------------------------------
+# v4.7.6 fix-up C-H1: pause_reason_human renders "configured target" fallback
+# ---------------------------------------------------------------------------
+
+class TestPauseReasonHumanTargetFallback:
+    def test_pause_reason_human_fallback_when_target_missing(self):
+        """When fill_priority_target_soc is None, the message says
+        'configured target' not 'target None%'."""
+        hass = MockHass()
+        hass.set_state("switch.garage_a", "off")
+        ev = EVChargerController(hass, evse_config={
+            "garage_a": {"switch": "switch.garage_a"},
+        })
+        ev._paused_by_fill_priority.add("garage_a")
+        # Call without supplying fill_priority_target_soc.
+        status = ev.get_status()
+        msg = status["pause_reason_human"]["garage_a"]
+        assert "None" not in msg
+        assert "configured target" in msg
+
+    def test_pause_reason_human_target_renders_when_supplied(self):
+        hass = MockHass()
+        hass.set_state("switch.garage_a", "off")
+        ev = EVChargerController(hass, evse_config={
+            "garage_a": {"switch": "switch.garage_a"},
+        })
+        ev._paused_by_fill_priority.add("garage_a")
+        status = ev.get_status(fill_priority_target_soc=80)
+        msg = status["pause_reason_human"]["garage_a"]
+        assert "80%" in msg
+
+
+# ---------------------------------------------------------------------------
+# v4.7.6 fix-up A-M1: excess_solar defense-in-depth against stronger pause
+# ---------------------------------------------------------------------------
+
+class TestExcessSolarSkipsWhenStrongerPauseHolds:
+    def _make_excess_solar_ev(self):
+        hass = MockHass()
+        hass.set_state("switch.garage_a", "off")
+        ev = EVChargerController(hass, evse_config={
+            "garage_a": {"switch": "switch.garage_a"},
+        })
+        return ev, hass
+
+    def test_excess_solar_skips_drain_held(self):
+        ev, _ = self._make_excess_solar_ev()
+        ev._paused_by_battery_drain.add("garage_a")
+        # Conditions otherwise good — but stronger pause holds.
+        actions = ev.determine_excess_solar_actions(
+            soc=96.0,
+            remaining_forecast_kwh=10.0,
+            tou_period="offpeak",
+        )
+        assert all(a.get("service") != "switch.turn_on" for a in actions)
+        assert "garage_a" not in ev._excess_solar_active
+
+    def test_excess_solar_skips_fill_priority_held(self):
+        ev, _ = self._make_excess_solar_ev()
+        ev._paused_by_fill_priority.add("garage_a")
+        actions = ev.determine_excess_solar_actions(
+            soc=96.0,
+            remaining_forecast_kwh=10.0,
+            tou_period="offpeak",
+        )
+        assert all(a.get("service") != "switch.turn_on" for a in actions)
+        assert "garage_a" not in ev._excess_solar_active
+
+    def test_excess_solar_skips_grid_cap_held(self):
+        ev, _ = self._make_excess_solar_ev()
+        ev._paused_by_grid_cap.add("garage_a")
+        actions = ev.determine_excess_solar_actions(
+            soc=96.0,
+            remaining_forecast_kwh=10.0,
+            tou_period="offpeak",
+        )
+        assert all(a.get("service") != "switch.turn_on" for a in actions)
+        assert "garage_a" not in ev._excess_solar_active
+
+    def test_excess_solar_skips_arbitrage_held(self):
+        ev, _ = self._make_excess_solar_ev()
+        ev._paused_by_arbitrage.add("garage_a")
+        actions = ev.determine_excess_solar_actions(
+            soc=96.0,
+            remaining_forecast_kwh=10.0,
+            tou_period="offpeak",
+        )
+        assert all(a.get("service") != "switch.turn_on" for a in actions)
+        assert "garage_a" not in ev._excess_solar_active
+
+
+# ---------------------------------------------------------------------------
+# v4.7.6 fix-up A-M4: peak-clear releases dispatch ownership
+# ---------------------------------------------------------------------------
+
+class TestPeakClearReleasesDispatchOwner:
+    def test_ev_peak_clear_releases_fill_priority_owner(self):
+        hass = MockHass()
+        hass.set_state("switch.garage_a", "off")
+        ev = EVChargerController(hass, evse_config={
+            "garage_a": {"switch": "switch.garage_a"},
+        })
+        ev._paused_by_fill_priority.add("garage_a")
+        ev._claim_pause_dispatch_owner("garage_a", "fill_priority")
+        ev._pause_dispatch_ts["garage_a"] = 100.0
+        # Peak transition — clears membership AND ownership.
+        ev.determine_fill_priority_actions(
+            soc=51.0,
+            remaining_forecast_kwh=10.0,
+            tou_period="peak",
+            soc_threshold=80,
+            excess_solar_kwh_threshold=5.0,
+        )
+        assert "garage_a" not in ev._paused_by_fill_priority
+        assert "garage_a" not in ev._dispatch_owners
+
+    def test_plug_peak_clear_releases_fill_priority_owner(self):
+        hass = MockHass()
+        hass.set_state("switch.plug_a", "off")
+        sp = SmartPlugController(hass, plug_entities=["switch.plug_a"])
+        sp._paused_by_fill_priority.add("switch.plug_a")
+        sp._claim_pause_dispatch_owner("switch.plug_a", "fill_priority")
+        sp._pause_dispatch_ts["switch.plug_a"] = 100.0
+        sp.determine_fill_priority_actions(
+            soc=51.0,
+            remaining_forecast_kwh=10.0,
+            tou_period="peak",
+            soc_threshold=80,
+            excess_solar_kwh_threshold=5.0,
+        )
+        assert "switch.plug_a" not in sp._paused_by_fill_priority
+        assert "switch.plug_a" not in sp._dispatch_owners

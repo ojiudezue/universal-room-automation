@@ -1653,5 +1653,13 @@
         }
       }
     }
+  },
+  "entity": {
+    "switch": {
+      "ev_tou_management": {
+        "name": "EVSE TOU Management",
+        "description": "Pauses ALL EVSE-class devices (L2 wall connectors and L1 plug-style chargers) during peak and mid-peak TOU periods. Each device's `self_modulates` flag (in its config step) governs whether URA enforces idempotent re-pause or honors external HA automation."
+      }
+    }
   }
 }

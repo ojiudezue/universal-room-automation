@@ -3136,7 +3136,9 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             CONF_ENERGY_SOLAR_CLASSIFICATION_MODE, SOLAR_CLASS_MODE_AUTOMATIC
         )
 
-        data_schema = vol.Schema({
+        # v4.7.6 fix-up C-H2: build the schema dict first (so we can append
+        # per-plug self_modulates fields), then wrap in vol.Schema.
+        _schema_dict = {
             # v4.0.12: Single Envoy entity picker — auto-derives all Envoy entities
             vol.Optional(
                 CONF_ENERGY_ENVOY_ENTITY,
@@ -3525,12 +3527,11 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 "garage_b_self_modulates",
                 default=self._get_current("garage_b_self_modulates", False),
             ): selector.BooleanSelector(),
-            # v4.7.6 D6.4: Per-L1-plug self_modulates (single bool — most
-            # installs have 0-1 L1 plugs). Applies to ALL configured plugs.
-            vol.Optional(
-                "l1_plug_self_modulates",
-                default=self._get_current("l1_plug_self_modulates", False),
-            ): selector.BooleanSelector(),
+            # v4.7.6 D6.4 / fix-up C-H2: Per-L1-plug self_modulates fields
+            # are injected dynamically below (one BooleanSelector per
+            # configured plug, suffixed `<plug_entity_id>_self_modulates`).
+            # Plugs whose key is absent from `cm_config` will retain
+            # `source: "default"` in SmartPlugController.get_status().
             # v4.0.18: Grid import cap
             vol.Optional(
                 CONF_ENERGY_GRID_IMPORT_CAP_ENABLED,
@@ -3610,7 +3611,23 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             # path), not the z-score AnomalyDetector that the sensitivity multiplier
             # feeds into.  Exposing a setting that has no runtime effect is
             # misleading.  Re-introduce if an AnomalyDetector is added to energy.
-        })
+        }
+        # v4.7.6 fix-up C-H2: inject per-L1-plug self_modulates checkbox
+        # for every plug already configured in CONF_ENERGY_L1_CHARGER_ENTITIES.
+        # Field key shape: `<plug_entity_id>_self_modulates`. Absent keys
+        # remain `source: "default"` in SmartPlugController.get_status().
+        _configured_plugs = self._get_current(
+            CONF_ENERGY_L1_CHARGER_ENTITIES, []
+        ) or []
+        for _plug_entity_id in _configured_plugs:
+            _field_key = f"{_plug_entity_id}_self_modulates"
+            _schema_dict[
+                vol.Optional(
+                    _field_key,
+                    default=self._get_current(_field_key, False),
+                )
+            ] = selector.BooleanSelector()
+        data_schema = vol.Schema(_schema_dict)
 
         # v4.2.29: surface envoy validation errors per-field.
         return self.async_show_form(
