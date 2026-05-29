@@ -39,7 +39,9 @@ Tracking set `_paused_by_fill_priority`. Idempotent re-pause + hybrid `self_modu
 ### D3 — UX renames + new Number entity + helper text
 
 - **Switch rename:** `switch.ura_energy_coordinator_excess_solar_charging` → `switch.ura_energy_coordinator_evse_solar_aware_charging` (entity_id changed, `unique_id` pinned to legacy slug for HACS history continuity). Friendly: "EVSE Solar-Aware Charging." One switch gates BOTH the existing excess-solar turn-on AND the new fill-priority pause.
-- **New Number:** `number.ura_energy_coordinator_fill_priority_soc` (default 80%, min 50, max 95, step 5). Live-tunable. Existing `number.ura_energy_coordinator_excess_solar_soc` stays at 95% as the turn-ON threshold. Asymmetric thresholds: turn on at 95%, pause until 80%, generous middle band where neither rule fires and EV runs on TOU.
+- **New Number:** `number.ura_energy_coordinator_fill_priority_soc` (default 80%, min 50, max 95, step 5). Live-tunable. Existing `number.ura_energy_coordinator_excess_solar_soc` stays at 95% as the turn-ON threshold.[^excess-solar-soc-correction] Asymmetric thresholds: turn on at 95%, pause until 80%, generous middle band where neither rule fires and EV runs on TOU.
+
+[^excess-solar-soc-correction]: Note (corrected 2026-05-29): `excess_solar_soc` was config-flow-only in v4.7.6; promoted to a live Number entity in v4.7.6.1. The functional rule in v4.7.6 worked correctly via `entry.options`; v4.7.6.1 just exposes the value as a live-tunable Number for parity with `fill_priority_soc`.
 - **Per-EVSE + per-plug `self_modulates` checkboxes** in the energy config flow (post-review fix-up C-M2: conditionally exposed only for configured EVSEs/plugs).
 - **EVSE Force-Charge button helper text updated** to reference the `self_modulates` flag and point to its config location.
 
