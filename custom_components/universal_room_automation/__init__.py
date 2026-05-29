@@ -2535,7 +2535,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # ONLY applied to the two diagnostic ramp sensors (state +
         # last_action) — neither has SensorStateClass.MEASUREMENT, so no
         # LTS history is broken. The third ramp sensor (kwh_rate) HAS
-        # SensorStateClass.MEASUREMENT (sensor.py:8968) and is left alone
+        # SensorStateClass.MEASUREMENT (sensor.py:9006) and is left alone
         # to preserve Long-Term Statistics history — accepting the
         # scrambling on that one entity. See plan §A4 LTS trade-off.
         #

@@ -865,7 +865,12 @@ class OverrideArrester:
         Gating order (any failure -> skip zone, set ramp_state, continue):
           0a. _ac_nudge_enabled AND _ac_reset_enabled both False -> return
           0b. _ac_nudge_enabled False -> return (soft-nudge entry point
-              has no work; AC Reset can still be invoked by direct triggers)
+              has no work). NOTE (v4.7.7 A-M2 fix-up): with AC Nudge OFF +
+              AC Reset ON, the hard-reset path is currently unreachable —
+              soft-nudge auto-detection is skipped here, and no manual
+              force_reset button exists today. The user can re-enable AC
+              Nudge to allow escalation. Revisit in v4.7.8 if a manual
+              force_reset button is wanted.
           1. _ramp_master_enabled (v4.5.11 master switch)
           2. zone.ramp_zone_enabled (per-zone opt-out)
           3. zone.ac_load_sensor configured (graceful degrade if not)
@@ -894,8 +899,12 @@ class OverrideArrester:
             return
         # v4.7.7 A2 — Gate 0b: nudge off, reset on. `check_ac_reset` is the
         # soft-nudge entry point; with nudges disabled it has no work.
-        # AC Reset can still be invoked via direct triggers (e.g. the
-        # force_reset button).
+        # v4.7.7 A-M2 fix-up: with AC Nudge OFF + AC Reset ON, the
+        # hard-reset path is unreachable in v4.7.7 (no automatic trigger
+        # since soft-nudge auto-detection is skipped here, and no manual
+        # force_reset button exists today). User can re-enable AC Nudge to
+        # allow escalation. v4.7.8 may add a manual force_reset button if
+        # user feedback indicates this cell needs it.
         if not _nudge_on:
             _LOGGER.debug(
                 "AC Nudge disabled — skipping soft-nudge detection "
@@ -1529,6 +1538,14 @@ class OverrideArrester:
         # The soft-nudge already ran (Gate 0a/0b passed) but escalation
         # is the AC-Reset surface — without it enabled, there's no
         # legitimate work here. NO lockout, NO DB writes.
+        #
+        # v4.7.7 B-L1 fix-up: `self._ac_reset_enabled` is read LIVE here
+        # (not snapshotted) by deliberate design — escalation respects the
+        # CURRENT toggle, not the toggle at nudge-start time ~10 min ago.
+        # The Gate 0 snapshot in `check_ac_reset` (L891-L892) protects
+        # against intra-tick races on the soft-nudge entry point; this
+        # live read is a different decision boundary (deferred escalation
+        # 10 min after nudge start). See Tier 2 Reviewer B B-L1.
         if not self._ac_reset_enabled:
             zone.ramp_state = AC_RAMP_STATE_IDLE
             _LOGGER.debug(

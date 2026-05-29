@@ -1028,6 +1028,49 @@ class TestB2EnergyCallerCaptures:
             "skip_reason rather than silently dropping the zone"
         )
 
+    def test_v477_a_m1_canonical_mismatch_does_not_overwrite_downstream_reason(
+        self, energy_src,
+    ):
+        """A-M1 regression: when canonical " + " split fails BUT the
+        zone_id fallback at line 2723-2724 supplies non-empty data, the
+        downstream eval ran against real zone_data — its skip_reason
+        (e.g., dwell_pending, home_range_not_configured) MUST be preserved.
+
+        The precedence gate must require BOTH `_canonical_resolution_failed`
+        AND `not zone_data` before overwriting with canonical_label_mismatch.
+        Without the `not zone_data` half of the conjunction, the sensor
+        would mislead diagnosis whenever the zone_id fallback rescued the
+        eval.
+        """
+        body = self._energy_eval_body(energy_src)
+        # The corrected precedence must conjunct both conditions. The
+        # critical token is `and not zone_data` alongside the canonical
+        # resolution flag in the same predicate.
+        assert (
+            "_canonical_resolution_failed and not zone_data" in body
+        ), (
+            "A-M1 (v4.7.7 review fix-up): canonical_label_mismatch "
+            "precedence MUST gate on `_canonical_resolution_failed and "
+            "not zone_data` so the downstream skip_reason is preserved "
+            "when the zone_id fallback at L2723-2724 rescues with "
+            "non-empty zone_data. Bare `if _canonical_resolution_failed` "
+            "(the pre-fix shape) overwrites the real reason "
+            "(dwell_pending, home_range_not_configured, etc.) with the "
+            "misleading canonical_label_mismatch label."
+        )
+        # Defensive: ensure the broken pre-fix shape is gone. The pre-fix
+        # had a bare `if _canonical_resolution_failed` immediately under
+        # the canonical_label_mismatch ternary expression WITHOUT the
+        # `and not zone_data` conjunction.
+        bad_line = (
+            '                            if _canonical_resolution_failed'
+            '\n'
+        )
+        assert bad_line not in body, (
+            "A-M1 regression: the pre-fix bare-_canonical_resolution_failed "
+            "ternary clause must not reappear; use `and not zone_data`."
+        )
+
 
 class TestB2SensorExposesSkipReasons:
     """B2: DynamicPresetOverridesAppliedSensor exposes

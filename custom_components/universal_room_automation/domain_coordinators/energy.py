@@ -2755,15 +2755,18 @@ class EnergyCoordinator(BaseCoordinator):
                             zone_id, len(overrides), self._observation_mode,
                         )
                     else:
-                        # Canonical-resolution failure takes precedence over
-                        # the downstream eval reason — if zone_data was {}
-                        # because resolution failed, the eval typically
-                        # returns gate_disabled (a confusing label for the
-                        # user, who can see their zone IS opted in but the
-                        # canonical merge label is what failed to match).
+                        # v4.7.7 A-M1 fix-up: canonical_label_mismatch only
+                        # takes precedence when canonical resolution failed
+                        # AND the zone_id fallback at line 2723-2724 also
+                        # returned empty data. If the fallback succeeded
+                        # with non-empty zone_data, the downstream eval ran
+                        # against real data and its skip_reason (e.g.,
+                        # dwell_pending, home_range_not_configured) is the
+                        # legitimate cause — overwriting it with
+                        # canonical_label_mismatch would mislead diagnosis.
                         reason = (
                             "canonical_label_mismatch"
-                            if _canonical_resolution_failed
+                            if _canonical_resolution_failed and not zone_data
                             else skip_reason
                         )
                         if reason:
