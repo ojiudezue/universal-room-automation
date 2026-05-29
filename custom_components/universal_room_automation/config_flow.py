@@ -5533,13 +5533,22 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         This prevents config written to a non-canonical name from being
         silently ignored by the EC evaluation loop.
         """
+        # v4.7.4.2 + v4.7.4.3: The dead selector import block was removed.
+        # HA 2026.5.4+ moved selectors to homeassistant.helpers.selector;
+        # the old homeassistant.components.selector path raises ModuleNotFoundError.
+        # All selector imports in this file use homeassistant.helpers.selector.
+        # Tombstone: do NOT reintroduce the old import path.
+        # Regression guard: quality/tests/test_v4742_dead_import_removed.py
         import voluptuous as vol
+<<<<<<< HEAD
         # v4.7.4.2: removed dead `from homeassistant.components.selector import (...)`
         # block. (a) HA 2026.5.4 moved selector to homeassistant.helpers.selector —
         # the old import path raises ModuleNotFoundError. (b) The imported names
         # were never used in this handler (schema uses raw vol.All/Coerce/Range/bool).
         # Empty error modal on form open was the symptom; root cause traced from
         # HA core log 2026-05-29.
+=======
+>>>>>>> worktree-agent-a22ad56da66a8e20e
         from .domain_coordinators.energy_const import (
             CONF_ZONE_DYNAMIC_PRESET_ENABLED,
             CONF_ZONE_DYNAMIC_PRESET_OFFSET,
@@ -5762,6 +5771,25 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             v = current_data.get(key, source_data.get(key))
             return bool(v) if v is not None else default
 
+        # v4.7.4.3: Derive customize_buckets lazily when the source dict doesn't
+        # have an explicit value. Replaces the broken v4.7.4 migration which
+        # triggered a re-entrant entry reload via async_update_entry (Bug Class #46).
+        # When user next saves the form, the value persists naturally.
+        def _customize_buckets_value():
+            """Return current customize_buckets, deriving from saved cells if unset."""
+            explicit = current_data.get(
+                CONF_CUSTOMIZE_BUCKETS,
+                source_data.get(CONF_CUSTOMIZE_BUCKETS),
+            )
+            if explicit is not None:
+                return bool(explicit)
+            # Lazy derivation: zone has saved per-bucket cells → user was
+            # customizing pre-v4.7.4. Show those cells by default.
+            return any(
+                source_data.get(f"zone_dynamic_preset_{_bucket}_home_low") is not None
+                for _bucket in ("cool", "mild", "hot", "extreme")
+            )
+
         return vol.Schema({
             vol.Optional(CONF_ENABLED, default=_b(CONF_ENABLED, False)): bool,
             vol.Optional(CONF_OFFSET, default=_f(CONF_OFFSET, 0.0)): vol.All(
@@ -5774,7 +5802,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 vol.Schema({
                     vol.Optional(
                         CONF_CUSTOMIZE_BUCKETS,
-                        default=_b(CONF_CUSTOMIZE_BUCKETS, False),
+                        default=_customize_buckets_value(),
                     ): bool,
                     # home preset bucket ranges (4 buckets × low + high)
                     vol.Optional(CONF_COOL_HOME_LOW, default=_f(CONF_COOL_HOME_LOW, 70.0)): vol.All(
