@@ -7,7 +7,7 @@ additional controllable loads.
 from __future__ import annotations
 
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from homeassistant.core import HomeAssistant
@@ -18,6 +18,9 @@ from .energy_const import (
     EVSE_CHARGING_POWER_THRESHOLD,
     EVSE_ESTIMATED_POWER_W,
     EV_BATTERY_DRAIN_COOLDOWN_SECONDS,
+    EV_PAUSE_DISPATCH_GRACE_SECONDS,
+    DEFAULT_FILL_PRIORITY_SAFETY_MARGIN_KWH,
+    L1_ESTIMATED_POWER_W,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -210,6 +213,36 @@ class EVChargerController:
         # Only settable via EVSEForceChargeButton; never from HA UI directly.
         self._force_charge_until: datetime | None = None
 
+        # v4.7.6 D1: Hybrid manual-override detection state.
+        # _pause_dispatch_ts[evse_id] = monotonic() at the moment URA dispatched
+        # switch.turn_off. _observed_off_since_pause[evse_id] flips False → True
+        # the first decision tick after dispatch where URA reads is_on=False.
+        # Both reset on EVPool init (no DB persistence — Bug Class #7 mitigation
+        # explicitly documented; monotonic resets on HA restart anyway).
+        self._pause_dispatch_ts: dict[str, float] = {}
+        self._observed_off_since_pause: dict[str, bool] = {}
+        # v4.7.6 fix-up A-H2 / A-H3: reference-counted dispatch ownership.
+        # When drain pauses, "battery_drain" is added; when fill-priority
+        # pauses, "fill_priority" is added. Both rules share the same
+        # _pause_dispatch_ts / _observed_off_since_pause entry — only when
+        # ALL owners release do we wipe the tracking. Prevents handoff
+        # clobber that broke manual-override detection on cross-rule
+        # transitions (Review A findings A-H2 / A-H3).
+        self._dispatch_owners: dict[str, set[str]] = {}
+
+        # v4.7.6 D2: Fill-priority pause set — symmetric to drain.
+        # When SOC < fill_priority_soc AND solar forecast healthy, URA pauses
+        # EVSEs so the home battery fills first. Resume on SOC recovery or
+        # forecast decay below safety margin.
+        self._paused_by_fill_priority: set[str] = set()
+
+        # v4.7.6 D4: Cache last computed fill-priority forecast-health flag,
+        # surfaced as `fill_priority_solar_ok` on the EV status sensor.
+        self._fill_priority_solar_ok: bool = False
+
+        # v4.7.6 D1 #9: Prune stale entries on init (idempotent on cold boot).
+        self._prune_removed_evses()
+
     def _get_evse_state(self, evse_id: str) -> dict[str, Any]:
         """Get current state of an EVSE.
 
@@ -268,6 +301,111 @@ class EVChargerController:
             "charging": charging,
             "power_source": power_source,
         }
+
+    # ------------------------------------------------------------------
+    # v4.7.6 D1 — Per-EVSE config + lifecycle helpers
+    # ------------------------------------------------------------------
+
+    def _self_modulates_for(self, evse_id: str) -> bool:
+        """Return True when this EVSE is marked self-modulating (Option A).
+
+        When True, URA is the sole authority — manual-override detection is
+        skipped and URA re-pauses every decision tick that conditions hold.
+        Default False (Option B / smart manual-override detection).
+        """
+        cfg = self._evse.get(evse_id, {})
+        try:
+            return bool(cfg.get("self_modulates", False))
+        except Exception:  # pragma: no cover — defensive
+            return False
+
+    def _clear_pause_dispatch_state(self, evse_id: str) -> None:
+        """Drop the per-EVSE dispatch-tracking entries on resume/cooldown.
+
+        Called whenever the EVSE leaves _paused_by_battery_drain or
+        _paused_by_fill_priority. Idempotent.
+
+        v4.7.6 fix-up A-H2 / A-H3: this unconditional wipe is the legacy
+        callsite — kept for cooldown engagement and terminal-resume paths
+        where the rule definitively no longer needs the tracking AND no
+        other rule owns it. Use `_release_pause_dispatch_owner()` instead
+        on cross-rule handoff branches to preserve the OTHER rule's
+        dispatch state.
+        """
+        self._pause_dispatch_ts.pop(evse_id, None)
+        self._observed_off_since_pause.pop(evse_id, None)
+        self._dispatch_owners.pop(evse_id, None)
+
+    def _claim_pause_dispatch_owner(self, evse_id: str, owner: str) -> None:
+        """Mark `owner` as holding the dispatch tracking for `evse_id`.
+
+        Idempotent: re-claims don't duplicate. Use at every pause-dispatch
+        site so the owner-set accurately reflects which rules still need
+        the shared `_pause_dispatch_ts` / `_observed_off_since_pause`.
+        """
+        owners = self._dispatch_owners.setdefault(evse_id, set())
+        owners.add(owner)
+
+    def _release_pause_dispatch_owner(self, evse_id: str, owner: str) -> None:
+        """Release `owner`'s claim. Wipe tracking only when no owners remain.
+
+        v4.7.6 fix-up A-H2 / A-H3 + A-M4 (peak-clear leak): if other rules
+        still own the dispatch tracking, leave `_pause_dispatch_ts` and
+        `_observed_off_since_pause` intact so their manual-override
+        detection keeps working.
+        """
+        owners = self._dispatch_owners.get(evse_id)
+        if owners is None:
+            # Legacy / never-claimed path — fall back to full wipe.
+            self._pause_dispatch_ts.pop(evse_id, None)
+            self._observed_off_since_pause.pop(evse_id, None)
+            return
+        owners.discard(owner)
+        if not owners:
+            self._dispatch_owners.pop(evse_id, None)
+            self._pause_dispatch_ts.pop(evse_id, None)
+            self._observed_off_since_pause.pop(evse_id, None)
+
+    def _prune_removed_evses(self) -> None:
+        """Purge per-EVSE state for entries no longer configured.
+
+        Without this, config-flow edits that remove an EVSE leak entries in
+        _paused_by_*, _battery_drain_cooldown, _pause_dispatch_ts, etc.
+        Called from __init__ and update_evse_config().
+        """
+        known = set(self._evse.keys())
+        for tracking_set in (
+            self._paused_by_us,
+            self._excess_solar_active,
+            self._paused_by_grid_cap,
+            self._paused_by_battery_drain,
+            self._paused_by_arbitrage,
+            self._paused_by_fill_priority,
+        ):
+            for evse_id in list(tracking_set):
+                if evse_id not in known:
+                    tracking_set.discard(evse_id)
+        for tracking_dict in (
+            self._battery_drain_cooldown,
+            self._pause_dispatch_ts,
+            self._observed_off_since_pause,
+            self._dispatch_owners,
+            self._power_sensor_unavail_count,
+            self._power_sensor_unavail_since,
+        ):
+            for evse_id in list(tracking_dict.keys()):
+                if evse_id not in known:
+                    tracking_dict.pop(evse_id, None)
+        for evse_id in list(self._power_sensor_alerted):
+            if evse_id not in known:
+                self._power_sensor_alerted.discard(evse_id)
+
+    # v4.7.6 fix-up B-H1 / C-M1: `update_evse_config` was dead code — no
+    # production caller. The canonical config-update path is HA's options-flow
+    # reload (`hass.config_entries.async_reload`) which rebuilds EVPool from
+    # scratch via `async_setup_entry`. Removed in v4.7.6 review fix-up to
+    # avoid a footgun for future contributors. `_prune_removed_evses()` runs
+    # in `__init__` and handles the equivalent state cleanup.
 
     def determine_actions(self, tou_period: str) -> list[dict[str, Any]]:
         """Determine EV charger actions based on TOU period.
@@ -361,6 +499,29 @@ class EVChargerController:
         """Return the UTC expiry of the current force-charge window, or None."""
         return self._force_charge_until
 
+    def _is_force_charge_active(self) -> bool:
+        """Return True when the admin force-charge window is currently active.
+
+        v4.7.6 fix-up A-H1: precedence rule — Force-Charge > all URA pause
+        rules (drain, fill-priority, grid-cap, arbitrage, TOU). When this is
+        True, every pause method early-returns AND releases any current set
+        membership so the EVSE can charge.
+
+        Auto-expires: clears `_force_charge_until` on first expired check.
+        """
+        if self._force_charge_until is None:
+            return False
+        try:
+            from homeassistant.util import dt as dt_util
+            now_utc = dt_util.utcnow()
+        except Exception:  # pragma: no cover — defensive
+            return False
+        if now_utc < self._force_charge_until:
+            return True
+        # Expired — clear so subsequent calls don't re-check.
+        self._force_charge_until = None
+        return False
+
     def set_force_charge_override(self, until: datetime) -> None:
         """Open (or extend) the force-charge window to `until` (UTC-aware).
 
@@ -425,6 +586,22 @@ class EVChargerController:
                     continue
                 if evse_id in self._excess_solar_active:
                     continue  # Already on by us
+                # v4.7.6 fix-up A-M1: defense-in-depth — excess-solar turn-on
+                # must NOT re-enable an EVSE held by a stronger pause reason
+                # (drain, fill-priority, grid-cap, arbitrage). TOU/`_paused_by_us`
+                # is the only pause set that excess-solar legitimately claims
+                # against (battery-full + solar-surplus is the design override).
+                if (
+                    evse_id in self._paused_by_battery_drain
+                    or evse_id in self._paused_by_fill_priority
+                    or evse_id in self._paused_by_grid_cap
+                    or evse_id in self._paused_by_arbitrage
+                ):
+                    _LOGGER.debug(
+                        "Excess solar: %s held by stronger pause reason — skipping",
+                        evse_id,
+                    )
+                    continue
                 # Claim EVSE from TOU pause if needed
                 was_tou_paused = evse_id in self._paused_by_us
                 if was_tou_paused:
@@ -526,39 +703,111 @@ class EVChargerController:
         battery_power_w: float | None,
         battery_soc: float | None,
         soc_threshold: int,
+        reserve_soc: int | None = None,
     ) -> list[dict[str, Any]]:
         """Pause EVSEs draining the home battery. Resume on recovery.
 
         Pauses when: EVSE is charging AND battery is discharging AND SOC < threshold.
-        Resumes when: battery stops discharging (reserve holds, grid takes over)
-                  OR SOC >= threshold + 5% hysteresis (solar recharge).
-        Manual override: if user turns charger back on during pause, set 1h cooldown.
+
+        v4.7.6 D1: Refined resume gate.
+          - `battery_out_of_capacity = battery_ok AND soc <= reserve_soc + 2`
+            (we're at the reserve floor; capacity is exhausted — resume).
+          - `soc_recovered = soc >= soc_threshold + 5` (solar recharge clear).
+          - Replaces the old `battery_ok OR soc_recovered` which let a
+            transient equilibrium (caused by URA's own pause) wrongly resume.
+          - When `reserve_soc is None` (test paths, missing Enpower), only
+            `soc_recovered` permits resume — safer than the legacy behavior.
+
+        v4.7.6 D1: Hybrid `self_modulates` manual-override detection.
+          - When `self_modulates=True` (Option A — smart EVSE with native
+            solar/schedule mode): URA is sole authority. Re-pause every tick
+            conditions hold. Cooldown branch skipped entirely.
+          - When `self_modulates=False` (default / Option B): the manual-
+            override branch fires ONLY when ALL hold:
+              * evse_id in _paused_by_battery_drain
+              * state.is_on=True
+              * _observed_off_since_pause[evse_id] is True (we saw it off)
+              * monotonic() - _pause_dispatch_ts[evse_id] > 30s grace
+            Otherwise it's a stale state-cache read or an instant auto-resume
+            and URA re-pauses idempotently.
+
+        v4.7.6 D1: Idempotent re-pause — the `if not in _paused_by_battery_drain`
+        short-circuit is dropped; URA re-dispatches `switch.turn_off` every
+        tick the conditions are met. Mirrors the TOU pattern at lines 319-323.
         """
         actions: list[dict[str, Any]] = []
         now = _time.monotonic()
+
+        # v4.7.6 fix-up A-H1: Force-Charge precedence. When the admin override
+        # is active, drain MUST skip pause AND release any current ownership
+        # so the EVSE can charge. Per Force-Charge contract: this is the
+        # single authoritative override across all URA pause rules.
+        force_charge_active = self._is_force_charge_active()
 
         for evse_id, config in self._evse.items():
             switch_entity = config.get("switch", "")
             if not switch_entity:
                 continue
+            # v4.7.6 fix-up A-H1: Force-Charge bypasses drain entirely.
+            if force_charge_active:
+                if evse_id in self._paused_by_battery_drain:
+                    self._paused_by_battery_drain.discard(evse_id)
+                    self._release_pause_dispatch_owner(evse_id, "battery_drain")
+                    _LOGGER.info(
+                        "EV battery drain: %s cleared — force-charge override active",
+                        evse_id,
+                    )
+                continue
             state = self._get_evse_state(evse_id)
 
-            # Check cooldown (manual override protection)
+            # State-update on every tick: once we read is_on=False after
+            # dispatch, mark observed_off so the manual-override branch can
+            # legitimately fire later (Option B / self_modulates=False).
+            if (
+                evse_id in self._paused_by_battery_drain
+                and state["is_on"] is False
+                and self._observed_off_since_pause.get(evse_id) is False
+            ):
+                self._observed_off_since_pause[evse_id] = True
+
+            self_modulates = self._self_modulates_for(evse_id)
+
+            # Check cooldown (manual override protection) — Option B only.
+            # Smart-EVSE (Option A) never engages cooldown because we never
+            # interpret an external state change as a manual override.
             cooldown_expiry = self._battery_drain_cooldown.get(evse_id)
             if cooldown_expiry is not None:
                 if now < cooldown_expiry:
                     continue  # In cooldown — don't re-pause
                 self._battery_drain_cooldown.pop(evse_id, None)
 
-            # Detect manual override: charger on while we have it paused
-            if evse_id in self._paused_by_battery_drain and state["is_on"]:
-                self._paused_by_battery_drain.discard(evse_id)
-                self._battery_drain_cooldown[evse_id] = now + EV_BATTERY_DRAIN_COOLDOWN_SECONDS
-                _LOGGER.info(
-                    "EV battery drain: %s turned on manually — cooldown %ds",
-                    evse_id, EV_BATTERY_DRAIN_COOLDOWN_SECONDS,
+            # v4.7.6 D1 hybrid manual-override branch (Option B only).
+            # ALL of: paused-by-us, is_on=True, observed_off=True, grace expired.
+            if not self_modulates and evse_id in self._paused_by_battery_drain and state["is_on"]:
+                dispatch_ts = self._pause_dispatch_ts.get(evse_id)
+                observed_off = self._observed_off_since_pause.get(evse_id, False)
+                grace_expired = (
+                    dispatch_ts is not None
+                    and (now - dispatch_ts) > EV_PAUSE_DISPATCH_GRACE_SECONDS
                 )
-                continue
+                if observed_off and grace_expired:
+                    self._paused_by_battery_drain.discard(evse_id)
+                    self._battery_drain_cooldown[evse_id] = now + EV_BATTERY_DRAIN_COOLDOWN_SECONDS
+                    # v4.7.6 fix-up A-H2: release drain's claim only — if
+                    # fill_priority still owns the dispatch tracking it stays.
+                    self._release_pause_dispatch_owner(evse_id, "battery_drain")
+                    _LOGGER.info(
+                        "EV battery drain: %s turned on manually — cooldown %ds",
+                        evse_id, EV_BATTERY_DRAIN_COOLDOWN_SECONDS,
+                    )
+                    continue
+                # Else: dispatch lag OR instant auto-resume — fall through
+                # to the pause-conditions check; URA may re-pause this tick.
+                _LOGGER.debug(
+                    "EV battery drain: %s is_on=True while paused — "
+                    "observed_off=%s grace_expired=%s — falling through to re-pause check",
+                    evse_id, observed_off, grace_expired,
+                )
 
             battery_discharging = (
                 battery_power_w is not None and battery_power_w < -100  # >100W discharge
@@ -568,32 +817,62 @@ class EVChargerController:
             )
 
             if state["charging"] and battery_discharging and soc_low:
-                # Pause: EV is draining the battery
-                if evse_id not in self._paused_by_battery_drain:
-                    actions.append({
-                        "service": "switch.turn_off",
-                        "target": switch_entity,
-                        "data": {},
-                    })
-                    self._paused_by_battery_drain.add(evse_id)
-                    _LOGGER.info(
-                        "EV battery drain: pausing %s (battery=%.0fW, SOC=%.0f%% < %d%%)",
-                        evse_id, battery_power_w, battery_soc, soc_threshold,
-                    )
-            elif evse_id in self._paused_by_battery_drain:
-                # Resume conditions:
-                # 1. Battery stopped discharging (reserve holds, grid takes over)
-                # 2. SOC recovered above threshold + 5% hysteresis (solar recharge)
-                soc_recovered = (
-                    battery_soc is not None and battery_soc >= soc_threshold + 5
+                # v4.7.6 D1: Idempotent re-pause — re-dispatch every tick.
+                # Mirrors the TOU pattern at lines 319-323.
+                actions.append({
+                    "service": "switch.turn_off",
+                    "target": switch_entity,
+                    "data": {},
+                })
+                self._paused_by_battery_drain.add(evse_id)
+                # Re-stamp dispatch ts and reset observed_off on every
+                # dispatch so the grace window is honored cycle-to-cycle.
+                self._pause_dispatch_ts[evse_id] = now
+                self._observed_off_since_pause[evse_id] = False
+                # v4.7.6 fix-up A-H2: claim drain ownership of the shared
+                # dispatch tracking. Released only via the handoff branches
+                # below or `_release_pause_dispatch_owner` on terminal resume.
+                self._claim_pause_dispatch_owner(evse_id, "battery_drain")
+                _LOGGER.info(
+                    "EV battery drain: pausing %s (battery=%.0fW, SOC=%.0f%% < %d%%)",
+                    evse_id, battery_power_w, battery_soc, soc_threshold,
                 )
+            elif evse_id in self._paused_by_battery_drain:
+                # v4.7.6 D1: Refined resume conditions.
+                # 1. battery_out_of_capacity: battery_ok AND SOC <= reserve_soc + 2
+                #    — we're at the reserve floor; can't reasonably wait longer.
+                # 2. soc_recovered: SOC >= soc_threshold + 5% (solar recharge).
+                # The legacy OR clause (`battery_ok or soc_recovered`) let a
+                # transient equilibrium caused by URA's own pause resume the EV
+                # mid-day; the refined gate prevents that flap.
                 battery_ok = not battery_discharging
+                battery_out_of_capacity = (
+                    battery_ok
+                    and battery_soc is not None
+                    and reserve_soc is not None
+                    and battery_soc <= reserve_soc + 2
+                )
+                soc_recovered = (
+                    battery_soc is not None
+                    and battery_soc >= soc_threshold + 5
+                )
 
-                if battery_ok or soc_recovered:
+                if battery_out_of_capacity or soc_recovered:
                     if not state["is_on"]:
-                        # Don't resume if another pause reason is active
-                        if evse_id in self._paused_by_grid_cap or evse_id in self._paused_by_us:
+                        # Don't resume if another pause reason is active.
+                        # v4.7.6 fix-up A-H2: release drain's claim only —
+                        # the receiving rule (fill_priority/us/...) may still
+                        # own the dispatch tracking.
+                        if (
+                            evse_id in self._paused_by_grid_cap
+                            or evse_id in self._paused_by_us
+                            or evse_id in self._paused_by_arbitrage
+                            or evse_id in self._paused_by_fill_priority
+                        ):
                             self._paused_by_battery_drain.discard(evse_id)
+                            self._release_pause_dispatch_owner(
+                                evse_id, "battery_drain",
+                            )
                             _LOGGER.info(
                                 "EV battery drain: clearing for %s (other pause active)",
                                 evse_id,
@@ -604,11 +883,215 @@ class EVChargerController:
                             "target": switch_entity,
                             "data": {},
                         })
-                        reason = "battery ok" if battery_ok else "SOC recovered"
+                        reason = (
+                            "battery out of capacity"
+                            if battery_out_of_capacity else "SOC recovered"
+                        )
                         _LOGGER.info(
                             "EV battery drain: resuming %s (%s)", evse_id, reason,
                         )
                     self._paused_by_battery_drain.discard(evse_id)
+                    # Terminal resume — drain is done. Release its claim;
+                    # if no other owner remains, dispatch tracking is wiped.
+                    self._release_pause_dispatch_owner(evse_id, "battery_drain")
+
+        return actions
+
+    # ------------------------------------------------------------------
+    # v4.7.6 D2 — Fill-priority pause (primary rule)
+    # ------------------------------------------------------------------
+
+    def determine_fill_priority_actions(
+        self,
+        soc: float | None,
+        remaining_forecast_kwh: float | None,
+        tou_period: str,
+        soc_threshold: int,
+        excess_solar_kwh_threshold: float,
+        safety_margin_kwh: float = DEFAULT_FILL_PRIORITY_SAFETY_MARGIN_KWH,
+    ) -> list[dict[str, Any]]:
+        """Pause EVSEs so the home battery fills first when solar is healthy.
+
+        Symmetric to drain-protection but BEFORE the battery actually drains:
+        when SOC is below `soc_threshold` (default 80%) and the day's remaining
+        solar forecast >= `excess_solar_kwh_threshold`, pause EV charging so
+        the battery climbs to the fill threshold first.
+
+        Resume when EITHER:
+          - SOC >= soc_threshold (battery filled to target), OR
+          - remaining_forecast_kwh < (excess_solar_kwh_threshold - safety_margin)
+            (forecast no longer healthy enough to keep EV paused).
+
+        Never overrides peak — the existing TOU pause is canonical there.
+
+        Mirrors D1's hybrid `self_modulates` and idempotent re-pause patterns.
+        Shares `_pause_dispatch_ts` / `_observed_off_since_pause` with drain —
+        only one URA dispatch is pending at a time per EVSE.
+        """
+        actions: list[dict[str, Any]] = []
+        now = _time.monotonic()
+
+        # v4.7.6 fix-up A-H1: Force-Charge precedence.
+        force_charge_active = self._is_force_charge_active()
+
+        # Compute forecast-health flag and cache it for the EV charging sensor.
+        forecast_healthy = (
+            remaining_forecast_kwh is not None
+            and remaining_forecast_kwh >= excess_solar_kwh_threshold
+        )
+        # v4.7.6 fix-up A-L4: include the boundary (`<=`) so the SOC-between-
+        # threshold and forecast-at-exactly-margin edge does not strand the
+        # EVSE in `_paused_by_fill_priority` for an extra tick.
+        forecast_decayed = (
+            remaining_forecast_kwh is not None
+            and remaining_forecast_kwh <= (
+                excess_solar_kwh_threshold - safety_margin_kwh
+            )
+        )
+        self._fill_priority_solar_ok = bool(forecast_healthy)
+
+        # Never run during peak — TOU pause is the canonical rule there.
+        if tou_period == "peak":
+            # Don't dispatch resumes either; let TOU/drain control. Discard
+            # set membership silently so we don't auto-resume out of peak.
+            # v4.7.6 fix-up A-M4: also release fill_priority's dispatch
+            # ownership so a stale dispatch entry doesn't linger on the sensor
+            # surface for an EVSE no rule still owns.
+            for evse_id in list(self._paused_by_fill_priority):
+                self._paused_by_fill_priority.discard(evse_id)
+                self._release_pause_dispatch_owner(evse_id, "fill_priority")
+            return actions
+
+        pause_conditions_global = (
+            soc is not None
+            and soc < soc_threshold
+            and forecast_healthy
+        )
+        resume_soc_met = soc is not None and soc >= soc_threshold
+
+        for evse_id, config in self._evse.items():
+            switch_entity = config.get("switch", "")
+            if not switch_entity:
+                continue
+            # v4.7.6 fix-up A-H1: Force-Charge bypasses fill-priority entirely.
+            if force_charge_active:
+                if evse_id in self._paused_by_fill_priority:
+                    self._paused_by_fill_priority.discard(evse_id)
+                    self._release_pause_dispatch_owner(evse_id, "fill_priority")
+                    _LOGGER.info(
+                        "EV fill-priority: %s cleared — force-charge override active",
+                        evse_id,
+                    )
+                continue
+            state = self._get_evse_state(evse_id)
+
+            # Mirror D1 state-update for shared dispatch tracking.
+            if (
+                evse_id in self._paused_by_fill_priority
+                and state["is_on"] is False
+                and self._observed_off_since_pause.get(evse_id) is False
+            ):
+                self._observed_off_since_pause[evse_id] = True
+
+            self_modulates = self._self_modulates_for(evse_id)
+
+            # v4.7.6 D2 hybrid manual-override branch (Option B only).
+            # No cooldown engagement here — fill-priority is informational/
+            # opportunistic; drain protection retains the 1-h cooldown for
+            # safety. We simply release the EVSE from the set on a real
+            # manual override so it can re-charge if user insists.
+            if not self_modulates and evse_id in self._paused_by_fill_priority and state["is_on"]:
+                dispatch_ts = self._pause_dispatch_ts.get(evse_id)
+                observed_off = self._observed_off_since_pause.get(evse_id, False)
+                grace_expired = (
+                    dispatch_ts is not None
+                    and (now - dispatch_ts) > EV_PAUSE_DISPATCH_GRACE_SECONDS
+                )
+                if observed_off and grace_expired:
+                    self._paused_by_fill_priority.discard(evse_id)
+                    # v4.7.6 fix-up A-H3: release FP's claim only — if drain
+                    # still owns the dispatch tracking it stays intact.
+                    self._release_pause_dispatch_owner(evse_id, "fill_priority")
+                    _LOGGER.info(
+                        "EV fill-priority: %s turned on manually — releasing",
+                        evse_id,
+                    )
+                    continue
+                _LOGGER.debug(
+                    "EV fill-priority: %s is_on=True while paused — "
+                    "observed_off=%s grace_expired=%s — falling through",
+                    evse_id, observed_off, grace_expired,
+                )
+
+            # Excess-solar-active interaction: belt-and-suspenders deferral.
+            # If excess solar is firing (SOC≥excess_solar_soc≥95), pause_
+            # conditions_global is already False (soc not < 80), but log it.
+            if evse_id in self._excess_solar_active and pause_conditions_global:
+                _LOGGER.debug(
+                    "EV fill-priority: %s in excess_solar_active — deferring",
+                    evse_id,
+                )
+                continue
+
+            if pause_conditions_global and state["is_on"]:
+                # v4.7.6 D2: idempotent re-pause every tick.
+                actions.append({
+                    "service": "switch.turn_off",
+                    "target": switch_entity,
+                    "data": {},
+                })
+                self._paused_by_fill_priority.add(evse_id)
+                self._pause_dispatch_ts[evse_id] = now
+                self._observed_off_since_pause[evse_id] = False
+                # v4.7.6 fix-up A-H3: claim FP ownership of shared tracking.
+                self._claim_pause_dispatch_owner(evse_id, "fill_priority")
+                _LOGGER.info(
+                    "EV fill-priority: pausing %s "
+                    "(SOC=%.0f%% < %d%%, remaining=%.1f kWh >= %.1f)",
+                    evse_id,
+                    soc if soc is not None else -1,
+                    soc_threshold,
+                    remaining_forecast_kwh if remaining_forecast_kwh is not None else -1,
+                    excess_solar_kwh_threshold,
+                )
+            elif evse_id in self._paused_by_fill_priority:
+                if resume_soc_met or forecast_decayed:
+                    # Don't resume if a stronger pause reason holds (mirrors
+                    # the existing pattern at lines 595-600 in drain rule).
+                    # v4.7.6 fix-up A-H3: release FP's claim only — drain's
+                    # dispatch tracking remains intact.
+                    if (
+                        evse_id in self._paused_by_grid_cap
+                        or evse_id in self._paused_by_battery_drain
+                        or evse_id in self._paused_by_us
+                        or evse_id in self._paused_by_arbitrage
+                    ):
+                        self._paused_by_fill_priority.discard(evse_id)
+                        self._release_pause_dispatch_owner(
+                            evse_id, "fill_priority",
+                        )
+                        _LOGGER.info(
+                            "EV fill-priority: clearing for %s (other pause active)",
+                            evse_id,
+                        )
+                        continue
+                    if not state["is_on"]:
+                        actions.append({
+                            "service": "switch.turn_on",
+                            "target": switch_entity,
+                            "data": {},
+                        })
+                        reason = (
+                            "SOC reached fill target"
+                            if resume_soc_met else "forecast decayed"
+                        )
+                        _LOGGER.info(
+                            "EV fill-priority: resuming %s (%s)", evse_id, reason,
+                        )
+                    self._paused_by_fill_priority.discard(evse_id)
+                    # Terminal resume — release FP's claim. If no other owner
+                    # remains, dispatch tracking is wiped.
+                    self._release_pause_dispatch_owner(evse_id, "fill_priority")
 
         return actions
 
@@ -748,49 +1231,167 @@ class EVChargerController:
                 self._power_sensor_unavail_since.pop(evse_id, None)
         return alerts
 
-    def get_status(self) -> dict[str, Any]:
-        """Return EV charging status for sensor."""
-        # v4.7.x D3: include force-charge override expiry (ISO string or None)
+    def get_status(
+        self,
+        fill_priority_target_soc: int | None = None,
+        plug_status: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Return EV charging status for sensor.
+
+        v4.7.6 D4: surfaces 7 new attrs — `paused_by_fill_priority`,
+        `pause_reason_human`, `cooldowns`, `fill_priority_target_soc`,
+        `fill_priority_solar_ok`, `evse_config`, `pause_dispatch_state`.
+
+        v4.7.6 D6.3: when `plug_status` is passed (from EnergyCoordinator
+        bridging SmartPlugController), L1 plug entries are merged as
+        peer keys alongside EVSEs and included in ALL D4 attrs.
+        """
         from homeassistant.util import dt as dt_util
         force_until_iso: str | None = None
         if self._force_charge_until is not None:
             now_utc = dt_util.utcnow()
             if now_utc < self._force_charge_until:
                 force_until_iso = self._force_charge_until.isoformat()
+
+        # Combined sets including L1 plug peers (D6.3). When plug_status is
+        # provided, its `paused_by_*` lists are merged into the surfaced
+        # totals so dashboards see a single keyspace.
+        plug_status = plug_status or {}
+        plug_paused_drain: list[str] = list(plug_status.get("paused_by_battery_drain", []))
+        plug_paused_fp: list[str] = list(plug_status.get("paused_by_fill_priority", []))
+        plug_paused_tou: list[str] = list(plug_status.get("paused_by_energy", []))
+
         status: dict[str, Any] = {
-            "paused_by_energy": list(self._paused_by_us),
+            "paused_by_energy": list(self._paused_by_us) + plug_paused_tou,
             "paused_by_grid_cap": list(self._paused_by_grid_cap),
-            "paused_by_battery_drain": list(self._paused_by_battery_drain),
+            "paused_by_battery_drain": list(self._paused_by_battery_drain) + plug_paused_drain,
             # v4.5.0 D4: arbitrage compound-load mutual-exclusion set
             "paused_by_arbitrage": list(self._paused_by_arbitrage),
+            # v4.7.6 D4.1
+            "paused_by_fill_priority": list(self._paused_by_fill_priority) + plug_paused_fp,
             "excess_solar_active": bool(self._excess_solar_active),
             "excess_solar_evses": list(self._excess_solar_active),
             # v4.7.x D3: admin override window (None = not active)
             "force_charge_until_iso": force_until_iso,
+            # v4.7.6 D4.4 / D4.5
+            "fill_priority_target_soc": (
+                int(fill_priority_target_soc)
+                if fill_priority_target_soc is not None else None
+            ),
+            "fill_priority_solar_ok": bool(self._fill_priority_solar_ok),
         }
+
+        # v4.7.6 D4.3: cooldowns — surface _battery_drain_cooldown with
+        # local-timezone formatted expiry (Bug Class #11). monotonic ts is
+        # converted to wall-clock via now() + (expiry - monotonic_now).
+        cooldowns: dict[str, dict[str, str]] = {}
+        now_mono = _time.monotonic()
+        now_local = dt_util.now()
+        for evse_id, expiry_mono in self._battery_drain_cooldown.items():
+            if expiry_mono > now_mono:
+                delta = expiry_mono - now_mono
+                expires_local = now_local + timedelta(seconds=delta)
+                # v4.7.6 fix-up B-M2: use `%z` (numeric offset) instead of
+                # `%Z` (timezone name) — `%Z` may render empty on HAOS where
+                # tzdata abbreviations aren't populated. `%z` is always
+                # populated for tz-aware datetimes.
+                cooldowns[evse_id] = {
+                    "expires": expires_local.strftime("%H:%M %z").strip(),
+                    "reason": "manual_override_detected",
+                }
+        status["cooldowns"] = cooldowns
+
+        # v4.7.6 D4.6: evse_config — surface configured self_modulates flag
+        # plus the source (explicit vs default) so a user can see why URA
+        # is or isn't honoring a manual switch flip.
+        evse_config: dict[str, dict[str, Any]] = {}
+        for evse_id, cfg in self._evse.items():
+            explicit = "self_modulates" in (cfg or {})
+            evse_config[evse_id] = {
+                "self_modulates": self._self_modulates_for(evse_id),
+                "source": "explicit" if explicit else "default",
+            }
+        # Merge L1 plug entries (D6.3 / D3.4 per-plug semantics).
+        for plug_id, plug_cfg in plug_status.get("evse_config", {}).items():
+            evse_config[plug_id] = plug_cfg
+        status["evse_config"] = evse_config
+
+        # v4.7.6 D4.7: pause_dispatch_state — last_dispatch + observed_off
+        # + grace_expires. Only present for EVSEs with a recorded dispatch.
+        pause_dispatch_state: dict[str, dict[str, Any]] = {}
+        for evse_id, ts_mono in self._pause_dispatch_ts.items():
+            delta = ts_mono - now_mono  # negative; dispatch in past
+            last_dispatch_local = now_local + timedelta(seconds=delta)
+            grace_expiry_local = (
+                last_dispatch_local
+                + timedelta(seconds=EV_PAUSE_DISPATCH_GRACE_SECONDS)
+            )
+            pause_dispatch_state[evse_id] = {
+                "last_dispatch": last_dispatch_local.strftime("%H:%M:%S"),
+                "observed_off": bool(self._observed_off_since_pause.get(evse_id, False)),
+                "grace_expires": grace_expiry_local.strftime("%H:%M:%S"),
+            }
+        # Merge plug dispatch state if provided.
+        for plug_id, dispatch_info in plug_status.get("pause_dispatch_state", {}).items():
+            pause_dispatch_state[plug_id] = dispatch_info
+        status["pause_dispatch_state"] = pause_dispatch_state
+
+        # v4.7.6 fix-up A-M2: unified precedence helper for both
+        # `energy_status` and `pause_reason_human`. The canonical order is
+        # fill_priority > drain > grid_cap > arbitrage > TOU > excess_solar
+        # > charging > idle > off. Returns a (status_token, human_message)
+        # tuple so both sensor attrs are derived from one source of truth.
+        target_pct = (
+            int(fill_priority_target_soc)
+            if fill_priority_target_soc is not None else None
+        )
+        # v4.7.6 fix-up C-H1: fall back to "configured" when target SOC kwarg
+        # was not supplied, instead of rendering "target None%".
+        target_str = f"{target_pct}%" if target_pct is not None else "configured target"
+        fp_msg = f"holding for battery fill (target {target_str}, solar healthy)"
+
+        def _classify_evse(evse_id: str, ent: dict[str, Any]) -> tuple[str, str]:
+            if evse_id in self._paused_by_fill_priority:
+                return ("fill_priority_paused", fp_msg)
+            if evse_id in self._paused_by_battery_drain:
+                return ("battery_drain_paused", "battery drain protection (paused)")
+            if evse_id in self._paused_by_grid_cap:
+                return ("grid_capped", "grid import cap")
+            if evse_id in self._paused_by_arbitrage:
+                return ("arbitrage_paused", "arbitrage compound-load protection")
+            if evse_id in self._paused_by_us:
+                return ("paused", "TOU peak/mid-peak pause")
+            if evse_id in self._excess_solar_active:
+                return ("excess_solar", "excess solar (charging)")
+            if ent.get("charging"):
+                return ("charging", "charging")
+            if ent.get("is_on"):
+                return ("idle", "idle")
+            return ("off", "off")
+
+        # Per-EVSE entries
+        pause_reason_human: dict[str, str] = {}
         for evse_id in self._evse:
             evse_state = self._get_evse_state(evse_id)
-            if evse_id in self._paused_by_battery_drain:
-                evse_state["energy_status"] = "battery_drain_paused"
-            elif evse_id in self._paused_by_arbitrage:
-                evse_state["energy_status"] = "arbitrage_paused"
-            elif evse_id in self._paused_by_grid_cap:
-                evse_state["energy_status"] = "grid_capped"
-            elif evse_id in self._paused_by_us:
-                evse_state["energy_status"] = "paused"
-            elif evse_id in self._excess_solar_active:
-                evse_state["energy_status"] = "excess_solar"
-            elif evse_state["charging"]:
-                evse_state["energy_status"] = "charging"
-            elif evse_state["is_on"]:
-                evse_state["energy_status"] = "idle"
-            else:
-                evse_state["energy_status"] = "off"
+            status_token, human_msg = _classify_evse(evse_id, evse_state)
+            evse_state["energy_status"] = status_token
+            pause_reason_human[evse_id] = human_msg
             # v4.2.19: Surface unavailability timestamp
             unavail_since = self._power_sensor_unavail_since.get(evse_id)
             if unavail_since:
                 evse_state["power_sensor_unavail_since"] = unavail_since
             status[evse_id] = evse_state
+
+        # Merge L1 plug peer entries (D6.3)
+        for plug_id, plug_entry in plug_status.get("plug_entries", {}).items():
+            status[plug_id] = plug_entry
+
+        # Merge plug pause reasons if provided (plug uses same precedence
+        # in its own classifier — see SmartPlugController.get_status).
+        for plug_id, reason in plug_status.get("pause_reason_human", {}).items():
+            pause_reason_human[plug_id] = reason
+        status["pause_reason_human"] = pause_reason_human
+
         return status
 
 
@@ -804,18 +1405,79 @@ class SmartPlugController:
 
     Configured via options flow as a list of entity IDs.
     v4.2.21: Pauses during peak AND mid_peak. Battery drain protection.
+
+    v4.7.6 D6: L1 plugs are treated as peer "small EVSE" devices —
+    EVSE TOU gate (D6.1), per-plug self_modulates flag (D3.4), drain
+    hardening (D1 mirror), and fill-priority pause (D2 mirror).
     """
 
     def __init__(
         self,
         hass: HomeAssistant,
         plug_entities: list[str] | None = None,
+        plug_config: dict[str, dict[str, Any]] | None = None,
     ) -> None:
-        """Initialize smart plug controller."""
+        """Initialize smart plug controller.
+
+        v4.7.6: `plug_config` carries per-plug settings (currently just
+        `self_modulates`). Falls back to defaults when missing.
+        """
         self.hass = hass
         self._plugs = plug_entities or []
+        self._plug_config: dict[str, dict[str, Any]] = plug_config or {}
         self._paused_by_us: set[str] = set()
         self._paused_by_battery_drain: set[str] = set()
+
+        # v4.7.6 D1 mirror: hybrid manual-override detection state.
+        self._pause_dispatch_ts: dict[str, float] = {}
+        self._observed_off_since_pause: dict[str, bool] = {}
+        # v4.7.6 fix-up A-H2 / A-H3 mirror: reference-counted dispatch ownership.
+        self._dispatch_owners: dict[str, set[str]] = {}
+        # v4.7.6 D2 mirror
+        self._paused_by_fill_priority: set[str] = set()
+        # v4.7.6 D1 mirror: cooldown after detected manual override
+        self._battery_drain_cooldown: dict[str, float] = {}
+        # v4.7.6 D4 cache
+        self._fill_priority_solar_ok: bool = False
+
+    # ------------------------------------------------------------------
+    # v4.7.6 helpers
+    # ------------------------------------------------------------------
+
+    def _self_modulates_for(self, plug_id: str) -> bool:
+        """Return True when this plug is marked self-modulating (Option A)."""
+        cfg = self._plug_config.get(plug_id, {})
+        try:
+            return bool(cfg.get("self_modulates", False))
+        except Exception:  # pragma: no cover
+            return False
+
+    def _clear_pause_dispatch_state(self, plug_id: str) -> None:
+        """v4.7.6 fix-up A-H2 / A-H3: unconditional wipe (cooldown / terminal)."""
+        self._pause_dispatch_ts.pop(plug_id, None)
+        self._observed_off_since_pause.pop(plug_id, None)
+        self._dispatch_owners.pop(plug_id, None)
+
+    def _claim_pause_dispatch_owner(self, plug_id: str, owner: str) -> None:
+        owners = self._dispatch_owners.setdefault(plug_id, set())
+        owners.add(owner)
+
+    def _release_pause_dispatch_owner(self, plug_id: str, owner: str) -> None:
+        """v4.7.6 fix-up A-H2 / A-H3 mirror: release `owner`; wipe only if empty."""
+        owners = self._dispatch_owners.get(plug_id)
+        if owners is None:
+            self._pause_dispatch_ts.pop(plug_id, None)
+            self._observed_off_since_pause.pop(plug_id, None)
+            return
+        owners.discard(owner)
+        if not owners:
+            self._dispatch_owners.pop(plug_id, None)
+            self._pause_dispatch_ts.pop(plug_id, None)
+            self._observed_off_since_pause.pop(plug_id, None)
+
+    # v4.7.6 fix-up B-H1 / C-M1: `update_plug_config` was dead code — no
+    # production caller. The canonical config-update path is HA's options-flow
+    # reload which rebuilds SmartPlugController from scratch.
 
     def determine_actions(self, tou_period: str) -> list[dict[str, Any]]:
         """Determine smart plug actions based on TOU period.
@@ -861,15 +1523,21 @@ class SmartPlugController:
         battery_power_w: float | None,
         battery_soc: float | None,
         soc_threshold: int,
+        reserve_soc: int | None = None,
+        force_charge_active: bool = False,
     ) -> list[dict[str, Any]]:
         """Pause smart plugs draining the home battery. Resume on recovery.
 
-        Simpler than EVSE version — no charging detection (no power sensors
-        on dumb plugs). Pauses any ON plug when battery is draining below
-        threshold. No manual override cooldown (plugs are L1 chargers, not
-        user-interactive).
+        v4.7.6 D1 mirror: hybrid self_modulates, idempotent re-pause, refined
+        battery_out_of_capacity gate, observed-off / grace-window state.
+
+        v4.7.6 fix-up A-H1: when `force_charge_active` is True (admin override
+        on EVPool), drain is bypassed for all plugs and any current
+        `_paused_by_battery_drain` membership is released. Precedence:
+        Force-Charge > all URA pause rules.
         """
         actions: list[dict[str, Any]] = []
+        now = _time.monotonic()
 
         battery_discharging = (
             battery_power_w is not None and battery_power_w < -100
@@ -882,47 +1550,365 @@ class SmartPlugController:
             state = self.hass.states.get(entity_id)
             if state is None:
                 continue
-
-            if state.state == "on" and battery_discharging and soc_low:
-                if entity_id not in self._paused_by_battery_drain:
-                    actions.append({
-                        "service": "switch.turn_off",
-                        "target": entity_id,
-                        "data": {},
-                    })
-                    self._paused_by_battery_drain.add(entity_id)
+            # v4.7.6 fix-up A-H1: Force-Charge bypasses plug drain entirely.
+            if force_charge_active:
+                if entity_id in self._paused_by_battery_drain:
+                    self._paused_by_battery_drain.discard(entity_id)
+                    self._release_pause_dispatch_owner(entity_id, "battery_drain")
                     _LOGGER.info(
-                        "Smart plug battery drain: pausing %s (SOC=%.0f%% < %d%%)",
-                        entity_id, battery_soc, soc_threshold,
+                        "Smart plug battery drain: %s cleared — force-charge override active",
+                        entity_id,
                     )
+                continue
+            is_on = state.state == "on"
+
+            # State-update: mark observed_off once we read off after dispatch
+            if (
+                entity_id in self._paused_by_battery_drain
+                and not is_on
+                and self._observed_off_since_pause.get(entity_id) is False
+            ):
+                self._observed_off_since_pause[entity_id] = True
+
+            self_modulates = self._self_modulates_for(entity_id)
+
+            # Cooldown check (Option B only)
+            cooldown_expiry = self._battery_drain_cooldown.get(entity_id)
+            if cooldown_expiry is not None:
+                if now < cooldown_expiry:
+                    continue
+                self._battery_drain_cooldown.pop(entity_id, None)
+
+            # Hybrid manual-override branch
+            if not self_modulates and entity_id in self._paused_by_battery_drain and is_on:
+                dispatch_ts = self._pause_dispatch_ts.get(entity_id)
+                observed_off = self._observed_off_since_pause.get(entity_id, False)
+                grace_expired = (
+                    dispatch_ts is not None
+                    and (now - dispatch_ts) > EV_PAUSE_DISPATCH_GRACE_SECONDS
+                )
+                if observed_off and grace_expired:
+                    self._paused_by_battery_drain.discard(entity_id)
+                    self._battery_drain_cooldown[entity_id] = now + EV_BATTERY_DRAIN_COOLDOWN_SECONDS
+                    # v4.7.6 fix-up A-H2 mirror: release drain claim only.
+                    self._release_pause_dispatch_owner(entity_id, "battery_drain")
+                    _LOGGER.info(
+                        "Smart plug battery drain: %s manually turned on — cooldown %ds",
+                        entity_id, EV_BATTERY_DRAIN_COOLDOWN_SECONDS,
+                    )
+                    continue
+                _LOGGER.debug(
+                    "Smart plug battery drain: %s is_on while paused — "
+                    "observed_off=%s grace_expired=%s — falling through",
+                    entity_id, observed_off, grace_expired,
+                )
+
+            if is_on and battery_discharging and soc_low:
+                # v4.7.6 D1: idempotent re-pause every tick
+                actions.append({
+                    "service": "switch.turn_off",
+                    "target": entity_id,
+                    "data": {},
+                })
+                self._paused_by_battery_drain.add(entity_id)
+                self._pause_dispatch_ts[entity_id] = now
+                self._observed_off_since_pause[entity_id] = False
+                # v4.7.6 fix-up A-H2 mirror: claim drain ownership.
+                self._claim_pause_dispatch_owner(entity_id, "battery_drain")
+                _LOGGER.info(
+                    "Smart plug battery drain: pausing %s (SOC=%.0f%% < %d%%)",
+                    entity_id, battery_soc, soc_threshold,
+                )
             elif entity_id in self._paused_by_battery_drain:
+                battery_ok = not battery_discharging
+                battery_out_of_capacity = (
+                    battery_ok
+                    and battery_soc is not None
+                    and reserve_soc is not None
+                    and battery_soc <= reserve_soc + 2
+                )
                 soc_recovered = (
                     battery_soc is not None and battery_soc >= soc_threshold + 5
                 )
-                battery_ok = not battery_discharging
 
-                if battery_ok or soc_recovered:
-                    # Don't resume if TOU pause is active
-                    if entity_id in self._paused_by_us:
+                if battery_out_of_capacity or soc_recovered:
+                    # Don't resume if TOU pause or fill-priority is active.
+                    # v4.7.6 fix-up A-H2 mirror: release drain claim only.
+                    if (
+                        entity_id in self._paused_by_us
+                        or entity_id in self._paused_by_fill_priority
+                    ):
                         self._paused_by_battery_drain.discard(entity_id)
-                        _LOGGER.info("Smart plug battery drain: clearing for %s (TOU active)", entity_id)
+                        self._release_pause_dispatch_owner(
+                            entity_id, "battery_drain",
+                        )
+                        _LOGGER.info(
+                            "Smart plug battery drain: clearing for %s (other pause active)",
+                            entity_id,
+                        )
                         continue
-                    if state.state != "on":
+                    if not is_on:
                         actions.append({
                             "service": "switch.turn_on",
                             "target": entity_id,
                             "data": {},
                         })
-                        reason = "battery ok" if battery_ok else "SOC recovered"
+                        reason = (
+                            "battery out of capacity"
+                            if battery_out_of_capacity else "SOC recovered"
+                        )
                         _LOGGER.info("Smart plug battery drain: resuming %s (%s)", entity_id, reason)
                     self._paused_by_battery_drain.discard(entity_id)
+                    self._release_pause_dispatch_owner(entity_id, "battery_drain")
 
         return actions
 
-    def get_status(self) -> dict[str, Any]:
-        """Return smart plug status."""
+    def determine_fill_priority_actions(
+        self,
+        soc: float | None,
+        remaining_forecast_kwh: float | None,
+        tou_period: str,
+        soc_threshold: int,
+        excess_solar_kwh_threshold: float,
+        safety_margin_kwh: float = DEFAULT_FILL_PRIORITY_SAFETY_MARGIN_KWH,
+        force_charge_active: bool = False,
+    ) -> list[dict[str, Any]]:
+        """Mirror of EVPool.determine_fill_priority_actions for L1 plugs (D2).
+
+        v4.7.6 fix-up A-H1: when `force_charge_active` is True, fill-priority
+        is bypassed for all plugs and any current membership is released.
+        v4.7.6 fix-up A-L4: forecast_decayed boundary is `<=` (close edge).
+        """
+        actions: list[dict[str, Any]] = []
+        now = _time.monotonic()
+
+        forecast_healthy = (
+            remaining_forecast_kwh is not None
+            and remaining_forecast_kwh >= excess_solar_kwh_threshold
+        )
+        # v4.7.6 fix-up A-L4: include boundary so the edge doesn't strand.
+        forecast_decayed = (
+            remaining_forecast_kwh is not None
+            and remaining_forecast_kwh <= (
+                excess_solar_kwh_threshold - safety_margin_kwh
+            )
+        )
+        self._fill_priority_solar_ok = bool(forecast_healthy)
+
+        if tou_period == "peak":
+            # v4.7.6 fix-up A-M4 mirror: release ownership too.
+            for plug_id in list(self._paused_by_fill_priority):
+                self._paused_by_fill_priority.discard(plug_id)
+                self._release_pause_dispatch_owner(plug_id, "fill_priority")
+            return actions
+
+        pause_conditions = (
+            soc is not None and soc < soc_threshold and forecast_healthy
+        )
+        resume_soc_met = soc is not None and soc >= soc_threshold
+
+        for entity_id in self._plugs:
+            state = self.hass.states.get(entity_id)
+            if state is None:
+                continue
+            # v4.7.6 fix-up A-H1: Force-Charge bypasses plug fill-priority.
+            if force_charge_active:
+                if entity_id in self._paused_by_fill_priority:
+                    self._paused_by_fill_priority.discard(entity_id)
+                    self._release_pause_dispatch_owner(entity_id, "fill_priority")
+                    _LOGGER.info(
+                        "Smart plug fill-priority: %s cleared — force-charge override active",
+                        entity_id,
+                    )
+                continue
+            is_on = state.state == "on"
+
+            if (
+                entity_id in self._paused_by_fill_priority
+                and not is_on
+                and self._observed_off_since_pause.get(entity_id) is False
+            ):
+                self._observed_off_since_pause[entity_id] = True
+
+            self_modulates = self._self_modulates_for(entity_id)
+
+            if not self_modulates and entity_id in self._paused_by_fill_priority and is_on:
+                dispatch_ts = self._pause_dispatch_ts.get(entity_id)
+                observed_off = self._observed_off_since_pause.get(entity_id, False)
+                grace_expired = (
+                    dispatch_ts is not None
+                    and (now - dispatch_ts) > EV_PAUSE_DISPATCH_GRACE_SECONDS
+                )
+                if observed_off and grace_expired:
+                    self._paused_by_fill_priority.discard(entity_id)
+                    # v4.7.6 fix-up A-H3 mirror: release FP claim only.
+                    self._release_pause_dispatch_owner(entity_id, "fill_priority")
+                    _LOGGER.info(
+                        "Smart plug fill-priority: %s turned on manually — releasing",
+                        entity_id,
+                    )
+                    continue
+
+            if pause_conditions and is_on:
+                actions.append({
+                    "service": "switch.turn_off",
+                    "target": entity_id,
+                    "data": {},
+                })
+                self._paused_by_fill_priority.add(entity_id)
+                self._pause_dispatch_ts[entity_id] = now
+                self._observed_off_since_pause[entity_id] = False
+                # v4.7.6 fix-up A-H3 mirror: claim FP ownership.
+                self._claim_pause_dispatch_owner(entity_id, "fill_priority")
+                _LOGGER.info(
+                    "Smart plug fill-priority: pausing %s "
+                    "(SOC=%.0f%% < %d%%, remaining=%.1f kWh >= %.1f)",
+                    entity_id,
+                    soc if soc is not None else -1,
+                    soc_threshold,
+                    remaining_forecast_kwh if remaining_forecast_kwh is not None else -1,
+                    excess_solar_kwh_threshold,
+                )
+            elif entity_id in self._paused_by_fill_priority:
+                if resume_soc_met or forecast_decayed:
+                    if (
+                        entity_id in self._paused_by_us
+                        or entity_id in self._paused_by_battery_drain
+                    ):
+                        self._paused_by_fill_priority.discard(entity_id)
+                        # v4.7.6 fix-up A-H3 mirror: release FP claim only.
+                        self._release_pause_dispatch_owner(
+                            entity_id, "fill_priority",
+                        )
+                        continue
+                    if not is_on:
+                        actions.append({
+                            "service": "switch.turn_on",
+                            "target": entity_id,
+                            "data": {},
+                        })
+                        reason = (
+                            "SOC reached fill target"
+                            if resume_soc_met else "forecast decayed"
+                        )
+                        _LOGGER.info(
+                            "Smart plug fill-priority: resuming %s (%s)", entity_id, reason,
+                        )
+                    self._paused_by_fill_priority.discard(entity_id)
+                    self._release_pause_dispatch_owner(entity_id, "fill_priority")
+
+        return actions
+
+    def get_status(
+        self,
+        fill_priority_target_soc: int | None = None,
+    ) -> dict[str, Any]:
+        """Return smart plug status with v4.7.6 D6.3 peer-shape entries.
+
+        Returns a base dict plus per-plug `plug_entries` keyed by entity_id
+        (the EVPool.get_status() merge consumer uses these as peer keys).
+
+        v4.7.6 fix-up A-M2 / A-L3: precedence order matches EVPool —
+        fill_priority > drain > TOU > activity. Target SOC is included in
+        the fill-priority human message when supplied (peer format with EV).
+        """
+        from homeassistant.util import dt as dt_util
+        now_mono = _time.monotonic()
+        now_local = dt_util.now()
+
+        # v4.7.6 fix-up C-H1 / A-L3 mirror.
+        target_pct = (
+            int(fill_priority_target_soc)
+            if fill_priority_target_soc is not None else None
+        )
+        target_str = f"{target_pct}%" if target_pct is not None else "configured target"
+        fp_msg = f"holding for battery fill (target {target_str}, solar healthy)"
+
+        plug_entries: dict[str, dict[str, Any]] = {}
+        pause_reason_human: dict[str, str] = {}
+        evse_config: dict[str, dict[str, Any]] = {}
+        pause_dispatch_state: dict[str, dict[str, Any]] = {}
+
+        for entity_id in self._plugs:
+            state = self.hass.states.get(entity_id)
+            is_on = state is not None and state.state == "on"
+            # Per D6.3: power falls back to L1_ESTIMATED_POWER_W
+            estimated_power = L1_ESTIMATED_POWER_W if is_on else 0
+            paused = (
+                entity_id in self._paused_by_battery_drain
+                or entity_id in self._paused_by_fill_priority
+                or entity_id in self._paused_by_us
+            )
+            # v4.7.6 fix-up C-M5: `charging` heuristic for L1 plugs.
+            # Default (legacy): `is_on AND not paused`. This wrongly reports
+            # `charging: True` for an always-on plug serving a non-charging
+            # load (lamp, fridge). Per-plug opt-out via `assume_charging_when_on`
+            # in plug_config — when set to False, the plug never renders
+            # `charging: True` from switch state alone (no power sensor is
+            # configured per L1 plug today, so power-based derivation isn't
+            # available). When set to False and is_on, `energy_status` becomes
+            # "idle" instead of "charging" — communicates the limitation
+            # without surfacing a false-charging claim.
+            plug_cfg = self._plug_config.get(entity_id, {})
+            assume_charging_when_on = bool(
+                plug_cfg.get("assume_charging_when_on", True)
+            )
+            charging = is_on and not paused and assume_charging_when_on
+            # v4.7.6 fix-up A-M2: precedence aligned with EVPool —
+            # fill_priority > drain > TOU > activity.
+            if entity_id in self._paused_by_fill_priority:
+                energy_status = "fill_priority_paused"
+                pause_reason_human[entity_id] = fp_msg
+            elif entity_id in self._paused_by_battery_drain:
+                energy_status = "battery_drain_paused"
+                pause_reason_human[entity_id] = "battery drain protection (paused)"
+            elif entity_id in self._paused_by_us:
+                energy_status = "paused"
+                pause_reason_human[entity_id] = "TOU peak/mid-peak pause"
+            elif charging:
+                energy_status = "charging"
+                pause_reason_human[entity_id] = "charging"
+            elif is_on:
+                energy_status = "idle"
+                pause_reason_human[entity_id] = "idle"
+            else:
+                energy_status = "off"
+                pause_reason_human[entity_id] = "off"
+
+            plug_entries[entity_id] = {
+                "is_on": is_on,
+                "power": estimated_power,
+                "status": "on" if is_on else "off",
+                "charging": bool(charging),
+                "power_source": "switch_status",
+                "energy_status": energy_status,
+            }
+            explicit = "self_modulates" in self._plug_config.get(entity_id, {})
+            evse_config[entity_id] = {
+                "self_modulates": self._self_modulates_for(entity_id),
+                "source": "explicit" if explicit else "default",
+            }
+            ts_mono = self._pause_dispatch_ts.get(entity_id)
+            if ts_mono is not None:
+                delta = ts_mono - now_mono
+                last_dispatch_local = now_local + timedelta(seconds=delta)
+                grace_expiry_local = (
+                    last_dispatch_local + timedelta(seconds=EV_PAUSE_DISPATCH_GRACE_SECONDS)
+                )
+                pause_dispatch_state[entity_id] = {
+                    "last_dispatch": last_dispatch_local.strftime("%H:%M:%S"),
+                    "observed_off": bool(self._observed_off_since_pause.get(entity_id, False)),
+                    "grace_expires": grace_expiry_local.strftime("%H:%M:%S"),
+                }
+
         return {
             "configured_plugs": len(self._plugs),
             "paused_by_energy": list(self._paused_by_us),
             "paused_by_battery_drain": list(self._paused_by_battery_drain),
+            "paused_by_fill_priority": list(self._paused_by_fill_priority),
+            "fill_priority_solar_ok": bool(self._fill_priority_solar_ok),
+            "plug_entries": plug_entries,
+            "pause_reason_human": pause_reason_human,
+            "evse_config": evse_config,
+            "pause_dispatch_state": pause_dispatch_state,
         }

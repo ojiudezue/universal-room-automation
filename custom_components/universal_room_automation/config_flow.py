@@ -3052,6 +3052,9 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             CONF_ENERGY_EXCESS_SOLAR_KWH,
             DEFAULT_EXCESS_SOLAR_SOC_THRESHOLD,
             DEFAULT_EXCESS_SOLAR_KWH_THRESHOLD,
+            # v4.7.6 D3.2: fill-priority SOC threshold
+            CONF_ENERGY_FILL_PRIORITY_SOC,
+            DEFAULT_FILL_PRIORITY_SOC,
             CONF_ENERGY_GRID_IMPORT_CAP_ENABLED,
             CONF_ENERGY_GRID_IMPORT_CAP_KW,
             DEFAULT_GRID_IMPORT_CAP_KW,
@@ -3133,7 +3136,9 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             CONF_ENERGY_SOLAR_CLASSIFICATION_MODE, SOLAR_CLASS_MODE_AUTOMATIC
         )
 
-        data_schema = vol.Schema({
+        # v4.7.6 fix-up C-H2: build the schema dict first (so we can append
+        # per-plug self_modulates fields), then wrap in vol.Schema.
+        _schema_dict = {
             # v4.0.12: Single Envoy entity picker — auto-derives all Envoy entities
             vol.Optional(
                 CONF_ENERGY_ENVOY_ENTITY,
@@ -3497,6 +3502,28 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     mode=selector.NumberSelectorMode.SLIDER,
                 )
             ),
+            # v4.7.6 D3.2: Fill-priority pause SOC threshold (turn-OFF side
+            # of the EVSE solar-aware gate, companion to excess_solar_soc).
+            vol.Optional(
+                CONF_ENERGY_FILL_PRIORITY_SOC,
+                default=self._get_current(CONF_ENERGY_FILL_PRIORITY_SOC, DEFAULT_FILL_PRIORITY_SOC),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=50, max=95, step=5,
+                    unit_of_measurement="%",
+                    mode=selector.NumberSelectorMode.SLIDER,
+                )
+            ),
+            # v4.7.6 D3.4: Per-EVSE self_modulates checkboxes are injected
+            # dynamically below (one BooleanSelector per configured EVSE).
+            # See the loop after `_schema_dict` is built. EVSEs whose key
+            # is absent from `cm_config` will retain `source: "default"`
+            # in EVPool.get_status() (mirrors C-M2 fix for L1 plugs).
+            # v4.7.6 D6.4 / fix-up C-H2: Per-L1-plug self_modulates fields
+            # are injected dynamically below (one BooleanSelector per
+            # configured plug, suffixed `<plug_entity_id>_self_modulates`).
+            # Plugs whose key is absent from `cm_config` will retain
+            # `source: "default"` in SmartPlugController.get_status().
             # v4.0.18: Grid import cap
             vol.Optional(
                 CONF_ENERGY_GRID_IMPORT_CAP_ENABLED,
@@ -3576,7 +3603,44 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             # path), not the z-score AnomalyDetector that the sensitivity multiplier
             # feeds into.  Exposing a setting that has no runtime effect is
             # misleading.  Re-introduce if an AnomalyDetector is added to energy.
-        })
+        }
+        # v4.7.6 fix-up C-M2: inject per-EVSE self_modulates checkbox
+        # ONLY for EVSEs that have a configured power entity. Previously
+        # `garage_a_self_modulates` AND `garage_b_self_modulates` were both
+        # statically present even on single-EVSE installs, exposing a
+        # meaningless toggle and stamping the absent EVSE as
+        # `source: "explicit"` in evse_config sensor attr.
+        # Field key shape: `<evse_logical_id>_self_modulates`. Absent keys
+        # remain `source: "default"` in EVPool.get_status().
+        _evse_logical_id_for_conf = {
+            CONF_ENERGY_EVSE_A_ENTITY: "garage_a",
+            CONF_ENERGY_EVSE_B_ENTITY: "garage_b",
+        }
+        for _conf_key, _evse_logical_id in _evse_logical_id_for_conf.items():
+            if self._get_current(_conf_key):
+                _field_key = f"{_evse_logical_id}_self_modulates"
+                _schema_dict[
+                    vol.Optional(
+                        _field_key,
+                        default=self._get_current(_field_key, False),
+                    )
+                ] = selector.BooleanSelector()
+        # v4.7.6 fix-up C-H2: inject per-L1-plug self_modulates checkbox
+        # for every plug already configured in CONF_ENERGY_L1_CHARGER_ENTITIES.
+        # Field key shape: `<plug_entity_id>_self_modulates`. Absent keys
+        # remain `source: "default"` in SmartPlugController.get_status().
+        _configured_plugs = self._get_current(
+            CONF_ENERGY_L1_CHARGER_ENTITIES, []
+        ) or []
+        for _plug_entity_id in _configured_plugs:
+            _field_key = f"{_plug_entity_id}_self_modulates"
+            _schema_dict[
+                vol.Optional(
+                    _field_key,
+                    default=self._get_current(_field_key, False),
+                )
+            ] = selector.BooleanSelector()
+        data_schema = vol.Schema(_schema_dict)
 
         # v4.2.29: surface envoy validation errors per-field.
         return self.async_show_form(

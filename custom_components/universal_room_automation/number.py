@@ -1,6 +1,6 @@
 """Number platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.7.5
+# Universal Room Automation vv4.7.6
 # Build: 2026-01-02
 # File: number.py
 #
@@ -56,6 +56,9 @@ async def async_setup_entry(
             ArbitrageChargeLeadTimeNumber(hass, entry),
             # v4.3.3: EV battery drain SOC slider
             EVBatteryDrainSOCNumber(hass, entry, 50),
+            # v4.7.6 D3.2: EV fill-priority SOC slider — when SOC below this
+            # and solar forecast healthy, pause EVSEs so battery fills first.
+            FillPrioritySOCNumber(hass, entry, 80),
             # v4.6.2 D3: Bayesian cell staleness window (default 14 days)
             BayesianCellStalenessNumber(hass, entry),
             # v4.6.2 D6: routine notification tunables
@@ -748,12 +751,25 @@ class EVBatteryDrainSOCNumber(NumberEntity, RestoreEntity):
         if not self._push_to_coordinator():
             from homeassistant.helpers.dispatcher import async_dispatcher_connect
             from .domain_coordinators.signals import SIGNAL_ENERGY_ENTITIES_UPDATE
+            # v4.7.6 fix-up B-M7: guard against double-unsub. The original
+            # pattern called `unsub_holder[0]()` on signal-fire AND registered
+            # the same callable via `async_on_remove`, which fires it again
+            # on entity removal → HA raises on the second unsub. Wrap the
+            # unsub in a one-shot guard so both paths are safe.
             unsub_holder: list = []
+            unsubbed = [False]
+
+            def _safe_unsub() -> None:
+                if unsubbed[0]:
+                    return
+                if unsub_holder:
+                    unsubbed[0] = True
+                    unsub_holder[0]()
 
             @callback
             def _on_energy_tick(*_args, **_kwargs):
-                if self._push_to_coordinator() and unsub_holder:
-                    unsub_holder[0]()
+                if self._push_to_coordinator() and unsub_holder and not unsubbed[0]:
+                    _safe_unsub()
                     _LOGGER.debug(
                         "EV battery drain SOC slider pushed to EC after deferred ready",
                     )
@@ -763,13 +779,127 @@ class EVBatteryDrainSOCNumber(NumberEntity, RestoreEntity):
                     self.hass, SIGNAL_ENERGY_ENTITIES_UPDATE, _on_energy_tick,
                 )
             )
-            self.async_on_remove(unsub_holder[0])
+            self.async_on_remove(_safe_unsub)
 
     async def async_set_native_value(self, value: float) -> None:
         self._value = int(value)
         self._push_to_coordinator()
         self.async_write_ha_state()
         _LOGGER.info("EV battery drain SOC threshold set to %d%%", int(value))
+
+
+class FillPrioritySOCNumber(NumberEntity, RestoreEntity):
+    """Configurable EV fill-priority pause SOC threshold on EC device (v4.7.6 D3.2).
+
+    When the home battery SOC < this AND remaining solar forecast >= the
+    excess-solar kWh threshold, URA pauses any EVSE (or L1 plug) that is on
+    so the battery fills before the EV draws solar surplus.
+
+    Companion to `excess_solar_soc` (default 95) which is the turn-ON
+    threshold; this is the turn-OFF (pause) threshold. The middle band
+    (default 80–95) lets EVs charge on the normal TOU schedule without
+    solar-aware interference.
+
+    Mirrors the EVBatteryDrainSOCNumber lifecycle pattern (RestoreEntity is
+    canonical runtime store; entry.options seed read once at init).
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:battery-arrow-up"
+    _attr_native_step = 5
+    _attr_native_min_value = 50
+    _attr_native_max_value = 95
+    _attr_native_unit_of_measurement = "%"
+    _attr_mode = NumberMode.SLIDER
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(
+        self, hass: HomeAssistant, entry: ConfigEntry, default: int = 80,
+    ) -> None:
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .const import VERSION
+        self.hass = hass
+        self._entry = entry
+        self._attr_unique_id = f"{DOMAIN}_energy_fill_priority_soc"
+        self._attr_name = "Fill Priority SOC"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "energy_coordinator")},
+            name="URA: Energy Coordinator",
+            manufacturer="Universal Room Automation",
+            model="Energy Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+        from .domain_coordinators.energy_const import (
+            CONF_ENERGY_FILL_PRIORITY_SOC,
+        )
+        config = {**entry.data, **entry.options}
+        self._value = int(config.get(CONF_ENERGY_FILL_PRIORITY_SOC, default))
+
+    def _get_energy(self):
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        return manager.coordinators.get("energy") if manager else None
+
+    @property
+    def native_value(self) -> float:
+        return self._value
+
+    @property
+    def available(self) -> bool:
+        return self._get_energy() is not None
+
+    def _push_to_coordinator(self) -> bool:
+        energy = self._get_energy()
+        if energy is None:
+            return False
+        energy.set_fill_priority_soc(self._value)
+        return True
+
+    async def async_added_to_hass(self) -> None:
+        """Restore last value; deferred-retry push (mirror EV battery drain pattern)."""
+        await super().async_added_to_hass()
+        last_state = await self.async_get_last_state()
+        if (
+            last_state is not None
+            and last_state.state not in ("unknown", "unavailable")
+        ):
+            try:
+                self._value = int(float(last_state.state))
+            except (ValueError, TypeError):
+                pass
+        if not self._push_to_coordinator():
+            from homeassistant.helpers.dispatcher import async_dispatcher_connect
+            from .domain_coordinators.signals import SIGNAL_ENERGY_ENTITIES_UPDATE
+            # v4.7.6 fix-up B-M7: see EVBatteryDrainSOCNumber for the same
+            # double-unsub guard. Wrap the dispatcher unsub in a one-shot
+            # so signal-fire and entity-removal don't both call it.
+            unsub_holder: list = []
+            unsubbed = [False]
+
+            def _safe_unsub() -> None:
+                if unsubbed[0]:
+                    return
+                if unsub_holder:
+                    unsubbed[0] = True
+                    unsub_holder[0]()
+
+            @callback
+            def _on_energy_tick(*_a, **_kw):
+                if self._push_to_coordinator() and unsub_holder and not unsubbed[0]:
+                    _safe_unsub()
+
+            unsub_holder.append(
+                async_dispatcher_connect(
+                    self.hass, SIGNAL_ENERGY_ENTITIES_UPDATE, _on_energy_tick,
+                )
+            )
+            self.async_on_remove(_safe_unsub)
+
+    async def async_set_native_value(self, value: float) -> None:
+        self._value = int(value)
+        self._push_to_coordinator()
+        self.async_write_ha_state()
+        _LOGGER.info("Fill priority SOC threshold set to %d%%", int(value))
 
 
 # ===========================================================================

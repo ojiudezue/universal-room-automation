@@ -1,6 +1,6 @@
 """Button platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.7.5
+# Universal Room Automation vv4.7.6
 # Build: 2026-01-04
 # File: button.py
 #
@@ -1180,6 +1180,17 @@ class EVSEForceChargeButton(ButtonEntity):
 
     Entity: button.ura_energy_coordinator_evse_force_charge_30min
     Device: URA: Energy Coordinator
+
+    v4.7.6 D3.5: Override URA's solar-aware EV gating for the next 30
+    minutes. Use this when an EVSE is marked self-modulating (URA re-pauses
+    every cycle) but you need it to charge now regardless of solar or
+    battery state. Resets automatically after the window expires; press
+    again to extend.
+
+    v4.7.6 fix-up C-M4: To configure each EVSE's or L1 plug's
+    `self_modulates` flag, edit the URA Coordinator Manager entry →
+    Configure → Energy Coordinator step. Per-EVSE and per-plug
+    BooleanSelectors appear there for every configured device.
 
     Pressing this button opens a 30-minute window during which URA's TOU
     pause logic is bypassed for all EVSEs.  The override is intentionally

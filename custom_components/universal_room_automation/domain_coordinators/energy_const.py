@@ -406,6 +406,28 @@ DEFAULT_EV_BATTERY_DRAIN_SOC_THRESHOLD: Final = 50
 CONF_ENERGY_EV_BATTERY_DRAIN_SOC: Final = "energy_ev_battery_drain_soc"
 EV_BATTERY_DRAIN_COOLDOWN_SECONDS: Final = 3600  # 1 hour after manual override
 
+# v4.7.6 D1: Hybrid manual-override detection grace window. Skip the
+# manual-override branch for `EV_PAUSE_DISPATCH_GRACE_SECONDS` after URA
+# dispatches switch.turn_off so HA's state cache (which can briefly read
+# is_on=True post-dispatch) doesn't trigger a false cooldown.
+EV_PAUSE_DISPATCH_GRACE_SECONDS: Final = 30.0
+
+# v4.7.6 D2: Fill-priority pause defaults.
+# When SOC < fill_priority_soc AND solar forecast remaining >= excess_solar_kwh,
+# URA pauses EVSEs/L1 plugs so the home battery fills first.
+DEFAULT_FILL_PRIORITY_SOC: Final = 80
+DEFAULT_FILL_PRIORITY_SAFETY_MARGIN_KWH: Final = 1.0
+CONF_ENERGY_FILL_PRIORITY_SOC: Final = "energy_fill_priority_soc"
+
+# v4.7.6 D1/D3.4: Per-EVSE / per-plug `self_modulates` config key suffix.
+# Stored on the per-EVSE config dict at EVPool._evse[evse_id]["self_modulates"];
+# defaults to False (smart manual-override detection on).
+CONF_EVSE_SELF_MODULATES_SUFFIX: Final = "_self_modulates"
+
+# v4.7.6 D6.3: L1 plug power estimate when no power sensor exists.
+# ~12 A @ 120 V; conservative for dumb plug fallback display.
+L1_ESTIMATED_POWER_W: Final = 1440
+
 # EV Grid Import Cap (v4.0.18)
 DEFAULT_GRID_IMPORT_CAP_KW: Final = 8.0
 DEFAULT_GRID_IMPORT_CAP_HYSTERESIS_KW: Final = 1.0
