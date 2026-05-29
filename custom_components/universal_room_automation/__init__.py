@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv4.7.4.2
+# Universal Room Automation vv4.7.4.3
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -612,6 +612,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         _LOGGER.info("Setting up Universal Room Automation integration entry")
         hass.data[DOMAIN]["integration"] = entry
         
+        # Bug Class #46 note: the following async_update_entry calls are SAFE because
+        # they execute BEFORE entry.add_update_listener(_async_update_listener) is
+        # registered at line ~2526. No re-entrant reload can fire. If you add a new
+        # async_update_entry call AFTER the update_listener registration site, defer
+        # it via lazy derivation at read time (see v4.7.4.3 customize_buckets pattern).
+
         # v3.3.5.4: Migrate zone names to proper zone entries (run once)
         # v3.5.3: Check entry.data (durable) with fallback to entry.options (legacy)
         if not entry.data.get("zone_migration_done") and not entry.options.get("zone_migration_done"):
@@ -2319,6 +2325,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         except Exception as e:
             _LOGGER.warning("Zone slug cleanup failed (non-fatal): %s", e)
 
+<<<<<<< HEAD
         # v4.7.4 migration: for zones with saved per-bucket cells but no
         # customize_buckets flag, set customize_buckets=True so user sees their
         # existing customizations in the v4.7.4 UI rather than the simplified view.
@@ -2361,6 +2368,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 "v4.7.4 customize_buckets migration skipped (non-fatal)",
                 exc_info=True,
             )
+=======
+        # v4.7.4.3: customize_buckets eager migration REMOVED (Bug Class #46).
+        # v4.7.4 and v4.7.4.1 both called async_update_entry from inside
+        # async_setup_entry (directly or via a deferred task), triggering the
+        # update_listener → async_create_task(reload) chain within the
+        # bootstrap-2 budget window, causing double invocation of
+        # async_setup_entry and a 120s cold-boot timeout.
+        # The flag is now derived lazily at read time in
+        # _build_dynamic_preset_schema (config_flow.py) — zero side effects,
+        # no update_entry call, no reload. Value persists naturally on next
+        # form save by the user.
+>>>>>>> worktree-agent-a22ad56da66a8e20e
 
         # Store zone data reference for music_following and other lookups
         if "zones" not in hass.data[DOMAIN]:

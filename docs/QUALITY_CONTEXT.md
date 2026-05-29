@@ -4,7 +4,11 @@
 **Last Updated:** May 10, 2026 (v4.5.11.3 cycle aftermath)
 **Current Production:** v4.5.11.3
 **Status:** Active quality standards
+<<<<<<< HEAD
 **Bug Classes:** 46 documented (7 original + 13 from Jan–Mar 2026 + 2 from v3.20–v3.22 hardening + 1 from v4.1.1 lambda scope + 1 from v4.2.5 closure escape + 3 from v4.2.8–v4.2.11 DB performance + 1 from v4.2.24 sync update_listener + 1 from v4.2.9 maintenance budgeting + 2 from v4.5.11.x AC ramp-down cycle + 1 from v4.6.15 lambda+async_create_task + 1 from v4.7.x EV TOU bookkeeping short-circuit + 1 from v4.7.4.1 async_update_entry re-entrancy)
+=======
+**Bug Classes:** 46 documented (7 original + 13 from Jan–Mar 2026 + 2 from v3.20–v3.22 hardening + 1 from v4.1.1 lambda scope + 1 from v4.2.5 closure escape + 3 from v4.2.8–v4.2.11 DB performance + 1 from v4.2.24 sync update_listener + 1 from v4.2.9 maintenance budgeting + 2 from v4.5.11.x AC ramp-down cycle + 1 from v4.6.15 lambda+async_create_task + 1 from v4.7.x EV TOU bookkeeping short-circuit + 1 from v4.7.4 async_update_entry re-entrancy)
+>>>>>>> worktree-agent-a22ad56da66a8e20e
 
 **Quality bar — read every cycle:** Two independent staff-engineer-level code reviews using software engineering best practices. The bug-class catalog below is a regression-prevention reference, NOT the review framework. See `CLAUDE.md` § Review Protocol for the canonical statement.
 
@@ -1746,16 +1750,58 @@ engine = OverrideEngine(get_options=self._get_cm_options)
 
 **v4.7.4 example:** Migration helper at `__init__.py:2319` set `CONF_ZONE_DYNAMIC_PRESET_CUSTOMIZE_BUCKETS=True` for zones with saved per-bucket cells, then called `async_update_entry`. On cold HA boot after HACS upgrade, the reload re-entered setup; user's HA bootstrap-2 timed out at TOU engine load on first boot. Second boot worked because migration already persisted → idempotent no-op.
 
+<<<<<<< HEAD
 **Prevention:** Defer the `async_update_entry` call via `hass.async_create_task(...)` so it fires after `async_setup_entry` returns. The deferred reload runs as a clean second pass with the migration flag already set, making it benign.
 
 **Detection:**
 - Static: grep for `async_update_entry` calls textually inside `async_setup_entry` body. Most should be deferred.
+=======
+**Prevention:** Do NOT call `async_update_entry` from anywhere in the setup path — including deferred tasks fired during bootstrap-2. The canonical fix is to derive migrated values lazily at read time (e.g., in the config-flow schema builder) instead of persisting them eagerly. This avoids the update_listener chain entirely. The value then persists naturally the next time the user saves the form.
+
+**Detection:**
+- Static: grep for `async_update_entry` calls textually inside `async_setup_entry` body. Most should be moved out entirely, not just deferred.
+>>>>>>> worktree-agent-a22ad56da66a8e20e
 - Live: `Bootstrap stage 2 timeout` in HA core log with traceback pointing to `async_setup_entry` is the symptom; the file:line in the trace is often misleading (catches whatever await is running).
 
 **Severity:** HIGH on cold install only; subsequent boots succeed because the migration is idempotent. Worst-case: user can't recover without SSH-level restart or HACS rollback.
 
+<<<<<<< HEAD
 **Filed 2026-05-28** after v4.7.4 first-boot incident.
 
+=======
+**Incomplete fix incident (v4.7.4.1 → v4.7.4.3):**
+v4.7.4.1's first attempt deferred the `async_update_entry` call via
+`hass.async_create_task`, but the deferred task still triggered the same
+reload chain — `async_setup_entry` still ran twice within the same
+bootstrap-2 budget window. v4.7.4.3 shipped the true fix: drop the
+migration entirely and derive the flag lazily at read time. **The
+canonical fix for this bug class is to AVOID `async_update_entry` from
+ANYWHERE in the setup path — including deferred tasks fired during
+bootstrap-2 — by deriving migrated values at read time instead of
+persisting them eagerly.**
+
+**Filed 2026-05-28** after v4.7.4 first-boot incident.
+
+**When `async_update_entry` IS safe in `async_setup_entry`:**
+The following conditions make an `async_update_entry` call within the integration
+setup path safe from the re-entrant reload hazard:
+
+1. **Called before `entry.add_update_listener(...)` is registered.** If no
+   update_listener has been registered yet, `async_update_entry` cannot trigger
+   a reload. The 7 migration calls in `__init__.py` (lines 621, 658, 676, 689,
+   701, 740, 1087) all fire before the listener is registered at line ~2526 and
+   are therefore safe. If the `add_update_listener` call is ever moved earlier
+   in the setup sequence, those calls become Bug Class #46 violations.
+
+2. **Called from outside `async_setup_entry` entirely** (e.g., from a service
+   handler, a post-startup deferred task that runs after bootstrap-2 closes, or
+   an OptionsFlow `async_create_entry` handler). These are safe because
+   bootstrap-2 has already completed by the time they fire.
+
+Outside of these two conditions, treat any new `async_update_entry` call inside
+the setup path as a Bug Class #46 violation and use lazy derivation instead.
+
+>>>>>>> worktree-agent-a22ad56da66a8e20e
 ---
 
 ## ✅ MANDATORY VALIDATION CHECKLIST
