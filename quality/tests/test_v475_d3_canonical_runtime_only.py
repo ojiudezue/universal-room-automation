@@ -112,6 +112,11 @@ def test_v475_d3_canonical_callers_all_in_allowlist():
         "button.py",                 # per-zone platform setup
         "number.py",                 # per-zone platform setup
         "sensor.py",                 # per-zone platform setup
+        # v4.7.7 B3 / A4: CM-entry-setup entity_registry migration loops
+        # iterate canonical zones to enumerate per-zone unique_ids for
+        # DPM sensor device move + AC ramp sensor entity_id rename.
+        # CM entry setup is a runtime path (not a config-flow handler).
+        "__init__.py",               # CM-setup-time runtime migrations
         "quality/tests/",            # tests / fixtures / lockstep checks
     )
     hits = _collect_callers()

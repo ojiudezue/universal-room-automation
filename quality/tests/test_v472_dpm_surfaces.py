@@ -412,7 +412,11 @@ class TestB2MigrationHelper:
         idx = init_src.find(self._CM_ANCHOR)
         assert idx > 0, "CM entry 'if entry_type ==' branch must exist"
         # Use 4000-char window from the if-branch — migration helper is within
-        body = init_src[idx:idx + 4000]
+        # v4.7.7: window widened from 4000 → 10000 after the v4.7.7 B1
+        # orphan sweep + A4 ramp rename + B3 per-zone DPM device migration
+        # blocks were inserted inside the CM entry branch ahead of
+        # `entity reassignment skipped` debug log line.
+        body = init_src[idx:idx + 10000]
         assert "v4.7.2 D2" in body, (
             "B2 fix: migration helper must be inside the CM entry branch "
             "(ENTRY_TYPE_COORDINATOR_MANAGER section)"
@@ -420,7 +424,11 @@ class TestB2MigrationHelper:
 
     def test_migration_helper_targets_hvac_coordinator(self, init_src):
         idx = init_src.find(self._CM_ANCHOR)
-        body = init_src[idx:idx + 4000]
+        # v4.7.7: window widened from 4000 → 10000 after the v4.7.7 B1
+        # orphan sweep + A4 ramp rename + B3 per-zone DPM device migration
+        # blocks were inserted inside the CM entry branch ahead of
+        # `entity reassignment skipped` debug log line.
+        body = init_src[idx:idx + 10000]
         assert '"hvac_coordinator"' in body, (
             "B2 fix: migration helper must target hvac_coordinator device identifiers"
         )
@@ -428,7 +436,11 @@ class TestB2MigrationHelper:
     def test_migration_helper_idempotent_guard(self, init_src):
         """Helper must check device_id equality before updating."""
         idx = init_src.find(self._CM_ANCHOR)
-        body = init_src[idx:idx + 4000]
+        # v4.7.7: window widened from 4000 → 10000 after the v4.7.7 B1
+        # orphan sweep + A4 ramp rename + B3 per-zone DPM device migration
+        # blocks were inserted inside the CM entry branch ahead of
+        # `entity reassignment skipped` debug log line.
+        body = init_src[idx:idx + 10000]
         assert (
             "device_id != _target_device.id" in body
             or "_ent_entry.device_id != _target_device.id" in body
@@ -446,7 +458,11 @@ class TestB2MigrationHelper:
         'entity reassignment skipped' debug log (version-agnostic).
         """
         idx = init_src.find(self._CM_ANCHOR)
-        body = init_src[idx:idx + 4000]
+        # v4.7.7: window widened from 4000 → 10000 after the v4.7.7 B1
+        # orphan sweep + A4 ramp rename + B3 per-zone DPM device migration
+        # blocks were inserted inside the CM entry branch ahead of
+        # `entity reassignment skipped` debug log line.
+        body = init_src[idx:idx + 10000]
         # The try/except block must contain a debug log on failure.
         assert "entity reassignment skipped" in body, (
             "B2 fix: migration helper must be wrapped in try/except with a debug log "

@@ -197,6 +197,9 @@ async def async_setup_entry(
             # v3.9.0: HVAC transparency switches
             HVACOverrideArresterSwitch(hass, entry),
             HVACACResetSwitch(hass, entry),
+            # v4.7.7 A1: AC Nudge decouple — sibling toggle for soft-nudge
+            # detection, independent of AC Reset.
+            HVACACNudgeSwitch(hass, entry),
             HVACObservationModeSwitch(hass, entry),
             # v3.17.0: Zone Intelligence toggle
             HVACZoneIntelligenceSwitch(hass, entry),
@@ -1503,6 +1506,147 @@ class HVACACResetSwitch(SwitchEntity, RestoreEntity):
         hvac.override_arrester.ac_reset_enabled = self._deferred_value
         _LOGGER.info(
             "HVACACResetSwitch: deferred restore landed via "
+            "SIGNAL_HVAC_COORDINATOR_READY (value=%s)",
+            self._deferred_value,
+        )
+        self._deferred_value = None
+        self.async_write_ha_state()
+
+    @property
+    def available(self) -> bool:
+        """Only available when HVAC coordinator is active."""
+        return self._get_hvac() is not None
+
+
+class HVACACNudgeSwitch(SwitchEntity, RestoreEntity):
+    """Toggle HVAC AC Nudge (v4.7.7 A1).
+
+    When ON (default): soft-nudge detection runs on the HVAC decision
+    cycle. Detected overshoot + sustained kWh-rate triggers a bump of
+    the cool setpoint by `hvac_ac_nudge_size` °F for
+    `hvac_ac_nudge_duration` minutes, then evaluates effectiveness.
+    When OFF: soft-nudge detection is skipped (Gate 0b in
+    `OverrideArrester.check_ac_reset`); AC Reset (if also ON) continues
+    to be invokable via direct triggers.
+
+    Entity: switch.ura_hvac_ac_nudge
+    Device: URA: HVAC Coordinator
+    Sibling of: switch.ura_hvac_ac_reset (independent feature toggle).
+
+    v4.7.7 A1: mirrors HVACACResetSwitch line-for-line including the
+    v4.7.3.1 deferred-restore pattern via SIGNAL_HVAC_COORDINATOR_READY
+    (Bug Classes #5, #19, #38, #42 — see switch.py:1383 HVACACResetSwitch
+    for the source pattern).
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:thermometer-chevron-up"
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        self.hass = hass
+        self._entry = entry
+        self._attr_unique_id = f"{DOMAIN}_hvac_ac_nudge"
+        self._attr_name = "26 · AC Nudge"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "hvac_coordinator")},
+            name="URA: HVAC Coordinator",
+            manufacturer="Universal Room Automation",
+            model="HVAC Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+        # v4.7.7 A1: deferred-restore state (Bug Class #5).
+        self._deferred_value: bool | None = None
+
+    def _get_hvac(self):
+        """Get the HVAC coordinator instance."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        return manager.coordinators.get("hvac")
+
+    @property
+    def is_on(self) -> bool:
+        """Return True if AC nudge is enabled."""
+        hvac = self._get_hvac()
+        if hvac is None:
+            return True  # default on
+        return hvac.override_arrester.ac_nudge_enabled
+
+    async def async_turn_on(self, **kwargs) -> None:
+        """Enable AC nudge."""
+        hvac = self._get_hvac()
+        if hvac is not None:
+            hvac.override_arrester.ac_nudge_enabled = True
+            self._deferred_value = None
+            self.async_write_ha_state()
+
+    async def async_turn_off(self, **kwargs) -> None:
+        """Disable AC nudge."""
+        hvac = self._get_hvac()
+        if hvac is not None:
+            hvac.override_arrester.ac_nudge_enabled = False
+            self._deferred_value = None
+            self.async_write_ha_state()
+
+    async def async_added_to_hass(self) -> None:
+        """Restore previous state — deferred via SIGNAL_HVAC_COORDINATOR_READY if needed.
+
+        Mirrors v4.7.3.1 HVACACResetSwitch.async_added_to_hass exactly.
+        Bug Classes: #5 (deferred restore), #38 (unsub via async_on_remove).
+        """
+        await super().async_added_to_hass()
+
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_HVAC_COORDINATOR_READY
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass,
+                SIGNAL_HVAC_COORDINATOR_READY,
+                self._handle_hvac_ready,
+            )
+        )
+
+        last_state = await self.async_get_last_state()
+        if last_state is None or last_state.state not in ("on", "off"):
+            # No prior state or transient state — default ON is truth; nothing to restore.
+            return
+        target = last_state.state == "on"
+        hvac = self._get_hvac()
+        if hvac is not None:
+            # Fast path: HVAC coord already registered.
+            hvac.override_arrester.ac_nudge_enabled = target
+            self._deferred_value = None
+            self.async_write_ha_state()
+            return
+        # Deferred path: HVAC coord not yet registered.
+        self._deferred_value = target
+        _LOGGER.debug(
+            "HVACACNudgeSwitch: HVAC coord not ready — deferring restore (value=%s)",
+            target,
+        )
+
+    @callback
+    def _handle_hvac_ready(self) -> None:
+        """Handle SIGNAL_HVAC_COORDINATOR_READY — complete deferred restore.
+
+        Bug Class #42: bound method, not lambda.
+        Bug Class #19: @callback fires synchronously on the event loop.
+        """
+        if self._deferred_value is None:
+            return
+        hvac = self._get_hvac()
+        if hvac is None:
+            _LOGGER.warning(
+                "HVACACNudgeSwitch: SIGNAL_HVAC_COORDINATOR_READY fired "
+                "but HVAC coord still not in hass.data — restore deferred"
+            )
+            return
+        hvac.override_arrester.ac_nudge_enabled = self._deferred_value
+        _LOGGER.info(
+            "HVACACNudgeSwitch: deferred restore landed via "
             "SIGNAL_HVAC_COORDINATOR_READY (value=%s)",
             self._deferred_value,
         )

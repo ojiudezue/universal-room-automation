@@ -85,6 +85,9 @@ DEFAULT_HVAC_PREHEAT_FORECAST_LOW: Final = 35.0  # °F
 COVER_HYSTERESIS_MIN_GAP: Final = 3.0  # °F
 CONF_HVAC_ARRESTER_ENABLED: Final = "hvac_arrester_enabled"
 CONF_HVAC_AC_RESET_ENABLED: Final = "hvac_ac_reset_enabled"
+# v4.7.7 A1: AC Nudge decouple — standalone soft-nudge feature toggle, paired
+# with (not gated by) AC Reset. Default ON. See hvac_override.py Gate 0a/0b.
+CONF_HVAC_AC_NUDGE_ENABLED: Final = "hvac_ac_nudge_enabled"
 CONF_HVAC_FAN_CONTROL_ENABLED: Final = "hvac_fan_control_enabled"
 
 # v3.17.0: Zone Intelligence config keys
@@ -114,6 +117,9 @@ DEFAULT_FAN_HYSTERESIS: Final = 1.5  # F
 DEFAULT_FAN_MIN_RUNTIME: Final = 10  # minutes
 DEFAULT_ARRESTER_ENABLED: Final = True
 DEFAULT_AC_RESET_ENABLED: Final = True
+# v4.7.7 A1: AC Nudge default — ON. Mirror DEFAULT_AC_RESET_ENABLED so a fresh
+# install gets soft-nudge detection out of the box.
+DEFAULT_HVAC_AC_NUDGE_ENABLED: Final = True
 DEFAULT_FAN_CONTROL_ENABLED: Final = True
 
 # v3.17.0: Zone Intelligence defaults
