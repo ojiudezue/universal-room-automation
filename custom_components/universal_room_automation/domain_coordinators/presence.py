@@ -1902,6 +1902,7 @@ class PresenceCoordinator(BaseCoordinator):
         person_coordinator = self.hass.data.get(DOMAIN, {}).get("person_coordinator")
         all_tracked_persons_away = False
         tracked_count = 0
+        away_person_ids: list[str] = []
         try:
             if person_coordinator and getattr(person_coordinator, "data", None):
                 person_data = person_coordinator.data or {}
@@ -1911,12 +1912,15 @@ class PresenceCoordinator(BaseCoordinator):
                         (info.get("location") or "") in ("away", "")
                         for info in person_data.values()
                     )
+                    if all_tracked_persons_away:
+                        away_person_ids = sorted(person_data.keys())
         except Exception as exc:  # noqa: BLE001 — defensive: stale coord data
             _LOGGER.debug(
                 "v4.7.14: failed to compute all_tracked_persons_away: %s", exc
             )
             all_tracked_persons_away = False
             tracked_count = 0
+            away_person_ids = []
         # Expose for diagnostics (PresenceHouseStateSensor attributes).
         self._tracked_persons_count = tracked_count
         self._all_tracked_persons_away = all_tracked_persons_away
@@ -2006,9 +2010,10 @@ class PresenceCoordinator(BaseCoordinator):
         ):
             _LOGGER.info(
                 "v4.7.14: Person-tracker veto fired — all %d tracked persons "
-                "away, no unidentified people; forcing AWAY (was %s, "
+                "away (%s), no unidentified people; forcing AWAY (was %s, "
                 "any_zone_occupied=%s)",
                 tracked_count,
+                ", ".join(away_person_ids) if away_person_ids else "(none)",
                 current_state.value,
                 any_zone_occupied,
             )
