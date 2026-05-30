@@ -132,6 +132,25 @@ def test_anomaly_event_post_init_rejects_unknown():
         )
 
 
+def test_anomaly_event_post_init_rejects_none():
+    """v4.7.12 C-M1 fix-up: ``anomaly_type=None`` raises TypeError.
+
+    Pre-fix-up, None slipped past ``isinstance(None, str)`` (False),
+    the dataclass kept ``self.anomaly_type = None``, and the production
+    DAO defaulted it to "point_in_time" — defeating "never rely on the
+    default." Now: rejected at construction with TypeError.
+    """
+    mod = _load_anomaly_event_module()
+    with pytest.raises(TypeError, match="AnomalyType or str"):
+        mod.AnomalyEvent(
+            coordinator="x",
+            type="x.y",
+            severity=mod.AnomalySeverity.INFO,
+            anomaly_type=None,  # type: ignore[arg-type]
+            detected_at="2026-05-30T10:00:00",
+        )
+
+
 def test_anomaly_event_requires_anomaly_type_kwarg():
     """v4.7.12 D2 contract: anomaly_type is a required field (no default)."""
     mod = _load_anomaly_event_module()

@@ -247,17 +247,32 @@ class AnomalyEvent:
         # v4.7.12 D1: defensive coercion. Accept legacy string emitters
         # transparently; raise on unknown values so future drift is caught
         # at write time rather than at downstream consumer time.
-        if isinstance(self.anomaly_type, str) and not isinstance(
-            self.anomaly_type, AnomalyType
-        ):
+        #
+        # v4.7.12 Reviewer C fix-up (C-M1 / Review B M-B2): explicit
+        # type discrimination. Pre-fix-up, ``anomaly_type=None`` slipped
+        # past ``isinstance(None, str)`` (False) and silently lived as
+        # ``None`` on the dataclass, then defaulted to "point_in_time"
+        # in the DAO — defeating the plan intent ("never rely on the
+        # default"). New behavior:
+        #   - AnomalyType  -> no-op
+        #   - str          -> coerce or raise ValueError
+        #   - anything else (incl. None) -> raise TypeError
+        if isinstance(self.anomaly_type, AnomalyType):
+            return
+        if isinstance(self.anomaly_type, str):
             try:
                 self.anomaly_type = AnomalyType(self.anomaly_type)
+                return
             except ValueError as e:
                 raise ValueError(
                     "AnomalyEvent.anomaly_type must be a member of AnomalyType "
                     f"or one of {[t.value for t in AnomalyType]!r}; "
                     f"got {self.anomaly_type!r}"
                 ) from e
+        raise TypeError(
+            "AnomalyEvent.anomaly_type must be AnomalyType or str; "
+            f"got {type(self.anomaly_type).__name__}"
+        )
 
     @property
     def event_class(self) -> AnomalyType:
