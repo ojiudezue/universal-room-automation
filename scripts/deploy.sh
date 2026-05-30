@@ -66,16 +66,38 @@ else
 fi
 
 # Step 4: Push to develop (GitHub origin + homelab Gitea mirror)
+# v4.7.10: switched gitea mirror to dual-push.sh --gitea-only (no double-push
+# of origin) and narrowed the swallowed exit-code range. Only rc=1 (expected
+# preflight/auth failure) is treated as a non-fatal warning; rc=2 (bash error)
+# and rc=130/143 (SIGINT/SIGTERM) propagate and halt the deploy.
 step "4/7 Pushing to develop (origin + gitea)"
 run git -C "$REPO_DIR" push origin develop
 # Gitea mirror — only if remote exists. dual-push.sh handles credentials
 # from .env.local and restores clean URL via trap on any failure.
 if git -C "$REPO_DIR" remote get-url gitea >/dev/null 2>&1; then
   if $DRY_RUN; then
-    echo "  [dry-run] bash scripts/dual-push.sh develop  (gitea mirror only)"
+    echo "  [dry-run] bash scripts/dual-push.sh --gitea-only develop"
   else
-    bash "$REPO_DIR/scripts/dual-push.sh" develop || \
-      echo "  [warn] gitea push failed — origin already pushed; gitea is mirror-only"
+    # Capture dual-push exit code without leaking `set +e` into steps 5-7.
+    set +e
+    bash "$REPO_DIR/scripts/dual-push.sh" --gitea-only develop
+    rc=$?
+    set -e
+    if [ "$rc" -eq 0 ]; then
+      :  # success
+    elif [ "$rc" -eq 1 ]; then
+      echo "  [warn] gitea mirror push failed (preflight or auth issue) — origin already pushed; gitea is mirror-only"
+      echo "  [warn] catch up later with: bash scripts/dual-push.sh --gitea-only develop"
+    elif [ "$rc" -eq 2 ]; then
+      echo "  [error] gitea push had a script-level error" >&2
+      exit 2
+    elif [ "$rc" -eq 130 ]; then
+      echo "  [error] gitea push interrupted by user (SIGINT)" >&2
+      exit 130
+    else
+      echo "  [error] gitea push exited with unexpected code $rc" >&2
+      exit "$rc"
+    fi
   fi
 fi
 
