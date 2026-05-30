@@ -11,8 +11,23 @@ build consistent payloads.  Extra coordinator-specific keys go under "extra".
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from enum import IntEnum, StrEnum
+from enum import IntEnum
 from typing import Any
+
+# v4.7.12: StrEnum is Python 3.11+. HA-core min Python is well past that on
+# live HAOS, but the URA test suite still runs against Python 3.9 in some
+# environments. Mirror the back-compat shim used elsewhere in this codebase
+# (see domain_coordinators/security.py:27-33, weather_manager.py:23-29).
+try:
+    from enum import StrEnum
+except ImportError:  # pragma: no cover — only fires on Python <3.11
+    from enum import Enum as _Enum
+
+    class StrEnum(str, _Enum):  # type: ignore[no-redef]
+        """Lightweight back-compat StrEnum for Python <3.11."""
+
+        def __str__(self) -> str:
+            return str(self.value)
 
 __all__ = [
     "AnomalySeverity",

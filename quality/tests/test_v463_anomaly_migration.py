@@ -133,9 +133,11 @@ def test_safety_hazard_uses_store_event():
     assert "AnomalyEvent(" in src, (
         "D2: safety.py must construct AnomalyEvent for hazard anomaly emits"
     )
-    # EVENT_CLASS_HAZARD must be used (behavioral equivalent: test_anomaly_event_class_constants)
-    assert "EVENT_CLASS_HAZARD" in src, (
-        "D2: safety.py hazard emit must use EVENT_CLASS_HAZARD constant"
+    # v4.7.12 D2: hazard emit now uses AnomalyType.HAZARD typed enum
+    # (replaces the legacy EVENT_CLASS_HAZARD constant — the constant
+    # still exists as an alias, but the canonical reference is the enum).
+    assert "AnomalyType.HAZARD" in src, (
+        "D2: safety.py hazard emit must use AnomalyType.HAZARD"
     )
 
 
@@ -439,8 +441,15 @@ def test_transitions_invalid_anomaly_uses_event_class_and_saves_to_db():
     test_anomaly_event_class_constants verifies the constant value directly.
     """
     src = _transitions_src()
-    assert "EVENT_CLASS_TRANSITION_INVALID" in src or "transition_invalid" in src, (
-        "D3: transition anomaly emit must use EVENT_CLASS_TRANSITION_INVALID event class"
+    # v4.7.12 D2: typed enum is the canonical form; legacy constant
+    # and raw string still satisfy the back-compat shape.
+    assert (
+        "AnomalyType.TRANSITION_INVALID" in src
+        or "EVENT_CLASS_TRANSITION_INVALID" in src
+        or "transition_invalid" in src
+    ), (
+        "D3: transition anomaly emit must use AnomalyType.TRANSITION_INVALID "
+        "(or legacy EVENT_CLASS_TRANSITION_INVALID alias)"
     )
     assert "save_anomaly_event" in src, (
         "D3: transitions.py must call save_anomaly_event() for invalid transition anomaly"
@@ -664,6 +673,7 @@ def test_anomaly_log_insert_all_not_null_satisfied(real_schema_db):
             0, None,
             "hazard", None, None,
             "binary_sensor.smoke_1", "living_room", None,
+            "hazard",  # v4.7.12 anomaly_type (dual-write)
         ),
     )
     real_schema_db.commit()
@@ -724,6 +734,7 @@ def test_compliance_violation_row_triggers_anomaly_insert(real_schema_db):
             json.dumps({"linked_event_id": decision_id, "source_signal": "compliance_check"}),
             0, None,  # resolved, resolution_notes
             "point_in_time", None, None, None, None, None,
+            "point_in_time",  # v4.7.12 anomaly_type (dual-write)
         ),
     )
     real_schema_db.commit()
@@ -1211,13 +1222,15 @@ def test_anomaly_event_dataclass_instantiation():
         coordinator="safety",
         type="hazard.smoke",
         severity=mod.AnomalySeverity.CRITICAL,
-        event_class=mod.EVENT_CLASS_HAZARD,
+        anomaly_type=mod.EVENT_CLASS_HAZARD,  # v4.7.12: alias resolves to AnomalyType.HAZARD
         detected_at="2026-05-14T10:00:00Z",
     )
     assert event.coordinator == "safety"
     assert event.type == "hazard.smoke"
     assert event.severity == mod.AnomalySeverity.CRITICAL
+    # event_class is a property alias for anomaly_type in v4.7.12+
     assert event.event_class == mod.EVENT_CLASS_HAZARD
+    assert event.anomaly_type == mod.AnomalyType.HAZARD
     # v4.6.3 explicit metric fields — defaults
     assert event.observed_value == 0.0
     assert event.expected_mean == 0.0
@@ -1240,7 +1253,7 @@ def test_anomaly_event_metric_fields_explicit():
         coordinator="presence",
         type="census.spike",
         severity=mod.AnomalySeverity.WARNING,
-        event_class=mod.EVENT_CLASS_POINT_IN_TIME,
+        anomaly_type=mod.EVENT_CLASS_POINT_IN_TIME,  # legacy alias accepted
         detected_at="2026-05-14T10:00:00Z",
         observed_value=7.0,
         expected_mean=3.5,
@@ -1316,6 +1329,7 @@ def test_build_context_json_with_extra_keys_db_roundtrip(real_schema_db):
             2, 50, "home",
             ctx_json, 0, None,
             "hazard", None, None, "binary_sensor.smoke_1", "kitchen", None,
+            "hazard",  # v4.7.12 anomaly_type (dual-write)
         ),
     )
     real_schema_db.commit()
@@ -1400,6 +1414,7 @@ def test_anomaly_event_payload_dict_preserves_all_keys(real_schema_db):
             1, 0, None,
             json.dumps(ctx), 0, None,
             "point_in_time", None, None, None, "living_room", "alice",
+            "point_in_time",  # v4.7.12 anomaly_type (dual-write)
         ),
     )
     real_schema_db.commit()
@@ -1436,6 +1451,11 @@ def test_multiple_anomaly_event_classes_stored_correctly(real_schema_db):
     ]
 
     for event_class, coordinator, metric_name in classes_to_test:
+        # v4.7.12 D1: production INSERT dual-writes event_class AND
+        # anomaly_type. Mirror the same value into both placeholders
+        # (last slot in the tuple is the new anomaly_type column).
+        # Coerce StrEnum members to plain strings for the sqlite3 bind.
+        _val = str(event_class)
         cursor = real_schema_db.execute(
             _ANOMALY_INSERT_SQL,
             (
@@ -1444,16 +1464,21 @@ def test_multiple_anomaly_event_classes_stored_correctly(real_schema_db):
                 1, 0, None,
                 json.dumps({"source_signal": f"SIGNAL_{coordinator.upper()}"}),
                 0, None,
-                event_class, None, None, None, None, None,
+                _val, None, None, None, None, None,
+                _val,  # anomaly_type (v4.7.12 dual-write)
             ),
         )
         real_schema_db.commit()
         row = real_schema_db.execute(
-            "SELECT event_class, coordinator_id FROM anomaly_log WHERE id = ?",
+            "SELECT event_class, anomaly_type, coordinator_id FROM anomaly_log WHERE id = ?",
             (cursor.lastrowid,)
         ).fetchone()
-        assert row["event_class"] == event_class, (
-            f"EVENT_CLASS '{event_class}' must roundtrip through anomaly_log"
+        assert row["event_class"] == _val, (
+            f"EVENT_CLASS '{_val}' must roundtrip through anomaly_log"
+        )
+        # v4.7.12 D1: anomaly_type column carries the same value.
+        assert row["anomaly_type"] == _val, (
+            f"anomaly_type '{_val}' must roundtrip through anomaly_log"
         )
         assert row["coordinator_id"] == coordinator
 
@@ -1476,6 +1501,7 @@ def test_anomaly_log_query_by_coordinator_id(real_schema_db):
                     f"{coordinator}.test_event_{i}", 0.0, 0.0, 0.0, 0.0,
                     1, 0, None, json.dumps({}), 0, None,
                     "point_in_time", None, None, None, None, None,
+                    "point_in_time",  # v4.7.12 anomaly_type
                 ),
             )
     real_schema_db.commit()
@@ -1516,6 +1542,7 @@ def test_anomaly_log_timestamp_window_query(real_schema_db):
                 0.0, 0.0, 0.0, 0.0,
                 1, 0, None, json.dumps({}), 0, None,
                 "point_in_time", None, None, None, None, None,
+                "point_in_time",  # v4.7.12 anomaly_type
             ),
         )
     real_schema_db.commit()
@@ -1544,9 +1571,13 @@ def test_schema_extraction_regression(real_schema_db_session):
     for expected_col in (
         "event_class", "recovery_at", "correlation_id",
         "entity_id", "room_id", "person_id",
+        # v4.7.12 D1: anomaly_type added as the canonical discriminator;
+        # event_class kept as a deprecated alias during the dual-write
+        # window. v5.0 drops event_class.
+        "anomaly_type",
     ):
         assert expected_col in anomaly_cols, (
-            f"anomaly_log must have v4.6.1 column '{expected_col}' — "
+            f"anomaly_log must have v4.6.1/v4.7.12 column '{expected_col}' — "
             "schema extraction from database.py failed to pick it up"
         )
 

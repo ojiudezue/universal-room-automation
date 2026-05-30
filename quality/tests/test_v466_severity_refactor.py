@@ -125,6 +125,7 @@ def _insert_anomaly_row(
             0, None,
             "point_in_time",
             None, None, None, None, None,
+            "point_in_time",   # v4.7.12 anomaly_type (dual-write)
         ),
     )
     conn.commit()

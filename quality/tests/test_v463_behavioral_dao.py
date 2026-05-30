@@ -119,7 +119,8 @@ class _FakeAnomalyEvent:
         coordinator="test_coord",
         type="test.metric_spike",
         severity=1,
-        event_class="point_in_time",
+        event_class=None,        # legacy alias — kept for back-compat
+        anomaly_type=None,       # v4.7.12 canonical kwarg
         detected_at=None,
         payload=None,
         entity_id=None,
@@ -137,7 +138,12 @@ class _FakeAnomalyEvent:
         self.coordinator = coordinator
         self.type = type
         self.severity = severity
-        self.event_class = event_class
+        # v4.7.12: accept either kwarg; default to "point_in_time" if both omitted.
+        _resolved_type = anomaly_type if anomaly_type is not None else event_class
+        if _resolved_type is None:
+            _resolved_type = "point_in_time"
+        self.anomaly_type = _resolved_type
+        self.event_class = _resolved_type  # legacy alias readback
         self.detected_at = detected_at or datetime.now(timezone.utc).isoformat()
         self.payload = payload if payload is not None else {}
         self.entity_id = entity_id
@@ -204,6 +210,14 @@ def _insert_anomaly(conn: sqlite3.Connection, event: _FakeAnomalyEvent) -> int:
     sample_size = _metric("sample_size", 0)
     house_state = payload_dict.get("house_state")
 
+    # v4.7.12 D1: production INSERT now dual-writes BOTH event_class and
+    # anomaly_type columns with the same value. Mirror that here so the
+    # test parameter tuple length matches the extracted INSERT SQL's
+    # placeholder count (21).
+    _discriminator = getattr(event, "anomaly_type", None) or getattr(
+        event, "event_class", "point_in_time"
+    )
+    _discriminator_str = str(_discriminator) if _discriminator is not None else "point_in_time"
     cursor = conn.execute(
         _ANOMALY_INSERT_SQL,
         (
@@ -221,12 +235,13 @@ def _insert_anomaly(conn: sqlite3.Connection, event: _FakeAnomalyEvent) -> int:
             json.dumps(event.payload),
             0,                           # resolved
             None,                        # resolution_notes
-            event.event_class,
+            _discriminator_str,          # event_class (dual-write alias)
             event.recovery_at,
             event.correlation_id,
             event.entity_id,
             event.room_id,
             event.person_id,
+            _discriminator_str,          # anomaly_type (v4.7.12 canonical)
         ),
     )
     conn.commit()
@@ -561,6 +576,7 @@ def test_save_anomaly_event_raises_on_missing_required_field(real_schema_db):
                 0, None,
                 "point_in_time",
                 None, None, None, None, None,
+                "point_in_time",  # v4.7.12 anomaly_type (dual-write)
             ),
         )
 
@@ -588,6 +604,7 @@ def test_save_anomaly_event_handles_malformed_context_json(real_schema_db):
             0, None,
             "point_in_time",
             None, None, None, None, None,
+            "point_in_time",  # v4.7.12 anomaly_type (dual-write)
         ),
     )
     real_schema_db.commit()
@@ -625,6 +642,7 @@ def test_save_anomaly_event_rejects_invalid_severity_string(real_schema_db):
             0, None,
             "point_in_time",
             None, None, None, None, None,
+            "point_in_time",  # v4.7.12 anomaly_type (dual-write)
         ),
     )
     real_schema_db.commit()

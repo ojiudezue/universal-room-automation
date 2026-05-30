@@ -115,7 +115,14 @@ def _extract_alter_table_statements(src: str, table_name: str) -> list[str]:
     )
     for fmatch in fstring_pattern.finditer(src):
         idx = fmatch.start()
-        window_start = max(0, idx - 800)
+        # v4.7.12: window widened from 800 -> 2000 chars. The v4.6.1
+        # anomaly_log tuple list grew with each cycle that added a new
+        # column; 800 chars was no longer enough to reach the first
+        # entry (event_class). Symptom: the fresh-schema fixture would
+        # silently miss the legacy columns because their ALTER ADD
+        # statements were never extracted. Detected by v4.7.12 D4 test
+        # ``test_schema_extraction_finds_anomaly_type_alter_tuple``.
+        window_start = max(0, idx - 2000)
         window = src[window_start:idx]
         # Extract tuples: ("col_name", "col_def_string")
         # col_def may be double-quoted and contain single-quoted literals,
