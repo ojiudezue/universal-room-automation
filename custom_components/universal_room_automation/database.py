@@ -1086,6 +1086,35 @@ class UniversalRoomDatabase:
                 ]):
                     failed_tables.append("ac_reset_state")
 
+                # -- v4.7.8: Egress Window HVAC Pause persistent state -------
+                # One row per canonical HVAC zone. Tracks the 5-state lifecycle
+                # (counting / paused / resume_countdown / cooldown). Survives
+                # HA restart so all four restart scenarios (R1-R4) reach the
+                # correct first-tick action without losing accumulated time.
+                # PRIMARY KEY (zone_id) — egress pause is a per-zone lifecycle,
+                # not a daily-bucketed counter (differs from ac_reset_state on
+                # purpose; idle rows are never written, in-flight states are
+                # the only persisted rows).
+                if not await self._create_table_safe(db, "egress_state", [
+                    """CREATE TABLE IF NOT EXISTS egress_state (
+                        zone_id TEXT NOT NULL,
+                        state TEXT NOT NULL,
+                        first_open_at TEXT,
+                        first_closed_at TEXT,
+                        paused_at TEXT,
+                        saved_hvac_mode TEXT,
+                        saved_preset_mode TEXT,
+                        triggered_by_room TEXT,
+                        thermostat_entity TEXT,
+                        cooldown_expires_at TEXT,
+                        last_update_ts TEXT NOT NULL,
+                        PRIMARY KEY (zone_id)
+                    )""",
+                    """CREATE INDEX IF NOT EXISTS idx_egress_state_state
+                    ON egress_state(state)""",
+                ]):
+                    failed_tables.append("egress_state")
+
                 # -- v4.5.11: AC ramp-down append-only event log --------------
                 # Every state transition logged for offline analysis. 30-day
                 # rolling retention (auto-prune during day rollover).
@@ -5442,3 +5471,126 @@ class UniversalRoomDatabase:
                 total_deleted, retention_days,
             )
         return total_deleted
+
+    # =========================================================================
+    # v4.7.8: Egress Window HVAC Pause persistence
+    # -------------------------------------------------------------------------
+    # One row per canonical HVAC zone tracking the egress-pause state machine.
+    # Mirrors ac_reset_state DAO shape but uses zone_id (alone) as PK because
+    # egress pause is a per-zone lifecycle, not a daily-bucketed counter.
+    # All five DAOs guard reads + writes with try/except so transient SQLite
+    # failures degrade gracefully (sensor sees stale state instead of crash).
+    # =========================================================================
+
+    async def get_egress_state(self, zone_id: str) -> dict | None:
+        """Return egress_state row for a zone, or None if no row exists."""
+        try:
+            async with self._db_read() as db:
+                cursor = await db.execute(
+                    "SELECT * FROM egress_state WHERE zone_id = ?",
+                    (zone_id,),
+                )
+                row = await cursor.fetchone()
+                if row is None:
+                    return None
+                columns = [d[0] for d in cursor.description]
+                return dict(zip(columns, row))
+        except Exception as err:
+            _LOGGER.warning(
+                "egress_state read failed for %s: %s",
+                zone_id, err,
+            )
+            return None
+
+    async def save_egress_state(self, state: dict) -> None:
+        """Upsert an egress_state row.
+
+        All timestamp fields are stored as ISO strings (callers must format
+        tz-aware datetimes via .isoformat() — see Bug Class #11).
+        """
+        try:
+            async with self._db() as db:
+                await db.execute(
+                    """INSERT OR REPLACE INTO egress_state (
+                        zone_id, state,
+                        first_open_at, first_closed_at, paused_at,
+                        saved_hvac_mode, saved_preset_mode,
+                        triggered_by_room, thermostat_entity,
+                        cooldown_expires_at, last_update_ts
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        state["zone_id"],
+                        state["state"],
+                        state.get("first_open_at"),
+                        state.get("first_closed_at"),
+                        state.get("paused_at"),
+                        state.get("saved_hvac_mode"),
+                        state.get("saved_preset_mode"),
+                        state.get("triggered_by_room"),
+                        state.get("thermostat_entity"),
+                        state.get("cooldown_expires_at"),
+                        state.get("last_update_ts") or dt_util.now().isoformat(),
+                    ),
+                )
+                await db.commit()
+        except Exception as err:
+            _LOGGER.warning(
+                "egress_state save failed for %s: %s",
+                state.get("zone_id"), err,
+            )
+
+    async def get_all_egress_state(self) -> list[dict]:
+        """Return all egress_state rows (for rehydrate on coordinator startup)."""
+        try:
+            async with self._db_read() as db:
+                cursor = await db.execute("SELECT * FROM egress_state")
+                rows = await cursor.fetchall()
+                columns = [d[0] for d in cursor.description]
+                return [dict(zip(columns, r)) for r in rows]
+        except Exception as err:
+            _LOGGER.warning("egress_state scan failed: %s", err)
+            return []
+
+    async def clear_egress_state(self, zone_id: str) -> None:
+        """Delete the egress_state row for a zone (resume / cooldown expiry)."""
+        try:
+            async with self._db() as db:
+                await db.execute(
+                    "DELETE FROM egress_state WHERE zone_id = ?",
+                    (zone_id,),
+                )
+                await db.commit()
+        except Exception as err:
+            _LOGGER.warning(
+                "egress_state clear failed for %s: %s",
+                zone_id, err,
+            )
+
+    async def prune_stale_egress_state(self, cutoff_days: int = 7) -> int:
+        """Prune stale egress_state rows.
+
+        Removes idle rows (defensive — idle rows shouldn't exist) and any
+        row whose last_update_ts is older than cutoff_days. Returns the
+        number of rows deleted. Wired into the existing nightly maintenance
+        hook (paired-cleanup per Bug Class #27).
+        """
+        cutoff = (dt_util.now() - timedelta(days=cutoff_days)).isoformat()
+        deleted = 0
+        try:
+            async with self._db() as db:
+                cursor = await db.execute(
+                    "DELETE FROM egress_state "
+                    "WHERE state = 'idle' OR last_update_ts < ?",
+                    (cutoff,),
+                )
+                await db.commit()
+                deleted = cursor.rowcount
+        except Exception as err:
+            _LOGGER.warning("egress_state prune failed: %s", err)
+            return 0
+        if deleted > 0:
+            _LOGGER.info(
+                "egress_state prune: deleted %d stale rows (cutoff_days=%d)",
+                deleted, cutoff_days,
+            )
+        return deleted

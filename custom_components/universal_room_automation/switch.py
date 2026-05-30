@@ -200,6 +200,8 @@ async def async_setup_entry(
             # v4.7.7 A1: AC Nudge decouple — sibling toggle for soft-nudge
             # detection, independent of AC Reset.
             HVACACNudgeSwitch(hass, entry),
+            # v4.7.8 D2: Egress Window HVAC Pause master toggle.
+            HVACEgressWindowPauseSwitch(hass, entry),
             HVACObservationModeSwitch(hass, entry),
             # v3.17.0: Zone Intelligence toggle
             HVACZoneIntelligenceSwitch(hass, entry),
@@ -3121,3 +3123,158 @@ class InfrastructureRoomSwitch(UniversalRoomEntity, SwitchEntity, RestoreEntity)
         self._attr_is_on = False
         self.coordinator._infrastructure_room = False
         self.async_write_ha_state()
+
+
+
+# =============================================================================
+# v4.7.8 D2 — Egress Window HVAC Pause master toggle
+# -----------------------------------------------------------------------------
+# Single switch on URA: HVAC Coordinator device. When ON (default), an egress
+# window open past `egress_pause_threshold_min` triggers climate.set_hvac_mode:
+# off on the canonical HVAC zone. When OFF, the manager clears counters but
+# does NOT auto-resume an already-paused zone (avoids flap when user toggles
+# the switch while a window is open). Mirrors HVACACNudgeSwitch line-for-line
+# including the v4.7.3.1 deferred-restore via SIGNAL_HVAC_COORDINATOR_READY
+# (Bug Classes #5 / #38 / #42 — bound method handler, not lambda).
+# =============================================================================
+
+
+class HVACEgressWindowPauseSwitch(SwitchEntity, RestoreEntity):
+    """Toggle Egress Window HVAC Pause (v4.7.8 D2).
+
+    Default ON. RestoreEntity is the canonical runtime store; entry.options
+    seeds install-time only.
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:window-open-variant"
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        self.hass = hass
+        self._entry = entry
+        self._attr_unique_id = f"{DOMAIN}_hvac_egress_window_pause"
+        # Friendly ordering — sits at "27" so it lands directly below AC Nudge (26).
+        self._attr_name = "27 · Egress Window Pause"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "hvac_coordinator")},
+            name="URA: HVAC Coordinator",
+            manufacturer="Universal Room Automation",
+            model="HVAC Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+        # v4.7.8 D2: deferred-restore state (Bug Class #5).
+        self._deferred_value: bool | None = None
+
+    def _get_hvac(self):
+        """Get the HVAC coordinator instance."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        return manager.coordinators.get("hvac")
+
+    @property
+    def is_on(self) -> bool:
+        """Return True if egress pause is enabled."""
+        hvac = self._get_hvac()
+        if hvac is None:
+            return True  # default on
+        try:
+            return bool(hvac.egress_manager.enabled)
+        except Exception:
+            return True
+
+    async def async_turn_on(self, **kwargs) -> None:
+        """Enable egress pause."""
+        hvac = self._get_hvac()
+        if hvac is not None:
+            hvac.egress_manager.enabled = True
+            self._deferred_value = None
+            self.async_write_ha_state()
+
+    async def async_turn_off(self, **kwargs) -> None:
+        """Disable egress pause."""
+        hvac = self._get_hvac()
+        if hvac is not None:
+            hvac.egress_manager.enabled = False
+            self._deferred_value = None
+            self.async_write_ha_state()
+
+    async def async_added_to_hass(self) -> None:
+        """Restore previous state — deferred via SIGNAL_HVAC_COORDINATOR_READY if needed.
+
+        Mirrors HVACACNudgeSwitch.async_added_to_hass exactly.
+        Bug Classes: #5 (deferred restore), #38 (unsub via async_on_remove).
+        """
+        await super().async_added_to_hass()
+
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_HVAC_COORDINATOR_READY
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass,
+                SIGNAL_HVAC_COORDINATOR_READY,
+                self._handle_hvac_ready,
+            )
+        )
+
+        last_state = await self.async_get_last_state()
+        if last_state is None or last_state.state not in ("on", "off"):
+            # v4.7.8 fix-up B-H3: fresh install (no saved state). Still
+            # discard the initial-restore gate bit so the first tick can
+            # proceed using the seeded default.
+            hvac = self._get_hvac()
+            if hvac is not None:
+                try:
+                    hvac.egress_manager._initial_restore_pending.discard(
+                        "enabled"
+                    )
+                except Exception:
+                    pass
+            return
+        target = last_state.state == "on"
+        hvac = self._get_hvac()
+        if hvac is not None:
+            hvac.egress_manager.enabled = target
+            self._deferred_value = None
+            self.async_write_ha_state()
+            return
+        # Deferred path: HVAC coord not yet registered.
+        self._deferred_value = target
+        _LOGGER.debug(
+            "HVACEgressWindowPauseSwitch: HVAC coord not ready — deferring "
+            "restore (value=%s)",
+            target,
+        )
+
+    @callback
+    def _handle_hvac_ready(self) -> None:
+        """Handle SIGNAL_HVAC_COORDINATOR_READY — complete deferred restore.
+
+        Bug Class #42: bound method, not lambda.
+        Bug Class #19: @callback fires synchronously on the event loop.
+        """
+        if self._deferred_value is None:
+            return
+        hvac = self._get_hvac()
+        if hvac is None:
+            _LOGGER.warning(
+                "HVACEgressWindowPauseSwitch: SIGNAL_HVAC_COORDINATOR_READY "
+                "fired but HVAC coord still not in hass.data — restore deferred"
+            )
+            return
+        hvac.egress_manager.enabled = self._deferred_value
+        _LOGGER.info(
+            "HVACEgressWindowPauseSwitch: deferred restore landed via "
+            "SIGNAL_HVAC_COORDINATOR_READY (value=%s)",
+            self._deferred_value,
+        )
+        self._deferred_value = None
+        self.async_write_ha_state()
+
+    @property
+    def available(self) -> bool:
+        """Only available when HVAC coordinator is active."""
+        return self._get_hvac() is not None

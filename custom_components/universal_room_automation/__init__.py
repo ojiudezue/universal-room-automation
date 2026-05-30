@@ -818,6 +818,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                             ("person_data", "cleanup_person_data", {"retention_days": 90}),
                             ("room_energy_baselines", "cleanup_room_energy_baselines", {"retention_days": 90}),
                             ("anomaly_log", "cleanup_anomaly_log", {"retention_days_point_in_time": 90, "retention_days_regime_shift": 365}),
+                            # v4.7.8 fix-up B-H1 / C-H2 (Bug Class #27):
+                            # paired cleanup for egress_state. Bounded by
+                            # zone count but deleted rooms / orphaned
+                            # transitions need a sweep to age out.
+                            ("egress_state", "prune_stale_egress_state", {"cutoff_days": 7}),
                         ]
 
                         async def _nightly_db_maintenance(_now):
@@ -919,6 +924,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 ("person_data", "cleanup_person_data", {"retention_days": 90}),
                 ("room_energy_baselines", "cleanup_room_energy_baselines", {"retention_days": 90}),
                 ("anomaly_log", "cleanup_anomaly_log", {"retention_days_point_in_time": 90, "retention_days_regime_shift": 365}),
+                # v4.7.8 fix-up B-H1 / C-H2 (Bug Class #27): mirror primary
+                # path so the deferred-startup branch also schedules the
+                # egress_state prune.
+                ("egress_state", "prune_stale_egress_state", {"cutoff_days": 7}),
             ]
 
             async def _nightly_maintenance_deferred(_now):
@@ -2032,6 +2041,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                         preheat_forecast_low=float(cm_config.get(
                             CONF_HVAC_PREHEAT_FORECAST_LOW,
                             DEFAULT_HVAC_PREHEAT_FORECAST_LOW,
+                        )),
+                        # v4.7.8 D2: Egress Window HVAC Pause seeds from CM
+                        # config. RestoreEntity-backed switch + 2 Numbers are
+                        # the runtime source of truth; these values seed
+                        # install-time only.
+                        egress_pause_enabled=bool(cm_config.get(
+                            "hvac_egress_pause_enabled", True,
+                        )),
+                        egress_threshold_min=int(cm_config.get(
+                            "hvac_egress_threshold_min", 3,
+                        )),
+                        egress_resume_delay_min=int(cm_config.get(
+                            "hvac_egress_resume_delay_min", 1,
                         )),
                     )
                     coordinator_manager.register_coordinator(hvac)

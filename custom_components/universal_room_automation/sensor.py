@@ -365,6 +365,12 @@ async def async_setup_entry(
                     hass, entry, zone_id, _zname, _thermostat,
                 )
             )
+            # v4.7.8 D5: per-canonical-zone egress state-machine sensor.
+            coordinator_sensors.append(
+                HVACZoneEgressStateSensor(hass, entry, zone_id, _zname)
+            )
+        # v4.7.8 D5: single global "paused zones" rollup sensor on HVAC Coordinator.
+        coordinator_sensors.append(HVACEgressPausedZonesSensor(hass, entry))
         # v4.6.0 D4/D5 accuracy sensors + v4.6.2 D5 routine_status sensors
         # are registered via aggregation.async_setup_aggregation_sensors
         # (Integration entry), NOT here in the CM entry path — they bind to
@@ -12763,3 +12769,171 @@ class CoordinatorLastDecisionSensor(AggregationEntity, SensorEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         return dict(self._last_attrs)
+
+
+
+# =============================================================================
+# v4.7.8 D5 — Egress Window HVAC Pause sensors (end-of-file append)
+# -----------------------------------------------------------------------------
+# All sensors read from in-memory EgressManager state — NO DB read on
+# async_update (Bug Class #26).
+# =============================================================================
+
+
+class HVACZoneEgressStateSensor(SensorEntity):
+    """State-machine label per canonical HVAC zone (v4.7.8 D5).
+
+    Reads in-memory state from EgressManager.state_label / get_zone_info.
+    No DB I/O on async_update (Bug Class #26). Updates via the existing
+    SIGNAL_HVAC_ENTITIES_UPDATE tick.
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:gate-open"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        entry: ConfigEntry,
+        zone_id: str,
+        zone_name: str,
+    ) -> None:
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .const import VERSION
+        self.hass = hass
+        self._entry = entry
+        self._zone_id = zone_id
+        self._zone_name = zone_name
+        self._attr_unique_id = f"{DOMAIN}_hvac_zone_{zone_id}_egress_state"
+        self._attr_name = f"{zone_name} Egress State"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "hvac_coordinator")},
+            name="URA: HVAC Coordinator",
+            manufacturer="Universal Room Automation",
+            model="HVAC Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+
+    def _get_egress(self):
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        hvac = manager.coordinators.get("hvac")
+        if hvac is None:
+            return None
+        return getattr(hvac, "egress_manager", None)
+
+    @property
+    def native_value(self) -> str | None:
+        em = self._get_egress()
+        if em is None:
+            return "idle"
+        try:
+            return em.state_label(self._zone_id)
+        except Exception:
+            return "idle"
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        em = self._get_egress()
+        if em is None:
+            return {"zone_id": self._zone_id}
+        try:
+            info = em.get_zone_info(self._zone_id)
+            info["zone_id"] = self._zone_id
+            return info
+        except Exception:
+            return {"zone_id": self._zone_id}
+
+    @property
+    def available(self) -> bool:
+        return self._get_egress() is not None
+
+    async def async_added_to_hass(self) -> None:
+        """Refresh on every HVAC tick."""
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.hvac_const import SIGNAL_HVAC_ENTITIES_UPDATE
+
+        @callback
+        def _on_update(*_a, **_kw):
+            self.async_write_ha_state()
+
+        self.async_on_remove(
+            async_dispatcher_connect(self.hass, SIGNAL_HVAC_ENTITIES_UPDATE, _on_update)
+        )
+
+
+class HVACEgressPausedZonesSensor(SensorEntity):
+    """Global count of zones currently paused by EgressManager (v4.7.8 D5)."""
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:pause-circle-outline"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .const import VERSION
+        self.hass = hass
+        self._entry = entry
+        self._attr_unique_id = f"{DOMAIN}_hvac_egress_paused_zones"
+        self._attr_name = "Egress Paused Zones"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "hvac_coordinator")},
+            name="URA: HVAC Coordinator",
+            manufacturer="Universal Room Automation",
+            model="HVAC Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+
+    def _get_egress(self):
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        hvac = manager.coordinators.get("hvac")
+        if hvac is None:
+            return None
+        return getattr(hvac, "egress_manager", None)
+
+    @property
+    def native_value(self) -> int:
+        em = self._get_egress()
+        if em is None:
+            return 0
+        try:
+            return len(em.paused_zones())
+        except Exception:
+            return 0
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        em = self._get_egress()
+        if em is None:
+            return {"paused_zones": [], "cooldowns": {}}
+        try:
+            return {
+                "paused_zones": em.paused_zones(),
+                "cooldowns": em.get_cooldowns(),
+            }
+        except Exception:
+            return {"paused_zones": [], "cooldowns": {}}
+
+    @property
+    def available(self) -> bool:
+        return self._get_egress() is not None
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.hvac_const import SIGNAL_HVAC_ENTITIES_UPDATE
+
+        @callback
+        def _on_update(*_a, **_kw):
+            self.async_write_ha_state()
+
+        self.async_on_remove(
+            async_dispatcher_connect(self.hass, SIGNAL_HVAC_ENTITIES_UPDATE, _on_update)
+        )
