@@ -78,16 +78,13 @@ def _load_egress_module():
         ha_util = types.ModuleType("homeassistant.util")
         ha_util.__path__ = []
         sys.modules["homeassistant.util"] = ha_util
+    # Only install our stub if no homeassistant.util.dt is registered yet.
+    # If another test already installed one, we DON'T mutate it — we patch
+    # the egress module's `dt_util` attribute directly after import below.
     if "homeassistant.util.dt" not in sys.modules:
         ha_util_dt = types.ModuleType("homeassistant.util.dt")
-        # _NOW_OVERRIDE is set by tests via _set_test_now() to control time.
-        ha_util_dt._NOW_OVERRIDE = None
-        def _now():
-            if ha_util_dt._NOW_OVERRIDE is not None:
-                return ha_util_dt._NOW_OVERRIDE
-            return datetime.now(timezone.utc)
-        ha_util_dt.now = _now
-        ha_util_dt.utcnow = _now
+        ha_util_dt.now = lambda: datetime.now(timezone.utc)
+        ha_util_dt.utcnow = lambda: datetime.now(timezone.utc)
         ha_util_dt.parse_datetime = lambda s: (
             datetime.fromisoformat(s) if s else None
         )
@@ -137,6 +134,28 @@ def _load_egress_module():
     mod.__package__ = "ura_egress_pkg.domain_coordinators"
     sys.modules["ura_egress_pkg.domain_coordinators.hvac_egress"] = mod
     spec.loader.exec_module(mod)
+
+    # Replace dt_util on the loaded module with a controllable stub so
+    # state_label / cooldown sweep comparisons are deterministic. We do NOT
+    # mutate the global homeassistant.util.dt module — other tests rely on it.
+    class _DtStub:
+        _NOW_OVERRIDE = None
+
+        @classmethod
+        def now(cls):
+            if cls._NOW_OVERRIDE is not None:
+                return cls._NOW_OVERRIDE
+            return datetime.now(timezone.utc)
+
+        @classmethod
+        def utcnow(cls):
+            return cls.now()
+
+        @staticmethod
+        def parse_datetime(s):
+            return datetime.fromisoformat(s) if s else None
+
+    mod.dt_util = _DtStub
     sys.modules["ura_egress_under_test"] = mod
     return mod
 
@@ -276,8 +295,10 @@ def _now_at(seconds=0):
 
 def _set_test_now(when: datetime) -> None:
     """Override dt_util.now() inside the loaded module so state_label /
-    cooldown comparisons are deterministic."""
-    sys.modules["homeassistant.util.dt"]._NOW_OVERRIDE = when
+    cooldown comparisons are deterministic. Patches the module-local dt_util
+    stub (not the global homeassistant.util.dt module)."""
+    mod = _load_egress_module()
+    mod.dt_util._NOW_OVERRIDE = when
 
 
 # ---------------------------------------------------------------------------
