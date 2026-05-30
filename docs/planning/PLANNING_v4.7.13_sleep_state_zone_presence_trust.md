@@ -52,7 +52,7 @@ Activity stream from 2026-05-30 night confirms 1:1 correlation:
 
 ## 2. Design — three-location short-circuit
 
-All three additions mirror the existing `house_state == "sleep"` skip pattern at `hvac.py:1502` (duty-cycle enforcement skip during sleep). Rationale precedent already lives in the codebase — this extends it to occupancy aggregation, preset transitions, and fan vacancy.
+All three additions mirror the existing `house_state == "sleep"` skip pattern at `hvac.py:865` (D6 stale-failsafe sleep skip) and `hvac.py:897` (D5 duty-cycle sleep skip). Rationale precedent already lives in the codebase — this extends it to occupancy aggregation, preset transitions, and fan vacancy.
 
 ### D1 — Zone occupancy aggregator fallback
 
@@ -192,6 +192,6 @@ After implementation, document explicitly:
 
 - Memory backlog: `project_sleep_state_zone_presence_trust_backlog.md`
 - Diagnostic conversation: prior session ending 2026-05-30, master bedroom fan investigation
-- Precedent: `hvac.py:1502` `if self._house_state == "sleep": continue` (existing pattern)
+- Precedents: `hvac.py:865` (D6 stale-failsafe `and self._house_state != "sleep"`) and `hvac.py:897` (D5 duty-cycle `and self._house_state != "sleep"`) — existing patterns
 - FanController vacancy hold: `hvac_fans.py:304-377` `_evaluate_temp_fan`
 - FanController constant: `hvac_const.py:257` `DEFAULT_FAN_VACANCY_HOLD = 300`

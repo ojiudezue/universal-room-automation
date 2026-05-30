@@ -915,7 +915,9 @@ class HVACCoordinator(BaseCoordinator):
             # v4.7.13: Sleep-state zone presence trust — suppress preset flip
             # to "away" during sleep when any zone_persons member is "home".
             # Mirrors the D5 duty-cycle / D6 stale-failsafe sleep-skip pattern
-            # (precedent: line 1502 `if self._house_state == "sleep": continue`).
+            # (precedents: D6 stale-failsafe `and self._house_state != "sleep"`
+            # at hvac.py:865; D5 duty-cycle `and self._house_state != "sleep"`
+            # at hvac.py:897).
             # Rationale: room sensors degenerate during sleep (mmWave drops
             # motionless bodies, PIR can't fire on stationary, camera blind in
             # dark room). The phone-based person tracker is the stable signal.
