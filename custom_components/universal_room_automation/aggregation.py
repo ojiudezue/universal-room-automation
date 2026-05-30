@@ -183,6 +183,12 @@ from .domain_coordinators.energy_billing import _get_effective_rate_kwh
 
 _LOGGER = logging.getLogger(__name__)
 
+# v4.7.13 fix-up MEDIUM-2 (interim): Track zones for which the sleep-state
+# person fallback was unavailable so we WARN at most once per boot per zone.
+# Module-level intentionally: cleared on HA process restart, persists across
+# coordinator reloads within a single boot.
+_SLEEP_FALLBACK_WARNED_ZONES: set[str] = set()
+
 # Update interval for aggregation sensors
 AGGREGATION_UPDATE_INTERVAL = timedelta(seconds=30)
 
@@ -3209,6 +3215,13 @@ class ZoneAnyoneBinarySensor(ZoneSensorBase, BinarySensorEntity):
 
         Guarded with try/except: any failure (missing manager, missing zone,
         stale state lookup) returns False — never raises into HA state read.
+
+        v4.7.13 fix-up MEDIUM-2 (interim): If the fallback path is unavailable
+        WHILE house_state == "sleep" (boot race: HVAC coordinator not yet
+        booted, _zone_manager.zones empty, or zone not registered), emit a
+        one-shot WARN per zone per boot. Without this, an overnight HA
+        restart could silently leave the room degraded — exactly the bug
+        v4.7.13 fixes. Full public-accessor refactor deferred to v4.7.13.1+.
         """
         try:
             manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
@@ -3221,10 +3234,16 @@ class ZoneAnyoneBinarySensor(ZoneSensorBase, BinarySensorEntity):
 
             hvac = manager.coordinators.get("hvac") if hasattr(manager, "coordinators") else None
             if hvac is None or not hasattr(hvac, "_zone_manager"):
+                self._warn_sleep_fallback_unavailable(
+                    "hvac coordinator or _zone_manager not ready",
+                )
                 return False
 
             zone = hvac._zone_manager.zones.get(self.zone)
             if zone is None:
+                self._warn_sleep_fallback_unavailable(
+                    "zone not registered in zone_manager.zones",
+                )
                 return False
 
             zone_persons = getattr(zone, "zone_persons", None) or []
@@ -3232,6 +3251,7 @@ class ZoneAnyoneBinarySensor(ZoneSensorBase, BinarySensorEntity):
                 return False
 
             for person_entity in zone_persons:
+                # Strict "home" only — unknown/unavailable intentionally not trusted.
                 state = self.hass.states.get(person_entity)
                 if state is not None and state.state == "home":
                     _LOGGER.info(
@@ -3242,11 +3262,29 @@ class ZoneAnyoneBinarySensor(ZoneSensorBase, BinarySensorEntity):
                     return True
             return False
         except Exception as exc:  # noqa: BLE001
-            _LOGGER.debug(
-                "Zone '%s': sleep-state person fallback errored: %s",
-                self.zone, exc,
+            self._warn_sleep_fallback_unavailable(
+                f"unexpected exception: {exc}",
             )
             return False
+
+    def _warn_sleep_fallback_unavailable(self, reason: str) -> None:
+        """Log a one-shot WARN per zone per boot when the sleep fallback is unavailable.
+
+        v4.7.13 fix-up MEDIUM-2 (interim). Only fires while house_state == "sleep"
+        because that is the only state where the missing fallback can cause the
+        bug v4.7.13 fixes (motionless occupants reported unoccupied). The caller
+        has already verified sleep state before reaching the warn sites.
+        """
+        zone_id_for_warn = getattr(self, "zone", "?")
+        if zone_id_for_warn in _SLEEP_FALLBACK_WARNED_ZONES:
+            return
+        _SLEEP_FALLBACK_WARNED_ZONES.add(zone_id_for_warn)
+        _LOGGER.warning(
+            "v4.7.13 sleep fallback unavailable for zone=%s (%s). During sleep "
+            "with motionless occupants, room may incorrectly report unoccupied. "
+            "Subsequent occurrences this boot suppressed.",
+            zone_id_for_warn, reason,
+        )
 
 
 class ZoneSafetyAlertSensor(ZoneSensorBase, BinarySensorEntity):

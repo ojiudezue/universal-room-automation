@@ -693,3 +693,177 @@ class TestD3SourceShape:
         assert "vacancy_detected_time =" not in block, (
             "Sleep-state guard must not clear vacancy timer"
         )
+
+
+# ============================================================================
+# v4.7.13 fix-up MEDIUM-2 — one-shot WARN per zone when sleep fallback unavailable
+# ============================================================================
+
+class TestMedium2OneShotSleepFallbackWarn:
+    """Source + behavioral guarantees for the interim observability WARN."""
+
+    def test_warn_helper_method_exists(self, agg_src: str):
+        """The _warn_sleep_fallback_unavailable helper must be defined."""
+        assert "def _warn_sleep_fallback_unavailable" in agg_src, (
+            "MEDIUM-2 interim WARN helper not found in aggregation.py"
+        )
+
+    def test_module_level_warned_zones_set_exists(self, agg_src: str):
+        """A module-level set must track already-warned zones."""
+        assert "_SLEEP_FALLBACK_WARNED_ZONES" in agg_src, (
+            "Module-level _SLEEP_FALLBACK_WARNED_ZONES set required for "
+            "one-shot WARN semantics"
+        )
+
+    def test_warn_invoked_from_unavailable_branches(self, agg_src: str):
+        """The fallback helper must call the warn helper from unavailable paths."""
+        tree = ast.parse(agg_src)
+        helper = None
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.FunctionDef)
+                and node.name == "_sleep_person_fallback_occupied"
+            ):
+                helper = node
+                break
+        assert helper is not None
+        src = ast.unparse(helper)
+        # At minimum the helper must reference the warn helper. Specific
+        # branch placement is verified by behavioral tests below.
+        assert "_warn_sleep_fallback_unavailable" in src, (
+            "Helper must invoke _warn_sleep_fallback_unavailable on "
+            "unavailability paths"
+        )
+
+    @staticmethod
+    def _build_warn_harness() -> tuple:
+        """Exec both the helper and the warn function into one namespace.
+
+        Returns (helper_fn, warn_fn, warned_set, log_calls_list).
+        """
+        src = _read(AGGREGATION_PY)
+        tree = ast.parse(src)
+        helper_node = None
+        warn_node = None
+        for node in ast.walk(tree):
+            if isinstance(node, ast.FunctionDef):
+                if node.name == "_sleep_person_fallback_occupied":
+                    helper_node = node
+                elif node.name == "_warn_sleep_fallback_unavailable":
+                    warn_node = node
+        assert helper_node is not None, "helper missing"
+        assert warn_node is not None, "warn helper missing"
+
+        log_calls: list[tuple] = []
+
+        class _Logger:
+            def warning(self, *args, **kwargs):
+                log_calls.append(("warning", args, kwargs))
+
+            def info(self, *args, **kwargs):
+                log_calls.append(("info", args, kwargs))
+
+            def debug(self, *args, **kwargs):
+                log_calls.append(("debug", args, kwargs))
+
+        ns: dict = {
+            "DOMAIN": "universal_room_automation",
+            "_LOGGER": _Logger(),
+            "_SLEEP_FALLBACK_WARNED_ZONES": set(),
+        }
+        exec(  # noqa: S102
+            compile(ast.unparse(helper_node), "<helper>", "exec"), ns
+        )
+        exec(  # noqa: S102
+            compile(ast.unparse(warn_node), "<warn>", "exec"), ns
+        )
+        return (
+            ns["_sleep_person_fallback_occupied"],
+            ns["_warn_sleep_fallback_unavailable"],
+            ns["_SLEEP_FALLBACK_WARNED_ZONES"],
+            log_calls,
+        )
+
+    def test_warn_fires_once_then_suppresses_for_same_zone(self):
+        """First unavailability for a zone WARNs; subsequent calls suppressed."""
+        helper, warn, warned_set, log_calls = self._build_warn_harness()
+
+        # Build a fake "self" whose hass-data path yields manager with hvac=None
+        # so the unavailability branch fires.
+        fake = _make_fake_self(
+            house_state="sleep",
+            zone_persons=["person.oji"],
+            person_states={"person.oji": "home"},
+            have_hvac=False,  # forces "hvac coordinator not ready" branch
+        )
+        # Bind the warn helper so helper(fake) can call self._warn_...
+        fake._warn_sleep_fallback_unavailable = (
+            lambda reason: warn(fake, reason)  # noqa: E731
+        )
+        # Inject the shared warned_set into the warn helper's globals already
+        # done by the harness namespace.
+
+        # First call: WARN should fire.
+        result1 = helper(fake)
+        assert result1 is False
+        warnings_after_first = [c for c in log_calls if c[0] == "warning"]
+        assert len(warnings_after_first) == 1, (
+            f"Expected 1 WARN after first call, got {len(warnings_after_first)}: "
+            f"{warnings_after_first}"
+        )
+        assert "test_zone" in warned_set
+
+        # Second call (same zone): WARN must be suppressed.
+        result2 = helper(fake)
+        assert result2 is False
+        warnings_after_second = [c for c in log_calls if c[0] == "warning"]
+        assert len(warnings_after_second) == 1, (
+            f"Second call must NOT emit additional WARN; got "
+            f"{len(warnings_after_second)} warnings total: "
+            f"{warnings_after_second}"
+        )
+
+    def test_warn_fires_independently_for_different_zones(self):
+        """Different zones each get their own one-shot WARN."""
+        helper, warn, warned_set, log_calls = self._build_warn_harness()
+
+        for zone_name in ("zone_alpha", "zone_beta"):
+            fake = _make_fake_self(
+                house_state="sleep",
+                zone_persons=["person.oji"],
+                person_states={"person.oji": "home"},
+                have_hvac=False,
+            )
+            fake.zone = zone_name
+            fake._warn_sleep_fallback_unavailable = (
+                lambda reason, _f=fake: warn(_f, reason)  # noqa: E731
+            )
+            helper(fake)
+
+        warnings_total = [c for c in log_calls if c[0] == "warning"]
+        assert len(warnings_total) == 2, (
+            f"Expected one WARN per distinct zone (2 total); got "
+            f"{len(warnings_total)}: {warnings_total}"
+        )
+        assert warned_set == {"zone_alpha", "zone_beta"}
+
+    def test_warn_does_not_fire_when_not_in_sleep_state(self):
+        """If house_state != sleep, the helper returns early without WARNing."""
+        helper, warn, warned_set, log_calls = self._build_warn_harness()
+
+        fake = _make_fake_self(
+            house_state="home_day",  # NOT sleep
+            zone_persons=["person.oji"],
+            person_states={"person.oji": "home"},
+            have_hvac=False,
+        )
+        fake._warn_sleep_fallback_unavailable = (
+            lambda reason: warn(fake, reason)  # noqa: E731
+        )
+        helper(fake)
+
+        warnings = [c for c in log_calls if c[0] == "warning"]
+        assert len(warnings) == 0, (
+            f"WARN must only fire during sleep; got: {warnings}"
+        )
+        assert warned_set == set()
