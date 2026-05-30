@@ -142,6 +142,18 @@ class _FakeAnomalyEvent:
         _resolved_type = anomaly_type if anomaly_type is not None else event_class
         if _resolved_type is None:
             _resolved_type = "point_in_time"
+        # v4.7.12 Reviewer C fix-up (C-H2): mirror production
+        # AnomalyEvent.__post_init__ validation so fakes can't smuggle
+        # garbage discriminators past the test suite. The closed set
+        # MUST match AnomalyType members in anomaly_event.py.
+        _VALID_ANOMALY_TYPES = {
+            "point_in_time", "regime_shift", "hazard", "transition_invalid",
+        }
+        if str(_resolved_type) not in _VALID_ANOMALY_TYPES:
+            raise ValueError(
+                f"_FakeAnomalyEvent.anomaly_type must be one of {_VALID_ANOMALY_TYPES}; "
+                f"got {_resolved_type!r}"
+            )
         self.anomaly_type = _resolved_type
         self.event_class = _resolved_type  # legacy alias readback
         self.detected_at = detected_at or datetime.now(timezone.utc).isoformat()

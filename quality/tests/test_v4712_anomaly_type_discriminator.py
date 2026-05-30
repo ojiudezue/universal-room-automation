@@ -403,6 +403,22 @@ def test_migration_idempotent_under_user_version_gate(real_schema_db):
 # DAO dual-write behavior
 # ---------------------------------------------------------------------------
 
+def test_fake_anomaly_event_rejects_invalid_anomaly_type():
+    """v4.7.12 C-H2 fix-up: _FakeAnomalyEvent mirrors production validation.
+
+    Reviewer C found that ``_FakeAnomalyEvent.__init__`` did not validate
+    its ``anomaly_type`` against the AnomalyType closed set — letting
+    tests smuggle garbage discriminators through the helper-based test
+    paths even though the production ``AnomalyEvent.__post_init__`` would
+    reject the same value. With the fix-up, the helper now raises
+    ``ValueError`` on unknown values, mirroring the production contract.
+    """
+    from tests.test_v463_behavioral_dao import _FakeAnomalyEvent
+
+    with pytest.raises(ValueError, match="anomaly_type"):
+        _FakeAnomalyEvent(anomaly_type="banana")
+
+
 def test_save_anomaly_event_dual_writes_both_columns(real_schema_db):
     """v4.7.12 D1: save_anomaly_event writes the same value to both columns."""
     from tests.test_v463_behavioral_dao import _insert_anomaly, _FakeAnomalyEvent
@@ -423,16 +439,29 @@ def test_save_anomaly_event_dual_writes_both_columns(real_schema_db):
     assert row["event_class"] == row["anomaly_type"]
 
 
-def test_save_anomaly_event_resolution_prefers_anomaly_type_over_event_class(
+def test_insert_anomaly_helper_resolution_order_or_semantics(
     real_schema_db,
 ):
-    """v4.7.12 D1: when both attrs present, anomaly_type wins.
+    """v4.7.12 C-H1 fix-up: test the TEST-HELPER ``_insert_anomaly`` resolution.
 
-    The production DAO reads ``event.anomaly_type`` first, then falls back
-    to ``event.event_class``. Confirm the resolution order with a duck-
-    typed event whose two attributes disagree (would never happen in real
-    code because the AnomalyEvent.__post_init__ keeps them in sync, but
-    the DAO contract is what we're testing here).
+    Honest naming: this test exercises ``_insert_anomaly`` in
+    ``test_v463_behavioral_dao.py``, NOT the production DAO. The helper's
+    resolution chain is:
+
+        _discriminator = (
+            getattr(event, "anomaly_type", None)
+            or getattr(event, "event_class", None)
+        )
+
+    which is the ``or`` short-circuit — distinct from the production DAO's
+    explicit ``is None`` chain at ``database.py:4765-4769``. Both forms
+    agree when one attr is non-None and the other is None; they diverge
+    only on falsy-but-not-None values (the empty string), which no caller
+    constructs. We assert the agreement case (anomaly_type wins, both
+    columns get its value via dual-write).
+
+    The PRODUCTION resolution order is covered separately by
+    ``test_save_anomaly_event_production_resolution_prefers_anomaly_type``.
     """
     from tests.test_v463_behavioral_dao import _insert_anomaly, _FakeAnomalyEvent
 
@@ -454,6 +483,87 @@ def test_save_anomaly_event_resolution_prefers_anomaly_type_over_event_class(
     # Both columns get the anomaly_type value (test-side mirrors prod DAO).
     assert row["anomaly_type"] == "regime_shift"
     assert row["event_class"] == "regime_shift"
+
+
+def test_save_anomaly_event_production_resolution_prefers_anomaly_type():
+    """v4.7.12 C-H1 fix-up: drive the REAL ``save_anomaly_event`` resolution.
+
+    Reviewer C found that the original
+    ``test_save_anomaly_event_resolution_prefers_anomaly_type_over_event_class``
+    test used the test-helper ``_insert_anomaly`` rather than the production
+    DAO. The two are subtly different (helper uses ``or``, production uses
+    ``is None``). This test extracts the production resolution block from
+    ``database.py`` by AST and exec()s it against duck-typed events with
+    the discriminating attributes disagreeing — confirming the production
+    code path picks ``anomaly_type`` over ``event_class``.
+
+    This is source-authoritative (Bug Class #44): if the resolution block
+    in ``save_anomaly_event`` changes, this test executes the NEW code.
+    """
+    src = _DATABASE_PY.read_text()
+    # Locate the resolution block inside save_anomaly_event. We narrow
+    # using two anchors that bracket the production resolution chain
+    # (see database.py:~4756-4770).
+    head = src.find("async def save_anomaly_event(")
+    assert head >= 0, "save_anomaly_event not found in database.py"
+    body_end = src.find("\n    async def ", head + 1)
+    body = src[head:body_end if body_end > 0 else head + 8000]
+    anchor = '_discriminator = getattr(event, "anomaly_type"'
+    start = body.find(anchor)
+    assert start >= 0, (
+        "Could not locate '_discriminator = getattr(event, \"anomaly_type\"' "
+        "anchor in save_anomaly_event body — production resolution block "
+        "moved or was restructured. Update this test."
+    )
+    # Walk backward to the start of the line so we capture the leading
+    # indent. textwrap.dedent then strips the uniform indent across all
+    # lines, leaving column-0 statements ready for compile()/exec().
+    line_start = body.rfind("\n", 0, start) + 1
+    end_anchor = body.find("try:", start)
+    assert end_anchor > start, (
+        "Could not find 'try:' terminator after _discriminator block — "
+        "production DAO restructured."
+    )
+    # Walk back to the line start of the 'try:' to avoid splitting it.
+    end_line_start = body.rfind("\n", 0, end_anchor) + 1
+    resolution_block = body[line_start:end_line_start]
+    import textwrap
+    resolution_block = textwrap.dedent(resolution_block)
+
+    class _Evt:
+        anomaly_type = "regime_shift"
+        event_class = "point_in_time"  # disagrees with anomaly_type
+
+    ns = {"event": _Evt()}
+    exec(compile(resolution_block, "<production_resolution>", "exec"), ns, ns)
+    assert ns["_discriminator_str"] == "regime_shift", (
+        "Production resolution chain must prefer anomaly_type over event_class; "
+        f"got _discriminator_str={ns['_discriminator_str']!r}"
+    )
+
+    # Also verify the None fallback to event_class.
+    class _EvtOnlyLegacy:
+        anomaly_type = None
+        event_class = "hazard"
+
+    ns2 = {"event": _EvtOnlyLegacy()}
+    exec(compile(resolution_block, "<production_resolution>", "exec"), ns2, ns2)
+    assert ns2["_discriminator_str"] == "hazard", (
+        "Production resolution chain must fall back to event_class when "
+        f"anomaly_type is None; got {ns2['_discriminator_str']!r}"
+    )
+
+    # And the final default-to-point_in_time fallback.
+    class _EvtNone:
+        anomaly_type = None
+        event_class = None
+
+    ns3 = {"event": _EvtNone()}
+    exec(compile(resolution_block, "<production_resolution>", "exec"), ns3, ns3)
+    assert ns3["_discriminator_str"] == "point_in_time", (
+        "Production resolution must default to 'point_in_time' when both "
+        f"attrs are None; got {ns3['_discriminator_str']!r}"
+    )
 
 
 # ---------------------------------------------------------------------------
