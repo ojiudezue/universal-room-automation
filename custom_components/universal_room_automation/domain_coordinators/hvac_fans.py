@@ -339,6 +339,29 @@ class FanController:
                 room_fan.vacancy_detected_time = now.isoformat()
             vacancy_since = datetime.fromisoformat(room_fan.vacancy_detected_time)
             vacancy_seconds = (now - vacancy_since).total_seconds()
+            # v4.7.13: Sleep-state zone presence trust — indefinite hold during
+            # sleep when any zone_persons member is "home". Covers motionless
+            # sleepers whose mmWave drops them mid-night. Vacancy timer is NOT
+            # cleared, so if the person tracker subsequently goes not-home
+            # during sleep, normal vacancy expiry takes over on the next tick.
+            if self._house_state == "sleep":
+                try:
+                    zone = self._zone_manager.zones.get(room_fan.zone_id)
+                    if zone is not None:
+                        for person_entity in (zone.zone_persons or []):
+                            st = self.hass.states.get(person_entity)
+                            if st is not None and st.state == "home":
+                                _LOGGER.debug(
+                                    "HVAC Fans: %s vacancy hold extended during "
+                                    "sleep (person %s home)",
+                                    room_fan.room_name, person_entity,
+                                )
+                                return True, room_fan.trigger, room_fan.speed_pct
+                except Exception as exc:  # noqa: BLE001
+                    _LOGGER.debug(
+                        "HVAC Fans: %s sleep-state person check errored: %s",
+                        room_fan.room_name, exc,
+                    )
             if vacancy_seconds >= DEFAULT_FAN_VACANCY_HOLD:
                 return False, "", 0
             # Hold on during vacancy window at current speed
