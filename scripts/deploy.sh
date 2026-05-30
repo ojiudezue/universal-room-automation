@@ -66,10 +66,17 @@ else
 fi
 
 # Step 4: Push to develop (GitHub origin + homelab Gitea mirror)
-# v4.7.10: switched gitea mirror to dual-push.sh --gitea-only (no double-push
-# of origin) and narrowed the swallowed exit-code range. Only rc=1 (expected
-# preflight/auth failure) is treated as a non-fatal warning; rc=2 (bash error)
-# and rc=130/143 (SIGINT/SIGTERM) propagate and halt the deploy.
+# v4.7.10 (fix-up A-H1): gitea is MIRROR-ONLY. Origin is already pushed
+# above, so any gitea failure must not halt the pipeline mid-flight (no PR,
+# no release). Only deliberate-propagation codes halt:
+#   rc=2   bash script-level error (set -e tripped)         → halt
+#   rc=130 SIGINT (user-initiated)                          → halt
+#   rc=143 SIGTERM (operator/CI-initiated)                  → halt
+# Everything else (rc=1 preflight/auth, rc=128 git network/auth/repo-path,
+# any other unexpected nonzero) → `[warn]` and CONTINUE so PR + release still
+# happen. The previous narrow-rc dispatch regressed UX vs pre-v4.7.10, which
+# swallowed ALL nonzero with [warn]. We now retain the warn-continue contract
+# AND keep the rc visible in the warning for diagnostics.
 step "4/7 Pushing to develop (origin + gitea)"
 run git -C "$REPO_DIR" push origin develop
 # Gitea mirror — only if remote exists. dual-push.sh handles credentials
@@ -85,18 +92,21 @@ if git -C "$REPO_DIR" remote get-url gitea >/dev/null 2>&1; then
     set -e
     if [ "$rc" -eq 0 ]; then
       :  # success
-    elif [ "$rc" -eq 1 ]; then
-      echo "  [warn] gitea mirror push failed (preflight or auth issue) — origin already pushed; gitea is mirror-only"
-      echo "  [warn] catch up later with: bash scripts/dual-push.sh --gitea-only develop"
     elif [ "$rc" -eq 2 ]; then
       echo "  [error] gitea push had a script-level error" >&2
       exit 2
     elif [ "$rc" -eq 130 ]; then
       echo "  [error] gitea push interrupted by user (SIGINT)" >&2
       exit 130
+    elif [ "$rc" -eq 143 ]; then
+      echo "  [error] gitea push terminated by signal (SIGTERM)" >&2
+      exit 143
     else
-      echo "  [error] gitea push exited with unexpected code $rc" >&2
-      exit "$rc"
+      # rc=1 (preflight/auth), rc=128 (git auth/network/repo-path — most
+      # common real-world failure mode), and any other unexpected nonzero
+      # all fall here. WARN and CONTINUE — gitea is mirror-only.
+      echo "  [warn] gitea mirror push failed (rc=$rc) — origin already pushed; gitea is mirror-only"
+      echo "  [warn] catch up later with: bash scripts/dual-push.sh --gitea-only develop"
     fi
   fi
 fi

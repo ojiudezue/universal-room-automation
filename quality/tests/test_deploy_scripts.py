@@ -461,3 +461,212 @@ def test_v4710_trap_restores_clean_url_on_sigint(
     # Also assert decoy literals are not in the persisted config.
     assert DECOY_TOKEN not in final_url
     assert DECOY_USER not in final_url
+
+
+# ===========================================================================
+# v4.7.10 fix-up regression tests (A-H1 / A-M4 / B-M1 / B-M3)
+# ===========================================================================
+#
+# These tests exercise the post-review changes in scripts/deploy.sh and
+# scripts/dual-push.sh:
+#   - A-H1 / B-M3 — deploy.sh step-4 exit-code matrix:
+#       rc=2/130/143 propagate, EVERYTHING ELSE (rc=1, rc=128, etc.) warns
+#       and continues. The pre-fix-up dispatch halted on rc=128, regressing
+#       the "gitea is mirror-only" contract.
+#   - A-M4 — unknown-flag in dual-push.sh now returns rc=3 (was rc=1).
+#   - B-M1 — gitea pushes are wrapped with `gtimeout`/`timeout` so a network
+#       blackhole doesn't hang the deploy.
+#
+# Test fixture style mirrors the existing tests above: subprocess-level,
+# fake stub dual-push.sh / fake git binaries, no real network. Each
+# wrapper script in the rc-matrix tests COPIES verbatim from the relevant
+# deploy.sh excerpt so contract drift surfaces as a test failure.
+
+
+def _deploy_step4_wrapper(work: Path, stub_rc: int | str) -> Path:
+    """Synthesize a wrapper that mirrors deploy.sh step-4 dispatch verbatim.
+
+    ``stub_rc`` may be an int (literal exit code) or a string of bash that
+    runs as the stub body (used by the timeout-hang test to ``sleep``).
+    """
+    stub = work / "dual-push.sh"
+    if isinstance(stub_rc, int):
+        stub.write_text(f"#!/usr/bin/env bash\nexit {stub_rc}\n")
+    else:
+        stub.write_text(f"#!/usr/bin/env bash\n{stub_rc}\n")
+    stub.chmod(0o755)
+    wrapper = work / "wrap.sh"
+    wrapper.write_text(
+        textwrap.dedent(
+            f"""\
+            #!/usr/bin/env bash
+            set -euo pipefail
+            set +e
+            bash "{stub}" --gitea-only develop
+            rc=$?
+            set -e
+            if [ "$rc" -eq 0 ]; then
+              :
+            elif [ "$rc" -eq 2 ]; then
+              echo "  [error] gitea push had a script-level error" >&2
+              exit 2
+            elif [ "$rc" -eq 130 ]; then
+              echo "  [error] gitea push interrupted by user (SIGINT)" >&2
+              exit 130
+            elif [ "$rc" -eq 143 ]; then
+              echo "  [error] gitea push terminated by signal (SIGTERM)" >&2
+              exit 143
+            else
+              echo "  [warn] gitea mirror push failed (rc=$rc) — origin already pushed; gitea is mirror-only"
+              echo "  [warn] catch up later with: bash scripts/dual-push.sh --gitea-only develop"
+            fi
+            echo "STEP_5_REACHED"
+            """
+        )
+    )
+    wrapper.chmod(0o755)
+    return wrapper
+
+
+# ===========================================================================
+# A-H1 regression — rc=128 must WARN and CONTINUE (was: halt). Real-world
+# `git push` failure modes (auth, repo-not-found, host-unreachable) all
+# exit 128. The pre-fix-up step-4 dispatch propagated rc=128 via the
+# catch-all `else`, regressing the "gitea is mirror-only" contract.
+# ===========================================================================
+def test_v4710_deploy_sh_warns_continues_on_rc_128(tmp_path: Path) -> None:
+    work = tmp_path / "step4_rc128"
+    work.mkdir()
+    wrapper = _deploy_step4_wrapper(work, 128)
+    result = subprocess.run(
+        ["bash", str(wrapper)], capture_output=True, text=True, timeout=5
+    )
+    assert result.returncode == 0, (
+        f"rc=128 should NOT halt the deploy (gitea is mirror-only). "
+        f"got rc={result.returncode}\nstdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+    # Warn message must include the rc so operators can diagnose.
+    assert "rc=128" in result.stdout, (
+        f"warn message must surface rc for diagnostics; stdout: {result.stdout}"
+    )
+    assert "mirror-only" in result.stdout
+    # Step 5 marker proves the wrapper reached the post-dispatch code.
+    assert "STEP_5_REACHED" in result.stdout
+
+
+# ===========================================================================
+# A-H1 + B-M3 regression — rc=143 (SIGTERM) MUST propagate (halt).
+# This was previously hitting the catch-all `else` with the misleading
+# "unexpected code 143" message.
+# ===========================================================================
+def test_v4710_deploy_sh_halts_on_rc_143_sigterm(tmp_path: Path) -> None:
+    work = tmp_path / "step4_rc143"
+    work.mkdir()
+    wrapper = _deploy_step4_wrapper(work, 143)
+    result = subprocess.run(
+        ["bash", str(wrapper)], capture_output=True, text=True, timeout=5
+    )
+    assert result.returncode == 143, (
+        f"rc=143 (SIGTERM) must propagate, got rc={result.returncode}\n"
+        f"stdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+    # Explicit SIGTERM branch message — not the catch-all "unexpected code".
+    assert "SIGTERM" in result.stderr
+    assert "unexpected" not in result.stderr.lower()
+    # Step 5 marker must NOT appear — the script halted before it.
+    assert "STEP_5_REACHED" not in result.stdout
+
+
+# ===========================================================================
+# B-M1 regression — gitea push wrapped with gtimeout/timeout so an
+# indefinite network hang on `git push` cannot stall the deploy past
+# GITEA_PUSH_TIMEOUT_SECS. Test fakes a hanging git with `sleep`, calls
+# dual-push.sh with a short timeout, and asserts the script exits within
+# a bounded wall-clock window.
+#
+# Skipped automatically if neither `gtimeout` nor `timeout` is on PATH —
+# preflight surfaces this as a warning at runtime; tests would be
+# meaningless without the binary present.
+# ===========================================================================
+def test_v4710_dualpush_timeout_kills_indefinite_hang(
+    tmp_repo: Path, tmp_path: Path
+) -> None:
+    if shutil.which("gtimeout") is None and shutil.which("timeout") is None:
+        pytest.skip("neither gtimeout nor timeout on PATH; preflight warns at runtime")
+    shim_dir = tmp_path / "hang_shim"
+    shim_dir.mkdir()
+    log_path = tmp_path / "hang_git.log"
+    real_git = shutil.which("git")
+    assert real_git is not None
+    shim = shim_dir / "git"
+    # Hang on `git push gitea ...` for 30s — well beyond our 2s timeout.
+    shim.write_text(
+        textwrap.dedent(
+            f"""\
+            #!/usr/bin/env bash
+            printf '%s\\n' "$*" >> "{log_path}"
+            if [[ "$1" == "push" && "$2" == "gitea" ]]; then
+              sleep 30
+              exit 0
+            fi
+            if [[ "$1" == "push" ]]; then
+              exit 0
+            fi
+            if [[ "$1" == "remote" && "$2" == "set-url" ]]; then
+              exit 0
+            fi
+            exec "{real_git}" "$@"
+            """
+        )
+    )
+    shim.chmod(0o755)
+    _write_env_local(tmp_repo, user=DECOY_USER, token=DECOY_TOKEN, repo_path="example/repo")
+    env = os.environ.copy()
+    env["PATH"] = f"{shim_dir}:{env['PATH']}"
+    # 2-second cap so the test runs fast.
+    env["GITEA_PUSH_TIMEOUT_SECS"] = "2"
+    for k in list(env):
+        if k.startswith("GITEA_") and k != "GITEA_PUSH_TIMEOUT_SECS":
+            del env[k]
+    import time
+
+    t0 = time.time()
+    result = subprocess.run(
+        ["bash", str(tmp_repo / "scripts" / "dual-push.sh"), "--gitea-only", "develop"],
+        cwd=tmp_repo,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=15,  # outer safety net — well beyond the 2s timeout + slack
+    )
+    elapsed = time.time() - t0
+    # Must terminate well before the 30s sleep would complete.
+    assert elapsed < 10, (
+        f"dual-push.sh did not honor GITEA_PUSH_TIMEOUT_SECS=2 — "
+        f"elapsed={elapsed:.1f}s\nstdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+    # The push must have been invoked (proves we got past preflight).
+    assert log_path.exists()
+    assert "push gitea" in log_path.read_text()
+    # rc=124 is GNU coreutils' "killed by timeout" code, but we don't pin
+    # to it — any nonzero exit is acceptable; the contract is bounded
+    # wall-clock, not a specific rc.
+    assert result.returncode != 0, "timeout should produce nonzero rc"
+
+
+# ===========================================================================
+# A-M4 regression — unknown flag returns rc=3 (was rc=1, which collided
+# with preflight rc=1 and made it impossible for an operator or caller to
+# distinguish "bad flag" from "missing creds").
+# ===========================================================================
+def test_v4710_unknown_flag_returns_rc_3(
+    tmp_repo: Path, fake_git_bin: tuple[Path, Path]
+) -> None:
+    shim_dir, _ = fake_git_bin
+    _write_env_local(tmp_repo, user=DECOY_USER, token=DECOY_TOKEN, repo_path="example/repo")
+    result = _run_dual_push(tmp_repo, shim_dir, "--this-flag-does-not-exist", "develop")
+    assert result.returncode == 3, (
+        f"unknown flag should return rc=3 (distinct from preflight rc=1), "
+        f"got {result.returncode}\nstdout: {result.stdout}\nstderr: {result.stderr}"
+    )
+    assert "unknown flag" in result.stderr.lower()

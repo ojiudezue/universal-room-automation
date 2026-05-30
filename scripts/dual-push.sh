@@ -15,28 +15,54 @@
 #   _dualpush_preflight() fail-fast checks BEFORE any push and BEFORE any
 #     URL rewrite that could embed a token in .git/config.
 #
-# Exit-code contract (v4.7.10 lock-in):
+# Exit-code contract (v4.7.10 lock-in, fix-up clarification):
 #   0   success
 #   1   preflight failure OR push rejected (expected, gitea-side mirror miss)
 #   2   bash script-level error (set -e tripped)
+#   3   CLI usage error: unknown flag OR duplicate flag (A-M4 / A-L3 fix-up)
+#   128 propagated from `git push` (auth/network/repo-path — caller WARNs)
 #   130 SIGINT  (caller halts deploy)
 #   143 SIGTERM (caller halts deploy)
 set -euo pipefail
+
+# Push timeout (seconds). Set to 0 to disable. macOS users get `gtimeout`
+# from coreutils (`brew install coreutils`); Linux users get `timeout` from
+# coreutils-by-default. Preflight warns if neither is on PATH (B-M1 fix-up).
+GITEA_PUSH_TIMEOUT_SECS="${GITEA_PUSH_TIMEOUT_SECS:-60}"
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT_DIR"
 
 # ---- Flag parsing (tolerant of order) --------------------------------------
+# Fix-up A-M4: unknown flag now returns rc=3 (was rc=1, which collided with
+# preflight rc=1). Fix-up A-L3: duplicate flag also returns rc=3 (was silent
+# accept, which masked operator typos).
 GITEA_ONLY=false
 DRY_RUN=false
+_seen_gitea_only=false
+_seen_dry_run=false
 POSITIONAL=()
 for arg in "$@"; do
   case "$arg" in
-    --gitea-only) GITEA_ONLY=true ;;
-    --dry-run)    DRY_RUN=true ;;
+    --gitea-only)
+      if $_seen_gitea_only; then
+        echo "[dual-push] duplicate flag: $arg" >&2
+        exit 3
+      fi
+      GITEA_ONLY=true
+      _seen_gitea_only=true
+      ;;
+    --dry-run)
+      if $_seen_dry_run; then
+        echo "[dual-push] duplicate flag: $arg" >&2
+        exit 3
+      fi
+      DRY_RUN=true
+      _seen_dry_run=true
+      ;;
     --*)
       echo "[dual-push] unknown flag: $arg" >&2
-      exit 1
+      exit 3
       ;;
     *) POSITIONAL+=("$arg") ;;
   esac
@@ -51,7 +77,38 @@ restore_gitea_url() {
     git remote set-url gitea "$GITEA_CLEAN_URL" 2>/dev/null || true
   fi
 }
+# Trap fires on both INT and EXIT (and TERM). On SIGINT the handler runs
+# twice (once for INT, once for the implicit EXIT). restore_gitea_url is
+# idempotent — repeated `set-url` to the same clean URL is a no-op. A-L1.
 trap restore_gitea_url EXIT INT TERM
+
+# ---- Timeout wrapper resolver ----------------------------------------------
+# B-M1 fix-up: a network blackhole on `git push gitea ...` can hang forever,
+# during which the EXIT/INT trap cannot fire (the script is blocked on a
+# child syscall). Wrap pushes with `gtimeout` (macOS, coreutils) or `timeout`
+# (Linux). If neither is on PATH, log once at preflight time and continue
+# without a timeout — operator can ^C.
+_TIMEOUT_BIN=""
+_resolve_timeout_bin() {
+  if command -v gtimeout >/dev/null 2>&1; then
+    _TIMEOUT_BIN="gtimeout"
+  elif command -v timeout >/dev/null 2>&1; then
+    _TIMEOUT_BIN="timeout"
+  else
+    _TIMEOUT_BIN=""
+  fi
+}
+# Run `git push ...` (or any command) with the resolved timeout wrapper, if
+# available and GITEA_PUSH_TIMEOUT_SECS > 0. Exit code 124 from coreutils
+# `timeout` signals "killed by timeout" — we surface that through unchanged
+# so deploy.sh's catch-all branch warns + continues (gitea is mirror-only).
+_push_with_timeout() {
+  if [[ -n "$_TIMEOUT_BIN" && "$GITEA_PUSH_TIMEOUT_SECS" -gt 0 ]]; then
+    "$_TIMEOUT_BIN" "$GITEA_PUSH_TIMEOUT_SECS" "$@"
+  else
+    "$@"
+  fi
+}
 
 # ---- D2: fail-fast preflight ------------------------------------------------
 # Validate the environment BEFORE any push and BEFORE any URL rewrite that
@@ -71,6 +128,12 @@ _dualpush_preflight() {
   if [[ "$current_url" != *"${EXPECTED_GITEA_HOST}"* ]]; then
     echo "[dual-push] preflight failed: 'gitea' remote host does not match ${EXPECTED_GITEA_HOST}" >&2
     return 1
+  fi
+
+  # (iv) timeout binary resolution (warning only — never fatal).
+  _resolve_timeout_bin
+  if [[ -z "$_TIMEOUT_BIN" && "$GITEA_PUSH_TIMEOUT_SECS" -gt 0 ]]; then
+    echo "[dual-push] warn: neither 'gtimeout' nor 'timeout' on PATH — gitea push will run without a timeout wrapper. hint: brew install coreutils" >&2
   fi
 
   # (iii) credentials available — either .env.local with required keys OR
@@ -120,8 +183,8 @@ inject_gitea_creds() {
       return 0
     fi
     git remote set-url gitea "https://${GITEA_USER}:${GITEA_TOKEN}@${EXPECTED_GITEA_HOST}/${repo}.git"
-    git push gitea "$BRANCH"
-    git push gitea --tags
+    _push_with_timeout git push gitea "$BRANCH"
+    _push_with_timeout git push gitea --tags
     git remote set-url gitea "$GITEA_CLEAN_URL"
   else
     echo "[dual-push] no .env.local; relying on osxkeychain" >&2
@@ -130,8 +193,8 @@ inject_gitea_creds() {
       echo "  [dry-run] git push gitea --tags"
       return 0
     fi
-    git push gitea "$BRANCH"
-    git push gitea --tags
+    _push_with_timeout git push gitea "$BRANCH"
+    _push_with_timeout git push gitea --tags
   fi
 }
 
