@@ -912,6 +912,34 @@ class HVACCoordinator(BaseCoordinator):
                 ):
                     continue  # Skip — dwell not met, keep current preset
 
+            # v4.7.13: Sleep-state zone presence trust — suppress preset flip
+            # to "away" during sleep when any zone_persons member is "home".
+            # Mirrors the D5 duty-cycle / D6 stale-failsafe sleep-skip pattern
+            # (precedent: line 1502 `if self._house_state == "sleep": continue`).
+            # Rationale: room sensors degenerate during sleep (mmWave drops
+            # motionless bodies, PIR can't fire on stationary, camera blind in
+            # dark room). The phone-based person tracker is the stable signal.
+            if effective_preset == "away" and self._house_state == "sleep":
+                home_persons = []
+                try:
+                    for person_entity in (zone.zone_persons or []):
+                        st = self.hass.states.get(person_entity)
+                        if st is not None and st.state == "home":
+                            home_persons.append(person_entity)
+                except Exception as exc:  # noqa: BLE001
+                    _LOGGER.debug(
+                        "HVAC: sleep-state person check errored for zone %s: %s",
+                        zone.zone_name, exc,
+                    )
+                    home_persons = []
+                if home_persons:
+                    _LOGGER.info(
+                        "HVAC: Suppressing %s preset flip -> away during sleep "
+                        "(zone_persons home: %s)",
+                        zone.zone_name, home_persons,
+                    )
+                    continue
+
             # --- Determine if preset change is needed ---
             # Bypass should_change_preset() manual guard for vacancy (RH3 fix)
             if zi and (zone_vacant_past_grace or zone.runtime_exceeded) and effective_preset == "away":
