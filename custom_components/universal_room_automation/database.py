@@ -673,6 +673,15 @@ class UniversalRoomDatabase:
                     # 0.0 value. Now NULL is the honest "no baseline yet"
                     # marker. Existing DBs are migrated via the rebuild
                     # dance below (gated PRAGMA user_version=467).
+                    # v4.7.12 D1: ``anomaly_type`` is the canonical
+                    # discriminator going forward. ``event_class`` is kept
+                    # as a deprecated alias column during the dual-write
+                    # window so rollback to v4.7.11 can still read pre-
+                    # rename rows. Both columns carry the same value during
+                    # the transition window. v5.0 drops ``event_class``.
+                    # Fresh installs land BOTH columns here so the schema
+                    # is consistent with the upgrade-install ALTER path
+                    # (Tier 2-DB Reviewer A data-integrity check).
                     """CREATE TABLE IF NOT EXISTS anomaly_log (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         timestamp TEXT NOT NULL,
@@ -688,7 +697,8 @@ class UniversalRoomDatabase:
                         house_state TEXT,
                         context_json TEXT,
                         resolved BOOLEAN NOT NULL DEFAULT 0,
-                        resolution_notes TEXT
+                        resolution_notes TEXT,
+                        anomaly_type TEXT DEFAULT 'point_in_time'
                     )""",
                     """CREATE INDEX IF NOT EXISTS idx_anomaly_timestamp
                     ON anomaly_log(timestamp)""",
@@ -1223,6 +1233,12 @@ class UniversalRoomDatabase:
                         ("entity_id", "TEXT NULL"),
                         ("room_id", "TEXT NULL"),
                         ("person_id", "TEXT NULL"),
+                        # v4.7.12 D1: anomaly_type discriminator replaces
+                        # event_class as the canonical column name. Kept
+                        # additive so upgrade installs gain the new column
+                        # without losing the deprecated alias (dual-write
+                        # window). v5.0 drops event_class.
+                        ("anomaly_type", "TEXT DEFAULT 'point_in_time'"),
                     ]
                     for col_name, col_def in new_al_cols:
                         if col_name not in al_columns:
@@ -1371,6 +1387,13 @@ class UniversalRoomDatabase:
                         else:
                             # Table rebuild dance.
                             await db.execute("BEGIN")
+                            # v4.7.12 D1: rebuild target carries the new
+                            # ``anomaly_type`` column. If a pre-v4.6.7 DB
+                            # upgrades straight to v4.7.12, the v4.6.1
+                            # ALTER block (above) has already added the
+                            # ``anomaly_type`` column to the old table,
+                            # so we must copy it forward here or lose the
+                            # backfilled values during the rebuild.
                             await db.execute(
                                 """CREATE TABLE anomaly_log_v467 (
                                     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -1393,7 +1416,8 @@ class UniversalRoomDatabase:
                                     correlation_id TEXT,
                                     entity_id TEXT,
                                     room_id TEXT,
-                                    person_id TEXT
+                                    person_id TEXT,
+                                    anomaly_type TEXT DEFAULT 'point_in_time'
                                 )"""
                             )
                             # v4.6.7 review M2: use an EXPLICIT column list
@@ -1404,22 +1428,40 @@ class UniversalRoomDatabase:
                             # `SELECT *` would have been order-dependent and
                             # would have caused silent data loss if column
                             # ordering ever shifted (it has historically).
+                            # v4.7.12 D1: copy ``anomaly_type`` forward if
+                            # it exists on the source table (pre-v4.6.7 DB
+                            # that already ran the v4.6.1 ALTER block above
+                            # and got the new column). Fall back to
+                            # event_class for the value so the rebuild
+                            # preserves the discriminator regardless of
+                            # whether the v4.7.12 backfill block has run.
+                            src_cols = {row[1] for row in await (
+                                await db.execute("PRAGMA table_info(anomaly_log)")
+                            ).fetchall()}
+                            if "anomaly_type" in src_cols:
+                                _src_at_expr = (
+                                    "COALESCE(anomaly_type, event_class, 'point_in_time')"
+                                )
+                            else:
+                                _src_at_expr = (
+                                    "COALESCE(event_class, 'point_in_time')"
+                                )
                             cursor = await db.execute(
-                                """INSERT INTO anomaly_log_v467
+                                f"""INSERT INTO anomaly_log_v467
                                     (id, timestamp, coordinator_id, scope,
                                      metric_name, observed_value, expected_mean,
                                      expected_std, z_score, severity,
                                      sample_size, house_state, context_json,
                                      resolved, resolution_notes, event_class,
                                      recovery_at, correlation_id, entity_id,
-                                     room_id, person_id)
+                                     room_id, person_id, anomaly_type)
                                    SELECT id, timestamp, coordinator_id, scope,
                                           metric_name, observed_value, expected_mean,
                                           expected_std, z_score, severity,
                                           sample_size, house_state, context_json,
                                           resolved, resolution_notes, event_class,
                                           recovery_at, correlation_id, entity_id,
-                                          room_id, person_id
+                                          room_id, person_id, {_src_at_expr}
                                    FROM anomaly_log"""
                             )
                             copied = cursor.rowcount
@@ -1481,6 +1523,48 @@ class UniversalRoomDatabase:
                         "DB may have an orphan `anomaly_log_v467` table — "
                         "check manually, DROP it if present, then restart.",
                         e,
+                    )
+
+                # v4.7.12 D1: anomaly_type discriminator backfill. The
+                # new column was added by the v4.6.1 ALTER block above
+                # (or by the v4.6.7 rebuild if it ran in this same boot);
+                # copy historical event_class values across so consumers
+                # that read from either column see consistent data during
+                # the dual-write window. Gated on PRAGMA user_version=4712
+                # so the UPDATE does not re-run — that would clobber any
+                # v4.7.13+ emit that sets anomaly_type independently of
+                # event_class (no such caller exists yet, but the gate
+                # keeps the migration idempotent for the rollback-and-
+                # reapply case).
+                try:
+                    cursor = await db.execute("PRAGMA user_version")
+                    row = await cursor.fetchone()
+                    current_user_version = row[0] if row else 0
+                    if current_user_version < 4712:
+                        cursor = await db.execute(
+                            """UPDATE anomaly_log
+                               SET anomaly_type = COALESCE(event_class, 'point_in_time')
+                               WHERE anomaly_type IS NULL
+                                  OR anomaly_type = 'point_in_time'"""
+                        )
+                        backfilled = cursor.rowcount if cursor.rowcount >= 0 else 0
+                        await db.execute("PRAGMA user_version = 4712")
+                        await db.commit()
+                        _LOGGER.info(
+                            "v4.7.12 D1 anomaly_type backfill: copied "
+                            "event_class -> anomaly_type on %d rows. "
+                            "user_version=4712.",
+                            backfilled,
+                        )
+                    else:
+                        _LOGGER.debug(
+                            "v4.7.12 D1 anomaly_type backfill: user_version=%d "
+                            ">= 4712, skipping (already migrated).",
+                            current_user_version,
+                        )
+                except Exception as e:
+                    _LOGGER.warning(
+                        "v4.7.12 D1 anomaly_type backfill failed: %s", e
                     )
 
                 # v4.6.2 D4: regime_cell_state tracks consecutive-run counter
@@ -4669,6 +4753,21 @@ class UniversalRoomDatabase:
         z_score = _resolve_metric("z_score")
         sample_size = _resolve_metric("sample_size")
         house_state = payload_dict.get("house_state")
+        # v4.7.12 D1: resolution order for the discriminator value —
+        # prefer ``event.anomaly_type`` (new canonical field) and fall
+        # back to ``event.event_class`` for any caller that hasn't been
+        # migrated to the v4.7.12 dataclass shape. Coerce to a plain
+        # string so aiosqlite binds it as TEXT (StrEnum members ARE
+        # strings, but `str(...)` keeps the contract explicit). The same
+        # value lands in BOTH columns during the dual-write window so
+        # readers on either column see consistent data; v5.0 drops the
+        # event_class column and this dual-write.
+        _discriminator = getattr(event, "anomaly_type", None)
+        if _discriminator is None:
+            _discriminator = getattr(event, "event_class", None)
+        _discriminator_str = (
+            str(_discriminator) if _discriminator is not None else "point_in_time"
+        )
         try:
             async with self._db() as db:
                 cursor = await db.execute(
@@ -4679,8 +4778,8 @@ class UniversalRoomDatabase:
                         severity, sample_size, house_state,
                         context_json, resolved, resolution_notes,
                         event_class, recovery_at, correlation_id,
-                        entity_id, room_id, person_id)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        entity_id, room_id, person_id, anomaly_type)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
                         event.detected_at,
                         event.coordinator,
@@ -4695,22 +4794,23 @@ class UniversalRoomDatabase:
                         house_state,
                         _json.dumps(event.payload),
                         0, None,
-                        event.event_class,
+                        _discriminator_str,  # event_class (dual-write alias)
                         event.recovery_at,
                         event.correlation_id,
                         event.entity_id,
                         event.room_id,
                         event.person_id,
+                        _discriminator_str,  # anomaly_type (canonical)
                     ),
                 )
                 await db.commit()
                 return cursor.lastrowid
         except Exception as e:
             _LOGGER.warning(
-                "Error saving AnomalyEvent (coordinator=%s type=%s class=%s): %s",
+                "Error saving AnomalyEvent (coordinator=%s type=%s anomaly_type=%s): %s",
                 getattr(event, "coordinator", "?"),
                 getattr(event, "type", "?"),
-                getattr(event, "event_class", "?"),
+                getattr(event, "anomaly_type", getattr(event, "event_class", "?")),
                 e,
                 exc_info=True,
             )
