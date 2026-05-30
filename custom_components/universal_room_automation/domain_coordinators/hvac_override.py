@@ -1755,6 +1755,61 @@ class OverrideArrester:
         kwh_rate = self._read_kwh_rate(zone, now) or 0.0
         await self._perform_soft_nudge(zone, kwh_rate, triggered_by="manual")
 
+    async def force_ac_reset(self, zone_id_or_entity: str) -> None:
+        """User-triggered hard AC reset (v4.7.9 D1 button).
+
+        Bridges the (Nudge=OFF, Reset=ON) cell of the v4.7.7 decouple matrix:
+        soft-nudge auto-detection may be disabled, but the user still wants a
+        manual entry point into the hard-reset escalation path. Mirrors the
+        `force_nudge` precedent above.
+
+        Gates applied (in order):
+          - Master switch (kill-switch contract — same as force_nudge).
+          - A3 guard inside _perform_hard_reset_escalation (no-op when
+            _ac_reset_enabled is False; sets zone.ramp_state IDLE; no DB
+            writes, no lockout engagement).
+          - Daily cap + global min-interval gates inside the escalation.
+
+        Note on triggered_by traceability: the existing
+        `_perform_hard_reset_escalation` hard-codes `"auto"` at the
+        `_track_zone_action` and `log_ac_ramp_event` call sites
+        (hvac_override.py L1591). Adding a `triggered_by="manual"`
+        parameter changes the signature for one caller — explicitly
+        out-of-scope per planning §6 (D1 Spec correction). The resulting
+        `ac_ramp_events` row will carry `auto` for force-reset presses;
+        this is an accepted limitation for v4.7.9 hygiene-scale.
+
+        kwh_rate_now=0.0 is passed because a manual button press is not
+        reacting to a live overshoot reading — the user has decided the
+        AC needs a reset and the gates inside the escalation make the
+        actual decision. The kWh field on the resulting event row will
+        be 0.0; downstream analytics that condition on kwh_rate_before
+        treat the manual entry as a zero-rate event (acceptable; manual
+        traceability is the deferred concern, not numeric accuracy).
+        """
+        if not self._ramp_master_enabled:
+            _LOGGER.warning(
+                "force_ac_reset blocked: master switch is OFF (zone=%s)",
+                zone_id_or_entity,
+            )
+            return
+        zone = self._resolve_zone(zone_id_or_entity)
+        if zone is None:
+            _LOGGER.warning(
+                "force_ac_reset: zone %s not found in ZoneManager",
+                zone_id_or_entity,
+            )
+            return
+        _LOGGER.info(
+            "force_ac_reset invoked on %s (zone_id=%s) — routing to "
+            "_perform_hard_reset_escalation (A3 guard + daily cap + "
+            "min-interval gates apply)",
+            zone.zone_name, zone.zone_id,
+        )
+        # kwh_rate_now=0.0: manual presses don't react to a reading; the
+        # signature requires a float; downstream code treats 0.0 cleanly.
+        await self._perform_hard_reset_escalation(zone, 0.0)
+
     async def clear_zone_lockout(self, zone_id: str) -> None:
         """Reset today's counters + clear lockout for one zone (D9 button)."""
         if self._db is None:

@@ -448,6 +448,12 @@ class EnergyCoordinator(BaseCoordinator):
         # Read by DynamicPresetOverridesAppliedSensor.extra_state_attributes
         # to expose the per-zone reason on the existing skipped_zones attr.
         self._dynamic_preset_skip_reasons: dict[str, str] = {}
+        # v4.7.9 D2: previous-tick snapshot of skip_reasons for the new
+        # SIGNAL_DPM_SKIP_REASONS_UPDATED edge detection. Init to {} so the
+        # first tick against an empty reasons dict does NOT spuriously fire.
+        # First tick with non-empty reasons WILL fire (correct — real state
+        # change from "no signal yet" to "first reason").
+        self._dynamic_preset_skip_reasons_prev: dict[str, str] = {}
 
         # Envoy availability tracking
         self._envoy_unavailable_count: int = 0
@@ -2805,6 +2811,29 @@ class EnergyCoordinator(BaseCoordinator):
                     from homeassistant.helpers.dispatcher import async_dispatcher_send
                     from .signals import SIGNAL_DYNAMIC_PRESET_OVERRIDES_UPDATED
                     async_dispatcher_send(self.hass, SIGNAL_DYNAMIC_PRESET_OVERRIDES_UPDATED)
+                except Exception:
+                    pass
+
+            # v4.7.9 D2: independent edge detection on the skip_reasons dict.
+            # Captures the case where the overrides dict stayed empty between
+            # ticks but skip_reason values transitioned (e.g.,
+            # dwell_pending -> unknown_bucket for the same zone). Sensor
+            # subscribes to BOTH signals; double-fire on tick that mutates
+            # both dicts is harmless (sensor's _on_signal is idempotent
+            # async_write_ha_state). Bug Class #45 safe — no lambda closure
+            # over loop vars; bound module-level dispatcher call.
+            _reasons_changed = (
+                self._dynamic_preset_skip_reasons_prev != updated_skip_reasons
+            )
+            # Snapshot AFTER comparison so the next tick's compare is correct.
+            # dict() copy ensures we don't capture the same reference we just
+            # assigned to self._dynamic_preset_skip_reasons above.
+            self._dynamic_preset_skip_reasons_prev = dict(updated_skip_reasons)
+            if _reasons_changed:
+                try:
+                    from homeassistant.helpers.dispatcher import async_dispatcher_send
+                    from .signals import SIGNAL_DPM_SKIP_REASONS_UPDATED
+                    async_dispatcher_send(self.hass, SIGNAL_DPM_SKIP_REASONS_UPDATED)
                 except Exception:
                     pass
 
