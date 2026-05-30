@@ -11803,12 +11803,16 @@ class URARecentAnomaliesSensor(AggregationEntity, SensorEntity):
                 )
                 self._by_severity = {str(r[0]): r[1] for r in await cursor.fetchall()}
 
-                # By event_class (type bucket)
+                # By anomaly_type (type bucket).
+                # v4.7.12 fix-up (Review A A3 + Review C C-M3 convergent):
+                # widened COALESCE to read anomaly_type first, falling back
+                # to event_class for legacy rows. When v5.0 drops the
+                # event_class column this reader still works.
                 cursor = await db.execute(
-                    """SELECT COALESCE(event_class, 'point_in_time'), COUNT(*) as n
+                    """SELECT COALESCE(anomaly_type, event_class, 'point_in_time'), COUNT(*) as n
                        FROM anomaly_log
                        WHERE timestamp >= ?
-                       GROUP BY COALESCE(event_class, 'point_in_time')""",
+                       GROUP BY COALESCE(anomaly_type, event_class, 'point_in_time')""",
                     (cutoff,),
                 )
                 self._by_type = {r[0]: r[1] for r in await cursor.fetchall()}

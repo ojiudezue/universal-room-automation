@@ -4137,11 +4137,21 @@ class UniversalRoomDatabase:
     ) -> int:
         """Delete old anomaly_log rows using per-class retention windows.
 
-        Branches on event_class so historically significant regime_shift events
-        are kept for a full year while point_in_time events cycle out at 90 days.
-        Batched (LIMIT 1000 + asyncio.sleep(0.1)) matching the
-        cleanup_room_energy_baselines pattern (Bug Class #27 prevention).
+        Branches on the discriminator (``anomaly_type``, falling back to the
+        legacy ``event_class`` alias) so historically significant
+        regime_shift events are kept for a full year while point_in_time
+        events cycle out at 90 days. Batched (LIMIT 1000 +
+        asyncio.sleep(0.1)) matching the cleanup_room_energy_baselines
+        pattern (Bug Class #27 prevention).
         Returns total rows deleted across all passes.
+
+        v4.7.12 fix-up (Review A A3 + Review C C-M3 — convergent): widened
+        the discriminator predicate from ``COALESCE(event_class, ...)`` to
+        ``COALESCE(anomaly_type, event_class, 'point_in_time')`` so when
+        v5.0 drops the ``event_class`` column the retention windows still
+        evaluate correctly. Dual-write keeps both columns in sync today,
+        so this change is a no-op until v5.0 — but locking it in now
+        means v5.0 only has to drop the column.
         """
         from datetime import timedelta as _td
         from homeassistant.util import dt as _dtu
@@ -4159,9 +4169,9 @@ class UniversalRoomDatabase:
                         WHERE rowid IN (
                             SELECT rowid FROM anomaly_log
                             WHERE (
-                                (COALESCE(event_class, 'point_in_time') = 'regime_shift'
+                                (COALESCE(anomaly_type, event_class, 'point_in_time') = 'regime_shift'
                                     AND timestamp < ?)
-                                OR (COALESCE(event_class, 'point_in_time') != 'regime_shift'
+                                OR (COALESCE(anomaly_type, event_class, 'point_in_time') != 'regime_shift'
                                     AND timestamp < ?)
                             )
                             LIMIT 1000

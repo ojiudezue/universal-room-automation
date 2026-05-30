@@ -1136,11 +1136,20 @@ class AnomalyDiagnosticDumpButton(ButtonEntity):
         dump: dict = {}
 
         # 1. Recent 50 anomaly_log rows
+        # v4.7.12 fix-up (Review A A3 + Review C C-M3 convergent): widened
+        # the discriminator column to COALESCE(anomaly_type, event_class,
+        # 'point_in_time') so the diagnostic dump still reads the right
+        # value once v5.0 drops event_class. Key in the dump dict stays
+        # "event_class" for back-compat with any operator tooling that
+        # parses the diagnostic JSON; the value is the canonical
+        # discriminator either way.
         try:
             async with database._db_read() as db:
                 cursor = await db.execute(
                     """SELECT id, timestamp, coordinator_id, metric_name,
-                              severity, event_class, recovery_at
+                              severity,
+                              COALESCE(anomaly_type, event_class, 'point_in_time'),
+                              recovery_at
                        FROM anomaly_log
                        ORDER BY timestamp DESC LIMIT 50"""
                 )
