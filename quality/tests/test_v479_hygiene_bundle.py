@@ -444,6 +444,178 @@ class TestD1ForceAcResetBehavior:
         assert len(mirror.escalation_calls) == 1
 
 
+class TestD1ForceAcResetAH1NudgeCleanup:
+    """A-H1 fix-up regression: force_ac_reset must cancel in-flight nudge
+    timers + clear nudge in-flight state BEFORE entering escalation.
+
+    Without this, a still-active soft-nudge's restore/eval timer fires on
+    top of the reset's off->wait->restore cycle (race: nudge restore
+    writes a setpoint while the reset's off-state is in flight).
+
+    The test is split between (a) a source-grep guard for the cleanup
+    code being present and ordered BEFORE the escalation call, and (b) a
+    behavioral mirror that asserts the cleanup ordering against a fake
+    that tracks timer cancels + escalation calls.
+    """
+
+    def test_force_ac_reset_cancels_nudge_timers_before_escalation(
+        self, override_src
+    ):
+        # Source-grep: the cleanup MUST appear inside the force_ac_reset
+        # method body BEFORE the `_perform_hard_reset_escalation` call.
+        # Otherwise an in-flight nudge restore timer can fire mid-reset.
+        # Find the method body via the docstring anchor (most stable
+        # delimiter — the canonical "(v4.7.9 D1 button)" marker).
+        anchor = "User-triggered hard AC reset (v4.7.9 D1 button)"
+        assert anchor in override_src
+        start = override_src.index(anchor)
+        # Method body ends at the next "    async def " sibling.
+        end_marker = "\n    async def "
+        end = override_src.index(end_marker, start)
+        body = override_src[start:end]
+        # Required cleanup statements (mirror of cancel_nudge L1680-1686).
+        assert "self._nudge_restore_timers.pop(" in body, (
+            "A-H1: force_ac_reset must pop the in-flight restore timer "
+            "before escalation"
+        )
+        assert "self._nudge_eval_timers.pop(" in body, (
+            "A-H1: force_ac_reset must pop the in-flight eval timer "
+            "before escalation"
+        )
+        assert "self._nudge_in_flight.discard(" in body, (
+            "A-H1: force_ac_reset must discard the zone from "
+            "_nudge_in_flight before escalation"
+        )
+        assert "clear_ac_in_flight_nudge(" in body, (
+            "A-H1: force_ac_reset must clear the persisted nudge row "
+            "before escalation"
+        )
+        # Ordering: cleanup MUST precede the escalation call.
+        cleanup_idx = body.index("self._nudge_in_flight.discard(")
+        escalation_idx = body.index("_perform_hard_reset_escalation(")
+        assert cleanup_idx < escalation_idx, (
+            "A-H1: nudge-state cleanup must execute BEFORE the "
+            "escalation call, not after"
+        )
+
+    @pytest.mark.asyncio
+    async def test_behavioral_cleanup_before_escalation(self):
+        # Behavioral mirror — assert that a fake force_ac_reset clears
+        # nudge in-flight state BEFORE the escalation is invoked. This
+        # exercises the exact ordering A-H1 demands.
+
+        class _CleanupOrderMirror:
+            def __init__(self, zone, in_flight_nudge_present=True):
+                self._zone = zone
+                self._nudge_restore_timers = {}
+                self._nudge_eval_timers = {}
+                self._nudge_in_flight = set()
+                self._db_cleared = False
+                self._escalation_state_at_call = None
+                self.restore_cancel_called = False
+                self.eval_cancel_called = False
+                if in_flight_nudge_present:
+                    self._nudge_in_flight.add(zone.zone_id)
+                    # Fake timer handles — closures capture flags so we
+                    # can prove the cancel callable was invoked.
+                    def _cancel_restore():
+                        self.restore_cancel_called = True
+                    def _cancel_eval():
+                        self.eval_cancel_called = True
+                    self._nudge_restore_timers[zone.zone_id] = _cancel_restore
+                    self._nudge_eval_timers[zone.zone_id] = _cancel_eval
+
+            def _resolve_zone(self, key):
+                return self._zone
+
+            async def _perform_hard_reset_escalation(self, zone, kwh_rate):
+                # Capture nudge state AT THE MOMENT escalation runs.
+                self._escalation_state_at_call = {
+                    "in_flight": zone.zone_id in self._nudge_in_flight,
+                    "restore_timer": zone.zone_id in self._nudge_restore_timers,
+                    "eval_timer": zone.zone_id in self._nudge_eval_timers,
+                    "db_cleared": self._db_cleared,
+                }
+
+            async def force_ac_reset(self, key):
+                # Mirror of production cleanup-then-escalate ordering.
+                zone = self._resolve_zone(key)
+                if zone is None:
+                    return
+                zone_id = zone.zone_id
+                cancel_restore = self._nudge_restore_timers.pop(zone_id, None)
+                if cancel_restore:
+                    cancel_restore()
+                cancel_eval = self._nudge_eval_timers.pop(zone_id, None)
+                if cancel_eval:
+                    cancel_eval()
+                self._nudge_in_flight.discard(zone_id)
+                self._db_cleared = True
+                await self._perform_hard_reset_escalation(zone, 0.0)
+
+        zone = _MockZone()
+        mirror = _CleanupOrderMirror(zone, in_flight_nudge_present=True)
+        # Sanity — nudge is in-flight pre-press.
+        assert zone.zone_id in mirror._nudge_in_flight
+        assert zone.zone_id in mirror._nudge_restore_timers
+        assert zone.zone_id in mirror._nudge_eval_timers
+
+        await mirror.force_ac_reset(zone.zone_id)
+
+        # Both cancel callables were invoked.
+        assert mirror.restore_cancel_called is True
+        assert mirror.eval_cancel_called is True
+        # Escalation observed nudge state ALREADY cleared.
+        assert mirror._escalation_state_at_call is not None
+        snap = mirror._escalation_state_at_call
+        assert snap["in_flight"] is False, (
+            "A-H1: _nudge_in_flight must be empty when escalation runs"
+        )
+        assert snap["restore_timer"] is False, (
+            "A-H1: restore timer dict must be empty when escalation runs"
+        )
+        assert snap["eval_timer"] is False, (
+            "A-H1: eval timer dict must be empty when escalation runs"
+        )
+        assert snap["db_cleared"] is True, (
+            "A-H1: persisted in-flight nudge row must be cleared before "
+            "escalation runs"
+        )
+
+
+class TestAM1TranslationKeyOnForceAcResetButton:
+    """A-M1 / C-M1 fix-up: _ACRampButton must set _attr_translation_key for
+    the force_ac_reset variant so the existing strings.json/en.json entry
+    surfaces in the HA frontend."""
+
+    def test_translation_key_set_for_force_ac_reset(self, button_src):
+        # Source-grep: the assignment must reference the strings.json
+        # key literally so the helper text is reachable.
+        assert '_attr_translation_key = "hvac_force_ac_reset"' in button_src, (
+            "A-M1/C-M1: _ACRampButton must set _attr_translation_key = "
+            "'hvac_force_ac_reset' for the force_ac_reset variant"
+        )
+
+    def test_translation_key_matches_strings_json(self, button_src):
+        # Round-trip check: the key in code must match the key in
+        # strings.json (and translations/en.json). Drift here is the
+        # bug C-M1 was originally flagging.
+        import json
+        import os
+        base = os.path.join(
+            os.path.dirname(__file__), "..", "..",
+            "custom_components", "universal_room_automation",
+        )
+        with open(os.path.join(base, "strings.json")) as f:
+            strings = json.load(f)
+        with open(os.path.join(base, "translations", "en.json")) as f:
+            en = json.load(f)
+        assert "hvac_force_ac_reset" in strings["entity"]["button"]
+        assert "hvac_force_ac_reset" in en["entity"]["button"]
+        # And the source uses the same key.
+        assert '"hvac_force_ac_reset"' in button_src
+
+
 # ============================================================================
 # D2 Group B — SIGNAL_DPM_SKIP_REASONS_UPDATED constant + edge detection
 # ============================================================================

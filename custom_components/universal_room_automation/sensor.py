@@ -6846,7 +6846,14 @@ class DynamicPresetOverridesAppliedSensor(AggregationEntity, SensorEntity):
 
     @callback
     def _on_signal(self, _payload=None) -> None:
-        """Handle signal — push updated count to HA."""
+        """Handle signal — push updated count to HA.
+
+        v4.7.9 B-L4 fix-up: signal is payload-less by contract; sensor
+        recomputes attrs from latest coordinator state via the
+        `extra_state_attributes` property on the next HA state read.
+        Idempotent — double-fire (overrides + reasons signals on the
+        same tick) writes the same value twice with no side effects.
+        """
         self.async_write_ha_state()
 
     @property

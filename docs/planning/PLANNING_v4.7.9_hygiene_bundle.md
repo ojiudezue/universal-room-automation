@@ -58,7 +58,7 @@ User override to Tier 2-DB stands.
 | `custom_components/universal_room_automation/button.py` | 604–637 | `_AC_RAMP_BUTTON_SPECS` dict — Group A adds a `force_ac_reset` spec entry. |
 | `custom_components/universal_room_automation/button.py` | 640–680 | `_ac_ramp_prefix` + `_make_ac_ramp_button` — prefix-computation pattern (`force_ac_reset` needs an action_offset). |
 | `custom_components/universal_room_automation/button.py` | 682–803 | `_ACRampButton` class — Group A's button reuses this class verbatim (single-class-multi-action design). The press path at L776–803 calls `getattr(arr, self._method_name)(self._climate_entity)`. The arrester method must accept `climate_entity` as its single positional arg. |
-| `custom_components/universal_room_automation/domain_coordinators/signals.py` | 1–97 | Group B adds `SIGNAL_DPM_SKIP_REASONS_UPDATED` at end of file. |
+| `custom_components/universal_room_automation/domain_coordinators/signals.py` | 1–97 | Group B adds `SIGNAL_DPM_SKIP_REASONS_UPDATED` at end of file. (v4.7.9 review-C-L2 fix-up: actual placement is at signals.py L108 — end-of-constants block, immediately before the dataclass section. Builder appended where the constants region ends rather than literal EOF; semantically equivalent.) |
 | `custom_components/universal_room_automation/domain_coordinators/energy.py` | 2681–2812 | `_async_evaluate_dynamic_presets` — Group B edge-detection patch site. Existing `_changed` block at 2788-2807 is the model. Add parallel `_reasons_changed` block. |
 | `custom_components/universal_room_automation/domain_coordinators/energy.py` | 450 | `self._dynamic_preset_skip_reasons` instance attr — needs `_prev_skip_reasons` companion (or simple prev-snapshot local) for edge detection. |
 | `custom_components/universal_room_automation/sensor.py` | 6788–6903 | `DynamicPresetOverridesAppliedSensor` — Group B adds third dispatcher subscription at `async_added_to_hass`. |
@@ -340,7 +340,7 @@ No new device_info identifiers.
 | File | Hygiene's touch | Egress's expected touch | Conflict-risk |
 |---|---|---|---|
 | `sensor.py` | Single new dispatcher subscription (~5 lines) in `DynamicPresetOverridesAppliedSensor.async_added_to_hass` near L6816 | New visibility entities (additive new classes) | LOW — Hygiene's edit is line-localized to an existing method; Egress adds new classes. No same-line conflict unless Egress also touches `DynamicPresetOverridesAppliedSensor` (it shouldn't). Reviewer C verifies. |
-| `signals.py` | New `SIGNAL_DPM_SKIP_REASONS_UPDATED` constant appended at end of file | Possibly new `SIGNAL_EGRESS_PAUSE_UPDATED` constant appended at end | LOW — both append. Git merge will succeed; risk is ordering / comment-attribution noise. Reviewer C flags ordering preference. |
+| `signals.py` | New `SIGNAL_DPM_SKIP_REASONS_UPDATED` constant appended at end-of-constants block (signals.py L108, immediately before the dataclass section — v4.7.9 review-C-L2 fix-up clarification) | Possibly new `SIGNAL_EGRESS_PAUSE_UPDATED` constant appended at end | LOW — both append into the same constants region. Git merge will succeed; risk is ordering / comment-attribution noise. Reviewer C flags ordering preference. |
 
 ### Files Hygiene touches that Egress should NOT touch
 

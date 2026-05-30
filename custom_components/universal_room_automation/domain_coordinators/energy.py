@@ -2826,16 +2826,24 @@ class EnergyCoordinator(BaseCoordinator):
                 self._dynamic_preset_skip_reasons_prev != updated_skip_reasons
             )
             # Snapshot AFTER comparison so the next tick's compare is correct.
-            # dict() copy ensures we don't capture the same reference we just
-            # assigned to self._dynamic_preset_skip_reasons above.
-            self._dynamic_preset_skip_reasons_prev = dict(updated_skip_reasons)
+            # v4.7.9 B-M1 fix-up: skip the dict() copy on no-change ticks
+            # (cosmetic CPU/GC saving — the prev snapshot already equals
+            # updated_skip_reasons). The copy is required when changed so we
+            # don't capture the same reference we assigned to
+            # self._dynamic_preset_skip_reasons above.
             if _reasons_changed:
+                self._dynamic_preset_skip_reasons_prev = dict(updated_skip_reasons)
                 try:
                     from homeassistant.helpers.dispatcher import async_dispatcher_send
                     from .signals import SIGNAL_DPM_SKIP_REASONS_UPDATED
                     async_dispatcher_send(self.hass, SIGNAL_DPM_SKIP_REASONS_UPDATED)
-                except Exception:
-                    pass
+                except Exception as e:
+                    # v4.7.9 B-L2 fix-up: log dispatch failures instead of
+                    # silently swallowing — silent except masks real wiring
+                    # bugs (import path, dispatcher init order).
+                    _LOGGER.warning(
+                        "DPM skip-reasons signal dispatch failed: %s", e,
+                    )
 
         except Exception:
             _LOGGER.warning("DynamicPreset: _async_evaluate_dynamic_presets failed", exc_info=True)

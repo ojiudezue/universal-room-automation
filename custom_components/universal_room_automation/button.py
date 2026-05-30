@@ -743,6 +743,14 @@ class _ACRampButton(ButtonEntity):
         self._attr_unique_id = f"{DOMAIN}_hvac_ac_ramp_{action}_{zone_id}"
         self._attr_name = f"{label} ({zone_name})"
         self._attr_icon = icon
+        # v4.7.9 A-M1/C-M1 fix-up: surface strings.json helper text for the
+        # force_ac_reset variant. Without _attr_translation_key the
+        # `entity.button.hvac_force_ac_reset` entry in strings.json /
+        # translations/en.json is unreachable. Only the force_ac_reset
+        # action has a strings entry today; other actions (force_nudge,
+        # cancel_nudge, clear_lockout) intentionally use _attr_name only.
+        if action == "force_ac_reset":
+            self._attr_translation_key = "hvac_force_ac_reset"
         if category is not None:
             self._attr_entity_category = category
         self._attr_device_info = DeviceInfo(

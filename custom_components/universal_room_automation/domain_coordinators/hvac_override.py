@@ -1800,6 +1800,31 @@ class OverrideArrester:
                 zone_id_or_entity,
             )
             return
+        zone_id = zone.zone_id  # canonicalize before timer/DB cleanup
+
+        # v4.7.9 A-H1 fix-up: cancel any in-flight soft-nudge timers BEFORE
+        # invoking the escalation. Without this, a still-active nudge's
+        # restore/eval timers fire on top of the reset's off->wait->restore
+        # cycle (race: nudge restore writes a setpoint while the reset's
+        # off-state is in flight; nudge eval may schedule yet another
+        # action). Mirrors the `cancel_nudge` cleanup pattern (L1680-1686)
+        # and matches the in-flight guard at force_nudge (L1748).
+        cancel_restore = self._nudge_restore_timers.pop(zone_id, None)
+        if cancel_restore:
+            cancel_restore()
+        cancel_eval = self._nudge_eval_timers.pop(zone_id, None)
+        if cancel_eval:
+            cancel_eval()
+        self._nudge_in_flight.discard(zone_id)
+        if self._db is not None:
+            try:
+                await self._db.clear_ac_in_flight_nudge(zone_id)
+            except Exception as e:
+                _LOGGER.warning(
+                    "force_ac_reset: failed to clear in-flight nudge row "
+                    "for %s: %s (continuing into escalation)", zone_id, e,
+                )
+
         _LOGGER.info(
             "force_ac_reset invoked on %s (zone_id=%s) — routing to "
             "_perform_hard_reset_escalation (A3 guard + daily cap + "
