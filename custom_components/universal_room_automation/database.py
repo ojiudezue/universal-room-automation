@@ -679,9 +679,17 @@ class UniversalRoomDatabase:
                     # window so rollback to v4.7.11 can still read pre-
                     # rename rows. Both columns carry the same value during
                     # the transition window. v5.0 drops ``event_class``.
-                    # Fresh installs land BOTH columns here so the schema
-                    # is consistent with the upgrade-install ALTER path
-                    # (Tier 2-DB Reviewer A data-integrity check).
+                    #
+                    # v4.7.12 Reviewer A fix-up (A1): the base CREATE TABLE
+                    # below intentionally OMITS both ``event_class`` and
+                    # ``anomaly_type``. The v4.6.1 ALTER tuple list at
+                    # ~line 1241 adds them in the canonical post-base order
+                    # so fresh-install and upgrade-install paths converge
+                    # on identical PRAGMA table_info column ordering. This
+                    # preserves the planning doc §10 invariant: "Fresh-install
+                    # CREATE TABLE produces a row layout identical to an
+                    # upgrade-installed table." Locked in by
+                    # ``test_fresh_vs_upgrade_schema_column_order_identical``.
                     """CREATE TABLE IF NOT EXISTS anomaly_log (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
                         timestamp TEXT NOT NULL,
@@ -697,8 +705,7 @@ class UniversalRoomDatabase:
                         house_state TEXT,
                         context_json TEXT,
                         resolved BOOLEAN NOT NULL DEFAULT 0,
-                        resolution_notes TEXT,
-                        anomaly_type TEXT DEFAULT 'point_in_time'
+                        resolution_notes TEXT
                     )""",
                     """CREATE INDEX IF NOT EXISTS idx_anomaly_timestamp
                     ON anomaly_log(timestamp)""",

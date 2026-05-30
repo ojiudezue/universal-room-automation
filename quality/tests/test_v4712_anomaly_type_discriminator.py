@@ -213,6 +213,93 @@ def test_fresh_schema_has_both_columns(real_schema_db):
     assert "anomaly_type" in cols, "v4.7.12 anomaly_type column missing"
 
 
+def test_fresh_vs_upgrade_schema_column_order_identical():
+    """v4.7.12 A1 fix-up: fresh CREATE TABLE + ALTER chain must match upgrade ALTER chain.
+
+    Planning doc §10 invariant: "Fresh-install CREATE TABLE produces a row
+    layout identical to an upgrade-installed table." The pre-fix-up code
+    embedded ``anomaly_type`` in the base CREATE TABLE at column 16 while
+    leaving the v4.6.1 ALTER tuple list to add the legacy alias columns
+    (event_class, recovery_at, ...) AFTER it. Upgrade installs landed
+    anomaly_type at the END (column 22). The two paths diverged.
+
+    Fix: drop anomaly_type from base CREATE TABLE; let the ALTER chain
+    seat it last in BOTH paths. This test compares PRAGMA table_info
+    ordering of a fresh-install simulation against an upgrade simulation.
+    """
+    # Fresh install: real_schema_db builds CREATE + ALTERs in one pass —
+    # mirrors what the integration does on a brand-new HA instance.
+    import sys as _sys
+    _sys.path.insert(0, str(Path(__file__).parent.parent))
+    try:
+        from tests.conftest_db import _build_schema
+    finally:
+        _sys.path.pop(0)
+
+    fresh_conn = sqlite3.connect(":memory:")
+    fresh_conn.row_factory = sqlite3.Row
+    _build_schema(fresh_conn)
+    fresh_cols = [
+        row[1]
+        for row in fresh_conn.execute("PRAGMA table_info(anomaly_log)").fetchall()
+    ]
+    fresh_conn.close()
+
+    # Upgrade install simulation: build the *pre-v4.6.1* base table
+    # (no event_class, no recovery_at, no anomaly_type ...) then apply
+    # the v4.6.1 ALTER tuple list in production order.
+    upgrade_conn = sqlite3.connect(":memory:")
+    upgrade_conn.row_factory = sqlite3.Row
+    upgrade_conn.execute(
+        """CREATE TABLE anomaly_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp TEXT NOT NULL,
+            coordinator_id TEXT NOT NULL,
+            scope TEXT NOT NULL,
+            metric_name TEXT NOT NULL,
+            observed_value REAL,
+            expected_mean REAL,
+            expected_std REAL,
+            z_score REAL,
+            severity TEXT NOT NULL,
+            sample_size INTEGER,
+            house_state TEXT,
+            context_json TEXT,
+            resolved BOOLEAN NOT NULL DEFAULT 0,
+            resolution_notes TEXT
+        )"""
+    )
+    # Replay v4.6.1 ALTER tuple list in production order (database.py:~1241).
+    for col_name, col_def in (
+        ("event_class", "TEXT DEFAULT 'point_in_time'"),
+        ("recovery_at", "TEXT NULL"),
+        ("correlation_id", "TEXT NULL"),
+        ("entity_id", "TEXT NULL"),
+        ("room_id", "TEXT NULL"),
+        ("person_id", "TEXT NULL"),
+        ("anomaly_type", "TEXT DEFAULT 'point_in_time'"),
+    ):
+        upgrade_conn.execute(
+            f"ALTER TABLE anomaly_log ADD COLUMN {col_name} {col_def}"
+        )
+    upgrade_conn.commit()
+    upgrade_cols = [
+        row[1]
+        for row in upgrade_conn.execute("PRAGMA table_info(anomaly_log)").fetchall()
+    ]
+    upgrade_conn.close()
+
+    assert fresh_cols == upgrade_cols, (
+        "Fresh-install vs upgrade-install anomaly_log column ordering diverged.\n"
+        f"  fresh:   {fresh_cols}\n"
+        f"  upgrade: {upgrade_cols}"
+    )
+    # Belt-and-suspenders: anomaly_type lands last in BOTH paths.
+    assert fresh_cols[-1] == "anomaly_type", (
+        f"anomaly_type must be the last column; got {fresh_cols!r}"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Backfill migration behavior
 # ---------------------------------------------------------------------------
