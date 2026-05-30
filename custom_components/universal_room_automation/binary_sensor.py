@@ -134,6 +134,20 @@ async def async_setup_entry(
             # v4.7.x Cycle A: WeatherProviderManager divergence flag
             WeatherDivergenceBinarySensor(hass, entry),
         ]
+        # v4.7.8 D5: per-canonical-HVAC-zone egress window open rollup sensor.
+        try:
+            from .domain_coordinators.hvac_zones import iter_canonical_hvac_zones
+            for _z in iter_canonical_hvac_zones(hass):
+                coordinator_binary.append(
+                    HVACZoneEgressWindowOpenSensor(
+                        hass, entry, _z["zone_id"], _z["zone_name"],
+                    )
+                )
+        except Exception:
+            _LOGGER.debug(
+                "v4.7.8: canonical zone enumeration for egress sensors failed",
+                exc_info=True,
+            )
         async_add_entities(coordinator_binary)
         return
 
@@ -166,6 +180,10 @@ async def async_setup_entry(
         AutomationConflictBinarySensor(coordinator),
         # v4.0.0-B2: Bayesian occupancy anomaly
         OccupancyAnomalyBinarySensor(coordinator),
+        # v4.7.8 D5: per-room egress window open (reads room's window_sensor
+        # state through coordinator config — graceful no-op when window_sensor
+        # unset for this room).
+        RoomEgressWindowOpenSensor(coordinator),
     ])
 
     async_add_entities(entities)
@@ -2049,3 +2067,193 @@ class ECSubSwitchesSyncedSensor(AggregationEntity, BinarySensorEntity):
             attrs["seconds_since_ec_ready"] = round(age_s, 1)
             attrs["mismatch_alert"] = age_s > 600  # >10 min still checking
         return attrs
+
+
+
+# =============================================================================
+# v4.7.8 D5 — Egress Window HVAC Pause binary sensors (end-of-file append)
+# -----------------------------------------------------------------------------
+# Per-room and per-canonical-HVAC-zone egress window-open sensors. Read from
+# in-memory EgressManager + room coordinator state. No DB I/O on update
+# (Bug Class #26).
+# =============================================================================
+
+
+class RoomEgressWindowOpenSensor(BinarySensorEntity):
+    """Per-room egress window open indicator (v4.7.8 D5).
+
+    Reads the room's CONF_WINDOW_SENSORS state. ON iff is_egress_window=True
+    AND raw window state is "on". Subscribes to raw window_sensor state
+    changes for instant flip (no 5-min decision-tick lag).
+    """
+
+    _attr_device_class = BinarySensorDeviceClass.OPENING
+    _attr_icon = "mdi:window-open-variant"
+
+    def __init__(self, coordinator) -> None:
+        self.coordinator = coordinator
+        room_name = coordinator.entry.data.get("room_name", "unknown")
+        slug = room_name.lower().replace(" ", "_")
+        self._attr_unique_id = f"{DOMAIN}_room_{slug}_egress_window_open"
+        self._attr_name = "Egress Window Open"
+        # Read entry config lazily so reconfigure picks up new values.
+        self._entry = coordinator.entry
+        self._unsub_state = None
+
+    def _config_merged(self) -> dict:
+        return {**self._entry.data, **self._entry.options}
+
+    @property
+    def _window_sensor(self) -> str | None:
+        return self._config_merged().get(CONF_WINDOW_SENSORS) or None
+
+    @property
+    def _is_egress(self) -> bool:
+        # Lazy default per v4.7.4.4 Bug Class #46 doctrine.
+        from .const import CONF_IS_EGRESS_WINDOW, DEFAULT_IS_EGRESS_WINDOW
+        cfg = self._config_merged()
+        return bool(cfg.get(CONF_IS_EGRESS_WINDOW, DEFAULT_IS_EGRESS_WINDOW))
+
+    @property
+    def is_on(self) -> bool:
+        if not self._is_egress:
+            return False
+        ws = self._window_sensor
+        if not ws:
+            return False
+        try:
+            st = self.coordinator.hass.states.get(ws)
+            return st is not None and st.state == "on"
+        except Exception:
+            return False
+
+    @property
+    def available(self) -> bool:
+        return self._window_sensor is not None
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        ws = self._window_sensor
+        raw = None
+        if ws:
+            try:
+                st = self.coordinator.hass.states.get(ws)
+                raw = st.state if st is not None else None
+            except Exception:
+                raw = None
+        return {
+            "is_egress": self._is_egress,
+            "raw_window_state": raw,
+            "room_name": self._entry.data.get("room_name", ""),
+            "window_sensor": ws,
+        }
+
+    @property
+    def device_info(self):
+        """Bind to the existing per-room device created by UniversalRoomEntity."""
+        return {
+            "identifiers": {(DOMAIN, self._entry.entry_id)},
+        }
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to raw window_sensor state changes for instant flip."""
+        await super().async_added_to_hass()
+        from homeassistant.helpers.event import async_track_state_change_event
+
+        ws = self._window_sensor
+        if not ws:
+            return
+
+        @callback
+        def _on_state_change(_event):
+            self.async_write_ha_state()
+
+        self._unsub_state = async_track_state_change_event(
+            self.coordinator.hass, [ws], _on_state_change,
+        )
+        self.async_on_remove(self._unsub_state)
+
+
+class HVACZoneEgressWindowOpenSensor(BinarySensorEntity):
+    """Per-canonical-HVAC-zone egress window open rollup (v4.7.8 D5).
+
+    ON iff EgressManager.zone_aggregate(zone_id) is True (any egress room in
+    the zone is open AND counter / pause state engaged).
+    """
+
+    _attr_device_class = BinarySensorDeviceClass.OPENING
+    _attr_icon = "mdi:window-open"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        entry: ConfigEntry,
+        zone_id: str,
+        zone_name: str,
+    ) -> None:
+        from homeassistant.helpers.device_registry import DeviceInfo
+        self.hass = hass
+        self._entry = entry
+        self._zone_id = zone_id
+        self._zone_name = zone_name
+        self._attr_unique_id = f"{DOMAIN}_hvac_zone_{zone_id}_egress_window_open"
+        self._attr_name = f"{zone_name} Egress Window Open"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "hvac_coordinator")},
+            name="URA: HVAC Coordinator",
+            manufacturer="Universal Room Automation",
+            model="HVAC Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+
+    def _get_egress(self):
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        hvac = manager.coordinators.get("hvac")
+        if hvac is None:
+            return None
+        return getattr(hvac, "egress_manager", None)
+
+    @property
+    def is_on(self) -> bool:
+        em = self._get_egress()
+        if em is None:
+            return False
+        try:
+            return bool(em.zone_aggregate(self._zone_id))
+        except Exception:
+            return False
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        em = self._get_egress()
+        if em is None:
+            return {"zone_id": self._zone_id}
+        try:
+            label = em.state_label(self._zone_id)
+        except Exception:
+            label = "idle"
+        return {
+            "zone_id": self._zone_id,
+            "state_label": label,
+        }
+
+    @property
+    def available(self) -> bool:
+        return self._get_egress() is not None
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.hvac_const import SIGNAL_HVAC_ENTITIES_UPDATE
+
+        @callback
+        def _on_update(*_a, **_kw):
+            self.async_write_ha_state()
+
+        self.async_on_remove(
+            async_dispatcher_connect(self.hass, SIGNAL_HVAC_ENTITIES_UPDATE, _on_update)
+        )
