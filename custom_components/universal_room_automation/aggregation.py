@@ -3177,11 +3177,76 @@ class ZoneAnyoneBinarySensor(ZoneSensorBase, BinarySensorEntity):
 
     @property
     def is_on(self) -> bool:
-        """Return True if any room in zone occupied."""
+        """Return True if any room in zone occupied.
+
+        v4.7.13: Sleep-state zone presence trust fallback.
+        Layer 1 (existing): any room-level occupancy sensor reports occupied.
+        Layer 2 (NEW): during house_state == "sleep", if any zone_persons
+        member tracker is "home", treat the zone as occupied. This covers
+        the structural degeneration where mmWave drops motionless sleepers,
+        PIR can't fire on stationary bodies, and cameras are blind in dark
+        rooms — leaving the room-level rollup falsely off mid-sleep.
+        """
+        # Layer 1: existing room-level rollup
         for coord in self._get_zone_coordinators():
             if coord.data and coord.data.get(STATE_OCCUPIED, False):
                 return True
+
+        # Layer 2: sleep-state person tracker fallback
+        if self._sleep_person_fallback_occupied():
+            return True
+
         return False
+
+    def _sleep_person_fallback_occupied(self) -> bool:
+        """Return True if house is asleep AND a zone_persons member is home.
+
+        v4.7.13 fallback: only engages when:
+          - coordinator_manager is available and house_state == "sleep"
+          - the HVAC coordinator has a Zone for self.zone with non-empty
+            zone_persons
+          - at least one zone_persons entity has state == "home"
+
+        Guarded with try/except: any failure (missing manager, missing zone,
+        stale state lookup) returns False — never raises into HA state read.
+        """
+        try:
+            manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+            if manager is None:
+                return False
+
+            # House must be asleep — no fabrication during other states.
+            if getattr(manager, "house_state", None) != "sleep":
+                return False
+
+            hvac = manager.coordinators.get("hvac") if hasattr(manager, "coordinators") else None
+            if hvac is None or not hasattr(hvac, "_zone_manager"):
+                return False
+
+            zone = hvac._zone_manager.zones.get(self.zone)
+            if zone is None:
+                return False
+
+            zone_persons = getattr(zone, "zone_persons", None) or []
+            if not zone_persons:
+                return False
+
+            for person_entity in zone_persons:
+                state = self.hass.states.get(person_entity)
+                if state is not None and state.state == "home":
+                    _LOGGER.info(
+                        "Zone '%s': sleep-state person fallback engaged — "
+                        "%s == home (room sensors degraded)",
+                        self.zone, person_entity,
+                    )
+                    return True
+            return False
+        except Exception as exc:  # noqa: BLE001
+            _LOGGER.debug(
+                "Zone '%s': sleep-state person fallback errored: %s",
+                self.zone, exc,
+            )
+            return False
 
 
 class ZoneSafetyAlertSensor(ZoneSensorBase, BinarySensorEntity):
