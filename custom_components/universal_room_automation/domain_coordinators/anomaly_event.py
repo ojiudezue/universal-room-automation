@@ -14,6 +14,34 @@ from dataclasses import dataclass, field
 from enum import IntEnum
 from typing import Any
 
+# v4.7.12: StrEnum is Python 3.11+. HA-core min Python is well past that on
+# live HAOS, but the URA test suite still runs against Python 3.9 in some
+# environments. Mirror the back-compat shim used elsewhere in this codebase
+# (see domain_coordinators/security.py:27-33, weather_manager.py:23-29).
+try:
+    from enum import StrEnum
+except ImportError:  # pragma: no cover — only fires on Python <3.11
+    from enum import Enum as _Enum
+
+    class StrEnum(str, _Enum):  # type: ignore[no-redef]
+        """Lightweight back-compat StrEnum for Python <3.11."""
+
+        def __str__(self) -> str:
+            return str(self.value)
+
+__all__ = [
+    "AnomalySeverity",
+    "AnomalyType",  # v4.7.12 D3
+    "AnomalyEvent",
+    "build_context_json",
+    "map_diag_severity",
+    # Legacy aliases — slated for removal in v5.0
+    "EVENT_CLASS_POINT_IN_TIME",
+    "EVENT_CLASS_REGIME_SHIFT",
+    "EVENT_CLASS_HAZARD",
+    "EVENT_CLASS_TRANSITION_INVALID",
+]
+
 
 class AnomalySeverity(IntEnum):
     """Unified severity scale across all coordinators.
@@ -86,12 +114,41 @@ def map_diag_severity(diag_sev: Any) -> "AnomalySeverity":
     return _DIAG_TO_EVENT_SEVERITY[key]
 
 
-# Valid event_class literal values. Enforced by convention; a StrEnum would
-# add import complexity with no runtime benefit at this cycle's scope.
-EVENT_CLASS_POINT_IN_TIME = "point_in_time"
-EVENT_CLASS_REGIME_SHIFT = "regime_shift"
-EVENT_CLASS_HAZARD = "hazard"
-EVENT_CLASS_TRANSITION_INVALID = "transition_invalid"
+class AnomalyType(StrEnum):
+    """Discriminator for the anomaly_log.anomaly_type column (v4.7.12 D1).
+
+    Replaces the loose ``EVENT_CLASS_*`` string constants. Same persisted
+    string values — only the type at the dataclass / DAO boundary changes,
+    so old TEXT rows still round-trip after the v4.7.12 column rename.
+
+    Members:
+        POINT_IN_TIME — single-instant anomaly emission (default / today's
+            behavior). All 11 existing point_in_time emitters land here.
+        REGIME_SHIFT — sustained-state change; downstream consumers (planned
+            v4.7.13+) treat this differently from point-in-time events.
+        HAZARD — safety-domain anomaly with notification routing.
+        TRANSITION_INVALID — house-state transition rule violation.
+
+    StrEnum means ``AnomalyType.POINT_IN_TIME == "point_in_time"`` is True,
+    so legacy code paths that compare strings continue to work. Migration
+    from raw strings to typed enums is mechanical at every emit site.
+
+    DO NOT add new members in v4.7.12. v4.7.13+ owns the next member.
+    """
+
+    POINT_IN_TIME = "point_in_time"
+    REGIME_SHIFT = "regime_shift"
+    HAZARD = "hazard"
+    TRANSITION_INVALID = "transition_invalid"
+
+
+# v4.7.12: legacy aliases — point to AnomalyType members. Existing callers
+# that import EVENT_CLASS_POINT_IN_TIME continue to work because StrEnum
+# members are also strings. Slated for deletion in v5.0.
+EVENT_CLASS_POINT_IN_TIME = AnomalyType.POINT_IN_TIME
+EVENT_CLASS_REGIME_SHIFT = AnomalyType.REGIME_SHIFT
+EVENT_CLASS_HAZARD = AnomalyType.HAZARD
+EVENT_CLASS_TRANSITION_INVALID = AnomalyType.TRANSITION_INVALID
 
 
 @dataclass
@@ -129,9 +186,19 @@ class AnomalyEvent:
     severity: AnomalySeverity
     """INFO | WARNING | CRITICAL — single enum, stored as INT in DB."""
 
-    event_class: str
-    """Broad class for retention policy and UI bucketing.
-    One of EVENT_CLASS_* constants above."""
+    anomaly_type: AnomalyType
+    """Broad class for retention policy and UI bucketing (v4.7.12 D1).
+
+    v4.7.12 renamed from ``event_class: str`` to align with the database
+    column and to narrow the type from str to AnomalyType (StrEnum).
+    Legacy callers that pass a raw string literal still work because
+    ``__post_init__`` coerces matching strings into AnomalyType members
+    and raises ValueError on unknown values — drift caught at write time
+    rather than at downstream consumer time.
+
+    The legacy attribute ``event_class`` remains readable as a property
+    alias for the duration of the dual-write window (v4.7.12 → v5.0).
+    """
 
     detected_at: str
     """UTC ISO timestamp string of first detection."""
@@ -175,6 +242,47 @@ class AnomalyEvent:
 
     correlation_id: str | None = None
     """Optional UUID linking related cross-coordinator anomalies."""
+
+    def __post_init__(self) -> None:
+        # v4.7.12 D1: defensive coercion. Accept legacy string emitters
+        # transparently; raise on unknown values so future drift is caught
+        # at write time rather than at downstream consumer time.
+        #
+        # v4.7.12 Reviewer C fix-up (C-M1 / Review B M-B2): explicit
+        # type discrimination. Pre-fix-up, ``anomaly_type=None`` slipped
+        # past ``isinstance(None, str)`` (False) and silently lived as
+        # ``None`` on the dataclass, then defaulted to "point_in_time"
+        # in the DAO — defeating the plan intent ("never rely on the
+        # default"). New behavior:
+        #   - AnomalyType  -> no-op
+        #   - str          -> coerce or raise ValueError
+        #   - anything else (incl. None) -> raise TypeError
+        if isinstance(self.anomaly_type, AnomalyType):
+            return
+        if isinstance(self.anomaly_type, str):
+            try:
+                self.anomaly_type = AnomalyType(self.anomaly_type)
+                return
+            except ValueError as e:
+                raise ValueError(
+                    "AnomalyEvent.anomaly_type must be a member of AnomalyType "
+                    f"or one of {[t.value for t in AnomalyType]!r}; "
+                    f"got {self.anomaly_type!r}"
+                ) from e
+        raise TypeError(
+            "AnomalyEvent.anomaly_type must be AnomalyType or str; "
+            f"got {type(self.anomaly_type).__name__}"
+        )
+
+    @property
+    def event_class(self) -> AnomalyType:
+        """Legacy alias for ``anomaly_type`` (v4.7.12 dual-write window).
+
+        Slated for removal in v5.0 alongside the ``event_class`` DB column.
+        Returns the AnomalyType member; StrEnum equality with the raw string
+        value preserves any legacy code path that compares to ``"point_in_time"``.
+        """
+        return self.anomaly_type
 
 
 # ============================================================================

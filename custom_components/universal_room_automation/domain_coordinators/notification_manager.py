@@ -930,7 +930,7 @@ class NotificationManager:
             from .anomaly_event import (  # noqa: PLC0415
                 AnomalyEvent,
                 AnomalySeverity,
-                EVENT_CLASS_POINT_IN_TIME,
+                AnomalyType,
                 build_context_json,
             )
 
@@ -957,7 +957,7 @@ class NotificationManager:
                 coordinator="notification",
                 type="nm.alert_dispatched",
                 severity=_severity_map.get(severity_str, AnomalySeverity.WARNING),
-                event_class=EVENT_CLASS_POINT_IN_TIME,
+                anomaly_type=AnomalyType.POINT_IN_TIME,
                 detected_at=now_iso,
                 payload=_ctx,
                 # Binary correlation rows have no natural metric values — leave defaults (0.0/0)

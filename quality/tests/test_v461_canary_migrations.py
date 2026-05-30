@@ -113,8 +113,15 @@ def test_energy_canary_uses_point_in_time_class():
     assert idx >= 0
     next_method = src.find("\n    async def ", idx + 1)
     block = src[idx: next_method if next_method > 0 else idx + 3000]
-    assert "point_in_time" in block, (
-        "Energy crosscheck AnomalyEvent must use event_class='point_in_time'"
+    # v4.7.12 D2: raw string "point_in_time" replaced by typed enum
+    # AnomalyType.POINT_IN_TIME. The persisted value is unchanged
+    # (StrEnum members equal their string values).
+    assert (
+        "AnomalyType.POINT_IN_TIME" in block
+        or "EVENT_CLASS_POINT_IN_TIME" in block
+        or "point_in_time" in block
+    ), (
+        "Energy crosscheck AnomalyEvent must use anomaly_type=AnomalyType.POINT_IN_TIME"
     )
 
 
@@ -177,12 +184,17 @@ def test_bayesian_canary_uses_correct_coordinator_type():
 
 
 def test_bayesian_canary_uses_point_in_time_class():
+    """v4.7.12 D2: raw string replaced by typed enum AnomalyType.POINT_IN_TIME."""
     src = _binary_sensor_src()
     idx = src.find("async def _store_bayesian_anomaly_event(")
     assert idx >= 0
     next_method = src.find("\n    async def ", idx + 1)
     block = src[idx: next_method if next_method > 0 else idx + 3000]
-    assert "point_in_time" in block
+    assert (
+        "AnomalyType.POINT_IN_TIME" in block
+        or "EVENT_CLASS_POINT_IN_TIME" in block
+        or "point_in_time" in block
+    )
 
 
 def test_bayesian_canary_uses_warning_severity():

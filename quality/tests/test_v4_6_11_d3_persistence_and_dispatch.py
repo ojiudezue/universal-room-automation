@@ -253,7 +253,7 @@ class TestD1Phase2Pipeline:
                     coordinator="coordinator_manager",
                     type="coordinator_manager.setup_duration_seconds",
                     severity=ae.map_diag_severity(_anomaly.severity),
-                    event_class=ae.EVENT_CLASS_POINT_IN_TIME,
+                    anomaly_type=ae.AnomalyType.POINT_IN_TIME,
                     detected_at=_anomaly.timestamp.isoformat(),
                     payload=_ctx,
                     observed_value=_anomaly.observed_value,
@@ -492,7 +492,9 @@ class TestD1SourceStructure:
     def test_init_py_has_anomaly_event_construction(self):
         """D1 AC: __init__.py constructs AnomalyEvent with all metric fields."""
         src = self.INIT_FILE.read_text()
-        for field in ("coordinator=", "type=", "severity=", "event_class=",
+        # v4.7.12 D2: event_class= kwarg renamed to anomaly_type= at all
+        # emit sites. The dataclass field is anomaly_type: AnomalyType.
+        for field in ("coordinator=", "type=", "severity=", "anomaly_type=",
                       "detected_at=", "observed_value=", "z_score=", "sample_size="):
             assert field in src, f"AnomalyEvent field {field!r} missing from __init__.py"
 

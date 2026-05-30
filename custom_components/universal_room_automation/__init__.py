@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv4.7.11
+# Universal Room Automation vv4.7.12
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -2174,7 +2174,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                             if _anomaly is not None:
                                 from .domain_coordinators.anomaly_event import (
                                     AnomalyEvent,
-                                    EVENT_CLASS_POINT_IN_TIME,
+                                    AnomalyType,
                                     build_context_json,
                                     map_diag_severity,
                                 )
@@ -2203,7 +2203,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                                     coordinator="coordinator_manager",
                                     type="coordinator_manager.setup_duration_seconds",
                                     severity=map_diag_severity(_anomaly.severity),
-                                    event_class=EVENT_CLASS_POINT_IN_TIME,
+                                    anomaly_type=AnomalyType.POINT_IN_TIME,
                                     detected_at=_anomaly.timestamp.isoformat(),
                                     payload=_ctx,
                                     observed_value=_anomaly.observed_value,

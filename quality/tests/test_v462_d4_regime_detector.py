@@ -201,9 +201,15 @@ def test_emits_via_save_anomaly_event():
 
 
 def test_event_class_is_regime_shift():
+    """v4.7.12 D4: regime_detector now uses the typed AnomalyType enum.
+
+    The raw string ``"regime_shift"`` is replaced by
+    ``AnomalyType.REGIME_SHIFT``. The persisted value is unchanged
+    because StrEnum members equal their string values.
+    """
     src = _regime_src()
-    assert '"regime_shift"' in src or "'regime_shift'" in src, (
-        "AnomalyEvent must be created with event_class='regime_shift'"
+    assert "AnomalyType.REGIME_SHIFT" in src, (
+        "AnomalyEvent must be created with anomaly_type=AnomalyType.REGIME_SHIFT"
     )
 
 

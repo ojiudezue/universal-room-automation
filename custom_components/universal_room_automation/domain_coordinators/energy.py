@@ -1574,7 +1574,7 @@ class EnergyCoordinator(BaseCoordinator):
         in-memory _envoy_data_anomaly_at flag. The sensor's stale-derivation
         logic is unaffected — this only adds DB persistence.
         """
-        from .anomaly_event import AnomalyEvent, AnomalySeverity
+        from .anomaly_event import AnomalyEvent, AnomalySeverity, AnomalyType
         from homeassistant.util import dt as _dt_util
 
         db = self.hass.data.get(_DOMAIN, {}).get("database")
@@ -1585,7 +1585,7 @@ class EnergyCoordinator(BaseCoordinator):
             coordinator="energy",
             type="energy.crosscheck_divergence",
             severity=AnomalySeverity.WARNING,
-            event_class="point_in_time",
+            anomaly_type=AnomalyType.POINT_IN_TIME,
             detected_at=_dt_util.utcnow().isoformat(),
             payload={
                 "envoy_today_kwh": envoy_today_kwh,
@@ -3310,11 +3310,13 @@ class EnergyCoordinator(BaseCoordinator):
             from .anomaly_event import (  # noqa: PLC0415
                 AnomalyEvent,
                 AnomalySeverity,
-                EVENT_CLASS_POINT_IN_TIME,
+                AnomalyType,
                 build_context_json,
             )
 
-            anomaly_type = anomaly.get("type", "tripped_breaker")
+            # v4.7.12 D2: local renamed `anomaly_subtype` to avoid clashing
+            # with the new ``AnomalyType`` import / ``anomaly_type`` kwarg.
+            anomaly_subtype = anomaly.get("type", "tripped_breaker")
             circuit_name = anomaly.get("circuit", "unknown")
             entity_id = anomaly.get("entity_id")
 
@@ -3324,14 +3326,14 @@ class EnergyCoordinator(BaseCoordinator):
             )
             severity = (
                 AnomalySeverity.CRITICAL
-                if anomaly_type == "tripped_breaker"
+                if anomaly_subtype == "tripped_breaker"
                 else AnomalySeverity.WARNING
             )
             _event = AnomalyEvent(
                 coordinator="energy",
-                type=f"energy.circuit_{anomaly_type}",
+                type=f"energy.circuit_{anomaly_subtype}",
                 severity=severity,
-                event_class=EVENT_CLASS_POINT_IN_TIME,
+                anomaly_type=AnomalyType.POINT_IN_TIME,
                 detected_at=dt_util.utcnow().isoformat(),
                 payload=_ctx,
                 entity_id=entity_id,
@@ -3341,7 +3343,7 @@ class EnergyCoordinator(BaseCoordinator):
                 await database.save_anomaly_event(_event)
                 _LOGGER.info(
                     "Circuit anomaly event emitted: type=%s circuit=%s",
-                    anomaly_type, circuit_name,
+                    anomaly_subtype, circuit_name,
                 )
             # D12: fire activity_logger (awaited — A5 fix: avoid untracked task)
             activity_logger = self.hass.data.get(DOMAIN, {}).get("activity_logger")
@@ -3350,13 +3352,13 @@ class EnergyCoordinator(BaseCoordinator):
                     coordinator="energy",
                     action="anomaly",
                     description=(
-                        f"Circuit {anomaly_type} on {circuit_name} "
+                        f"Circuit {anomaly_subtype} on {circuit_name} "
                         f"z={anomaly.get('z_score', 0.0):.2f}"
                     ),
-                    importance="critical" if anomaly_type == "tripped_breaker" else "notable",
+                    importance="critical" if anomaly_subtype == "tripped_breaker" else "notable",
                     entity_id=entity_id,
                     details={
-                        "type": f"energy.circuit_{anomaly_type}",
+                        "type": f"energy.circuit_{anomaly_subtype}",
                         "circuit": circuit_name,
                         "z_score": anomaly.get("z_score", 0.0),
                     },

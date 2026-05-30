@@ -397,7 +397,7 @@ class TransitionDetector:
             from .domain_coordinators.anomaly_event import (  # noqa: PLC0415
                 AnomalyEvent,
                 AnomalySeverity,
-                EVENT_CLASS_TRANSITION_INVALID,
+                AnomalyType,
                 build_context_json,
             )
 
@@ -418,7 +418,7 @@ class TransitionDetector:
                 coordinator="transit",
                 type="transit.path_implausible",
                 severity=AnomalySeverity.WARNING,
-                event_class=EVENT_CLASS_TRANSITION_INVALID,
+                anomaly_type=AnomalyType.TRANSITION_INVALID,
                 detected_at=now_iso,
                 payload=_ctx,
                 person_id=transition.person_id,

@@ -524,7 +524,11 @@ class RegimeDetector:
     ) -> None:
         """Build and persist an AnomalyEvent for a confirmed regime shift."""
         # function-local imports — Bug Class #34
-        from ..domain_coordinators.anomaly_event import AnomalyEvent, AnomalySeverity
+        from ..domain_coordinators.anomaly_event import (
+            AnomalyEvent,
+            AnomalySeverity,
+            AnomalyType,
+        )
         from homeassistant.util import dt as _dt_util
 
         severity_map = {
@@ -557,7 +561,7 @@ class RegimeDetector:
             coordinator="bayesian",
             type="bayesian.routine_shift",
             severity=severity,
-            event_class="regime_shift",
+            anomaly_type=AnomalyType.REGIME_SHIFT,
             detected_at=_dt_util.utcnow().isoformat(),
             payload=payload,
             person_id=person_id,

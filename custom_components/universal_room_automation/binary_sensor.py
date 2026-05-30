@@ -1,6 +1,6 @@
 """Binary sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.7.11
+# Universal Room Automation vv4.7.12
 # Build: 2026-01-02
 # File: binary_sensor.py
 # v3.2.6: Renamed "Presence" to "Sensor Presence" for clarity
@@ -1900,7 +1900,11 @@ class OccupancyAnomalyBinarySensor(UniversalRoomEntity, BinarySensorEntity):
         v4.6.1 canary migration: proves AnomalyEvent shape for an existing
         frequent emitter. Existing NM + signal paths remain unchanged.
         """
-        from .domain_coordinators.anomaly_event import AnomalyEvent, AnomalySeverity
+        from .domain_coordinators.anomaly_event import (
+            AnomalyEvent,
+            AnomalySeverity,
+            AnomalyType,
+        )
 
         db = self.hass.data.get(DOMAIN, {}).get("database")
         if db is None:
@@ -1910,7 +1914,7 @@ class OccupancyAnomalyBinarySensor(UniversalRoomEntity, BinarySensorEntity):
             coordinator="bayesian",
             type="bayesian.prediction_anomaly",
             severity=AnomalySeverity.WARNING,
-            event_class="point_in_time",
+            anomaly_type=AnomalyType.POINT_IN_TIME,
             detected_at=dt_util.utcnow().isoformat(),
             payload={
                 "room_id": room_name,

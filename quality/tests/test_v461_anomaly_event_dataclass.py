@@ -82,7 +82,9 @@ def test_anomaly_severity_names():
 
 def test_anomaly_event_required_fields_present():
     src = _read_src()
-    for field_name in ("coordinator", "type", "severity", "event_class", "detected_at", "payload"):
+    # v4.7.12 D4: anomaly_type renamed from event_class. ``event_class``
+    # remains readable via property alias during the dual-write window.
+    for field_name in ("coordinator", "type", "severity", "anomaly_type", "detected_at", "payload"):
         assert field_name in src, f"AnomalyEvent must have field '{field_name}'"
 
 
@@ -105,7 +107,7 @@ def test_anomaly_event_instantiation_works():
         coordinator="energy",
         type="energy.crosscheck_divergence",
         severity=mod.AnomalySeverity.WARNING,
-        event_class="point_in_time",
+        anomaly_type=mod.AnomalyType.POINT_IN_TIME,
         detected_at="2026-05-12T10:00:00",
         payload={"divergence_pct": 20.0},
     )
@@ -121,7 +123,7 @@ def test_anomaly_event_optional_fields_default_to_none():
         coordinator="bayesian",
         type="bayesian.prediction_anomaly",
         severity=mod.AnomalySeverity.INFO,
-        event_class="point_in_time",
+        anomaly_type=mod.AnomalyType.POINT_IN_TIME,
         detected_at="2026-05-12T10:00:00",
         payload={},
     )
