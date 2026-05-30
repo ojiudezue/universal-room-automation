@@ -553,7 +553,11 @@ def test_save_anomaly_event_production_resolution_prefers_anomaly_type():
         anomaly_type = "regime_shift"
         event_class = "point_in_time"  # disagrees with anomaly_type
 
-    ns = {"event": _Evt()}
+    # _LOGGER reference comes from the production warning branch (C-M2);
+    # inject a no-op logger so the exec'd block runs in this test namespace.
+    import logging as _logging
+    _stub_logger = _logging.getLogger("test_v4712_production_resolution_stub")
+    ns = {"event": _Evt(), "_LOGGER": _stub_logger, "getattr": getattr, "str": str}
     exec(compile(resolution_block, "<production_resolution>", "exec"), ns, ns)
     assert ns["_discriminator_str"] == "regime_shift", (
         "Production resolution chain must prefer anomaly_type over event_class; "
@@ -565,7 +569,7 @@ def test_save_anomaly_event_production_resolution_prefers_anomaly_type():
         anomaly_type = None
         event_class = "hazard"
 
-    ns2 = {"event": _EvtOnlyLegacy()}
+    ns2 = {"event": _EvtOnlyLegacy(), "_LOGGER": _stub_logger, "getattr": getattr, "str": str}
     exec(compile(resolution_block, "<production_resolution>", "exec"), ns2, ns2)
     assert ns2["_discriminator_str"] == "hazard", (
         "Production resolution chain must fall back to event_class when "
@@ -577,7 +581,7 @@ def test_save_anomaly_event_production_resolution_prefers_anomaly_type():
         anomaly_type = None
         event_class = None
 
-    ns3 = {"event": _EvtNone()}
+    ns3 = {"event": _EvtNone(), "_LOGGER": _stub_logger, "getattr": getattr, "str": str}
     exec(compile(resolution_block, "<production_resolution>", "exec"), ns3, ns3)
     assert ns3["_discriminator_str"] == "point_in_time", (
         "Production resolution must default to 'point_in_time' when both "

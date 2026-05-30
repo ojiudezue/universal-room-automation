@@ -4772,9 +4772,24 @@ class UniversalRoomDatabase:
         _discriminator = getattr(event, "anomaly_type", None)
         if _discriminator is None:
             _discriminator = getattr(event, "event_class", None)
-        _discriminator_str = (
-            str(_discriminator) if _discriminator is not None else "point_in_time"
-        )
+        if _discriminator is None:
+            # v4.7.12 Reviewer C fix-up (C-M2): silent default to
+            # "point_in_time" masks the C-M1 / M-B2 class of caller bug
+            # (anomaly_type None at the emit boundary). Log a WARNING so
+            # the fallback shows up in core logs instead of disappearing
+            # into a NULL-shaped point_in_time row. Production
+            # __post_init__ now raises TypeError on None for dataclass
+            # callers, but the DAO still has to handle duck-typed events
+            # constructed outside the dataclass.
+            _LOGGER.warning(
+                "save_anomaly_event: event has neither anomaly_type nor event_class; "
+                "defaulting to 'point_in_time'. Caller bug — coordinator=%s type=%s",
+                getattr(event, "coordinator", "?"),
+                getattr(event, "type", "?"),
+            )
+            _discriminator_str = "point_in_time"
+        else:
+            _discriminator_str = str(_discriminator)
         try:
             async with self._db() as db:
                 cursor = await db.execute(
