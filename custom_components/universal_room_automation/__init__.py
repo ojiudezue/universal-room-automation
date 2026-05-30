@@ -2033,6 +2033,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                             CONF_HVAC_PREHEAT_FORECAST_LOW,
                             DEFAULT_HVAC_PREHEAT_FORECAST_LOW,
                         )),
+                        # v4.7.8 D2: Egress Window HVAC Pause seeds from CM
+                        # config. RestoreEntity-backed switch + 2 Numbers are
+                        # the runtime source of truth; these values seed
+                        # install-time only.
+                        egress_pause_enabled=bool(cm_config.get(
+                            "hvac_egress_pause_enabled", True,
+                        )),
+                        egress_threshold_min=int(cm_config.get(
+                            "hvac_egress_threshold_min", 3,
+                        )),
+                        egress_resume_delay_min=int(cm_config.get(
+                            "hvac_egress_resume_delay_min", 1,
+                        )),
                     )
                     coordinator_manager.register_coordinator(hvac)
                 else:

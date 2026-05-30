@@ -47,6 +47,14 @@ class RoomCondition:
     humidity: float | None = None
     occupied: bool = False
     weight: float = 1.0
+    # v4.7.8 D3: Egress-window state per room. `window_sensor` is the raw
+    # binary_sensor entity_id from CONF_WINDOW_SENSORS; `window_state` is
+    # its last-observed state ("on"/"off"/None). `is_egress_window` is the
+    # per-room flag from CONF_IS_EGRESS_WINDOW (lazy default True).
+    window_sensor: str | None = None
+    window_state: str | None = None
+    is_egress_window: bool = True
+    room_entry_id: str | None = None
 
 
 @dataclass
@@ -452,8 +460,14 @@ class ZoneManager:
         keyed by config entry UUID. We find them by matching room_name
         from config entries against zone.rooms.
         """
-        # Build room_name -> coordinator mapping
+        # Build room_name -> coordinator mapping. v4.7.8 D3: also collect
+        # CONF_WINDOW_SENSORS + CONF_IS_EGRESS_WINDOW per room so EgressManager
+        # has fresh window state every tick without re-iterating config entries.
+        from ..const import CONF_IS_EGRESS_WINDOW, DEFAULT_IS_EGRESS_WINDOW
+        from ..const import CONF_WINDOW_SENSORS as _CONF_WINDOW_SENSORS
+
         room_coordinators: dict[str, Any] = {}
+        room_entry_meta: dict[str, dict[str, Any]] = {}
         for entry in self.hass.config_entries.async_entries(DOMAIN):
             if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ROOM:
                 continue
@@ -463,6 +477,15 @@ class ZoneManager:
             coordinator = self.hass.data.get(DOMAIN, {}).get(entry.entry_id)
             if coordinator is not None:
                 room_coordinators[room_name] = coordinator
+            merged = {**entry.data, **entry.options}
+            room_entry_meta[room_name] = {
+                "entry_id": entry.entry_id,
+                "window_sensor": merged.get(_CONF_WINDOW_SENSORS) or None,
+                # Lazy default per v4.7.4.4 Bug Class #46 doctrine.
+                "is_egress_window": bool(merged.get(
+                    CONF_IS_EGRESS_WINDOW, DEFAULT_IS_EGRESS_WINDOW,
+                )),
+            }
 
         now = dt_util.utcnow()
         for zone in self._zones.values():
@@ -477,11 +500,26 @@ class ZoneManager:
                 if hasattr(coordinator, "data") and coordinator.data:
                     data = coordinator.data
 
+                meta = room_entry_meta.get(room_name, {})
+                window_sensor = meta.get("window_sensor")
+                window_state: str | None = None
+                if window_sensor:
+                    try:
+                        st = self.hass.states.get(window_sensor)
+                        if st is not None:
+                            window_state = st.state
+                    except Exception:
+                        window_state = None
+
                 condition = RoomCondition(
                     room_name=room_name,
                     temperature=data.get("temperature"),
                     humidity=data.get("humidity"),
                     occupied=data.get("occupied", False),
+                    window_sensor=window_sensor,
+                    window_state=window_state,
+                    is_egress_window=bool(meta.get("is_egress_window", True)),
+                    room_entry_id=meta.get("entry_id"),
                 )
                 zone.room_conditions.append(condition)
 

@@ -432,3 +432,54 @@ HVAC_ANOMALY_MIN_SAMPLES: Final = 336
 # ============================================================================
 
 SIGNAL_HVAC_ENTITIES_UPDATE: Final = "ura_hvac_entities_update"
+
+
+# ============================================================================
+# v4.7.8 — Egress Window HVAC Pause
+# ----------------------------------------------------------------------------
+# When a room's window opens AND is_egress=True (per-room flag), URA pauses
+# the canonical HVAC zone serving that room (climate.set_hvac_mode: off).
+# Snapshot prior mode + preset and restore on resume. Master enabled here
+# (one switch on URA: HVAC Coordinator) + two house-wide tunables (threshold
+# minutes, resume-delay minutes). Manual user override during pause engages
+# a 1-hour cooldown to avoid fighting the user.
+# ============================================================================
+
+# Master toggle (default ON — kid-forgetfulness coverage matters).
+CONF_HVAC_EGRESS_PAUSE_ENABLED: Final = "hvac_egress_pause_enabled"
+DEFAULT_HVAC_EGRESS_PAUSE_ENABLED: Final = True
+
+# Minutes the egress window must be open before pause fires.
+CONF_HVAC_EGRESS_THRESHOLD_MIN: Final = "hvac_egress_threshold_min"
+DEFAULT_HVAC_EGRESS_THRESHOLD_MIN: Final = 3  # minutes
+HVAC_EGRESS_THRESHOLD_MIN_MIN: Final = 1
+HVAC_EGRESS_THRESHOLD_MIN_MAX: Final = 15
+
+# Minutes all egress windows must be closed before resume fires.
+CONF_HVAC_EGRESS_RESUME_DELAY_MIN: Final = "hvac_egress_resume_delay_min"
+DEFAULT_HVAC_EGRESS_RESUME_DELAY_MIN: Final = 1  # minutes
+HVAC_EGRESS_RESUME_DELAY_MIN_MIN: Final = 1
+HVAC_EGRESS_RESUME_DELAY_MIN_MAX: Final = 10
+
+# Manual-override grace + cooldown (mirror AC Nudge / Drain conventions).
+HVAC_EGRESS_MANUAL_OVERRIDE_GRACE_S: Final = 30
+HVAC_EGRESS_MANUAL_COOLDOWN_S: Final = 3600  # 1 hour
+
+# State-machine labels (exposed via HVACZoneEgressStateSensor).
+EGRESS_STATE_IDLE: Final = "idle"
+EGRESS_STATE_COUNTING: Final = "counting"
+EGRESS_STATE_PAUSED: Final = "paused"
+EGRESS_STATE_RESUME_COUNTDOWN: Final = "resume_countdown"
+EGRESS_STATE_COOLDOWN: Final = "cooldown"
+
+EGRESS_STATES: Final = (
+    EGRESS_STATE_IDLE,
+    EGRESS_STATE_COUNTING,
+    EGRESS_STATE_PAUSED,
+    EGRESS_STATE_RESUME_COUNTDOWN,
+    EGRESS_STATE_COOLDOWN,
+)
+
+# NM event-type strings (LOW severity; once-per-day per zone per event).
+EGRESS_NM_EVENT_PAUSED: Final = "egress_paused"
+EGRESS_NM_EVENT_RESUMED: Final = "egress_resumed"
