@@ -336,7 +336,7 @@ class MusicFollowingCoordinator(BaseCoordinator):
             from .anomaly_event import (  # noqa: PLC0415
                 AnomalyEvent,
                 AnomalySeverity as _NewSev,
-                EVENT_CLASS_POINT_IN_TIME,
+                AnomalyType,
                 build_context_json,
                 map_diag_severity,
             )
@@ -349,7 +349,7 @@ class MusicFollowingCoordinator(BaseCoordinator):
                 type=f"music_following.{metric}",
                 # v4.6.6 D1: 1:1 mapping preserves all 4 z-score bands.
                 severity=map_diag_severity(anomaly.severity),
-                event_class=EVENT_CLASS_POINT_IN_TIME,
+                anomaly_type=AnomalyType.POINT_IN_TIME,
                 detected_at=anomaly.timestamp.isoformat(),
                 payload=_ctx,
                 observed_value=anomaly.observed_value,

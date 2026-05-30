@@ -1826,7 +1826,7 @@ class SafetyCoordinator(BaseCoordinator):
                 from .anomaly_event import (
                     AnomalyEvent,
                     AnomalySeverity as _NewSev,
-                    EVENT_CLASS_HAZARD,
+                    AnomalyType,
                     build_context_json,
                 )
                 # Record current active hazard count (well-shaped 0..N variance)
@@ -1852,7 +1852,7 @@ class SafetyCoordinator(BaseCoordinator):
                         # binary hazards stay at WARNING; only
                         # classifier-driven sites need the 4-way mapping.
                         severity=_NewSev.WARNING,
-                        event_class=EVENT_CLASS_HAZARD,
+                        anomaly_type=AnomalyType.HAZARD,
                         detected_at=anomaly2.timestamp.isoformat(),
                         payload=_ctx2,
                         observed_value=anomaly2.observed_value,

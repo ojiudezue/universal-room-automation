@@ -2174,7 +2174,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                             if _anomaly is not None:
                                 from .domain_coordinators.anomaly_event import (
                                     AnomalyEvent,
-                                    EVENT_CLASS_POINT_IN_TIME,
+                                    AnomalyType,
                                     build_context_json,
                                     map_diag_severity,
                                 )
@@ -2203,7 +2203,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                                     coordinator="coordinator_manager",
                                     type="coordinator_manager.setup_duration_seconds",
                                     severity=map_diag_severity(_anomaly.severity),
-                                    event_class=EVENT_CLASS_POINT_IN_TIME,
+                                    anomaly_type=AnomalyType.POINT_IN_TIME,
                                     detected_at=_anomaly.timestamp.isoformat(),
                                     payload=_ctx,
                                     observed_value=_anomaly.observed_value,

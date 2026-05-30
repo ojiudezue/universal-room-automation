@@ -531,7 +531,7 @@ class ComplianceTracker:
             from .anomaly_event import (  # noqa: PLC0415
                 AnomalyEvent,
                 AnomalySeverity,
-                EVENT_CLASS_POINT_IN_TIME,
+                AnomalyType,
                 build_context_json,
             )
             _ctx = build_context_json(
@@ -552,7 +552,7 @@ class ComplianceTracker:
                 coordinator="compliance",
                 type="compliance.override_detected",
                 severity=AnomalySeverity.WARNING,
-                event_class=EVENT_CLASS_POINT_IN_TIME,
+                anomaly_type=AnomalyType.POINT_IN_TIME,
                 detected_at=record.timestamp.isoformat(),
                 payload=_ctx,
                 entity_id=record.device_id,
@@ -986,8 +986,8 @@ class AnomalyDetector:
         row_id = await database.save_anomaly_event(event)
         if row_id is not None:
             _LOGGER.info(
-                "Stored AnomalyEvent: coordinator=%s type=%s severity=%s class=%s",
-                event.coordinator, event.type, event.severity.name, event.event_class,
+                "Stored AnomalyEvent: coordinator=%s type=%s severity=%s anomaly_type=%s",
+                event.coordinator, event.type, event.severity.name, event.anomaly_type,
             )
         return row_id
 

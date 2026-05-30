@@ -1795,7 +1795,7 @@ class HVACCoordinator(BaseCoordinator):
                 from .anomaly_event import (  # noqa: PLC0415
                     AnomalyEvent,
                     AnomalySeverity as _NewSev,
-                    EVENT_CLASS_POINT_IN_TIME,
+                    AnomalyType,
                     build_context_json,
                     map_diag_severity,
                 )
@@ -1813,7 +1813,7 @@ class HVACCoordinator(BaseCoordinator):
                     # ADVISORY (z 2-3) and ALERT (z 3-4) as distinct DB values
                     # instead of collapsing both to WARNING.
                     severity=map_diag_severity(anomaly2.severity),
-                    event_class=EVENT_CLASS_POINT_IN_TIME,
+                    anomaly_type=AnomalyType.POINT_IN_TIME,
                     detected_at=anomaly2.timestamp.isoformat(),
                     payload=_ctx2,
                     observed_value=anomaly2.observed_value,
