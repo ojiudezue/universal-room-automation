@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.7.10
+# Universal Room Automation vv4.7.9
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -6811,12 +6811,21 @@ class DynamicPresetOverridesAppliedSensor(AggregationEntity, SensorEntity):
         self._attr_device_info = _hvac_device_info()
 
     async def async_added_to_hass(self) -> None:
-        """Subscribe to override-updated and transition signals."""
+        """Subscribe to override-updated and transition signals.
+
+        v4.7.9 D2: third subscription to SIGNAL_DPM_SKIP_REASONS_UPDATED so
+        `skipped_zones_with_reason` refreshes when ONLY skip-reasons change
+        between ticks (the overrides dict can stay empty for days while
+        reasons transition; without this signal the attr was stale).
+        Unsub is tracked via `async_on_remove` (Bug Class #38 safe). The
+        callback `_on_signal` is `@callback`-decorated (Bug Class #42 safe).
+        """
         await super().async_added_to_hass()
         from homeassistant.helpers.dispatcher import async_dispatcher_connect
         from .domain_coordinators.signals import (
             SIGNAL_DYNAMIC_PRESET_OVERRIDES_UPDATED,
             SIGNAL_DYNAMIC_PRESET_TRANSITIONED,
+            SIGNAL_DPM_SKIP_REASONS_UPDATED,  # v4.7.9 D2
         )
         self.async_on_remove(
             async_dispatcher_connect(
@@ -6828,10 +6837,23 @@ class DynamicPresetOverridesAppliedSensor(AggregationEntity, SensorEntity):
                 self.hass, SIGNAL_DYNAMIC_PRESET_TRANSITIONED, self._on_signal,
             )
         )
+        # v4.7.9 D2: third subscription — see method docstring.
+        self.async_on_remove(
+            async_dispatcher_connect(
+                self.hass, SIGNAL_DPM_SKIP_REASONS_UPDATED, self._on_signal,
+            )
+        )
 
     @callback
     def _on_signal(self, _payload=None) -> None:
-        """Handle signal — push updated count to HA."""
+        """Handle signal — push updated count to HA.
+
+        v4.7.9 B-L4 fix-up: signal is payload-less by contract; sensor
+        recomputes attrs from latest coordinator state via the
+        `extra_state_attributes` property on the next HA state read.
+        Idempotent — double-fire (overrides + reasons signals on the
+        same tick) writes the same value twice with no side effects.
+        """
         self.async_write_ha_state()
 
     @property

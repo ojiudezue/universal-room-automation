@@ -1,6 +1,6 @@
 """Button platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.7.10
+# Universal Room Automation vv4.7.9
 # Build: 2026-01-04
 # File: button.py
 #
@@ -67,6 +67,13 @@ async def async_setup_entry(
             cm_entities.append(
                 _make_ac_ramp_button(
                     hass, entry, zone_spec, "cancel_nudge", zone_index,
+                )
+            )
+            # v4.7.9 D1: per-zone force_ac_reset button (Controls cluster,
+            # offset 4) — manual entry point into the hard-reset escalation.
+            cm_entities.append(
+                _make_ac_ramp_button(
+                    hass, entry, zone_spec, "force_ac_reset", zone_index,
                 )
             )
             cm_entities.append(
@@ -625,6 +632,23 @@ _AC_RAMP_BUTTON_SPECS: dict[str, dict] = {
         "cluster": "controls",
         "action_offset": 2,
     },
+    # v4.7.9 D1: bridges the (Nudge=OFF, Reset=ON) cell of the v4.7.7
+    # decouple matrix — when soft-nudge auto-detection is gated off the
+    # hard-reset escalation has no entry point. This manual button calls
+    # `OverrideArrester.force_ac_reset` which mirrors `force_nudge` and
+    # delegates to `_perform_hard_reset_escalation`. The A3 guard inside
+    # the escalation cleanly no-ops when _ac_reset_enabled is False
+    # (helper text documents the requirement). Controls cluster, prefix
+    # offset 4 -> zone 1 = 24, zone 2 = 34, zone 3 = 44 (sits immediately
+    # after each zone's `cancel_nudge` button at offset 2).
+    "force_ac_reset": {
+        "label": "Force AC Reset",
+        "icon": "mdi:hvac-off",
+        "method": "force_ac_reset",
+        "category": None,  # primary user-facing action
+        "cluster": "controls",
+        "action_offset": 4,
+    },
     "clear_lockout": {
         "label": "Clear AC Ramp Lockout",
         "icon": "mdi:lock-reset",
@@ -719,6 +743,14 @@ class _ACRampButton(ButtonEntity):
         self._attr_unique_id = f"{DOMAIN}_hvac_ac_ramp_{action}_{zone_id}"
         self._attr_name = f"{label} ({zone_name})"
         self._attr_icon = icon
+        # v4.7.9 A-M1/C-M1 fix-up: surface strings.json helper text for the
+        # force_ac_reset variant. Without _attr_translation_key the
+        # `entity.button.hvac_force_ac_reset` entry in strings.json /
+        # translations/en.json is unreachable. Only the force_ac_reset
+        # action has a strings entry today; other actions (force_nudge,
+        # cancel_nudge, clear_lockout) intentionally use _attr_name only.
+        if action == "force_ac_reset":
+            self._attr_translation_key = "hvac_force_ac_reset"
         if category is not None:
             self._attr_entity_category = category
         self._attr_device_info = DeviceInfo(

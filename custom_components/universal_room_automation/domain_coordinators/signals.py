@@ -95,6 +95,18 @@ SIGNAL_DYNAMIC_PRESET_TRANSITIONED: Final = "ura_dynamic_preset_transitioned"
 # Sensors subscribe to refresh their state.
 SIGNAL_DYNAMIC_PRESET_OVERRIDES_UPDATED: Final = "ura_dynamic_preset_overrides_updated"
 
+# v4.7.9 D2: dispatched from EnergyCoordinator._async_evaluate_dynamic_presets
+# when the per-zone DPM skip_reasons dict changes between ticks BUT the
+# overrides dict itself is unchanged. Carry-forward from v4.7.7 Reviewer B-M1:
+# DynamicPresetOverridesAppliedSensor.skipped_zones_with_reason only refreshes
+# when SIGNAL_DYNAMIC_PRESET_OVERRIDES_UPDATED fires (which gates on overrides
+# changing), so reason-only deltas were stale for up to 24h on stable-empty
+# days. Sensor recomputes from latest state; idempotent re-fire is safe.
+# Edge-detection happens AFTER overrides edge-detection so the four combinations
+# of (overrides_changed x reasons_changed) all dispatch correctly. When BOTH
+# change, both signals fire; sensor's _on_signal is idempotent.
+SIGNAL_DPM_SKIP_REASONS_UPDATED: Final = "ura_dpm_skip_reasons_updated"
+
 
 # ============================================================================
 # Shared data classes for inter-coordinator communication
