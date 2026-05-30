@@ -111,6 +111,10 @@ class HVACPredictor:
         # Outdoor temp sensor
         self._outdoor_temp_entity: str = ""
 
+        # v4.7.8 D8: EgressManager reference (set via set_egress_manager).
+        # Used to skip predictive set_temperature dispatch for paused zones.
+        self._egress_manager = None
+
         # v3.17.0: Zone-specific pre-conditioning tracking
         self._pre_conditioning_zones: set[str] = set()
 
@@ -130,6 +134,12 @@ class HVACPredictor:
     def set_outdoor_temp_entity(self, entity_id: str) -> None:
         """Set outdoor temperature sensor entity."""
         self._outdoor_temp_entity = entity_id
+
+    def set_egress_manager(self, egress_manager) -> None:
+        """v4.7.8 D8: Wire EgressManager so predictive set_temperature
+        dispatches can skip zones we paused via the egress feature.
+        """
+        self._egress_manager = egress_manager
 
     def flush_daily_outcome(self) -> None:
         """Store yesterday's outcome before zone counters are reset.
@@ -489,6 +499,12 @@ class HVACPredictor:
         Applies floor: never go below SOLAR_BANK_FLOOR or within MIN_DEADBAND
         of target_temp_low (Ecobee requires >= 2F deadband in auto mode).
         """
+        # v4.7.8 D8: skip predictive pre-cool dispatch for paused zones.
+        if (
+            self._egress_manager is not None
+            and self._egress_manager.is_paused(zone.zone_id)
+        ):
+            return
         if zone.target_temp_high is None or zone.target_temp_low is None:
             return
 
@@ -625,6 +641,12 @@ class HVACPredictor:
     async def _execute_pre_heat(self) -> None:
         """Raise heating setpoints to pre-heat before on-peak."""
         for zone in self._zone_manager.zones.values():
+            # v4.7.8 D8: skip predictive pre-heat dispatch for paused zones.
+            if (
+                self._egress_manager is not None
+                and self._egress_manager.is_paused(zone.zone_id)
+            ):
+                continue
             if not zone.any_room_occupied:
                 continue
             if zone.target_temp_high is None or zone.target_temp_low is None:

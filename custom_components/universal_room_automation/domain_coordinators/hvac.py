@@ -46,6 +46,7 @@ from .hvac_const import (
     SIGNAL_HVAC_ENTITIES_UPDATE,
 )
 from .hvac_covers import CoverController
+from .hvac_egress import EgressManager
 from .hvac_fans import FanController
 from .hvac_override import OverrideArrester
 from .hvac_predict import HVACPredictor
@@ -104,6 +105,10 @@ class HVACCoordinator(BaseCoordinator):
         solar_bank_soc_min: int = 95,
         precool_forecast_high: float = 90.0,
         preheat_forecast_low: float = 35.0,
+        # v4.7.8 D2: Egress Window HVAC Pause master + 2 tunables
+        egress_pause_enabled: bool = True,
+        egress_threshold_min: int = 3,
+        egress_resume_delay_min: int = 1,
     ) -> None:
         """Initialize HVAC Coordinator."""
         super().__init__(
@@ -152,6 +157,16 @@ class HVACCoordinator(BaseCoordinator):
             precool_forecast_high=precool_forecast_high,
             preheat_forecast_low=preheat_forecast_low,
         )
+        # v4.7.8 D3: Egress Window HVAC Pause manager (sibling of OverrideArrester).
+        # DB ref is wired in async_setup (mirror OverrideArrester pattern).
+        self._egress_manager = EgressManager(
+            hass, self._zone_manager,
+            db=None,
+            threshold_min=egress_threshold_min,
+            resume_delay_min=egress_resume_delay_min,
+            enabled=egress_pause_enabled,
+        )
+        self._egress_manager.set_hvac_coord(self)
 
         # v4.0.15: Fan control toggle
         self._fan_control_enabled: bool = fan_control_enabled
@@ -246,6 +261,11 @@ class HVACCoordinator(BaseCoordinator):
     def predictor(self) -> HVACPredictor:
         """Return predictor for sensor access."""
         return self._predictor
+
+    @property
+    def egress_manager(self) -> EgressManager:
+        """Return egress manager for sensor / switch / number access."""
+        return self._egress_manager
 
     @property
     def energy_constraint_mode(self) -> str:
@@ -486,6 +506,28 @@ class HVACCoordinator(BaseCoordinator):
                 "HVAC: database not available — AC ramp-down feature inert"
             )
 
+        # v4.7.8 D6: Wire DB into EgressManager and rehydrate state BEFORE
+        # the periodic decision-cycle timer is registered. Bug Class #14 —
+        # first tick post-restart MUST see _rehydrate_done=True so it can
+        # act on the restored counters / paused dict / cooldowns.
+        if db is not None:
+            self._egress_manager.set_database(db)
+            try:
+                await self._egress_manager.async_rehydrate_from_db()
+            except Exception:
+                _LOGGER.warning(
+                    "HVAC: EgressManager rehydrate failed (non-fatal)",
+                    exc_info=True,
+                )
+        else:
+            _LOGGER.warning(
+                "HVAC: database not available — EgressManager inert"
+            )
+        # v4.7.8 D8: cross-rule precedence — let OverrideArrester +
+        # HVACPredictor see paused zones so they skip cleanly.
+        self._override_arrester.set_egress_manager(self._egress_manager)
+        self._predictor.set_egress_manager(self._egress_manager)
+
         # Start periodic decision cycle (every 5 minutes)
         self._decision_timer_unsub = async_track_time_interval(
             self.hass,
@@ -508,6 +550,34 @@ class HVACCoordinator(BaseCoordinator):
         except Exception:
             _LOGGER.debug(
                 "SIGNAL_HVAC_COORDINATOR_READY dispatch failed (non-fatal)",
+                exc_info=True,
+            )
+
+        # v4.7.8 fix-up B-H2 / B-H3: force-release the EgressManager
+        # initial-restore gate after a bounded delay so the next periodic
+        # tick (+5 min) can fire even if the master switch / Numbers never
+        # land their RestoreEntity callback (e.g., entity deleted, signal
+        # subscription dropped). Without this, async_tick would stay gated
+        # indefinitely after restart. 60s is well past normal RestoreEntity
+        # completion (typically <1s after async_added_to_hass) but tight
+        # enough that the second tick still acts on saved values.
+        try:
+            from homeassistant.helpers.event import async_call_later
+
+            @callback
+            def _release_egress_gate(_now=None):
+                try:
+                    self._egress_manager.force_release_initial_restore_gate()
+                except Exception:
+                    _LOGGER.debug(
+                        "HVAC: egress force-release failed (non-fatal)",
+                        exc_info=True,
+                    )
+
+            async_call_later(self.hass, 60, _release_egress_gate)
+        except Exception:
+            _LOGGER.debug(
+                "HVAC: scheduling egress gate release failed (non-fatal)",
                 exc_info=True,
             )
 
@@ -590,6 +660,17 @@ class HVACCoordinator(BaseCoordinator):
         # Update zone states
         self._zone_manager.update_all_zones()
         self._zone_manager.update_room_conditions()
+
+        # v4.7.8 D3/D6: Egress Window HVAC Pause — runs AFTER room conditions
+        # are fresh (so window_state is current) but BEFORE preset apply +
+        # predictor update (so paused zones get skipped cleanly downstream).
+        # async_tick early-returns if rehydrate hasn't completed yet (Bug
+        # Class #14). Service calls are awaited under the held lock so they
+        # complete before downstream rules read the new climate state.
+        try:
+            await self._egress_manager.async_tick(now)
+        except Exception:
+            _LOGGER.warning("HVAC: EgressManager tick failed", exc_info=True)
 
         # One-time startup audit: catch stale overrides that survived restart
         if not self._startup_audit_done:
@@ -694,7 +775,11 @@ class HVACCoordinator(BaseCoordinator):
         # Thermostats should never be left in "off" mode by URA.
         # "Away" uses relaxed setpoints via preset, not hvac_mode=off.
         # Skip zones mid-AC-reset (intentionally off for a short cycle).
+        # v4.7.8 D8: Also skip zones paused by EgressManager (we set them off
+        # deliberately; restoring to heat_cool here would defeat the pause).
         for zone_id, zone in self._zone_manager.zones.items():
+            if self._egress_manager.is_paused(zone_id):
+                continue
             if (
                 zone.hvac_mode == "off"
                 and not self._override_arrester.has_active_ac_reset(zone_id)
@@ -742,6 +827,11 @@ class HVACCoordinator(BaseCoordinator):
 
         zi = self._zone_intelligence_enabled
         for zone_id, zone in self._zone_manager.zones.items():
+            # v4.7.8 D8: Skip preset apply for zones paused by EgressManager.
+            # Preset restoration happens on resume; applying here would push
+            # a preset to an off compressor and the restore would override it.
+            if self._egress_manager.is_paused(zone_id):
+                continue
             effective_preset = target_preset
             zone_vacant_past_grace = False
 
@@ -964,6 +1054,16 @@ class HVACCoordinator(BaseCoordinator):
                 return
 
             for zone_id, zone in self._zone_manager.zones.items():
+                # v4.7.8 fix-up C-H1 (plan §D8 spec gap): DPM apply must
+                # skip egress-paused zones. Ecobee thermostats re-engage
+                # mode on set_temperature after an explicit off, silently
+                # defeating the pause. Mirrors the predictor pre-cool /
+                # pre-heat guards.
+                if (
+                    self._egress_manager is not None
+                    and self._egress_manager.is_paused(zone_id)
+                ):
+                    continue
                 zone_overrides = all_overrides.get(zone_id, [])
 
                 # Get baseline from preset manager

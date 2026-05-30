@@ -121,6 +121,11 @@ class OverrideArrester:
         # v3.18.x review fix: Track verify/retry tasks for AC reset restore
         self._verify_tasks: dict[str, asyncio.Task] = {}
 
+        # v4.7.8 D8: EgressManager reference — set after construction so
+        # check_ac_reset can skip zones we paused via the egress feature.
+        # None until HVACCoordinator.async_setup wires it.
+        self._egress_manager = None
+
         # v4.5.11: AC ramp-down (energy-aware overshoot detection)
         # Master switch + house-wide tunables. Per-zone state lives on
         # ZoneState. Per-zone-per-day persistent counters live in SQLite.
@@ -222,6 +227,14 @@ class OverrideArrester:
         is inert (graceful degrade — no caps to enforce, no events to log).
         """
         self._db = db
+
+    def set_egress_manager(self, egress_manager) -> None:
+        """v4.7.8 D8: Wire EgressManager so check_ac_reset can skip paused zones.
+
+        Without this, AC Nudge / AC Reset would dispatch set_temperature /
+        set_hvac_mode to a zone we deliberately paused — defeating egress.
+        """
+        self._egress_manager = egress_manager
 
     @property
     def ramp_master_enabled(self) -> bool:
@@ -336,6 +349,14 @@ class OverrideArrester:
         normal_threshold = OVERRIDE_NORMAL_DELTA + tolerance_bonus
 
         for zone in self._zone_manager.zones.values():
+            # v4.7.8 fix-up A-H2 (Bug Class #33): startup audit must not
+            # dispatch against an egress-paused zone (it would defeat the
+            # pause). Sibling of the check_ac_reset guard at L944.
+            if (
+                self._egress_manager is not None
+                and self._egress_manager.is_paused(zone.zone_id)
+            ):
+                continue
             state = self.hass.states.get(zone.climate_entity)
             if state is None:
                 continue
@@ -925,6 +946,12 @@ class OverrideArrester:
         self._last_rollover_date = today
 
         for zone_id, zone in self._zone_manager.zones.items():
+            # v4.7.8 D8: Skip zones paused by EgressManager. Nudging a stopped
+            # compressor is incoherent; AC Reset hard-cycling an already-off
+            # zone is wasted work. State stays at idle so sensors don't lie.
+            if self._egress_manager is not None and self._egress_manager.is_paused(zone_id):
+                zone.ramp_state = AC_RAMP_STATE_IDLE
+                continue
             # Skip zones with active overrides (let override path handle)
             if self._override_active.get(zone_id, False):
                 zone.ramp_state = AC_RAMP_STATE_IDLE
@@ -1875,6 +1902,16 @@ class OverrideArrester:
         now = dt_util.now()
         for row in rows:
             zone_id = row["zone_id"]
+            # v4.7.8 fix-up A-H2 (Bug Class #33): defer in-flight nudge
+            # restoration on egress-paused zones. The dispatch would be a
+            # no-op on the off thermostat but would still log + churn
+            # internal state. Resume happens cleanly on next tick after
+            # _engage_resume.
+            if (
+                self._egress_manager is not None
+                and self._egress_manager.is_paused(zone_id)
+            ):
+                continue
             zone = self._zone_manager.zones.get(zone_id)
             if zone is None:
                 # Stale row for a zone that no longer exists — clear it

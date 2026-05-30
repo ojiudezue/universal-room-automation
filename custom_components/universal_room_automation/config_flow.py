@@ -98,6 +98,8 @@ from .const import (
     CONF_DOOR_SENSORS,
     CONF_DOOR_TYPE,
     CONF_WINDOW_SENSORS,
+    CONF_IS_EGRESS_WINDOW,
+    DEFAULT_IS_EGRESS_WINDOW,
     CONF_TEMPERATURE_SENSOR,
     CONF_HUMIDITY_SENSOR,
     CONF_ILLUMINANCE_SENSOR,
@@ -1011,6 +1013,14 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
             vol.Optional(CONF_WINDOW_SENSORS, default=area_window[0] if area_window else vol.UNDEFINED): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="binary_sensor", device_class=["window", "door", "opening", "garage_door"])
             ),
+            # v4.7.8 D1: Per-room egress flag. When True (default), this room's
+            # window is treated as an egress (kid-can-forget) opening that
+            # triggers the HVAC zone egress pause. Master switch on the HVAC
+            # Coordinator device gates the whole feature.
+            vol.Optional(
+                CONF_IS_EGRESS_WINDOW,
+                default=DEFAULT_IS_EGRESS_WINDOW,
+            ): selector.BooleanSelector(),
             # v3.1.0: Water leak sensor
             vol.Optional(CONF_WATER_LEAK_SENSOR, default=area_water[0] if area_water else vol.UNDEFINED): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="binary_sensor", device_class=["moisture", "water_leak"])
@@ -6554,6 +6564,11 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             ): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="binary_sensor", device_class=["window", "door", "opening", "garage_door"])
             ),
+            # v4.7.8 D1: Per-room egress flag (see initial install for rationale).
+            vol.Optional(
+                CONF_IS_EGRESS_WINDOW,
+                default=self._get_current(CONF_IS_EGRESS_WINDOW, DEFAULT_IS_EGRESS_WINDOW),
+            ): selector.BooleanSelector(),
             # v3.1.0: Water leak sensor
             vol.Optional(
                 CONF_WATER_LEAK_SENSOR,

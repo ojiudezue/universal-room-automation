@@ -1,6 +1,6 @@
 """Number platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.7.9
+# Universal Room Automation vv4.7.11
 # Build: 2026-01-02
 # File: number.py
 #
@@ -63,6 +63,10 @@ async def async_setup_entry(
             # solar surplus available, URA turns EVSEs ON even during off-peak
             # pause. Live-tunable companion to FillPrioritySOCNumber.
             ExcessSolarSOCNumber(hass, entry, 95),
+            # v4.7.8 D2: Egress Window HVAC Pause threshold + resume-delay
+            # sliders on the HVAC Coordinator device.
+            HVACEgressPauseThresholdNumber(hass, entry, 3),
+            HVACEgressResumeDelayNumber(hass, entry, 1),
             # v4.6.2 D3: Bayesian cell staleness window (default 14 days)
             BayesianCellStalenessNumber(hass, entry),
             # v4.6.2 D6: routine notification tunables
@@ -1957,3 +1961,214 @@ class DynamicPresetHysteresisFNumber(NumberEntity, RestoreEntity):
             pass
         self.async_write_ha_state()
         _LOGGER.info("Dynamic preset hysteresis set to %.1f°F", value)
+
+
+
+# =============================================================================
+# v4.7.8 D2 — Egress Window HVAC Pause threshold + resume-delay Numbers
+# -----------------------------------------------------------------------------
+# Two sliders on URA: HVAC Coordinator device.
+#  - HVACEgressPauseThresholdNumber: minutes a window must be open before pause
+#    fires. Default 3, range 1-15.
+#  - HVACEgressResumeDelayNumber: minutes all egress windows must be closed
+#    before resume fires. Default 1, range 1-10.
+# Both mirror FillPrioritySOCNumber line-for-line including the v4.7.6 fix-up
+# B-M7 _safe_unsub double-unsub guard (Bug Classes #5/#19/#38/#42/#45).
+# =============================================================================
+
+
+class HVACEgressPauseThresholdNumber(NumberEntity, RestoreEntity):
+    """Minutes window open before egress pause fires (v4.7.8 D2)."""
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:timer-sand"
+    _attr_native_step = 1
+    _attr_native_min_value = 1
+    _attr_native_max_value = 15
+    _attr_native_unit_of_measurement = "min"
+    _attr_mode = NumberMode.SLIDER
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(
+        self, hass: HomeAssistant, entry: ConfigEntry, default: int = 3,
+    ) -> None:
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .const import VERSION
+        self.hass = hass
+        self._entry = entry
+        self._attr_unique_id = f"{DOMAIN}_hvac_egress_threshold_min"
+        self._attr_name = "Egress Pause Threshold"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "hvac_coordinator")},
+            name="URA: HVAC Coordinator",
+            manufacturer="Universal Room Automation",
+            model="HVAC Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+        config = {**entry.data, **entry.options}
+        self._value = int(config.get("hvac_egress_threshold_min", default))
+
+    def _get_hvac(self):
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        return manager.coordinators.get("hvac") if manager else None
+
+    @property
+    def native_value(self) -> float:
+        return self._value
+
+    @property
+    def available(self) -> bool:
+        return self._get_hvac() is not None
+
+    def _push_to_coordinator(self) -> bool:
+        hvac = self._get_hvac()
+        if hvac is None:
+            return False
+        try:
+            hvac.egress_manager.set_threshold_min(self._value)
+        except Exception:
+            return False
+        return True
+
+    async def async_added_to_hass(self) -> None:
+        """Restore last value; deferred-retry push via SIGNAL_HVAC_COORDINATOR_READY."""
+        await super().async_added_to_hass()
+        last_state = await self.async_get_last_state()
+        if (
+            last_state is not None
+            and last_state.state not in ("unknown", "unavailable")
+        ):
+            try:
+                self._value = int(float(last_state.state))
+            except (ValueError, TypeError):
+                pass
+        if not self._push_to_coordinator():
+            from homeassistant.helpers.dispatcher import async_dispatcher_connect
+            from .domain_coordinators.signals import SIGNAL_HVAC_COORDINATOR_READY
+            # v4.7.6 fix-up B-M7: double-unsub guard.
+            unsub_holder: list = []
+            unsubbed = [False]
+
+            def _safe_unsub() -> None:
+                if unsubbed[0]:
+                    return
+                if unsub_holder:
+                    unsubbed[0] = True
+                    unsub_holder[0]()
+
+            @callback
+            def _on_hvac_ready(*_a, **_kw):
+                if self._push_to_coordinator() and unsub_holder and not unsubbed[0]:
+                    _safe_unsub()
+
+            unsub_holder.append(
+                async_dispatcher_connect(
+                    self.hass, SIGNAL_HVAC_COORDINATOR_READY, _on_hvac_ready,
+                )
+            )
+            self.async_on_remove(_safe_unsub)
+
+    async def async_set_native_value(self, value: float) -> None:
+        self._value = int(value)
+        self._push_to_coordinator()
+        self.async_write_ha_state()
+        _LOGGER.info("Egress pause threshold set to %d min", int(value))
+
+
+class HVACEgressResumeDelayNumber(NumberEntity, RestoreEntity):
+    """Minutes all egress windows must be closed before resume (v4.7.8 D2)."""
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:timer-outline"
+    _attr_native_step = 1
+    _attr_native_min_value = 1
+    _attr_native_max_value = 10
+    _attr_native_unit_of_measurement = "min"
+    _attr_mode = NumberMode.SLIDER
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(
+        self, hass: HomeAssistant, entry: ConfigEntry, default: int = 1,
+    ) -> None:
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .const import VERSION
+        self.hass = hass
+        self._entry = entry
+        self._attr_unique_id = f"{DOMAIN}_hvac_egress_resume_delay_min"
+        self._attr_name = "Egress Resume Delay"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "hvac_coordinator")},
+            name="URA: HVAC Coordinator",
+            manufacturer="Universal Room Automation",
+            model="HVAC Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+        config = {**entry.data, **entry.options}
+        self._value = int(config.get("hvac_egress_resume_delay_min", default))
+
+    def _get_hvac(self):
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        return manager.coordinators.get("hvac") if manager else None
+
+    @property
+    def native_value(self) -> float:
+        return self._value
+
+    @property
+    def available(self) -> bool:
+        return self._get_hvac() is not None
+
+    def _push_to_coordinator(self) -> bool:
+        hvac = self._get_hvac()
+        if hvac is None:
+            return False
+        try:
+            hvac.egress_manager.set_resume_delay_min(self._value)
+        except Exception:
+            return False
+        return True
+
+    async def async_added_to_hass(self) -> None:
+        """Restore last value; deferred-retry push via SIGNAL_HVAC_COORDINATOR_READY."""
+        await super().async_added_to_hass()
+        last_state = await self.async_get_last_state()
+        if (
+            last_state is not None
+            and last_state.state not in ("unknown", "unavailable")
+        ):
+            try:
+                self._value = int(float(last_state.state))
+            except (ValueError, TypeError):
+                pass
+        if not self._push_to_coordinator():
+            from homeassistant.helpers.dispatcher import async_dispatcher_connect
+            from .domain_coordinators.signals import SIGNAL_HVAC_COORDINATOR_READY
+            unsub_holder: list = []
+            unsubbed = [False]
+
+            def _safe_unsub() -> None:
+                if unsubbed[0]:
+                    return
+                if unsub_holder:
+                    unsubbed[0] = True
+                    unsub_holder[0]()
+
+            @callback
+            def _on_hvac_ready(*_a, **_kw):
+                if self._push_to_coordinator() and unsub_holder and not unsubbed[0]:
+                    _safe_unsub()
+
+            unsub_holder.append(
+                async_dispatcher_connect(
+                    self.hass, SIGNAL_HVAC_COORDINATOR_READY, _on_hvac_ready,
+                )
+            )
+            self.async_on_remove(_safe_unsub)
+
+    async def async_set_native_value(self, value: float) -> None:
+        self._value = int(value)
+        self._push_to_coordinator()
+        self.async_write_ha_state()
+        _LOGGER.info("Egress resume delay set to %d min", int(value))

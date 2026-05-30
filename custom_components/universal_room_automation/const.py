@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv4.7.9
+# Universal Room Automation vv4.7.11
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v4.7.9"
+VERSION: Final = "v4.7.11"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -318,6 +318,12 @@ CONF_SCANNER_AREAS: Final = "scanner_areas"  # List of HA area_ids where BLE sca
 CONF_DOOR_SENSORS: Final = "door_sensor"
 CONF_DOOR_TYPE: Final = "door_type"
 CONF_WINDOW_SENSORS: Final = "window_sensor"
+# v4.7.8 D1: Per-room egress-window flag. When True (default), an opened
+# window for this room counts toward the canonical HVAC zone's egress-pause
+# threshold. Lazy default per v4.7.4.4 Bug Class #46 doctrine: no migration
+# helper — readers must default to True when key is absent.
+CONF_IS_EGRESS_WINDOW: Final = "is_egress_window"
+DEFAULT_IS_EGRESS_WINDOW: Final = True
 CONF_TEMPERATURE_SENSOR: Final = "temperature_sensor"
 CONF_HUMIDITY_SENSOR: Final = "humidity_sensor"
 CONF_ILLUMINANCE_SENSOR: Final = "illuminance_sensor"
