@@ -96,6 +96,17 @@ class EgressManager:
         self._nm_emitted_today: dict[tuple[str, str], str] = {}
         # Rehydrate gate — first tick MUST early-return until True.
         self._rehydrate_done: bool = False
+        # v4.7.8 fix-up B-H2 / B-H3 (Bug Class #14 / #5): the master switch
+        # and both Numbers use deferred RestoreEntity (state arrives via
+        # SIGNAL_HVAC_COORDINATOR_READY or async_added_to_hass which can
+        # race with the initial decision cycle). Tracks which deferred
+        # restores are still pending; first tick early-returns until the
+        # set is empty. Items: "enabled", "threshold_min", "resume_delay_min".
+        self._initial_restore_pending: set[str] = {
+            "enabled",
+            "threshold_min",
+            "resume_delay_min",
+        }
         # Owning coordinator (set by HVACCoordinator after instantiation);
         # used to read observation_mode for Bug Class #23 NM gating.
         self._hvac_coord = None
@@ -111,6 +122,8 @@ class EgressManager:
     @enabled.setter
     def enabled(self, value: bool) -> None:
         self._enabled = bool(value)
+        # v4.7.8 fix-up B-H3: deferred-restore landed for the master switch.
+        self._initial_restore_pending.discard("enabled")
         _LOGGER.info("EgressManager: enabled=%s", self._enabled)
 
     @property
@@ -123,6 +136,9 @@ class EgressManager:
         if v != self._threshold_min:
             self._threshold_min = v
             _LOGGER.info("EgressManager: threshold_min=%d", v)
+        # v4.7.8 fix-up B-H2: deferred-restore landed for the Number.
+        # Discard even when value didn't change (the restore did happen).
+        self._initial_restore_pending.discard("threshold_min")
 
     @property
     def resume_delay_min(self) -> int:
@@ -134,10 +150,36 @@ class EgressManager:
         if v != self._resume_delay_min:
             self._resume_delay_min = v
             _LOGGER.info("EgressManager: resume_delay_min=%d", v)
+        # v4.7.8 fix-up B-H2: deferred-restore landed for the Number.
+        self._initial_restore_pending.discard("resume_delay_min")
 
     @property
     def rehydrate_done(self) -> bool:
         return self._rehydrate_done
+
+    @property
+    def initial_restore_pending(self) -> bool:
+        """v4.7.8 fix-up B-H2/B-H3: True iff deferred restores from at least
+        one of (master switch / threshold Number / resume_delay Number) have
+        not yet landed. While True, async_tick must early-return so the first
+        decision cycle doesn't act on seeded defaults that the user has
+        already overridden via RestoreEntity.
+        """
+        return bool(self._initial_restore_pending)
+
+    def force_release_initial_restore_gate(self) -> None:
+        """v4.7.8 fix-up B-H2/B-H3: emergency release of the deferred-restore
+        gate. Called after a bounded wait if some entity never restored
+        (e.g., user deleted the switch entity). Without this, async_tick
+        would never fire after restart.
+        """
+        if self._initial_restore_pending:
+            _LOGGER.info(
+                "EgressManager: forcing initial-restore gate release "
+                "(still pending=%s) — using seeded defaults",
+                sorted(self._initial_restore_pending),
+            )
+            self._initial_restore_pending.clear()
 
     def set_database(self, db) -> None:
         """Late wire of DB reference if not provided at __init__."""
@@ -306,6 +348,19 @@ class EgressManager:
             _LOGGER.debug("EgressManager: tick skipped — rehydrate not done")
             return
 
+        # v4.7.8 fix-up B-H2 / B-H3: gate first tick on deferred
+        # RestoreEntity callbacks for the master switch + 2 Numbers. Without
+        # this, the initial cycle uses seeded defaults instead of the user's
+        # saved values (e.g., threshold 5 → ticks at 3 for one cycle). The
+        # bound timeout below (force release) is set in HVACCoordinator's
+        # setup so the second tick at +5min never silently stalls.
+        if self._initial_restore_pending:
+            _LOGGER.debug(
+                "EgressManager: tick skipped — initial restore pending=%s",
+                sorted(self._initial_restore_pending),
+            )
+            return
+
         now = now or dt_util.now()
 
         # Bug Class #14: snapshot user-tunable scalars at top of tick.
@@ -357,6 +412,12 @@ class EgressManager:
                 # Clear counters but DO NOT auto-resume an already-paused zone.
                 if zone_id in self._egress_first_open_at:
                     self._egress_first_open_at.pop(zone_id, None)
+                    # v4.7.8 fix-up C-L3 / A-LOW-2: also clear the stale
+                    # `counting` DB row. Without this, post-restart
+                    # rehydrate restores the counter even though the
+                    # feature is disabled — the next tick clears it in
+                    # memory but the DB row persists until the prune.
+                    await self._db_clear(zone_id)
                 if (
                     zone_id in self._egress_first_closed_at
                     and zone_id not in self._paused_by_egress
@@ -423,6 +484,16 @@ class EgressManager:
 
             # ----- Resume path (zone IS paused) -----
             if any_egress_open:
+                # v4.7.8 fix-up A-LOW: roll triggered_by_room forward in
+                # memory when the first-trigger room closes but a sibling
+                # is still open. Previously the in-memory `triggered_room`
+                # already reflected the new trigger but the persisted info
+                # dict kept the original; sensors / paused_zones() now
+                # surface the current trigger.
+                if triggered_room:
+                    info = self._paused_by_egress.get(zone_id, {})
+                    if info.get("triggered_by_room") != triggered_room:
+                        info["triggered_by_room"] = triggered_room
                 if zone_id in self._egress_first_closed_at:
                     self._egress_first_closed_at.pop(zone_id, None)
                     await self._db_save_paused(zone_id, now)
@@ -455,12 +526,19 @@ class EgressManager:
         if not thermostat:
             return
         prior_mode = ""
-        prior_preset = ""
+        # v4.7.8 fix-up B-M5: distinguish "preset attribute missing" (None)
+        # from "preset explicitly empty". On resume, None means we have no
+        # information so we don't dispatch set_preset_mode; explicit empty
+        # also skips dispatch. Sentinel-free via None vs "" — both currently
+        # treated identically downstream (saved_preset falsy → skip), but
+        # we now log the difference.
+        prior_preset: str | None = None
         try:
             st = self._hass.states.get(thermostat)
             if st is not None:
                 prior_mode = st.state or ""
-                prior_preset = st.attributes.get("preset_mode") or ""
+                _pm = st.attributes.get("preset_mode")
+                prior_preset = _pm if isinstance(_pm, str) and _pm else None
         except Exception:
             _LOGGER.debug(
                 "EgressManager: state read failed for %s", thermostat, exc_info=True,
@@ -532,6 +610,16 @@ class EgressManager:
         saved_mode = info.get("mode") or ""
         saved_preset = info.get("preset") or ""
         if not thermostat or not saved_mode:
+            # v4.7.8 fix-up A-MED-4: WARN log on silent clear. The next
+            # decision tick's "leave-off-restore" guard (hvac.py:753) will
+            # catch the off zone — but only because we clear paused state
+            # here. Visibility matters for debug.
+            _LOGGER.warning(
+                "EgressManager: zone %s resume aborted (thermostat=%s "
+                "saved_mode=%s) — clearing pause state, next tick will "
+                "restore from off if needed",
+                zone_id, thermostat, saved_mode,
+            )
             self._paused_by_egress.pop(zone_id, None)
             self._egress_first_closed_at.pop(zone_id, None)
             await self._db_clear(zone_id)
@@ -641,59 +729,79 @@ class EgressManager:
     # DB write helpers (small, awaited under the held lock)
     # ------------------------------------------------------------------
 
-    async def _db_save_counting(self, zone_id: str, first_open_at: datetime) -> None:
+    async def _db_save(self, zone_id: str, state: str, **fields) -> None:
+        """v4.7.8 fix-up A-M6: single DB-write helper consolidating the 5
+        per-state writers. Builds a base dict with all NULLs, then overrides
+        with non-None kwargs. Always stamps `last_update_ts` from
+        ``dt_util.now()`` if the caller didn't supply one.
+
+        Promoted error log to WARNING for state-change writes (paused /
+        resume_countdown / cooldown) per Reviewer B B10; counting writes
+        stay at DEBUG since they're routine high-frequency progress ticks.
+        """
         if self._db is None:
             return
+        row = {
+            "zone_id": zone_id,
+            "state": state,
+            "first_open_at": None,
+            "first_closed_at": None,
+            "paused_at": None,
+            "saved_hvac_mode": None,
+            "saved_preset_mode": None,
+            "triggered_by_room": None,
+            "thermostat_entity": None,
+            "cooldown_expires_at": None,
+            "last_update_ts": dt_util.now().isoformat(),
+        }
+        # Translate datetimes to ISO strings; pass strings/None as-is.
+        for k, v in fields.items():
+            if isinstance(v, datetime):
+                row[k] = v.isoformat()
+            else:
+                row[k] = v
         try:
-            await self._db.save_egress_state({
-                "zone_id": zone_id,
-                "state": EGRESS_STATE_COUNTING,
-                "first_open_at": first_open_at.isoformat(),
-                "first_closed_at": None,
-                "paused_at": None,
-                "saved_hvac_mode": None,
-                "saved_preset_mode": None,
-                "triggered_by_room": None,
-                "thermostat_entity": None,
-                "cooldown_expires_at": None,
-                "last_update_ts": dt_util.now().isoformat(),
-            })
+            await self._db.save_egress_state(row)
         except Exception:
-            _LOGGER.debug("EgressManager: db save counting failed", exc_info=True)
+            # v4.7.8 fix-up B10: state-change writes warn; counting stays debug.
+            if state == EGRESS_STATE_COUNTING:
+                _LOGGER.debug(
+                    "EgressManager: db save %s failed for %s",
+                    state, zone_id, exc_info=True,
+                )
+            else:
+                _LOGGER.warning(
+                    "EgressManager: db save %s failed for %s — restart "
+                    "resilience for this transition lost",
+                    state, zone_id, exc_info=True,
+                )
+
+    async def _db_save_counting(self, zone_id: str, first_open_at: datetime) -> None:
+        await self._db_save(
+            zone_id, EGRESS_STATE_COUNTING, first_open_at=first_open_at,
+        )
 
     async def _db_save_paused_full(
         self,
         *,
         zone_id: str,
         saved_mode: str,
-        saved_preset: str,
+        saved_preset: str | None,
         paused_at: datetime,
         triggered_by_room: str,
         thermostat: str,
     ) -> None:
-        if self._db is None:
-            return
-        try:
-            await self._db.save_egress_state({
-                "zone_id": zone_id,
-                "state": EGRESS_STATE_PAUSED,
-                "first_open_at": None,
-                "first_closed_at": None,
-                "paused_at": paused_at.isoformat(),
-                "saved_hvac_mode": saved_mode,
-                "saved_preset_mode": saved_preset,
-                "triggered_by_room": triggered_by_room,
-                "thermostat_entity": thermostat,
-                "cooldown_expires_at": None,
-                "last_update_ts": dt_util.now().isoformat(),
-            })
-        except Exception:
-            _LOGGER.debug("EgressManager: db save paused failed", exc_info=True)
+        await self._db_save(
+            zone_id, EGRESS_STATE_PAUSED,
+            paused_at=paused_at,
+            saved_hvac_mode=saved_mode,
+            saved_preset_mode=saved_preset,
+            triggered_by_room=triggered_by_room,
+            thermostat_entity=thermostat,
+        )
 
     async def _db_save_paused(self, zone_id: str, now: datetime) -> None:
         """Re-save paused state when window re-opens during resume countdown."""
-        if self._db is None:
-            return
         info = self._paused_by_egress.get(zone_id, {})
         thermostat = info.get("thermostat") or ""
         await self._db_save_paused_full(
@@ -708,29 +816,16 @@ class EgressManager:
     async def _db_save_resume_countdown(
         self, zone_id: str, first_closed_at: datetime,
     ) -> None:
-        if self._db is None:
-            return
         info = self._paused_by_egress.get(zone_id, {})
-        try:
-            paused_at = info.get("paused_at")
-            paused_iso = paused_at.isoformat() if isinstance(paused_at, datetime) else None
-            await self._db.save_egress_state({
-                "zone_id": zone_id,
-                "state": EGRESS_STATE_RESUME_COUNTDOWN,
-                "first_open_at": None,
-                "first_closed_at": first_closed_at.isoformat(),
-                "paused_at": paused_iso,
-                "saved_hvac_mode": info.get("mode"),
-                "saved_preset_mode": info.get("preset"),
-                "triggered_by_room": info.get("triggered_by_room"),
-                "thermostat_entity": info.get("thermostat"),
-                "cooldown_expires_at": None,
-                "last_update_ts": dt_util.now().isoformat(),
-            })
-        except Exception:
-            _LOGGER.debug(
-                "EgressManager: db save resume_countdown failed", exc_info=True,
-            )
+        await self._db_save(
+            zone_id, EGRESS_STATE_RESUME_COUNTDOWN,
+            first_closed_at=first_closed_at,
+            paused_at=info.get("paused_at"),
+            saved_hvac_mode=info.get("mode"),
+            saved_preset_mode=info.get("preset"),
+            triggered_by_room=info.get("triggered_by_room"),
+            thermostat_entity=info.get("thermostat"),
+        )
 
     async def _db_save_cooldown(
         self,
@@ -738,24 +833,9 @@ class EgressManager:
         expires_at: datetime,
         now: datetime,
     ) -> None:
-        if self._db is None:
-            return
-        try:
-            await self._db.save_egress_state({
-                "zone_id": zone_id,
-                "state": EGRESS_STATE_COOLDOWN,
-                "first_open_at": None,
-                "first_closed_at": None,
-                "paused_at": None,
-                "saved_hvac_mode": None,
-                "saved_preset_mode": None,
-                "triggered_by_room": None,
-                "thermostat_entity": None,
-                "cooldown_expires_at": expires_at.isoformat(),
-                "last_update_ts": now.isoformat(),
-            })
-        except Exception:
-            _LOGGER.debug("EgressManager: db save cooldown failed", exc_info=True)
+        await self._db_save(
+            zone_id, EGRESS_STATE_COOLDOWN, cooldown_expires_at=expires_at,
+        )
 
     async def _db_clear(self, zone_id: str) -> None:
         if self._db is None:

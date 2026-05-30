@@ -113,6 +113,7 @@
           "door_sensor": "Door Sensor",
           "door_type": "Door Type",
           "window_sensor": "Window Sensor",
+          "is_egress_window": "Treat as egress window",
           "water_leak_sensor": "Water Leak Sensor"
         },
         "data_description": {
@@ -126,6 +127,7 @@
           "door_sensor": "Door open/closed sensor for security alerts",
           "door_type": "Interior doors vs. egress (exterior) doors have different alert thresholds",
           "window_sensor": "Window open/closed sensor for security alerts",
+          "is_egress_window": "When ON (default), leaving this window open for the configured Egress Pause Threshold (~3 min) pauses the HVAC zone that serves this room (hvac_mode: off). Designed for kid-forgetfulness — small ventilation windows that open frequently but shouldn't stop HVAC should be set OFF.",
           "water_leak_sensor": "Water/moisture sensor for safety alerts"
         }
       },
@@ -1306,6 +1308,7 @@
           "door_sensor": "Door Sensor",
           "door_type": "Door Type",
           "window_sensor": "Window Sensor",
+          "is_egress_window": "Treat as egress window",
           "water_leak_sensor": "Water Leak Sensor"
         },
         "data_description": {
@@ -1319,6 +1322,7 @@
           "door_sensor": "Door open/closed sensor",
           "door_type": "Interior vs. egress (exterior) door",
           "window_sensor": "Window open/closed sensor",
+          "is_egress_window": "When ON (default), leaving this window open past the Egress Pause Threshold pauses the HVAC zone (hvac_mode: off). Turn OFF for small ventilation windows.",
           "water_leak_sensor": "Water/moisture sensor"
         }
       },
@@ -1661,6 +1665,43 @@
       "hvac_ac_nudge": {
         "name": "AC Nudge",
         "description": "Soft-nudge detection for AC overshoot. When ON, an overshoot + sustained kWh-rate triggers a small temporary bump of the cool setpoint to coax the compressor to ramp down. Independent of AC Reset — turning Nudge OFF skips soft-nudge detection but AC Reset (if also ON) can still be invoked by direct triggers."
+      },
+      "hvac_egress_window_pause": {
+        "name": "Egress Window Pause",
+        "description": "When ON (default), leaving an egress window open past the Egress Pause Threshold pauses that room's HVAC zone (hvac_mode: off). Designed for kid-forgetfulness — keeps the compressor from running against an open window. Resumes after all egress windows have been closed for the Egress Resume Delay. Manual override during pause engages a 1-hour cooldown."
+      }
+    },
+    "number": {
+      "hvac_egress_threshold_min": {
+        "name": "Egress Pause Threshold",
+        "description": "Minutes an egress window must stay open before its HVAC zone pauses. Default 3 — short enough to catch a forgotten-open door, long enough to avoid pausing on a quick walk-through."
+      },
+      "hvac_egress_resume_delay_min": {
+        "name": "Egress Resume Delay",
+        "description": "Minutes ALL egress windows in a zone must stay closed before URA restores the saved HVAC mode + preset. Default 1 — keeps the compressor from short-cycling if the door is bumped back open."
+      }
+    },
+    "binary_sensor": {
+      "egress_window_open": {
+        "name": "Egress Window Open"
+      },
+      "hvac_zone_egress_window_open": {
+        "name": "Egress Window Open (Zone Rollup)"
+      }
+    },
+    "sensor": {
+      "hvac_zone_egress_state": {
+        "name": "Egress State",
+        "state": {
+          "idle": "Idle",
+          "counting": "Counting",
+          "paused": "Paused",
+          "resume_countdown": "Resume Countdown",
+          "cooldown": "Cooldown"
+        }
+      },
+      "hvac_egress_paused_zones": {
+        "name": "Egress Paused Zones"
       }
     }
   }

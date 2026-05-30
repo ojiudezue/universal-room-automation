@@ -553,6 +553,34 @@ class HVACCoordinator(BaseCoordinator):
                 exc_info=True,
             )
 
+        # v4.7.8 fix-up B-H2 / B-H3: force-release the EgressManager
+        # initial-restore gate after a bounded delay so the next periodic
+        # tick (+5 min) can fire even if the master switch / Numbers never
+        # land their RestoreEntity callback (e.g., entity deleted, signal
+        # subscription dropped). Without this, async_tick would stay gated
+        # indefinitely after restart. 60s is well past normal RestoreEntity
+        # completion (typically <1s after async_added_to_hass) but tight
+        # enough that the second tick still acts on saved values.
+        try:
+            from homeassistant.helpers.event import async_call_later
+
+            @callback
+            def _release_egress_gate(_now=None):
+                try:
+                    self._egress_manager.force_release_initial_restore_gate()
+                except Exception:
+                    _LOGGER.debug(
+                        "HVAC: egress force-release failed (non-fatal)",
+                        exc_info=True,
+                    )
+
+            async_call_later(self.hass, 60, _release_egress_gate)
+        except Exception:
+            _LOGGER.debug(
+                "HVAC: scheduling egress gate release failed (non-fatal)",
+                exc_info=True,
+            )
+
     async def _setup_diagnostics(self) -> None:
         """Initialize diagnostics components."""
         from .coordinator_diagnostics import (
@@ -1026,6 +1054,16 @@ class HVACCoordinator(BaseCoordinator):
                 return
 
             for zone_id, zone in self._zone_manager.zones.items():
+                # v4.7.8 fix-up C-H1 (plan §D8 spec gap): DPM apply must
+                # skip egress-paused zones. Ecobee thermostats re-engage
+                # mode on set_temperature after an explicit off, silently
+                # defeating the pause. Mirrors the predictor pre-cool /
+                # pre-heat guards.
+                if (
+                    self._egress_manager is not None
+                    and self._egress_manager.is_paused(zone_id)
+                ):
+                    continue
                 zone_overrides = all_overrides.get(zone_id, [])
 
                 # Get baseline from preset manager

@@ -349,6 +349,14 @@ class OverrideArrester:
         normal_threshold = OVERRIDE_NORMAL_DELTA + tolerance_bonus
 
         for zone in self._zone_manager.zones.values():
+            # v4.7.8 fix-up A-H2 (Bug Class #33): startup audit must not
+            # dispatch against an egress-paused zone (it would defeat the
+            # pause). Sibling of the check_ac_reset guard at L944.
+            if (
+                self._egress_manager is not None
+                and self._egress_manager.is_paused(zone.zone_id)
+            ):
+                continue
             state = self.hass.states.get(zone.climate_entity)
             if state is None:
                 continue
@@ -1814,6 +1822,16 @@ class OverrideArrester:
         now = dt_util.now()
         for row in rows:
             zone_id = row["zone_id"]
+            # v4.7.8 fix-up A-H2 (Bug Class #33): defer in-flight nudge
+            # restoration on egress-paused zones. The dispatch would be a
+            # no-op on the off thermostat but would still log + churn
+            # internal state. Resume happens cleanly on next tick after
+            # _engage_resume.
+            if (
+                self._egress_manager is not None
+                and self._egress_manager.is_paused(zone_id)
+            ):
+                continue
             zone = self._zone_manager.zones.get(zone_id)
             if zone is None:
                 # Stale row for a zone that no longer exists — clear it

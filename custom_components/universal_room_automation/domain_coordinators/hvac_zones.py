@@ -478,28 +478,27 @@ class ZoneManager:
             if coordinator is not None:
                 room_coordinators[room_name] = coordinator
             merged = {**entry.data, **entry.options}
+            _ws = merged.get(_CONF_WINDOW_SENSORS) or None
+            # v4.7.8 fix-up C-L4: only treat as egress when a window_sensor
+            # is configured. Otherwise the room can't ever observe an open
+            # window — defaulting True is meaningless cosmetic context.
+            _is_egress = bool(merged.get(
+                CONF_IS_EGRESS_WINDOW, DEFAULT_IS_EGRESS_WINDOW,
+            )) and bool(_ws)
             room_entry_meta[room_name] = {
                 "entry_id": entry.entry_id,
-                "window_sensor": merged.get(_CONF_WINDOW_SENSORS) or None,
+                "window_sensor": _ws,
                 # Lazy default per v4.7.4.4 Bug Class #46 doctrine.
-                "is_egress_window": bool(merged.get(
-                    CONF_IS_EGRESS_WINDOW, DEFAULT_IS_EGRESS_WINDOW,
-                )),
+                "is_egress_window": _is_egress,
             }
 
-        now = dt_util.utcnow()
+        # v4.7.8 fix-up B-M1 / B4: unify on dt_util.now() (URA-wide convention)
+        # — egress module uses dt_util.now(); cross-module split was fragile.
+        now = dt_util.now()
         for zone in self._zones.values():
             zone.room_conditions.clear()
             for room_name in zone.rooms:
                 coordinator = room_coordinators.get(room_name)
-                if coordinator is None:
-                    continue
-
-                # Read from room coordinator data dict
-                data = {}
-                if hasattr(coordinator, "data") and coordinator.data:
-                    data = coordinator.data
-
                 meta = room_entry_meta.get(room_name, {})
                 window_sensor = meta.get("window_sensor")
                 window_state: str | None = None
@@ -510,6 +509,35 @@ class ZoneManager:
                             window_state = st.state
                     except Exception:
                         window_state = None
+
+                if coordinator is None:
+                    # v4.7.8 fix-up A-H1 (Bug Class #43): if the room entry
+                    # exists but its coordinator hasn't booted yet, STILL
+                    # append a RoomCondition populated from entry meta so
+                    # EgressManager sees the egress-window state on the first
+                    # tick post-restart. Without this, a paused zone whose
+                    # only egress room's coordinator is briefly absent will
+                    # silently see any_egress_open=False and resume
+                    # prematurely. Other rules already tolerate occupied=False.
+                    if meta:
+                        zone.room_conditions.append(RoomCondition(
+                            room_name=room_name,
+                            temperature=None,
+                            humidity=None,
+                            occupied=False,
+                            window_sensor=window_sensor,
+                            window_state=window_state,
+                            is_egress_window=bool(meta.get(
+                                "is_egress_window", True,
+                            )),
+                            room_entry_id=meta.get("entry_id"),
+                        ))
+                    continue
+
+                # Read from room coordinator data dict
+                data = {}
+                if hasattr(coordinator, "data") and coordinator.data:
+                    data = coordinator.data
 
                 condition = RoomCondition(
                     room_name=room_name,

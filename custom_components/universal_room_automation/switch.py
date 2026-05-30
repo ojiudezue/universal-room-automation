@@ -3222,6 +3222,17 @@ class HVACEgressWindowPauseSwitch(SwitchEntity, RestoreEntity):
 
         last_state = await self.async_get_last_state()
         if last_state is None or last_state.state not in ("on", "off"):
+            # v4.7.8 fix-up B-H3: fresh install (no saved state). Still
+            # discard the initial-restore gate bit so the first tick can
+            # proceed using the seeded default.
+            hvac = self._get_hvac()
+            if hvac is not None:
+                try:
+                    hvac.egress_manager._initial_restore_pending.discard(
+                        "enabled"
+                    )
+                except Exception:
+                    pass
             return
         target = last_state.state == "on"
         hvac = self._get_hvac()

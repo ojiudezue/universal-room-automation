@@ -399,6 +399,9 @@ HVAC_METRICS: Final = [
     "short_cycle_rate",
     "override_frequency",
     "comfort_deviation_hours",
+    # v4.7.8 fix-up C-M1: defined for symmetry, not yet wired. Listed in
+    # HVAC_SUPPRESSED_FROM_PERSISTENCE below per v4.6.3.1 P2 doctrine.
+    "egress_pause_frequency",
 ]
 
 # v4.6.5.1 P2: Module-level suppression registry — promoted from a local set
@@ -418,10 +421,17 @@ HVAC_METRICS: Final = [
 #   no record_observation call site exists — they are silent slots.
 #   Documented per v4.6.3.1 doctrine: silent metrics must be explicitly
 #   listed rather than silently absent.
+#
+# v4.7.8 fix-up C-M1: egress_pause_frequency is reserved per v4.6.3.1 P2
+# doctrine — silent metrics MUST be explicitly listed rather than absent.
+# Not yet wired (no record_observation call site exists). Will be wired in
+# a follow-up cycle once a baseline is available (≥ HVAC_ANOMALY_MIN_SAMPLES
+# observations / ~14 days). Deferred per plan §13.
 HVAC_SUPPRESSED_FROM_PERSISTENCE: Final = frozenset({
     "zone_call_frequency",
     "short_cycle_rate",
     "comfort_deviation_hours",
+    "egress_pause_frequency",
 })
 
 # Minimum samples before anomaly detection activates (14 days * 24/day)

@@ -264,6 +264,14 @@ def _make_em(
         resume_delay_min=resume_delay_min,
         enabled=enabled,
     )
+    # v4.7.8 fix-up B-H2 / B-H3: in tests, the master switch + 2 Numbers
+    # do NOT exist — so their deferred-restore callbacks never land. Clear
+    # the initial-restore gate so async_tick can fire. Real boot has the
+    # 60s force-release timer in HVACCoordinator.async_setup.
+    try:
+        em.force_release_initial_restore_gate()
+    except Exception:
+        pass
 
     # Patch iter_canonical_hvac_zones inside the loaded hvac_zones stub.
     hvac_zones = sys.modules["ura_egress_pkg.domain_coordinators.hvac_zones"]
@@ -753,9 +761,41 @@ def test_v478_paused_zone_skipped_in_ac_reset_check(override_src):
     assert "is_paused(zone_id)" in override_src
 
 
-def test_v478_paused_zone_skipped_in_dpm_apply(predict_src):
+def test_v478_paused_zone_skipped_in_predictor_apply(predict_src):
+    """v4.7.8 fix-up C-L6: original test name was misleading — this checks
+    the HVACPredictor pre-cool / pre-heat paths, NOT the DPM apply in
+    hvac.py. DPM apply has its own dedicated test below
+    (`test_v478_paused_zone_skipped_in_dpm_apply`).
+    """
     assert "def set_egress_manager(self, egress_manager)" in predict_src
     assert predict_src.count("self._egress_manager.is_paused(zone.zone_id)") >= 2
+
+
+def test_v478_paused_zone_skipped_in_dpm_apply(hvac_src):
+    """v4.7.8 fix-up C-H1 (plan §D8 spec gap).
+
+    `_async_apply_preset_overrides` in hvac.py iterates zones at the
+    OverrideEngine apply site and dispatches `climate.set_temperature`.
+    Without an `is_paused` guard, Ecobee thermostats re-engage mode on
+    `set_temperature` after an explicit `off`, silently defeating the
+    egress pause. Verify the guard is inside the per-zone loop and BEFORE
+    the actual service-call dispatch (not the docstring mention).
+    """
+    apply_start = hvac_src.find("async def _async_apply_preset_overrides")
+    assert apply_start >= 0
+    # Find the next top-level `async def` to bound the body.
+    apply_end = hvac_src.find("\n    async def ", apply_start + 1)
+    apply_body = hvac_src[apply_start:apply_end if apply_end > 0 else len(hvac_src)]
+    # Guard is present.
+    assert "is_paused(zone_id)" in apply_body, \
+        "DPM apply must skip egress-paused zones (Ecobee re-engages on " \
+        "set_temperature)"
+    # Guard appears BEFORE the services.async_call dispatch (the actual
+    # service call, not the docstring mention of set_temperature).
+    guard_idx = apply_body.find("is_paused(zone_id)")
+    dispatch_idx = apply_body.find('"set_temperature"')
+    assert guard_idx < dispatch_idx, \
+        "is_paused guard must precede set_temperature dispatch in DPM apply"
 
 
 def test_v478_force_charge_button_unaffected_by_egress_pause():
@@ -860,3 +900,395 @@ def test_v478_nm_dispatch_gated_at_call_site(egress_src):
     assert idx >= 0
     body = egress_src[idx:idx + 2500]
     assert "_observation_mode" in body
+
+
+# ===========================================================================
+# v4.7.8 fix-up regression tests (Tier 2-DB review burn-down).
+# Each test maps to a specific finding from the 3 parallel reviews.
+# ===========================================================================
+
+
+def test_v478_fixup_A_H1_room_condition_captured_without_coordinator(zones_src):
+    """A-H1 (Bug Class #43): ZoneManager.update_room_conditions must STILL
+    append a RoomCondition for a room whose coordinator hasn't booted yet,
+    so EgressManager sees the egress window state on the first tick
+    post-restart. The append path must use entry meta (window_sensor +
+    is_egress_window) even when coordinator is None.
+    """
+    # Source-grep: the coordinator-None branch contains a RoomCondition
+    # append (not just `continue`).
+    upd_start = zones_src.find("def update_room_conditions")
+    assert upd_start >= 0
+    upd_end = zones_src.find("\n    def ", upd_start + 1)
+    body = zones_src[upd_start:upd_end if upd_end > 0 else len(zones_src)]
+    # The None branch now appends, not just continues.
+    none_branch_idx = body.find("if coordinator is None:")
+    assert none_branch_idx >= 0
+    none_branch_body = body[none_branch_idx:none_branch_idx + 1500]
+    assert "zone.room_conditions.append" in none_branch_body, \
+        "coordinator-None branch must still append a RoomCondition with " \
+        "window state (A-H1 Bug Class #43)"
+    assert "is_egress_window" in none_branch_body
+
+
+def test_v478_fixup_A_H2_startup_audit_skips_paused_zones(override_src):
+    """A-H2 (Bug Class #33): async_startup_audit + async_startup_ramp_audit
+    must add is_paused guards. Otherwise the post-restart first-tick can
+    dispatch climate services against egress-paused zones.
+    """
+    # async_startup_audit: per-zone loop has the guard.
+    audit_start = override_src.find("async def async_startup_audit")
+    assert audit_start >= 0
+    audit_end = override_src.find("\n    async def ", audit_start + 1)
+    audit_body = override_src[audit_start:audit_end if audit_end > 0 else len(override_src)]
+    assert "self._egress_manager is not None" in audit_body and \
+        "is_paused(zone.zone_id)" in audit_body, \
+        "async_startup_audit must skip egress-paused zones (A-H2)"
+
+    # async_startup_ramp_audit: per-row loop has the guard on zone_id.
+    ramp_start = override_src.find("async def async_startup_ramp_audit")
+    assert ramp_start >= 0
+    ramp_end = override_src.find("\n    async def ", ramp_start + 1)
+    ramp_body = override_src[ramp_start:ramp_end if ramp_end > 0 else len(override_src)]
+    assert "self._egress_manager is not None" in ramp_body and \
+        "is_paused(zone_id)" in ramp_body, \
+        "async_startup_ramp_audit must skip egress-paused zones (A-H2)"
+
+
+def test_v478_fixup_B_H1_prune_wired_into_both_cleanup_lists():
+    """B-H1 / C-H2 (Bug Class #27): prune_stale_egress_state must be wired
+    into BOTH _cleanup_ops lists in __init__.py — primary maintenance path
+    AND deferred maintenance path. Without this, the DAO is dead code and
+    rows for removed zones / interrupted transitions leak.
+    """
+    src = _read(os.path.join(ROOT_REL, "__init__.py"))
+    # Count must be >= 2 (one per list). Source has the string twice if
+    # both are wired.
+    n = src.count('"prune_stale_egress_state"')
+    assert n >= 2, (
+        f"prune_stale_egress_state appears {n} time(s); must be in BOTH "
+        f"_cleanup_ops and _cleanup_ops_d lists"
+    )
+
+
+def test_v478_fixup_B_H2_initial_restore_gate_blocks_first_tick():
+    """B-H2 (Bug Class #14 / lifecycle): the RestoreEntity Numbers don't
+    push their saved value to EgressManager until async_added_to_hass
+    completes. The initial decision cycle in HVACCoordinator.async_setup
+    runs concurrently — so the first egress tick must early-return until
+    deferred restores have landed.
+
+    Verify the gate set is populated on construction and async_tick
+    early-returns while it's non-empty.
+    """
+    import asyncio
+    mod = _load_egress_module()
+    # Fresh manager (do NOT call _make_em — it auto-releases the gate).
+    nm_calls: list = []
+    hass = _FakeHass(nm_calls)
+    zm = _FakeZoneManager({})
+    db = _FakeDB()
+    em = mod.EgressManager(
+        hass, zm, db=db, threshold_min=3, resume_delay_min=1, enabled=True,
+    )
+    assert em.initial_restore_pending is True, \
+        "fresh EgressManager must gate first tick until restores land"
+    em._rehydrate_done = True
+    # Tick early-returns even with rehydrate done if restore pending.
+    asyncio.get_event_loop().run_until_complete(em.async_tick(_now_at(0)))
+    # No DB writes happened.
+    assert db.calls == [], \
+        f"tick acted while restore pending: {db.calls}"
+
+
+def test_v478_fixup_B_H2_setters_clear_individual_restore_bits():
+    """B-H2: each setter (enabled, set_threshold_min, set_resume_delay_min)
+    must clear its own bit so the gate releases when ALL deferred restores
+    have landed.
+    """
+    mod = _load_egress_module()
+    nm_calls: list = []
+    hass = _FakeHass(nm_calls)
+    em = mod.EgressManager(
+        hass, _FakeZoneManager({}), db=_FakeDB(),
+        threshold_min=3, resume_delay_min=1, enabled=True,
+    )
+    pending = em._initial_restore_pending
+    assert pending == {"enabled", "threshold_min", "resume_delay_min"}
+    em.enabled = True  # setter; landed.
+    assert "enabled" not in em._initial_restore_pending
+    em.set_threshold_min(5)
+    assert "threshold_min" not in em._initial_restore_pending
+    em.set_resume_delay_min(2)
+    assert em._initial_restore_pending == set()
+    assert em.initial_restore_pending is False
+
+
+def test_v478_fixup_B_H2_force_release_clears_gate():
+    """B-H2: bounded fallback — force_release_initial_restore_gate must
+    clear the pending set (called from a 60s timer in HVACCoordinator).
+    """
+    mod = _load_egress_module()
+    nm_calls: list = []
+    hass = _FakeHass(nm_calls)
+    em = mod.EgressManager(
+        hass, _FakeZoneManager({}), db=_FakeDB(),
+        threshold_min=3, resume_delay_min=1, enabled=True,
+    )
+    em.force_release_initial_restore_gate()
+    assert em.initial_restore_pending is False
+
+
+def test_v478_fixup_B_H3_master_switch_clears_gate_on_no_saved_state(switch_src):
+    """B-H3 (Bug Class #5): the switch's fresh-install path (no saved
+    last_state) must also clear the gate so the next tick can proceed.
+    """
+    # Source-grep: the early-return branch discards the "enabled" bit.
+    cls_start = switch_src.find("class HVACEgressWindowPauseSwitch")
+    assert cls_start >= 0
+    body = switch_src[cls_start:cls_start + 4500]
+    # The fresh-install branch (last_state is None) calls discard("enabled").
+    assert 'discard(\n                        "enabled"\n                    )' in body \
+        or '_initial_restore_pending.discard("enabled")' in body, \
+        "fresh-install branch must discard `enabled` bit so gate releases"
+
+
+def test_v478_fixup_C_H1_DPM_apply_guards_egress_paused_zones(hvac_src):
+    """C-H1 (plan §D8 spec gap): _async_apply_preset_overrides must skip
+    egress-paused zones BEFORE the set_temperature dispatch. Ecobee
+    re-engages mode on set_temperature after off, defeating the pause.
+
+    This test is the dedicated regression for the DPM apply path
+    (separate from test_v478_paused_zone_skipped_in_predictor_apply
+    which validates HVACPredictor pre-cool / pre-heat).
+    """
+    apply_start = hvac_src.find("async def _async_apply_preset_overrides")
+    assert apply_start >= 0
+    apply_end = hvac_src.find("\n    async def ", apply_start + 1)
+    body = hvac_src[apply_start:apply_end if apply_end > 0 else len(hvac_src)]
+    # Guard appears before the actual service-call dispatch (the quoted
+    # service name in services.async_call), not the docstring mention.
+    g = body.find("is_paused(zone_id)")
+    d = body.find('"set_temperature"')
+    assert g >= 0 and d >= 0 and g < d, \
+        "DPM apply guard must precede set_temperature dispatch (C-H1)"
+
+
+def test_v478_fixup_C_H3_strings_json_has_egress_translations():
+    """C-H3: strings.json must have helper text for `is_egress_window` in
+    BOTH config-flow steps (install + reconfigure) AND entity translation
+    entries for the new switch/numbers/sensors. Zero entries means the
+    config-flow checkbox displays the raw schema key.
+    """
+    import json
+    with open(os.path.join(ROOT_REL, "strings.json"), encoding="utf-8") as f:
+        s = json.load(f)
+    # Pretty-printed JSON content for source-grep.
+    blob = json.dumps(s)
+    # Per-room CONF helper text (BOTH install + reconfigure carry the key).
+    assert blob.count('"is_egress_window"') >= 2, \
+        "is_egress_window must appear in both install + reconfigure sensors steps"
+    # Entity translations for the new entities.
+    assert "hvac_egress_window_pause" in blob
+    assert "hvac_egress_threshold_min" in blob
+    assert "hvac_egress_resume_delay_min" in blob
+    assert "egress_window_open" in blob
+    assert "hvac_zone_egress_state" in blob
+    assert "hvac_egress_paused_zones" in blob
+
+
+def test_v478_fixup_C_H3_en_json_has_egress_translations():
+    """C-H3: en.json mirrors strings.json. JSON validity preserved."""
+    import json
+    with open(os.path.join(ROOT_REL, "translations/en.json"), encoding="utf-8") as f:
+        s = json.load(f)
+    blob = json.dumps(s)
+    assert blob.count('"is_egress_window"') >= 2
+    assert "hvac_egress_window_pause" in blob
+    assert "hvac_egress_threshold_min" in blob
+    assert "hvac_egress_resume_delay_min" in blob
+    assert "egress_window_open" in blob
+    assert "hvac_zone_egress_state" in blob
+    assert "hvac_egress_paused_zones" in blob
+
+
+def test_v478_fixup_C_M1_egress_pause_frequency_in_suppressed_set(hvac_const_src):
+    """C-M1 (v4.6.3.1 P2 doctrine): silent metrics must be explicitly
+    listed in HVAC_SUPPRESSED_FROM_PERSISTENCE rather than absent.
+    egress_pause_frequency is not yet wired — must be in the suppressed
+    set so the parametric meta-test won't fail when we DO wire it.
+    """
+    # Find HVAC_SUPPRESSED_FROM_PERSISTENCE block.
+    idx = hvac_const_src.find("HVAC_SUPPRESSED_FROM_PERSISTENCE")
+    assert idx >= 0
+    block = hvac_const_src[idx:idx + 600]
+    assert '"egress_pause_frequency"' in block, \
+        "egress_pause_frequency must be in HVAC_SUPPRESSED_FROM_PERSISTENCE " \
+        "per v4.6.3.1 P2 doctrine"
+
+
+def test_v478_fixup_C_M2_room_egress_inherits_universal_room_entity(binary_sensor_src):
+    """C-M2: RoomEgressWindowOpenSensor must inherit from UniversalRoomEntity
+    for consistent device_info + name-prefixing.
+    """
+    idx = binary_sensor_src.find("class RoomEgressWindowOpenSensor")
+    assert idx >= 0
+    cls_line = binary_sensor_src[idx:binary_sensor_src.find(":", idx) + 1]
+    assert "UniversalRoomEntity" in cls_line, \
+        "RoomEgressWindowOpenSensor must inherit UniversalRoomEntity (C-M2)"
+
+
+def test_v478_fixup_C_M3_zone_enumeration_failure_is_warning(binary_sensor_src):
+    """C-M3: silent debug-level swallow of zone-enumeration failures must
+    be promoted to WARNING so silent failures during initial install
+    surface in normal logs.
+    """
+    idx = binary_sensor_src.find("canonical zone enumeration for egress sensors failed")
+    assert idx >= 0
+    # Walk backwards to find the _LOGGER call.
+    log_start = binary_sensor_src.rfind("_LOGGER.", 0, idx)
+    assert log_start >= 0
+    call_line = binary_sensor_src[log_start:idx + 20]
+    assert "_LOGGER.warning" in call_line, \
+        "zone-enumeration failure must be WARNING, not DEBUG (C-M3)"
+
+
+def test_v478_fixup_C_L4_room_without_window_sensor_not_egress(zones_src):
+    """C-L4: rooms with no window_sensor must NOT get is_egress_window=True
+    in their RoomCondition meta. Cosmetic, but prevents config-flow surface
+    confusion.
+    """
+    # update_room_conditions builds room_entry_meta; verify the and-clause.
+    upd_start = zones_src.find("def update_room_conditions")
+    assert upd_start >= 0
+    upd_end = zones_src.find("\n    def ", upd_start + 1)
+    body = zones_src[upd_start:upd_end if upd_end > 0 else len(zones_src)]
+    # Look for the gating `and bool(_ws)` or equivalent.
+    assert "and bool(_ws)" in body or \
+        "bool(_ws)" in body and "is_egress_window" in body, \
+        "is_egress default must be gated on window_sensor presence (C-L4)"
+
+
+def test_v478_fixup_B_M1_zones_uses_dt_util_now_not_utcnow(zones_src):
+    """B-M1 (Bug Class #11): unify on dt_util.now() — cross-module split
+    with EgressManager (which uses dt_util.now()) is fragile.
+
+    Verify update_room_conditions uses dt_util.now() (not utcnow) for the
+    `now` variable used in occupancy-time bookkeeping.
+    """
+    upd_start = zones_src.find("def update_room_conditions")
+    assert upd_start >= 0
+    upd_end = zones_src.find("\n    def ", upd_start + 1)
+    body = zones_src[upd_start:upd_end if upd_end > 0 else len(zones_src)]
+    # The `now =` assignment uses dt_util.now() (not utcnow).
+    assert "now = dt_util.now()" in body, \
+        "update_room_conditions must use dt_util.now() for tz-aware consistency"
+
+
+def test_v478_fixup_A_M6_db_helpers_consolidated(egress_src):
+    """A-M6: 5 near-identical _db_save_* helpers consolidated into one
+    `_db_save` core method. Verify the consolidation happened.
+    """
+    # The new core helper exists.
+    assert "async def _db_save(self, zone_id: str, state: str, **fields)" in egress_src
+    # The thin wrappers still exist (callers unchanged) but bodies are tiny.
+    for w in (
+        "_db_save_counting", "_db_save_paused_full", "_db_save_paused",
+        "_db_save_resume_countdown", "_db_save_cooldown",
+    ):
+        assert f"async def {w}" in egress_src
+
+
+@pytest.mark.asyncio
+async def test_v478_fixup_A_LOW_triggered_by_room_rolls_forward():
+    """A-LOW: when first-trigger room closes but a sibling is still open,
+    triggered_by_room rolls forward in memory. Sensors / paused_zones() now
+    surface the current trigger, not the historical first.
+    """
+    z = _FakeZoneState("zone_2", "Upstairs", "climate.up_hallway_zone_2")
+    z.room_conditions = [_rc_open("room_a"), _rc_closed("room_b")]
+    em, hass, _, _, _ = _make_em(zones={"zone_2": z}, threshold_min=3)
+    em._rehydrate_done = True
+    hass.set_state("climate.up_hallway_zone_2", "heat_cool", {"preset_mode": "home"})
+    t0 = _now_at(0)
+    await em.async_tick(t0)
+    await em.async_tick(t0 + timedelta(minutes=4))
+    assert em.is_paused("zone_2")
+    info = em.get_zone_info("zone_2")
+    assert info["triggered_by_room"] == "room_a"
+    # Pause dispatched climate.set_hvac_mode: off — reflect that in HA
+    # state so the manual-override branch doesn't kick in on the next tick.
+    hass.set_state("climate.up_hallway_zone_2", "off", {"preset_mode": "home"})
+    # Now room_a closes, room_b opens. Tick again — keep paused (window still open).
+    z.room_conditions = [_rc_closed("room_a"), _rc_open("room_b")]
+    await em.async_tick(t0 + timedelta(minutes=5))
+    info = em.get_zone_info("zone_2")
+    assert info["triggered_by_room"] == "room_b", \
+        "triggered_by_room must roll forward when sibling becomes the trigger"
+
+
+@pytest.mark.asyncio
+async def test_v478_fixup_C_L3_disabled_path_clears_db_counting_row():
+    """C-L3 / A-LOW-2: when feature is disabled mid-count, the disabled
+    branch must also clear the DB row so it doesn't survive restart.
+    """
+    z = _FakeZoneState("zone_2", "Upstairs", "climate.up_hallway_zone_2")
+    z.room_conditions = [_rc_open("jaya_bedroom")]
+    em, hass, _, db, _ = _make_em(zones={"zone_2": z}, threshold_min=3)
+    em._rehydrate_done = True
+    hass.set_state("climate.up_hallway_zone_2", "heat_cool")
+    t0 = _now_at(0)
+    # First tick — start counting (writes DB counting row).
+    await em.async_tick(t0)
+    assert "zone_2" in db.rows
+    assert db.rows["zone_2"]["state"] == "counting"
+    # Disable mid-count.
+    em.enabled = False
+    await em.async_tick(t0 + timedelta(seconds=30))
+    # Counter cleared in memory AND DB cleared.
+    assert "zone_2" not in em._egress_first_open_at
+    assert "zone_2" not in db.rows, "DB row must be cleared on disable mid-count"
+
+
+def test_v478_fixup_B5_engage_pause_uses_none_sentinel_for_missing_preset(egress_src):
+    """B-M5: distinguish "preset attribute missing" (None) from "preset
+    explicitly empty" — typed annotation + isinstance check now in place.
+    """
+    pause_start = egress_src.find("async def _engage_pause")
+    assert pause_start >= 0
+    pause_end = egress_src.find("\n    async def ", pause_start + 1)
+    body = egress_src[pause_start:pause_end if pause_end > 0 else len(egress_src)]
+    # The sentinel-aware logic uses isinstance check.
+    assert "isinstance(_pm, str)" in body or "prior_preset: str | None" in body, \
+        "prior_preset must distinguish missing vs empty (B-M5)"
+
+
+def test_v478_fixup_A_MED4_engage_resume_logs_warn_on_empty_saved_mode(egress_src):
+    """A-MED-4: WARN log on silent clear in _engage_resume when saved_mode
+    is empty. The next decision tick will catch the off zone, but
+    visibility matters.
+    """
+    resume_start = egress_src.find("async def _engage_resume")
+    assert resume_start >= 0
+    resume_end = egress_src.find("\n    async def ", resume_start + 1)
+    body = egress_src[resume_start:resume_end if resume_end > 0 else len(egress_src)]
+    # WARN log present + references the resume-abort case.
+    assert "_LOGGER.warning" in body, \
+        "_engage_resume must WARN-log on empty saved_mode silent clear"
+
+
+def test_v478_fixup_B10_db_save_state_change_warns_on_failure(egress_src):
+    """B10: state-change DB write failures (paused / resume_countdown /
+    cooldown) must promote to WARNING. Routine counting writes stay DEBUG.
+
+    Verify the consolidated _db_save helper branches on state for log
+    severity.
+    """
+    save_start = egress_src.find("async def _db_save(self, zone_id")
+    assert save_start >= 0
+    save_end = egress_src.find("\n    async def ", save_start + 1)
+    body = egress_src[save_start:save_end if save_end > 0 else len(egress_src)]
+    assert "_LOGGER.warning" in body, \
+        "_db_save must escalate to WARNING for state-change writes (B10)"
+    assert "_LOGGER.debug" in body, \
+        "_db_save must keep DEBUG for routine counting writes (B10)"

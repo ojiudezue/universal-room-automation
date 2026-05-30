@@ -144,7 +144,10 @@ async def async_setup_entry(
                     )
                 )
         except Exception:
-            _LOGGER.debug(
+            # v4.7.8 fix-up C-M3: WARNING (was debug) so silent enumeration
+            # failures during initial install surface in normal logs. No
+            # per-zone egress sensors get created on this code path failure.
+            _LOGGER.warning(
                 "v4.7.8: canonical zone enumeration for egress sensors failed",
                 exc_info=True,
             )
@@ -2079,23 +2082,28 @@ class ECSubSwitchesSyncedSensor(AggregationEntity, BinarySensorEntity):
 # =============================================================================
 
 
-class RoomEgressWindowOpenSensor(BinarySensorEntity):
+class RoomEgressWindowOpenSensor(UniversalRoomEntity, BinarySensorEntity):
     """Per-room egress window open indicator (v4.7.8 D5).
 
     Reads the room's CONF_WINDOW_SENSORS state. ON iff is_egress_window=True
     AND raw window state is "on". Subscribes to raw window_sensor state
     changes for instant flip (no 5-min decision-tick lag).
+
+    v4.7.8 fix-up C-M2: inherits UniversalRoomEntity for consistent
+    device-association + name-prefixing; was diverging from the pattern.
     """
 
     _attr_device_class = BinarySensorDeviceClass.OPENING
     _attr_icon = "mdi:window-open-variant"
+    _attr_translation_key = "egress_window_open"
 
     def __init__(self, coordinator) -> None:
-        self.coordinator = coordinator
-        room_name = coordinator.entry.data.get("room_name", "unknown")
-        slug = room_name.lower().replace(" ", "_")
-        self._attr_unique_id = f"{DOMAIN}_room_{slug}_egress_window_open"
-        self._attr_name = "Egress Window Open"
+        # UniversalRoomEntity handles device_info, unique_id, has_entity_name.
+        super().__init__(
+            coordinator,
+            entity_type="egress_window_open",
+            name="Egress Window Open",
+        )
         # Read entry config lazily so reconfigure picks up new values.
         self._entry = coordinator.entry
         self._unsub_state = None
@@ -2148,12 +2156,7 @@ class RoomEgressWindowOpenSensor(BinarySensorEntity):
             "window_sensor": ws,
         }
 
-    @property
-    def device_info(self):
-        """Bind to the existing per-room device created by UniversalRoomEntity."""
-        return {
-            "identifiers": {(DOMAIN, self._entry.entry_id)},
-        }
+    # v4.7.8 fix-up C-M2: device_info is set by UniversalRoomEntity.__init__.
 
     async def async_added_to_hass(self) -> None:
         """Subscribe to raw window_sensor state changes for instant flip."""
