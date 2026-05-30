@@ -1554,7 +1554,22 @@ class UniversalRoomDatabase:
                                WHERE anomaly_type IS NULL
                                   OR anomaly_type = 'point_in_time'"""
                         )
-                        backfilled = cursor.rowcount if cursor.rowcount >= 0 else 0
+                        # v4.7.12 Reviewer A fix-up (A2): a driver-reported
+                        # rowcount of -1 is indistinguishable from "0 rows
+                        # backfilled" once clamped. On an install with
+                        # thousands of legacy rows that's the only signal
+                        # something is wrong. Log a WARNING before clamping.
+                        if cursor.rowcount < 0:
+                            _LOGGER.warning(
+                                "v4.7.12 D1 anomaly_type backfill: aiosqlite "
+                                "reported rowcount=%d (driver weirdness — "
+                                "rowcount unavailable). Cannot confirm row "
+                                "count; user_version=4712 will still be set.",
+                                cursor.rowcount,
+                            )
+                            backfilled = 0
+                        else:
+                            backfilled = cursor.rowcount
                         await db.execute("PRAGMA user_version = 4712")
                         await db.commit()
                         _LOGGER.info(
@@ -1570,8 +1585,15 @@ class UniversalRoomDatabase:
                             current_user_version,
                         )
                 except Exception as e:
-                    _LOGGER.warning(
-                        "v4.7.12 D1 anomaly_type backfill failed: %s", e
+                    # v4.7.12 Reviewer A fix-up (A4): backfill failure is a
+                    # data-integrity loss — every downstream consumer that
+                    # filters on anomaly_type sees historic regime_shift
+                    # rows as point_in_time until the next successful
+                    # boot. Promote from WARNING to ERROR so anomaly
+                    # monitoring catches it.
+                    _LOGGER.error(
+                        "v4.7.12 D1 anomaly_type backfill failed: %s", e,
+                        exc_info=True,
                     )
 
                 # v4.6.2 D4: regime_cell_state tracks consecutive-run counter
