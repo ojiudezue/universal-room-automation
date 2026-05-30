@@ -1852,6 +1852,60 @@ locally without ever calling the merge function).
 §D3).
 ---
 
+### Bug Class #48 — Transient-sensor over-trust during reliable-truth-says-otherwise periods
+
+**Symptom.** A persistent, high-confidence signal (phone tracker, BLE proximity,
+geofence) reliably reports a state (away, asleep, etc.), but a transient
+high-variance signal (camera person-classifier, mmWave bounce, PIR ghost) keeps
+firing positive. Code treats the transient signal as authoritative, ignoring the
+persistent counter-evidence. Result: state oscillation and downstream
+re-actuation storms (HVAC presets flip, fans cycle, notifications page).
+
+**Exemplar 1 — v4.7.13 (sleep-state).** Master bedroom mmWave drops a motionless
+sleeper. Zone aggregator goes vacant. Zone preset flips `sleep → away`. Setpoint
+shifts. Fan re-evaluates and changes speed. Sleeper shifts slightly, mmWave
+re-acquires. Cycle repeats 4–8× per night. Fix: during `house_state == "sleep"`,
+`ZoneAnyoneBinarySensor.is_on` falls back to `person.state == "home"` for any
+`zone_persons` entry. Three-location short-circuit at `aggregation.py:3178`,
+`hvac.py:915`, `hvac_fans.py:342`. Tier 1 ~40 LoC.
+
+**Exemplar 2 — v4.7.14 (away-state).** All 4 phone trackers `not_home` AND
+Bermuda healthy AND `person.*` all `not_home`. Frigate `*_person_detected` keeps
+firing on shadows/objects (classifier model false-positives). URA's
+`StateInferenceEngine.infer()` has no person-tracker veto path —
+`person_coordinator.data` reports `location="away"` for every tracked person,
+but `presence.py:1502` explicitly filters that out as if it carried no
+information. House state bounces `away → arriving → home_day → away` every
+60–90s. Fix: compute `all_tracked_persons_away` at `_run_inference`, pass to
+`infer()` as a new kwarg, veto camera-driven occupancy when
+`all_tracked_persons_away AND unidentified_count == 0` (guest path preserved).
+`presence.py:1896-1922` + `presence.py:403-414` + `presence.py:1992-1998`.
+Tier 1 ~78 LoC.
+
+**Common shape.**
+- Reliable signal: phone tracker / geofence / BLE / configured person list
+- Transient signal: camera person-classifier / mmWave / PIR
+- Bug: transient drives the decision; reliable signal's negative case is
+  explicitly discarded as "no information" rather than treated as a veto
+
+**Fix pattern.** Always provide a path for the reliable signal's negative case
+to **veto** the transient signal's positive case, gated by:
+1. The reliable signal must be **confirmed-empty**, not absent
+   (`tracked_count > 0` guard for empty-config fail-safe).
+2. The transient signal's legitimate use cases must be preserved
+   (e.g., `unidentified_count == 0` to keep guest detection working).
+3. Conservative bias: `"unknown"` states do NOT trigger the veto — only
+   confirmed-away.
+
+**Detection.** Live evidence is the activity stream bouncing through transient
+states (e.g., `away → arriving → away` cycles every 60–90 s) while the reliable
+signal is monotonically stable.
+
+**Filed 2026-05-30** after v4.7.14 build, reviewer-recommended in
+`v4.7.14_review_tier1.md`. v4.7.13 retro-classified as the first exemplar.
+
+---
+
 ## ✅ MANDATORY VALIDATION CHECKLIST
 
 **Before EVERY deployment, complete this checklist:**

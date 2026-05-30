@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.7.13
+# Universal Room Automation vv4.7.14
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -3621,6 +3621,17 @@ class PresenceHouseStateSensor(AggregationEntity, SensorEntity):
         if presence is not None:
             attrs["confidence"] = round(presence.confidence, 2)
             attrs["census_count"] = presence.census_count
+            # v4.7.14: Person-tracker veto diagnostics. tracked_persons_count
+            # is the number of configured person.* trackers seen by
+            # person_coordinator; all_tracked_persons_away True means every
+            # one is reporting away (drives the AWAY-state veto in
+            # StateInferenceEngine.infer()).
+            attrs["tracked_persons_count"] = getattr(
+                presence, "_tracked_persons_count", 0
+            )
+            attrs["all_tracked_persons_away"] = getattr(
+                presence, "_all_tracked_persons_away", False
+            )
             attrs["zones"] = {
                 name: {
                     "mode": tracker.mode,

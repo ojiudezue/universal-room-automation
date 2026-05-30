@@ -372,6 +372,7 @@ class StateInferenceEngine:
         now: Optional[datetime] = None,
         unidentified_count: int = 0,
         guest_gate_armed: bool = False,
+        all_tracked_persons_away: bool = False,
     ) -> Optional[HouseState]:
         """Infer the appropriate house state.
 
@@ -381,6 +382,11 @@ class StateInferenceEngine:
         check for guest entry. It is pre-evaluated by PresenceCoordinator via
         _guest_gate_armed() which applies threshold, confidence, and persistence
         guards before passing the armed flag in.
+
+        v4.7.14: all_tracked_persons_away is a person-tracker veto signal.
+        When True (all configured person.* entities are not_home) AND there
+        are no unidentified people in the house, return AWAY regardless of
+        camera Tier 2 motion. Defends against camera ghost-presence.
         """
         if now is None:
             now = dt_util.now()
@@ -392,6 +398,19 @@ class StateInferenceEngine:
             if current_state == HouseState.AWAY:
                 return None  # Already away
             self._confidence = 0.9
+            return HouseState.AWAY
+
+        # v4.7.14: Person-tracker veto — if all configured phone trackers say
+        # away AND no unidentified person is in the house, return AWAY
+        # regardless of camera Tier 2 motion. Defends against camera
+        # ghost-presence (Frigate motion-without-person-ID on empty rooms).
+        # Note: unidentified_count > 0 preserves guest detection — a guest at
+        # the door triggering camera motion legitimately means someone IS here
+        # even if all tracked persons are away.
+        if all_tracked_persons_away and unidentified_count == 0:
+            if current_state == HouseState.AWAY:
+                return None  # Already away
+            self._confidence = 0.95  # higher than camera-driven 0.85
             return HouseState.AWAY
 
         # People are home — determine variant
@@ -527,6 +546,9 @@ class PresenceCoordinator(BaseCoordinator):
         self._zone_trackers: Dict[str, ZonePresenceTracker] = {}
         self._census_count: int = 0
         self._unidentified_count: int = 0
+        # v4.7.14: Person-tracker veto diagnostics (populated by _run_inference).
+        self._tracked_persons_count: int = 0
+        self._all_tracked_persons_away: bool = False
         self._transitions_today: int = 0
         self._transition_reset_date: str = ""
         # Room area_id lookup: room_name -> area_id (from config entries)
@@ -1871,6 +1893,38 @@ class PresenceCoordinator(BaseCoordinator):
             name: tracker.mode for name, tracker in self._zone_trackers.items()
         }
 
+        # v4.7.14: Compute all-persons-away veto signal from person_coordinator.
+        # When every configured person.* tracker reports "away" (and the config
+        # is non-empty), pass this to infer() so it can veto camera ghost-presence.
+        # tracked_count > 0 guard: empty config must not veto (fail-safe).
+        # "unknown" is NOT treated as away (conservative — unknown is genuine
+        # uncertainty, not confirmed absence).
+        person_coordinator = self.hass.data.get(DOMAIN, {}).get("person_coordinator")
+        all_tracked_persons_away = False
+        tracked_count = 0
+        away_person_ids: list[str] = []
+        try:
+            if person_coordinator and getattr(person_coordinator, "data", None):
+                person_data = person_coordinator.data or {}
+                tracked_count = len(person_data)
+                if tracked_count > 0:
+                    all_tracked_persons_away = all(
+                        (info.get("location") or "") in ("away", "")
+                        for info in person_data.values()
+                    )
+                    if all_tracked_persons_away:
+                        away_person_ids = sorted(person_data.keys())
+        except Exception as exc:  # noqa: BLE001 — defensive: stale coord data
+            _LOGGER.debug(
+                "v4.7.14: failed to compute all_tracked_persons_away: %s", exc
+            )
+            all_tracked_persons_away = False
+            tracked_count = 0
+            away_person_ids = []
+        # Expose for diagnostics (PresenceHouseStateSensor attributes).
+        self._tracked_persons_count = tracked_count
+        self._all_tracked_persons_away = all_tracked_persons_away
+
         any_zone_occupied = any(
             t.mode == ZonePresenceMode.OCCUPIED
             for t in self._zone_trackers.values()
@@ -1944,7 +1998,25 @@ class PresenceCoordinator(BaseCoordinator):
             any_zone_occupied=any_zone_occupied,
             unidentified_count=self._unidentified_count,
             guest_gate_armed=guest_armed,
+            all_tracked_persons_away=all_tracked_persons_away,
         )
+
+        # v4.7.14: log when the person-tracker veto fires to a non-AWAY state.
+        if (
+            all_tracked_persons_away
+            and self._unidentified_count == 0
+            and new_state == HouseState.AWAY
+            and current_state != HouseState.AWAY
+        ):
+            _LOGGER.info(
+                "v4.7.14: Person-tracker veto fired — all %d tracked persons "
+                "away (%s), no unidentified people; forcing AWAY (was %s, "
+                "any_zone_occupied=%s)",
+                tracked_count,
+                ", ".join(away_person_ids) if away_person_ids else "(none)",
+                current_state.value,
+                any_zone_occupied,
+            )
 
         # Override confidence if transitioning to GUEST via the D5 guest_room path.
         # The inference engine sets 0.8 by default; D5 raises it to 0.9 when warranted.
