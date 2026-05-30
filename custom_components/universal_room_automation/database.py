@@ -4860,8 +4860,13 @@ class UniversalRoomDatabase:
                 await db.commit()
                 return cursor.lastrowid
         except Exception as e:
+            # v4.7.12 Reviewer B fix-up (M-B1): rename log key from
+            # "anomaly_type" to "discriminator" since the getattr chain
+            # falls back to event_class for legacy duck-typed events.
+            # Neutral naming avoids miscategorizing legacy events in
+            # operator log triage.
             _LOGGER.warning(
-                "Error saving AnomalyEvent (coordinator=%s type=%s anomaly_type=%s): %s",
+                "Error saving AnomalyEvent (coordinator=%s type=%s discriminator=%s): %s",
                 getattr(event, "coordinator", "?"),
                 getattr(event, "type", "?"),
                 getattr(event, "anomaly_type", getattr(event, "event_class", "?")),
