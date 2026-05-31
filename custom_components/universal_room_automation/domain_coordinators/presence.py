@@ -556,7 +556,14 @@ class PresenceCoordinator(BaseCoordinator):
         self._census_count: int = 0
         self._unidentified_count: int = 0
         # v4.7.14: Person-tracker veto diagnostics (populated by _run_inference).
+        # v4.7.14.1 fix-up A-M2: `_tracked_persons_count` preserves the
+        # pre-v4.7.14.1 semantic (raw configured-person count from
+        # person_coordinator.data) so existing operator dashboards / templates
+        # don't silently flip to a smaller post-filter number.
+        # `_tracked_persons_count_trusted` is the NEW post-H2/H3 filtered
+        # denominator used by the veto reduction.
         self._tracked_persons_count: int = 0
+        self._tracked_persons_count_trusted: int = 0
         self._all_tracked_persons_away: bool = False
         # v4.7.14.1 fix-up A-M1/A-M3: persons filtered out by H2 (phone_left_behind)
         # or H3 (tracking_status STALE/LOST), mapped to their exclusion reason.
@@ -1991,9 +1998,16 @@ class PresenceCoordinator(BaseCoordinator):
         # this, operators debugging "why didn't X block the veto?" must grep
         # the source to understand the post-filter shape.
         excluded_persons: dict[str, str] = {}
+        # v4.7.14.1 fix-up A-M2: separately track the RAW configured-person
+        # count so the diagnostic sensor can expose BOTH the raw count
+        # (pre-v4.7.14.1 semantic preserved) AND the post-filter trustworthy
+        # count (new). Without this, operators seeing `tracked_persons_count`
+        # drop from 4 to 3 would misdiagnose person_coordinator dropout.
+        tracked_count_raw = 0
         try:
             if person_coordinator and getattr(person_coordinator, "data", None):
                 person_data = person_coordinator.data or {}
+                tracked_count_raw = len(person_data)
                 # H2 + H3 filter: remove persons whose phone is flagged
                 # phone_left_behind OR whose tracking_status is not ACTIVE.
                 # The per-name loop replaces the dict-comprehension to capture
@@ -2028,10 +2042,15 @@ class PresenceCoordinator(BaseCoordinator):
             )
             all_tracked_persons_away = False
             tracked_count = 0
+            tracked_count_raw = 0
             away_person_ids = []
             excluded_persons = {}
         # Expose for diagnostics (PresenceHouseStateSensor attributes).
-        self._tracked_persons_count = tracked_count
+        # v4.7.14.1 fix-up A-M2: `_tracked_persons_count` preserves pre-v4.7.14.1
+        # semantic (raw configured count); `_tracked_persons_count_trusted` is
+        # the new post-H2/H3 filtered denominator.
+        self._tracked_persons_count = tracked_count_raw
+        self._tracked_persons_count_trusted = tracked_count
         self._all_tracked_persons_away = all_tracked_persons_away
         # v4.7.14.1 fix-up A-M1/A-M3: snapshot of filtered-out persons + reason
         # for the veto-fired log and downstream sensor attribute exposure.

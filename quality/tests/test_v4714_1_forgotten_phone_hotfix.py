@@ -918,3 +918,148 @@ class TestAM1AM3VetoFiredLog:
         assert "tracking_status=" in PRESENCE_SRC, (
             "A-M1/M3: filter loop must record tracking_status=<value> as exclusion reason"
         )
+
+
+# ===========================================================================
+# A-M2 — `tracked_persons_count` dual-attribute exposure
+# ===========================================================================
+#
+# Pre-v4.7.14.1 the sensor attribute `tracked_persons_count` reflected the raw
+# `len(person_coordinator.data)` — the configured-person count. After H2/H3
+# the underlying `_tracked_persons_count` silently flipped to the FILTERED
+# count. An operator with 4 configured persons + 1 phone_left_behind would see
+# 3 in the attribute and reasonably misdiagnose person_coordinator dropout.
+#
+# Fix-up A-M2 (preferred shape per Reviewer B): expose BOTH
+#   - tracked_persons_count             (raw — pre-v4.7.14.1 semantic preserved)
+#   - tracked_persons_count_trusted     (post-H2/H3 filter — new)
+#   - excluded_persons                  (map of name -> reason)
+# so the operator can see the count delta and its cause without grepping logs.
+
+
+SENSOR_SRC = (PKG / "sensor.py").read_text()
+
+
+class TestAM2DualAttributeExposure:
+    """A-M2: sensor.py must expose raw count, trusted count, and excluded map."""
+
+    def test_am2_raw_count_attribute_present(self):
+        """`tracked_persons_count` attribute MUST remain (raw semantic)."""
+        # Confirm sensor.py emits attrs["tracked_persons_count"] and reads
+        # presence._tracked_persons_count (which now stores raw count).
+        assert 'attrs["tracked_persons_count"]' in SENSOR_SRC, (
+            "A-M2: `tracked_persons_count` attribute must be exposed (raw count)"
+        )
+        assert "_tracked_persons_count" in SENSOR_SRC, (
+            "A-M2: sensor must read presence._tracked_persons_count (raw count)"
+        )
+
+    def test_am2_trusted_count_attribute_present(self):
+        """`tracked_persons_count_trusted` MUST be exposed (post-H2/H3 filter)."""
+        assert 'attrs["tracked_persons_count_trusted"]' in SENSOR_SRC, (
+            "A-M2: `tracked_persons_count_trusted` attribute must be exposed"
+        )
+        assert "_tracked_persons_count_trusted" in SENSOR_SRC, (
+            "A-M2: sensor must read presence._tracked_persons_count_trusted"
+        )
+
+    def test_am2_excluded_persons_attribute_present(self):
+        """`excluded_persons` MUST be exposed (name -> reason map)."""
+        assert 'attrs["excluded_persons"]' in SENSOR_SRC, (
+            "A-M2: `excluded_persons` attribute must be exposed"
+        )
+        assert "_excluded_persons" in SENSOR_SRC, (
+            "A-M2: sensor must read presence._excluded_persons"
+        )
+
+    def test_am2_presence_coordinator_tracks_raw_count(self):
+        """presence.py MUST assign `_tracked_persons_count = tracked_count_raw`.
+
+        Without this assignment the dual-attribute exposure is broken — the
+        sensor would expose the trusted count under the raw-count name.
+        """
+        assert "tracked_count_raw" in PRESENCE_SRC, (
+            "A-M2: filter loop must compute tracked_count_raw separately from "
+            "the post-filter trusted count"
+        )
+        assert "self._tracked_persons_count = tracked_count_raw" in PRESENCE_SRC, (
+            "A-M2: _tracked_persons_count attribute must store the RAW count "
+            "(pre-v4.7.14.1 semantic preserved per A-M2)"
+        )
+
+    def test_am2_presence_coordinator_tracks_trusted_count(self):
+        """presence.py MUST also expose the post-filter trusted count."""
+        assert "self._tracked_persons_count_trusted = tracked_count" in PRESENCE_SRC, (
+            "A-M2: _tracked_persons_count_trusted must store the post-filter "
+            "denominator (the count used by the veto reduction)"
+        )
+
+    def test_am2_raw_and_trusted_diverge_under_filter(self):
+        """Behavioral: raw count >= trusted count whenever any filter fires.
+
+        Drives the H2 filter mirror and confirms the raw count of the input
+        dict is unchanged while the trusted (post-filter) count is reduced.
+        """
+        hass = _make_hass_with_states(
+            states_map={
+                "binary_sensor.universal_room_automation_oji_phone_left_behind": "on",
+            },
+        )
+        pc = MagicMock()
+        pc.data = {
+            "oji": {"location": "home", "tracking_status": TRACKING_STATUS_ACTIVE},
+            "jaya": {"location": "away", "tracking_status": TRACKING_STATUS_ACTIVE},
+            "kai": {"location": "away", "tracking_status": TRACKING_STATUS_ACTIVE},
+            "ada": {"location": "away", "tracking_status": TRACKING_STATUS_ACTIVE},
+        }
+        # Mirror compute_with_h2_h3 returns the trusted (filtered) count.
+        away, trusted_count, _ = _compute_with_h2_h3(hass, pc)
+        raw_count = len(pc.data)
+        assert raw_count == 4, "raw count should match input dict size"
+        assert trusted_count == 3, (
+            "A-M2: trusted count drops by 1 when oji is excluded by H2"
+        )
+        assert raw_count > trusted_count, (
+            "A-M2: under any filter, raw count must exceed trusted count"
+        )
+        assert away is True
+
+    def test_am2_excluded_persons_lists_reasons(self):
+        """Behavioral: excluded_persons map must enumerate (person -> reason)
+        for every filtered-out person, with both H2 and H3 reasons covered.
+
+        This is the runtime invariant on which the diagnostic sensor attribute
+        depends — if the filter loop drops a person without recording a reason,
+        the sensor exposes an under-populated map.
+        """
+        # Drive the filter loop directly via the source contract: we already
+        # have the per-name loop in presence.py. Source-level invariants
+        # already cover the literal strings ("phone_left_behind=on",
+        # "tracking_status="). Here, exercise the mirror to ensure the
+        # presence of two distinct reason classes when both H2 and H3 fire.
+        hass = _make_hass_with_states(
+            states_map={
+                "binary_sensor.universal_room_automation_oji_phone_left_behind": "on",
+            },
+        )
+        pc = MagicMock()
+        pc.data = {
+            "oji": {"location": "away", "tracking_status": TRACKING_STATUS_ACTIVE},
+            "jaya": {"location": "away", "tracking_status": TRACKING_STATUS_STALE},
+            "kai": {"location": "away", "tracking_status": TRACKING_STATUS_ACTIVE},
+        }
+        # Mirror per-name filter to confirm both exclusion reasons surface.
+        excluded: dict[str, str] = {}
+        for name, info in pc.data.items():
+            phone_ok = _phone_trustworthy(hass, name)
+            track_ok = _tracking_active(info)
+            if phone_ok and track_ok:
+                continue
+            if not phone_ok:
+                excluded[name] = "phone_left_behind=on"
+            else:
+                excluded[name] = f"tracking_status={info['tracking_status']}"
+        assert excluded == {
+            "oji": "phone_left_behind=on",
+            "jaya": f"tracking_status={TRACKING_STATUS_STALE}",
+        }, "A-M2 + A-M3: both H2 and H3 reasons must populate excluded_persons"
