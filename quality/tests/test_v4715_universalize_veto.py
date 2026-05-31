@@ -629,15 +629,21 @@ class TestD5SignalConsensus:
         assert coord._consensus_low_since is None
 
     def test_signal_consensus_calc_block_exists(self):
+        # v4.7.15 fix-up B2-HIGH: D5 block relocated past the transition-record
+        # block. Search the full _run_inference body (start of next method).
         idx = PRESENCE_SRC.find("async def _run_inference")
-        body = PRESENCE_SRC[idx: idx + 20000]
+        end_idx = PRESENCE_SRC.find("async def _check_zone_anomalies")
+        assert idx >= 0 and end_idx > idx
+        body = PRESENCE_SRC[idx:end_idx]
         assert "self._signal_consensus =" in body, (
             "v4.7.15 D5: _run_inference must update self._signal_consensus"
         )
 
     def test_signal_consensus_floors_at_zero(self):
         idx = PRESENCE_SRC.find("async def _run_inference")
-        body = PRESENCE_SRC[idx: idx + 20000]
+        end_idx = PRESENCE_SRC.find("async def _check_zone_anomalies")
+        assert idx >= 0 and end_idx > idx
+        body = PRESENCE_SRC[idx:end_idx]
         assert "max(0.0," in body, (
             "v4.7.15 D5: consensus must floor at 0.0"
         )

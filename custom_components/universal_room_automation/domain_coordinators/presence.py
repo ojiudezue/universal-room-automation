@@ -2414,66 +2414,6 @@ class PresenceCoordinator(BaseCoordinator):
             if current_state != HouseState.GUEST or new_state == HouseState.GUEST:
                 self._guest_exit_quiet_since = None
 
-        # v4.7.15 D5: signal_consensus calculation.
-        # Computed every cycle (even when new_state is None) — consensus
-        # tracks INPUT agreement, not output transitions.
-        # 1.0 = inputs in perfect agreement, 0.0 = severely degraded.
-        # All four deltas per INVESTIGATION §6.5 line 257-268.
-        camera_occupied_count = 0
-        mmwave_occupied_count = 0
-        try:
-            for t in self._zone_trackers.values():
-                # Camera tier: any True in _camera_occupied dict.
-                if any(getattr(t, "_camera_occupied", {}).values()):
-                    camera_occupied_count += 1
-                # mmWave/PIR tier: any True in _room_occupied dict.
-                if any(getattr(t, "_room_occupied", {}).values()):
-                    mmwave_occupied_count += 1
-        except Exception:  # noqa: BLE001 — defensive
-            camera_occupied_count = 0
-            mmwave_occupied_count = 0
-
-        any_stale_or_lost_tracker = False
-        try:
-            person_coord = self.hass.data.get(DOMAIN, {}).get("person_coordinator")
-            if person_coord and getattr(person_coord, "data", None):
-                any_stale_or_lost_tracker = any(
-                    (info.get("location") or "") == "unknown"
-                    for info in (person_coord.data or {}).values()
-                )
-        except Exception:  # noqa: BLE001
-            any_stale_or_lost_tracker = False
-
-        consensus = 1.0
-        # Disagreement 1: phones say away, zones say occupied (the v4.7.14 shape).
-        if all_tracked_persons_away and any_zone_occupied:
-            consensus -= 0.4
-        # Disagreement 2: at least one tracker is STALE/LOST (not confirmed away).
-        if any_stale_or_lost_tracker and not all_tracked_persons_away:
-            consensus -= 0.2
-        # Disagreement 3: cameras firing without mmWave/PIR backup.
-        if camera_occupied_count > 0 and mmwave_occupied_count == 0:
-            consensus -= 0.15
-        # Disagreement 4: engine itself is uncertain about its chosen state.
-        if self._inference_engine.confidence < 0.85:
-            consensus -= 0.1
-        self._signal_consensus = max(0.0, consensus)
-        self._signal_consensus_inputs = {
-            "all_tracked_persons_away": all_tracked_persons_away,
-            "any_zone_occupied": any_zone_occupied,
-            "any_stale_or_lost_tracker": any_stale_or_lost_tracker,
-            "camera_occupied_count": camera_occupied_count,
-            "mmwave_occupied_count": mmwave_occupied_count,
-            "state_confidence": round(self._inference_engine.confidence, 2),
-        }
-
-        # Sustained-low tracker (D6 compliance gate input).
-        if self._signal_consensus < 0.6:
-            if self._consensus_low_since is None:
-                self._consensus_low_since = _now_utc
-        else:
-            self._consensus_low_since = None
-
         if new_state is not None:
             accepted = manager.house_state_machine.transition(
                 new_state, trigger=trigger
@@ -2601,6 +2541,70 @@ class PresenceCoordinator(BaseCoordinator):
                 remaining = manager.house_state_machine.remaining_hysteresis()
                 if remaining > 0 and trigger != "deferred_retry":
                     self._schedule_deferred_retry(remaining + 1)
+
+        # v4.7.15 D5: signal_consensus calculation.
+        # v4.7.15 fix-up B2-HIGH: Relocated past the transition-record block so
+        # readers (HVAC defer gate, compliance gate) never observe new-consensus
+        # paired with stale `_last_transition_time`. The read race used to invert
+        # the D6 HVAC gate at exactly the tick the new state landed.
+        # Computed every cycle (even when new_state is None) — consensus
+        # tracks INPUT agreement, not output transitions.
+        # 1.0 = inputs in perfect agreement, 0.0 = severely degraded.
+        # All four deltas per INVESTIGATION §6.5 line 257-268.
+        camera_occupied_count = 0
+        mmwave_occupied_count = 0
+        try:
+            for t in self._zone_trackers.values():
+                # Camera tier: any True in _camera_occupied dict.
+                if any(getattr(t, "_camera_occupied", {}).values()):
+                    camera_occupied_count += 1
+                # mmWave/PIR tier: any True in _room_occupied dict.
+                if any(getattr(t, "_room_occupied", {}).values()):
+                    mmwave_occupied_count += 1
+        except Exception:  # noqa: BLE001 — defensive
+            camera_occupied_count = 0
+            mmwave_occupied_count = 0
+
+        any_stale_or_lost_tracker = False
+        try:
+            person_coord = self.hass.data.get(DOMAIN, {}).get("person_coordinator")
+            if person_coord and getattr(person_coord, "data", None):
+                any_stale_or_lost_tracker = any(
+                    (info.get("location") or "") == "unknown"
+                    for info in (person_coord.data or {}).values()
+                )
+        except Exception:  # noqa: BLE001
+            any_stale_or_lost_tracker = False
+
+        consensus = 1.0
+        # Disagreement 1: phones say away, zones say occupied (the v4.7.14 shape).
+        if all_tracked_persons_away and any_zone_occupied:
+            consensus -= 0.4
+        # Disagreement 2: at least one tracker is STALE/LOST (not confirmed away).
+        if any_stale_or_lost_tracker and not all_tracked_persons_away:
+            consensus -= 0.2
+        # Disagreement 3: cameras firing without mmWave/PIR backup.
+        if camera_occupied_count > 0 and mmwave_occupied_count == 0:
+            consensus -= 0.15
+        # Disagreement 4: engine itself is uncertain about its chosen state.
+        if self._inference_engine.confidence < 0.85:
+            consensus -= 0.1
+        self._signal_consensus = max(0.0, consensus)
+        self._signal_consensus_inputs = {
+            "all_tracked_persons_away": all_tracked_persons_away,
+            "any_zone_occupied": any_zone_occupied,
+            "any_stale_or_lost_tracker": any_stale_or_lost_tracker,
+            "camera_occupied_count": camera_occupied_count,
+            "mmwave_occupied_count": mmwave_occupied_count,
+            "state_confidence": round(self._inference_engine.confidence, 2),
+        }
+
+        # Sustained-low tracker (D6 compliance gate input).
+        if self._signal_consensus < 0.6:
+            if self._consensus_low_since is None:
+                self._consensus_low_since = _now_utc
+        else:
+            self._consensus_low_since = None
 
         # D4: Log zone mode changes to database
         db = self.hass.data.get(DOMAIN, {}).get("database")
