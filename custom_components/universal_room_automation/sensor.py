@@ -96,6 +96,13 @@ from .const import (
     STATE_TIME_SINCE_MOTION,
     STATE_TIME_SINCE_OCCUPIED,
     CONF_TEMPERATURE_SENSOR,
+    # v4.7.16 D2: signal inventory sensor reads these to derive has_*
+    CONF_MOTION_SENSORS,
+    CONF_MMWAVE_SENSORS,
+    CONF_SCANNER_AREAS,
+    CONF_AREA_ID,
+    CONF_DISABLE_CAMERA_PRESENCE,
+    DEFAULT_DISABLE_CAMERA_PRESENCE,
     CONF_ELECTRICITY_RATE,
     DEFAULT_ELECTRICITY_RATE,
     ATTR_CONFIDENCE,
@@ -478,6 +485,7 @@ async def async_setup_entry(
         LastAutomationTimeSensor(coordinator),  # v3.2.6: New sensor
         DatabaseStatusSensor(coordinator),
         AutomationHealthSensor(coordinator),  # v3.6.17: Composite automation health
+        RoomSignalInventorySensor(coordinator),  # v4.7.16 D2: BLE tier + signal inventory
         AIAutomationStatusSensor(coordinator),  # v3.12.0 M4: AI rule + chain tracking
     ])
 
@@ -2006,6 +2014,159 @@ class AutomationHealthSensor(UniversalRoomEntity, SensorEntity):
             attrs["last_exit_verify_time"] = None
 
         return attrs
+
+
+# =============================================================================
+# v4.7.16 D2: ROOM SIGNAL INVENTORY SENSOR
+# =============================================================================
+
+
+class RoomSignalInventorySensor(UniversalRoomEntity, SensorEntity):
+    """v4.7.16 D2: per-room BLE coverage + signal inventory diagnostic.
+
+    Surfaces the CONF_SCANNER_AREAS-derived BLE tier classification plus
+    booleans for which other signal sources are configured for this room
+    (mmWave, PIR, camera). Pure introspection — no signal dispatch, no DB
+    writes, no actuation. State and attributes derive lazily at read time
+    (Bug Class #46 doctrine).
+
+    State is a human-readable rolled-up label
+    (Bug Class #47 — canonical UI surface):
+      - "dense"                 ble_tier=1 + at least one PIR or mmWave
+      - "sparse_with_fallback"  ble_tier=2
+      - "sparse_no_fallback"    ble_tier=0 + at least one PIR/mmWave/camera
+      - "pir_only"              ble_tier=0 + only PIR
+      - "camera_only"           ble_tier=0 + only camera
+      - "none"                  ble_tier=0 + no other signals
+
+    Numeric ble_tier (1/2/0) lives in attributes for machine readers.
+
+    Entity:  sensor.ura_<room>_signal_inventory
+    Device:  the room device (same as AutomationHealthSensor)
+    """
+
+    _attr_icon = "mdi:radar"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator) -> None:
+        super().__init__(coordinator, "signal_inventory", "Signal Inventory")
+
+    # ------------------------------------------------------------------
+    # Lookups (lazy, fail-safe — no migration helper)
+    # ------------------------------------------------------------------
+
+    def _room_name(self) -> str:
+        try:
+            return self.coordinator.entry.data.get("room_name", "")
+        except Exception:  # pragma: no cover - defensive
+            return ""
+
+    def _config(self) -> dict:
+        try:
+            entry = self.coordinator.entry
+            return {**entry.data, **entry.options}
+        except Exception:  # pragma: no cover - defensive
+            return {}
+
+    def _person_coord(self):
+        try:
+            return self.hass.data.get(DOMAIN, {}).get("person_coordinator")
+        except Exception:  # pragma: no cover - defensive
+            return None
+
+    def _ble_tier(self) -> int:
+        pc = self._person_coord()
+        if pc is None or not hasattr(pc, "get_ble_tier"):
+            return 0
+        try:
+            return int(pc.get_ble_tier(self._room_name()))
+        except Exception as exc:  # pragma: no cover - defensive
+            _LOGGER.debug(
+                "RoomSignalInventorySensor: get_ble_tier failed for %s: %s",
+                self._room_name(), exc,
+            )
+            return 0
+
+    def _has_camera(self) -> bool:
+        """Return True iff a zone tracker has registered a camera that maps to
+        this room's area_id AND the room has NOT opted out via D4.
+        """
+        cfg = self._config()
+        if cfg.get(
+            CONF_DISABLE_CAMERA_PRESENCE, DEFAULT_DISABLE_CAMERA_PRESENCE
+        ):
+            return False
+        room_area = cfg.get(CONF_AREA_ID)
+        if not room_area:
+            return False
+        # Read camera registration off presence coordinator's zone trackers.
+        try:
+            presence = self.hass.data.get(DOMAIN, {}).get(
+                "presence_coordinator"
+            )
+        except Exception:  # pragma: no cover - defensive
+            return False
+        if presence is None:
+            return False
+        zone_trackers = getattr(presence, "_zone_trackers", {}) or {}
+        room_area_ids = getattr(presence, "_room_area_ids", {}) or {}
+        room_name = self._room_name()
+        # If this room owns area_id matches a registered camera, count it.
+        for tracker in zone_trackers.values():
+            if room_name not in getattr(tracker, "room_names", []):
+                continue
+            if room_area_ids.get(room_name) != room_area:
+                continue
+            cam_ids = getattr(tracker, "_camera_entity_ids", set()) or set()
+            if cam_ids:
+                return True
+        return False
+
+    # ------------------------------------------------------------------
+    # State + attributes
+    # ------------------------------------------------------------------
+
+    @property
+    def native_value(self) -> str:
+        cfg = self._config()
+        ble_tier = self._ble_tier()
+        has_mmwave = bool(cfg.get(CONF_MMWAVE_SENSORS) or [])
+        has_pir = bool(cfg.get(CONF_MOTION_SENSORS) or [])
+        has_camera = self._has_camera()
+
+        if ble_tier == 1:
+            return "dense" if (has_mmwave or has_pir) else "dense"
+        if ble_tier == 2:
+            return "sparse_with_fallback"
+        # ble_tier == 0
+        if has_pir and not has_camera:
+            return "pir_only"
+        if has_camera and not has_pir and not has_mmwave:
+            return "camera_only"
+        if has_pir or has_mmwave or has_camera:
+            return "sparse_no_fallback"
+        return "none"
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        cfg = self._config()
+        ble_tier = self._ble_tier()
+        return {
+            # Numeric tier lives in attrs only — Bug Class #47.
+            "ble_tier": ble_tier,
+            "has_mmwave": bool(cfg.get(CONF_MMWAVE_SENSORS) or []),
+            "has_pir": bool(cfg.get(CONF_MOTION_SENSORS) or []),
+            "has_camera": self._has_camera(),
+            "has_ble_fallback_room": ble_tier == 2,
+            "scanner_areas": list(cfg.get(CONF_SCANNER_AREAS) or []),
+            "area_id": cfg.get(CONF_AREA_ID),
+            "disable_camera_presence": bool(
+                cfg.get(
+                    CONF_DISABLE_CAMERA_PRESENCE,
+                    DEFAULT_DISABLE_CAMERA_PRESENCE,
+                )
+            ),
+        }
 
 
 # =============================================================================
