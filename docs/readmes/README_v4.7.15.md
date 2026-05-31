@@ -46,18 +46,31 @@ non-sleep states, house inference WAKING transitions, GUEST exit, and HVAC
 
 ## 2. HVAC defer behaviour — exact details
 
-When **both** are true:
+The gate has two phases — **engage** and **hold/release** — driven by an
+internal latch `HVACCoordinator._d6_gate_engaged`.
+
+**Engage** (latch flips `False → True`) when **both** are true:
 
 - `presence._signal_consensus < 0.5`, **AND**
-- last house-state transition < 30 s ago
+- last house-state transition < 30 s ago (read via `presence._last_transition_time`,
+  which is updated by `_record_outcome` at the transition-accept block).
 
-…then `_apply_house_state_presets()` skips the entire apply cycle with a debug
-log line `"v4.7.15 D6: HVAC preset write deferred — consensus=X, secs_since_transition=Y"`
-and increments `presence._d6_deferrals_today`.
+On engage, `_apply_house_state_presets()` skips the entire apply cycle with an
+info-level log line
+`"v4.7.15 D6: HVAC defer gate ENGAGED — consensus=X, secs_since_transition=Y"`,
+increments `hvac._d6_deferrals_today`, and returns early.
 
-The hysteresis is asymmetric: the gate engages at 0.5 but does NOT re-disable
-until consensus recovers above 0.7 (the next cycle that crosses the upper
-threshold writes presets normally).
+**Hold / release** (asymmetric hysteresis). Once engaged, the gate STAYS engaged
+on every subsequent tick — deferring all writes — until `consensus >= 0.7`.
+Each held tick logs `"v4.7.15 D6: HVAC preset write deferred (hysteresis hold) — consensus=X < 0.7"`
+and increments `_d6_deferrals_today`. When consensus recovers `>= 0.7`, the gate
+DISENGAGES (latch flips `True → False`), logs
+`"v4.7.15 D6: HVAC defer gate DISENGAGED — consensus=X recovered above 0.7"`,
+and lets the preset apply run normally.
+
+This asymmetric 0.5/0.7 design prevents a 0.45 ↔ 0.55 consensus oscillation
+inside the 30s window from flipping the gate on/off as consensus crosses the
+single threshold.
 
 **What gets paused, specifically:**
 
@@ -200,8 +213,18 @@ def should_veto_due_to_reliable_signals(
 Unknown / unmatched scope returns `VetoDecision(fired=False, ...)` so adding a
 new caller is a no-op until a matching pattern is added.
 
-`VetoDecision` fields (frozen dataclass): `fired: bool`, `confidence: float`,
-`reason: str`, `scope: str = ""`.
+`VetoDecision` fields (frozen dataclass, four fields as shipped):
+`fired: bool`, `confidence: float`, `reason: str`, `scope: str = ""`.
+
+> **Future contract evolution (v4.7.15.1+).** v4.7.16 D3 records a `scope="room_level_weighted"` verdict
+> for diagnostics only (per v4.7.16 plan §0.7). When v4.7.17+ flips that
+> diagnostic to gating, `ReliableSignal` is expected to gain an optional
+> `weight: float = 1.0` field and `VetoDecision` to gain an optional
+> `defer_to_consensus: bool = False` flag so a Pattern F handler can
+> express "weighted weight insufficient, fall back to multi-tier consensus."
+> Until that cycle, calling the helper with `scope="room_level_weighted"`
+> falls through to `VetoDecision(fired=False, ...)` — forward-compatible
+> but not semantically meaningful.
 
 ---
 
@@ -219,9 +242,11 @@ Per `docs/planning/PLANNING_v4.7.15_universalize_bug_class_48_veto.md` §4 (out 
 
 ## 10. Known limitations
 
-- The `D6 HVAC defer gate` fires when the last house-state transition was within 30 s. If the system has been steady-state for hours and consensus suddenly drops, the gate will NOT fire — by design (asymmetric hysteresis assumes transition-driven disagreement; steady-state disagreement is a different shape and needs separate diagnosis).
+- The `D6 HVAC defer gate` engages when the last house-state transition was within 30 s AND consensus < 0.5. It stays engaged (defers writes) until consensus recovers >= 0.7 (asymmetric hysteresis upper threshold). If the system has been steady-state for hours and consensus suddenly drops, the gate will NOT engage — by design (the gate targets transition-driven disagreement; steady-state disagreement is a different shape and needs separate diagnosis).
 - `signal_consensus` reads `_camera_occupied` and `_room_occupied` via private attribute access on zone trackers. If a future cycle refactors those dicts, the consensus calc must be updated in lockstep.
 - `_first_positive_zone_occupied_since` resets to None on ANY `any_zone_occupied=False`. A brief False blip wipes accumulated sustained seconds — by design (per plan D3 acceptance).
+- **Helper contract scope gap (v4.7.16 D3 diagnostic-only).** v4.7.16 D3 calls the helper with `scope="room_level_weighted"` for diagnostic purposes (per its own plan §0.7 — D3 is intentionally diagnostic-only until v4.7.17 flips it to gating). The v4.7.15 helper does NOT recognise that scope and falls through to `VetoDecision(fired=False, ...)`. Diagnostic recorder will log a constant-False signal for that scope until v4.7.17+ adds a Pattern F handler (plus the contract-evolution noted in §8). This is intentional cross-cycle sequencing, not a bug.
+- **Boot-race in `hvac._apply_house_state_presets` D6 stale failsafe.** During cold boot, if HVAC's preset-apply tick fires before PresenceCoordinator is registered with `coordinator_manager.coordinators`, the call to `presence.check_zone_occupancy_confidence` falls back to `(0, 0)` and the failsafe forces `effective_preset='away'` for that one cycle. v4.7.14's behaviour was to use HVAC's local helper synchronously. The 5-15 second boot window where this matters is bounded by the next `_run` tick (typically 30-60 s later) and is the conservative direction.
 
 ---
 

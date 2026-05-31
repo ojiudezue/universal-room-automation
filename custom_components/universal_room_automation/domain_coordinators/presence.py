@@ -821,6 +821,18 @@ class PresenceCoordinator(BaseCoordinator):
             )
 
         # Unknown / unmatched scope — fall through (forward compatible).
+        # v4.7.15 fix-up A7-H1 / B6 / Reviewer C C4 (deferral comment):
+        # v4.7.16 D3 calls this helper with scope="room_level_weighted" for
+        # diagnostic-only purposes (per v4.7.16 plan §0.7 — D3 is intentionally
+        # diagnostic-only until v4.7.17 flips it to gating). v4.7.15 deliberately
+        # does NOT add a Pattern F handler here because the threshold semantic
+        # (sum vs max weights, 1.0 vs 0.6 etc.) needs the diagnostic data first,
+        # and ReliableSignal/VetoDecision need extending with weight + defer-to-
+        # consensus fields. Both belong in the same cycle that flips D3 from
+        # diagnostic to gating. Until then, falling through to fired=False is
+        # the correct conservative behaviour — diagnostic recorder logs a
+        # constant-False signal that v4.7.17+ will refine. Do NOT add Pattern F
+        # in a v4.7.15 hotfix without coordinating the contract evolution.
         return VetoDecision(False, 0.0, "", scope)
 
     # ------------------------------------------------------------------
