@@ -315,6 +315,24 @@ CONF_OCCUPANCY_SENSORS: Final = "occupancy_sensors"  # Combined motion+presence 
 CONF_PHONE_TRACKER: Final = "phone_tracker"  # DEPRECATED in v3.2.4 - kept for migration
 # v3.2.4: Scanner areas for sparse scanner homes (optional override)
 CONF_SCANNER_AREAS: Final = "scanner_areas"  # List of HA area_ids where BLE scanners are
+# v4.7.16 D4: Per-room opt-out for camera-presence Tier 2 signal contribution.
+# When True, presence.py discovery skips tracker.register_camera() for the
+# zone owning this room's area_id. Use for rooms with chronic camera
+# person-classifier false positives (TV reflections, sun-glare hallways).
+# The room still appears in URA; only its camera signal is muted. Lazy
+# default per v4.7.4.4 Bug Class #46 doctrine — no migration helper,
+# absent key reads as False.
+CONF_DISABLE_CAMERA_PRESENCE: Final = "disable_camera_presence"
+DEFAULT_DISABLE_CAMERA_PRESENCE: Final = False
+
+# v4.7.16 D3: BLE evidence weight for rooms borrowing a scanner via
+# CONF_SCANNER_AREAS (ble_tier=2). Tier 1 rooms (own scanner) implicitly
+# weight 1.0; Tier 0 rooms (no BLE) weight 0.0. Operator-tunable constant —
+# raise toward 1.0 for high-confidence borrowed scanners; lower toward
+# 0.3 for noisier shared scanners. Not exposed via options flow in
+# v4.7.16; see PLANNING_v4.7.16 §2 D3 rationale.
+BLE_TIER_2_WEIGHT: Final = 0.6
+
 CONF_DOOR_SENSORS: Final = "door_sensor"
 CONF_DOOR_TYPE: Final = "door_type"
 CONF_WINDOW_SENSORS: Final = "window_sensor"

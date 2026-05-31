@@ -33,10 +33,15 @@ from homeassistant.helpers.event import (
 from homeassistant.util import dt as dt_util
 
 from ..const import (
+    BLE_TIER_2_WEIGHT,  # v4.7.16 D3
     CONF_AREA_ID,
+    CONF_DISABLE_CAMERA_PRESENCE,  # v4.7.16 D4
+    CONF_ENTRY_TYPE,  # v4.7.16 D3, D4
     CONF_ZONE_ROOMS,
+    DEFAULT_DISABLE_CAMERA_PRESENCE,  # v4.7.16 D4
     DIAGNOSTICS_SCOPE_HOUSE,
     DOMAIN,
+    ENTRY_TYPE_ROOM,  # v4.7.16 D3, D4
 )
 from .base import BaseCoordinator, CoordinatorAction, Intent
 from .coordinator_diagnostics import (
@@ -549,6 +554,21 @@ class PresenceCoordinator(BaseCoordinator):
         # v4.7.14: Person-tracker veto diagnostics (populated by _run_inference).
         self._tracked_persons_count: int = 0
         self._all_tracked_persons_away: bool = False
+        # v4.7.15 D1: Last shared-veto-helper decision (diagnostics).
+        # Populated each _run_inference tick when the helper is consulted.
+        self._last_veto_decision: VetoDecision = VetoDecision(False, 0.0, "", "")
+        # v4.7.15 D3: Sustained-occupancy tracking — set when any_zone_occupied
+        # flips False -> True, cleared when False. Drives WAKING gate.
+        self._first_positive_zone_occupied_since: Optional[datetime] = None
+        self._wake_blocked_ticks: int = 0
+        # v4.7.15 D3: Exit-side persistence for GUEST -> HOME_*. Set when
+        # the "no unidentified, no guest_gate_armed" condition first becomes
+        # true while in GUEST state; cleared when it goes false.
+        self._guest_exit_quiet_since: Optional[datetime] = None
+        # v4.7.15 D5: Per-cycle signal_consensus + sustained-low tracker.
+        self._signal_consensus: float = 1.0
+        self._signal_consensus_inputs: Dict[str, Any] = {}
+        self._consensus_low_since: Optional[datetime] = None
         self._transitions_today: int = 0
         self._transition_reset_date: str = ""
         # Room area_id lookup: room_name -> area_id (from config entries)
@@ -619,6 +639,142 @@ class PresenceCoordinator(BaseCoordinator):
     def confidence(self) -> float:
         """Return confidence of current state inference."""
         return self._inference_engine.confidence
+
+    # ------------------------------------------------------------------
+    # v4.7.15 D1: Shared Bug Class #48 veto helper
+    # ------------------------------------------------------------------
+    def should_veto_due_to_reliable_signals(
+        self,
+        *,
+        reliable_signals: List[ReliableSignal],
+        transient_signals: List[TransientSignal],
+        state_context: Dict[str, Any],
+    ) -> VetoDecision:
+        """Bug Class #48 arbitration: reliable-signal veto of transient evidence.
+
+        v4.7.15 D1: Promotes the v4.7.13 (zone aggregator SLEEP) and v4.7.14
+        (house inference AWAY) inline patterns to a shared utility so future
+        cycles (v4.7.16 room-level, v4.8.x BLE proximity) plug new patterns
+        here rather than fork the logic. Default fall-through is fired=False —
+        adding a new caller without a matching pattern is a no-op.
+
+        Patterns shipped (scope dispatch):
+          - "house_inference"  : Pattern A — v4.7.14 AWAY veto
+          - "zone_aggregator"  : Pattern B (SLEEP, v4.7.13) + Pattern C (non-sleep, v4.7.15 D2)
+          - "waking_transition": Pattern D — v4.7.15 D3 sustained-signal WAKING gate
+          - "guest_exit"       : Pattern E — v4.7.15 D3 GUEST→HOME exit-side persistence
+        """
+        scope = str(state_context.get("scope", ""))
+        # Bug Class #22 mitigation: accept enum or string for house_state.
+        _hs_raw = state_context.get("house_state", "")
+        house_state = str(getattr(_hs_raw, "value", _hs_raw)).lower()
+        tracked_count = int(state_context.get("tracked_count", 0))
+
+        # Pattern A — v4.7.14 house-inference AWAY veto.
+        # Reliable: all configured person trackers report away.
+        # Transient: camera_person_detected. Carve-out: unidentified > 0 (guest).
+        if scope == "house_inference":
+            all_away = any(
+                s.kind == "person_tracker_away" and s.value for s in reliable_signals
+            )
+            any_home = any(
+                s.kind == "person_tracker_home" and s.value for s in reliable_signals
+            )
+            unid = next(
+                (s.count for s in transient_signals
+                 if s.kind == "unidentified_person_count"),
+                0,
+            )
+            if tracked_count > 0 and all_away and not any_home and unid == 0:
+                return VetoDecision(
+                    True, 0.95, "all_tracked_persons_away (no guests)", scope,
+                )
+            return VetoDecision(False, 0.0, "", scope)
+
+        # Pattern B — v4.7.13 zone-aggregator SLEEP fallback.
+        # Reliable: zone_persons_home. Carve-out: house_state must be "sleep".
+        if scope == "zone_aggregator" and house_state == "sleep":
+            any_home = any(
+                s.kind == "zone_persons_home" and s.value for s in reliable_signals
+            )
+            if any_home:
+                return VetoDecision(True, 0.90, "zone_persons home during sleep", scope)
+            return VetoDecision(False, 0.0, "", scope)
+
+        # Pattern C — v4.7.15 D2 zone-aggregator non-sleep states.
+        # Reliable: zone_persons_home. Transient: room sensors quiet >= N min.
+        # Allowed states: HOME_DAY, HOME_EVENING, HOME_NIGHT, ARRIVING, GUEST, WAKING.
+        if scope == "zone_aggregator" and house_state in (
+            "home_day", "home_evening", "home_night",
+            "arriving", "guest", "waking",
+        ):
+            any_home = any(
+                s.kind == "zone_persons_home" and s.value for s in reliable_signals
+            )
+            sensors_quiet_seconds = int(
+                state_context.get("room_sensors_quiet_seconds", 0)
+            )
+            if any_home and sensors_quiet_seconds >= _NONSLEEP_QUIET_THRESHOLD_SECONDS:
+                return VetoDecision(
+                    True,
+                    0.85,
+                    f"zone_persons home during {house_state} "
+                    f"(quiet {sensors_quiet_seconds}s)",
+                    scope,
+                )
+            return VetoDecision(False, 0.0, "", scope)
+
+        # Pattern D — v4.7.15 D3 WAKING sustained-signal gate.
+        # Block the SLEEP→WAKING transition until any_zone_occupied has been
+        # continuously True for >= threshold seconds. A single Frigate blip
+        # at 03:24 cannot satisfy this (cadence is ~15-30s; threshold = 90s).
+        if scope == "waking_transition":
+            sustained_seconds = int(
+                state_context.get("sustained_occupancy_seconds", 0)
+            )
+            if sustained_seconds >= _WAKING_SUSTAINED_THRESHOLD_SECONDS:
+                # NOT vetoed — sustained signal confirms wake.
+                return VetoDecision(
+                    False, 0.85,
+                    f"sustained occupancy confirms wake ({sustained_seconds}s)",
+                    scope,
+                )
+            # Vetoed — insufficient sustained signal.
+            return VetoDecision(
+                True, 0.6,
+                f"insufficient sustained signal ({sustained_seconds}s "
+                f"< {_WAKING_SUSTAINED_THRESHOLD_SECONDS}s)",
+                scope,
+            )
+
+        # Pattern E — v4.7.15 D3 GUEST exit-side persistence.
+        # Mirror v4.7.2 D5 entry-side pattern: GUEST→HOME_* requires the
+        # "no unidentified, no guest_gate_armed" condition to persist for
+        # >= guest_persistence_seconds. Single-frame Frigate FP cannot ghost-exit.
+        if scope == "guest_exit":
+            quiet_seconds = int(state_context.get("guest_exit_quiet_seconds", 0))
+            threshold = int(
+                state_context.get(
+                    "guest_persistence_seconds", self._guest_persistence_seconds,
+                )
+            )
+            # Disabled threshold = honor exit immediately (preserves opt-out path).
+            if threshold <= 0:
+                return VetoDecision(False, 0.0, "guest exit persistence disabled", scope)
+            if quiet_seconds >= threshold:
+                return VetoDecision(
+                    False, 0.85,
+                    f"guest exit sustained ({quiet_seconds}s >= {threshold}s)",
+                    scope,
+                )
+            return VetoDecision(
+                True, 0.7,
+                f"guest exit not yet sustained ({quiet_seconds}s < {threshold}s)",
+                scope,
+            )
+
+        # Unknown / unmatched scope — fall through (forward compatible).
+        return VetoDecision(False, 0.0, "", scope)
 
     def get_next_state_prediction(self) -> dict:
         """Return the next-state prediction in the D1 PWA contract shape.
@@ -1095,6 +1251,40 @@ class PresenceCoordinator(BaseCoordinator):
     # Tier 2: Zone Camera Sensors (via CameraIntegrationManager)
     # ------------------------------------------------------------------
 
+    def _rooms_opting_out_of_camera_presence(self) -> Set[str]:
+        """v4.7.16 D4: return the set of room_names with CONF_DISABLE_CAMERA_PRESENCE=True.
+
+        Lazy read of room config entries — no migration helper, absent key
+        defaults to False (Bug Class #46 doctrine). Guarded against config
+        registry exceptions for boot-race safety.
+        """
+        opted_out: Set[str] = set()
+        try:
+            entries = self.hass.config_entries.async_entries(DOMAIN)
+        except Exception as exc:  # pragma: no cover - defensive
+            _LOGGER.debug(
+                "_rooms_opting_out_of_camera_presence: entry walk failed: %s",
+                exc,
+            )
+            return opted_out
+        for entry in entries:
+            if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ROOM:
+                continue
+            room_name = entry.data.get("room_name")
+            if not room_name:
+                continue
+            config = {**entry.data, **entry.options}
+            if config.get(
+                CONF_DISABLE_CAMERA_PRESENCE, DEFAULT_DISABLE_CAMERA_PRESENCE
+            ):
+                opted_out.add(room_name)
+        if opted_out:
+            _LOGGER.info(
+                "v4.7.16 D4: %d room(s) opting out of camera-presence: %s",
+                len(opted_out), sorted(opted_out),
+            )
+        return opted_out
+
     def _discover_zone_cameras(self) -> None:
         """Discover cameras in each zone using CameraIntegrationManager.
 
@@ -1122,16 +1312,35 @@ class PresenceCoordinator(BaseCoordinator):
 
         camera_entity_ids: Set[str] = set()
 
-        # Build area_id → zone mapping from room → zone assignments
+        # Build area_id → zone mapping from room → zone assignments.
+        # v4.7.16 D4: also track which area_ids are owned by rooms that have
+        # set CONF_DISABLE_CAMERA_PRESENCE=True so we can skip register_camera
+        # for those areas. Opt-out is enforced at registration time — the
+        # ZonePresenceTracker itself stays oblivious to per-room policy.
         area_to_zone: Dict[str, str] = {}
+        opted_out_area_ids: Set[str] = set()
+        opted_out_rooms = self._rooms_opting_out_of_camera_presence()
         for zone_name, tracker in self._zone_trackers.items():
             for room_name in tracker.room_names:
                 area_id = self._room_area_ids.get(room_name)
                 if area_id:
                     area_to_zone[area_id] = zone_name
+                    if room_name in opted_out_rooms:
+                        opted_out_area_ids.add(area_id)
 
         # Find cameras in each zone's areas
         for area_id, zone_name in area_to_zone.items():
+            # v4.7.16 D4: skip cameras for opted-out room areas. Other rooms
+            # in the same zone continue to receive their cameras.
+            if area_id in opted_out_area_ids:
+                cameras_in_area = camera_manager.get_cameras_for_area(area_id)
+                _LOGGER.info(
+                    "Camera-presence opt-out: skipping %d cameras for "
+                    "zone %s (area %s) per CONF_DISABLE_CAMERA_PRESENCE",
+                    len(cameras_in_area), zone_name, area_id,
+                )
+                continue
+
             cameras_in_area = camera_manager.get_cameras_for_area(area_id)
             tracker = self._zone_trackers[zone_name]
 
