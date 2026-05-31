@@ -193,7 +193,13 @@ class HVACCoordinator(BaseCoordinator):
         # switch.ura_hvac_consensus_defer_gate for rollback without restart.
         # When ON, _apply_house_state_presets skips writes if signal_consensus
         # < 0.5 AND last house-state transition < 30 s ago.
+        # v4.7.15 fix-up A5-H1: also implement asymmetric hysteresis — once
+        # the gate engages, it stays engaged until consensus recovers above 0.7
+        # (the "upper threshold"). This matches the README + plan spec and
+        # prevents 0.5-line flap from turning the gate on/off within a single
+        # consensus oscillation.
         self._defer_gate_enabled: bool = True
+        self._d6_gate_engaged: bool = False  # asymmetric-hysteresis latch
         # Daily counter (reset by existing midnight-reset hook) — exposed on
         # the HVAC compliance sensor for operator visibility.
         self._d6_deferrals_today: int = 0
@@ -789,6 +795,13 @@ class HVACCoordinator(BaseCoordinator):
             return
 
         # v4.7.15 D6: HVAC consensus defer gate.
+        # v4.7.15 fix-up A5-H1: asymmetric hysteresis 0.5 / 0.7.
+        # Engage when (consensus < 0.5 AND last transition < 30 s ago) — this
+        # is the "transition-driven disagreement" shape D6 targets. Once
+        # engaged, stay engaged (defer writes) until consensus recovers above
+        # 0.7. Disengage at >= 0.7, regardless of time since transition.
+        # Single-threshold flap (0.45 → 0.55 → 0.45 within the 30s window)
+        # used to flip the gate on/off; the upper threshold prevents that.
         if self._defer_gate_enabled:
             manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
             presence = manager.coordinators.get("presence") if (
@@ -802,15 +815,35 @@ class HVACCoordinator(BaseCoordinator):
                     secs_since_transition = (now_utc - last_transition).total_seconds()
                 else:
                     secs_since_transition = 1e9
-                # Asymmetric hysteresis: defer if < 0.5, resume at > 0.7.
-                if consensus < 0.5 and secs_since_transition < 30:
-                    _LOGGER.info(
-                        "v4.7.15 D6: HVAC preset write deferred — "
-                        "consensus=%.2f, secs_since_transition=%.0f",
-                        consensus, secs_since_transition,
-                    )
-                    self._d6_deferrals_today += 1
-                    return  # Skip this apply cycle — retry next tick.
+                # Asymmetric hysteresis: defer if < 0.5 + recent transition,
+                # resume only at >= 0.7.
+                if self._d6_gate_engaged:
+                    if consensus >= 0.7:
+                        _LOGGER.info(
+                            "v4.7.15 D6: HVAC defer gate DISENGAGED — "
+                            "consensus=%.2f recovered above 0.7",
+                            consensus,
+                        )
+                        self._d6_gate_engaged = False
+                    else:
+                        # Still engaged — keep deferring.
+                        _LOGGER.info(
+                            "v4.7.15 D6: HVAC preset write deferred (hysteresis hold) — "
+                            "consensus=%.2f < 0.7",
+                            consensus,
+                        )
+                        self._d6_deferrals_today += 1
+                        return
+                else:
+                    if consensus < 0.5 and secs_since_transition < 30:
+                        _LOGGER.info(
+                            "v4.7.15 D6: HVAC defer gate ENGAGED — "
+                            "consensus=%.2f, secs_since_transition=%.0f",
+                            consensus, secs_since_transition,
+                        )
+                        self._d6_gate_engaged = True
+                        self._d6_deferrals_today += 1
+                        return  # Skip this apply cycle — retry next tick.
 
         # --- Ensure thermostats are in an active mode (always, even during arriving) ---
         # Thermostats should never be left in "off" mode by URA.
