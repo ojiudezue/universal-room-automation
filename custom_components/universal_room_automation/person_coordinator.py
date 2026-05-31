@@ -1191,6 +1191,13 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
         except Exception as exc:  # pragma: no cover - defensive
             _LOGGER.debug("get_ble_tier: config entry walk failed: %s", exc)
             return 0
+        # Post-review A4 (MEDIUM): surface duplicate ROOM entries with the
+        # same room_name as a debug log. Behavior is unchanged (we return on
+        # the FIRST match — same as v3.8.9's _build_scanner_room_map), but
+        # the debug line gives operators a trail when "ble_tier seems wrong"
+        # turns out to be a duplicate-add via the UI.
+        _matched_count = 0
+        _first_tier = 0
         for entry in entries:
             if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ROOM:
                 continue
@@ -1201,8 +1208,21 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
             area_id = config.get(CONF_AREA_ID)
             scanner_areas = config.get(CONF_SCANNER_AREAS) or []
             if scanner_areas and area_id:
-                return 2
-            return 0
+                _tier_here = 2
+            else:
+                _tier_here = 0
+            _matched_count += 1
+            if _matched_count == 1:
+                _first_tier = _tier_here
+            elif _matched_count == 2:
+                _LOGGER.debug(
+                    "get_ble_tier: room_name=%r has multiple ROOM entries "
+                    "(misconfig?). Using tier from first-walk entry (%d). "
+                    "Subsequent duplicate entries ignored.",
+                    room_name, _first_tier,
+                )
+        if _matched_count >= 1:
+            return _first_tier
         return 0
 
     def get_zone_occupants(self, zone_rooms: list[str]) -> list[str]:

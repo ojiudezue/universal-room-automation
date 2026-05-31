@@ -2142,7 +2142,13 @@ class RoomSignalInventorySensor(UniversalRoomEntity, SensorEntity):
         has_camera = self._has_camera()
 
         if ble_tier == 1:
-            return "dense" if (has_mmwave or has_pir) else "dense"
+            # Post-review A5 (MEDIUM): the prior ternary had identical arms
+            # ("dense" if (has_mmwave or has_pir) else "dense") — dead branch.
+            # Reviewer A's recommended resolution: Tier 1 = "dense" period.
+            # A ble_tier=1 room without mmWave/PIR is still structurally
+            # "dense BLE coverage" from the scanner perspective; the absence
+            # of occupancy sensors is visible via has_mmwave/has_pir attrs.
+            return "dense"
         if ble_tier == 2:
             return "sparse_with_fallback"
         # ble_tier == 0

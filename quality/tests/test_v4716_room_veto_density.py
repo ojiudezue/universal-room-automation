@@ -229,6 +229,149 @@ class TestD1GetBleTier:
 
 
 # ============================================================================
+# D1 behavioral — post-review C1-M1 (MEDIUM)
+# ============================================================================
+#
+# Reviewer C flagged that the plan's D1 ACs listed 5 behavioral test names
+# but the build shipped only source-grep/AST harnesses. These 3 tests close
+# the most important behavioral gap (Tier 1 / Tier 2 / Tier 0 branches) by
+# extracting `get_ble_tier`'s method body and exec'ing it with a constructed
+# scanner-room-map. This drives the real method body — Bug Class #44
+# compliant — without needing the HA framework.
+
+
+class TestD1GetBleTierBehavioral:
+    """Behavioral tests for get_ble_tier (post-review C1-M1)."""
+
+    def _extract_get_ble_tier(self, person_src: str):
+        """Return (callable, namespace) for the production method body."""
+        tree = ast.parse(person_src)
+        method_node = None
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.FunctionDef)
+                and node.name == "get_ble_tier"
+            ):
+                method_node = node
+                break
+        assert method_node is not None, "get_ble_tier method not found"
+
+        # Build the const namespace the method body references.
+        CONF_SCANNER_AREAS = "scanner_areas"
+        CONF_AREA_ID = "area_id"
+        CONF_ENTRY_TYPE = "entry_type"
+        ENTRY_TYPE_ROOM = "room"
+        DOMAIN = "universal_room_automation"
+        # Logger is referenced inside the debug log branch (A4 fix-up).
+        import logging
+        _LOGGER = logging.getLogger("get_ble_tier_test")
+
+        namespace = {
+            "CONF_SCANNER_AREAS": CONF_SCANNER_AREAS,
+            "CONF_AREA_ID": CONF_AREA_ID,
+            "CONF_ENTRY_TYPE": CONF_ENTRY_TYPE,
+            "ENTRY_TYPE_ROOM": ENTRY_TYPE_ROOM,
+            "DOMAIN": DOMAIN,
+            "_LOGGER": _LOGGER,
+        }
+        exec(ast.unparse(method_node), namespace)
+        return namespace["get_ble_tier"], namespace
+
+    def _make_coord(self, direct_rooms, entries):
+        """Build a fake PersonTrackingCoordinator with the surfaces
+        get_ble_tier needs: _direct_ble_rooms set + hass.config_entries.
+        """
+        coord = MagicMock()
+        coord._direct_ble_rooms = set(direct_rooms)
+        coord.hass = MagicMock()
+        coord.hass.config_entries.async_entries = MagicMock(
+            return_value=entries
+        )
+        return coord
+
+    def _make_entry(self, room_name, area_id=None, scanner_areas=None,
+                    entry_type="room"):
+        entry = MagicMock()
+        entry.data = {
+            "room_name": room_name,
+            "entry_type": entry_type,
+            "area_id": area_id,
+            "scanner_areas": scanner_areas or [],
+        }
+        entry.options = {}
+        return entry
+
+    def test_get_ble_tier_tier_1_for_direct_coverage(self, person_src: str):
+        """Tier 1: room is in _direct_ble_rooms (own scanner)."""
+        fn, _ = self._extract_get_ble_tier(person_src)
+        coord = self._make_coord(
+            direct_rooms={"master_bedroom"},
+            entries=[],  # not consulted on Tier-1 short-circuit
+        )
+        assert fn(coord, "Master Bedroom") == 1, (
+            "D1 behavioral: room in _direct_ble_rooms must return Tier 1"
+        )
+        # Name normalization: spaces → underscores, lowercase.
+        assert fn(coord, "master_bedroom") == 1, (
+            "D1 behavioral: get_ble_tier must normalize room_name"
+        )
+
+    def test_get_ble_tier_tier_2_for_scanner_areas(self, person_src: str):
+        """Tier 2: room has area_id AND scanner_areas set, NOT in direct set."""
+        fn, _ = self._extract_get_ble_tier(person_src)
+        coord = self._make_coord(
+            direct_rooms=set(),  # living_room not direct
+            entries=[
+                self._make_entry(
+                    room_name="Living Room",
+                    area_id="living_room",
+                    scanner_areas=["family_room"],
+                ),
+            ],
+        )
+        assert fn(coord, "Living Room") == 2, (
+            "D1 behavioral: room with area_id + scanner_areas must "
+            "return Tier 2 (borrowing scanner from neighbor)"
+        )
+
+    def test_get_ble_tier_tier_0_for_unmapped(self, person_src: str):
+        """Tier 0: not in direct set AND no matching room entry."""
+        fn, _ = self._extract_get_ble_tier(person_src)
+        coord = self._make_coord(
+            direct_rooms=set(),
+            entries=[
+                self._make_entry(
+                    room_name="Some Other Room",
+                    area_id="some_other_area",
+                ),
+            ],
+        )
+        assert fn(coord, "Unknown Room") == 0, (
+            "D1 behavioral: unmapped room must return Tier 0"
+        )
+
+        # Also: empty room_name → 0
+        assert fn(coord, "") == 0, (
+            "D1 behavioral: empty room_name must return Tier 0"
+        )
+
+        # Also: room entry exists but no area_id → 0 (cannot be Tier 1 or 2)
+        coord2 = self._make_coord(
+            direct_rooms=set(),
+            entries=[
+                self._make_entry(
+                    room_name="Closet",
+                    area_id=None,  # not configured
+                    scanner_areas=[],
+                ),
+            ],
+        )
+        assert fn(coord2, "Closet") == 0, (
+            "D1 behavioral: room with no area_id must return Tier 0"
+        )
+
+
+# ============================================================================
 # D2 — RoomSignalInventorySensor
 # ============================================================================
 

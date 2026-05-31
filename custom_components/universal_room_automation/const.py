@@ -333,6 +333,16 @@ DEFAULT_DISABLE_CAMERA_PRESENCE: Final = False
 # v4.7.16; see PLANNING_v4.7.16 §2 D3 rationale.
 BLE_TIER_2_WEIGHT: Final = 0.6
 
+# v4.7.16 D3 (post-review B MEDIUM #1): kill switch for the per-room
+# weighted veto block in _run_inference. Default ON because D3 is the
+# scaffolding for the v4.7.15 helper integration; future cycles will
+# flip it from diagnostic → gating. Operator can set False to skip the
+# per-cycle work (~1200 string normalizations / cycle on a 30-room
+# install) when the diagnostic data is not in use. Module-level
+# constant rather than an options-flow field because this is a
+# performance kill-switch, not a user-facing knob.
+D3_DIAGNOSTIC_ENABLED: Final = True
+
 CONF_DOOR_SENSORS: Final = "door_sensor"
 CONF_DOOR_TYPE: Final = "door_type"
 CONF_WINDOW_SENSORS: Final = "window_sensor"

@@ -38,6 +38,7 @@ from ..const import (
     CONF_DISABLE_CAMERA_PRESENCE,  # v4.7.16 D4
     CONF_ENTRY_TYPE,  # v4.7.16 D3, D4
     CONF_ZONE_ROOMS,
+    D3_DIAGNOSTIC_ENABLED,  # v4.7.16 D3 (post-review B MED #1) — kill switch
     DEFAULT_DISABLE_CAMERA_PRESENCE,  # v4.7.16 D4
     DIAGNOSTICS_SCOPE_HOUSE,
     DOMAIN,
@@ -2069,118 +2070,146 @@ class PresenceCoordinator(BaseCoordinator):
         # v4.7.16 D3: verify helper signature post v4.7.15 lands
         # — expected: should_veto_due_to_reliable_signals(
         #              reliable_signals=[...], transient_signals=[...],
-        #              state_context={...}) -> VetoDecision(fired, confidence, reason)
-        self._v4716_zone_verdicts: Dict[str, Dict[str, Any]] = {}
-        try:
-            for zone_name, tracker in self._zone_trackers.items():
-                weights: Dict[str, float] = {}
-                for room_name in getattr(tracker, "room_names", []) or []:
-                    if person_coordinator is None or not hasattr(
-                        person_coordinator, "get_ble_tier"
-                    ):
-                        # Fail-open: behave like pre-v4.7.16 (every room
-                        # gets weight 1.0). Logged once per cycle below.
-                        weights[room_name] = 1.0
-                        continue
-                    try:
-                        tier = int(person_coordinator.get_ble_tier(room_name))
-                    except Exception as exc:  # pragma: no cover - defensive
-                        _LOGGER.debug(
-                            "v4.7.16 D3: get_ble_tier(%s) failed: %s",
-                            room_name, exc,
-                        )
-                        tier = 0
-                    if tier == 1:
-                        weights[room_name] = 1.0
-                    elif tier == 2:
-                        weights[room_name] = BLE_TIER_2_WEIGHT
-                    else:
-                        weights[room_name] = 0.0
-                # v4.7.16 D3 (post-review A1, HIGH): aggregation = max.
-                # Reviewer A explicitly picked `max` over `sum` to preserve
-                # the v3.8.9 invariant "Tier 1 dominates Tier 2". Under sum,
-                # five Tier-2 rooms (5 * 0.6 = 3.0) would outweigh one
-                # Tier-1 room (1.0), inverting the design rationale.
-                # Under max, a zone's aggregate equals the strongest BLE
-                # evidence present:
-                #   max=1.0  ⟺ ≥1 Tier-1 room (own scanner)
-                #   max=0.6  ⟺ only Tier-2 rooms (borrowed scanner)
-                #   max=0.0  ⟺ Tier-0 only (no BLE)
-                # Per-room weights remain available to the v4.7.15 helper
-                # via state_context["room_weights"] for any aggregation
-                # the helper wants to perform internally.
-                aggregate_weight = max(weights.values()) if weights else 0.0
+        #              state_context={...}) -> VetoDecision(fired, confidence, reason, scope)
+        #
+        # Post-review B LOW-1: drop the per-tick type annotation here;
+        # the field is annotated once in __init__ at line 560. This is a
+        # reset, not a redeclaration.
+        self._v4716_zone_verdicts = {}
 
-                # Invoke v4.7.15 helper if available. Otherwise degrade
-                # gracefully to no-veto (preserves pre-v4.7.16 behavior).
-                # v4.7.16 D3: verify helper signature post v4.7.15 lands
-                #
-                # Post-review A2 (FALSE ALARM, verified against shipped
-                # v4.7.15 D1 commit 221b814): v4.7.15 ships the helper as
-                # an instance method on `PresenceCoordinator`, not as a
-                # module-level function. `getattr(self, ...)` is therefore
-                # the CORRECT lookup pattern. See commit 221b814:
-                # `def should_veto_due_to_reliable_signals(self, reliable_signals,
-                #  transient_signals, state_context) -> VetoDecision`. Reviewer
-                # A's concern was based on the planning doc's language; the
-                # actual ship is instance-method, so this lookup will resolve
-                # post-v4.7.15-merge.
-                veto_decision = None
-                helper = getattr(
-                    self, "should_veto_due_to_reliable_signals", None
-                )
-                if helper is not None:
-                    try:
-                        reliable_signals: list = []
-                        transient_signals: list = []
-                        state_context = {
-                            "scope": "room_level_weighted",
-                            "zone_name": zone_name,
-                            "house_state": getattr(
-                                manager, "house_state", ""
-                            ),
-                            "room_weights": dict(weights),
-                            "aggregate_weight": aggregate_weight,
-                            "all_tracked_persons_away": all_tracked_persons_away,
-                            "tracked_count": tracked_count,
-                            # v4.7.16 D3 (post-review A3, HIGH): Bug Class #11.
-                            # Sibling guest-gate code at :2032/:2040 uses UTC;
-                            # helper context must too. Local `now` above is
-                            # still fine for the guest-gate code that built it.
-                            "now": dt_util.utcnow(),
-                        }
-                        # v4.7.16 D3: verify helper signature post v4.7.15 lands
-                        veto_decision = helper(
-                            reliable_signals=reliable_signals,
-                            transient_signals=transient_signals,
-                            state_context=state_context,
-                        )
-                    except Exception as exc:  # pragma: no cover - defensive
-                        _LOGGER.warning(
-                            "v4.7.16 D3: shared veto helper raised for "
-                            "zone %s: %s — degrading to no-veto",
-                            zone_name, exc,
-                        )
-                        veto_decision = None
-                self._v4716_zone_verdicts[zone_name] = {
-                    "room_weights": dict(weights),
-                    "aggregate_weight": aggregate_weight,
-                    "veto_fired": (
-                        bool(getattr(veto_decision, "fired", False))
-                        if veto_decision is not None
-                        else None
-                    ),
-                    "veto_confidence": (
-                        float(getattr(veto_decision, "confidence", 0.0))
-                        if veto_decision is not None
-                        else None
-                    ),
-                    "veto_reason": (
-                        str(getattr(veto_decision, "reason", ""))
-                        if veto_decision is not None
-                        else "helper_unavailable"
-                    ),
-                }
+        # Post-review B MEDIUM #1 (perf kill-switch): skip the entire D3
+        # block when the diagnostic flag is False. Saves ~1200 string
+        # normalizations/cycle on a 30-room install. Default True (D3 is
+        # the v4.7.15 helper integration scaffold) — operators can flip
+        # to False when the diagnostic is not being consumed downstream.
+        #
+        # Post-review B MEDIUM #2 (sleep-state gate): skip during
+        # house_state=SLEEP. Room sensors are intentionally degenerate
+        # during sleep (mmWave drops motionless body, PIR silent, cameras
+        # blind) — v4.7.13 trusts the person tracker, NOT per-room BLE
+        # weights, during sleep. Future consumers of _v4716_zone_verdicts
+        # must not act on D3 weights when house_state is SLEEP, so skip
+        # the computation entirely. `current_state` is the HouseState
+        # enum read at :1995 above.
+        _d3_skip = (
+            (not D3_DIAGNOSTIC_ENABLED)
+            or (current_state == HouseState.SLEEP)
+        )
+        try:
+            if _d3_skip:
+                # Verdict dict stays empty; downstream consumers fall back
+                # to pre-v4.7.16 inference behavior.
+                pass
+            else:
+                for zone_name, tracker in self._zone_trackers.items():
+                    weights: Dict[str, float] = {}
+                    for room_name in getattr(tracker, "room_names", []) or []:
+                        if person_coordinator is None or not hasattr(
+                            person_coordinator, "get_ble_tier"
+                        ):
+                            # Fail-open: behave like pre-v4.7.16 (every room
+                            # gets weight 1.0). Logged once per cycle below.
+                            weights[room_name] = 1.0
+                            continue
+                        try:
+                            tier = int(person_coordinator.get_ble_tier(room_name))
+                        except Exception as exc:  # pragma: no cover - defensive
+                            _LOGGER.debug(
+                                "v4.7.16 D3: get_ble_tier(%s) failed: %s",
+                                room_name, exc,
+                            )
+                            tier = 0
+                        if tier == 1:
+                            weights[room_name] = 1.0
+                        elif tier == 2:
+                            weights[room_name] = BLE_TIER_2_WEIGHT
+                        else:
+                            weights[room_name] = 0.0
+                    # v4.7.16 D3 (post-review A1, HIGH): aggregation = max.
+                    # Reviewer A explicitly picked `max` over `sum` to preserve
+                    # the v3.8.9 invariant "Tier 1 dominates Tier 2". Under sum,
+                    # five Tier-2 rooms (5 * 0.6 = 3.0) would outweigh one
+                    # Tier-1 room (1.0), inverting the design rationale.
+                    # Under max, a zone's aggregate equals the strongest BLE
+                    # evidence present:
+                    #   max=1.0  ⟺ ≥1 Tier-1 room (own scanner)
+                    #   max=0.6  ⟺ only Tier-2 rooms (borrowed scanner)
+                    #   max=0.0  ⟺ Tier-0 only (no BLE)
+                    # Per-room weights remain available to the v4.7.15 helper
+                    # via state_context["room_weights"] for any aggregation
+                    # the helper wants to perform internally.
+                    aggregate_weight = max(weights.values()) if weights else 0.0
+
+                    # Invoke v4.7.15 helper if available. Otherwise degrade
+                    # gracefully to no-veto (preserves pre-v4.7.16 behavior).
+                    # v4.7.16 D3: verify helper signature post v4.7.15 lands
+                    #
+                    # Post-review A2 (FALSE ALARM, verified against shipped
+                    # v4.7.15 D1 commit 221b814): v4.7.15 ships the helper as
+                    # an instance method on `PresenceCoordinator`, not as a
+                    # module-level function. `getattr(self, ...)` is therefore
+                    # the CORRECT lookup pattern. See commit 221b814:
+                    # `def should_veto_due_to_reliable_signals(self, reliable_signals,
+                    #  transient_signals, state_context) -> VetoDecision`. Reviewer
+                    # A's concern was based on the planning doc's language; the
+                    # actual ship is instance-method, so this lookup will resolve
+                    # post-v4.7.15-merge.
+                    veto_decision = None
+                    helper = getattr(
+                        self, "should_veto_due_to_reliable_signals", None
+                    )
+                    if helper is not None:
+                        try:
+                            reliable_signals: list = []
+                            transient_signals: list = []
+                            state_context = {
+                                "scope": "room_level_weighted",
+                                "zone_name": zone_name,
+                                "house_state": getattr(
+                                    manager, "house_state", ""
+                                ),
+                                "room_weights": dict(weights),
+                                "aggregate_weight": aggregate_weight,
+                                "all_tracked_persons_away": all_tracked_persons_away,
+                                "tracked_count": tracked_count,
+                                # v4.7.16 D3 (post-review A3, HIGH): Bug Class #11.
+                                # Sibling guest-gate code at :2032/:2040 uses UTC;
+                                # helper context must too. Local `now` above is
+                                # still fine for the guest-gate code that built it.
+                                "now": dt_util.utcnow(),
+                            }
+                            # v4.7.16 D3: verify helper signature post v4.7.15 lands
+                            veto_decision = helper(
+                                reliable_signals=reliable_signals,
+                                transient_signals=transient_signals,
+                                state_context=state_context,
+                            )
+                        except Exception as exc:  # pragma: no cover - defensive
+                            _LOGGER.warning(
+                                "v4.7.16 D3: shared veto helper raised for "
+                                "zone %s: %s — degrading to no-veto",
+                                zone_name, exc,
+                            )
+                            veto_decision = None
+                    self._v4716_zone_verdicts[zone_name] = {
+                        "room_weights": dict(weights),
+                        "aggregate_weight": aggregate_weight,
+                        "veto_fired": (
+                            bool(getattr(veto_decision, "fired", False))
+                            if veto_decision is not None
+                            else None
+                        ),
+                        "veto_confidence": (
+                            float(getattr(veto_decision, "confidence", 0.0))
+                            if veto_decision is not None
+                            else None
+                        ),
+                        "veto_reason": (
+                            str(getattr(veto_decision, "reason", ""))
+                            if veto_decision is not None
+                            else "helper_unavailable"
+                        ),
+                    }
         except Exception as exc:  # pragma: no cover - top-level guard
             _LOGGER.warning(
                 "v4.7.16 D3: per-room weighting block failed: %s — "
