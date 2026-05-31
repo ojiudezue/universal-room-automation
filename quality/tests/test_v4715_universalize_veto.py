@@ -775,9 +775,44 @@ class TestSiblingCyclePreservation:
         assert "all_tracked_persons_away=" in PRESENCE_SRC
 
     def test_v4714_inference_engine_veto_branch_intact(self):
-        assert (
-            "all_tracked_persons_away and unidentified_count == 0" in PRESENCE_SRC
-        ), "v4.7.14 inference veto branch must not be regressed"
+        """v4.7.14 inference engine veto branch + v4.7.14.1 H1 must be intact.
+
+        v4.7.15.1 D2 (post-merge canonical truth update):
+
+        The pre-v4.7.14.1 line ``all_tracked_persons_away and
+        unidentified_count == 0`` is no longer a contiguous substring of
+        ``presence.py`` — v4.7.14.1 H1 split the predicate across multiple
+        source lines (``and census_count == 0`` is on its own line). The
+        old substring assertion failed not because the v4.7.14 backbone
+        regressed but because the canonical predicate now spans three
+        lines.
+
+        v4.7.14.1 H1 is the CANONICAL truth for the inference-engine veto
+        predicate. The test asserts:
+          1. The v4.7.14 backbone clause ``all_tracked_persons_away`` is
+             present.
+          2. The v4.7.14 ``and unidentified_count == 0`` clause is present.
+          3. The v4.7.14.1 H1 ``and census_count == 0`` clause is present.
+
+        Per CLAUDE.md "Pre-Review: Tag the Baseline" + plan §"CRITICAL RISK
+        PREMIUM" item 2: source invariants get UPDATED, not deleted. This
+        test still catches FUTURE drift — if anyone re-narrows the
+        predicate by dropping H1 (a regression), assertion 3 fails. If
+        anyone drops the v4.7.14 backbone, assertions 1 or 2 fail.
+        """
+        # v4.7.14 backbone — the kwarg name still flows through infer().
+        assert "all_tracked_persons_away" in PRESENCE_SRC, (
+            "v4.7.14 inference veto kwarg must not be regressed"
+        )
+        # v4.7.14 unidentified-count clause (canonical predicate component).
+        assert "and unidentified_count == 0" in PRESENCE_SRC, (
+            "v4.7.14 inference veto unidentified_count clause must not be regressed"
+        )
+        # v4.7.14.1 H1 — the canonical post-merge predicate tightening.
+        # If this fails, someone has regressed H1 (the forgotten-phone fix).
+        assert "and census_count == 0" in PRESENCE_SRC, (
+            "v4.7.14.1 H1 census_count predicate must not be regressed"
+        )
 
     def test_v4714_diagnostic_attributes_intact(self):
         for attr in ("tracked_persons_count", "all_tracked_persons_away"):
