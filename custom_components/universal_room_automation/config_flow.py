@@ -95,8 +95,6 @@ from .const import (
     CONF_OCCUPANCY_SENSORS,
     CONF_PHONE_TRACKER,  # DEPRECATED in v3.2.4 - kept for migration
     CONF_SCANNER_AREAS,  # v3.2.4: Scanner areas for sparse scanner homes
-    CONF_DISABLE_CAMERA_PRESENCE,  # v4.7.16 D4: per-room camera-presence opt-out
-    DEFAULT_DISABLE_CAMERA_PRESENCE,
     CONF_DOOR_SENSORS,
     CONF_DOOR_TYPE,
     CONF_WINDOW_SENSORS,
@@ -997,11 +995,6 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
             vol.Optional(CONF_SCANNER_AREAS, default=[]): selector.AreaSelector(
                 selector.AreaSelectorConfig(multiple=True)
             ),
-            # v4.7.16 D4: Per-room camera-presence opt-out
-            vol.Optional(
-                CONF_DISABLE_CAMERA_PRESENCE,
-                default=DEFAULT_DISABLE_CAMERA_PRESENCE,
-            ): selector.BooleanSelector(),
             vol.Optional(CONF_TEMPERATURE_SENSOR, default=area_temp[0] if area_temp else vol.UNDEFINED): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor", device_class="temperature")
             ),
@@ -6535,13 +6528,6 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             ): selector.AreaSelector(
                 selector.AreaSelectorConfig(multiple=True)
             ),
-            # v4.7.16 D4: Per-room camera-presence opt-out
-            vol.Optional(
-                CONF_DISABLE_CAMERA_PRESENCE,
-                default=self._get_current(
-                    CONF_DISABLE_CAMERA_PRESENCE, DEFAULT_DISABLE_CAMERA_PRESENCE
-                ),
-            ): selector.BooleanSelector(),
             vol.Optional(
                 CONF_TEMPERATURE_SENSOR, 
                 default=self._get_current(CONF_TEMPERATURE_SENSOR) or vol.UNDEFINED
