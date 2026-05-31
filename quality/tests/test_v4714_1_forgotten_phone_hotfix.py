@@ -295,12 +295,30 @@ class TestH1VetoRequiresCensusZero:
 # ---------------------------------------------------------------------------
 
 
+DOMAIN = "universal_room_automation"
+
+
+# v4.7.14.1 fix-up A-H1: H2 now resolves entity_id via the entity registry
+# by unique_id (not by string construction). The mirror below reflects the
+# production helper at `presence.py:_phone_trustworthy`.
+
 def _phone_trustworthy(hass, person_name: str) -> bool:
-    """Mirror of the production helper. Fail-OPEN: missing entity ==> trust."""
+    """Mirror of the production helper after A-H1.
+
+    Resolves entity_id via entity-registry by the unique_id formula at
+    binary_sensor.py:1000. Fail-OPEN: missing registry entry / unknown /
+    unavailable -> True.
+    """
     person_slug = person_name.lower().replace(" ", "_")
-    entity_id = f"binary_sensor.{person_slug}_phone_left_behind"
+    unique_id = f"{DOMAIN}_person_{person_slug}_phone_left_behind"
+    registry = getattr(hass, "_fake_entity_registry", None)
+    if registry is None:
+        return True
+    entity_id = registry.async_get_entity_id("binary_sensor", DOMAIN, unique_id)
+    if entity_id is None:
+        return True
     state = hass.states.get(entity_id)
-    if state is None:
+    if state is None or state.state in ("unknown", "unavailable"):
         return True
     return state.state != "on"
 
@@ -333,10 +351,36 @@ def _compute_with_h2(hass, person_coordinator):
     return all_tracked_persons_away, tracked_count, away_person_ids
 
 
-def _make_hass_with_states(states_map):
-    """Build a mock hass whose hass.states.get(entity_id) returns the mapped state.
+class _FakeEntityRegistry:
+    """Minimal stand-in for homeassistant.helpers.entity_registry.
+
+    Provides async_get_entity_id(domain, platform, unique_id) -> entity_id|None
+    backed by a unique_id -> entity_id map. Mirrors the production registry
+    surface used by the H2 helper (see `presence.py` post fix-up A-H1).
+    """
+
+    def __init__(self, mapping: dict[str, str] | None = None):
+        # key: (domain, platform, unique_id), value: entity_id
+        self._mapping: dict[tuple[str, str, str], str] = {}
+        if mapping:
+            for unique_id, entity_id in mapping.items():
+                self._mapping[("binary_sensor", DOMAIN, unique_id)] = entity_id
+
+    def register(self, domain: str, platform: str, unique_id: str, entity_id: str) -> None:
+        self._mapping[(domain, platform, unique_id)] = entity_id
+
+    def async_get_entity_id(self, domain: str, platform: str, unique_id: str):
+        return self._mapping.get((domain, platform, unique_id))
+
+
+def _make_hass_with_states(states_map, unique_id_map: dict[str, str] | None = None):
+    """Build a mock hass with states + an entity-registry mapping unique_id -> entity_id.
 
     states_map: dict[entity_id, str | None]. Missing key returns None.
+    unique_id_map: dict[unique_id, entity_id]. When None, unique_id_map is
+    derived from states_map keys that match the v4.7.14.1 phone-left-behind
+    pattern — operator-verified live entity_id format
+    `binary_sensor.universal_room_automation_<slug>_phone_left_behind`.
     """
     hass = MagicMock()
 
@@ -351,6 +395,25 @@ def _make_hass_with_states(states_map):
         return st
 
     hass.states.get.side_effect = _get
+
+    # Construct the registry. If the caller didn't provide an explicit
+    # unique_id mapping, derive one from any phone_left_behind entity_ids
+    # in states_map by reversing the slug.
+    if unique_id_map is None:
+        unique_id_map = {}
+        for ent_id in states_map:
+            if not ent_id.endswith("_phone_left_behind"):
+                continue
+            # Expected format (operator-live-verified 2026-05-30):
+            # binary_sensor.universal_room_automation_<slug>_phone_left_behind
+            prefix = "binary_sensor.universal_room_automation_"
+            suffix = "_phone_left_behind"
+            if ent_id.startswith(prefix) and ent_id.endswith(suffix):
+                slug = ent_id[len(prefix):-len(suffix)]
+                unique_id = f"{DOMAIN}_person_{slug}_phone_left_behind"
+                unique_id_map[unique_id] = ent_id
+
+    hass._fake_entity_registry = _FakeEntityRegistry(unique_id_map)
     return hass
 
 
@@ -359,7 +422,7 @@ class TestH2PhoneLeftBehindExclusion:
     def test_h2_excludes_phone_left_behind_person(self):
         """4 persons, 1 flagged phone_left_behind, other 3 away → veto fires."""
         hass = _make_hass_with_states({
-            "binary_sensor.oji_phone_left_behind": "on",
+            "binary_sensor.universal_room_automation_oji_phone_left_behind": "on",
         })
         pc = MagicMock()
         pc.data = {
@@ -377,7 +440,7 @@ class TestH2PhoneLeftBehindExclusion:
     def test_h2_phone_left_behind_holdout_blocks_veto_for_flagged_person_only(self):
         """Flagged person at home, other 3 away → veto fires (flagged excluded)."""
         hass = _make_hass_with_states({
-            "binary_sensor.oji_phone_left_behind": "on",
+            "binary_sensor.universal_room_automation_oji_phone_left_behind": "on",
         })
         pc = MagicMock()
         pc.data = {
@@ -393,8 +456,8 @@ class TestH2PhoneLeftBehindExclusion:
     def test_h2_all_persons_flagged_does_not_veto(self):
         """All flagged → denominator drops to 0 → fail-safe holds."""
         hass = _make_hass_with_states({
-            "binary_sensor.oji_phone_left_behind": "on",
-            "binary_sensor.jaya_phone_left_behind": "on",
+            "binary_sensor.universal_room_automation_oji_phone_left_behind": "on",
+            "binary_sensor.universal_room_automation_jaya_phone_left_behind": "on",
         })
         pc = MagicMock()
         pc.data = {
@@ -426,7 +489,7 @@ class TestH2PhoneLeftBehindExclusion:
     def test_h2_sensor_state_unknown_treats_as_trustworthy(self):
         """state == 'unknown' → person counted (only literal 'on' excludes)."""
         hass = _make_hass_with_states({
-            "binary_sensor.oji_phone_left_behind": "unknown",
+            "binary_sensor.universal_room_automation_oji_phone_left_behind": "unknown",
         })
         pc = MagicMock()
         pc.data = {
@@ -440,7 +503,7 @@ class TestH2PhoneLeftBehindExclusion:
     def test_h2_sensor_state_unavailable_treats_as_trustworthy(self):
         """state == 'unavailable' → person counted (fail-OPEN)."""
         hass = _make_hass_with_states({
-            "binary_sensor.oji_phone_left_behind": "unavailable",
+            "binary_sensor.universal_room_automation_oji_phone_left_behind": "unavailable",
         })
         pc = MagicMock()
         pc.data = {
@@ -454,7 +517,7 @@ class TestH2PhoneLeftBehindExclusion:
     def test_h2_sensor_state_off_treats_as_trustworthy(self):
         """state == 'off' → person counted."""
         hass = _make_hass_with_states({
-            "binary_sensor.oji_phone_left_behind": "off",
+            "binary_sensor.universal_room_automation_oji_phone_left_behind": "off",
         })
         pc = MagicMock()
         pc.data = {
@@ -465,20 +528,51 @@ class TestH2PhoneLeftBehindExclusion:
         assert away is True
         assert count == 2
 
-    def test_h2_entity_id_slug_matches_binary_sensor_format(self):
-        """Slug must match binary_sensor.py:1000 — lower + spaces → underscores."""
-        hass = _make_hass_with_states({
-            "binary_sensor.oji_udezue_phone_left_behind": "on",
-        })
+    def test_h2_resolves_entity_via_registry_unique_id(self):
+        """A-H1 fix-up: H2 MUST resolve entity_id via entity_registry by unique_id.
+
+        Replaces the prior `test_h2_entity_id_slug_matches_binary_sensor_format`
+        which was a self-confirming mirror per Reviewer A. This test now drives
+        a registry that maps the production unique_id formula
+        (`binary_sensor.py:1000`) to a known entity_id and verifies that the
+        H2 helper resolves through it.
+
+        The live-verified production entity_id (operator-probed 2026-05-30) is
+        `binary_sensor.universal_room_automation_<slug>_phone_left_behind` —
+        the device-prefixed form, NOT the bare slug. The pre-fix-up string
+        construction (`binary_sensor.<slug>_phone_left_behind`) would silently
+        fail-OPEN for every person.
+        """
+        unique_id = f"{DOMAIN}_person_oji_udezue_phone_left_behind"
+        live_entity_id = (
+            "binary_sensor.universal_room_automation_oji_udezue_phone_left_behind"
+        )
+        hass = _make_hass_with_states(
+            states_map={live_entity_id: "on"},
+            unique_id_map={unique_id: live_entity_id},
+        )
+        # If the helper were still constructing entity_id by bare-slug concat
+        # (`binary_sensor.oji_udezue_phone_left_behind`), the registry lookup
+        # would be irrelevant and the bare-slug entity would not exist in
+        # states_map -> fail-OPEN. Expecting False (NOT trustworthy) proves
+        # the registry path is wired.
+        assert _phone_trustworthy(hass, "Oji Udezue") is False, (
+            "A-H1: H2 must resolve entity_id via entity_registry by unique_id"
+        )
         pc = MagicMock()
         pc.data = {
-            "Oji Udezue": {"location": "home"},  # spaces + mixed case
+            "Oji Udezue": {"location": "home"},
             "jaya": {"location": "away"},
         }
         away, count, _ = _compute_with_h2(hass, pc)
-        # If the slug formula matches, Oji Udezue is excluded → count = 1, away True.
         assert count == 1
         assert away is True
+
+    def test_h2_fail_open_when_registry_returns_none(self):
+        """A-H1: empty registry (sensor disabled per binary_sensor.py:988)
+        MUST fail-OPEN — person counted, v4.7.14 baseline preserved."""
+        hass = _make_hass_with_states(states_map={}, unique_id_map={})
+        assert _phone_trustworthy(hass, "oji") is True
 
     # --- Source-level invariants ---
 
@@ -488,21 +582,43 @@ class TestH2PhoneLeftBehindExclusion:
             "H2: phone trustworthiness helper missing from presence.py"
         )
 
-    def test_h2_filter_references_phone_left_behind_entity(self):
-        """Production must read binary_sensor.<slug>_phone_left_behind."""
+    def test_h2_filter_references_phone_left_behind_unique_id(self):
+        """A-H1 fix-up: production MUST mirror binary_sensor.py:1000's unique_id formula.
+
+        Post-fix-up the helper resolves via entity_registry by unique_id; the
+        string literal `_phone_left_behind` must still appear in the unique_id
+        construction.
+        """
         assert "_phone_left_behind" in PRESENCE_SRC, (
-            "H2: must read the phone_left_behind binary sensor"
+            "H2: must reference the phone_left_behind unique_id suffix"
         )
 
-    def test_h2_filter_uses_hass_states_get(self):
-        """H2 must use hass.states.get for entity-state read (correct surface)."""
-        # H2 helper is named _phone_trustworthy. Confirm the helper body uses
-        # self.hass.states.get to read the binary_sensor.
+    def test_h2_filter_uses_entity_registry(self):
+        """A-H1: H2 MUST resolve via entity_registry (not by string concat).
+
+        Replaces the prior `test_h2_filter_uses_hass_states_get` — the bare
+        `f"binary_sensor.{slug}_phone_left_behind"` form was the exact bug
+        A-H1 surfaced (silent no-op because the real entity_id is
+        `binary_sensor.universal_room_automation_<slug>_phone_left_behind`).
+        """
         helper_idx = PRESENCE_SRC.find("def _phone_trustworthy")
         assert helper_idx >= 0, "H2: _phone_trustworthy helper missing"
-        helper_block = PRESENCE_SRC[helper_idx: helper_idx + 1200]
-        assert "self.hass.states.get" in helper_block, (
-            "H2: _phone_trustworthy must use self.hass.states.get to read the binary_sensor"
+        helper_block = PRESENCE_SRC[helper_idx: helper_idx + 2400]
+        assert "async_get_entity_id" in helper_block, (
+            "A-H1: _phone_trustworthy must resolve entity_id via "
+            "entity_registry.async_get_entity_id"
+        )
+        assert "binary_sensor" in helper_block, (
+            "A-H1: helper must pass 'binary_sensor' domain to async_get_entity_id"
+        )
+        # The unique_id format must mirror binary_sensor.py:1000:
+        # f"{DOMAIN}_person_<slug>_phone_left_behind"
+        assert "_person_" in helper_block, (
+            "A-H1: unique_id must mirror binary_sensor.py:1000 format"
+        )
+        # Defensive: the bare-slug bug form MUST NOT be in the helper body.
+        assert 'f"binary_sensor.' not in helper_block, (
+            "A-H1: bare-slug entity_id construction is the bug — must not return"
         )
 
 
@@ -686,7 +802,7 @@ class TestComposedBehavior:
     def test_failsafe_holds_when_all_filtered_out(self):
         """All persons filtered (mix of phone_left_behind + STALE) → no veto."""
         hass = _make_hass_with_states({
-            "binary_sensor.oji_phone_left_behind": "on",
+            "binary_sensor.universal_room_automation_oji_phone_left_behind": "on",
         })
         pc = MagicMock()
         pc.data = {

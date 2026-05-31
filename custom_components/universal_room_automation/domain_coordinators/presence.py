@@ -1909,30 +1909,62 @@ class PresenceCoordinator(BaseCoordinator):
         # "unknown" is NOT treated as away (conservative — unknown is genuine
         # uncertainty, not confirmed absence).
         #
-        # v4.7.14.1 (H2): exclude any person whose `binary_sensor.<slug>_phone_left_behind`
-        # is `on` from the veto denominator. That sensor (PersonPhoneLeftBehindSensor
-        # at binary_sensor.py:973-1084) flags "BLE places phone in a room but no
+        # v4.7.14.1 (H2): exclude any person whose phone-left-behind sensor
+        # is `on` from the veto denominator. PersonPhoneLeftBehindSensor
+        # (binary_sensor.py:973-1084) flags "BLE places phone in a room but no
         # camera has seen the person in the last hour" — the canonical
         # forgotten-phone signal. Their location field is meaningless for veto
         # purposes. Fail-OPEN: if the binary_sensor doesn't exist (disabled
         # by default per binary_sensor.py:988) or is unknown/unavailable, the
         # person is counted (preserves v4.7.14 baseline behavior).
+        #
+        # v4.7.14.1 fix-up A-H1: resolve entity_id via the ENTITY REGISTRY by
+        # unique_id rather than by string construction. The sensor registers
+        # with `_attr_has_entity_name=True` (binary_sensor.py:989) + DeviceInfo
+        # name "Universal Room Automation" (binary_sensor.py:1003-1008), which
+        # composes a device-prefixed entity_id (e.g.
+        # `binary_sensor.universal_room_automation_oji_udezue_phone_left_behind`,
+        # operator-verified 2026-05-30) — NOT the bare slug. We MUST mirror
+        # binary_sensor.py:1000's unique_id formula and resolve via
+        # entity_registry.async_get_entity_id; otherwise H2 silently fails-OPEN
+        # for every person and Gap B remains unclosed.
         person_coordinator = self.hass.data.get(DOMAIN, {}).get("person_coordinator")
         all_tracked_persons_away = False
         tracked_count = 0
         away_person_ids: list[str] = []
 
+        # Import inline to keep module import surface minimal (only used here).
+        from homeassistant.helpers import entity_registry as er
+        try:
+            _entity_reg = er.async_get(self.hass)
+        except Exception:  # noqa: BLE001 — defensive: registry may be unavailable in tests/early-boot
+            _entity_reg = None
+
         def _phone_trustworthy(person_name: str) -> bool:
             """v4.7.14.1 (H2): True iff the phone-left-behind sensor is NOT 'on'.
 
             Fail-OPEN: missing entity / unknown / unavailable -> True.
-            Slug formula mirrors PersonPhoneLeftBehindSensor.__init__ at
-            binary_sensor.py:1000 (lower + space->underscore).
+            Resolves the entity_id via entity_registry by unique_id (fix-up
+            A-H1) — mirrors binary_sensor.py:1000's unique_id formula:
+            ``f"{DOMAIN}_person_{<slug>}_phone_left_behind"``. Robust to
+            device renames and operator entity_id renames.
             """
             person_slug = person_name.lower().replace(" ", "_")
-            entity_id = f"binary_sensor.{person_slug}_phone_left_behind"
+            unique_id = f"{DOMAIN}_person_{person_slug}_phone_left_behind"
+            entity_id: str | None = None
+            if _entity_reg is not None:
+                try:
+                    entity_id = _entity_reg.async_get_entity_id(
+                        "binary_sensor", DOMAIN, unique_id
+                    )
+                except Exception:  # noqa: BLE001 — registry shape errors are fail-OPEN
+                    entity_id = None
+            if entity_id is None:
+                # Entity not registered (sensor disabled by default per
+                # binary_sensor.py:988, or operator hasn't enabled it). Fail-OPEN.
+                return True
             state = self.hass.states.get(entity_id)
-            if state is None:
+            if state is None or state.state in ("unknown", "unavailable"):
                 return True
             return state.state != "on"
 
