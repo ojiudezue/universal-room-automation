@@ -2088,8 +2088,21 @@ class RoomSignalInventorySensor(UniversalRoomEntity, SensorEntity):
             return 0
 
     def _has_camera(self) -> bool:
-        """Return True iff a zone tracker has registered a camera that maps to
-        this room's area_id AND the room has NOT opted out via D4.
+        """Return True iff a camera is registered for THIS room's area_id
+        AND the room has NOT opted out via D4.
+
+        Post-review C2-H1 (HIGH): the prior implementation walked the
+        zone tracker's `_camera_entity_ids` set, which is zone-scoped
+        (cameras for all rooms in the zone, not filtered by area_id).
+        That allowed a sibling room with a camera to falsely report
+        `has_camera=True` for a camera-less room sharing the same zone.
+
+        Fix: query CameraIntegrationManager.get_cameras_for_area(room_area)
+        directly — the camera_manager is the canonical area→camera map
+        (`_cameras_by_area` dict at camera_census.py:603). This is the
+        same source `_discover_zone_cameras` consults, so a room's
+        `has_camera` answer is now consistent with whether
+        `tracker.register_camera` would have fired for THIS room's area.
         """
         cfg = self._config()
         if cfg.get(
@@ -2099,28 +2112,22 @@ class RoomSignalInventorySensor(UniversalRoomEntity, SensorEntity):
         room_area = cfg.get(CONF_AREA_ID)
         if not room_area:
             return False
-        # Read camera registration off presence coordinator's zone trackers.
+        # Query camera_manager directly for cameras in THIS room's area.
+        # camera_manager.get_cameras_for_area is keyed by area_id, so the
+        # answer is room-scoped (not zone-scoped) by construction.
         try:
-            presence = self.hass.data.get(DOMAIN, {}).get(
-                "presence_coordinator"
+            camera_manager = self.hass.data.get(DOMAIN, {}).get(
+                "camera_manager"
             )
         except Exception:  # pragma: no cover - defensive
             return False
-        if presence is None:
+        if camera_manager is None:
             return False
-        zone_trackers = getattr(presence, "_zone_trackers", {}) or {}
-        room_area_ids = getattr(presence, "_room_area_ids", {}) or {}
-        room_name = self._room_name()
-        # If this room owns area_id matches a registered camera, count it.
-        for tracker in zone_trackers.values():
-            if room_name not in getattr(tracker, "room_names", []):
-                continue
-            if room_area_ids.get(room_name) != room_area:
-                continue
-            cam_ids = getattr(tracker, "_camera_entity_ids", set()) or set()
-            if cam_ids:
-                return True
-        return False
+        try:
+            cameras_in_area = camera_manager.get_cameras_for_area(room_area)
+        except Exception:  # pragma: no cover - defensive
+            return False
+        return bool(cameras_in_area)
 
     # ------------------------------------------------------------------
     # State + attributes

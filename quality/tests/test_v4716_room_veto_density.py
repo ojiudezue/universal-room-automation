@@ -325,6 +325,171 @@ class TestD2SignalInventorySensor:
                 return
         pytest.fail("RoomSignalInventorySensor class not found")
 
+    def test_has_camera_uses_camera_manager_not_zone_tracker(
+        self, sensor_src: str
+    ):
+        """Post-review C2-H1 (HIGH): _has_camera must filter by THIS room's
+        area_id, not by zone-tracker camera set membership.
+
+        The old implementation walked tracker._camera_entity_ids which is
+        zone-scoped, allowing a sibling room's camera to falsely surface as
+        has_camera=True on a camera-less room. Fix: query
+        camera_manager.get_cameras_for_area(room_area) directly.
+        """
+        tree = ast.parse(sensor_src)
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.ClassDef)
+                and node.name == "RoomSignalInventorySensor"
+            ):
+                # Find _has_camera method
+                for item in node.body:
+                    if (
+                        isinstance(item, ast.FunctionDef)
+                        and item.name == "_has_camera"
+                    ):
+                        # Build a body string EXCLUDING the docstring so the
+                        # rationale prose (which mentions the old fields) does
+                        # not false-positive these regression guards.
+                        stmts_without_docstring = list(item.body)
+                        if (
+                            stmts_without_docstring
+                            and isinstance(
+                                stmts_without_docstring[0], ast.Expr
+                            )
+                            and isinstance(
+                                stmts_without_docstring[0].value, ast.Constant
+                            )
+                            and isinstance(
+                                stmts_without_docstring[0].value.value, str
+                            )
+                        ):
+                            stmts_without_docstring = stmts_without_docstring[
+                                1:
+                            ]
+                        code_only = "\n".join(
+                            ast.unparse(s) for s in stmts_without_docstring
+                        )
+                        assert (
+                            "camera_manager.get_cameras_for_area"
+                            in code_only
+                        ), (
+                            "C2-H1 fix-up: _has_camera must query "
+                            "camera_manager.get_cameras_for_area(room_area) "
+                            "directly (room-scoped), not walk zone tracker "
+                            "_camera_entity_ids (zone-scoped)"
+                        )
+                        # Regression guard: the zone-tracker walk that
+                        # caused the cross-room contamination must be gone.
+                        assert "_camera_entity_ids" not in code_only, (
+                            "C2-H1 regression: _has_camera must no longer "
+                            "read tracker._camera_entity_ids — that set is "
+                            "zone-scoped and leaks sibling-room cameras"
+                        )
+                        assert "_zone_trackers" not in code_only, (
+                            "C2-H1 regression: _has_camera must no longer "
+                            "iterate _zone_trackers — query camera_manager "
+                            "directly so the answer is per-area, not per-zone"
+                        )
+                        return
+                pytest.fail("_has_camera method not found in class body")
+        pytest.fail("RoomSignalInventorySensor class not found")
+
+    def test_has_camera_behavioral_filters_by_room_area_id(
+        self, sensor_src: str
+    ):
+        """Post-review C2-H1 (HIGH) behavioral: build a zone with 2 rooms
+        where only one has a camera, exec the _has_camera body against
+        each, and verify each room reports correctly.
+
+        Avoids importing sensor.py (which transitively imports HA) by
+        extracting _has_camera's source and execing it with controlled
+        globals. This drives the production code path.
+        """
+        tree = ast.parse(sensor_src)
+        method_src = None
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.FunctionDef)
+                and node.name == "_has_camera"
+            ):
+                method_src = ast.unparse(node)
+                break
+        assert method_src is not None, "_has_camera method missing from source"
+
+        # Build a stand-in CONF_* namespace mirroring const.py production values.
+        CONF_DISABLE_CAMERA_PRESENCE = "disable_camera_presence"
+        DEFAULT_DISABLE_CAMERA_PRESENCE = False
+        CONF_AREA_ID = "area_id"
+        DOMAIN = "universal_room_automation"
+
+        # Fake camera_manager: maps area_id -> list of cameras.
+        # Only `kitchen` has a camera; `living_room` does not.
+        class FakeCameraManager:
+            def __init__(self, by_area):
+                self._by_area = by_area
+
+            def get_cameras_for_area(self, area_id):
+                return self._by_area.get(area_id, [])
+
+        camera_manager = FakeCameraManager(
+            {"kitchen": [object()]}  # 1 camera in kitchen
+            # living_room intentionally absent
+        )
+
+        # Fake hass with .data[DOMAIN]["camera_manager"]
+        fake_hass = MagicMock()
+        fake_hass.data = {DOMAIN: {"camera_manager": camera_manager}}
+
+        def make_sensor(area_id_value, disable_opt_out=False):
+            sensor = MagicMock()
+            sensor.hass = fake_hass
+            sensor._config = MagicMock(
+                return_value={
+                    CONF_AREA_ID: area_id_value,
+                    CONF_DISABLE_CAMERA_PRESENCE: disable_opt_out,
+                }
+            )
+            return sensor
+
+        # Compile and exec the method body to obtain a callable function.
+        # Rebind `self._config()` lookups by binding _has_camera as a
+        # function and calling with our fake `self`.
+        namespace = {
+            "CONF_DISABLE_CAMERA_PRESENCE": CONF_DISABLE_CAMERA_PRESENCE,
+            "DEFAULT_DISABLE_CAMERA_PRESENCE": DEFAULT_DISABLE_CAMERA_PRESENCE,
+            "CONF_AREA_ID": CONF_AREA_ID,
+            "DOMAIN": DOMAIN,
+        }
+        exec(method_src, namespace)
+        has_camera_fn = namespace["_has_camera"]
+
+        # Room A in kitchen (camera present)
+        kitchen_room = make_sensor("kitchen")
+        assert has_camera_fn(kitchen_room) is True, (
+            "C2-H1: room with area_id=kitchen must report has_camera=True"
+        )
+
+        # Room B in living_room (NO camera) sharing the same zone
+        # would have been falsely True under the old zone-tracker walk.
+        living_room = make_sensor("living_room")
+        assert has_camera_fn(living_room) is False, (
+            "C2-H1: room with area_id=living_room must report has_camera=False "
+            "even when a sibling-room camera exists in the same zone"
+        )
+
+        # Opt-out short-circuit still works
+        opted_out = make_sensor("kitchen", disable_opt_out=True)
+        assert has_camera_fn(opted_out) is False, (
+            "C2-H1: opt-out=True must short-circuit to False"
+        )
+
+        # Missing area_id short-circuits to False
+        no_area = make_sensor(None)
+        assert has_camera_fn(no_area) is False, (
+            "C2-H1: missing area_id must short-circuit to False"
+        )
+
 
 # ============================================================================
 # D3 — Per-room weighted veto in _run_inference
