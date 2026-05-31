@@ -753,7 +753,43 @@ class PresenceCoordinator(BaseCoordinator):
         tracked_count = int(state_context.get("tracked_count", 0))
 
         # Pattern A — v4.7.14 house-inference AWAY veto.
+        # v4.7.15.1: extended to consume the v4.7.14.1 H1/H2/H3 surfaces.
+        #   H1 (census_count == 0) — transient signal kind "census_count".
+        #   H2 (phone_left_behind not on) — reliable signal kind
+        #       "person_phone_trustworthy" (one per tracked person).
+        #   H3 (tracking_status ACTIVE) — reliable signal kind
+        #       "person_tracking_active" (one per tracked person).
+        # Callers supply the per-person H2/H3 signals in parallel order — the
+        # helper does a positional zip to derive the trusted count.
+        # Backward compat: if H2/H3 lists are empty, fall back to
+        # state_context["tracked_count"] (pre-v4.7.14.1 baseline for callers
+        # that don't have per-person trust data — e.g., zone aggregator).
         if scope == "house_inference":
+            phone_trust = [
+                s.value for s in reliable_signals
+                if s.kind == "person_phone_trustworthy"
+            ]
+            track_active = [
+                s.value for s in reliable_signals
+                if s.kind == "person_tracking_active"
+            ]
+            if phone_trust or track_active:
+                # Length-parity check: misaligned input fails CONSERVATIVE so
+                # we cannot accidentally veto on broken caller contracts.
+                if (
+                    len(phone_trust) == len(track_active)
+                    and len(phone_trust) > 0
+                ):
+                    trusted_count = sum(
+                        1 for p, t in zip(phone_trust, track_active) if p and t
+                    )
+                else:
+                    trusted_count = 0
+            else:
+                # Backward compat: no per-person trust signals → use caller's
+                # tracked_count from state_context (pre-v4.7.14.1 semantic).
+                trusted_count = tracked_count
+
             all_away = any(
                 s.kind == "person_tracker_away" and s.value for s in reliable_signals
             )
@@ -765,9 +801,27 @@ class PresenceCoordinator(BaseCoordinator):
                  if s.kind == "unidentified_person_count"),
                 0,
             )
-            if tracked_count > 0 and all_away and not any_home and unid == 0:
+            # H1: census_count == 0 required for veto to fire.
+            census = next(
+                (s.count for s in transient_signals
+                 if s.kind == "census_count"),
+                0,
+            )
+            if (
+                trusted_count > 0
+                and all_away
+                and not any_home
+                and unid == 0
+                and census == 0
+            ):
                 return VetoDecision(
-                    True, 0.95, "all_tracked_persons_away (no guests)", scope,
+                    True,
+                    0.95,
+                    (
+                        "all_tracked_persons_away (no guests, no census, "
+                        f"trusted={trusted_count})"
+                    ),
+                    scope,
                 )
             return VetoDecision(False, 0.0, "", scope)
 
@@ -2316,6 +2370,12 @@ class PresenceCoordinator(BaseCoordinator):
         # count (new). Without this, operators seeing `tracked_persons_count`
         # drop from 4 to 3 would misdiagnose person_coordinator dropout.
         tracked_count_raw = 0
+        # v4.7.15.1 D1: capture per-person H2/H3 booleans in deterministic
+        # (sorted) order so we can feed them as parallel-list reliable signals
+        # to should_veto_due_to_reliable_signals(scope="house_inference"). The
+        # helper's positional zip relies on the two lists being aligned.
+        person_phone_trust_signals: list[bool] = []
+        person_tracking_active_signals: list[bool] = []
         try:
             if person_coordinator and getattr(person_coordinator, "data", None):
                 person_data = person_coordinator.data or {}
@@ -2325,9 +2385,13 @@ class PresenceCoordinator(BaseCoordinator):
                 # The per-name loop replaces the dict-comprehension to capture
                 # the exclusion reason inline (A-M1/M3).
                 trustworthy_persons: dict[str, dict] = {}
-                for name, info in person_data.items():
+                # Deterministic order for parallel-list signal alignment.
+                for name in sorted(person_data.keys()):
+                    info = person_data[name]
                     phone_ok = _phone_trustworthy(name)
                     track_ok = _tracking_active(info)
+                    person_phone_trust_signals.append(bool(phone_ok))
+                    person_tracking_active_signals.append(bool(track_ok))
                     if phone_ok and track_ok:
                         trustworthy_persons[name] = info
                         continue
@@ -2357,6 +2421,8 @@ class PresenceCoordinator(BaseCoordinator):
             tracked_count_raw = 0
             away_person_ids = []
             excluded_persons = {}
+            person_phone_trust_signals = []
+            person_tracking_active_signals = []
         # Expose for diagnostics (PresenceHouseStateSensor attributes).
         # v4.7.14.1 fix-up A-M2: `_tracked_persons_count` preserves pre-v4.7.14.1
         # semantic (raw configured count); `_tracked_persons_count_trusted` is
@@ -2493,42 +2559,6 @@ class PresenceCoordinator(BaseCoordinator):
                 any_zone_occupied,
             )
 
-        # v4.7.15 fix-up A1-M1: also evaluate Pattern A via the shared D1 helper
-        # so the same decision is exposed via _last_veto_decision diagnostics.
-        # Pure no-op against transition logic — the inline v4.7.14 path inside
-        # _inference_engine.infer() already produced new_state. This call only
-        # populates the diagnostic surface so the helper's Pattern A surface
-        # is actually exercised at runtime, not just in tests.
-        # v4.7.14.1 hotfix surfaces (H1/H2/H3 — phone-left-behind, tracking_status,
-        # census_count predicate) are NOT yet plumbed through the helper;
-        # v4.7.15.1 will refactor Pattern A to consume them per Reviewer C C3.
-        try:
-            house_inference_decision = self.should_veto_due_to_reliable_signals(
-                reliable_signals=[
-                    ReliableSignal("person_tracker_away", all_tracked_persons_away),
-                    ReliableSignal(
-                        "person_tracker_home",
-                        not all_tracked_persons_away and tracked_count > 0,
-                    ),
-                ],
-                transient_signals=[
-                    TransientSignal(
-                        "unidentified_person_count", self._unidentified_count,
-                    ),
-                ],
-                state_context={
-                    "scope": "house_inference",
-                    "house_state": current_state,
-                    "tracked_count": tracked_count,
-                },
-            )
-            # Only overwrite if a real result — preserve WAKING/GUEST diagnostics
-            # that the gates below set explicitly.
-            if house_inference_decision.fired:
-                self._last_veto_decision = house_inference_decision
-        except Exception:  # noqa: BLE001 — defensive: diagnostic-only path
-            pass
-
         # Override confidence if transitioning to GUEST via the D5 guest_room path.
         # The inference engine sets 0.8 by default; D5 raises it to 0.9 when warranted.
         if new_state == HouseState.GUEST and guest_room_gate_armed:
@@ -2613,6 +2643,62 @@ class PresenceCoordinator(BaseCoordinator):
             # Either not in GUEST, or engine did not signal exit — reset timer.
             if current_state != HouseState.GUEST or new_state == HouseState.GUEST:
                 self._guest_exit_quiet_since = None
+
+        # v4.7.15.1 D1: Consolidated Pattern A invocation — house-inference
+        # is the AUTHORITATIVE LAST writer of self._last_veto_decision per
+        # cycle (operator-mandated write-ordering per plan §"CRITICAL RISK
+        # PREMIUM" item 4). The v4.7.14.1 H1/H2/H3 surfaces are now plumbed
+        # through the shared helper via the parallel-list signal contract:
+        #   - H2 carried as ReliableSignal("person_phone_trustworthy", bool)
+        #     one per tracked person (sorted-name order).
+        #   - H3 carried as ReliableSignal("person_tracking_active", bool)
+        #     one per tracked person (same order — helper does positional zip).
+        #   - H1 carried as TransientSignal("census_count", int).
+        # The inline filter loop above is preserved — it owns the
+        # excluded_persons reason map (for the INFO log + diagnostic sensor)
+        # and the all_tracked_persons_away boolean (consumed by
+        # _inference_engine.infer()). The helper here is the diagnostic
+        # surface; the authoritative new_state still comes from infer(). Both
+        # paths read the same H1/H2/H3 data so they MUST agree.
+        try:
+            reliable_signals_a = [
+                ReliableSignal("person_tracker_away", all_tracked_persons_away),
+                ReliableSignal(
+                    "person_tracker_home",
+                    not all_tracked_persons_away and tracked_count > 0,
+                ),
+            ]
+            for _phone_ok in person_phone_trust_signals:
+                reliable_signals_a.append(
+                    ReliableSignal("person_phone_trustworthy", _phone_ok)
+                )
+            for _track_ok in person_tracking_active_signals:
+                reliable_signals_a.append(
+                    ReliableSignal("person_tracking_active", _track_ok)
+                )
+            house_inference_decision = self.should_veto_due_to_reliable_signals(
+                reliable_signals=reliable_signals_a,
+                transient_signals=[
+                    TransientSignal(
+                        "unidentified_person_count", self._unidentified_count,
+                    ),
+                    TransientSignal("census_count", self._census_count),
+                ],
+                state_context={
+                    "scope": "house_inference",
+                    "house_state": current_state,
+                    "tracked_count": tracked_count,
+                },
+            )
+            # Write UNCONDITIONALLY — preserves diagnostic surface every cycle
+            # (per plan §D1.2 step 3). Because this is the LAST writer, when
+            # the WAKING/GUEST gates also wrote earlier in the cycle, the
+            # house_inference result becomes authoritative — which is correct
+            # for diagnostic purposes (operators see the house-level veto
+            # state, not a transient WAKING gate result).
+            self._last_veto_decision = house_inference_decision
+        except Exception:  # noqa: BLE001 — defensive: diagnostic-only path
+            pass
 
         if new_state is not None:
             accepted = manager.house_state_machine.transition(
