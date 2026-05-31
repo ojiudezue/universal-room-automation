@@ -37,6 +37,7 @@ from ..const import (
     CONF_ZONE_ROOMS,
     DIAGNOSTICS_SCOPE_HOUSE,
     DOMAIN,
+    TRACKING_STATUS_ACTIVE,
 )
 from .base import BaseCoordinator, CoordinatorAction, Intent
 from .coordinator_diagnostics import (
@@ -1935,14 +1936,28 @@ class PresenceCoordinator(BaseCoordinator):
                 return True
             return state.state != "on"
 
+        def _tracking_active(info: dict) -> bool:
+            """v4.7.14.1 (H3): True iff tracking_status is ACTIVE.
+
+            REUSES the `tracking_status` field set by person_coordinator.py at
+            :213 (ACTIVE), :288 (STALE), :153/:333/:345/:377 (LOST). Only
+            ACTIVE counts as confirmed-away for the high-confidence veto.
+
+            Defensive default: missing tracking_status field -> ACTIVE (fail
+            forward toward v4.7.14 baseline; older-shape entries are
+            preserved rather than silently excluded).
+            """
+            return info.get("tracking_status", TRACKING_STATUS_ACTIVE) == TRACKING_STATUS_ACTIVE
+
         try:
             if person_coordinator and getattr(person_coordinator, "data", None):
                 person_data = person_coordinator.data or {}
-                # H2 filter: remove persons flagged phone_left_behind.
+                # H2 + H3 filter: remove persons whose phone is flagged
+                # phone_left_behind OR whose tracking_status is not ACTIVE.
                 trustworthy_persons = {
                     name: info
                     for name, info in person_data.items()
-                    if _phone_trustworthy(name)
+                    if _phone_trustworthy(name) and _tracking_active(info)
                 }
                 tracked_count = len(trustworthy_persons)
                 if tracked_count > 0:

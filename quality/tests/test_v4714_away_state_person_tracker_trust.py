@@ -244,7 +244,7 @@ class TestD1AllTrackedPersonsAwayComputation:
         """
         idx = PRESENCE_SRC.find("all_tracked_persons_away = all(")
         assert idx >= 0, "veto computation block not found"
-        block = PRESENCE_SRC[max(0, idx - 2000): idx + 200]
+        block = PRESENCE_SRC[max(0, idx - 3500): idx + 200]
         assert '"person_coordinator"' in block, (
             "v4.7.14 D1: must read hass.data[DOMAIN]['person_coordinator']"
         )
