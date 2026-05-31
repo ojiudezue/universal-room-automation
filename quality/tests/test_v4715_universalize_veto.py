@@ -555,6 +555,21 @@ class TestD2ZoneAggregatorLayer3:
 # ===========================================================================
 
 
+# v4.7.15.1 D3: post-merge `_run_inference` body grew from ~12 KB to ~34 KB
+# because v4.7.14.1 H2/H3 inline helpers + the v4.7.15 WAKING/GUEST exit
+# gates + the v4.7.15.1 D1 per-person parallel-list signal capture all
+# compound. Window widened 12000 -> 30000 covers the full post-merge body
+# (34 KB) minus the trailing transition/dispatch block (which contains no
+# D3-relevant assertion targets). Per Reviewer C C3 widening pattern from
+# v4.7.14.1 — honest re-baseline against post-merge reality, not a
+# relaxation of the semantic claim.
+#
+# Hard upper bound enforced by test_run_inference_only_defined_once at the
+# bottom of this section — the widened window cannot span two function
+# bodies.
+_RUN_INFERENCE_WINDOW = 30000
+
+
 class TestD3WakingSustainedSignal:
     def test_first_positive_zone_occupied_since_field_exists(self):
         assert "_first_positive_zone_occupied_since" in PRESENCE_SRC
@@ -565,14 +580,14 @@ class TestD3WakingSustainedSignal:
     def test_run_inference_tracks_sustained_occupancy(self):
         idx = PRESENCE_SRC.find("async def _run_inference")
         assert idx >= 0
-        body = PRESENCE_SRC[idx: idx + 12000]
+        body = PRESENCE_SRC[idx: idx + _RUN_INFERENCE_WINDOW]
         assert "_first_positive_zone_occupied_since" in body, (
             "v4.7.15 D3: _run_inference must track sustained-occupancy timer"
         )
 
     def test_waking_transition_uses_helper(self):
         idx = PRESENCE_SRC.find("async def _run_inference")
-        body = PRESENCE_SRC[idx: idx + 12000]
+        body = PRESENCE_SRC[idx: idx + _RUN_INFERENCE_WINDOW]
         assert "waking_transition" in body, (
             "v4.7.15 D3: WAKING transition must consult helper"
         )
@@ -584,15 +599,34 @@ class TestD3GuestExitPersistence:
 
     def test_guest_exit_uses_helper(self):
         idx = PRESENCE_SRC.find("async def _run_inference")
-        body = PRESENCE_SRC[idx: idx + 12000]
+        body = PRESENCE_SRC[idx: idx + _RUN_INFERENCE_WINDOW]
         assert "guest_exit" in body, (
             "v4.7.15 D3: GUEST exit must consult helper"
         )
 
     def test_guest_exit_reuses_guest_persistence_seconds(self):
         idx = PRESENCE_SRC.find("async def _run_inference")
-        body = PRESENCE_SRC[idx: idx + 12000]
+        body = PRESENCE_SRC[idx: idx + _RUN_INFERENCE_WINDOW]
         assert "_guest_persistence_seconds" in body or "guest_persistence_seconds" in body
+
+
+class TestD3RunInferenceWindowSafety:
+    """v4.7.15.1 D3: AST regression — the widened 30 KB window must not
+    accidentally span two function bodies.
+
+    Same pattern as v4.7.14.1 Reviewer C C3 widening + AST guard. Without
+    this guard, a future refactor that splits `_run_inference` into two
+    methods (e.g., `_run_inference_house` + `_run_inference_zones`) would
+    silently produce a window that spans both — assertions could find
+    keywords in the WRONG body and pass meaninglessly.
+    """
+
+    def test_run_inference_only_defined_once(self):
+        assert PRESENCE_SRC.count("async def _run_inference") == 1, (
+            "v4.7.15.1 D3: the widened 30 KB window assumes a single "
+            "_run_inference body — multiple definitions would silently "
+            "corrupt every D3 source-grep assertion"
+        )
 
 
 # ===========================================================================
