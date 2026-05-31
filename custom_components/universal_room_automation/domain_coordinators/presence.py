@@ -2133,6 +2133,17 @@ class PresenceCoordinator(BaseCoordinator):
             for t in self._zone_trackers.values()
         )
 
+        # v4.7.15 D3: Track sustained-occupancy timer for the WAKING gate.
+        # Bug Class #11: UTC-aware timestamps.
+        _now_utc = dt_util.utcnow()
+        if any_zone_occupied:
+            if self._first_positive_zone_occupied_since is None:
+                self._first_positive_zone_occupied_since = _now_utc
+        else:
+            # Cleared on any False — a brief True→False→True burst cannot
+            # accumulate sustained seconds (per plan §3 D3 acceptance).
+            self._first_positive_zone_occupied_since = None
+
         current_state = manager.house_state_machine.state
 
         # v4.6.2.2: Evaluate guest gate (threshold + confidence + persistence)
@@ -2225,6 +2236,86 @@ class PresenceCoordinator(BaseCoordinator):
         # The inference engine sets 0.8 by default; D5 raises it to 0.9 when warranted.
         if new_state == HouseState.GUEST and guest_room_gate_armed:
             self._inference_engine._confidence = _d5_guest_confidence
+
+        # v4.7.15 D3: WAKING sustained-signal gate (Pattern D).
+        # When the engine wants to flip SLEEP→WAKING, require sustained
+        # occupancy. A single 03:24 Frigate blip cannot flip WAKING.
+        if (
+            new_state == HouseState.WAKING
+            and current_state == HouseState.SLEEP
+        ):
+            sustained_seconds = 0
+            if self._first_positive_zone_occupied_since is not None:
+                sustained_seconds = int(
+                    (_now_utc - self._first_positive_zone_occupied_since)
+                    .total_seconds()
+                )
+            wake_decision = self.should_veto_due_to_reliable_signals(
+                reliable_signals=[],
+                transient_signals=[],
+                state_context={
+                    "scope": "waking_transition",
+                    "house_state": current_state,
+                    "sustained_occupancy_seconds": sustained_seconds,
+                },
+            )
+            self._last_veto_decision = wake_decision
+            if wake_decision.fired:
+                self._wake_blocked_ticks += 1
+                _LOGGER.debug(
+                    "v4.7.15 D3: WAKING transition blocked — %s",
+                    wake_decision.reason,
+                )
+                new_state = None  # Suppress the WAKING transition this tick.
+
+        # v4.7.15 D3: GUEST exit sustained-signal gate (Pattern E).
+        # When the engine wants to flip GUEST → a HOME_* state, require the
+        # exit condition (unidentified_count==0 AND not guest_armed) to have
+        # persisted for >= _guest_persistence_seconds. Single-frame Frigate
+        # FP that drops unidentified_count to 0 momentarily cannot exit GUEST.
+        # Mirrors the v4.6.2.2 entry-side persistence symmetrically.
+        if (
+            current_state == HouseState.GUEST
+            and new_state is not None
+            and new_state != HouseState.GUEST
+            and new_state in (
+                HouseState.HOME_DAY,
+                HouseState.HOME_EVENING,
+                HouseState.HOME_NIGHT,
+            )
+        ):
+            # The condition for exit must currently be true (otherwise infer()
+            # wouldn't have returned a HOME_* state). Track first-seen time.
+            if self._guest_exit_quiet_since is None:
+                self._guest_exit_quiet_since = _now_utc
+            quiet_seconds = int(
+                (_now_utc - self._guest_exit_quiet_since).total_seconds()
+            )
+            exit_decision = self.should_veto_due_to_reliable_signals(
+                reliable_signals=[],
+                transient_signals=[],
+                state_context={
+                    "scope": "guest_exit",
+                    "house_state": current_state,
+                    "guest_exit_quiet_seconds": quiet_seconds,
+                    # guest_persistence_seconds: helper will fall back to
+                    # self._guest_persistence_seconds if omitted (symmetric).
+                },
+            )
+            self._last_veto_decision = exit_decision
+            if exit_decision.fired:
+                _LOGGER.debug(
+                    "v4.7.15 D3: GUEST exit blocked — %s", exit_decision.reason,
+                )
+                new_state = None  # Suppress the GUEST exit this tick.
+            else:
+                # Exit sustained — clear the timer so the next GUEST entry
+                # restarts from None.
+                self._guest_exit_quiet_since = None
+        else:
+            # Either not in GUEST, or engine did not signal exit — reset timer.
+            if current_state != HouseState.GUEST or new_state == HouseState.GUEST:
+                self._guest_exit_quiet_since = None
 
         if new_state is not None:
             accepted = manager.house_state_machine.transition(
