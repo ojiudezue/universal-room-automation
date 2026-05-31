@@ -174,6 +174,8 @@ async def async_setup_entry(
             # v3.6.0-c1: Presence Coordinator sensors
             PresenceHouseStateSensor(hass, entry),
             HouseStateConfidenceSensor(hass, entry),
+            # v4.7.15 D5: Input-agreement confidence (distinct from state confidence).
+            SignalConsensusConfidenceSensor(hass, entry),
             PresenceAnomalySensor(hass, entry),
             PresenceComplianceSensor(hass, entry),
             # v4.6.9 D1: Routine awareness next-state prediction
@@ -3632,6 +3634,34 @@ class PresenceHouseStateSensor(AggregationEntity, SensorEntity):
             attrs["all_tracked_persons_away"] = getattr(
                 presence, "_all_tracked_persons_away", False
             )
+            # v4.7.15 D5: Mirror signal_consensus dimension as attributes.
+            # Same value also published as dedicated sensor.ura_signal_consensus_confidence;
+            # operators get both surfaces.
+            _consensus = round(getattr(presence, "_signal_consensus", 1.0), 2)
+            attrs["signal_consensus"] = _consensus
+            attrs["signal_consensus_band"] = _signal_consensus_band(_consensus)
+            attrs["signal_consensus_inputs"] = dict(
+                getattr(presence, "_signal_consensus_inputs", {}) or {}
+            )
+            _low_since = getattr(presence, "_consensus_low_since", None)
+            attrs["consensus_low_since"] = (
+                _low_since.isoformat() if _low_since is not None else None
+            )
+            # v4.7.15 D1/D3: shared-veto helper diagnostics.
+            _last_veto = getattr(presence, "_last_veto_decision", None)
+            if _last_veto is not None:
+                attrs["last_veto_decision"] = {
+                    "fired": getattr(_last_veto, "fired", False),
+                    "confidence": getattr(_last_veto, "confidence", 0.0),
+                    "reason": getattr(_last_veto, "reason", ""),
+                    "scope": getattr(_last_veto, "scope", ""),
+                }
+            else:
+                attrs["last_veto_decision"] = {
+                    "fired": False, "confidence": 0.0, "reason": "", "scope": "",
+                }
+            # v4.7.15 D3: WAKING-gate diagnostic counter.
+            attrs["wake_blocked_ticks"] = getattr(presence, "_wake_blocked_ticks", 0)
             attrs["zones"] = {
                 name: {
                     "mode": tracker.mode,
@@ -3689,6 +3719,90 @@ class HouseStateConfidenceSensor(AggregationEntity, SensorEntity):
         if presence is None:
             return None
         return round(presence.confidence, 2)
+
+
+def _signal_consensus_band(value: float) -> str:
+    """v4.7.15 D5: decorative band label for signal_consensus.
+
+    Thresholds chosen to align with D6 gate thresholds: high >= 0.85 (steady),
+    moderate >= 0.6 (compliance-defer threshold), low >= 0.3, else degraded.
+    """
+    if value >= 0.85:
+        return "high"
+    if value >= 0.6:
+        return "moderate"
+    if value >= 0.3:
+        return "low"
+    return "degraded"
+
+
+class SignalConsensusConfidenceSensor(AggregationEntity, SensorEntity):
+    """v4.7.15 D5: input-agreement confidence sensor.
+
+    DISTINCT from sensor.ura_house_state_confidence (the engine's certainty
+    in the chosen state). signal_consensus tracks whether the raw INPUTS
+    agree with each other at the current tick — a leading indicator that
+    can drop before the engine's output confidence does.
+
+    Scale: 1.0 = inputs in perfect agreement (steady state); 0.0 = severely
+    degraded (multiple Bug Class #48 shape disagreements).
+
+    Entity: sensor.ura_signal_consensus_confidence
+    Device: URA: Presence Coordinator
+
+    Bug Class #47-safe: lazy read at native_value time. Does NOT persist into
+    entry.options or registry; the canonical store is presence._signal_consensus
+    updated each _run_inference tick.
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:scale-balance"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        super().__init__(hass, entry)
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .const import VERSION
+        self._attr_unique_id = f"{DOMAIN}_signal_consensus_confidence"
+        self._attr_name = "Signal Consensus Confidence"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "presence_coordinator")},
+            name="URA: Presence Coordinator",
+            manufacturer="Universal Room Automation",
+            model="Presence Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+
+    @property
+    def native_value(self) -> float | None:
+        """Lazy read of presence._signal_consensus."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        presence = manager.coordinators.get("presence")
+        if presence is None:
+            return None
+        return round(getattr(presence, "_signal_consensus", 1.0), 2)
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Expose the per-component disagreement snapshot + decorative band."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return {}
+        presence = manager.coordinators.get("presence")
+        if presence is None:
+            return {}
+        value = round(getattr(presence, "_signal_consensus", 1.0), 2)
+        inputs = getattr(presence, "_signal_consensus_inputs", {}) or {}
+        low_since = getattr(presence, "_consensus_low_since", None)
+        return {
+            "consensus_band": _signal_consensus_band(value),
+            "signal_consensus_inputs": dict(inputs),
+            "consensus_low_since": (
+                low_since.isoformat() if low_since is not None else None
+            ),
+        }
 
 
 class PresenceAnomalySensor(AggregationEntity, SensorEntity):

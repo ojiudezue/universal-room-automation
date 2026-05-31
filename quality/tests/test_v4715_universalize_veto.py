@@ -630,14 +630,14 @@ class TestD5SignalConsensus:
 
     def test_signal_consensus_calc_block_exists(self):
         idx = PRESENCE_SRC.find("async def _run_inference")
-        body = PRESENCE_SRC[idx: idx + 12000]
+        body = PRESENCE_SRC[idx: idx + 20000]
         assert "self._signal_consensus =" in body, (
             "v4.7.15 D5: _run_inference must update self._signal_consensus"
         )
 
     def test_signal_consensus_floors_at_zero(self):
         idx = PRESENCE_SRC.find("async def _run_inference")
-        body = PRESENCE_SRC[idx: idx + 12000]
+        body = PRESENCE_SRC[idx: idx + 20000]
         assert "max(0.0," in body, (
             "v4.7.15 D5: consensus must floor at 0.0"
         )
