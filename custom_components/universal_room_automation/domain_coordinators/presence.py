@@ -2114,6 +2114,17 @@ class PresenceCoordinator(BaseCoordinator):
                 # Invoke v4.7.15 helper if available. Otherwise degrade
                 # gracefully to no-veto (preserves pre-v4.7.16 behavior).
                 # v4.7.16 D3: verify helper signature post v4.7.15 lands
+                #
+                # Post-review A2 (FALSE ALARM, verified against shipped
+                # v4.7.15 D1 commit 221b814): v4.7.15 ships the helper as
+                # an instance method on `PresenceCoordinator`, not as a
+                # module-level function. `getattr(self, ...)` is therefore
+                # the CORRECT lookup pattern. See commit 221b814:
+                # `def should_veto_due_to_reliable_signals(self, reliable_signals,
+                #  transient_signals, state_context) -> VetoDecision`. Reviewer
+                # A's concern was based on the planning doc's language; the
+                # actual ship is instance-method, so this lookup will resolve
+                # post-v4.7.15-merge.
                 veto_decision = None
                 helper = getattr(
                     self, "should_veto_due_to_reliable_signals", None
