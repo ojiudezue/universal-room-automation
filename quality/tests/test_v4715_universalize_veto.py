@@ -538,6 +538,93 @@ class TestD1PatternASilentExceptionSentinel:
         assert sentinel.scope == "house_inference"
 
 
+class TestD1PatternALengthMismatchWarn:
+    """v4.7.15.1 fix-up B2-M1 (Reviewer B): length-mismatch fail-
+    conservative path must emit a one-shot WARN per process so a
+    future per-person parallel-list caller-contract violation is
+    discoverable.
+
+    Drives the helper directly with intentionally misaligned
+    phone_trust / tracking_active lists; verifies (a) the helper
+    still fails CONSERVATIVE (no veto) and (b) the production source
+    emits a WARN with both list lengths.
+    """
+
+    def test_length_mismatch_fails_conservative_no_veto(self):
+        """3 phone-trust signals + 2 tracking-active signals → mismatch →
+        helper returns fired=False (no veto on broken contract)."""
+        coord = _make_presence_coordinator()
+        decision = coord.should_veto_due_to_reliable_signals(
+            reliable_signals=[
+                ReliableSignal("person_tracker_away", True),
+                ReliableSignal("person_phone_trustworthy", True),
+                ReliableSignal("person_phone_trustworthy", True),
+                ReliableSignal("person_phone_trustworthy", True),
+                ReliableSignal("person_tracking_active", True),
+                ReliableSignal("person_tracking_active", True),
+            ],
+            transient_signals=[
+                TransientSignal("unidentified_person_count", 0),
+                TransientSignal("census_count", 0),
+            ],
+            state_context={"scope": "house_inference", "tracked_count": 3},
+        )
+        # Mismatch → trusted_count=0 → tracked_count>0 fails → no veto.
+        assert decision.fired is False
+
+    def test_source_emits_one_shot_warn_on_length_mismatch(self):
+        """Production source must emit a one-shot WARN
+        (`_LENGTH_MISMATCH_WARNED` flag + `_LOGGER.warning`) on the
+        length-mismatch branch. AST-source-grep invariant per Bug
+        Class #44 (test fixtures drive production source, not a
+        shadow re-implementation)."""
+        # The WARN-once flag must exist at module level.
+        assert "_LENGTH_MISMATCH_WARNED" in PRESENCE_SRC, (
+            "v4.7.15.1 B2-M1: missing _LENGTH_MISMATCH_WARNED module "
+            "flag — one-shot WARN cannot be implemented without it."
+        )
+        # The WARN call must reference both list lengths.
+        idx = PRESENCE_SRC.find("per-person")
+        # Use a less fragile anchor — look for the WARN message body.
+        warn_idx = PRESENCE_SRC.find("parallel-list length mismatch")
+        assert warn_idx >= 0, (
+            "v4.7.15.1 B2-M1: production source must log the "
+            "parallel-list length-mismatch failure."
+        )
+        # Verify it's inside a _LOGGER.warning call.
+        prefix = PRESENCE_SRC[max(0, warn_idx - 300):warn_idx]
+        assert "_LOGGER.warning" in prefix, (
+            "v4.7.15.1 B2-M1: 'parallel-list length mismatch' must "
+            "appear inside a _LOGGER.warning call, not a comment or "
+            "string literal."
+        )
+        # Verify both list lengths are passed as args.
+        tail = PRESENCE_SRC[warn_idx:warn_idx + 600]
+        assert "len(phone_trust)" in tail and "len(track_active)" in tail, (
+            "v4.7.15.1 B2-M1: WARN must include both list lengths so "
+            "operators can see the asymmetry."
+        )
+
+    def test_warn_once_flag_is_module_level_not_instance(self):
+        """The WARN-once flag must be module-level (suppresses across
+        coordinator instances + process lifetime). An instance-level
+        flag would re-WARN on every coordinator reload — flooding
+        journald on a stable misalignment."""
+        # The module-level definition appears outside any class.
+        # Verify by line context: the flag's definition line must not
+        # be indented (module scope).
+        for line in PRESENCE_SRC.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("_LENGTH_MISMATCH_WARNED = "):
+                assert line == stripped, (
+                    "v4.7.15.1 B2-M1: _LENGTH_MISMATCH_WARNED must be "
+                    "module-level (no leading indent), not instance- "
+                    "or method-scoped."
+                )
+                return
+        pytest.fail("_LENGTH_MISMATCH_WARNED assignment not found in source")
+
+
 class TestD1HelperPatternB:
     """Pattern B — v4.7.13 zone-aggregator SLEEP fallback."""
 

@@ -101,6 +101,13 @@ PRESENCE_SUPPRESSED_FROM_PERSISTENCE: frozenset[str] = frozenset({
 _NONSLEEP_QUIET_THRESHOLD_SECONDS = 300  # 5 min — bridge structural degeneration
 _WAKING_SUSTAINED_THRESHOLD_SECONDS = 90  # ≥3 Frigate confirmations at 15-30s cadence
 
+# v4.7.15.1 fix-up B2-M1 (Reviewer B): Pattern A helper fails CONSERVATIVE
+# (no veto) when the per-person phone-trust / tracking-active parallel-list
+# lengths disagree. The prior code emitted no log — an operator debugging a
+# future caller-contract drift would have no signal. One-shot WARN-per-
+# process so journald does not flood on a stable misalignment.
+_LENGTH_MISMATCH_WARNED = False
+
 
 @dataclass(frozen=True)
 class ReliableSignal:
@@ -784,6 +791,23 @@ class PresenceCoordinator(BaseCoordinator):
                         1 for p, t in zip(phone_trust, track_active) if p and t
                     )
                 else:
+                    # v4.7.15.1 fix-up B2-M1 (Reviewer B): one-shot WARN-per-
+                    # process so operators can diagnose a future per-person
+                    # parallel-list contract violation. Without this, a
+                    # caller-side regression silently degrades to "no veto"
+                    # with zero log signal.
+                    global _LENGTH_MISMATCH_WARNED
+                    if not _LENGTH_MISMATCH_WARNED:
+                        _LENGTH_MISMATCH_WARNED = True
+                        _LOGGER.warning(
+                            "v4.7.15.1 helper Pattern A: per-person "
+                            "parallel-list length mismatch — "
+                            "phone_trust=%d, tracking_active=%d. Failing "
+                            "conservative (no veto). Subsequent "
+                            "occurrences suppressed for this process.",
+                            len(phone_trust),
+                            len(track_active),
+                        )
                     trusted_count = 0
             else:
                 # Backward compat: no per-person trust signals → use caller's
