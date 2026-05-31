@@ -2697,8 +2697,33 @@ class PresenceCoordinator(BaseCoordinator):
             # for diagnostic purposes (operators see the house-level veto
             # state, not a transient WAKING gate result).
             self._last_veto_decision = house_inference_decision
-        except Exception:  # noqa: BLE001 — defensive: diagnostic-only path
-            pass
+        except Exception as exc:  # noqa: BLE001 — defensive: don't crash _run_inference
+            # v4.7.15.1 fix-up B1-M1 + B4-M1 (Reviewers B+D, converged):
+            # Reviewer B flagged this as a silent-exception hole; if Pattern A
+            # raises, the prior `pass` would leave `_last_veto_decision`
+            # retaining a stale WAKING/GUEST write — no log, no diagnostic.
+            # Bug Class #14 / #44 cousin (v4.6.1.1-class silent-payload-shape).
+            # It also causes `_signal_consensus` (read by HVAC + Compliance
+            # defer gates) and `_last_veto_decision` to diverge from each
+            # other on the same tick.
+            #
+            # Fix: log explicitly + write a fallback sentinel that
+            # PRESERVES the invariant `last_veto_decision.scope ==
+            # "house_inference"` so operators monitoring the diagnostic
+            # surface can still trust the scope label. Any non-
+            # "house_inference" scope post-restart = silent-exception path
+            # firing (the live-validation key documented in the README).
+            _LOGGER.warning(
+                "v4.7.15.1 Pattern A (house_inference) raised %s: %s — "
+                "falling back to no-veto sentinel (preserves scope invariant)",
+                type(exc).__name__,
+                exc,
+            )
+            # Sentinel: fired=False (safe default), scope="house_inference"
+            # (operator-visible invariant preserved).
+            self._last_veto_decision = VetoDecision(
+                False, 0.0, "fallback: helper raised", "house_inference"
+            )
 
         if new_state is not None:
             accepted = manager.house_state_machine.transition(

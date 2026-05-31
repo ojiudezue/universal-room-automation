@@ -464,6 +464,80 @@ class TestD1HelperPatternAV4715_1:
         assert decision.fired is False
 
 
+class TestD1PatternASilentExceptionSentinel:
+    """v4.7.15.1 fix-up B1-M1 + B4-M1 (Reviewers B+D, converged).
+
+    Reviewer B flagged the prior `try/except Exception: pass` around the
+    Pattern A call site in `_run_inference` as a silent-exception hole:
+    if the helper raises, `_last_veto_decision` retains a stale
+    WAKING/GUEST write — no log, no diagnostic. Bug Class #14 / #44
+    cousin (v4.6.1.1-class silent-payload-shape).
+
+    These tests prove:
+      1. The sentinel-write code is present at the source level (AST
+         guard — Bug Class #44 / Reviewer C test-authority rule:
+         shadow-test re-implementations don't catch the production
+         drift).
+      2. The sentinel preserves the operator-visible invariant
+         `last_veto_decision.scope == "house_inference"` so the live-
+         validation key documented in the README remains trustworthy.
+      3. The sentinel sets `fired=False` (safe default — no veto).
+    """
+
+    def test_source_logs_warning_on_pattern_a_exception(self):
+        """Production source must call _LOGGER.warning on the exception
+        path — not silently swallow. AST-level invariant per Bug Class
+        #44 (test fixtures extract from production source, never hand-
+        copy DDL/code shapes)."""
+        idx = PRESENCE_SRC.find("Pattern A (house_inference) raised")
+        assert idx >= 0, (
+            "v4.7.15.1 B1-M1: production source must emit a WARNING when "
+            "Pattern A raises (not silently swallow). Add _LOGGER.warning "
+            "in the except branch at the Pattern A call site."
+        )
+        # The marker must appear inside a _LOGGER.warning call (not just a
+        # comment) — scan backward for the call.
+        prefix = PRESENCE_SRC[max(0, idx - 200):idx]
+        assert "_LOGGER.warning" in prefix, (
+            "v4.7.15.1 B1-M1: the 'Pattern A raised' marker must appear "
+            "inside a _LOGGER.warning call, not a comment or string."
+        )
+
+    def test_source_writes_house_inference_sentinel_on_exception(self):
+        """Production source must write a VetoDecision sentinel with
+        scope='house_inference' on the exception path. Preserves the
+        operator-visible invariant documented in the v4.7.15.1 README:
+        `sensor.ura_presence_house_state.last_veto_decision.scope ==
+        'house_inference'` should ALWAYS hold post-deploy."""
+        idx = PRESENCE_SRC.find("fallback: helper raised")
+        assert idx >= 0, (
+            "v4.7.15.1 B1-M1: production source must write a fallback "
+            "VetoDecision sentinel after the helper raises, preserving "
+            "the scope=='house_inference' invariant."
+        )
+        # The sentinel reason must appear inside a VetoDecision(...) call
+        # with scope="house_inference".
+        nearby = PRESENCE_SRC[max(0, idx - 200):idx + 200]
+        assert "VetoDecision(" in nearby, (
+            "v4.7.15.1 B1-M1: 'fallback: helper raised' must be a reason "
+            "inside a VetoDecision(...) constructor."
+        )
+        assert '"house_inference"' in nearby, (
+            "v4.7.15.1 B1-M1: the fallback sentinel must use "
+            "scope='house_inference' so the operator-visible invariant "
+            "holds across exception cycles."
+        )
+
+    def test_sentinel_shape_safe_default(self):
+        """Construct the documented sentinel directly and verify the
+        invariants the production fallback maintains: fired=False,
+        confidence=0.0, scope='house_inference'."""
+        sentinel = VetoDecision(False, 0.0, "fallback: helper raised", "house_inference")
+        assert sentinel.fired is False
+        assert sentinel.confidence == 0.0
+        assert sentinel.scope == "house_inference"
+
+
 class TestD1HelperPatternB:
     """Pattern B — v4.7.13 zone-aggregator SLEEP fallback."""
 
@@ -737,7 +811,7 @@ class TestD2ZoneAggregatorLayer3:
 # Hard upper bound enforced by test_run_inference_only_defined_once at the
 # bottom of this section — the widened window cannot span two function
 # bodies.
-_RUN_INFERENCE_WINDOW = 40000
+_RUN_INFERENCE_WINDOW = 42000
 
 
 class TestD3WakingSustainedSignal:
