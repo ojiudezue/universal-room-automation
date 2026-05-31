@@ -188,6 +188,16 @@ class HVACCoordinator(BaseCoordinator):
         # Observation mode — sensors run but no actions taken
         self._observation_mode: bool = False
 
+        # v4.7.15 D6: HVAC consensus defer gate.
+        # Master toggle (default ON). Operator can disable via
+        # switch.ura_hvac_consensus_defer_gate for rollback without restart.
+        # When ON, _apply_house_state_presets skips writes if signal_consensus
+        # < 0.5 AND last house-state transition < 30 s ago.
+        self._defer_gate_enabled: bool = True
+        # Daily counter (reset by existing midnight-reset hook) — exposed on
+        # the HVAC compliance sensor for operator visibility.
+        self._d6_deferrals_today: int = 0
+
         # v4.7.1 fix-up D2/D3: Guest Mode Actuation Phase 1
         # Master kill switch — seeded True; runtime-toggled via
         # HVACGuestModeActuationSwitch (D3 switch on HVAC Coordinator device).
@@ -767,9 +777,40 @@ class HVACCoordinator(BaseCoordinator):
 
         Includes D1 vacancy override, D5 duty cycle enforcement, D6 stale failsafe.
         Directly calls HA services (self-driven, not via CoordinatorManager actions).
+
+        v4.7.15 D6: Asymmetric-hysteresis defer gate driven by signal_consensus.
+        When the inputs disagree (consensus < 0.5) AND the last house-state
+        transition was recent (< 30 s), skip this preset apply cycle entirely.
+        Critical safety paths (CO2, fire, hazard) DO NOT go through this method,
+        so they are inherently bypassed. Resume at consensus > 0.7 (the next
+        cycle that crosses the upper hysteresis threshold writes presets normally).
         """
         if not self._house_state:
             return
+
+        # v4.7.15 D6: HVAC consensus defer gate.
+        if self._defer_gate_enabled:
+            manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+            presence = manager.coordinators.get("presence") if (
+                manager is not None and hasattr(manager, "coordinators")
+            ) else None
+            if presence is not None:
+                consensus = getattr(presence, "_signal_consensus", 1.0)
+                last_transition = getattr(presence, "_last_transition_time", None)
+                now_utc = dt_util.utcnow()
+                if last_transition is not None:
+                    secs_since_transition = (now_utc - last_transition).total_seconds()
+                else:
+                    secs_since_transition = 1e9
+                # Asymmetric hysteresis: defer if < 0.5, resume at > 0.7.
+                if consensus < 0.5 and secs_since_transition < 30:
+                    _LOGGER.info(
+                        "v4.7.15 D6: HVAC preset write deferred — "
+                        "consensus=%.2f, secs_since_transition=%.0f",
+                        consensus, secs_since_transition,
+                    )
+                    self._d6_deferrals_today += 1
+                    return  # Skip this apply cycle — retry next tick.
 
         # --- Ensure thermostats are in an active mode (always, even during arriving) ---
         # Thermostats should never be left in "off" mode by URA.

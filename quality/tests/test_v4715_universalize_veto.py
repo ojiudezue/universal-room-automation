@@ -715,7 +715,8 @@ class TestD6ComplianceDeferGate:
         )
 
     def test_compliance_emit_consults_consensus(self):
-        idx = COORD_DIAG_SRC.find("_emit_compliance_violation_anomaly")
+        # Anchor on the def, not the first call-site reference.
+        idx = COORD_DIAG_SRC.find("async def _emit_compliance_violation_anomaly")
         assert idx >= 0
         body = COORD_DIAG_SRC[idx: idx + 4000]
         assert "_signal_consensus" in body, (
@@ -723,7 +724,7 @@ class TestD6ComplianceDeferGate:
         )
 
     def test_compliance_60s_sustained_check(self):
-        idx = COORD_DIAG_SRC.find("_emit_compliance_violation_anomaly")
+        idx = COORD_DIAG_SRC.find("async def _emit_compliance_violation_anomaly")
         body = COORD_DIAG_SRC[idx: idx + 4000]
         assert "60" in body
         assert "_consensus_low_since" in body or "consensus_low_since" in body
