@@ -146,13 +146,22 @@ muted at registration time.
 1. Settings → Devices & Services → URA → [Room] → **Configure**.
 2. In the **Sensors** section, immediately after **BLE Scanner Areas
    (Optional)**, toggle **Disable Camera Presence (Opt-Out)** to ON.
-3. Save. URA reloads the room entry; the zone owning that room's `area_id`
-   stops receiving camera registrations from that area.
+3. Save. **Restart Home Assistant** for the change to take effect on the
+   `PresenceCoordinator`'s camera registration.
 4. Verify the room's signal_inventory sensor reflects the opt-out:
    ```yaml
    {{ state_attr('sensor.ura_room_master_hallway_signal_inventory', 'has_camera') }}
-   # expected: false (post-opt-out)
+   # expected: false (post-opt-out, after HA restart)
    ```
+
+> **Why restart?** *(Post-review C3-H1 correction.)* The opt-out lookup
+> runs only at `_discover_zone_cameras` time, which fires once during
+> `PresenceCoordinator.async_setup`. The room's own options-flow save
+> triggers `async_reload_entry` on the **room** entry, not on the
+> `ENTRY_TYPE_COORDINATOR_MANAGER` entry that owns the
+> `PresenceCoordinator`. There is also no `deregister_camera` method on
+> `ZonePresenceTracker`. Until a future cycle adds one, opt-out toggles
+> require a full HA restart to take effect.
 
 The log will show one INFO line per opted-out area at boot:
 
@@ -173,9 +182,20 @@ and idempotent.
 
 1. Settings → Devices & Services → URA → [Room] → Configure.
 2. Toggle **Disable Camera Presence (Opt-Out)** to OFF (or clear it).
-3. Save. URA reloads; cameras for the room's area re-register on next
-   discovery cycle. The room's `has_camera` attribute on its
-   signal_inventory sensor returns to its pre-opt-out value within 30 s.
+3. Save. **Restart Home Assistant** to re-trigger
+   `PresenceCoordinator._discover_zone_cameras`, which re-registers the
+   room's area cameras. Until restart, the room's `has_camera` attribute
+   stays at its current value because camera registration only runs at
+   coordinator setup.
+
+> **Hot-reload not yet supported** *(post-review C3-H1, see §7 known
+> limitations).* The prior version of this section claimed the camera
+> re-register happens within 30 s of the options-flow save. That was
+> incorrect — the options-flow save reloads only the room entry, not the
+> coordinator manager entry that owns `PresenceCoordinator`. Runtime
+> camera de/re-registration is tracked as a v4.7.16.x backlog item:
+> would require a `tracker.deregister_camera()` method + a coordinator
+> reload trigger wired to the room update listener.
 
 ### Clear `scanner_areas` for a room (revert to tier 1 / tier 0)
 
@@ -220,12 +240,38 @@ After HA restarts on v4.7.16, verify each item:
 - [ ] **D4:** The "v4.7.16 D4" INFO log line lists the expected opted-out
   rooms at boot.
 
+### Expected per-room `ble_tier` distribution (post-review C5-M1)
+
+Use this table to drive the §6 D1/D2 live-validation per-room iteration.
+Probe each `sensor.ura_room_<slug>_signal_inventory` and compare against
+the expected column. Drift = misclassification; re-check the room's
+`area_id` + `scanner_areas` config.
+
+| Room (URA entry name)  | area_id           | scanner_areas               | Expected `ble_tier` |
+|---|---|---|---|
+| Master Bedroom         | `master_bedroom`  | —                           | **1** (own scanner) |
+| Living Room            | `living_room`     | (e.g.) `[family_room]`      | **2** (borrowed) or **1** (if `scanner_areas` empty) |
+| Family Room            | `family_room`     | —                           | **1** |
+| Closet                 | (often unset)     | —                           | **0** (no area_id) |
+| Master Hallway         | `master_hallway`  | —                           | **1** (or **0** if no scanner ever covers it) |
+| Entertainment / Upstairs Hall | per ops config | per ops config           | derived from above |
+
+Operator: substitute the actual room list from your URA config. The
+expected tier comes directly from `get_ble_tier`'s rule (Tier 1 = own
+area_id without scanner_areas; Tier 2 = area_id AND scanner_areas set;
+Tier 0 = no area_id, or scanner_areas with no area_id).
+
 ### Pass criteria summary
 
 - No WARNINGs from `v4.7.16 D3` or `v4.7.16 D4` source-tagged lines.
 - Every room config entry has its `signal_inventory` sensor visible.
-- Numeric `ble_tier` matches operator's house topology expectation.
+- Numeric `ble_tier` matches operator's house topology expectation (per
+  table above).
 - Opt-out rooms show `has_camera=false`.
+- For non-opted-out rooms with a camera registered in their area,
+  `has_camera=true`. For rooms WITHOUT a camera in their area (even if
+  a sibling room in the same zone has one), `has_camera=false`
+  (post-review C2-H1 fix).
 
 ---
 
@@ -241,8 +287,13 @@ Per Plan Completion Tracking (CLAUDE.md):
 | Bermuda-scanner enumeration sensor | Useful but standalone | v4.7.16.x or v4.7.17 |
 | Part B durability audit (Frigate vs Protect 7-day) | Needs its own cycle | v4.7.17 candidate |
 | Deprecating `sensor.ura_house_state_confidence` | Audit zero readers first | v5.0 cleanup |
-| Sum-vs-max aggregation decision | Flagged for Reviewer A | First review pass |
+| Sum-vs-max aggregation decision | Resolved post-review A1 (HIGH) → `max` chosen | Shipped in v4.7.16 fix-up |
 | Helper signature verification | Forward reference to v4.7.15 | Post-v4.7.15-merge integration pass |
+| Hot-reload of CONF_DISABLE_CAMERA_PRESENCE opt-out | Requires `tracker.deregister_camera()` + coordinator reload trigger (post-review C3-H1) | v4.7.16.x backlog |
+| Behavioral coverage for D3/D4 (cycle harness is AST-shape heavy) | C1-M1 partially addressed (C2-H1 behavioral test added) | v4.7.16.x — add D3/D4 behavioral coverage when wiring helper consumer |
+| D3 verdict computed but unused (no downstream consumer) | Accepted by plan §6 D3 design (diagnostic-only) | Wires up when v4.7.15 helper integration cycle lands |
+| D4 opt-out is area-scoped (not strictly room-scoped) | If two URA rooms share an HA area_id, opting out either suppresses cameras for both. Operator misconfig; documented behavior. | Documented in §7 |
+| D2 `has_camera` returns False before presence/camera manager init | Transient cosmetic on cold boot; self-heals on next sensor read | Documented in §7 |
 
 ### D3 status: complete-pending-helper-verification
 
@@ -254,8 +305,14 @@ helper(
     reliable_signals=reliable_signals,
     transient_signals=transient_signals,
     state_context=state_context,
-) -> VetoDecision(fired, confidence, reason)
+) -> VetoDecision(fired, confidence, reason, scope)
 ```
+
+*(Post-review C6-M1 correction.)* The v4.7.15 D1 dataclass actually has
+**4** fields (`fired, confidence, reason, scope`), not the 3 originally
+documented here. v4.7.16's call code reads only the first three via
+`getattr(..., False/0.0/"")`, so the runtime contract is fine and the 4th
+field (`scope`) is forward-compatible — we simply don't read it yet.
 
 Each call site is marked with `# v4.7.16 D3: verify helper signature post
 v4.7.15 lands` so the post-v4.7.15-merge integration pass can mechanically
@@ -312,8 +369,13 @@ veto-helper output, not the introducer.)
 | `quality/tests/test_v4716_room_veto_density.py` | NEW 33-test cycle harness (source-grep + lightweight behavioral) |
 | `docs/readmes/README_v4.7.16.md` | This document |
 
-**LoC delta** (against `3231346` baseline): ~600 LoC source + ~600 LoC tests
-+ ~360 LoC README. No code removed.
+**LoC delta** (against `3231346` baseline, measured at fix-up tip):
+**~447 LoC source + ~697 LoC tests + ~325 LoC README.** No code removed.
+
+*(Post-review C6-M1 correction.)* Earlier estimate (~600/~600/~360) was
+an over-projection; the table above reflects the actual `git diff --stat`
+output. Source LoC came in roughly 25% under estimate, tests roughly 16%
+over (the C2-H1 behavioral test contributed ~170 of those extra lines).
 
 ---
 
