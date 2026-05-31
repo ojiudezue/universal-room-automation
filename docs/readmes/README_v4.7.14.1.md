@@ -273,7 +273,124 @@ Fill in at deploy time:
   of this hotfix.
 - **No new entities surfaced.** All diagnostic visibility comes from the
   v4.7.14 D3 attributes (`tracked_persons_count`, `all_tracked_persons_away`)
-  which now reflect the post-filter counts.
+  plus three new keys added by fix-up A-M2 (`tracked_persons_count_trusted`,
+  `excluded_persons`) — see fix-up section below.
+
+## v4.7.14.1 Tier 2-DB review fix-up findings
+
+The build was reviewed by three parallel staff-engineer reviewers per the
+Tier 2-DB protocol. Four findings (1 HIGH + 3 MEDIUMs) were applied as
+fix-up commits on this branch before merge. The fix-ups did not change the
+H1/H2/H3 user-facing behavior contract — they tightened correctness, log
+quality, and operator-visibility regressions surfaced by the reviews.
+
+### A-H1 (HIGH) — H2 entity_id resolution via entity registry
+
+Reviewer A surfaced that the pre-fix H2 helper constructed entity_id as
+`binary_sensor.{slug}_phone_left_behind`, which does NOT match HA's actual
+entity composition under `_attr_has_entity_name=True` + DeviceInfo
+name="Universal Room Automation". The operator-verified live entity_id is
+`binary_sensor.universal_room_automation_<slug>_phone_left_behind` —
+device-prefixed. Pre-fix: H2 silently fail-OPEN for every person, shipping
+the cycle with H2 effectively disabled.
+
+Fix: H2 now resolves entity_id via
+`entity_registry.async_get_entity_id("binary_sensor", DOMAIN, unique_id)`
+where `unique_id` mirrors `binary_sensor.py:1000`'s formula. Robust to
+device renames and operator entity_id renames. The
+`test_h2_entity_id_slug_matches_binary_sensor_format` (Bug Class #44
+self-confirming mirror) was replaced with a registry-driven behavioral
+test.
+
+Live-validation impact: operators verifying H2 should see one of the four
+live entity_ids resolve to a real state, not None.
+
+### A-M1 + A-M3 (MEDIUM, converged with B1.a) — Veto-fired log enrichment
+
+Pre-fix the veto-fired INFO log gate was outcome-driven (`new_state ==
+AWAY`) so it ALSO fired on the line-398 AND-gate path (confidence 0.9),
+misattributing it to the v4.7.14.1 veto (confidence 0.95). Message text
+omitted `census_count == 0` (H1 condition) and the excluded-persons set
+(H2/H3 filter targets).
+
+Fix:
+- Gate now requires `self._census_count == 0` AND `any_zone_occupied` so
+  the log fires ONLY on the actual 0.95 veto path.
+- Message now includes: trustworthy-persons count + ids, excluded-persons
+  count + per-person "name(reason)" enumeration, `census_count=0`,
+  `confidence=0.95`.
+
+Operator runbook impact: when verifying H2/H3 post-deploy, journald
+should show `excluded` count > 0 with a per-person reason like
+`oji(phone_left_behind=on)` or `jaya(tracking_status=stale)`.
+
+### A-M2 (MEDIUM, converged with B1.c) — Dual `tracked_persons_count` exposure
+
+Pre-fix the `tracked_persons_count` attribute silently flipped from raw
+configured count (pre-v4.7.14.1) to the post-filter count, causing
+operators with 4 configured persons + 1 phone_left_behind to see `3` and
+misdiagnose person_coordinator dropout.
+
+Fix: expose THREE attributes on
+`sensor.ura_presence_coordinator_presence_house_state`:
+- `tracked_persons_count` — raw configured count (pre-v4.7.14.1 semantic
+  preserved; no silent shrinkage).
+- `tracked_persons_count_trusted` — post-H2/H3 filter count used by the
+  veto reduction (new).
+- `excluded_persons` — dict mapping each filtered-out person to their
+  exclusion reason (`"phone_left_behind=on"` or
+  `"tracking_status=<value>"`).
+
+Operator runbook impact: dashboards that read `tracked_persons_count`
+keep working unchanged; new dashboards that need the trust-aware count
+read `tracked_persons_count_trusted`.
+
+### Deferred (per plan §8 + reviewer guidance)
+
+- **C1 MEDIUM (test fixture authority).** Mirror helpers in
+  `test_v4714_1_forgotten_phone_hotfix.py:_phone_trustworthy` /
+  `_tracking_active` remain hybrid mirrors with source-level invariants.
+  Cleanup folded into v4.7.15 D1 helper extraction — when the shared
+  helper lands, the in-test mirrors are replaced with direct calls.
+- **A-L1, A-L2, A-L3 LOWs** — sibling sites missing filters,
+  `_tracking_active` default-direction documentation,
+  `all_tracked_persons_away` kwarg default. Deferred per plan §8.
+- **B2.c, B4.b NITs** — docstring updates. Deferred.
+
+### CRITICAL: Cross-cycle handoff requirement for v4.7.15
+
+The v4.7.15 builder, when it rebases the in-flight feature branch
+`feature/v4.7.15-universalize-bug-class-48` onto this hotfix tip, MUST:
+
+1. Resolve the merge conflict at `presence.py` veto-computation block by
+   KEEPING the v4.7.14.1 versions (H1 in `infer()`, H2/H3 + filter loop in
+   `_run_inference`, A-H1 entity-registry resolution, A-M1/M3 excluded
+   persons capture, A-M2 dual-count attributes).
+2. Update v4.7.15 D1's Pattern A helper
+   (`should_veto_due_to_reliable_signals`) to **consume** the H1/H2/H3
+   surfaces v4.7.14.1 added — NOT reimplement them inline. Pattern A
+   accepts:
+   - `transient_signals[kind=="census_count"]` (H1 input)
+   - `reliable_signals[kind=="person_phone_trustworthy"]` (H2 input)
+   - `reliable_signals[kind=="person_tracking_active"]` (H3 input)
+3. Delete v4.7.14.1's local helpers `_phone_trustworthy` and
+   `_tracking_active` from `_run_inference` once the shared helper exposes
+   them as utilities; the per-name filter loop becomes an INPUT BUILDER
+   for the helper, not duplicate filter logic.
+4. Update the source-invariant tests at
+   `quality/tests/test_v4714_1_forgotten_phone_hotfix.py` (lines that
+   assert `def _phone_trustworthy` / `_tracking_active` literal presence)
+   to point at the shared helper names, OR replace them with direct calls
+   against the v4.7.15 D1 helper test fixture. The current invariants
+   DELIBERATELY trip after extraction — that is the trip-wire by design.
+5. Apply Reviewer C's C1 MEDIUM cleanup of v4.7.14.1's hybrid mirror
+   tests as part of D1 work (the mirrors are replaced by direct
+   production-path tests once the helper is extractable).
+
+The v4.7.15 helper's `VetoDecision` SHOULD expose the excluded-persons
+map + dual counts so the universal sensor surface mirrors the
+three-attribute exposure across all veto consumers (e.g., v4.7.16's
+per-room weighted veto).
 
 ## Cross-cycle reference
 
