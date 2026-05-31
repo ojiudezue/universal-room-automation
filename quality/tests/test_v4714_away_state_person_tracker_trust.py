@@ -187,9 +187,18 @@ class TestD1AllTrackedPersonsAwayComputation:
         )
 
     def test_tracked_count_computed(self):
-        """`tracked_count` must be derived from person_coordinator.data length."""
-        assert "tracked_count = len(person_data)" in PRESENCE_SRC, (
-            "v4.7.14 D1: tracked_count = len(person_data) missing"
+        """`tracked_count` must be derived from a person-set length.
+
+        v4.7.14 baseline used `len(person_data)`. v4.7.14.1 H2 inserts a
+        phone-left-behind filter so the canonical assignment becomes
+        `tracked_count = len(trustworthy_persons)`. Either form is valid.
+        """
+        assert (
+            "tracked_count = len(person_data)" in PRESENCE_SRC
+            or "tracked_count = len(trustworthy_persons)" in PRESENCE_SRC
+        ), (
+            "v4.7.14 D1 / v4.7.14.1 H2: tracked_count must be derived from a "
+            "person-set length"
         )
 
     def test_empty_config_failsafe_present(self):
@@ -208,19 +217,34 @@ class TestD1AllTrackedPersonsAwayComputation:
         assert '("away", "")' in block, (
             "v4.7.14 D1: veto must use ('away', '') tuple — unknown excluded"
         )
-        assert '"unknown"' not in block.split("for info in person_data.values()")[0], (
+        # v4.7.14.1 (H2): the iteration may be over trustworthy_persons.values()
+        # OR person_data.values() depending on whether the H2 filter is wrapped.
+        # The invariant we care about is that 'unknown' does NOT appear in the
+        # location-check expression before the iteration begins.
+        iter_marker = None
+        for marker in (
+            "for info in trustworthy_persons.values()",
+            "for info in person_data.values()",
+        ):
+            if marker in block:
+                iter_marker = marker
+                break
+        assert iter_marker is not None, "no veto iteration marker found"
+        assert '"unknown"' not in block.split(iter_marker)[0], (
             "v4.7.14 D1: 'unknown' must NOT be treated as away in the veto"
         )
 
     def test_uses_person_coordinator_key(self):
-        """Must read from hass.data[DOMAIN]['person_coordinator']."""
-        # Locate the actual computation block (not the engine docstring's
-        # 'v4.7.14:' line — the engine docstring talks about the veto but
-        # doesn't read person_coordinator; the call site in _run_inference does).
+        """Must read from hass.data[DOMAIN]['person_coordinator'].
+
+        v4.7.14.1 (H2) wraps the v4.7.14 computation in a phone-trust filter,
+        which expands the source-level distance between the
+        person_coordinator lookup and the all(...) reduction. Widen the
+        window to accommodate the H2 helper definition.
+        """
         idx = PRESENCE_SRC.find("all_tracked_persons_away = all(")
         assert idx >= 0, "veto computation block not found"
-        # Look backwards ~600 chars to find the person_coordinator lookup.
-        block = PRESENCE_SRC[max(0, idx - 800): idx + 200]
+        block = PRESENCE_SRC[max(0, idx - 2000): idx + 200]
         assert '"person_coordinator"' in block, (
             "v4.7.14 D1: must read hass.data[DOMAIN]['person_coordinator']"
         )

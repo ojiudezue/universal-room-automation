@@ -1907,21 +1907,51 @@ class PresenceCoordinator(BaseCoordinator):
         # tracked_count > 0 guard: empty config must not veto (fail-safe).
         # "unknown" is NOT treated as away (conservative — unknown is genuine
         # uncertainty, not confirmed absence).
+        #
+        # v4.7.14.1 (H2): exclude any person whose `binary_sensor.<slug>_phone_left_behind`
+        # is `on` from the veto denominator. That sensor (PersonPhoneLeftBehindSensor
+        # at binary_sensor.py:973-1084) flags "BLE places phone in a room but no
+        # camera has seen the person in the last hour" — the canonical
+        # forgotten-phone signal. Their location field is meaningless for veto
+        # purposes. Fail-OPEN: if the binary_sensor doesn't exist (disabled
+        # by default per binary_sensor.py:988) or is unknown/unavailable, the
+        # person is counted (preserves v4.7.14 baseline behavior).
         person_coordinator = self.hass.data.get(DOMAIN, {}).get("person_coordinator")
         all_tracked_persons_away = False
         tracked_count = 0
         away_person_ids: list[str] = []
+
+        def _phone_trustworthy(person_name: str) -> bool:
+            """v4.7.14.1 (H2): True iff the phone-left-behind sensor is NOT 'on'.
+
+            Fail-OPEN: missing entity / unknown / unavailable -> True.
+            Slug formula mirrors PersonPhoneLeftBehindSensor.__init__ at
+            binary_sensor.py:1000 (lower + space->underscore).
+            """
+            person_slug = person_name.lower().replace(" ", "_")
+            entity_id = f"binary_sensor.{person_slug}_phone_left_behind"
+            state = self.hass.states.get(entity_id)
+            if state is None:
+                return True
+            return state.state != "on"
+
         try:
             if person_coordinator and getattr(person_coordinator, "data", None):
                 person_data = person_coordinator.data or {}
-                tracked_count = len(person_data)
+                # H2 filter: remove persons flagged phone_left_behind.
+                trustworthy_persons = {
+                    name: info
+                    for name, info in person_data.items()
+                    if _phone_trustworthy(name)
+                }
+                tracked_count = len(trustworthy_persons)
                 if tracked_count > 0:
                     all_tracked_persons_away = all(
                         (info.get("location") or "") in ("away", "")
-                        for info in person_data.values()
+                        for info in trustworthy_persons.values()
                     )
                     if all_tracked_persons_away:
-                        away_person_ids = sorted(person_data.keys())
+                        away_person_ids = sorted(trustworthy_persons.keys())
         except Exception as exc:  # noqa: BLE001 — defensive: stale coord data
             _LOGGER.debug(
                 "v4.7.14: failed to compute all_tracked_persons_away: %s", exc

@@ -496,11 +496,13 @@ class TestH2PhoneLeftBehindExclusion:
 
     def test_h2_filter_uses_hass_states_get(self):
         """H2 must use hass.states.get for entity-state read (correct surface)."""
-        idx = PRESENCE_SRC.find("_phone_left_behind")
-        assert idx >= 0
-        window = PRESENCE_SRC[max(0, idx - 600): idx + 600]
-        assert "self.hass.states.get" in window, (
-            "H2: must use hass.states.get to read the binary_sensor"
+        # H2 helper is named _phone_trustworthy. Confirm the helper body uses
+        # self.hass.states.get to read the binary_sensor.
+        helper_idx = PRESENCE_SRC.find("def _phone_trustworthy")
+        assert helper_idx >= 0, "H2: _phone_trustworthy helper missing"
+        helper_block = PRESENCE_SRC[helper_idx: helper_idx + 1200]
+        assert "self.hass.states.get" in helper_block, (
+            "H2: _phone_trustworthy must use self.hass.states.get to read the binary_sensor"
         )
 
 
