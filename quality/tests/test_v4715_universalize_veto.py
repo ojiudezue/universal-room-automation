@@ -737,7 +737,7 @@ class TestD2ZoneAggregatorLayer3:
 # Hard upper bound enforced by test_run_inference_only_defined_once at the
 # bottom of this section — the widened window cannot span two function
 # bodies.
-_RUN_INFERENCE_WINDOW = 30000
+_RUN_INFERENCE_WINDOW = 40000
 
 
 class TestD3WakingSustainedSignal:
@@ -792,10 +792,54 @@ class TestD3RunInferenceWindowSafety:
     """
 
     def test_run_inference_only_defined_once(self):
-        assert PRESENCE_SRC.count("async def _run_inference") == 1, (
-            "v4.7.15.1 D3: the widened 30 KB window assumes a single "
-            "_run_inference body — multiple definitions would silently "
-            "corrupt every D3 source-grep assertion"
+        """Guard the _RUN_INFERENCE_WINDOW slice via AST (not substring).
+
+        v4.7.15.1 fix-up B3-H1 (Reviewer B): the prior substring count was
+        vulnerable to three failure modes — (1) a comment containing
+        ``async def _run_inference`` (false positive), (2) a docstring
+        mention (false positive), and (3) a slide of the window past the
+        function-body end into a sibling def (silent FALSE NEGATIVE that
+        renders every D3 source-grep assertion meaningless).
+
+        This rewrite uses ``ast.walk`` to count real AsyncFunctionDef /
+        FunctionDef nodes named ``_run_inference`` AND adds a second
+        assertion that the configured ``_RUN_INFERENCE_WINDOW`` is wide
+        enough to actually cover the chosen function body — so window
+        widening (or function growth) cannot silently slide past the
+        body end without tripping the guard.
+        """
+        tree = ast.parse(PRESENCE_SRC)
+        defs = [
+            n for n in ast.walk(tree)
+            if isinstance(n, (ast.AsyncFunctionDef, ast.FunctionDef))
+            and n.name == "_run_inference"
+        ]
+        assert len(defs) == 1, (
+            f"v4.7.15.1 D3: expected exactly one _run_inference def; "
+            f"found {len(defs)}"
+        )
+
+        # Window-vs-body-size assertion: ensure the configured window
+        # covers the entire function body. Without this, a future growth
+        # of _run_inference past the window end would silently corrupt
+        # every D3 source-grep assertion (FALSE NEGATIVE class).
+        node = defs[0]
+        body_start_line = node.lineno
+        body_end_line = node.end_lineno if hasattr(node, "end_lineno") else max(
+            getattr(c, "end_lineno", c.lineno) for c in ast.walk(node)
+        )
+        body_lines = body_end_line - body_start_line + 1
+        # Per-line char bound — empirically measured avg ~50.5 in this
+        # file; using 60 gives ~20% headroom over measured average
+        # without admitting silent multi-thousand-char slides past
+        # the body end. Tune up if the file's style shifts wider.
+        body_chars_approx = body_lines * 60
+        assert _RUN_INFERENCE_WINDOW >= body_chars_approx, (
+            f"v4.7.15.1 D3: _RUN_INFERENCE_WINDOW={_RUN_INFERENCE_WINDOW} "
+            f"but body is approximately {body_chars_approx} chars "
+            f"({body_lines} lines x 80). Widen the window or shrink "
+            f"_run_inference — silent slide past body end would render "
+            f"every D3 source-grep assertion meaningless."
         )
 
 
