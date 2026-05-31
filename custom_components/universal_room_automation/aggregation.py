@@ -3262,16 +3262,60 @@ class ZoneAnyoneBinarySensor(ZoneSensorBase, BinarySensorEntity):
             if not zone_persons:
                 return False
 
+            any_person_home = False
+            home_person_entity = ""
             for person_entity in zone_persons:
                 # Strict "home" only — unknown/unavailable intentionally not trusted.
                 state = self.hass.states.get(person_entity)
                 if state is not None and state.state == "home":
-                    _LOGGER.info(
-                        "Zone '%s': sleep-state person fallback engaged — "
-                        "%s == home (room sensors degraded)",
-                        self.zone, person_entity,
-                    )
-                    return True
+                    any_person_home = True
+                    home_person_entity = person_entity
+                    break
+            if not any_person_home:
+                return False
+
+            # v4.7.15 fix-up A1-M2: delegate the actual sleep-fallback decision
+            # to the shared D1 helper via scope="zone_aggregator" Pattern B.
+            # Behaviour preserved (any zone_persons home during sleep → veto)
+            # but the SLEEP path now routes through the same arbitration as
+            # the non-sleep path (Pattern C), so future cycles that retune
+            # the sleep predicate only touch one place.
+            presence = manager.coordinators.get("presence") if hasattr(
+                manager, "coordinators",
+            ) else None
+            if presence is None or not hasattr(
+                presence, "should_veto_due_to_reliable_signals",
+            ):
+                # Boot race — presence not ready. Fall back to v4.7.13's direct
+                # bias so a slow boot doesn't lose the sleep-fallback safety net.
+                _LOGGER.info(
+                    "Zone '%s': sleep-state person fallback engaged — "
+                    "%s == home (room sensors degraded, presence pending)",
+                    self.zone, home_person_entity,
+                )
+                return True
+
+            # function-local import — Bug Class #34
+            from .domain_coordinators.presence import (  # noqa: PLC0415
+                ReliableSignal,
+            )
+
+            decision = presence.should_veto_due_to_reliable_signals(
+                reliable_signals=[ReliableSignal("zone_persons_home", True)],
+                transient_signals=[],
+                state_context={
+                    "scope": "zone_aggregator",
+                    "house_state": "sleep",
+                    "zone_name": self.zone,
+                },
+            )
+            if decision.fired:
+                _LOGGER.info(
+                    "Zone '%s': sleep-state person fallback engaged — "
+                    "%s (%s == home, room sensors degraded)",
+                    self.zone, decision.reason, home_person_entity,
+                )
+                return True
             return False
         except Exception as exc:  # noqa: BLE001
             self._warn_sleep_fallback_unavailable(

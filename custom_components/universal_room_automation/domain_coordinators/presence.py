@@ -2329,6 +2329,42 @@ class PresenceCoordinator(BaseCoordinator):
                 any_zone_occupied,
             )
 
+        # v4.7.15 fix-up A1-M1: also evaluate Pattern A via the shared D1 helper
+        # so the same decision is exposed via _last_veto_decision diagnostics.
+        # Pure no-op against transition logic — the inline v4.7.14 path inside
+        # _inference_engine.infer() already produced new_state. This call only
+        # populates the diagnostic surface so the helper's Pattern A surface
+        # is actually exercised at runtime, not just in tests.
+        # v4.7.14.1 hotfix surfaces (H1/H2/H3 — phone-left-behind, tracking_status,
+        # census_count predicate) are NOT yet plumbed through the helper;
+        # v4.7.15.1 will refactor Pattern A to consume them per Reviewer C C3.
+        try:
+            house_inference_decision = self.should_veto_due_to_reliable_signals(
+                reliable_signals=[
+                    ReliableSignal("person_tracker_away", all_tracked_persons_away),
+                    ReliableSignal(
+                        "person_tracker_home",
+                        not all_tracked_persons_away and tracked_count > 0,
+                    ),
+                ],
+                transient_signals=[
+                    TransientSignal(
+                        "unidentified_person_count", self._unidentified_count,
+                    ),
+                ],
+                state_context={
+                    "scope": "house_inference",
+                    "house_state": current_state,
+                    "tracked_count": tracked_count,
+                },
+            )
+            # Only overwrite if a real result — preserve WAKING/GUEST diagnostics
+            # that the gates below set explicitly.
+            if house_inference_decision.fired:
+                self._last_veto_decision = house_inference_decision
+        except Exception:  # noqa: BLE001 — defensive: diagnostic-only path
+            pass
+
         # Override confidence if transitioning to GUEST via the D5 guest_room path.
         # The inference engine sets 0.8 by default; D5 raises it to 0.9 when warranted.
         if new_state == HouseState.GUEST and guest_room_gate_armed:
