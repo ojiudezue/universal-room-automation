@@ -558,6 +558,11 @@ class PresenceCoordinator(BaseCoordinator):
         # v4.7.14: Person-tracker veto diagnostics (populated by _run_inference).
         self._tracked_persons_count: int = 0
         self._all_tracked_persons_away: bool = False
+        # v4.7.14.1 fix-up A-M1/A-M3: persons filtered out by H2 (phone_left_behind)
+        # or H3 (tracking_status STALE/LOST), mapped to their exclusion reason.
+        # Surfaced in the veto-fired INFO log so operators can diagnose why a
+        # particular person did NOT block the veto.
+        self._excluded_persons: dict[str, str] = {}
         self._transitions_today: int = 0
         self._transition_reset_date: str = ""
         # Room area_id lookup: room_name -> area_id (from config entries)
@@ -1981,16 +1986,34 @@ class PresenceCoordinator(BaseCoordinator):
             """
             return info.get("tracking_status", TRACKING_STATUS_ACTIVE) == TRACKING_STATUS_ACTIVE
 
+        # v4.7.14.1 fix-up A-M1/A-M3: track WHO was filtered out and WHY so the
+        # veto-fired INFO log can enumerate excluded persons + reason. Without
+        # this, operators debugging "why didn't X block the veto?" must grep
+        # the source to understand the post-filter shape.
+        excluded_persons: dict[str, str] = {}
         try:
             if person_coordinator and getattr(person_coordinator, "data", None):
                 person_data = person_coordinator.data or {}
                 # H2 + H3 filter: remove persons whose phone is flagged
                 # phone_left_behind OR whose tracking_status is not ACTIVE.
-                trustworthy_persons = {
-                    name: info
-                    for name, info in person_data.items()
-                    if _phone_trustworthy(name) and _tracking_active(info)
-                }
+                # The per-name loop replaces the dict-comprehension to capture
+                # the exclusion reason inline (A-M1/M3).
+                trustworthy_persons: dict[str, dict] = {}
+                for name, info in person_data.items():
+                    phone_ok = _phone_trustworthy(name)
+                    track_ok = _tracking_active(info)
+                    if phone_ok and track_ok:
+                        trustworthy_persons[name] = info
+                        continue
+                    # phone_left_behind takes precedence in the reason string
+                    # when both fire (it's the more specific user-actionable
+                    # signal — "your phone is home but you aren't").
+                    if not phone_ok:
+                        excluded_persons[name] = "phone_left_behind=on"
+                    else:
+                        excluded_persons[name] = (
+                            f"tracking_status={info.get('tracking_status', 'unknown')}"
+                        )
                 tracked_count = len(trustworthy_persons)
                 if tracked_count > 0:
                     all_tracked_persons_away = all(
@@ -2006,9 +2029,13 @@ class PresenceCoordinator(BaseCoordinator):
             all_tracked_persons_away = False
             tracked_count = 0
             away_person_ids = []
+            excluded_persons = {}
         # Expose for diagnostics (PresenceHouseStateSensor attributes).
         self._tracked_persons_count = tracked_count
         self._all_tracked_persons_away = all_tracked_persons_away
+        # v4.7.14.1 fix-up A-M1/A-M3: snapshot of filtered-out persons + reason
+        # for the veto-fired log and downstream sensor attribute exposure.
+        self._excluded_persons = dict(excluded_persons)
 
         any_zone_occupied = any(
             t.mode == ZonePresenceMode.OCCUPIED
@@ -2087,18 +2114,39 @@ class PresenceCoordinator(BaseCoordinator):
         )
 
         # v4.7.14: log when the person-tracker veto fires to a non-AWAY state.
+        # v4.7.14.1 fix-up A-M1: tighten gate to mirror the v4.7.14.1 H1
+        # predicate (census_count == 0 AND any_zone_occupied) so this log
+        # ONLY fires on the actual veto path (confidence 0.95), not the
+        # line-398 AND-gate path (confidence 0.9). Pre-fix the log was
+        # outcome-driven (`new_state == AWAY`) and could fire on either path,
+        # misattributing the line-398 AND-gate transition to the veto.
+        # A-M3 enriches the message: census_count, excluded_persons enumeration,
+        # confidence — so operators reading journald can see why the veto fired.
         if (
             all_tracked_persons_away
             and self._unidentified_count == 0
+            and self._census_count == 0
+            and any_zone_occupied
             and new_state == HouseState.AWAY
             and current_state != HouseState.AWAY
         ):
+            _excluded_payload = (
+                ", ".join(
+                    f"{p}({reason})"
+                    for p, reason in sorted(self._excluded_persons.items())
+                )
+                if self._excluded_persons
+                else "(none)"
+            )
             _LOGGER.info(
-                "v4.7.14: Person-tracker veto fired — all %d tracked persons "
-                "away (%s), no unidentified people; forcing AWAY (was %s, "
-                "any_zone_occupied=%s)",
+                "v4.7.14.1: Person-tracker veto fired — %d trustworthy persons "
+                "confirmed away (%s), %d excluded (%s), no unidentified people, "
+                "census_count=0; forcing AWAY (was %s, any_zone_occupied=%s, "
+                "confidence=0.95)",
                 tracked_count,
                 ", ".join(away_person_ids) if away_person_ids else "(none)",
+                len(self._excluded_persons),
+                _excluded_payload,
                 current_state.value,
                 any_zone_occupied,
             )

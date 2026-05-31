@@ -240,11 +240,14 @@ class TestD1AllTrackedPersonsAwayComputation:
         v4.7.14.1 (H2) wraps the v4.7.14 computation in a phone-trust filter,
         which expands the source-level distance between the
         person_coordinator lookup and the all(...) reduction. Widen the
-        window to accommodate the H2 helper definition.
+        window to accommodate the H2 helper definition. v4.7.14.1 fix-up
+        A-H1/A-M1/A-M3 added the entity_registry resolution helper + the
+        excluded-persons capture loop (~1200 chars), pushing the distance
+        further. Window widened 3500 -> 5000.
         """
         idx = PRESENCE_SRC.find("all_tracked_persons_away = all(")
         assert idx >= 0, "veto computation block not found"
-        block = PRESENCE_SRC[max(0, idx - 3500): idx + 200]
+        block = PRESENCE_SRC[max(0, idx - 5000): idx + 200]
         assert '"person_coordinator"' in block, (
             "v4.7.14 D1: must read hass.data[DOMAIN]['person_coordinator']"
         )

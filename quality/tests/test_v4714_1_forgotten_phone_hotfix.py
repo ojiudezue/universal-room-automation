@@ -828,3 +828,93 @@ class TestComposedBehavior:
         away, count, _ = _compute_with_h2_h3(hass, pc)
         assert away is True
         assert count == 4
+
+
+# ===========================================================================
+# A-M1 + A-M3 — Veto-fired log: gate tightening + excluded-persons enrichment
+# ===========================================================================
+#
+# Fix-up A-M1 tightens the veto-fired log gate to mirror the v4.7.14.1 H1
+# predicate (census_count == 0 AND any_zone_occupied) so the log NEVER
+# fires on the line-398 AND-gate path. A-M3 enriches the log message with
+# the excluded-persons enumeration + reason so operators can diagnose
+# "why didn't X block the veto" without grepping source.
+
+
+class TestAM1AM3VetoFiredLog:
+    """Source-level invariants on the veto-fired log gate + message."""
+
+    def test_am1_log_gate_includes_census_count_zero(self):
+        """A-M1: log gate must require self._census_count == 0."""
+        # The veto-fired log lives ~150 lines after the inference call.
+        # Search the full presence.py for the v4.7.14.1 marker.
+        idx = PRESENCE_SRC.find("Person-tracker veto fired")
+        assert idx >= 0, "veto-fired log site missing"
+        # Walk back to the surrounding `if (` predicate.
+        start = PRESENCE_SRC.rfind("if (", 0, idx)
+        assert start >= 0, "veto-fired log `if (` predicate not found"
+        gate_block = PRESENCE_SRC[start:idx]
+        assert "self._census_count == 0" in gate_block, (
+            "A-M1: veto-fired log gate must include `self._census_count == 0` "
+            "to mirror H1 and only fire on the 0.95 veto path"
+        )
+
+    def test_am1_log_gate_includes_any_zone_occupied(self):
+        """A-M1: gate must include any_zone_occupied (excludes line-398 AND-gate)."""
+        idx = PRESENCE_SRC.find("Person-tracker veto fired")
+        start = PRESENCE_SRC.rfind("if (", 0, idx)
+        gate_block = PRESENCE_SRC[start:idx]
+        assert "any_zone_occupied" in gate_block, (
+            "A-M1: veto-fired log gate must include `any_zone_occupied` so the "
+            "line-398 AND-gate path (which fires when not any_zone_occupied) is "
+            "excluded — only the veto path (which requires any_zone_occupied) logs"
+        )
+
+    def test_am3_log_message_includes_excluded_persons(self):
+        """A-M3: log message must enumerate excluded persons + reason."""
+        idx = PRESENCE_SRC.find("Person-tracker veto fired")
+        # Examine a window covering the call site (message format + args).
+        window = PRESENCE_SRC[idx: idx + 1500]
+        assert "excluded" in window, (
+            "A-M3: log message must include excluded-persons enumeration"
+        )
+        # The reason payload must be built; look for the format-string assembly.
+        assert "_excluded_persons" in window or "excluded_persons" in window, (
+            "A-M3: log must pass the excluded-persons map into the format args"
+        )
+
+    def test_am3_log_message_includes_census_count(self):
+        """A-M3: log message must include census_count for diagnostic transparency."""
+        idx = PRESENCE_SRC.find("Person-tracker veto fired")
+        window = PRESENCE_SRC[idx: idx + 1500]
+        # The literal `census_count=0` should appear (H1 only fires when 0).
+        assert "census_count=0" in window or "census_count" in window, (
+            "A-M3: log message must include census_count for diagnostic clarity"
+        )
+
+    def test_am3_log_message_includes_confidence(self):
+        """A-M3: log must call out the 0.95 veto confidence signature."""
+        idx = PRESENCE_SRC.find("Person-tracker veto fired")
+        window = PRESENCE_SRC[idx: idx + 1500]
+        assert "confidence=0.95" in window or "0.95" in window, (
+            "A-M3: log must include the 0.95 veto confidence so operators "
+            "can distinguish veto-fire from the 0.9 AND-gate fire"
+        )
+
+    def test_am3_excluded_persons_attribute_present_in_coordinator(self):
+        """A-M3: PresenceCoordinator must expose `_excluded_persons` attribute."""
+        # __init__ initializes self._excluded_persons.
+        assert "self._excluded_persons" in PRESENCE_SRC, (
+            "A-M3: PresenceCoordinator must initialize self._excluded_persons "
+            "so the diagnostic sensor can surface the filtered-out set"
+        )
+
+    def test_am1_am3_filter_loop_captures_reason(self):
+        """A-M1/M3: filter loop must record both phone_left_behind and tracking_status reasons."""
+        # The new filter loop captures BOTH reasons. Source-level invariant.
+        assert "phone_left_behind=on" in PRESENCE_SRC, (
+            "A-M1/M3: filter loop must record phone_left_behind=on as exclusion reason"
+        )
+        assert "tracking_status=" in PRESENCE_SRC, (
+            "A-M1/M3: filter loop must record tracking_status=<value> as exclusion reason"
+        )
