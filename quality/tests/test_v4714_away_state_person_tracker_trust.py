@@ -187,9 +187,18 @@ class TestD1AllTrackedPersonsAwayComputation:
         )
 
     def test_tracked_count_computed(self):
-        """`tracked_count` must be derived from person_coordinator.data length."""
-        assert "tracked_count = len(person_data)" in PRESENCE_SRC, (
-            "v4.7.14 D1: tracked_count = len(person_data) missing"
+        """`tracked_count` must be derived from a person-set length.
+
+        v4.7.14 baseline used `len(person_data)`. v4.7.14.1 H2 inserts a
+        phone-left-behind filter so the canonical assignment becomes
+        `tracked_count = len(trustworthy_persons)`. Either form is valid.
+        """
+        assert (
+            "tracked_count = len(person_data)" in PRESENCE_SRC
+            or "tracked_count = len(trustworthy_persons)" in PRESENCE_SRC
+        ), (
+            "v4.7.14 D1 / v4.7.14.1 H2: tracked_count must be derived from a "
+            "person-set length"
         )
 
     def test_empty_config_failsafe_present(self):
@@ -208,19 +217,37 @@ class TestD1AllTrackedPersonsAwayComputation:
         assert '("away", "")' in block, (
             "v4.7.14 D1: veto must use ('away', '') tuple — unknown excluded"
         )
-        assert '"unknown"' not in block.split("for info in person_data.values()")[0], (
+        # v4.7.14.1 (H2): the iteration may be over trustworthy_persons.values()
+        # OR person_data.values() depending on whether the H2 filter is wrapped.
+        # The invariant we care about is that 'unknown' does NOT appear in the
+        # location-check expression before the iteration begins.
+        iter_marker = None
+        for marker in (
+            "for info in trustworthy_persons.values()",
+            "for info in person_data.values()",
+        ):
+            if marker in block:
+                iter_marker = marker
+                break
+        assert iter_marker is not None, "no veto iteration marker found"
+        assert '"unknown"' not in block.split(iter_marker)[0], (
             "v4.7.14 D1: 'unknown' must NOT be treated as away in the veto"
         )
 
     def test_uses_person_coordinator_key(self):
-        """Must read from hass.data[DOMAIN]['person_coordinator']."""
-        # Locate the actual computation block (not the engine docstring's
-        # 'v4.7.14:' line — the engine docstring talks about the veto but
-        # doesn't read person_coordinator; the call site in _run_inference does).
+        """Must read from hass.data[DOMAIN]['person_coordinator'].
+
+        v4.7.14.1 (H2) wraps the v4.7.14 computation in a phone-trust filter,
+        which expands the source-level distance between the
+        person_coordinator lookup and the all(...) reduction. Widen the
+        window to accommodate the H2 helper definition. v4.7.14.1 fix-up
+        A-H1/A-M1/A-M3 added the entity_registry resolution helper + the
+        excluded-persons capture loop (~1200 chars), pushing the distance
+        further. Window widened 3500 -> 5000.
+        """
         idx = PRESENCE_SRC.find("all_tracked_persons_away = all(")
         assert idx >= 0, "veto computation block not found"
-        # Look backwards ~600 chars to find the person_coordinator lookup.
-        block = PRESENCE_SRC[max(0, idx - 800): idx + 200]
+        block = PRESENCE_SRC[max(0, idx - 5000): idx + 200]
         assert '"person_coordinator"' in block, (
             "v4.7.14 D1: must read hass.data[DOMAIN]['person_coordinator']"
         )
@@ -349,12 +376,17 @@ def _afternoon() -> datetime:
 
 
 def test_veto_fires_when_all_persons_away_and_no_unidentified():
-    """Veto path: from HOME_DAY back to AWAY when all persons away."""
+    """Veto path: from HOME_DAY back to AWAY when all persons away.
+
+    v4.7.14.1 (H1): census_count must also be 0 — the veto only fires when
+    Frigate does NOT see any face-IDed resident (otherwise SOMEONE is provably
+    in the house regardless of phone state).
+    """
     engine = _make_engine()
     new_state = engine.infer(
-        census_count=1,  # camera census picked something up
+        census_count=0,  # v4.7.14.1 H1: no face-IDed resident on camera
         current_state=HouseState.HOME_DAY,
-        any_zone_occupied=True,  # camera Tier 2 firing
+        any_zone_occupied=True,  # camera Tier 2 firing (ghost motion)
         now=_afternoon(),
         unidentified_count=0,
         guest_gate_armed=False,
