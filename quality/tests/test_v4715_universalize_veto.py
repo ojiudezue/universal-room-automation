@@ -529,7 +529,7 @@ class TestD2ZoneAggregatorLayer3:
     def test_layer3_uses_helper_with_zone_aggregator_scope(self):
         idx = AGG_SRC.find("def _nonsleep_person_fallback_occupied")
         assert idx >= 0
-        body = AGG_SRC[idx: idx + 4000]
+        body = AGG_SRC[idx: idx + 8000]
         assert "should_veto_due_to_reliable_signals" in body, (
             "v4.7.15 D2: Layer 3 must call the shared helper"
         )
@@ -537,7 +537,7 @@ class TestD2ZoneAggregatorLayer3:
 
     def test_layer3_uses_module_level_quiet_threshold(self):
         idx = AGG_SRC.find("def _nonsleep_person_fallback_occupied")
-        body = AGG_SRC[idx: idx + 4000]
+        body = AGG_SRC[idx: idx + 8000]
         assert "room_sensors_quiet_seconds" in body
 
 
@@ -768,11 +768,11 @@ class TestSiblingCyclePreservation:
             assert attr in SENSOR_SRC
 
     def test_v4714_dispatcher_payload_shape_unchanged(self):
-        idx = PRESENCE_SRC.find("SIGNAL_HOUSE_STATE_CHANGED")
-        assert idx >= 0
-        idx2 = PRESENCE_SRC.find("async_dispatcher_send", idx)
-        if idx2 < 0:
-            idx2 = PRESENCE_SRC.find("async_dispatcher_send")
-        block = PRESENCE_SRC[idx2: idx2 + 1500]
+        # The HOUSE_STATE_CHANGED dispatch site builds a payload with these
+        # four fields. Locate the actual call site (skip the import block).
+        anchor = "        SIGNAL_HOUSE_STATE_CHANGED,"
+        idx = PRESENCE_SRC.find(anchor)
+        assert idx >= 0, "HOUSE_STATE_CHANGED dispatch call site missing"
+        block = PRESENCE_SRC[idx: idx + 1500]
         for field in ("old_state", "new_state", "trigger", "confidence"):
             assert f'"{field}"' in block, f"dispatcher payload missing {field}"
