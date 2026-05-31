@@ -22,6 +22,7 @@ Camera integration hardened from camera_census.py lessons:
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Set
 
@@ -79,6 +80,71 @@ PRESENCE_SUPPRESSED_FROM_PERSISTENCE: frozenset[str] = frozenset({
     "census_count",
     "zone_occupied_count",
 })
+
+
+# ============================================================================
+# v4.7.15 D1: Bug Class #48 shared veto helper — types
+# ============================================================================
+#
+# The helper unifies the trust-hierarchy pattern shipped ad-hoc in v4.7.13
+# (zone aggregator, scope="zone_aggregator" SLEEP) and v4.7.14 (house
+# inference, scope="house_inference" AWAY). Future cycles plug additional
+# patterns by extending should_veto_due_to_reliable_signals() — no new files,
+# no callable proliferation.
+#
+# Conservative bias is preserved: the default fall-through returns fired=False,
+# so adding a new caller without a matching pattern is a no-op.
+
+# v4.7.15 D2 / D3: thresholds shared by helper patterns. Module-level so tests
+# and operator tuning can introspect them without instantiating a coordinator.
+_NONSLEEP_QUIET_THRESHOLD_SECONDS = 300  # 5 min — bridge structural degeneration
+_WAKING_SUSTAINED_THRESHOLD_SECONDS = 90  # ≥3 Frigate confirmations at 15-30s cadence
+
+
+@dataclass(frozen=True)
+class ReliableSignal:
+    """A reliable, persistent presence signal (person tracker, BLE, zone_persons).
+
+    kind: one of "person_tracker_away", "person_tracker_home",
+          "zone_persons_home", "ble_proximity_present", "ble_proximity_absent".
+    value: truthiness of the signal at evaluation time.
+    """
+
+    kind: str
+    value: bool
+
+
+@dataclass(frozen=True)
+class TransientSignal:
+    """A transient presence signal (camera burst, mmWave bounce, PIR).
+
+    kind: one of "camera_person_detected", "mmwave_occupied", "pir_motion",
+          "unidentified_person_count".
+    count: numeric quantity (1/0 for boolean signals, N for unidentified).
+    """
+
+    kind: str
+    count: int
+
+
+@dataclass(frozen=True)
+class VetoDecision:
+    """Result of a Bug Class #48 transient-vs-reliable arbitration.
+
+    fired: True iff the reliable signal vetoed the transient evidence.
+    confidence: 0.0-1.0 confidence in the vetoed conclusion (only meaningful
+                when fired=True). Mirrors the 1.0=good / 0.0=bad scale used
+                by inference_engine.confidence and signal_consensus.
+    reason: Short human-readable reason for activity-log + diagnostics.
+            Empty string when fired=False.
+    scope: The state_context scope the decision was evaluated against.
+           Empty string when no scope was provided.
+    """
+
+    fired: bool
+    confidence: float
+    reason: str
+    scope: str = ""
 
 
 # ============================================================================
@@ -549,6 +615,21 @@ class PresenceCoordinator(BaseCoordinator):
         # v4.7.14: Person-tracker veto diagnostics (populated by _run_inference).
         self._tracked_persons_count: int = 0
         self._all_tracked_persons_away: bool = False
+        # v4.7.15 D1: Last shared-veto-helper decision (diagnostics).
+        # Populated each _run_inference tick when the helper is consulted.
+        self._last_veto_decision: VetoDecision = VetoDecision(False, 0.0, "", "")
+        # v4.7.15 D3: Sustained-occupancy tracking — set when any_zone_occupied
+        # flips False -> True, cleared when False. Drives WAKING gate.
+        self._first_positive_zone_occupied_since: Optional[datetime] = None
+        self._wake_blocked_ticks: int = 0
+        # v4.7.15 D3: Exit-side persistence for GUEST -> HOME_*. Set when
+        # the "no unidentified, no guest_gate_armed" condition first becomes
+        # true while in GUEST state; cleared when it goes false.
+        self._guest_exit_quiet_since: Optional[datetime] = None
+        # v4.7.15 D5: Per-cycle signal_consensus + sustained-low tracker.
+        self._signal_consensus: float = 1.0
+        self._signal_consensus_inputs: Dict[str, Any] = {}
+        self._consensus_low_since: Optional[datetime] = None
         self._transitions_today: int = 0
         self._transition_reset_date: str = ""
         # Room area_id lookup: room_name -> area_id (from config entries)
@@ -619,6 +700,128 @@ class PresenceCoordinator(BaseCoordinator):
     def confidence(self) -> float:
         """Return confidence of current state inference."""
         return self._inference_engine.confidence
+
+    # ------------------------------------------------------------------
+    # v4.7.15 D1: Shared Bug Class #48 veto helper
+    # ------------------------------------------------------------------
+    def should_veto_due_to_reliable_signals(
+        self,
+        *,
+        reliable_signals: List[ReliableSignal],
+        transient_signals: List[TransientSignal],
+        state_context: Dict[str, Any],
+    ) -> VetoDecision:
+        """Bug Class #48 arbitration: reliable-signal veto of transient evidence.
+
+        v4.7.15 D1: Promotes the v4.7.13 (zone aggregator SLEEP) and v4.7.14
+        (house inference AWAY) inline patterns to a shared utility so future
+        cycles (v4.7.16 room-level, v4.8.x BLE proximity) plug new patterns
+        here rather than fork the logic. Default fall-through is fired=False —
+        adding a new caller without a matching pattern is a no-op.
+
+        Patterns shipped (scope dispatch):
+          - "house_inference"  : Pattern A — v4.7.14 AWAY veto
+          - "zone_aggregator"  : Pattern B (SLEEP, v4.7.13) + Pattern C (non-sleep, v4.7.15 D2)
+          - "waking_transition": Pattern D — v4.7.15 D3 sustained-signal WAKING gate
+          - "guest_exit"       : Pattern E — v4.7.15 D3 GUEST→HOME exit-side persistence
+        """
+        scope = str(state_context.get("scope", ""))
+        # Bug Class #22 mitigation: accept enum or string for house_state.
+        _hs_raw = state_context.get("house_state", "")
+        house_state = str(getattr(_hs_raw, "value", _hs_raw)).lower()
+        tracked_count = int(state_context.get("tracked_count", 0))
+
+        # Pattern A — v4.7.14 house-inference AWAY veto.
+        if scope == "house_inference":
+            all_away = any(
+                s.kind == "person_tracker_away" and s.value for s in reliable_signals
+            )
+            any_home = any(
+                s.kind == "person_tracker_home" and s.value for s in reliable_signals
+            )
+            unid = next(
+                (s.count for s in transient_signals
+                 if s.kind == "unidentified_person_count"),
+                0,
+            )
+            if tracked_count > 0 and all_away and not any_home and unid == 0:
+                return VetoDecision(
+                    True, 0.95, "all_tracked_persons_away (no guests)", scope,
+                )
+            return VetoDecision(False, 0.0, "", scope)
+
+        # Pattern B — v4.7.13 zone-aggregator SLEEP fallback.
+        if scope == "zone_aggregator" and house_state == "sleep":
+            any_home = any(
+                s.kind == "zone_persons_home" and s.value for s in reliable_signals
+            )
+            if any_home:
+                return VetoDecision(True, 0.90, "zone_persons home during sleep", scope)
+            return VetoDecision(False, 0.0, "", scope)
+
+        # Pattern C — v4.7.15 D2 zone-aggregator non-sleep states.
+        if scope == "zone_aggregator" and house_state in (
+            "home_day", "home_evening", "home_night",
+            "arriving", "guest", "waking",
+        ):
+            any_home = any(
+                s.kind == "zone_persons_home" and s.value for s in reliable_signals
+            )
+            sensors_quiet_seconds = int(
+                state_context.get("room_sensors_quiet_seconds", 0)
+            )
+            if any_home and sensors_quiet_seconds >= _NONSLEEP_QUIET_THRESHOLD_SECONDS:
+                return VetoDecision(
+                    True,
+                    0.85,
+                    f"zone_persons home during {house_state} "
+                    f"(quiet {sensors_quiet_seconds}s)",
+                    scope,
+                )
+            return VetoDecision(False, 0.0, "", scope)
+
+        # Pattern D — v4.7.15 D3 WAKING sustained-signal gate.
+        if scope == "waking_transition":
+            sustained_seconds = int(
+                state_context.get("sustained_occupancy_seconds", 0)
+            )
+            if sustained_seconds >= _WAKING_SUSTAINED_THRESHOLD_SECONDS:
+                return VetoDecision(
+                    False, 0.85,
+                    f"sustained occupancy confirms wake ({sustained_seconds}s)",
+                    scope,
+                )
+            return VetoDecision(
+                True, 0.6,
+                f"insufficient sustained signal ({sustained_seconds}s "
+                f"< {_WAKING_SUSTAINED_THRESHOLD_SECONDS}s)",
+                scope,
+            )
+
+        # Pattern E — v4.7.15 D3 GUEST exit-side persistence.
+        if scope == "guest_exit":
+            quiet_seconds = int(state_context.get("guest_exit_quiet_seconds", 0))
+            threshold = int(
+                state_context.get(
+                    "guest_persistence_seconds", self._guest_persistence_seconds,
+                )
+            )
+            if threshold <= 0:
+                return VetoDecision(False, 0.0, "guest exit persistence disabled", scope)
+            if quiet_seconds >= threshold:
+                return VetoDecision(
+                    False, 0.85,
+                    f"guest exit sustained ({quiet_seconds}s >= {threshold}s)",
+                    scope,
+                )
+            return VetoDecision(
+                True, 0.7,
+                f"guest exit not yet sustained ({quiet_seconds}s < {threshold}s)",
+                scope,
+            )
+
+        # Unknown / unmatched scope — fall through (forward compatible).
+        return VetoDecision(False, 0.0, "", scope)
 
     def get_next_state_prediction(self) -> dict:
         """Return the next-state prediction in the D1 PWA contract shape.
