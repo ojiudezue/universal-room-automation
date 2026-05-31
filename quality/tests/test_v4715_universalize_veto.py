@@ -898,7 +898,7 @@ class TestD2ZoneAggregatorLayer3:
 # Hard upper bound enforced by test_run_inference_only_defined_once at the
 # bottom of this section — the widened window cannot span two function
 # bodies.
-_RUN_INFERENCE_WINDOW = 42000
+_RUN_INFERENCE_WINDOW = 44000
 
 
 class TestD3WakingSustainedSignal:
@@ -998,7 +998,7 @@ class TestD3RunInferenceWindowSafety:
         assert _RUN_INFERENCE_WINDOW >= body_chars_approx, (
             f"v4.7.15.1 D3: _RUN_INFERENCE_WINDOW={_RUN_INFERENCE_WINDOW} "
             f"but body is approximately {body_chars_approx} chars "
-            f"({body_lines} lines x 80). Widen the window or shrink "
+            f"({body_lines} lines x 60). Widen the window or shrink "
             f"_run_inference — silent slide past body end would render "
             f"every D3 source-grep assertion meaningless."
         )

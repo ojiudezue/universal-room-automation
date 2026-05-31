@@ -2570,8 +2570,13 @@ class PresenceCoordinator(BaseCoordinator):
                 if self._excluded_persons
                 else "(none)"
             )
+            # v4.7.15.1 fix-up A-M1 (Reviewer A): unify vocabulary with the
+            # helper reason ("trusted=N") so journald log correlation works
+            # against a single token. Prior wording said "trustworthy persons"
+            # while the helper reason said "trusted=N" for the same number —
+            # two labels for the same concept.
             _LOGGER.info(
-                "v4.7.14.1: Person-tracker veto fired — %d trustworthy persons "
+                "v4.7.14.1: Person-tracker veto fired — %d trusted persons "
                 "confirmed away (%s), %d excluded (%s), no unidentified people, "
                 "census_count=0; forcing AWAY (was %s, any_zone_occupied=%s, "
                 "confidence=0.95)",
@@ -2668,11 +2673,26 @@ class PresenceCoordinator(BaseCoordinator):
             if current_state != HouseState.GUEST or new_state == HouseState.GUEST:
                 self._guest_exit_quiet_since = None
 
-        # v4.7.15.1 D1: Consolidated Pattern A invocation — house-inference
-        # is the AUTHORITATIVE LAST writer of self._last_veto_decision per
-        # cycle (operator-mandated write-ordering per plan §"CRITICAL RISK
-        # PREMIUM" item 4). The v4.7.14.1 H1/H2/H3 surfaces are now plumbed
-        # through the shared helper via the parallel-list signal contract:
+        # v4.7.15.1 D1: Consolidated Pattern A invocation — house_inference
+        # is the LAST writer of self._last_veto_decision per cycle
+        # (operator-mandated DIAGNOSTIC-SURFACE invariant per plan
+        # §"CRITICAL RISK PREMIUM" item 4).
+        #
+        # v4.7.15.1 fix-up A-M2 (Reviewer A): "LAST writer" here refers ONLY
+        # to the DIAGNOSTIC surface (`_last_veto_decision`). It does NOT
+        # mean Pattern A's verdict overrides state-transition authority.
+        # The actual `new_state` came from `infer()` higher in this method
+        # (line ~2452 — see `new_state = self._inference_engine.infer(...)`);
+        # this call exists solely to populate the diagnostic surface that
+        # operators query via
+        # `sensor.ura_presence_house_state.last_veto_decision`. The
+        # WAKING/GUEST gates above may have written transient values into
+        # the surface earlier in the cycle — overwriting them with the
+        # house_inference result is intentional and correct (operators see
+        # the house-level veto state, not a transient WAKING gate result).
+        #
+        # The v4.7.14.1 H1/H2/H3 surfaces are plumbed through the shared
+        # helper via the parallel-list signal contract:
         #   - H2 carried as ReliableSignal("person_phone_trustworthy", bool)
         #     one per tracked person (sorted-name order).
         #   - H3 carried as ReliableSignal("person_tracking_active", bool)
@@ -2681,9 +2701,8 @@ class PresenceCoordinator(BaseCoordinator):
         # The inline filter loop above is preserved — it owns the
         # excluded_persons reason map (for the INFO log + diagnostic sensor)
         # and the all_tracked_persons_away boolean (consumed by
-        # _inference_engine.infer()). The helper here is the diagnostic
-        # surface; the authoritative new_state still comes from infer(). Both
-        # paths read the same H1/H2/H3 data so they MUST agree.
+        # _inference_engine.infer()). Both paths read the same H1/H2/H3 data
+        # so they MUST agree.
         try:
             reliable_signals_a = [
                 ReliableSignal("person_tracker_away", all_tracked_persons_away),
