@@ -294,6 +294,176 @@ class TestD1HelperPatternA:
         assert decision.fired is False
 
 
+class TestD1HelperPatternAV4715_1:
+    """v4.7.15.1 D1: Pattern A consumes v4.7.14.1 H1/H2/H3 surfaces.
+
+    These tests drive the production helper at presence.py:755+ directly
+    with the new signal taxonomy (Bug Class #44 — tests drive production
+    code, not a shadow re-implementation).
+    """
+
+    def test_pattern_a_fires_when_census_zero_and_unid_zero_and_all_trusted_away(self):
+        """v4.7.15.1: Full positive case — H1 census=0, H2/H3 all trusted, all away."""
+        coord = _make_presence_coordinator()
+        decision = coord.should_veto_due_to_reliable_signals(
+            reliable_signals=[
+                ReliableSignal("person_tracker_away", True),
+                ReliableSignal("person_phone_trustworthy", True),
+                ReliableSignal("person_phone_trustworthy", True),
+                ReliableSignal("person_phone_trustworthy", True),
+                ReliableSignal("person_phone_trustworthy", True),
+                ReliableSignal("person_tracking_active", True),
+                ReliableSignal("person_tracking_active", True),
+                ReliableSignal("person_tracking_active", True),
+                ReliableSignal("person_tracking_active", True),
+            ],
+            transient_signals=[
+                TransientSignal("unidentified_person_count", 0),
+                TransientSignal("census_count", 0),
+            ],
+            state_context={
+                "scope": "house_inference", "tracked_count": 4,
+            },
+        )
+        assert decision.fired is True
+        assert decision.confidence == 0.95
+        assert "trusted=4" in decision.reason
+        assert "no census" in decision.reason
+
+    def test_pattern_a_does_not_fire_when_census_positive(self):
+        """v4.7.14.1 H1: census_count >= 1 blocks veto (Frigate IDed a resident)."""
+        coord = _make_presence_coordinator()
+        decision = coord.should_veto_due_to_reliable_signals(
+            reliable_signals=[
+                ReliableSignal("person_tracker_away", True),
+                ReliableSignal("person_phone_trustworthy", True),
+                ReliableSignal("person_phone_trustworthy", True),
+                ReliableSignal("person_tracking_active", True),
+                ReliableSignal("person_tracking_active", True),
+            ],
+            transient_signals=[
+                TransientSignal("unidentified_person_count", 0),
+                TransientSignal("census_count", 1),  # H1 trigger
+            ],
+            state_context={"scope": "house_inference", "tracked_count": 2},
+        )
+        assert decision.fired is False
+
+    def test_pattern_a_excludes_phone_left_behind_from_trusted(self):
+        """v4.7.14.1 H2: a phone_left_behind=True person drops trusted_count by 1."""
+        coord = _make_presence_coordinator()
+        # 4 tracked persons, 1 phone-left-behind (F), 3 trustworthy (T).
+        # All 4 have ACTIVE tracking. all_tracker_away = True (all reported away).
+        decision = coord.should_veto_due_to_reliable_signals(
+            reliable_signals=[
+                ReliableSignal("person_tracker_away", True),
+                ReliableSignal("person_phone_trustworthy", False),
+                ReliableSignal("person_phone_trustworthy", True),
+                ReliableSignal("person_phone_trustworthy", True),
+                ReliableSignal("person_phone_trustworthy", True),
+                ReliableSignal("person_tracking_active", True),
+                ReliableSignal("person_tracking_active", True),
+                ReliableSignal("person_tracking_active", True),
+                ReliableSignal("person_tracking_active", True),
+            ],
+            transient_signals=[
+                TransientSignal("unidentified_person_count", 0),
+                TransientSignal("census_count", 0),
+            ],
+            state_context={"scope": "house_inference", "tracked_count": 4},
+        )
+        assert decision.fired is True
+        # trusted_count derived by helper = 3 (one phone-left-behind filtered).
+        assert "trusted=3" in decision.reason
+
+    def test_pattern_a_excludes_stale_lost_tracking_from_trusted(self):
+        """v4.7.14.1 H3: a tracking_active=False (STALE/LOST) drops trusted_count."""
+        coord = _make_presence_coordinator()
+        decision = coord.should_veto_due_to_reliable_signals(
+            reliable_signals=[
+                ReliableSignal("person_tracker_away", True),
+                ReliableSignal("person_phone_trustworthy", True),
+                ReliableSignal("person_phone_trustworthy", True),
+                ReliableSignal("person_phone_trustworthy", True),
+                ReliableSignal("person_tracking_active", True),
+                ReliableSignal("person_tracking_active", True),
+                ReliableSignal("person_tracking_active", False),  # STALE
+            ],
+            transient_signals=[
+                TransientSignal("unidentified_person_count", 0),
+                TransientSignal("census_count", 0),
+            ],
+            state_context={"scope": "house_inference", "tracked_count": 3},
+        )
+        assert decision.fired is True
+        assert "trusted=2" in decision.reason
+
+    def test_pattern_a_falls_back_to_state_context_tracked_count_when_per_person_lists_empty(self):
+        """v4.7.15 backward compat: callers without H2/H3 signals use
+        state_context["tracked_count"] verbatim (zone aggregator etc.)."""
+        coord = _make_presence_coordinator()
+        decision = coord.should_veto_due_to_reliable_signals(
+            reliable_signals=[ReliableSignal("person_tracker_away", True)],
+            transient_signals=[
+                TransientSignal("unidentified_person_count", 0),
+                TransientSignal("census_count", 0),
+            ],
+            state_context={"scope": "house_inference", "tracked_count": 2},
+        )
+        assert decision.fired is True
+        # No per-person lists → trusted_count == state_context tracked_count.
+        assert "trusted=2" in decision.reason
+
+    def test_pattern_a_length_mismatch_fails_conservative(self):
+        """Mismatched H2/H3 list lengths → trusted_count = 0 → no veto.
+
+        Plan §D1.1 fail-conservative invariant: a broken caller contract
+        must NOT accidentally veto. Length mismatch is the canary for
+        builder-error misalignment.
+        """
+        coord = _make_presence_coordinator()
+        decision = coord.should_veto_due_to_reliable_signals(
+            reliable_signals=[
+                ReliableSignal("person_tracker_away", True),
+                # 3 phone signals
+                ReliableSignal("person_phone_trustworthy", True),
+                ReliableSignal("person_phone_trustworthy", True),
+                ReliableSignal("person_phone_trustworthy", True),
+                # but only 2 tracking signals (misaligned!)
+                ReliableSignal("person_tracking_active", True),
+                ReliableSignal("person_tracking_active", True),
+            ],
+            transient_signals=[
+                TransientSignal("unidentified_person_count", 0),
+                TransientSignal("census_count", 0),
+            ],
+            state_context={"scope": "house_inference", "tracked_count": 3},
+        )
+        assert decision.fired is False, (
+            "v4.7.15.1 D1: length mismatch must fail CONSERVATIVE (cannot veto)"
+        )
+
+    def test_pattern_a_trusted_count_zero_does_not_veto(self):
+        """All persons filtered out by H2+H3 → trusted_count = 0 → fail-safe holds."""
+        coord = _make_presence_coordinator()
+        decision = coord.should_veto_due_to_reliable_signals(
+            reliable_signals=[
+                ReliableSignal("person_tracker_away", True),
+                ReliableSignal("person_phone_trustworthy", False),
+                ReliableSignal("person_phone_trustworthy", False),
+                ReliableSignal("person_tracking_active", True),
+                ReliableSignal("person_tracking_active", True),
+            ],
+            transient_signals=[
+                TransientSignal("unidentified_person_count", 0),
+                TransientSignal("census_count", 0),
+            ],
+            state_context={"scope": "house_inference", "tracked_count": 2},
+        )
+        # All H2 filtered out → trusted_count = 0 → tracked_count > 0 fails → no veto.
+        assert decision.fired is False
+
+
 class TestD1HelperPatternB:
     """Pattern B — v4.7.13 zone-aggregator SLEEP fallback."""
 

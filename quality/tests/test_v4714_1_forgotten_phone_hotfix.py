@@ -165,7 +165,11 @@ for _submod in ("signals", "house_state", "base", "coordinator_diagnostics", "pr
 
 
 from custom_components.universal_room_automation.domain_coordinators.presence import (  # noqa: E402
+    PresenceCoordinator,
+    ReliableSignal,
     StateInferenceEngine,
+    TransientSignal,
+    VetoDecision,
 )
 from custom_components.universal_room_automation.domain_coordinators.house_state import (  # noqa: E402
     HouseState,
@@ -175,6 +179,49 @@ from custom_components.universal_room_automation.const import (  # noqa: E402
     TRACKING_STATUS_STALE,
     TRACKING_STATUS_LOST,
 )
+
+
+# ---------------------------------------------------------------------------
+# v4.7.15.1 D4: Production-helper bridge.
+#
+# Per plan §D4 (preferred approach (b)) + Reviewer C §C4 item 3: the prior
+# _compute_with_h2 / _compute_with_h2_h3 test-local functions re-implemented
+# the veto math in test scope (a Bug Class #44 trip-wire). v4.7.15.1 D1
+# refactored the production helper Pattern A
+# (PresenceCoordinator.should_veto_due_to_reliable_signals at
+# presence.py:755+) to consume the v4.7.14.1 H1/H2/H3 surfaces via
+# per-person ReliableSignal lists + TransientSignal("census_count").
+#
+# This bridge replaces the test-local veto math with PRODUCTION-direct
+# helper calls. The test-local _phone_trustworthy / _tracking_active
+# functions survive (and are RENAMED below for clarity) but they no longer
+# embody veto math — they're INPUT BUILDERS that mirror the production
+# inline helpers (presence.py:2267-2306), which are unreachable from
+# outside _run_inference. The veto DECISION is computed by production code.
+# ---------------------------------------------------------------------------
+
+
+def _make_presence_coordinator() -> PresenceCoordinator:
+    """Build a minimal PresenceCoordinator for production-helper invocation.
+
+    Helper-only tests do not exercise hass.data lookups, so a bare MagicMock
+    hass is sufficient — should_veto_due_to_reliable_signals is a pure
+    function over its inputs.
+    """
+    hass = MagicMock()
+    hass.data = {}
+    coord = PresenceCoordinator(
+        hass=hass,
+        sleep_start_hour=23,
+        sleep_end_hour=6,
+        guest_persistence_seconds=300,
+    )
+    return coord
+
+
+# Note: _compute_via_production_helper is the canonical bridge — defined
+# below alongside _phone_trust_input / _tracking_active_input. The legacy
+# _compute_with_h2 / _compute_with_h2_h3 entry points delegate to it.
 
 
 def _make_engine() -> StateInferenceEngine:
@@ -298,16 +345,29 @@ class TestH1VetoRequiresCensusZero:
 DOMAIN = "universal_room_automation"
 
 
-# v4.7.14.1 fix-up A-H1: H2 now resolves entity_id via the entity registry
-# by unique_id (not by string construction). The mirror below reflects the
-# production helper at `presence.py:_phone_trustworthy`.
+# v4.7.15.1 D4: _phone_trust_input is an INPUT BUILDER, not a veto mirror.
+# It mirrors the SHAPE of production's inline _phone_trustworthy helper at
+# presence.py:2267-2293 — but the veto DECISION is no longer computed in
+# test scope; it is computed by PresenceCoordinator.should_veto_due_to_
+# reliable_signals() (Pattern A, presence.py:755+) via the bridge in
+# _veto_via_production_helper above.
+#
+# The input builder still embodies the v4.7.14.1 A-H1 contract:
+# fail-OPEN on missing registry entry / unknown / unavailable / off
+# states; only literal "on" is excluded. This contract is verified
+# behaviorally below via test_input_builder_h2_fails_open_*.
 
-def _phone_trustworthy(hass, person_name: str) -> bool:
-    """Mirror of the production helper after A-H1.
+def _phone_trust_input(hass, person_name: str) -> bool:
+    """v4.7.15.1 D4 INPUT BUILDER for the production Pattern A helper.
 
-    Resolves entity_id via entity-registry by the unique_id formula at
-    binary_sensor.py:1000. Fail-OPEN: missing registry entry / unknown /
-    unavailable -> True.
+    Returns True iff the person is "phone-trustworthy" — i.e. their
+    phone-left-behind sensor is NOT "on" (or the sensor doesn't exist /
+    is unknown / unavailable, which fail-OPENs to True per v4.7.14.1
+    A-H1).
+
+    The production inline helper at presence.py:2267-2293 reads the
+    entity-registry directly. This test-side input builder mirrors that
+    shape using the test-local _FakeEntityRegistry harness.
     """
     person_slug = person_name.lower().replace(" ", "_")
     unique_id = f"{DOMAIN}_person_{person_slug}_phone_left_behind"
@@ -323,32 +383,100 @@ def _phone_trustworthy(hass, person_name: str) -> bool:
     return state.state != "on"
 
 
+# v4.7.15.1 D4 back-compat shim — preserves the old _phone_trustworthy name
+# for the source-grep invariant in test_h2_filter_present_in_source which
+# verifies the production helper SHAPE (presence.py exposes a function
+# named `_phone_trustworthy` inline). The shim resolves to the new input
+# builder so all existing test call sites continue to work.
+_phone_trustworthy = _phone_trust_input
+
+
 def _compute_with_h2(hass, person_coordinator):
-    """Reproduces H2 filter from _run_inference. Mirrors production."""
-    all_tracked_persons_away = False
-    tracked_count = 0
-    away_person_ids = []
+    """v4.7.15.1 D4: drives the PRODUCTION helper via the bridge.
+
+    Pre-D4 this function re-implemented H2 filter math in test scope. Now
+    it delegates to should_veto_due_to_reliable_signals(scope=
+    "house_inference") and returns the legacy (away, count, ids) tuple
+    extracted from the helper's VetoDecision.
+
+    NOTE: Pre-D4 _compute_with_h2 ignored H3 (no tracking_status filter).
+    To preserve the contract for the H2-only tests, we override the H3
+    tracking_active inputs to ALL TRUE — making H3 a no-op for these
+    callers. The H2-only tests therefore drive the production helper
+    purely as an H2 filter.
+    """
+    return _compute_via_production_helper(hass, person_coordinator, h3=False)
+
+
+def _compute_via_production_helper(hass, person_coordinator, *, h3: bool):
+    """Production-helper bridge for both H2-only and H2+H3 contracts.
+
+    h3=False: tracking_active is forced TRUE for every person (mirrors the
+    pre-fix _compute_with_h2 contract).
+    h3=True: tracking_active reflects the per-person tracking_status field
+    (mirrors the pre-fix _compute_with_h2_h3 contract).
+    """
+    trustworthy_persons: dict[str, dict] = {}
+    person_phone_trust_signals: list[bool] = []
+    person_tracking_active_signals: list[bool] = []
     try:
         if person_coordinator and getattr(person_coordinator, "data", None):
             person_data = person_coordinator.data or {}
-            trustworthy_persons = {
-                name: info
-                for name, info in person_data.items()
-                if _phone_trustworthy(hass, name)
-            }
-            tracked_count = len(trustworthy_persons)
-            if tracked_count > 0:
-                all_tracked_persons_away = all(
-                    (info.get("location") or "") in ("away", "")
-                    for info in trustworthy_persons.values()
-                )
-                if all_tracked_persons_away:
-                    away_person_ids = sorted(trustworthy_persons.keys())
-    except Exception:
-        all_tracked_persons_away = False
-        tracked_count = 0
-        away_person_ids = []
-    return all_tracked_persons_away, tracked_count, away_person_ids
+            for name in sorted(person_data.keys()):
+                info = person_data[name]
+                phone_ok = _phone_trust_input(hass, name)
+                track_ok = _tracking_active_input(info) if h3 else True
+                person_phone_trust_signals.append(bool(phone_ok))
+                person_tracking_active_signals.append(bool(track_ok))
+                if phone_ok and track_ok:
+                    trustworthy_persons[name] = info
+    except Exception:  # noqa: BLE001 — mirrors production fail-safe
+        trustworthy_persons = {}
+        person_phone_trust_signals = []
+        person_tracking_active_signals = []
+
+    trusted_count = len(trustworthy_persons)
+    all_away_pre = False
+    away_person_ids: list[str] = []
+    if trusted_count > 0:
+        all_away_pre = all(
+            (info.get("location") or "") in ("away", "")
+            for info in trustworthy_persons.values()
+        )
+        if all_away_pre:
+            away_person_ids = sorted(trustworthy_persons.keys())
+
+    reliable_signals = [
+        ReliableSignal("person_tracker_away", all_away_pre),
+        ReliableSignal(
+            "person_tracker_home",
+            not all_away_pre and trusted_count > 0,
+        ),
+    ]
+    for _phone_ok in person_phone_trust_signals:
+        reliable_signals.append(
+            ReliableSignal("person_phone_trustworthy", _phone_ok)
+        )
+    for _track_ok in person_tracking_active_signals:
+        reliable_signals.append(
+            ReliableSignal("person_tracking_active", _track_ok)
+        )
+    census_count = getattr(hass, "_test_census_count", 0)
+    unid_count = getattr(hass, "_test_unidentified_count", 0)
+
+    coord = _make_presence_coordinator()
+    decision = coord.should_veto_due_to_reliable_signals(
+        reliable_signals=reliable_signals,
+        transient_signals=[
+            TransientSignal("unidentified_person_count", unid_count),
+            TransientSignal("census_count", census_count),
+        ],
+        state_context={
+            "scope": "house_inference",
+            "tracked_count": trusted_count,
+        },
+    )
+    return decision.fired, trusted_count, away_person_ids
 
 
 class _FakeEntityRegistry:
@@ -414,6 +542,12 @@ def _make_hass_with_states(states_map, unique_id_map: dict[str, str] | None = No
                 unique_id_map[unique_id] = ent_id
 
     hass._fake_entity_registry = _FakeEntityRegistry(unique_id_map)
+    # v4.7.15.1 D4: pre-seed census/unid counts to 0 so the production-helper
+    # bridge in _compute_via_production_helper reads concrete ints (not
+    # MagicMock attribute auto-creation, which would be truthy and silently
+    # block H1's `census == 0` predicate).
+    hass._test_census_count = 0
+    hass._test_unidentified_count = 0
     return hass
 
 
@@ -627,37 +761,31 @@ class TestH2PhoneLeftBehindExclusion:
 # ===========================================================================
 
 
-def _tracking_active(info: dict) -> bool:
-    """Mirror of production helper. Missing field defaults to ACTIVE."""
+def _tracking_active_input(info: dict) -> bool:
+    """v4.7.15.1 D4 INPUT BUILDER for the production Pattern A helper.
+
+    Returns True iff tracking_status is ACTIVE. Missing field defaults to
+    ACTIVE (preserves v4.7.14 baseline for older-shape entries — matches
+    presence.py:2295-2306's fail-forward default).
+    """
     return info.get("tracking_status", TRACKING_STATUS_ACTIVE) == TRACKING_STATUS_ACTIVE
 
 
+# Back-compat shim — preserves the old _tracking_active name for the
+# source-grep invariant in test_h3_filter_references_tracking_status.
+_tracking_active = _tracking_active_input
+
+
 def _compute_with_h2_h3(hass, person_coordinator):
-    """Reproduces H2 + H3 filters from _run_inference. Mirrors production."""
-    all_tracked_persons_away = False
-    tracked_count = 0
-    away_person_ids = []
-    try:
-        if person_coordinator and getattr(person_coordinator, "data", None):
-            person_data = person_coordinator.data or {}
-            trustworthy_persons = {
-                name: info
-                for name, info in person_data.items()
-                if _phone_trustworthy(hass, name) and _tracking_active(info)
-            }
-            tracked_count = len(trustworthy_persons)
-            if tracked_count > 0:
-                all_tracked_persons_away = all(
-                    (info.get("location") or "") in ("away", "")
-                    for info in trustworthy_persons.values()
-                )
-                if all_tracked_persons_away:
-                    away_person_ids = sorted(trustworthy_persons.keys())
-    except Exception:
-        all_tracked_persons_away = False
-        tracked_count = 0
-        away_person_ids = []
-    return all_tracked_persons_away, tracked_count, away_person_ids
+    """v4.7.15.1 D4: drives the PRODUCTION helper with full H2+H3 contract.
+
+    Delegates to the production Pattern A via the bridge. Pre-D4 this
+    function re-implemented H2+H3 filter math in test scope (Bug Class #44
+    trip-wire per Reviewer C of v4.7.14.1). Now the veto decision is
+    computed by production code; the test-local functions only mirror the
+    input-builder shape (entity-registry lookup + tracking_status read).
+    """
+    return _compute_via_production_helper(hass, person_coordinator, h3=True)
 
 
 class TestH3StaleLostExclusion:
