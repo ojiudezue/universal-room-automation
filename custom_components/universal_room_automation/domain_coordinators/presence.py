@@ -1992,123 +1992,6 @@ class PresenceCoordinator(BaseCoordinator):
             for t in self._zone_trackers.values()
         )
 
-        # v4.7.16 D3: Per-room BLE-tier weighted veto (zone-iterates-rooms).
-        # For each zone, build a weight map keyed by room_name using the
-        # canonical CONF_SCANNER_AREAS classification surfaced by
-        # PersonTrackingCoordinator.get_ble_tier (D1). Tier 1 = 1.0,
-        # Tier 2 = BLE_TIER_2_WEIGHT (default 0.6), Tier 0 = 0.0.
-        #
-        # The aggregated weight is fed to the v4.7.15 shared veto helper
-        # which decides whether to veto an OCCUPIED reading in favor of
-        # the multi-tier consensus. v4.7.16 records the verdict on
-        # self._v4716_zone_verdicts for diagnostics; downstream gating
-        # ties in once the helper API is stable.
-        #
-        # v4.7.16 D3: verify helper signature post v4.7.15 lands
-        # — expected: should_veto_due_to_reliable_signals(
-        #              reliable_signals=[...], transient_signals=[...],
-        #              state_context={...}) -> VetoDecision(fired, confidence, reason)
-        self._v4716_zone_verdicts: Dict[str, Dict[str, Any]] = {}
-        try:
-            for zone_name, tracker in self._zone_trackers.items():
-                weights: Dict[str, float] = {}
-                for room_name in getattr(tracker, "room_names", []) or []:
-                    if person_coordinator is None or not hasattr(
-                        person_coordinator, "get_ble_tier"
-                    ):
-                        # Fail-open: behave like pre-v4.7.16 (every room
-                        # gets weight 1.0). Logged once per cycle below.
-                        weights[room_name] = 1.0
-                        continue
-                    try:
-                        tier = int(person_coordinator.get_ble_tier(room_name))
-                    except Exception as exc:  # pragma: no cover - defensive
-                        _LOGGER.debug(
-                            "v4.7.16 D3: get_ble_tier(%s) failed: %s",
-                            room_name, exc,
-                        )
-                        tier = 0
-                    if tier == 1:
-                        weights[room_name] = 1.0
-                    elif tier == 2:
-                        weights[room_name] = BLE_TIER_2_WEIGHT
-                    else:
-                        weights[room_name] = 0.0
-                # v4.7.16 D3: reviewer decides aggregation (sum vs max).
-                # The plan §6 Reviewer A is framed to choose between sum
-                # (additive: many sparse rooms compound toward confidence)
-                # and max (dominant-room rule: confidence floor = the
-                # highest-tier room in the zone). Implementation defaults
-                # to sum; reviewer may swap or leave a guarded knob here.
-                aggregate_weight = sum(weights.values())
-
-                # Invoke v4.7.15 helper if available. Otherwise degrade
-                # gracefully to no-veto (preserves pre-v4.7.16 behavior).
-                # v4.7.16 D3: verify helper signature post v4.7.15 lands
-                veto_decision = None
-                helper = getattr(
-                    self, "should_veto_due_to_reliable_signals", None
-                )
-                if helper is not None:
-                    try:
-                        # Build minimal reliable/transient signal lists
-                        # against the documented contract. Real signal
-                        # collection will be wired in the post-v4.7.15
-                        # integration pass.
-                        reliable_signals: list = []
-                        transient_signals: list = []
-                        state_context = {
-                            "scope": "room_level_weighted",
-                            "zone_name": zone_name,
-                            "house_state": getattr(
-                                manager, "house_state", ""
-                            ),
-                            "room_weights": dict(weights),
-                            "aggregate_weight": aggregate_weight,
-                            "all_tracked_persons_away": all_tracked_persons_away,
-                            "tracked_count": tracked_count,
-                            "now": now,
-                        }
-                        # v4.7.16 D3: verify helper signature post v4.7.15 lands
-                        veto_decision = helper(
-                            reliable_signals=reliable_signals,
-                            transient_signals=transient_signals,
-                            state_context=state_context,
-                        )
-                    except Exception as exc:  # pragma: no cover - defensive
-                        _LOGGER.warning(
-                            "v4.7.16 D3: shared veto helper raised for "
-                            "zone %s: %s — degrading to no-veto",
-                            zone_name, exc,
-                        )
-                        veto_decision = None
-                self._v4716_zone_verdicts[zone_name] = {
-                    "room_weights": dict(weights),
-                    "aggregate_weight": aggregate_weight,
-                    "veto_fired": (
-                        bool(getattr(veto_decision, "fired", False))
-                        if veto_decision is not None
-                        else None
-                    ),
-                    "veto_confidence": (
-                        float(getattr(veto_decision, "confidence", 0.0))
-                        if veto_decision is not None
-                        else None
-                    ),
-                    "veto_reason": (
-                        str(getattr(veto_decision, "reason", ""))
-                        if veto_decision is not None
-                        else "helper_unavailable"
-                    ),
-                }
-        except Exception as exc:  # pragma: no cover - top-level guard
-            _LOGGER.warning(
-                "v4.7.16 D3: per-room weighting block failed: %s — "
-                "preserving pre-v4.7.16 behavior",
-                exc,
-            )
-            self._v4716_zone_verdicts = {}
-
         current_state = manager.house_state_machine.state
 
         # v4.6.2.2: Evaluate guest gate (threshold + confidence + persistence)
@@ -2170,6 +2053,119 @@ class PresenceCoordinator(BaseCoordinator):
             _d5_guest_confidence = 0.9
         else:
             _d5_guest_confidence = 0.8  # unid path only, or neither (ignored)
+
+        # v4.7.16 D3: Per-room BLE-tier weighted veto (zone-iterates-rooms).
+        # For each zone, build a weight map keyed by room_name using the
+        # canonical CONF_SCANNER_AREAS classification surfaced by
+        # PersonTrackingCoordinator.get_ble_tier (D1). Tier 1 = 1.0,
+        # Tier 2 = BLE_TIER_2_WEIGHT (default 0.6), Tier 0 = 0.0.
+        #
+        # The aggregated weight is fed to the v4.7.15 shared veto helper
+        # which decides whether to veto an OCCUPIED reading in favor of
+        # the multi-tier consensus. v4.7.16 records the verdict on
+        # self._v4716_zone_verdicts for diagnostics; downstream gating
+        # ties in once the helper API is stable.
+        #
+        # v4.7.16 D3: verify helper signature post v4.7.15 lands
+        # — expected: should_veto_due_to_reliable_signals(
+        #              reliable_signals=[...], transient_signals=[...],
+        #              state_context={...}) -> VetoDecision(fired, confidence, reason)
+        self._v4716_zone_verdicts: Dict[str, Dict[str, Any]] = {}
+        try:
+            for zone_name, tracker in self._zone_trackers.items():
+                weights: Dict[str, float] = {}
+                for room_name in getattr(tracker, "room_names", []) or []:
+                    if person_coordinator is None or not hasattr(
+                        person_coordinator, "get_ble_tier"
+                    ):
+                        # Fail-open: behave like pre-v4.7.16 (every room
+                        # gets weight 1.0). Logged once per cycle below.
+                        weights[room_name] = 1.0
+                        continue
+                    try:
+                        tier = int(person_coordinator.get_ble_tier(room_name))
+                    except Exception as exc:  # pragma: no cover - defensive
+                        _LOGGER.debug(
+                            "v4.7.16 D3: get_ble_tier(%s) failed: %s",
+                            room_name, exc,
+                        )
+                        tier = 0
+                    if tier == 1:
+                        weights[room_name] = 1.0
+                    elif tier == 2:
+                        weights[room_name] = BLE_TIER_2_WEIGHT
+                    else:
+                        weights[room_name] = 0.0
+                # v4.7.16 D3: reviewer decides aggregation (sum vs max).
+                # The plan §6 Reviewer A is framed to choose between sum
+                # (additive: many sparse rooms compound toward confidence)
+                # and max (dominant-room rule: confidence floor = the
+                # highest-tier room in the zone). Implementation defaults
+                # to sum; reviewer may swap or leave a guarded knob here.
+                aggregate_weight = sum(weights.values())
+
+                # Invoke v4.7.15 helper if available. Otherwise degrade
+                # gracefully to no-veto (preserves pre-v4.7.16 behavior).
+                # v4.7.16 D3: verify helper signature post v4.7.15 lands
+                veto_decision = None
+                helper = getattr(
+                    self, "should_veto_due_to_reliable_signals", None
+                )
+                if helper is not None:
+                    try:
+                        reliable_signals: list = []
+                        transient_signals: list = []
+                        state_context = {
+                            "scope": "room_level_weighted",
+                            "zone_name": zone_name,
+                            "house_state": getattr(
+                                manager, "house_state", ""
+                            ),
+                            "room_weights": dict(weights),
+                            "aggregate_weight": aggregate_weight,
+                            "all_tracked_persons_away": all_tracked_persons_away,
+                            "tracked_count": tracked_count,
+                            "now": now,
+                        }
+                        # v4.7.16 D3: verify helper signature post v4.7.15 lands
+                        veto_decision = helper(
+                            reliable_signals=reliable_signals,
+                            transient_signals=transient_signals,
+                            state_context=state_context,
+                        )
+                    except Exception as exc:  # pragma: no cover - defensive
+                        _LOGGER.warning(
+                            "v4.7.16 D3: shared veto helper raised for "
+                            "zone %s: %s — degrading to no-veto",
+                            zone_name, exc,
+                        )
+                        veto_decision = None
+                self._v4716_zone_verdicts[zone_name] = {
+                    "room_weights": dict(weights),
+                    "aggregate_weight": aggregate_weight,
+                    "veto_fired": (
+                        bool(getattr(veto_decision, "fired", False))
+                        if veto_decision is not None
+                        else None
+                    ),
+                    "veto_confidence": (
+                        float(getattr(veto_decision, "confidence", 0.0))
+                        if veto_decision is not None
+                        else None
+                    ),
+                    "veto_reason": (
+                        str(getattr(veto_decision, "reason", ""))
+                        if veto_decision is not None
+                        else "helper_unavailable"
+                    ),
+                }
+        except Exception as exc:  # pragma: no cover - top-level guard
+            _LOGGER.warning(
+                "v4.7.16 D3: per-room weighting block failed: %s — "
+                "preserving pre-v4.7.16 behavior",
+                exc,
+            )
+            self._v4716_zone_verdicts = {}
 
         new_state = self._inference_engine.infer(
             census_count=self._census_count,
