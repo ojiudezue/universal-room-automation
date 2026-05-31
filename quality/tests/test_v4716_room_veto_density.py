@@ -369,16 +369,23 @@ class TestD3RoomWeightedVeto:
                 return
         pytest.fail("_run_inference async function not found")
 
-    def test_reviewer_aggregation_flag_present_in_source(
+    def test_aggregation_uses_max_per_reviewer_a(
         self, presence_src: str
     ):
-        """The aggregation site flags sum-vs-max for Reviewer A (plan §6)."""
-        assert (
-            "reviewer decides aggregation" in presence_src
-            or "sum vs max" in presence_src
-        ), (
-            "v4.7.16 D3: aggregation site must carry the reviewer-decides "
-            "comment so Reviewer A can locate it"
+        """Post-review A1 (HIGH): aggregation is `max`, not `sum`.
+
+        Reviewer A picked max over sum to preserve the v3.8.9 invariant
+        "Tier 1 dominates Tier 2". A sum-based aggregate would let five
+        Tier-2 rooms (5 * 0.6 = 3.0) outweigh one Tier-1 room (1.0).
+        """
+        assert "max(weights.values())" in presence_src, (
+            "v4.7.16 D3 (post-review A1): aggregation must use max(), "
+            "not sum() — preserves Tier-1-dominates invariant"
+        )
+        # Explicit guard: a stray sum(weights.values()) would be a regression.
+        assert "sum(weights.values())" not in presence_src, (
+            "v4.7.16 D3 (post-review A1): sum(weights.values()) regressed "
+            "— reviewer A explicitly picked max() over sum"
         )
 
     def test_verify_helper_signature_comment_present(self, presence_src: str):

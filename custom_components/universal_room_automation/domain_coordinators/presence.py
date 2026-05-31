@@ -2096,13 +2096,20 @@ class PresenceCoordinator(BaseCoordinator):
                         weights[room_name] = BLE_TIER_2_WEIGHT
                     else:
                         weights[room_name] = 0.0
-                # v4.7.16 D3: reviewer decides aggregation (sum vs max).
-                # The plan §6 Reviewer A is framed to choose between sum
-                # (additive: many sparse rooms compound toward confidence)
-                # and max (dominant-room rule: confidence floor = the
-                # highest-tier room in the zone). Implementation defaults
-                # to sum; reviewer may swap or leave a guarded knob here.
-                aggregate_weight = sum(weights.values())
+                # v4.7.16 D3 (post-review A1, HIGH): aggregation = max.
+                # Reviewer A explicitly picked `max` over `sum` to preserve
+                # the v3.8.9 invariant "Tier 1 dominates Tier 2". Under sum,
+                # five Tier-2 rooms (5 * 0.6 = 3.0) would outweigh one
+                # Tier-1 room (1.0), inverting the design rationale.
+                # Under max, a zone's aggregate equals the strongest BLE
+                # evidence present:
+                #   max=1.0  ⟺ ≥1 Tier-1 room (own scanner)
+                #   max=0.6  ⟺ only Tier-2 rooms (borrowed scanner)
+                #   max=0.0  ⟺ Tier-0 only (no BLE)
+                # Per-room weights remain available to the v4.7.15 helper
+                # via state_context["room_weights"] for any aggregation
+                # the helper wants to perform internally.
+                aggregate_weight = max(weights.values()) if weights else 0.0
 
                 # Invoke v4.7.15 helper if available. Otherwise degrade
                 # gracefully to no-veto (preserves pre-v4.7.16 behavior).
@@ -2125,7 +2132,11 @@ class PresenceCoordinator(BaseCoordinator):
                             "aggregate_weight": aggregate_weight,
                             "all_tracked_persons_away": all_tracked_persons_away,
                             "tracked_count": tracked_count,
-                            "now": now,
+                            # v4.7.16 D3 (post-review A3, HIGH): Bug Class #11.
+                            # Sibling guest-gate code at :2032/:2040 uses UTC;
+                            # helper context must too. Local `now` above is
+                            # still fine for the guest-gate code that built it.
+                            "now": dt_util.utcnow(),
                         }
                         # v4.7.16 D3: verify helper signature post v4.7.15 lands
                         veto_decision = helper(
