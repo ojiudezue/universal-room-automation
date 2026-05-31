@@ -1160,6 +1160,51 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
         """
         return room_name.lower().replace(" ", "_") in self._direct_ble_rooms
 
+    def get_ble_tier(self, room_name: str) -> int:
+        """Return BLE scanner-resolution tier for a room.
+
+        v4.7.16 D1: derived attribute over CONF_SCANNER_AREAS classification.
+
+        Returns:
+            1 — direct / dense (room has own scanner; member of _direct_ble_rooms)
+            2 — borrowing / sparse (CONF_SCANNER_AREAS configured on this room
+                AND CONF_AREA_ID set; relies on a neighbor's scanner)
+            0 — neither (no area_id, or no BLE classification)
+
+        Read-only consumer of `_build_scanner_room_map` output. Lazy at read
+        time per Bug Class #46 doctrine — no migration helper, fail-safe to 0
+        when scanner map has not been built yet.
+
+        Note: this method uses "ble_tier" to distinguish from
+        ZonePresenceTracker's Tier 1/2/3 signal-class vocabulary. See file
+        header comment for the scanner-resolution Tier 1/2/3 vocabulary.
+        """
+        norm = (room_name or "").lower().replace(" ", "_")
+        if not norm:
+            return 0
+        # Tier 1 short-circuit: present in the cached direct-BLE set.
+        if norm in self._direct_ble_rooms:
+            return 1
+        # Tier 2 / 0: walk room entries to find this room's CONF_SCANNER_AREAS.
+        try:
+            entries = self.hass.config_entries.async_entries(DOMAIN)
+        except Exception as exc:  # pragma: no cover - defensive
+            _LOGGER.debug("get_ble_tier: config entry walk failed: %s", exc)
+            return 0
+        for entry in entries:
+            if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ROOM:
+                continue
+            entry_room = (entry.data.get("room_name") or "").lower().replace(" ", "_")
+            if entry_room != norm:
+                continue
+            config = {**entry.data, **entry.options}
+            area_id = config.get(CONF_AREA_ID)
+            scanner_areas = config.get(CONF_SCANNER_AREAS) or []
+            if scanner_areas and area_id:
+                return 2
+            return 0
+        return 0
+
     def get_zone_occupants(self, zone_rooms: list[str]) -> list[str]:
         """
         Get list of people currently in any room within a zone.
