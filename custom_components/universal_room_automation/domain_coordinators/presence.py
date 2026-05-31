@@ -407,7 +407,15 @@ class StateInferenceEngine:
         # Note: unidentified_count > 0 preserves guest detection — a guest at
         # the door triggering camera motion legitimately means someone IS here
         # even if all tracked persons are away.
-        if all_tracked_persons_away and unidentified_count == 0:
+        # v4.7.14.1 (H1): also require census_count == 0. If Frigate face-IDs a
+        # resident (census_count >= 1), SOMEONE is provably in front of a
+        # camera — phone trustworthiness is irrelevant. Prevents the
+        # forgotten-phone-at-home false-positive veto (Gap A).
+        if (
+            all_tracked_persons_away
+            and unidentified_count == 0
+            and census_count == 0
+        ):
             if current_state == HouseState.AWAY:
                 return None  # Already away
             self._confidence = 0.95  # higher than camera-driven 0.85

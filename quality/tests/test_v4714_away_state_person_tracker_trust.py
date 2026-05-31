@@ -349,12 +349,17 @@ def _afternoon() -> datetime:
 
 
 def test_veto_fires_when_all_persons_away_and_no_unidentified():
-    """Veto path: from HOME_DAY back to AWAY when all persons away."""
+    """Veto path: from HOME_DAY back to AWAY when all persons away.
+
+    v4.7.14.1 (H1): census_count must also be 0 — the veto only fires when
+    Frigate does NOT see any face-IDed resident (otherwise SOMEONE is provably
+    in the house regardless of phone state).
+    """
     engine = _make_engine()
     new_state = engine.infer(
-        census_count=1,  # camera census picked something up
+        census_count=0,  # v4.7.14.1 H1: no face-IDed resident on camera
         current_state=HouseState.HOME_DAY,
-        any_zone_occupied=True,  # camera Tier 2 firing
+        any_zone_occupied=True,  # camera Tier 2 firing (ghost motion)
         now=_afternoon(),
         unidentified_count=0,
         guest_gate_armed=False,
