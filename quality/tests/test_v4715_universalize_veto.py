@@ -817,13 +817,28 @@ def _build_runnable_presence(initial_state=None):
     from custom_components.universal_room_automation.domain_coordinators.house_state import (
         HouseState as _HS, HouseStateMachine,
     )
+    from homeassistant.util import dt as _dt_util  # noqa: PLC0415
+
     if initial_state is None:
         initial_state = _HS.AWAY
 
     sm = HouseStateMachine(initial_state=initial_state)
-    # Defang hysteresis so transitions in tests don't fight the min-dwell guard.
+    # Defang hysteresis + dwell-seconds check entirely so other tests'
+    # dt_util.utcnow patches can't break our transition timing logic.
+    # Bypass can_transition to its valid-target check only — no time math.
     sm._hysteresis = {s: 0 for s in _HS}
-    sm._state_since = datetime.utcnow() - timedelta(hours=1)
+    VALID_TRANSITIONS = sys.modules[
+        "custom_components.universal_room_automation.domain_coordinators.house_state"
+    ].VALID_TRANSITIONS
+
+    def _ct(self, new_state):
+        if new_state == self._state:
+            return False
+        valid_targets = VALID_TRANSITIONS.get(self._state, set())
+        return new_state in valid_targets
+
+    sm.can_transition = _ct.__get__(sm, type(sm))
+    sm._state_since = _dt_util.utcnow() - timedelta(hours=1)
 
     manager = MagicMock()
     manager.house_state_machine = sm
@@ -854,32 +869,43 @@ class TestD3InferenceOrchestration:
     @pytest.mark.asyncio
     async def test_waking_sustained_signal_persists_across_cycles(self):
         """SLEEP → mmwave OFF then ON for 90s+ → WAKING transition fires."""
-        coord, manager, sm = _build_runnable_presence(initial_state=HouseState.SLEEP)
-        # Force the inference engine to want WAKING every tick.
-        coord._inference_engine.infer = MagicMock(return_value=HouseState.WAKING)
-        coord._inference_engine._confidence = 0.85
-
-        # Tick 1: any_zone_occupied=True flips on. Timer arms but sustained=0s.
-        tracker = MagicMock()
-        tracker.mode = "occupied"
-        coord._zone_trackers = {"bedroom": tracker}
-
-        await coord._run_inference("test_tick_1")
-        # Gate should have blocked the WAKING transition.
-        assert sm.state == HouseState.SLEEP, "WAKING blocked by sustained gate"
-        assert coord._wake_blocked_ticks >= 1
-        first_seen = coord._first_positive_zone_occupied_since
-        assert first_seen is not None, "WAKING timer must arm on first True"
-
-        # Simulate 120s elapsed by backdating the timer.
-        coord._first_positive_zone_occupied_since = (
-            first_seen - timedelta(seconds=120)
+        # Lock dt_util.utcnow to a fixed naive value in presence.py's namespace
+        # so other test files' clock-patching can't perturb timer arithmetic.
+        from custom_components.universal_room_automation.domain_coordinators import (
+            presence as presence_mod,
         )
-        await coord._run_inference("test_tick_2")
-        # Now the gate should pass and the transition should be accepted.
-        assert sm.state == HouseState.WAKING, (
-            "WAKING should fire after 90s+ sustained signal"
-        )
+        from unittest.mock import patch as _patch
+        fixed_now = datetime(2026, 5, 30, 14, 0, 0)
+
+        with _patch.object(presence_mod, "dt_util") as _mock_dt:
+            _mock_dt.utcnow.return_value = fixed_now
+            _mock_dt.now.return_value = fixed_now
+
+            coord, manager, sm = _build_runnable_presence(
+                initial_state=HouseState.SLEEP,
+            )
+            coord._inference_engine.infer = MagicMock(return_value=HouseState.WAKING)
+            coord._inference_engine._confidence = 0.85
+
+            tracker = MagicMock()
+            tracker.mode = "occupied"
+            coord._zone_trackers = {"bedroom": tracker}
+
+            await coord._run_inference("test_tick_1")
+            # Gate should have blocked the WAKING transition.
+            assert sm.state == HouseState.SLEEP, "WAKING blocked by sustained gate"
+            assert coord._wake_blocked_ticks >= 1
+            first_seen = coord._first_positive_zone_occupied_since
+            assert first_seen is not None, "WAKING timer must arm on first True"
+
+            # Back-date the timer by 120s (relative to the locked clock).
+            coord._first_positive_zone_occupied_since = (
+                fixed_now - timedelta(seconds=120)
+            )
+            await coord._run_inference("test_tick_2")
+            assert sm.state == HouseState.WAKING, (
+                "WAKING should fire after 90s+ sustained signal"
+            )
 
     @pytest.mark.asyncio
     async def test_waking_blocked_by_single_frame_blip(self):
@@ -931,23 +957,34 @@ class TestD3InferenceOrchestration:
     @pytest.mark.asyncio
     async def test_guest_exit_fires_after_sustained_quiet(self):
         """GUEST + sustained exit signal >= threshold → HOME_DAY accepted."""
-        coord, manager, sm = _build_runnable_presence(initial_state=HouseState.GUEST)
-        coord._guest_persistence_seconds = 300
-        coord._inference_engine.infer = MagicMock(return_value=HouseState.HOME_DAY)
-        coord._inference_engine._confidence = 0.85
-        coord._zone_trackers = {}
-
-        # Tick 1: arms timer.
-        await coord._run_inference("tick1")
-        first_seen = coord._guest_exit_quiet_since
-        assert first_seen is not None
-
-        # Simulate 360s elapsed.
-        coord._guest_exit_quiet_since = first_seen - timedelta(seconds=360)
-        await coord._run_inference("tick2")
-        assert sm.state == HouseState.HOME_DAY, (
-            "GUEST→HOME_DAY must fire after sustained exit signal"
+        from custom_components.universal_room_automation.domain_coordinators import (
+            presence as presence_mod,
         )
+        from unittest.mock import patch as _patch
+        fixed_now = datetime(2026, 5, 30, 14, 0, 0)
+
+        with _patch.object(presence_mod, "dt_util") as _mock_dt:
+            _mock_dt.utcnow.return_value = fixed_now
+            _mock_dt.now.return_value = fixed_now
+
+            coord, manager, sm = _build_runnable_presence(
+                initial_state=HouseState.GUEST,
+            )
+            coord._guest_persistence_seconds = 300
+            coord._inference_engine.infer = MagicMock(return_value=HouseState.HOME_DAY)
+            coord._inference_engine._confidence = 0.85
+            coord._zone_trackers = {}
+
+            await coord._run_inference("tick1")
+            first_seen = coord._guest_exit_quiet_since
+            assert first_seen is not None
+
+            # Simulate 360s elapsed by back-dating relative to the locked clock.
+            coord._guest_exit_quiet_since = fixed_now - timedelta(seconds=360)
+            await coord._run_inference("tick2")
+            assert sm.state == HouseState.HOME_DAY, (
+                "GUEST→HOME_DAY must fire after sustained exit signal"
+            )
 
 
 class TestD2LayerWiring:
