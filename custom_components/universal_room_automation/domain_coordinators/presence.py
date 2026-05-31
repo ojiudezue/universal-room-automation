@@ -823,6 +823,103 @@ class PresenceCoordinator(BaseCoordinator):
         # Unknown / unmatched scope — fall through (forward compatible).
         return VetoDecision(False, 0.0, "", scope)
 
+    # ------------------------------------------------------------------
+    # v4.7.15 D4: Multi-source zone occupancy confidence (relocated from HVAC)
+    # ------------------------------------------------------------------
+    def check_zone_occupancy_confidence(self, zone) -> tuple[int, int]:
+        """Count independent occupancy sources confirming zone presence.
+
+        Migrated from hvac.py:1350 in v4.7.15 D4. Identical semantics; now
+        public on PresenceCoordinator so D5/D6 consensus calc and v4.7.16
+        room-level callers can consume it without HVAC ↔ presence circular
+        imports.
+
+        Returns (confirmed, possible) where:
+        - confirmed: number of source types actively confirming presence (0-4)
+        - possible: number of source types available for this zone (0-4)
+
+        Source types:
+        1. Motion/mmWave sensors (recent activity within 30 min)
+        2. BLE person detection (phone detected in zone)
+        3. Camera person detection (Frigate person entity "on")
+        4. Multiple occupied rooms (2+ rooms occupied = unlikely all stuck)
+
+        The caller uses adaptive threshold: require min(2, possible) sources.
+        Accepts HVAC's `Zone` dataclass shape duck-typed (reads .rooms,
+        .zone_cameras, .room_conditions).
+        """
+        # function-local import — Bug Class #34
+        from ..const import (  # noqa: PLC0415
+            CONF_ENTRY_TYPE, CONF_ROOM_NAME, ENTRY_TYPE_ROOM,
+        )
+        confirmed = 0
+        possible = 0
+
+        # Source 1: Motion/mmWave — always available (every room has sensors)
+        possible += 1
+        has_recent_motion = False
+        now = dt_util.utcnow()
+        try:
+            for room_name in getattr(zone, "rooms", []) or []:
+                for entry in self.hass.config_entries.async_entries(DOMAIN):
+                    if (
+                        entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_ROOM
+                        and entry.data.get(CONF_ROOM_NAME) == room_name
+                    ):
+                        coord = self.hass.data.get(DOMAIN, {}).get(entry.entry_id)
+                        if (
+                            coord
+                            and hasattr(coord, "_last_motion_time")
+                            and coord._last_motion_time
+                        ):
+                            age = (now - coord._last_motion_time).total_seconds()
+                            if age < 1800:  # Motion in last 30 min
+                                has_recent_motion = True
+                        break
+        except Exception:  # noqa: BLE001 — defensive: stale registry
+            pass
+        if has_recent_motion:
+            confirmed += 1
+
+        # Source 2: BLE person detection
+        person_coord = self.hass.data.get(DOMAIN, {}).get("person_coordinator")
+        if person_coord:
+            possible += 1
+            try:
+                ble_persons = person_coord.get_persons_in_zone(
+                    getattr(zone, "rooms", []) or [],
+                )
+                if ble_persons:
+                    confirmed += 1
+            except Exception:  # noqa: BLE001
+                pass
+
+        # Source 3: Camera person detection
+        zone_cameras = getattr(zone, "zone_cameras", None) or []
+        if zone_cameras:
+            possible += 1
+            for camera_entity in zone_cameras:
+                state = self.hass.states.get(camera_entity)
+                if state and state.state == "on":
+                    confirmed += 1
+                    break  # One camera confirmation is enough
+
+        # Source 4: Multiple occupied rooms (only possible if zone has 2+ rooms)
+        rooms = getattr(zone, "rooms", []) or []
+        if len(rooms) >= 2:
+            possible += 1
+            try:
+                room_conditions = getattr(zone, "room_conditions", []) or []
+                occupied_count = sum(
+                    1 for rc in room_conditions if getattr(rc, "occupied", False)
+                )
+                if occupied_count >= 2:
+                    confirmed += 1
+            except Exception:  # noqa: BLE001
+                pass
+
+        return confirmed, possible
+
     def get_next_state_prediction(self) -> dict:
         """Return the next-state prediction in the D1 PWA contract shape.
 
