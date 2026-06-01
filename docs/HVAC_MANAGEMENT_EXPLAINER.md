@@ -141,7 +141,7 @@ LOCKED_OUT  (until next day rollover OR user clears via button)
 | 3 | `ac_load_sensor` configured | no sensor → feature disabled for zone |
 | 4 | HVAC action = cooling, temps known | not cooling or readings None |
 | 5 | Daily lockout flag (DB) | already locked-out for the day |
-| 6 | Overshoot (current ≤ target_high − 0.5°F) | not overshooting |
+| 6 | Overshoot (current ≤ target_high, at-or-below setpoint) | not overshooting |
 | 7 | kWh-rate debounce: N consecutive samples > zone threshold | counter < `sustained_samples` |
 | 8 | Time-sustained for `detection_time_gate_min` | not yet long enough |
 | 9 | Not already mid-nudge / mid-evaluation | overlap |
