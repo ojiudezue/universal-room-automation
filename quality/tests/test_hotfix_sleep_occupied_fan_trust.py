@@ -55,7 +55,7 @@ class TestPathA_HvacFans:
         AND the bedroom-only room_type gate."""
         idx = hvac_fans_src.find(self._SLEEP_BLOCK_ANCHOR)
         assert idx > 0
-        body = hvac_fans_src[idx: idx + 1800]
+        body = hvac_fans_src[idx: idx + 3000]
         assert "and occupied" in body
         assert "room_fan.room_type == ROOM_TYPE_BEDROOM" in body, (
             "v4.7.x.x: sleep+occupied trust must gate on ROOM_TYPE_BEDROOM "
@@ -66,18 +66,25 @@ class TestPathA_HvacFans:
         """When the fan was already on, preserve the prior trigger + speed."""
         idx = hvac_fans_src.find(self._SLEEP_BLOCK_ANCHOR)
         assert idx > 0
-        body = hvac_fans_src[idx: idx + 1800]
+        body = hvac_fans_src[idx: idx + 3000]
         assert "if room_fan.is_on:" in body
         assert "room_fan.speed_pct" in body
-        assert "room_fan.trigger or \"sleep_occupied\"" in body
+        # Reviewer A fix-up B-M2: distinct labels for hold vs activate.
+        # Preserve prior trigger when present; fall back to the hold label
+        # only when trigger is truly empty (post-reload window).
+        assert "room_fan.trigger or \"sleep_occupied_hold\"" in body
 
     def test_sleep_occupied_block_activates_off_fan_at_low(self, hvac_fans_src):
-        """When fan was off, activate at LOW (v3.18.1 sleep cap will enforce
-        LOW anyway; being explicit makes the intent clear)."""
+        """When fan was off, activate at LOW with `sleep_occupied_activate`
+        label (v3.18.1 sleep cap will enforce LOW anyway; being explicit
+        makes the intent clear). Distinct from `sleep_occupied_hold`
+        which is used only when preserving a running fan with no prior
+        trigger — distinct labels for audit fidelity (Reviewer A B-M2)."""
         idx = hvac_fans_src.find(self._SLEEP_BLOCK_ANCHOR)
-        body = hvac_fans_src[idx: idx + 1800]
+        body = hvac_fans_src[idx: idx + 3000]
         assert "FAN_SPEED_LOW_PCT" in body
-        assert '"sleep_occupied"' in body
+        assert '"sleep_occupied_activate"' in body
+        assert '"sleep_occupied_hold"' in body
 
     def test_sleep_occupied_runs_before_occupancy_gate(self, hvac_fans_src):
         """Placement: AFTER manual-off cooldown (preserves user override)
@@ -107,7 +114,7 @@ class TestPathA_HvacFans:
         the grace window.
         """
         idx = hvac_fans_src.find(self._SLEEP_BLOCK_ANCHOR)
-        body = hvac_fans_src[idx: idx + 1800]
+        body = hvac_fans_src[idx: idx + 3000]
         assert 'room_fan.vacancy_detected_time = ""' in body, (
             "sleep+occupied short-circuit must clear vacancy_detected_time "
             "to prevent stale anchor (Reviewer B B-MED-1)"

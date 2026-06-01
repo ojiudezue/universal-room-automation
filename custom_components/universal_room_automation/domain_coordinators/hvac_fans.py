@@ -363,9 +363,22 @@ class FanController:
             # — fan would turn off the moment occupancy drops instead of
             # honoring the grace window.
             room_fan.vacancy_detected_time = ""
+            # Reviewer A fix-up B-M2: distinct labels for hold vs activate.
+            # Preserving the prior trigger when running keeps audit fidelity
+            # (a fan turned on by `fan_assist` stays labeled `fan_assist`
+            # even though sleep+occupied is preventing it from turning off).
+            # Use explicit `sleep_occupied_hold` only when prior trigger is
+            # truly absent (post-reload window). Use `sleep_occupied_activate`
+            # when this branch turns the fan on from off, so diagnostics can
+            # distinguish "we kept it running" from "we turned it on".
+            # Reviewer A fix-up B-M3: this branch intentionally bypasses
+            # the `fan_assist` energy boost below — the v3.18.1 sleep cap
+            # already constrains speed to LOW, so a boost would be capped
+            # anyway. Documented here so future readers don't try to
+            # restore the energy branch during sleep.
             if room_fan.is_on:
-                return True, room_fan.trigger or "sleep_occupied", room_fan.speed_pct
-            return True, "sleep_occupied", FAN_SPEED_LOW_PCT
+                return True, room_fan.trigger or "sleep_occupied_hold", room_fan.speed_pct
+            return True, "sleep_occupied_activate", FAN_SPEED_LOW_PCT
 
         # Occupancy gate: don't activate fans in unoccupied rooms
         if not occupied and not room_fan.is_on:
