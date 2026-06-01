@@ -523,6 +523,21 @@ class WeatherProviderManager:
         """Read zone's home cool_high from HVAC PresetManager.
 
         Returns None if PresetManager is not available.
+
+        v4.7.16.3 hotfix: previous implementation tried ``getattr`` on two
+        instance attributes that PresetManager does not expose:
+        ``SEASONAL_DEFAULTS`` (module constant in ``hvac_const.py:284``,
+        never bound to the instance) and ``zone_presets`` (does not exist
+        at all). Both probes returned None → every call returned None →
+        ``baseline_delta_for_zone`` returned None → DPM emitted
+        ``skipped_zones_with_reason: "no_forecast_delta"`` on every tick.
+        Silently broken since the v4.7.3 baseline-editor refactor moved
+        zone-level overrides to CM ``entry.options``.
+
+        The canonical accessor is ``get_seasonal_setpoints(preset)`` at
+        ``hvac_preset.py:118``. It already merges SEASONAL_DEFAULTS with
+        CM ``entry.options`` per-CONF overrides (v4.7.3 D2 contract) and
+        uses the current season — exactly what we want.
         """
         try:
             from ..const import DOMAIN
@@ -535,23 +550,10 @@ class WeatherProviderManager:
             preset_mgr = getattr(hvac, "_preset_manager", None)
             if preset_mgr is None:
                 return None
-            season = getattr(preset_mgr, "current_season", "summer")
-            seasonal_defaults = getattr(preset_mgr, "SEASONAL_DEFAULTS", None)
-            if seasonal_defaults is None:
-                # Try zone-specific
-                zone_presets = getattr(preset_mgr, "zone_presets", {})
-                zone_data = zone_presets.get(zone_id, {})
-                if not zone_data:
-                    return None
-                preset_data = zone_data.get(preset, zone_data.get("home"))
-                if preset_data:
-                    return float(preset_data[1])  # cool_high is index 1
+            pair = preset_mgr.get_seasonal_setpoints(preset)  # (cool_low, cool_high)
+            if pair is None:
                 return None
-            season_data = seasonal_defaults.get(season, {})
-            preset_data = season_data.get(preset, season_data.get("home"))
-            if preset_data:
-                return float(preset_data[1])  # (cool_low, cool_high)
-            return None
+            return float(pair[1])
         except Exception:
             _LOGGER.debug(
                 "WeatherProviderManager._get_zone_baseline_high failed for zone=%s",
