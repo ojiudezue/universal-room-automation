@@ -34,10 +34,16 @@ from homeassistant.helpers.event import (
 from homeassistant.util import dt as dt_util
 
 from ..const import (
+    BLE_TIER_2_WEIGHT,  # v4.7.16 D3
     CONF_AREA_ID,
+    CONF_DISABLE_CAMERA_PRESENCE,  # v4.7.16 D4
+    CONF_ENTRY_TYPE,  # v4.7.16 D3, D4
     CONF_ZONE_ROOMS,
+    D3_DIAGNOSTIC_ENABLED,  # v4.7.16 D3 (post-review B MED #1) — kill switch
+    DEFAULT_DISABLE_CAMERA_PRESENCE,  # v4.7.16 D4
     DIAGNOSTICS_SCOPE_HOUSE,
     DOMAIN,
+    ENTRY_TYPE_ROOM,  # v4.7.16 D3, D4
     TRACKING_STATUS_ACTIVE,
 )
 from .base import BaseCoordinator, CoordinatorAction, Intent
@@ -658,6 +664,10 @@ class PresenceCoordinator(BaseCoordinator):
         self._signal_consensus: float = 1.0
         self._signal_consensus_inputs: Dict[str, Any] = {}
         self._consensus_low_since: Optional[datetime] = None
+        # v4.7.16 D3: per-zone weighted-veto verdicts populated each cycle.
+        # Read by sensors + reviewers for diagnostics; gating wired in
+        # post-v4.7.15 helper integration pass.
+        self._v4716_zone_verdicts: Dict[str, Dict[str, Any]] = {}
         self._transitions_today: int = 0
         self._transition_reset_date: str = ""
         # Room area_id lookup: room_name -> area_id (from config entries)
@@ -1506,6 +1516,40 @@ class PresenceCoordinator(BaseCoordinator):
     # Tier 2: Zone Camera Sensors (via CameraIntegrationManager)
     # ------------------------------------------------------------------
 
+    def _rooms_opting_out_of_camera_presence(self) -> Set[str]:
+        """v4.7.16 D4: return the set of room_names with CONF_DISABLE_CAMERA_PRESENCE=True.
+
+        Lazy read of room config entries — no migration helper, absent key
+        defaults to False (Bug Class #46 doctrine). Guarded against config
+        registry exceptions for boot-race safety.
+        """
+        opted_out: Set[str] = set()
+        try:
+            entries = self.hass.config_entries.async_entries(DOMAIN)
+        except Exception as exc:  # pragma: no cover - defensive
+            _LOGGER.debug(
+                "_rooms_opting_out_of_camera_presence: entry walk failed: %s",
+                exc,
+            )
+            return opted_out
+        for entry in entries:
+            if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ROOM:
+                continue
+            room_name = entry.data.get("room_name")
+            if not room_name:
+                continue
+            config = {**entry.data, **entry.options}
+            if config.get(
+                CONF_DISABLE_CAMERA_PRESENCE, DEFAULT_DISABLE_CAMERA_PRESENCE
+            ):
+                opted_out.add(room_name)
+        if opted_out:
+            _LOGGER.info(
+                "v4.7.16 D4: %d room(s) opting out of camera-presence: %s",
+                len(opted_out), sorted(opted_out),
+            )
+        return opted_out
+
     def _discover_zone_cameras(self) -> None:
         """Discover cameras in each zone using CameraIntegrationManager.
 
@@ -1533,16 +1577,35 @@ class PresenceCoordinator(BaseCoordinator):
 
         camera_entity_ids: Set[str] = set()
 
-        # Build area_id → zone mapping from room → zone assignments
+        # Build area_id → zone mapping from room → zone assignments.
+        # v4.7.16 D4: also track which area_ids are owned by rooms that have
+        # set CONF_DISABLE_CAMERA_PRESENCE=True so we can skip register_camera
+        # for those areas. Opt-out is enforced at registration time — the
+        # ZonePresenceTracker itself stays oblivious to per-room policy.
         area_to_zone: Dict[str, str] = {}
+        opted_out_area_ids: Set[str] = set()
+        opted_out_rooms = self._rooms_opting_out_of_camera_presence()
         for zone_name, tracker in self._zone_trackers.items():
             for room_name in tracker.room_names:
                 area_id = self._room_area_ids.get(room_name)
                 if area_id:
                     area_to_zone[area_id] = zone_name
+                    if room_name in opted_out_rooms:
+                        opted_out_area_ids.add(area_id)
 
         # Find cameras in each zone's areas
         for area_id, zone_name in area_to_zone.items():
+            # v4.7.16 D4: skip cameras for opted-out room areas. Other rooms
+            # in the same zone continue to receive their cameras.
+            if area_id in opted_out_area_ids:
+                cameras_in_area = camera_manager.get_cameras_for_area(area_id)
+                _LOGGER.info(
+                    "Camera-presence opt-out: skipping %d cameras for "
+                    "zone %s (area %s) per CONF_DISABLE_CAMERA_PRESENCE",
+                    len(cameras_in_area), zone_name, area_id,
+                )
+                continue
+
             cameras_in_area = camera_manager.get_cameras_for_area(area_id)
             tracker = self._zone_trackers[zone_name]
 
@@ -2535,6 +2598,169 @@ class PresenceCoordinator(BaseCoordinator):
             _d5_guest_confidence = 0.9
         else:
             _d5_guest_confidence = 0.8  # unid path only, or neither (ignored)
+
+        # v4.7.16 D3: Per-room BLE-tier weighted veto (zone-iterates-rooms).
+        # For each zone, build a weight map keyed by room_name using the
+        # canonical CONF_SCANNER_AREAS classification surfaced by
+        # PersonTrackingCoordinator.get_ble_tier (D1). Tier 1 = 1.0,
+        # Tier 2 = BLE_TIER_2_WEIGHT (default 0.6), Tier 0 = 0.0.
+        #
+        # The aggregated weight is fed to the v4.7.15 shared veto helper
+        # which decides whether to veto an OCCUPIED reading in favor of
+        # the multi-tier consensus. v4.7.16 records the verdict on
+        # self._v4716_zone_verdicts for diagnostics; downstream gating
+        # ties in once the helper API is stable.
+        #
+        # v4.7.16 D3: verify helper signature post v4.7.15 lands
+        # — expected: should_veto_due_to_reliable_signals(
+        #              reliable_signals=[...], transient_signals=[...],
+        #              state_context={...}) -> VetoDecision(fired, confidence, reason, scope)
+        #
+        # Post-review B LOW-1: drop the per-tick type annotation here;
+        # the field is annotated once in __init__ at line 560. This is a
+        # reset, not a redeclaration.
+        self._v4716_zone_verdicts = {}
+
+        # Post-review B MEDIUM #1 (perf kill-switch): skip the entire D3
+        # block when the diagnostic flag is False. Saves ~1200 string
+        # normalizations/cycle on a 30-room install. Default True (D3 is
+        # the v4.7.15 helper integration scaffold) — operators can flip
+        # to False when the diagnostic is not being consumed downstream.
+        #
+        # Post-review B MEDIUM #2 (sleep-state gate): skip during
+        # house_state=SLEEP. Room sensors are intentionally degenerate
+        # during sleep (mmWave drops motionless body, PIR silent, cameras
+        # blind) — v4.7.13 trusts the person tracker, NOT per-room BLE
+        # weights, during sleep. Future consumers of _v4716_zone_verdicts
+        # must not act on D3 weights when house_state is SLEEP, so skip
+        # the computation entirely. `current_state` is the HouseState
+        # enum read at :1995 above.
+        _d3_skip = (
+            (not D3_DIAGNOSTIC_ENABLED)
+            or (current_state == HouseState.SLEEP)
+        )
+        try:
+            if _d3_skip:
+                # Verdict dict stays empty; downstream consumers fall back
+                # to pre-v4.7.16 inference behavior.
+                pass
+            else:
+                for zone_name, tracker in self._zone_trackers.items():
+                    weights: Dict[str, float] = {}
+                    for room_name in getattr(tracker, "room_names", []) or []:
+                        if person_coordinator is None or not hasattr(
+                            person_coordinator, "get_ble_tier"
+                        ):
+                            # Fail-open: behave like pre-v4.7.16 (every room
+                            # gets weight 1.0). Logged once per cycle below.
+                            weights[room_name] = 1.0
+                            continue
+                        try:
+                            tier = int(person_coordinator.get_ble_tier(room_name))
+                        except Exception as exc:  # pragma: no cover - defensive
+                            _LOGGER.debug(
+                                "v4.7.16 D3: get_ble_tier(%s) failed: %s",
+                                room_name, exc,
+                            )
+                            tier = 0
+                        if tier == 1:
+                            weights[room_name] = 1.0
+                        elif tier == 2:
+                            weights[room_name] = BLE_TIER_2_WEIGHT
+                        else:
+                            weights[room_name] = 0.0
+                    # v4.7.16 D3 (post-review A1, HIGH): aggregation = max.
+                    # Reviewer A explicitly picked `max` over `sum` to preserve
+                    # the v3.8.9 invariant "Tier 1 dominates Tier 2". Under sum,
+                    # five Tier-2 rooms (5 * 0.6 = 3.0) would outweigh one
+                    # Tier-1 room (1.0), inverting the design rationale.
+                    # Under max, a zone's aggregate equals the strongest BLE
+                    # evidence present:
+                    #   max=1.0  ⟺ ≥1 Tier-1 room (own scanner)
+                    #   max=0.6  ⟺ only Tier-2 rooms (borrowed scanner)
+                    #   max=0.0  ⟺ Tier-0 only (no BLE)
+                    # Per-room weights remain available to the v4.7.15 helper
+                    # via state_context["room_weights"] for any aggregation
+                    # the helper wants to perform internally.
+                    aggregate_weight = max(weights.values()) if weights else 0.0
+
+                    # Invoke v4.7.15 helper if available. Otherwise degrade
+                    # gracefully to no-veto (preserves pre-v4.7.16 behavior).
+                    # v4.7.16 D3: verify helper signature post v4.7.15 lands
+                    #
+                    # Post-review A2 (FALSE ALARM, verified against shipped
+                    # v4.7.15 D1 commit 221b814): v4.7.15 ships the helper as
+                    # an instance method on `PresenceCoordinator`, not as a
+                    # module-level function. `getattr(self, ...)` is therefore
+                    # the CORRECT lookup pattern. See commit 221b814:
+                    # `def should_veto_due_to_reliable_signals(self, reliable_signals,
+                    #  transient_signals, state_context) -> VetoDecision`. Reviewer
+                    # A's concern was based on the planning doc's language; the
+                    # actual ship is instance-method, so this lookup will resolve
+                    # post-v4.7.15-merge.
+                    veto_decision = None
+                    helper = getattr(
+                        self, "should_veto_due_to_reliable_signals", None
+                    )
+                    if helper is not None:
+                        try:
+                            reliable_signals: list = []
+                            transient_signals: list = []
+                            state_context = {
+                                "scope": "room_level_weighted",
+                                "zone_name": zone_name,
+                                "house_state": getattr(
+                                    manager, "house_state", ""
+                                ),
+                                "room_weights": dict(weights),
+                                "aggregate_weight": aggregate_weight,
+                                "all_tracked_persons_away": all_tracked_persons_away,
+                                "tracked_count": tracked_count,
+                                # v4.7.16 D3 (post-review A3, HIGH): Bug Class #11.
+                                # Sibling guest-gate code at :2032/:2040 uses UTC;
+                                # helper context must too. Local `now` above is
+                                # still fine for the guest-gate code that built it.
+                                "now": dt_util.utcnow(),
+                            }
+                            # v4.7.16 D3: verify helper signature post v4.7.15 lands
+                            veto_decision = helper(
+                                reliable_signals=reliable_signals,
+                                transient_signals=transient_signals,
+                                state_context=state_context,
+                            )
+                        except Exception as exc:  # pragma: no cover - defensive
+                            _LOGGER.warning(
+                                "v4.7.16 D3: shared veto helper raised for "
+                                "zone %s: %s — degrading to no-veto",
+                                zone_name, exc,
+                            )
+                            veto_decision = None
+                    self._v4716_zone_verdicts[zone_name] = {
+                        "room_weights": dict(weights),
+                        "aggregate_weight": aggregate_weight,
+                        "veto_fired": (
+                            bool(getattr(veto_decision, "fired", False))
+                            if veto_decision is not None
+                            else None
+                        ),
+                        "veto_confidence": (
+                            float(getattr(veto_decision, "confidence", 0.0))
+                            if veto_decision is not None
+                            else None
+                        ),
+                        "veto_reason": (
+                            str(getattr(veto_decision, "reason", ""))
+                            if veto_decision is not None
+                            else "helper_unavailable"
+                        ),
+                    }
+        except Exception as exc:  # pragma: no cover - top-level guard
+            _LOGGER.warning(
+                "v4.7.16 D3: per-room weighting block failed: %s — "
+                "preserving pre-v4.7.16 behavior",
+                exc,
+            )
+            self._v4716_zone_verdicts = {}
 
         new_state = self._inference_engine.infer(
             census_count=self._census_count,
