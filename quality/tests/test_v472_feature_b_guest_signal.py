@@ -215,7 +215,7 @@ class TestD5DiscoverGuestRooms:
         # Window widened from 5000 → 7000 in v4.7.14 (away-veto block added
         # ~700 chars at the top of _run_inference, pushing the D5 confidence
         # block past the original 5000-char horizon).
-        body = presence_src[idx:idx + 7000]
+        body = presence_src[idx:idx + 13000]
         assert "_discover_guest_rooms" in body, (
             "_discover_guest_rooms must be called during async_setup "
             "so guest rooms are discovered at integration load time"
@@ -370,7 +370,7 @@ class TestD5RunInferenceOr:
         # Window widened from 5000 → 7000 in v4.7.14 (away-veto block added
         # ~700 chars at the top of _run_inference, pushing the D5 confidence
         # block past the original 5000-char horizon).
-        body = presence_src[idx:idx + 7000]
+        body = presence_src[idx:idx + 13000]
         assert "_guest_room_gate_armed" in body, (
             "_run_inference must call _guest_room_gate_armed for the D5 path"
         )
@@ -380,7 +380,7 @@ class TestD5RunInferenceOr:
         # Window widened from 5000 → 7000 in v4.7.14 (away-veto block added
         # ~700 chars at the top of _run_inference, pushing the D5 confidence
         # block past the original 5000-char horizon).
-        body = presence_src[idx:idx + 7000]
+        body = presence_src[idx:idx + 13000]
         # The combined gate: unid_gate_armed or guest_room_gate_armed
         assert "or guest_room_gate_armed" in body or "guest_room_gate_armed or" in body, (
             "_run_inference must use additive OR: guest_armed = unid_gate_armed or "
@@ -392,7 +392,7 @@ class TestD5RunInferenceOr:
         # Window widened from 5000 → 7000 in v4.7.14 (away-veto block added
         # ~700 chars at the top of _run_inference, pushing the D5 confidence
         # block past the original 5000-char horizon).
-        body = presence_src[idx:idx + 7000]
+        body = presence_src[idx:idx + 13000]
         assert "0.9" in body, (
             "D5 guest_room path confidence must be 0.9 "
             "(vs 0.8 for unid path — higher specificity)"
@@ -403,7 +403,7 @@ class TestD5RunInferenceOr:
         # Window widened from 5000 → 7000 in v4.7.14 (away-veto block added
         # ~700 chars at the top of _run_inference, pushing the D5 confidence
         # block past the original 5000-char horizon).
-        body = presence_src[idx:idx + 7000]
+        body = presence_src[idx:idx + 13000]
         assert "0.8" in body, (
             "Unid path confidence 0.8 must still be present (existing behavior preserved)"
         )
@@ -414,7 +414,7 @@ class TestD5RunInferenceOr:
         # Window widened from 5000 → 7000 in v4.7.14 (away-veto block added
         # ~700 chars at the top of _run_inference, pushing the D5 confidence
         # block past the original 5000-char horizon).
-        body = presence_src[idx:idx + 7000]
+        body = presence_src[idx:idx + 13000]
         assert "dt_util.utcnow()" in body, (
             "Bug Class #11: _guest_room_gate_armed must receive dt_util.utcnow(), "
             "not a naive datetime"
@@ -439,7 +439,7 @@ class TestD5ExitConditionGuard:
         # Window widened from 5000 → 7000 in v4.7.14 (away-veto block added
         # ~700 chars at the top of _run_inference, pushing the D5 confidence
         # block past the original 5000-char horizon).
-        body = presence_src[idx:idx + 7000]
+        body = presence_src[idx:idx + 13000]
         assert "unidentified_count == 0 and not guest_gate_armed" in body, (
             "GUEST exit condition must require BOTH unidentified_count==0 AND "
             "not guest_gate_armed — otherwise the D5 guest_room path can't hold "
@@ -501,7 +501,7 @@ class TestB1GuestRoomGateInGuestState:
         """B1 CRITICAL fix: GUEST state branch must call _guest_room_gate_armed."""
         idx = presence_src.find("async def _run_inference(")
         assert idx > 0, "_run_inference must exist"
-        body = presence_src[idx:idx + 6000]
+        body = presence_src[idx:idx + 13000]
         # The fix adds an elif current_state == HouseState.GUEST branch that
         # calls _guest_room_gate_armed.
         assert "HouseState.GUEST" in body, (
@@ -519,7 +519,7 @@ class TestB1GuestRoomGateInGuestState:
     def test_guest_state_branch_skips_unid_gate(self, presence_src):
         """B1 fix: GUEST-state branch must NOT call _guest_gate_armed (has side effects)."""
         idx = presence_src.find("async def _run_inference(")
-        body = presence_src[idx:idx + 6000]
+        body = presence_src[idx:idx + 13000]
         # Find the elif HouseState.GUEST block
         guest_idx = body.find("elif current_state == HouseState.GUEST")
         assert guest_idx > 0, (
@@ -539,7 +539,7 @@ class TestB1GuestRoomGateInGuestState:
     def test_guest_state_unid_gate_hardcoded_false(self, presence_src):
         """B1 fix: unid_gate_armed must be False in the GUEST state branch."""
         idx = presence_src.find("async def _run_inference(")
-        body = presence_src[idx:idx + 6000]
+        body = presence_src[idx:idx + 13000]
         guest_idx = body.find("elif current_state == HouseState.GUEST")
         assert guest_idx > 0
         else_idx = body.find("else:", guest_idx)
@@ -552,7 +552,7 @@ class TestB1GuestRoomGateInGuestState:
     def test_guest_armed_is_guest_room_gate_in_guest_branch(self, presence_src):
         """B1 fix: guest_armed must derive from guest_room_gate_armed in GUEST branch."""
         idx = presence_src.find("async def _run_inference(")
-        body = presence_src[idx:idx + 6000]
+        body = presence_src[idx:idx + 13000]
         guest_idx = body.find("elif current_state == HouseState.GUEST")
         assert guest_idx > 0
         else_idx = body.find("else:", guest_idx)
@@ -566,7 +566,7 @@ class TestB1GuestRoomGateInGuestState:
     def test_b1_comment_references_bug_class_46(self, presence_src):
         """B1 fix: the code comment must reference Bug Class #46."""
         idx = presence_src.find("async def _run_inference(")
-        body = presence_src[idx:idx + 6000]
+        body = presence_src[idx:idx + 13000]
         assert "Bug Class #46" in body or "#46" in body, (
             "B1 fix: comment must reference Bug Class #46 (Exit-Path Gate Skip) "
             "for future reviewers to understand the guard"

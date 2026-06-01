@@ -37,6 +37,7 @@ from ..const import (
     CONF_ZONE_ROOMS,
     DIAGNOSTICS_SCOPE_HOUSE,
     DOMAIN,
+    TRACKING_STATUS_ACTIVE,
 )
 from .base import BaseCoordinator, CoordinatorAction, Intent
 from .coordinator_diagnostics import (
@@ -407,7 +408,15 @@ class StateInferenceEngine:
         # Note: unidentified_count > 0 preserves guest detection — a guest at
         # the door triggering camera motion legitimately means someone IS here
         # even if all tracked persons are away.
-        if all_tracked_persons_away and unidentified_count == 0:
+        # v4.7.14.1 (H1): also require census_count == 0. If Frigate face-IDs a
+        # resident (census_count >= 1), SOMEONE is provably in front of a
+        # camera — phone trustworthiness is irrelevant. Prevents the
+        # forgotten-phone-at-home false-positive veto (Gap A).
+        if (
+            all_tracked_persons_away
+            and unidentified_count == 0
+            and census_count == 0
+        ):
             if current_state == HouseState.AWAY:
                 return None  # Already away
             self._confidence = 0.95  # higher than camera-driven 0.85
@@ -547,8 +556,20 @@ class PresenceCoordinator(BaseCoordinator):
         self._census_count: int = 0
         self._unidentified_count: int = 0
         # v4.7.14: Person-tracker veto diagnostics (populated by _run_inference).
+        # v4.7.14.1 fix-up A-M2: `_tracked_persons_count` preserves the
+        # pre-v4.7.14.1 semantic (raw configured-person count from
+        # person_coordinator.data) so existing operator dashboards / templates
+        # don't silently flip to a smaller post-filter number.
+        # `_tracked_persons_count_trusted` is the NEW post-H2/H3 filtered
+        # denominator used by the veto reduction.
         self._tracked_persons_count: int = 0
+        self._tracked_persons_count_trusted: int = 0
         self._all_tracked_persons_away: bool = False
+        # v4.7.14.1 fix-up A-M1/A-M3: persons filtered out by H2 (phone_left_behind)
+        # or H3 (tracking_status STALE/LOST), mapped to their exclusion reason.
+        # Surfaced in the veto-fired INFO log so operators can diagnose why a
+        # particular person did NOT block the veto.
+        self._excluded_persons: dict[str, str] = {}
         self._transitions_today: int = 0
         self._transition_reset_date: str = ""
         # Room area_id lookup: room_name -> area_id (from config entries)
@@ -1899,31 +1920,141 @@ class PresenceCoordinator(BaseCoordinator):
         # tracked_count > 0 guard: empty config must not veto (fail-safe).
         # "unknown" is NOT treated as away (conservative — unknown is genuine
         # uncertainty, not confirmed absence).
+        #
+        # v4.7.14.1 (H2): exclude any person whose phone-left-behind sensor
+        # is `on` from the veto denominator. PersonPhoneLeftBehindSensor
+        # (binary_sensor.py:973-1084) flags "BLE places phone in a room but no
+        # camera has seen the person in the last hour" — the canonical
+        # forgotten-phone signal. Their location field is meaningless for veto
+        # purposes. Fail-OPEN: if the binary_sensor doesn't exist (disabled
+        # by default per binary_sensor.py:988) or is unknown/unavailable, the
+        # person is counted (preserves v4.7.14 baseline behavior).
+        #
+        # v4.7.14.1 fix-up A-H1: resolve entity_id via the ENTITY REGISTRY by
+        # unique_id rather than by string construction. The sensor registers
+        # with `_attr_has_entity_name=True` (binary_sensor.py:989) + DeviceInfo
+        # name "Universal Room Automation" (binary_sensor.py:1003-1008), which
+        # composes a device-prefixed entity_id (e.g.
+        # `binary_sensor.universal_room_automation_oji_udezue_phone_left_behind`,
+        # operator-verified 2026-05-30) — NOT the bare slug. We MUST mirror
+        # binary_sensor.py:1000's unique_id formula and resolve via
+        # entity_registry.async_get_entity_id; otherwise H2 silently fails-OPEN
+        # for every person and Gap B remains unclosed.
         person_coordinator = self.hass.data.get(DOMAIN, {}).get("person_coordinator")
         all_tracked_persons_away = False
         tracked_count = 0
         away_person_ids: list[str] = []
+
+        # Import inline to keep module import surface minimal (only used here).
+        from homeassistant.helpers import entity_registry as er
+        try:
+            _entity_reg = er.async_get(self.hass)
+        except Exception:  # noqa: BLE001 — defensive: registry may be unavailable in tests/early-boot
+            _entity_reg = None
+
+        def _phone_trustworthy(person_name: str) -> bool:
+            """v4.7.14.1 (H2): True iff the phone-left-behind sensor is NOT 'on'.
+
+            Fail-OPEN: missing entity / unknown / unavailable -> True.
+            Resolves the entity_id via entity_registry by unique_id (fix-up
+            A-H1) — mirrors binary_sensor.py:1000's unique_id formula:
+            ``f"{DOMAIN}_person_{<slug>}_phone_left_behind"``. Robust to
+            device renames and operator entity_id renames.
+            """
+            person_slug = person_name.lower().replace(" ", "_")
+            unique_id = f"{DOMAIN}_person_{person_slug}_phone_left_behind"
+            entity_id: str | None = None
+            if _entity_reg is not None:
+                try:
+                    entity_id = _entity_reg.async_get_entity_id(
+                        "binary_sensor", DOMAIN, unique_id
+                    )
+                except Exception:  # noqa: BLE001 — registry shape errors are fail-OPEN
+                    entity_id = None
+            if entity_id is None:
+                # Entity not registered (sensor disabled by default per
+                # binary_sensor.py:988, or operator hasn't enabled it). Fail-OPEN.
+                return True
+            state = self.hass.states.get(entity_id)
+            if state is None or state.state in ("unknown", "unavailable"):
+                return True
+            return state.state != "on"
+
+        def _tracking_active(info: dict) -> bool:
+            """v4.7.14.1 (H3): True iff tracking_status is ACTIVE.
+
+            REUSES the `tracking_status` field set by person_coordinator.py at
+            :213 (ACTIVE), :288 (STALE), :153/:333/:345/:377 (LOST). Only
+            ACTIVE counts as confirmed-away for the high-confidence veto.
+
+            Defensive default: missing tracking_status field -> ACTIVE (fail
+            forward toward v4.7.14 baseline; older-shape entries are
+            preserved rather than silently excluded).
+            """
+            return info.get("tracking_status", TRACKING_STATUS_ACTIVE) == TRACKING_STATUS_ACTIVE
+
+        # v4.7.14.1 fix-up A-M1/A-M3: track WHO was filtered out and WHY so the
+        # veto-fired INFO log can enumerate excluded persons + reason. Without
+        # this, operators debugging "why didn't X block the veto?" must grep
+        # the source to understand the post-filter shape.
+        excluded_persons: dict[str, str] = {}
+        # v4.7.14.1 fix-up A-M2: separately track the RAW configured-person
+        # count so the diagnostic sensor can expose BOTH the raw count
+        # (pre-v4.7.14.1 semantic preserved) AND the post-filter trustworthy
+        # count (new). Without this, operators seeing `tracked_persons_count`
+        # drop from 4 to 3 would misdiagnose person_coordinator dropout.
+        tracked_count_raw = 0
         try:
             if person_coordinator and getattr(person_coordinator, "data", None):
                 person_data = person_coordinator.data or {}
-                tracked_count = len(person_data)
+                tracked_count_raw = len(person_data)
+                # H2 + H3 filter: remove persons whose phone is flagged
+                # phone_left_behind OR whose tracking_status is not ACTIVE.
+                # The per-name loop replaces the dict-comprehension to capture
+                # the exclusion reason inline (A-M1/M3).
+                trustworthy_persons: dict[str, dict] = {}
+                for name, info in person_data.items():
+                    phone_ok = _phone_trustworthy(name)
+                    track_ok = _tracking_active(info)
+                    if phone_ok and track_ok:
+                        trustworthy_persons[name] = info
+                        continue
+                    # phone_left_behind takes precedence in the reason string
+                    # when both fire (it's the more specific user-actionable
+                    # signal — "your phone is home but you aren't").
+                    if not phone_ok:
+                        excluded_persons[name] = "phone_left_behind=on"
+                    else:
+                        excluded_persons[name] = (
+                            f"tracking_status={info.get('tracking_status', 'unknown')}"
+                        )
+                tracked_count = len(trustworthy_persons)
                 if tracked_count > 0:
                     all_tracked_persons_away = all(
                         (info.get("location") or "") in ("away", "")
-                        for info in person_data.values()
+                        for info in trustworthy_persons.values()
                     )
                     if all_tracked_persons_away:
-                        away_person_ids = sorted(person_data.keys())
+                        away_person_ids = sorted(trustworthy_persons.keys())
         except Exception as exc:  # noqa: BLE001 — defensive: stale coord data
             _LOGGER.debug(
                 "v4.7.14: failed to compute all_tracked_persons_away: %s", exc
             )
             all_tracked_persons_away = False
             tracked_count = 0
+            tracked_count_raw = 0
             away_person_ids = []
+            excluded_persons = {}
         # Expose for diagnostics (PresenceHouseStateSensor attributes).
-        self._tracked_persons_count = tracked_count
+        # v4.7.14.1 fix-up A-M2: `_tracked_persons_count` preserves pre-v4.7.14.1
+        # semantic (raw configured count); `_tracked_persons_count_trusted` is
+        # the new post-H2/H3 filtered denominator.
+        self._tracked_persons_count = tracked_count_raw
+        self._tracked_persons_count_trusted = tracked_count
         self._all_tracked_persons_away = all_tracked_persons_away
+        # v4.7.14.1 fix-up A-M1/A-M3: snapshot of filtered-out persons + reason
+        # for the veto-fired log and downstream sensor attribute exposure.
+        self._excluded_persons = dict(excluded_persons)
 
         any_zone_occupied = any(
             t.mode == ZonePresenceMode.OCCUPIED
@@ -2002,18 +2133,39 @@ class PresenceCoordinator(BaseCoordinator):
         )
 
         # v4.7.14: log when the person-tracker veto fires to a non-AWAY state.
+        # v4.7.14.1 fix-up A-M1: tighten gate to mirror the v4.7.14.1 H1
+        # predicate (census_count == 0 AND any_zone_occupied) so this log
+        # ONLY fires on the actual veto path (confidence 0.95), not the
+        # line-398 AND-gate path (confidence 0.9). Pre-fix the log was
+        # outcome-driven (`new_state == AWAY`) and could fire on either path,
+        # misattributing the line-398 AND-gate transition to the veto.
+        # A-M3 enriches the message: census_count, excluded_persons enumeration,
+        # confidence — so operators reading journald can see why the veto fired.
         if (
             all_tracked_persons_away
             and self._unidentified_count == 0
+            and self._census_count == 0
+            and any_zone_occupied
             and new_state == HouseState.AWAY
             and current_state != HouseState.AWAY
         ):
+            _excluded_payload = (
+                ", ".join(
+                    f"{p}({reason})"
+                    for p, reason in sorted(self._excluded_persons.items())
+                )
+                if self._excluded_persons
+                else "(none)"
+            )
             _LOGGER.info(
-                "v4.7.14: Person-tracker veto fired — all %d tracked persons "
-                "away (%s), no unidentified people; forcing AWAY (was %s, "
-                "any_zone_occupied=%s)",
+                "v4.7.14.1: Person-tracker veto fired — %d trustworthy persons "
+                "confirmed away (%s), %d excluded (%s), no unidentified people, "
+                "census_count=0; forcing AWAY (was %s, any_zone_occupied=%s, "
+                "confidence=0.95)",
                 tracked_count,
                 ", ".join(away_person_ids) if away_person_ids else "(none)",
+                len(self._excluded_persons),
+                _excluded_payload,
                 current_state.value,
                 any_zone_occupied,
             )

@@ -36,6 +36,24 @@ Never describe HA APIs, library behavior, or in-repo code patterns from a plausi
 3. **Admit**: say "I don't know" or "I'd be guessing." Explicit uncertainty beats confident-sounding fiction.
 A fabricated spec wastes review cycles defending against bugs that can't happen and may miss the real ones. If you catch yourself writing "the standard pattern is..." without having read the standard pattern in this session — stop and verify.
 
+## Institutional Context First — MANDATORY
+
+Before proposing any new CONF_*, sensor, helper, constant, signal, or config-flow field — and before responding to "we have X" claims from the operator — verify via exhaustive search across the canonical prior-art surfaces:
+
+1. **`custom_components/universal_room_automation/const.py`** — grep for similar-named constants in the same domain
+2. **`config_flow.py`** + **`options_flow.py`** — grep for similar fields / selectors / steps
+3. **`sensor.py`**, **`binary_sensor.py`**, **`number.py`**, **`switch.py`**, **`select.py`**, **`button.py`** — grep for similar entities
+4. **`domain_coordinators/*.py`** — grep for similar helpers, signals, and dispatch sites
+5. **Per-coordinator design doc at `docs/Coordinator/<NAME>.md`** — read before scoping changes to that coordinator
+6. **Prior planning docs in `docs/planning/`** — at minimum skim filenames + headers for the affected coordinator area; pull bodies for any cycle that clearly touches the surface
+7. **Memory bodies (not just `MEMORY.md` index lines)** — pull the full file for related backlog / live / shipped memos
+
+For every proposed addition, cite **REUSED** (with file:line of existing) or **NEW** (with brief justification of why nothing equivalent exists). If you catch yourself proposing something without doing this verification, STOP and do it before continuing.
+
+When the operator says "we have X" — treat it as a verification task before responding, not a statement to react to. If you can't find it, tell the operator exactly what you searched and ask where it lives.
+
+**Why this rule exists (2026-05-30 incident):** A 14-hour session shipped multiple cycles and during scoping the assistant repeatedly proposed new fields/sensors/helpers without verifying against prior art. The operator had to push back each time, surfacing existing infrastructure the assistant should have found (`CONF_SCANNER_AREAS` v3.2.4, `PersonPhoneLeftBehindSensor`, `_check_zone_occupancy_confidence`, `is_direct_ble_room`, tier-naming collision). Codifying the verification protocol made it durable across sessions.
+
 ## Data Source Verification — CRITICAL
 - **MCP `ura-sqlite`** reads the URA DB. Verify `--db-path` in `~/.claude.json` points to the **live** Samba-mounted path (`/Users/ojiudezue/ha-config/universal_room_automation/data/universal_room_automation.db`), NOT a stale cache (`~/.cache/ura/`).
 - Before acting on any "missing table" or schema diagnosis from MCP tools, cross-validate against the live HA instance (use `ha-mcp` or SSH).
@@ -61,6 +79,10 @@ Classify the change, then follow the matching review tier.
 - **Feature cycle** (new capability, multiple files, new sensors/entities): 2 reviews + live validation
 - **DB-sensitive feature cycle** (see Tier 2-DB trigger criteria below): **3 reviews targeted at different risks** + live validation
 - **When in doubt:** Use 2 reviews. Better to over-review than ship a regression.
+
+#### Operator-elevated Tier 2-DB
+
+The operator may explicitly elevate any cycle to Tier 2-DB review even when the listed triggers don't fire. Standard justification: trust-hierarchy ripple changes — situations where a small surgical fix risks regressions across multiple coordinators (presence ↔ HVAC ↔ compliance ↔ safety). When elevated, the three-reviewer protocol applies with the same framing-disjoint requirement. Document the elevation in the planning doc's tier-classification section so reviewers understand why the higher bar applies.
 
 ### Pre-Review: Tag the Baseline
 Before applying ANY review fixes, tag the current state so you can diff back if fixes introduce regressions:
@@ -124,6 +146,18 @@ After writing the review doc, check if any new bug classes should be added to `d
 
 Every planning doc deliverable MUST include testable acceptance criteria. This is the "sprint contract" — what "done" looks like, agreed before implementation begins.
 
+### Mandatory "Institutional context verified" section
+
+Every planning doc MUST include an "Institutional context verified" section at the top, BEFORE the deliverables section. This section is the proof-of-work that the planner consulted the codebase's institutional knowledge before proposing changes. Reviewers verify it during Tier 1 / 2 / 2-DB review. It must list:
+
+1. **Greps run + results** — for every proposed addition (CONF_*, sensor, helper, constant), either "REUSED <existing> at file:line" or "NEW because no equivalent found after grep of <surfaces>"
+2. **Prior planning docs consulted** — filename + relevance (skim or full read)
+3. **Memory bodies pulled** — filename + relevance
+4. **Design docs read** — `docs/Coordinator/<NAME>.md` if the coordinator is affected
+5. **Code locations surveyed** — files read end-to-end during scoping
+
+Planners that omit this section produce plans that propose duplicate or conflicting work. The discipline materially reduces builder churn — empirically validated 2026-05-30 (three planners caught ~14 institutional errors before build).
+
 **Format for each deliverable:**
 ```markdown
 ## D1: [Deliverable Name]
@@ -153,10 +187,12 @@ After every implementation cycle, explicitly document what was NOT done from the
 
 ## graphify
 
-This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
+The knowledge graph at `graphify-out/` is mostly a structural community map, not a semantic index. The GRAPH_REPORT.md is a community hub list — useful for navigation, not for "does X exist" or "where is Y" questions.
 
 Rules:
-- ALWAYS read graphify-out/GRAPH_REPORT.md before reading any source files, running grep/glob searches, or answering codebase questions. The graph is your primary map of the codebase.
-- IF graphify-out/wiki/index.md EXISTS, navigate it instead of reading raw files
-- For cross-module "how does X relate to Y" questions, prefer `graphify query "<question>"`, `graphify path "<A>" "<B>"`, or `graphify explain "<concept>"` over grep — these traverse the graph's EXTRACTED + INFERRED edges instead of scanning files
+- For **semantic questions** ("where does feature X live," "what consumes signal Y," "how do A and B relate"), prefer `graphify query "<question>"` / `graphify path "<A>" "<B>"` / `graphify explain "<concept>"` over grep — these traverse the graph's EXTRACTED + INFERRED edges
+- For **existence questions** ("does CONF_X exist already," "what sensor exposes Y"), go direct with exhaustive grep across the prior-art surfaces in the **Institutional Context First** section above. The graph report won't answer these questions reliably.
+- IF `graphify-out/wiki/index.md` EXISTS, navigate it instead of reading raw files
 - After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
+
+**2026-05-30 revision:** the prior rule "ALWAYS read graphify-out/GRAPH_REPORT.md before reading any source files" was based on an assumption that the report would carry semantic content. It carries community navigation only. The rule was being ignored anyway because it wasn't producing useful context. Replaced with the targeted-use rules above.

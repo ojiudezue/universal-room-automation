@@ -187,6 +187,102 @@ These are tracked by `CONF_PERIMETER_CAMERAS` / `CONF_EGRESS_CAMERAS` at `const.
 
 ---
 
+## 6.5 — Sparse-room shortcut + signal consensus confidence (added 2026-05-30 post-v4.7.14, revised after user feedback)
+
+### Sparse-room shortcut
+
+A room is **BLE-sparse** if no Bermuda-registered scanner is assigned to its `area_id` in HA's device registry. **Source of truth: Bermuda's scanner registry, NOT a hardcoded integration list.**
+
+User-corrected 2026-05-30: an earlier draft of this heuristic listed `{shelly, esphome, bermuda}` as the integration set. That's wrong — Bermuda accepts BLE data from any registered scanner: Shelly Plus, ESPHome BLE proxies, ESPresense, UniFi BLE, raw iBeacons, Theengs gateways, plus future integrations. Hardcoding an allowlist will rot.
+
+```python
+def is_ble_sparse_room(area_id: str, hass) -> bool:
+    """Room is BLE-sparse if no Bermuda-known scanner is in its area_id.
+
+    Architectural rule: NEVER enumerate by integration name. Always
+    consume Bermuda's scanner registry — it's the canonical source for
+    "what device is contributing BLE data to URA's BLE tier."
+    """
+    bermuda_scanners = _enumerate_bermuda_scanners(hass)  # via Bermuda data path
+    for scanner_device_id in bermuda_scanners:
+        scanner_area = _device_area_id(hass, scanner_device_id)
+        if scanner_area == area_id:
+            return False
+    return True
+```
+
+The exact API for `_enumerate_bermuda_scanners` will reuse the same path `person_coordinator._build_scanner_room_map` already uses (`person_coordinator.py:566`). Bermuda's runtime data exposes the scanner list.
+
+**Computed:** at config time + on device-registry update; cached per area.
+
+**Operator assumption:** each Bermuda scanner must have a correct `area_id` assigned in HA. Sensor should expose `untagged_scanners_count` attribute so misconfiguration is visible — this is an OPERATOR responsibility, not a code one.
+
+**Live sample data from this house** is rough — the earlier hardcoded-integration probe is no longer the right enumeration. Real per-area BLE-density numbers will land in v4.7.16 once `_enumerate_bermuda_scanners` is wired. Living_room remains suspect either way (no Shelly + no obvious BLE proxy device known).
+
+### Signal consensus confidence — attribute on the canonical sensor (no new dedicated entity)
+
+User-corrected 2026-05-30 (twice):
+1. First correction: ambiguity score should be scale-aligned with house_state_confidence (`1.0 = good`), not inverted.
+2. Second correction: the existing canonical confidence surface is `sensor.ura_presence_coordinator_presence_house_state` itself — `confidence` is an attribute on that rich-attribute sensor. The standalone `sensor.ura_house_state_confidence` at `sensor.py:3659` is a thin mirror; not canonical.
+
+**Fix: attach the new consensus metric as another attribute on the same canonical sensor. Do not create a new dedicated sensor.**
+
+```
+sensor.ura_presence_coordinator_presence_house_state
+├── state: "away" / "home_day" / "sleep" / ...
+├── attributes (post-v4.7.16):
+│   ├── confidence: 0.95               ← existing (state certainty, per-transition)
+│   ├── signal_consensus: 0.85         ← NEW (input agreement, per-cycle)
+│   ├── consensus_band: "high"         ← NEW (decorative — derived from numeric)
+│   ├── tracked_persons_count: 4       ← existing (v4.7.14 D3)
+│   ├── all_tracked_persons_away: true ← existing (v4.7.14 D3)
+│   ├── census_count: 0                ← existing
+│   ├── inferred_state                 ← existing
+│   ├── state_since, dwell_seconds     ← existing
+│   └── zones: {...}                   ← existing
+```
+
+Two complementary confidence dimensions on one canonical sensor:
+
+| Attribute | Measures | Updated when |
+|---|---|---|
+| `confidence` | Inference engine's certainty in the chosen state | Per-transition in `infer()` |
+| `signal_consensus` (new) | Active agreement across input sources | Per `_run_inference` cycle, regardless of transition |
+
+They can decouple — example: state is `away` at confidence 0.95 (veto-driven), but cameras are bouncing → `signal_consensus` drops to ~0.6 while `confidence` stays 0.95. Consensus is the earlier warning because it reflects inputs in motion, not the inference engine's settled output.
+
+**Companion cleanup (low priority, gated on operator audit):** the standalone `sensor.ura_house_state_confidence` (at `sensor.py:3659`) provably duplicates `state_attr("...presence_house_state", "confidence")`. After verifying no automation / dashboard reads it directly, deprecate with a warning in v4.7.16 and delete in v5.0.
+
+**2026-05-30 final operator decision — keep BOTH dedicated sensors + mirror attributes.** The earlier "attribute-only + deprecate standalone" recommendation was retracted. Reasoning: dedicated sensors get LTS/recorder history out of the box, allow direct `numeric_state` automation triggers, and bind cleanly to Lovelace gauge/graph cards. The mirror attributes on the canonical rich sensor are kept for diagnostic-peek ergonomics. Final design:
+
+- **Two dedicated sensors:** `sensor.ura_house_state_confidence` (existing, no change) + `sensor.ura_signal_consensus_confidence` (new, v4.7.15)
+- **Mirror attributes on canonical rich sensor:** `sensor.ura_presence_coordinator_presence_house_state` carries `confidence` (already does) + `signal_consensus` (new in v4.7.15) + `consensus_band` (decorative)
+
+The deprecation of the standalone `_house_state_confidence` is **withdrawn**. v4.7.16's deprecation candidate is removed from scope.
+
+Computation (inverted from earlier draft):
+```python
+consensus = 1.0
+if all_tracked_persons_away and any_zone_occupied:
+    consensus -= 0.4   # phones vs sensors disagree
+if any_stale_or_lost_tracker and not all_tracked_persons_away:
+    consensus -= 0.2   # one or more trackers degraded
+if camera_occupied_count > 0 and mmwave_occupied_count == 0:
+    consensus -= 0.15  # camera fires alone, no mmwave confirm
+if state_confidence < 0.85:
+    consensus -= 0.1   # inference engine itself uncertain
+consensus = max(0.0, consensus)
+```
+
+**Downstream gating** (inverted from earlier draft):
+- HVAC defers non-critical preset changes when `consensus < 0.5`
+- HVAC resumes normal when `consensus > 0.7` (40-point hysteresis gap)
+- Compliance suppresses violations when `consensus < 0.6` sustained ≥ 60 s
+
+Banded label (`"high"` / `"moderate"` / `"low"` / `"degraded"`) is decoration in attributes; never load-bearing.
+
+---
+
 ## 7. Acceptance criteria for the eventual cycle (v4.7.15)
 
 When Part A ships, expect:
