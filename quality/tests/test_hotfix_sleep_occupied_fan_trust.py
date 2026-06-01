@@ -86,6 +86,24 @@ class TestPathA_HvacFans:
             "occupancy gate"
         )
 
+    def test_sleep_occupied_block_clears_stale_vacancy_anchor(self, hvac_fans_src):
+        """Reviewer B fix-up B-MED-1: the new sleep+occupied branch must
+        clear `vacancy_detected_time` before returning.
+
+        Without this, a prior unoccupied tick's anchor persists through
+        the sleep+occupied window; on subsequent re-vacancy mid-night,
+        the vacancy timer would compute `vacancy_seconds` from a stale
+        timestamp and bypass DEFAULT_FAN_VACANCY_HOLD instantly — fan
+        would turn off the moment occupancy drops instead of honoring
+        the grace window.
+        """
+        idx = hvac_fans_src.find('self._house_state == "sleep" and occupied')
+        body = hvac_fans_src[idx: idx + 800]
+        assert 'room_fan.vacancy_detected_time = ""' in body, (
+            "sleep+occupied short-circuit must clear vacancy_detected_time "
+            "to prevent stale anchor (Reviewer B B-MED-1)"
+        )
+
 
 class TestPathB_AutomationEngine:
     """Sleep-state occupied fan trust guard in handle_temperature_based_fan_control."""

@@ -339,6 +339,14 @@ class FanController:
         # oscillation pushed target_high to 77°F while room was at 76°F
         # → delta=-1°F → off-threshold at line 387 → fan.turn_off written.
         if self._house_state == "sleep" and occupied:
+            # Reviewer B fix-up B-MED-1: clear any stale vacancy anchor
+            # left over from a prior unoccupied tick. Without this, if the
+            # room subsequently becomes unoccupied mid-night, the vacancy
+            # timer at line ~354 would compute vacancy_seconds from a
+            # very old anchor and bypass DEFAULT_FAN_VACANCY_HOLD instantly
+            # — fan would turn off the moment occupancy drops instead of
+            # honoring the grace window.
+            room_fan.vacancy_detected_time = ""
             if room_fan.is_on:
                 return True, room_fan.trigger or "sleep_occupied", room_fan.speed_pct
             return True, "sleep_occupied", FAN_SPEED_LOW_PCT
