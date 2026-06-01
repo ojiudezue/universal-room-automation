@@ -550,10 +550,18 @@ class WeatherProviderManager:
             preset_mgr = getattr(hvac, "_preset_manager", None)
             if preset_mgr is None:
                 return None
-            pair = preset_mgr.get_seasonal_setpoints(preset)  # (cool_low, cool_high)
+            # Tuple shape per hvac_const.py:283 + hvac.py:1197 canonical
+            # consumer: (cool_setpoint, heat_setpoint). The cool setpoint
+            # IS the "cool_high" we want — index 0, not 1. v4.7.16.3
+            # shipped pair[1] (heat) and biased DPM one bucket hotter
+            # across all summer days (e.g., 91°F forecast - 70°F heat
+            # setpoint = 21°F delta = EXTREME bucket vs intended 91 - 77
+            # cool setpoint = 14°F = HOT bucket). Caught by retroactive
+            # Tier 1 review against canonical contract.
+            pair = preset_mgr.get_seasonal_setpoints(preset)  # (cool_setpoint, heat_setpoint)
             if pair is None:
                 return None
-            return float(pair[1])
+            return float(pair[0])
         except Exception:
             _LOGGER.debug(
                 "WeatherProviderManager._get_zone_baseline_high failed for zone=%s",
