@@ -69,12 +69,21 @@ class TestBaselineFix:
             "zone_presets probe is the bug — must be removed"
         )
 
-    def test_returns_cool_high_index(self, weather_manager_src):
-        """The tuple returned by `get_seasonal_setpoints` is
-        `(cool_low, cool_high)`. We want cool_high → index [1]."""
+    def test_returns_cool_setpoint_index(self, weather_manager_src):
+        """v4.7.16.4 fix-up: the tuple is `(cool_setpoint, heat_setpoint)`,
+        per hvac_const.py:283 + hvac.py:1197. Cool IS the high — index 0.
+
+        v4.7.16.3 shipped pair[1] (the heat setpoint) and biased DPM one
+        bucket hotter on every summer day. The retroactive Tier 1 review
+        caught this and confirmed against the canonical consumer at
+        hvac.py:1190-1198 which destructures as `baseline_cool, _heat = baseline`.
+        """
         idx = weather_manager_src.find("def _get_zone_baseline_high")
         body = weather_manager_src[idx: idx + 3000]
-        assert "float(pair[1])" in body
+        assert "float(pair[0])" in body
+        # Hardening: assert the wrong index is NOT used.
+        # If a future refactor inadvertently reverts to pair[1], catch it here.
+        assert "float(pair[1])" not in body
 
 
 class TestUpstreamAccessorExists:
@@ -101,6 +110,51 @@ class TestUpstreamAccessorExists:
         assert "SEASONAL_DEFAULTS" in body
         # v4.7.3 D2: CM entry.options overrides merged on top
         assert "entry.options" in body or "entry_options" in body or "cm_options" in body
+
+
+class TestTupleShapeAgreement:
+    """v4.7.16.4 + Bug Class #49: WPM and the canonical HVAC consumer
+    must agree on the tuple shape returned by `get_seasonal_setpoints`.
+
+    The shape is (cool_setpoint, heat_setpoint), authoritative at
+    `hvac_const.py:283` and `hvac.py:1190-1198`. If a future refactor
+    swaps the tuple order, both the canonical consumer in hvac.py AND
+    the WPM accessor must change together; this test couples them so
+    drift in either is caught.
+    """
+
+    @pytest.fixture(scope="module")
+    def hvac_src(self) -> str:
+        with open(
+            "custom_components/universal_room_automation/"
+            "domain_coordinators/hvac.py"
+        ) as f:
+            return f.read()
+
+    def test_canonical_hvac_consumer_destructures_cool_first(self, hvac_src):
+        """`hvac.py:1190-1200` destructures
+        `baseline_cool, _baseline_heat = baseline` — cool is index 0."""
+        assert "baseline_cool, _baseline_heat = baseline" in hvac_src
+
+    def test_canonical_hvac_consumer_documents_cool_is_high(self, hvac_src):
+        """The canonical site has an explicit comment so future readers
+        don't make the same `pair[1]` mistake the v4.7.16.3 builder did."""
+        assert (
+            "(cool_setpoint, heat_setpoint) — cool is the high" in hvac_src
+        ), (
+            "hvac.py canonical comment must remain to prevent recurrence of "
+            "v4.7.16.3 Bug Class #49 (tuple shape assumption drift)"
+        )
+
+    def test_seasonal_defaults_documents_tuple_shape(self):
+        """`hvac_const.py:283` comment is the source of truth for the
+        SEASONAL_DEFAULTS tuple shape. Lock it down."""
+        with open(
+            "custom_components/universal_room_automation/"
+            "domain_coordinators/hvac_const.py"
+        ) as f:
+            src = f.read()
+        assert "{season: {preset: (cool, heat)}}" in src
 
 
 class TestFunctionStructureUnchanged:
