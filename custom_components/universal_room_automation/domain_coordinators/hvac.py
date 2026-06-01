@@ -1061,8 +1061,11 @@ class HVACCoordinator(BaseCoordinator):
                     self._house_state,
                     " [vacancy]" if zone_vacant_past_grace and effective_preset == "away" else "",
                 )
-                # Activity log: HVAC preset change
-                from ..const import DOMAIN
+                # Activity log: HVAC preset change.
+                # DOMAIN is imported at module level (line 27). Re-importing
+                # here would make DOMAIN function-local for the whole scope
+                # and break the earlier reference at line ~806 (v4.7.15.1 D6
+                # defer-gate path) with UnboundLocalError. Bug Class #34.
                 activity_logger = self.hass.data.get(DOMAIN, {}).get("activity_logger")
                 if activity_logger:
                     self.hass.async_create_task(
