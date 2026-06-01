@@ -1906,6 +1906,69 @@ signal is monotonically stable.
 
 ---
 
+### Bug Class #49 — Tuple shape assumption drift
+
+**Symptom.** A caller indexes into a tuple returned by an upstream accessor
+using a mental model that disagrees with the accessor's canonical
+contract. Tests built by the same author at the same time encode the
+same wrong assumption, so the test suite ratifies the bug instead of
+catching it. The change ships green, runs without raising, but produces
+silently-wrong values that bias downstream decisions in a way only a
+domain reviewer cross-checking against the canonical contract can spot.
+
+**Exemplar — v4.7.16.3 (DPM baseline derivation).** The hotfix replaced
+broken `getattr` probes in
+`WeatherProviderManager._get_zone_baseline_high()` with a call to the
+canonical `PresetManager.get_seasonal_setpoints(preset)` accessor.
+The accessor returns `(cool_setpoint, heat_setpoint)` — authoritative at
+`hvac_const.py:283` and `hvac.py:1190-1198` (which destructures
+`baseline_cool, _baseline_heat = baseline`). The builder indexed
+`pair[1]` (heat) instead of `pair[0]` (cool, which IS the cool_high
+needed). DPM ran with baseline=70°F instead of 77°F → `delta = 91 − 70
+= 21°F` → EXTREME bucket instead of intended `91 − 77 = 14°F` → HOT
+bucket. Three accompanying tests asserted `pair[1]` and `"(cool_low,
+cool_high)"` — all green, all wrong. Bug shipped to production. Caught
+only by the retroactive Tier 1 review (which had been skipped pre-deploy).
+
+**Common shape.**
+- Upstream accessor has a canonical tuple-shape contract documented at
+  exactly one location (e.g., a module-level constant's comment).
+- Caller adds a new use-site that indexes the tuple by position.
+- Caller's tests assert the indexing in source-grep style, encoding the
+  same mental model the source uses.
+- No site cross-references the canonical contract.
+
+**Fix pattern.**
+1. Source-grep tests that index a tuple by position MUST also include a
+   parallel test that asserts the canonical contract at the upstream
+   site (so a future refactor that swaps tuple order fails both tests
+   in tandem rather than silently passing the caller's local belief).
+2. Where multiple consumers index the same tuple, write a single
+   "tuple-shape agreement" test that pins ALL of them together. The
+   v4.7.16.4 fix-up file pattern is the reference:
+   `quality/tests/test_hotfix_v4_7_16_3_dpm_baseline.py::TestTupleShapeAgreement`
+3. When the canonical contract is documented in a comment at the
+   source-of-truth (e.g., `hvac_const.py:283`), lock that comment with
+   a test assertion so deletion of the comment is also caught.
+
+**Detection.** The bug is **invisible at runtime** — no exception, no
+log warning, no wrong-type error. Only behavioral drift in a downstream
+metric (here: bucket classification one bucket hotter than spec) reveals
+it. Standard Tier 1 review against the canonical consumer would catch
+it in 30 seconds (the canonical consumer at `hvac.py:1190-1198` is two
+lines from a comment that explicitly says "cool is the high"). The
+reviewer's value is precisely this cross-reference.
+
+**Procedural lesson.** v4.7.16.3 shipped without the Tier 1 review pass
+that CLAUDE.md mandates. The retroactive review (run after deploy at
+operator request) caught the CRITICAL within minutes. **The no-review
+breach caused real harm:** users running v4.7.16.3 between deploy and
+the v4.7.16.4 fix-up had DPM biased one bucket hotter than spec. The
+operator-warning-as-mitigation in the README is not a system-level
+safeguard. Filed 2026-06-01 alongside v4.7.16.4 fix-up.
+
+---
+
 ## ✅ MANDATORY VALIDATION CHECKLIST
 
 **Before EVERY deployment, complete this checklist:**
