@@ -23,11 +23,14 @@ from ..const import (
     CONF_HUMIDITY_FAN_MAX_RUNTIME,
     CONF_HUMIDITY_FAN_THRESHOLD,
     CONF_ROOM_NAME,
+    CONF_ROOM_TYPE,
     DEFAULT_HUMIDITY_FAN_HYSTERESIS,
     DEFAULT_HUMIDITY_FAN_MAX_RUNTIME,
     DEFAULT_HUMIDITY_THRESHOLD,
     DOMAIN,
     ENTRY_TYPE_ROOM,
+    ROOM_TYPE_BEDROOM,
+    ROOM_TYPE_GENERIC,
 )
 from .hvac_const import (
     DEFAULT_FAN_ACTIVATION_DELTA,
@@ -53,6 +56,12 @@ class RoomFanState:
 
     room_name: str
     zone_id: str
+    # v4.7.16.2: per-room CONF_ROOM_TYPE, used to gate the sleep-state
+    # occupied fan trust to bedrooms only — prevents spurious presence
+    # in common areas (kitchen, living room) from activating fans
+    # mid-night. Defaults to ROOM_TYPE_GENERIC so unset rooms safely
+    # don't fire the bedroom-only branch.
+    room_type: str = ROOM_TYPE_GENERIC
     fan_entities: list[str] = field(default_factory=list)
     humidity_fan_entities: list[str] = field(default_factory=list)
     is_on: bool = False
@@ -138,6 +147,7 @@ class FanController:
             self._room_fans[room_name] = RoomFanState(
                 room_name=room_name,
                 zone_id=room_to_zone[room_name],
+                room_type=merged.get(CONF_ROOM_TYPE, ROOM_TYPE_GENERIC),
                 fan_entities=fan_list,
                 humidity_fan_entities=hfan_list,
                 humidity_fan_threshold=float(
@@ -327,6 +337,48 @@ class FanController:
                 room_fan.manual_off_cooldown_until = ""
             except (ValueError, TypeError):
                 room_fan.manual_off_cooldown_until = ""
+
+        # Sleep-state occupied fan trust — companion to v4.7.13's OFF-side
+        # vacancy-hold trust. Symmetric ON-side: while occupied during
+        # sleep IN A BEDROOM, the temperature off-path is suppressed
+        # (people prefer cool moving air at sleep setpoint, and fans aid
+        # HVAC efficiency at sleep targets). v3.18.1 speed cap at the
+        # dispatch site still caps speed to LOW. Manual-off cooldown above
+        # this block still wins — explicit user override preserved.
+        # Triggered by 2026-06-01 00:11 CDT incident: Bryant Z1 preset
+        # oscillation pushed target_high to 77°F while room was at 76°F
+        # → delta=-1°F → off-threshold at line 387 → fan.turn_off written.
+        # Bedroom-only gate prevents spurious mid-night presence in common
+        # areas (kitchen, living room, hallways) from activating fans.
+        if (
+            self._house_state == "sleep"
+            and occupied
+            and room_fan.room_type == ROOM_TYPE_BEDROOM
+        ):
+            # Reviewer B fix-up B-MED-1: clear any stale vacancy anchor
+            # left over from a prior unoccupied tick. Without this, if the
+            # room subsequently becomes unoccupied mid-night, the vacancy
+            # timer at line ~354 would compute vacancy_seconds from a
+            # very old anchor and bypass DEFAULT_FAN_VACANCY_HOLD instantly
+            # — fan would turn off the moment occupancy drops instead of
+            # honoring the grace window.
+            room_fan.vacancy_detected_time = ""
+            # Reviewer A fix-up B-M2: distinct labels for hold vs activate.
+            # Preserving the prior trigger when running keeps audit fidelity
+            # (a fan turned on by `fan_assist` stays labeled `fan_assist`
+            # even though sleep+occupied is preventing it from turning off).
+            # Use explicit `sleep_occupied_hold` only when prior trigger is
+            # truly absent (post-reload window). Use `sleep_occupied_activate`
+            # when this branch turns the fan on from off, so diagnostics can
+            # distinguish "we kept it running" from "we turned it on".
+            # Reviewer A fix-up B-M3: this branch intentionally bypasses
+            # the `fan_assist` energy boost below — the v3.18.1 sleep cap
+            # already constrains speed to LOW, so a boost would be capped
+            # anyway. Documented here so future readers don't try to
+            # restore the energy branch during sleep.
+            if room_fan.is_on:
+                return True, room_fan.trigger or "sleep_occupied_hold", room_fan.speed_pct
+            return True, "sleep_occupied_activate", FAN_SPEED_LOW_PCT
 
         # Occupancy gate: don't activate fans in unoccupied rooms
         if not occupied and not room_fan.is_on:
