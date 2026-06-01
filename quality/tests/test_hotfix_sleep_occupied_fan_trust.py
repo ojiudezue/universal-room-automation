@@ -45,17 +45,28 @@ def automation_src() -> str:
 class TestPathA_HvacFans:
     """Sleep-state occupied fan trust block in _evaluate_temp_fan."""
 
+    # The new block is the only place with this comment; use it as a
+    # unique anchor since the predicate string is also matched by the
+    # v3.18.1 sleep-cap line at ~line 240.
+    _SLEEP_BLOCK_ANCHOR = "Sleep-state occupied fan trust"
+
     def test_sleep_occupied_short_circuit_block_exists(self, hvac_fans_src):
-        """The block must reference both house_state == 'sleep' AND occupied."""
-        assert 'self._house_state == "sleep" and occupied' in hvac_fans_src
+        """The block must reference house_state == 'sleep' AND occupied
+        AND the bedroom-only room_type gate."""
+        idx = hvac_fans_src.find(self._SLEEP_BLOCK_ANCHOR)
+        assert idx > 0
+        body = hvac_fans_src[idx: idx + 1800]
+        assert "and occupied" in body
+        assert "room_fan.room_type == ROOM_TYPE_BEDROOM" in body, (
+            "v4.7.x.x: sleep+occupied trust must gate on ROOM_TYPE_BEDROOM "
+            "to prevent spurious presence in common areas from holding fans on"
+        )
 
     def test_sleep_occupied_block_returns_on_when_running(self, hvac_fans_src):
         """When the fan was already on, preserve the prior trigger + speed."""
-        # Look for the conditional that handles already-on fans in the sleep
-        # path. Must return True with prior speed_pct so we don't flap speed.
-        idx = hvac_fans_src.find('self._house_state == "sleep" and occupied')
+        idx = hvac_fans_src.find(self._SLEEP_BLOCK_ANCHOR)
         assert idx > 0
-        body = hvac_fans_src[idx: idx + 800]
+        body = hvac_fans_src[idx: idx + 1800]
         assert "if room_fan.is_on:" in body
         assert "room_fan.speed_pct" in body
         assert "room_fan.trigger or \"sleep_occupied\"" in body
@@ -63,8 +74,8 @@ class TestPathA_HvacFans:
     def test_sleep_occupied_block_activates_off_fan_at_low(self, hvac_fans_src):
         """When fan was off, activate at LOW (v3.18.1 sleep cap will enforce
         LOW anyway; being explicit makes the intent clear)."""
-        idx = hvac_fans_src.find('self._house_state == "sleep" and occupied')
-        body = hvac_fans_src[idx: idx + 800]
+        idx = hvac_fans_src.find(self._SLEEP_BLOCK_ANCHOR)
+        body = hvac_fans_src[idx: idx + 1800]
         assert "FAN_SPEED_LOW_PCT" in body
         assert '"sleep_occupied"' in body
 
@@ -73,11 +84,9 @@ class TestPathA_HvacFans:
         and BEFORE the occupancy gate (so it short-circuits temperature
         evaluation entirely when sleep+occupied)."""
         cooldown_idx = hvac_fans_src.find(
-            "v4.0.18: Manual off cooldown"
+            "manual_off_cooldown_until"
         )
-        sleep_block_idx = hvac_fans_src.find(
-            'self._house_state == "sleep" and occupied'
-        )
+        sleep_block_idx = hvac_fans_src.find(self._SLEEP_BLOCK_ANCHOR)
         occupancy_gate_idx = hvac_fans_src.find(
             "Occupancy gate: don't activate fans in unoccupied rooms"
         )
@@ -97,22 +106,51 @@ class TestPathA_HvacFans:
         would turn off the moment occupancy drops instead of honoring
         the grace window.
         """
-        idx = hvac_fans_src.find('self._house_state == "sleep" and occupied')
-        body = hvac_fans_src[idx: idx + 800]
+        idx = hvac_fans_src.find(self._SLEEP_BLOCK_ANCHOR)
+        body = hvac_fans_src[idx: idx + 1800]
         assert 'room_fan.vacancy_detected_time = ""' in body, (
             "sleep+occupied short-circuit must clear vacancy_detected_time "
             "to prevent stale anchor (Reviewer B B-MED-1)"
         )
 
+    def test_room_type_field_on_room_fan_state(self, hvac_fans_src):
+        """RoomFanState must carry the per-room CONF_ROOM_TYPE so the
+        sleep-trust predicate can gate on bedroom."""
+        # Dataclass field declared with safe default
+        assert "room_type: str = ROOM_TYPE_GENERIC" in hvac_fans_src
+        # Threaded through discover_fans() at construction
+        assert "room_type=merged.get(CONF_ROOM_TYPE, ROOM_TYPE_GENERIC)" in hvac_fans_src
+
+    def test_room_type_constants_imported(self, hvac_fans_src):
+        """ROOM_TYPE_BEDROOM + ROOM_TYPE_GENERIC + CONF_ROOM_TYPE imported
+        from the canonical const surface (not hard-coded as bare strings)."""
+        # Confirm import block contains the symbols (substring is sufficient —
+        # the import is grouped under `from ..const import (...)`)
+        for sym in ("CONF_ROOM_TYPE", "ROOM_TYPE_BEDROOM", "ROOM_TYPE_GENERIC"):
+            assert sym in hvac_fans_src
+
 
 class TestPathB_AutomationEngine:
     """Sleep-state occupied fan trust guard in handle_temperature_based_fan_control."""
 
-    def test_sleep_occupied_hold_variable_defined(self, automation_src):
-        """The guard reads is_sleep_mode_active() AND occupied."""
-        assert (
-            "sleep_occupied_hold = self.is_sleep_mode_active() and occupied"
-            in automation_src
+    # Multi-line `sleep_occupied_hold = (...)` after bedroom-gate addition;
+    # anchor on the assignment LHS instead of the full literal expression.
+    _HOLD_ANCHOR = "sleep_occupied_hold"
+
+    def test_sleep_occupied_hold_uses_sleep_occupied_and_bedroom(self, automation_src):
+        """The guard reads is_sleep_mode_active() AND occupied AND
+        room_type == ROOM_TYPE_BEDROOM."""
+        idx = automation_src.find(f"{self._HOLD_ANCHOR} = (")
+        # Fall back to single-line form if the predicate is ever inlined
+        if idx < 0:
+            idx = automation_src.find(f"{self._HOLD_ANCHOR} =")
+        assert idx > 0
+        body = automation_src[idx: idx + 400]
+        assert "self.is_sleep_mode_active()" in body
+        assert "and occupied" in body
+        assert "and room_type == ROOM_TYPE_BEDROOM" in body, (
+            "v4.7.x.x: Path B sleep_occupied_hold must gate on ROOM_TYPE_BEDROOM "
+            "to prevent common-area fans from being held on mid-night"
         )
 
     def test_off_condition_gated_by_sleep_occupied_hold(self, automation_src):
@@ -126,18 +164,20 @@ class TestPathB_AutomationEngine:
     def test_fan_sleep_off_policy_still_wins(self, automation_src):
         """FAN_SLEEP_OFF policy returns early at line ~1517 BEFORE the new
         guard runs, so explicit user opt-out is preserved."""
-        # The FAN_SLEEP_OFF early return + the sleep_occupied_hold guard
-        # must both exist, with FAN_SLEEP_OFF earlier in the file.
         fan_sleep_off_idx = automation_src.find('policy == FAN_SLEEP_OFF')
-        guard_idx = automation_src.find(
-            "sleep_occupied_hold = self.is_sleep_mode_active()"
-        )
+        guard_idx = automation_src.find(f"{self._HOLD_ANCHOR} =")
         assert fan_sleep_off_idx > 0
         assert guard_idx > 0
         assert fan_sleep_off_idx < guard_idx, (
             "FAN_SLEEP_OFF early-return must precede sleep_occupied_hold "
             "guard so explicit user OFF policy still wins"
         )
+
+    def test_room_type_constants_imported_in_automation(self, automation_src):
+        """Path B reads CONF_ROOM_TYPE and compares to ROOM_TYPE_BEDROOM —
+        symbols must be imported from the canonical const surface."""
+        for sym in ("CONF_ROOM_TYPE", "ROOM_TYPE_BEDROOM", "ROOM_TYPE_GENERIC"):
+            assert sym in automation_src
 
 
 class TestOrthogonalPathsNotTouched:

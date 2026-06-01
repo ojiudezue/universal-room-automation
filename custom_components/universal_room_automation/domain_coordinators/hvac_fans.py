@@ -23,11 +23,14 @@ from ..const import (
     CONF_HUMIDITY_FAN_MAX_RUNTIME,
     CONF_HUMIDITY_FAN_THRESHOLD,
     CONF_ROOM_NAME,
+    CONF_ROOM_TYPE,
     DEFAULT_HUMIDITY_FAN_HYSTERESIS,
     DEFAULT_HUMIDITY_FAN_MAX_RUNTIME,
     DEFAULT_HUMIDITY_THRESHOLD,
     DOMAIN,
     ENTRY_TYPE_ROOM,
+    ROOM_TYPE_BEDROOM,
+    ROOM_TYPE_GENERIC,
 )
 from .hvac_const import (
     DEFAULT_FAN_ACTIVATION_DELTA,
@@ -53,6 +56,12 @@ class RoomFanState:
 
     room_name: str
     zone_id: str
+    # v4.7.x.x: per-room CONF_ROOM_TYPE, used to gate the sleep-state
+    # occupied fan trust to bedrooms only — prevents spurious presence
+    # in common areas (kitchen, living room) from activating fans
+    # mid-night. Defaults to ROOM_TYPE_GENERIC so unset rooms safely
+    # don't fire the bedroom-only branch.
+    room_type: str = ROOM_TYPE_GENERIC
     fan_entities: list[str] = field(default_factory=list)
     humidity_fan_entities: list[str] = field(default_factory=list)
     is_on: bool = False
@@ -138,6 +147,7 @@ class FanController:
             self._room_fans[room_name] = RoomFanState(
                 room_name=room_name,
                 zone_id=room_to_zone[room_name],
+                room_type=merged.get(CONF_ROOM_TYPE, ROOM_TYPE_GENERIC),
                 fan_entities=fan_list,
                 humidity_fan_entities=hfan_list,
                 humidity_fan_threshold=float(
@@ -330,15 +340,21 @@ class FanController:
 
         # Sleep-state occupied fan trust — companion to v4.7.13's OFF-side
         # vacancy-hold trust. Symmetric ON-side: while occupied during
-        # sleep, the temperature off-path is suppressed (people prefer
-        # cool moving air at sleep setpoint, and fans aid HVAC efficiency
-        # at sleep targets). v3.18.1 speed cap at the dispatch site still
-        # caps speed to LOW. Manual-off cooldown above this block still
-        # wins — explicit user override preserved.
+        # sleep IN A BEDROOM, the temperature off-path is suppressed
+        # (people prefer cool moving air at sleep setpoint, and fans aid
+        # HVAC efficiency at sleep targets). v3.18.1 speed cap at the
+        # dispatch site still caps speed to LOW. Manual-off cooldown above
+        # this block still wins — explicit user override preserved.
         # Triggered by 2026-06-01 00:11 CDT incident: Bryant Z1 preset
         # oscillation pushed target_high to 77°F while room was at 76°F
         # → delta=-1°F → off-threshold at line 387 → fan.turn_off written.
-        if self._house_state == "sleep" and occupied:
+        # Bedroom-only gate prevents spurious mid-night presence in common
+        # areas (kitchen, living room, hallways) from activating fans.
+        if (
+            self._house_state == "sleep"
+            and occupied
+            and room_fan.room_type == ROOM_TYPE_BEDROOM
+        ):
             # Reviewer B fix-up B-MED-1: clear any stale vacancy anchor
             # left over from a prior unoccupied tick. Without this, if the
             # room subsequently becomes unoccupied mid-night, the vacancy
