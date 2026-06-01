@@ -70,7 +70,15 @@ In either mode, follow the same procedure below.
 
 ## Procedure (run for every active deploy version)
 
-1. **Discover active versions.** List `docs/readmes/README_v*.md`. For each, check the file's git log for its merge-to-master commit timestamp via `git log -1 --format=%at -- <path>`. Skip versions whose merge timestamp is older than 14 days unless the README has a `window.alert_if_violated_after` longer than that.
+1. **Discover active versions.** List `docs/readmes/README_v*.md`. For each, resolve the **deploy timestamp** — NOT the most recent commit touching the file. The latter can be misleading if the README was edited post-deploy (e.g., to add an acceptance block retroactively).
+
+   Preferred resolution order (use the first that succeeds):
+   a. `git log -1 --format=%at "v<version>"` — the version's git tag (set by deploy.sh)
+   b. `git log -1 --format=%at --grep="^v<version>: " --all` — the named deploy commit
+   c. `git log --reverse --format=%at -- <readme_path> | head -1` — the README's first commit
+   d. `git log -1 --format=%at -- <readme_path>` — fallback (last touched; flag in `tool_call_evidence` as imprecise)
+
+   Skip versions whose deploy timestamp is older than 14 days unless the README has a `window.alert_if_violated_after` longer than that.
 
 2. **Parse acceptance blocks.** Read the README, extract the YAML between `## Acceptance` and the next top-level heading (or EOF). Use a Python `yaml.safe_load` via `Bash` if needed — no third-party tools.
 
