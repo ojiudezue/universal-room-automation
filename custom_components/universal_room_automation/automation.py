@@ -150,6 +150,10 @@ from .const import (
     DEFAULT_SHARED_SPACE_AUTO_OFF_HOUR,
     # v3.18.1: HVAC deconfliction
     CONF_ROOM_NAME,
+    # v4.7.16.2: bedroom gate for sleep-state occupied fan trust
+    CONF_ROOM_TYPE,
+    ROOM_TYPE_BEDROOM,
+    ROOM_TYPE_GENERIC,
     DOMAIN,
 )
 
@@ -1538,7 +1542,22 @@ class RoomAutomation:
         )
         # Use lower threshold for turn-off to prevent cycling
         effective_threshold = (threshold - hysteresis) if any_fan_on else threshold
-        if temperature < effective_threshold or not occupied:
+        # Sleep-state occupied fan trust — companion to hvac_fans
+        # _evaluate_temp_fan sleep-occupied short-circuit. FAN_SLEEP_OFF
+        # (explicit user opt-out) already returned at line 1517 above.
+        # FAN_SLEEP_REDUCE speed cap still applies via sleep_speed_cap.
+        # Suppresses the temperature off-path while sleeping with occupant
+        # present IN A BEDROOM — gate prevents spurious mid-night presence
+        # in common areas (kitchen, living room, hallways) from holding
+        # fans on. Rooms without an explicit room_type default to
+        # ROOM_TYPE_GENERIC and safely fall through to existing behavior.
+        room_type = self.config.get(CONF_ROOM_TYPE, ROOM_TYPE_GENERIC)
+        sleep_occupied_hold = (
+            self.is_sleep_mode_active()
+            and occupied
+            and room_type == ROOM_TYPE_BEDROOM
+        )
+        if (temperature < effective_threshold or not occupied) and not sleep_occupied_hold:
             # Turn off fans/switches if below threshold or room vacant
             # v3.2.9: Use homeassistant domain for multi-domain support
             await self._safe_service_call(

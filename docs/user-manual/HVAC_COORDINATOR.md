@@ -158,7 +158,7 @@ How many consecutive 5-min cycle samples must show `kwh_rate > threshold` before
 **Lower** if you want faster detection at higher noise risk.
 
 #### `AC Detection Time Gate` — 5–30 min, default 10 min
-How long the overshoot window (current temp <= target - 0.5°F) must hold before any action fires.
+How long the overshoot window (current temp ≤ target, at-or-below setpoint) must hold before any action fires.
 **Raise** for tighter false-positive control.
 **Lower** if you observe waste continuing for too long before action.
 
