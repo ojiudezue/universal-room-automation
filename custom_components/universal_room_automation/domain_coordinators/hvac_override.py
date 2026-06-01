@@ -897,7 +897,7 @@ class OverrideArrester:
           3. zone.ac_load_sensor configured (graceful degrade if not)
           4. hvac_action == cooling AND temps known
           5. lockout_flag not set (DB)
-          6. current <= target_high - 0.5  (overshoot)
+          6. current <= target_high  (at-or-below setpoint)
           7. kwh_rate > zone threshold for N consecutive samples (debounce)
           8. overshoot sustained for detection_time_gate minutes
           9. not already mid-nudge or mid-evaluation
@@ -984,10 +984,15 @@ class OverrideArrester:
                     zone.ramp_state = AC_RAMP_STATE_LOCKED_OUT
                     continue
 
-            # Gate 6: overshoot — current cooled below target by safety gap.
-            # 0.5°F gap prevents flap when AC is at setpoint and modulating
-            # naturally (Bryant rounds to 0.5°F; current==target reads happen
-            # constantly during legit cycling).
+            # Gate 6: overshoot — current at-or-below target setpoint.
+            # v4.7.16.2 hotfix: gap reduced 0.5°F → 0.0°F. Variable-speed
+            # Bryant modulates AT setpoint and rarely undershoots 0.5°F,
+            # so the previous gap suppressed auto-nudge for the exact
+            # waste pattern this gate exists to catch (sustained kWh burn
+            # while sitting at setpoint). Gates 7 (kwh_rate > zone
+            # threshold), 7b (N consecutive samples), and 8 (time-
+            # sustained for detection_time_gate min) provide three
+            # independent false-positive guards downstream.
             overshoot = (
                 zone.current_temperature
                 <= zone.target_temp_high - AC_NUDGE_OVERSHOOT_GAP

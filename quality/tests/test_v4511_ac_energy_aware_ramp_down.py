@@ -289,10 +289,16 @@ def test_v4511_conf_key_defined(hvac_const_src, conf_name):
 
 class TestConstants:
 
-    def test_overshoot_gap_is_half_degree(self, hvac_const_src):
-        """0.5°F gap below target prevents flap (Bryant rounds to 0.5°F so
-        current==target is constant during legit cycling)."""
-        assert "AC_NUDGE_OVERSHOOT_GAP: Final = 0.5" in hvac_const_src
+    def test_overshoot_gap_is_zero_post_hotfix(self, hvac_const_src):
+        """v4.7.16.2 hotfix: gap reduced from 0.5°F to 0.0°F.
+
+        Variable-speed Bryant modulates AT setpoint and rarely undershoots
+        0.5°F, so the previous 0.5°F gap suppressed auto-nudge for the
+        exact waste pattern check_ac_reset was designed to catch
+        (sustained kWh burn after reaching setpoint). Gates 7/7b/8
+        already provide three independent false-positive guards.
+        """
+        assert "AC_NUDGE_OVERSHOOT_GAP: Final = 0.0" in hvac_const_src
 
     def test_kwh_staleness_threshold(self, hvac_const_src):
         # 10 min before treating a sensor reading as missing (R3)
@@ -424,10 +430,19 @@ class TestDetectionLogic:
         assert "AC_RAMP_STATE_DISABLED" in body
 
     def test_check_ac_reset_uses_overshoot_gap(self, hvac_override_src):
-        """Overshoot threshold is current <= target - 0.5°F (the gap
-        prevents flap when AC is at setpoint and modulating naturally)."""
+        """Overshoot threshold is `current <= target_high - AC_NUDGE_OVERSHOOT_GAP`.
+
+        v4.7.16.2 hotfix: gap value is now 0.0°F (was 0.5°F). Downstream
+        Gates 7/7b/8 (kwh_rate threshold + sustained samples + time-
+        sustained) provide the substantive false-positive defense.
+
+        v4.7.16.2 window widening: same precedent as `test_check_ac_reset_
+        per_zone_threshold` below — Gate 6 inline comment expanded by
+        the hotfix pushed the constant reference past the prior 6000-char
+        boundary. Bumped to 9000 to match the sibling tests.
+        """
         idx = hvac_override_src.find("async def check_ac_reset(")
-        body = hvac_override_src[idx:idx + 6000]
+        body = hvac_override_src[idx:idx + 9000]
         assert "AC_NUDGE_OVERSHOOT_GAP" in body
         assert "<= zone.target_temp_high - AC_NUDGE_OVERSHOOT_GAP" in body
 

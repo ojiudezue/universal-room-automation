@@ -210,7 +210,7 @@ CONF_HVAC_AC_RAMP_ZONE_ENABLED: Final = "hvac_ac_ramp_zone_enabled"
 DEFAULT_HVAC_AC_RAMP_ZONE_ENABLED: Final = True
 
 # Internal constants (not user-facing)
-AC_NUDGE_OVERSHOOT_GAP: Final = 0.5            # °F — current <= target - this
+AC_NUDGE_OVERSHOOT_GAP: Final = 0.0            # °F — current <= target - this. v4.7.16.2 hotfix: variable-speed Bryant modulates AT setpoint and rarely undershoots 0.5°F; previous 0.5°F gap suppressed auto-nudge for the exact waste pattern it was designed to catch. Downstream gates 7 (kwh_rate > threshold), 7b (sustained samples), and 8 (time-sustained) already provide three independent false-positive guards.
 AC_NUDGE_EVALUATION_DELAY_S: Final = 600       # seconds after restore = evaluate
 AC_KWH_SENSOR_STALENESS_S: Final = 600         # 10 min stale = treat as None
 AC_KWH_STALE_WARN_INTERVAL_S: Final = 21600    # 6 hr — rate-limit stale warnings
