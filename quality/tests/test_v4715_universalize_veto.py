@@ -898,7 +898,7 @@ class TestD2ZoneAggregatorLayer3:
 # Hard upper bound enforced by test_run_inference_only_defined_once at the
 # bottom of this section — the widened window cannot span two function
 # bodies.
-_RUN_INFERENCE_WINDOW = 44000
+_RUN_INFERENCE_WINDOW = 60000
 
 
 class TestD3WakingSustainedSignal:

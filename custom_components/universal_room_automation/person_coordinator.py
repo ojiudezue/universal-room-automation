@@ -1,6 +1,6 @@
 """Person tracking coordinator for Universal Room Automation."""
 #
-# Universal Room Automation vv4.7.15.1
+# Universal Room Automation vv4.7.16
 # Build: 2026-01-03
 # File: person_coordinator.py
 # v3.2.9: No changes (zone fixes in aggregation.py, fan fixes in automation.py)
@@ -1159,6 +1159,71 @@ class PersonTrackingCoordinator(DataUpdateCoordinator):
         Uses cached _direct_ble_rooms set built during _build_scanner_room_map.
         """
         return room_name.lower().replace(" ", "_") in self._direct_ble_rooms
+
+    def get_ble_tier(self, room_name: str) -> int:
+        """Return BLE scanner-resolution tier for a room.
+
+        v4.7.16 D1: derived attribute over CONF_SCANNER_AREAS classification.
+
+        Returns:
+            1 — direct / dense (room has own scanner; member of _direct_ble_rooms)
+            2 — borrowing / sparse (CONF_SCANNER_AREAS configured on this room
+                AND CONF_AREA_ID set; relies on a neighbor's scanner)
+            0 — neither (no area_id, or no BLE classification)
+
+        Read-only consumer of `_build_scanner_room_map` output. Lazy at read
+        time per Bug Class #46 doctrine — no migration helper, fail-safe to 0
+        when scanner map has not been built yet.
+
+        Note: this method uses "ble_tier" to distinguish from
+        ZonePresenceTracker's Tier 1/2/3 signal-class vocabulary. See file
+        header comment for the scanner-resolution Tier 1/2/3 vocabulary.
+        """
+        norm = (room_name or "").lower().replace(" ", "_")
+        if not norm:
+            return 0
+        # Tier 1 short-circuit: present in the cached direct-BLE set.
+        if norm in self._direct_ble_rooms:
+            return 1
+        # Tier 2 / 0: walk room entries to find this room's CONF_SCANNER_AREAS.
+        try:
+            entries = self.hass.config_entries.async_entries(DOMAIN)
+        except Exception as exc:  # pragma: no cover - defensive
+            _LOGGER.debug("get_ble_tier: config entry walk failed: %s", exc)
+            return 0
+        # Post-review A4 (MEDIUM): surface duplicate ROOM entries with the
+        # same room_name as a debug log. Behavior is unchanged (we return on
+        # the FIRST match — same as v3.8.9's _build_scanner_room_map), but
+        # the debug line gives operators a trail when "ble_tier seems wrong"
+        # turns out to be a duplicate-add via the UI.
+        _matched_count = 0
+        _first_tier = 0
+        for entry in entries:
+            if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ROOM:
+                continue
+            entry_room = (entry.data.get("room_name") or "").lower().replace(" ", "_")
+            if entry_room != norm:
+                continue
+            config = {**entry.data, **entry.options}
+            area_id = config.get(CONF_AREA_ID)
+            scanner_areas = config.get(CONF_SCANNER_AREAS) or []
+            if scanner_areas and area_id:
+                _tier_here = 2
+            else:
+                _tier_here = 0
+            _matched_count += 1
+            if _matched_count == 1:
+                _first_tier = _tier_here
+            elif _matched_count == 2:
+                _LOGGER.debug(
+                    "get_ble_tier: room_name=%r has multiple ROOM entries "
+                    "(misconfig?). Using tier from first-walk entry (%d). "
+                    "Subsequent duplicate entries ignored.",
+                    room_name, _first_tier,
+                )
+        if _matched_count >= 1:
+            return _first_tier
+        return 0
 
     def get_zone_occupants(self, zone_rooms: list[str]) -> list[str]:
         """
