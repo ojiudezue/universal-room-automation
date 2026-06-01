@@ -1538,7 +1538,14 @@ class RoomAutomation:
         )
         # Use lower threshold for turn-off to prevent cycling
         effective_threshold = (threshold - hysteresis) if any_fan_on else threshold
-        if temperature < effective_threshold or not occupied:
+        # Sleep-state occupied fan trust — companion to hvac_fans
+        # _evaluate_temp_fan sleep-occupied short-circuit. FAN_SLEEP_OFF
+        # (explicit user opt-out) already returned at line 1517 above.
+        # FAN_SLEEP_REDUCE speed cap still applies via sleep_speed_cap.
+        # Suppresses the temperature off-path while sleeping with occupant
+        # present — people prefer moving air at sleep setpoint.
+        sleep_occupied_hold = self.is_sleep_mode_active() and occupied
+        if (temperature < effective_threshold or not occupied) and not sleep_occupied_hold:
             # Turn off fans/switches if below threshold or room vacant
             # v3.2.9: Use homeassistant domain for multi-domain support
             await self._safe_service_call(

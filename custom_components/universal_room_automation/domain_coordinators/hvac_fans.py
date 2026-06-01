@@ -328,6 +328,21 @@ class FanController:
             except (ValueError, TypeError):
                 room_fan.manual_off_cooldown_until = ""
 
+        # Sleep-state occupied fan trust — companion to v4.7.13's OFF-side
+        # vacancy-hold trust. Symmetric ON-side: while occupied during
+        # sleep, the temperature off-path is suppressed (people prefer
+        # cool moving air at sleep setpoint, and fans aid HVAC efficiency
+        # at sleep targets). v3.18.1 speed cap at the dispatch site still
+        # caps speed to LOW. Manual-off cooldown above this block still
+        # wins — explicit user override preserved.
+        # Triggered by 2026-06-01 00:11 CDT incident: Bryant Z1 preset
+        # oscillation pushed target_high to 77°F while room was at 76°F
+        # → delta=-1°F → off-threshold at line 387 → fan.turn_off written.
+        if self._house_state == "sleep" and occupied:
+            if room_fan.is_on:
+                return True, room_fan.trigger or "sleep_occupied", room_fan.speed_pct
+            return True, "sleep_occupied", FAN_SPEED_LOW_PCT
+
         # Occupancy gate: don't activate fans in unoccupied rooms
         if not occupied and not room_fan.is_on:
             room_fan.vacancy_detected_time = ""
