@@ -598,17 +598,30 @@ class TestHardResetEscalation:
     def test_evaluate_nudge_outcome_method_exists(self, hvac_override_src):
         assert "async def _evaluate_nudge_outcome(" in hvac_override_src
 
-    def test_evaluation_uses_85_percent_threshold(self, hvac_override_src):
-        """Tolerance for natural fluctuation: a 15% drop = nudge worked."""
+    def test_evaluation_uses_post_min_threshold_rule(self, hvac_override_src):
+        """v4.7.17.1: rule changed from single-sample (>= 85% of before)
+        to trailing-window min vs before. New rule uses
+        AC_NUDGE_EVAL_MIN_DROP_FRAC (default 0.50) — see hvac_const.py
+        for calibration notes against the 2026-06-01 dataset.
+
+        Previously: assert "0.85" in body.
+        Now: assert the rule references the constant + correct comparison.
+        Window widened 3000 -> 8000 after rule rewrite added the recorder
+        query and classification block.
+        """
         idx = hvac_override_src.find("async def _evaluate_nudge_outcome(")
-        body = hvac_override_src[idx:idx + 3000]
-        assert "0.85" in body
+        body = hvac_override_src[idx:idx + 8000]
+        assert "AC_NUDGE_EVAL_MIN_DROP_FRAC" in body
+        assert "post_min < AC_NUDGE_EVAL_MIN_DROP_FRAC * kwh_rate_before" in body
 
     def test_evaluation_escalates_on_ineffective_nudge(
         self, hvac_override_src,
     ):
+        """v4.7.17.1: window widened from 3000 to 8000 chars after the
+        rule rewrite added the recorder-query path + classification block.
+        """
         idx = hvac_override_src.find("async def _evaluate_nudge_outcome(")
-        body = hvac_override_src[idx:idx + 3000]
+        body = hvac_override_src[idx:idx + 8000]
         assert "_perform_hard_reset_escalation" in body
 
     def test_perform_hard_reset_escalation_exists(self, hvac_override_src):

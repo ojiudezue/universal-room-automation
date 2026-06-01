@@ -1,6 +1,6 @@
 """Number platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.7.16.5
+# Universal Room Automation vv4.7.17.1
 # Build: 2026-01-02
 # File: number.py
 #
@@ -1562,6 +1562,8 @@ def _build_hvac_v4511_numbers():
         DEFAULT_HVAC_AC_NUDGE_SIZE,
         CONF_HVAC_AC_NUDGE_DURATION,
         DEFAULT_HVAC_AC_NUDGE_DURATION,
+        CONF_HVAC_AC_NUDGE_EVAL_DELAY,
+        DEFAULT_HVAC_AC_NUDGE_EVAL_DELAY,
         CONF_HVAC_AC_SUSTAINED_SAMPLES,
         DEFAULT_HVAC_AC_SUSTAINED_SAMPLES,
         CONF_HVAC_AC_DETECTION_TIME_GATE,
@@ -1591,6 +1593,20 @@ def _build_hvac_v4511_numbers():
             conf_key=CONF_HVAC_AC_NUDGE_DURATION,
             default=DEFAULT_HVAC_AC_NUDGE_DURATION,
             min_value=1, max_value=15, step=1, unit="min",
+            integer=True,
+        ),
+        # v4.7.17.1: post-restore evaluation window. Range 60-1200 s
+        # (1-20 min). Mid-flight change does NOT reschedule the active
+        # eval timer; next nudge picks up the new value.
+        _hvac_tunable_number_factory(
+            suffix="ac_nudge_eval_delay",
+            name="76 · AC Nudge Eval Delay",
+            icon="mdi:timer-cog-outline",
+            sub_controller_attr="_override_arrester",
+            runtime_field="_nudge_eval_delay_s",
+            conf_key=CONF_HVAC_AC_NUDGE_EVAL_DELAY,
+            default=DEFAULT_HVAC_AC_NUDGE_EVAL_DELAY,
+            min_value=60, max_value=1200, step=30, unit="s",
             integer=True,
         ),
         _hvac_tunable_number_factory(

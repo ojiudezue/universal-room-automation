@@ -181,6 +181,15 @@ DEFAULT_HVAC_AC_NUDGE_SIZE: Final = 1.5  # °F — added to target_temp_high
 CONF_HVAC_AC_NUDGE_DURATION: Final = "hvac_ac_nudge_duration"
 DEFAULT_HVAC_AC_NUDGE_DURATION: Final = 5  # minutes nudge held before restore
 
+# v4.7.17.1: Runtime-tunable post-restore evaluation window. Was the const
+# AC_NUDGE_EVALUATION_DELAY_S below (still kept as a fallback default + as
+# a backward-compatible import target). Range 60-1200s lets the operator
+# tune empirically without re-deploying. Mid-flight change of this value
+# does NOT reschedule the currently-active eval timer (one-shot
+# async_call_later); the next nudge picks up the new value.
+CONF_HVAC_AC_NUDGE_EVAL_DELAY: Final = "hvac_ac_nudge_eval_delay"
+DEFAULT_HVAC_AC_NUDGE_EVAL_DELAY: Final = 600  # seconds — preserves legacy default
+
 CONF_HVAC_AC_SUSTAINED_SAMPLES: Final = "hvac_ac_sustained_samples"
 DEFAULT_HVAC_AC_SUSTAINED_SAMPLES: Final = 3  # consecutive samples > threshold
 
@@ -211,7 +220,34 @@ DEFAULT_HVAC_AC_RAMP_ZONE_ENABLED: Final = True
 
 # Internal constants (not user-facing)
 AC_NUDGE_OVERSHOOT_GAP: Final = 0.0            # °F — current <= target - this. v4.7.16.2 hotfix: variable-speed Bryant modulates AT setpoint and rarely undershoots 0.5°F; previous 0.5°F gap suppressed auto-nudge for the exact waste pattern it was designed to catch. Downstream gates 7 (kwh_rate > threshold), 7b (sustained samples), and 8 (time-sustained) already provide three independent false-positive guards.
-AC_NUDGE_EVALUATION_DELAY_S: Final = 600       # seconds after restore = evaluate
+AC_NUDGE_EVALUATION_DELAY_S: Final = 600       # seconds after restore = evaluate (LEGACY — runtime value lives on OverrideArrester._nudge_eval_delay_s, seeded from CONF_HVAC_AC_NUDGE_EVAL_DELAY. This const remains as the runtime-default + back-compat import target.)
+
+# v4.7.17.1: Post-restore minimum drop fraction for the new eval rule.
+# If trailing-window min kW during [restore, restore + eval_delay] is
+# >= this fraction of kwh_rate_before, classify as ineffective and
+# escalate to hard reset.
+#
+# Calibrated against the v4.7.17.x dataset (6 attributable nudges
+# 2026-06-01 — 15:56/16:01/16:36/16:41/16:51/17:36 UTC):
+#  - 5 effective in-hold compressor releases at 71-89% kW reduction
+#    during the 5-min hold. All 5 had post_min <= 0.05 of before
+#    (compressor fully released during the post-restore window before
+#    rebounding).
+#  - 1 true ineffective (17:36) with 5% in-hold reduction and
+#    post_min/before = 0.92 (compressor never released).
+# Threshold 0.50 sits safely in the gap between 0.05 and 0.92 and
+# tolerates broader future cases. Promote to a runtime Number entity
+# if a second install or future evidence demands.
+AC_NUDGE_EVAL_MIN_DROP_FRAC: Final = 0.50
+
+# v4.7.17.1: Below this kwh_rate_before floor (kW), the eval rule's
+# signal-to-noise is too low to trust. Classify as "inconclusive" and
+# EXCLUDE from FP statistics rather than treating as ineffective.
+# Mirrors Gate 7's kwh threshold semantic (DEFAULT_HVAC_AC_KWH_RATE_THRESHOLD
+# = 0.8 kW). The 0.3 kW floor is lower than the gate because there's a
+# transient sampling window between Gate 7's check and the nudge-start
+# kwh_rate_before capture where load can briefly dip.
+AC_NUDGE_KWH_RATE_BEFORE_FLOOR: Final = 0.3
 AC_KWH_SENSOR_STALENESS_S: Final = 600         # 10 min stale = treat as None
 AC_KWH_STALE_WARN_INTERVAL_S: Final = 21600    # 6 hr — rate-limit stale warnings
 AC_KWH_AVOIDED_PROJECTION_CAP_MIN: Final = 30  # max minutes to project savings

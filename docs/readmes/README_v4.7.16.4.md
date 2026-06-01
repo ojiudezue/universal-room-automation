@@ -69,3 +69,50 @@ HACS install v4.7.16.3 — re-introduces the bias. Or v4.7.16.2 — DPM returns 
 ## Tier
 
 1. Single function body, single LoC, pre-deploy Tier 1 reviewed (this time).
+
+## Acceptance
+
+```yaml
+version: v4.7.16.4
+hypotheses:
+  - id: H1
+    name: dpm_baseline_high_f_is_cool_not_heat
+    description: |
+      Post-fix, the bucket sensor's baseline_high_f attribute should
+      reflect the COOL setpoint (75°F with operator's CM override) and
+      NOT the heat setpoint (70°F). The 5°F difference was the bug.
+    query:
+      kind: ha_state_attribute
+      entity: sensor.ura_energy_coordinator_dynamic_preset_bucket_upstairs
+      attribute: baseline_high_f
+    expected:
+      condition: ">="
+      value: 72   # Anything >= 72 is unambiguously cool, not heat (heat=70).
+                  # Tolerates operator changing CM override to a different cool value.
+    window:
+      first_check_after: 1h
+      confirm_after: 24h
+      alert_if_violated_after: 72h
+
+  - id: H2
+    name: dpm_skipped_zones_no_longer_no_forecast_delta
+    description: |
+      The pre-fix symptom was `skipped_zones_with_reason` containing
+      `no_forecast_delta` for every zone on every tick. Post-fix, that
+      reason should be absent (DPM now computes delta correctly).
+    query:
+      kind: ha_state_attribute
+      entity: sensor.ura_energy_coordinator_dynamic_preset_overrides_applied
+      attribute: skipped_zones_with_reason
+    expected:
+      condition: "not_contains_reason"
+      value: "no_forecast_delta"
+    window:
+      first_check_after: 1h
+      confirm_after: 24h
+      alert_if_violated_after: 72h
+```
+
+> Note: `not_contains_reason` is shipwatch syntactic sugar for "no element of the
+> list has `reason == value`." Documented in `~/.claude/agents/ura-shipwatch.md`
+> under expected.condition reference.

@@ -1,7 +1,7 @@
 """Database for Universal Room Automation."""
 from __future__ import annotations
 #
-# Universal Room Automation vv4.7.16.5
+# Universal Room Automation vv4.7.17.1
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors
@@ -1150,7 +1150,8 @@ class UniversalRoomDatabase:
                         soft_nudge_count_today INTEGER,
                         hard_reset_count_today INTEGER,
                         lockout_triggered INTEGER NOT NULL DEFAULT 0,
-                        notes TEXT
+                        notes TEXT,
+                        effective INTEGER
                     )""",
                     """CREATE INDEX IF NOT EXISTS idx_ac_ramp_events_zone_ts
                     ON ac_ramp_events(zone_id, timestamp)""",
@@ -1162,6 +1163,22 @@ class UniversalRoomDatabase:
                 # ============================================================
                 # Schema migrations (per-table, safe)
                 # ============================================================
+
+                # v4.7.17.1: Add `effective` column to ac_ramp_events
+                # (NULL = "inconclusive / excluded from FP stats"). Existing
+                # rows pre-deploy stay NULL and are excluded from the new
+                # FP rate computation, which falls back to the old before/
+                # after derivation for those rows.
+                try:
+                    cursor = await db.execute("PRAGMA table_info(ac_ramp_events)")
+                    are_columns = {row[1] for row in await cursor.fetchall()}
+                    if "effective" not in are_columns:
+                        await db.execute(
+                            "ALTER TABLE ac_ramp_events ADD COLUMN effective INTEGER"
+                        )
+                    await db.commit()
+                except Exception as e:
+                    _LOGGER.warning("ac_ramp_events migration failed: %s", e)
 
                 # v3.5.2: Add columns to room_transitions if absent
                 try:
@@ -5456,8 +5473,17 @@ class UniversalRoomDatabase:
         hard_reset_count_today: int | None = None,
         lockout_triggered: bool = False,
         notes: str | None = None,
+        effective: bool | None = None,
     ) -> None:
-        """Append an event row to the ramp-down log."""
+        """Append an event row to the ramp-down log.
+
+        v4.7.17.1: `effective` column added — set by _evaluate_nudge_outcome:
+            True  -> compressor released (counts toward kWh-avoided + NOT FP)
+            False -> compressor did NOT release / no samples (counts as FP)
+            None  -> inconclusive (kwh_rate_before below floor, excluded
+                     from FP stats entirely)
+        For non-evaluation event_types pass None.
+        """
         try:
             async with self._db() as db:
                 await db.execute(
@@ -5466,8 +5492,8 @@ class UniversalRoomDatabase:
                         current_temp, target_high,
                         kwh_rate_before, kwh_rate_after, action_taken,
                         soft_nudge_count_today, hard_reset_count_today,
-                        lockout_triggered, notes
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                        lockout_triggered, notes, effective
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                     (
                         zone_id,
                         dt_util.now().isoformat(),
@@ -5482,6 +5508,8 @@ class UniversalRoomDatabase:
                         hard_reset_count_today,
                         1 if lockout_triggered else 0,
                         notes,
+                        # SQLite has no native BOOLEAN; INTEGER 0/1 + NULL.
+                        None if effective is None else (1 if effective else 0),
                     ),
                 )
                 await db.commit()
@@ -5549,7 +5577,7 @@ class UniversalRoomDatabase:
         try:
             async with self._db_read() as db:
                 cursor = await db.execute(
-                    f"""SELECT kwh_rate_before, kwh_rate_after, notes
+                    f"""SELECT kwh_rate_before, kwh_rate_after, notes, effective
                         FROM ac_ramp_events
                         WHERE {where_sql}""",
                     params,
@@ -5559,20 +5587,32 @@ class UniversalRoomDatabase:
             _LOGGER.warning("ac_ramp_events aggregate read failed: %s", err)
             return (0.0, 0, 0)
 
+        # v4.7.17.1: FP rate is now derived from the `effective` column
+        # written by the new _evaluate_nudge_outcome rule. Rows with
+        # `effective = NULL` (pre-deploy events OR new "inconclusive"
+        # classifications) are EXCLUDED from BOTH the FP count AND the
+        # `count_evaluated` denominator — they shouldn't move the metric
+        # in either direction. Rows with effective = 0/1 count normally.
+        # kwh_avoided still comes from the `notes` field's parsed value
+        # for evaluated rows where we have one.
         kwh_total = 0.0
         false_pos = 0
-        for before, after, notes in rows:
-            if before is None or after is None:
+        counted = 0
+        for before, after, notes, effective in rows:
+            # v4.7.17.1: skip rows that the new rule explicitly excluded
+            # OR pre-deploy rows that never had the column populated.
+            if effective is None:
                 continue
-            if after >= before:
+            counted += 1
+            if effective == 0:
                 false_pos += 1
                 continue
-            # Notes carries pre-computed kwh_avoided; if missing, fall back
-            # to a flat 10-minute projection (better than zero credit).
+            # effective == 1: parse kwh_avoided from notes; fall back to
+            # flat projection from before/after diff when present.
             kwh_event = None
             if notes:
                 try:
-                    # notes format: "kwh_avoided=0.42;..."
+                    # notes format: "kwh_avoided=0.42;post_min=...;..."
                     for part in notes.split(";"):
                         k, _, v = part.partition("=")
                         if k.strip() == "kwh_avoided":
@@ -5580,10 +5620,11 @@ class UniversalRoomDatabase:
                             break
                 except (ValueError, AttributeError):
                     kwh_event = None
-            if kwh_event is None:
+            if kwh_event is None and before is not None and after is not None:
                 kwh_event = max(0.0, (before - after)) * (10.0 / 60.0)
-            kwh_total += kwh_event
-        return (kwh_total, len(rows), false_pos)
+            if kwh_event is not None:
+                kwh_total += kwh_event
+        return (kwh_total, counted, false_pos)
 
     async def cleanup_ac_ramp_events(
         self, retention_days: int = 30, batch_size: int = 1000,

@@ -14,6 +14,8 @@ import logging
 from datetime import datetime
 from typing import Any
 
+from homeassistant.components.recorder import get_instance as recorder_get_instance
+from homeassistant.components.recorder.history import get_significant_states
 from homeassistant.core import CALLBACK_TYPE, Event, HomeAssistant, callback
 from homeassistant.helpers.event import (
     async_call_later,
@@ -25,7 +27,9 @@ from .hvac_const import (
     AC_KWH_AVOIDED_PROJECTION_CAP_MIN,
     AC_KWH_SENSOR_STALENESS_S,
     AC_KWH_STALE_WARN_INTERVAL_S,
+    AC_NUDGE_EVAL_MIN_DROP_FRAC,
     AC_NUDGE_EVALUATION_DELAY_S,
+    AC_NUDGE_KWH_RATE_BEFORE_FLOOR,
     AC_NUDGE_OVERSHOOT_GAP,
     AC_RAMP_EVENT_CANCEL_INVOKED,
     AC_RAMP_EVENT_DETECTION_FIRED,
@@ -52,6 +56,7 @@ from .hvac_const import (
     DEFAULT_HVAC_AC_HARD_RESET_MIN_INTERVAL,
     DEFAULT_HVAC_AC_KWH_RATE_THRESHOLD,
     DEFAULT_HVAC_AC_NUDGE_DURATION,
+    DEFAULT_HVAC_AC_NUDGE_EVAL_DELAY,
     DEFAULT_HVAC_AC_NUDGE_SIZE,
     DEFAULT_HVAC_AC_RAMP_MASTER_ENABLED,
     DEFAULT_HVAC_AC_SUSTAINED_SAMPLES,
@@ -133,6 +138,11 @@ class OverrideArrester:
         self._ramp_master_enabled: bool = DEFAULT_HVAC_AC_RAMP_MASTER_ENABLED
         self._nudge_size_f: float = DEFAULT_HVAC_AC_NUDGE_SIZE
         self._nudge_duration_min: int = DEFAULT_HVAC_AC_NUDGE_DURATION
+        # v4.7.17.1: post-restore eval window (seconds). Runtime-tunable
+        # via the "76 · AC Nudge Eval Delay" Number entity. Mid-flight
+        # change does NOT reschedule an in-flight eval timer (one-shot
+        # async_call_later); the next nudge picks up the new value.
+        self._nudge_eval_delay_s: int = DEFAULT_HVAC_AC_NUDGE_EVAL_DELAY
         self._sustained_samples: int = DEFAULT_HVAC_AC_SUSTAINED_SAMPLES
         self._detection_time_gate_min: int = DEFAULT_HVAC_AC_DETECTION_TIME_GATE
         self._hard_reset_daily_limit: int = DEFAULT_HVAC_AC_HARD_RESET_DAILY_LIMIT
@@ -142,6 +152,13 @@ class OverrideArrester:
         # by an unrelated hard-reset path on the same zone.
         self._nudge_restore_timers: dict[str, CALLBACK_TYPE] = {}
         self._nudge_eval_timers: dict[str, CALLBACK_TYPE] = {}
+        # v4.7.17.1: track restore wall-clock ISO timestamp per zone so the
+        # evaluator can query recorder history over [restore_ts, eval_ts]
+        # for the trailing-window minimum kW (the new effectiveness rule).
+        # Pre-existing behavior: lost on HA restart (mid-eval-window nudges
+        # are silently dropped from FP statistics — known gap, Tier 1 scope
+        # preserves rather than fixes, per the v4.7.17.x design review).
+        self._nudge_post_restore_ts: dict[str, str] = {}
         # Track which zones are currently mid-nudge for sensor exposure.
         self._nudge_in_flight: set[str] = set()
         # Track today's date so we can detect day-rollover and prune events.
@@ -1463,83 +1480,237 @@ class OverrideArrester:
             )
 
         zone.ramp_state = AC_RAMP_STATE_AWAITING_EVAL
+        # v4.7.17.1: capture restore wall-clock for recorder query in
+        # _evaluate_nudge_outcome (trailing-window min kW rule).
+        self._nudge_post_restore_ts[zone_id] = dt_util.now().isoformat()
 
         @callback
         def _on_eval_fire(_now):
             self.hass.async_create_task(self._evaluate_nudge_outcome(zone))
 
+        # v4.7.17.1: runtime-tunable eval delay (was const
+        # AC_NUDGE_EVALUATION_DELAY_S). One-shot async_call_later
+        # — mid-flight change of self._nudge_eval_delay_s does NOT
+        # reschedule this timer; next nudge picks up the new value.
+        eval_delay_s = int(self._nudge_eval_delay_s)
         self._nudge_eval_timers[zone_id] = async_call_later(
-            self.hass, AC_NUDGE_EVALUATION_DELAY_S, _on_eval_fire,
+            self.hass, eval_delay_s, _on_eval_fire,
         )
         _LOGGER.info(
             "Soft nudge restored on %s (target=%.1f); evaluating in %ds",
-            zone.zone_name, original_target, AC_NUDGE_EVALUATION_DELAY_S,
+            zone.zone_name, original_target, eval_delay_s,
         )
 
-    async def _evaluate_nudge_outcome(self, zone: ZoneState) -> None:
-        """10 min post-restore: did kWh drop? If not, escalate to hard reset.
+    async def _compute_post_restore_min_kw(
+        self,
+        zone: ZoneState,
+        restore_dt: datetime,
+        eval_dt: datetime,
+    ) -> tuple[float | None, int]:
+        """Query HA recorder for kW samples on `zone.ac_load_sensor` over
+        `[restore_dt, eval_dt]` and return (min_kw, sample_count).
 
-        Decision rule: if kwh_rate_after >= 85% of kwh_rate_before, treat as
-        ineffective and escalate. The 15% threshold tolerates small natural
-        fluctuations without escalating on noise.
+        Returns (None, 0) if:
+          - zone has no ac_load_sensor configured
+          - recorder query errors out
+          - no valid (parseable, non-stale, non-empty) samples in window
+
+        Unit normalization matches `_read_kwh_rate`: W -> kW.
+
+        v4.7.17.1: introduced for the new effectiveness rule. The trailing-
+        window minimum captures the compressor's actual valley during the
+        post-restore window, which is the signal we want — not the single-
+        sample read at restore+eval_delay (which was likely sampling the
+        rebound peak on variable-speed Bryant systems).
+        """
+        if not zone.ac_load_sensor:
+            return None, 0
+        try:
+            instance = recorder_get_instance(self.hass)
+            states_dict = await instance.async_add_executor_job(
+                get_significant_states,
+                self.hass,
+                restore_dt,
+                eval_dt,
+                [zone.ac_load_sensor],
+            )
+        except Exception as err:  # noqa: BLE001
+            _LOGGER.debug(
+                "AC nudge eval: recorder query failed for %s: %s",
+                zone.ac_load_sensor, err,
+            )
+            return None, 0
+
+        states = states_dict.get(zone.ac_load_sensor) if states_dict else None
+        if not states:
+            return None, 0
+
+        min_kw: float | None = None
+        sample_count = 0
+        for st in states:
+            raw = getattr(st, "state", None)
+            if raw in (None, "unknown", "unavailable", ""):
+                continue
+            try:
+                value = float(raw)
+            except (ValueError, TypeError):
+                continue
+            attrs = getattr(st, "attributes", None) or {}
+            unit = (attrs.get("unit_of_measurement") or "").lower()
+            if unit in ("w", "watt", "watts"):
+                value = value / 1000.0
+            sample_count += 1
+            if min_kw is None or value < min_kw:
+                min_kw = value
+        return min_kw, sample_count
+
+    async def _evaluate_nudge_outcome(self, zone: ZoneState) -> None:
+        """Post-restore: did the compressor release? If not, escalate.
+
+        v4.7.17.1 redesign — was a single-sample read at restore+600s,
+        which on variable-speed Bryant systems sampled the rebound peak
+        instead of the valley. Live recorder data (2026-06-01) showed
+        5 of 6 nudges produced 71-89% kW reduction during the hold but
+        then rebounded to full power during minutes 5-10 post-restore;
+        the single-sample rule misclassified 3 of 10 as FP.
+
+        New rule:
+          1. Compute post_min = min kW over [restore_ts, eval_ts] via
+             HA recorder query (NOT a per-tick listener; URA does not
+             have one for the kW sensor).
+          2. If kwh_rate_before is None / < AC_NUDGE_KWH_RATE_BEFORE_FLOOR
+             (0.3 kW), classify as "inconclusive" — `effective = None`,
+             EXCLUDE from FP statistics rather than treating as FP.
+          3. If post_min is None (recorder gave us nothing), preserve
+             pre-existing escalation behavior conservatively: classify
+             as ineffective (operator would rather a spurious hard reset
+             than a stranded compressor burning kWh).
+          4. Else: effective iff `post_min < AC_NUDGE_EVAL_MIN_DROP_FRAC
+             * kwh_rate_before` (default 0.50 — see hvac_const.py for
+             calibration notes).
+
+        DB write:
+          - effective boolean column populated (v4.7.17.1 schema add).
+          - notes: `kwh_avoided=X.XXX;post_min=Y.YY;sample_count=N` —
+            semicolon-separated key=value, matches existing parser at
+            database.py:5576.
+
+        Mid-restart behavior preserved: if HA restarts during the eval
+        window, `_nudge_post_restore_ts[zone_id]` is lost; this method
+        is never called for that nudge; the row is never written; the
+        event is silently excluded from FP statistics. Tier 1 scope
+        does not add persistence — separate cycle.
         """
         zone_id = zone.zone_id
         self._nudge_eval_timers.pop(zone_id, None)
 
         now = dt_util.now()
-        kwh_rate_after = self._read_kwh_rate(zone, now)
         kwh_rate_before = zone.nudge_kwh_rate_before
+        restore_iso = self._nudge_post_restore_ts.pop(zone_id, None)
 
-        # Compute capped kWh-avoided estimate (rough — see TECH_DEBT)
+        # Compute trailing-window minimum kW over [restore_ts, now]
+        post_min: float | None = None
+        sample_count = 0
+        if restore_iso is not None:
+            try:
+                restore_dt = datetime.fromisoformat(restore_iso)
+            except (ValueError, TypeError):
+                restore_dt = None
+            if restore_dt is not None:
+                post_min, sample_count = await self._compute_post_restore_min_kw(
+                    zone, restore_dt, now,
+                )
+
+        # Classify
+        # 1) Floor on kwh_rate_before — signal-to-noise too low below 0.3 kW
+        if (kwh_rate_before is None
+                or kwh_rate_before < AC_NUDGE_KWH_RATE_BEFORE_FLOOR):
+            classification = "inconclusive"
+            effective: bool | None = None
+            escalate = False
+        # 2) Recorder gave us nothing — conservative ineffective (preserves
+        #    pre-existing escalation behavior, see docstring rule 3).
+        elif post_min is None:
+            classification = "ineffective_no_samples"
+            effective = False
+            escalate = True
+        # 3) New rule — trailing-window min vs before
+        elif post_min < AC_NUDGE_EVAL_MIN_DROP_FRAC * kwh_rate_before:
+            classification = "effective"
+            effective = True
+            escalate = False
+        else:
+            classification = "ineffective"
+            effective = False
+            escalate = True
+
+        # Compute capped kWh-avoided estimate (uses post_min when present,
+        # falls back to pre-existing rough estimate of zero when not).
         kwh_avoided = 0.0
-        if (kwh_rate_before is not None
-                and kwh_rate_after is not None
-                and kwh_rate_after < kwh_rate_before):
-            delta = kwh_rate_before - kwh_rate_after
-            kwh_avoided = delta * (AC_KWH_AVOIDED_PROJECTION_CAP_MIN / 60.0)
+        if effective and post_min is not None and kwh_rate_before is not None:
+            delta = kwh_rate_before - post_min
+            if delta > 0:
+                kwh_avoided = delta * (AC_KWH_AVOIDED_PROJECTION_CAP_MIN / 60.0)
 
         self._track_zone_action(
             zone, AC_RAMP_EVENT_NUDGE_EVALUATED, "auto",
             kwh_before=kwh_rate_before,
-            kwh_after=kwh_rate_after,
+            kwh_after=post_min,
         )
         if self._db is not None:
+            # Structured notes — semicolon-separated key=value pairs,
+            # parser at database.py:5576 splits on `;` then `=`. Format
+            # MUST stay key=value;key=value for back-compat.
+            notes = (
+                f"kwh_avoided={kwh_avoided:.3f};"
+                f"post_min={'NA' if post_min is None else f'{post_min:.2f}'};"
+                f"sample_count={sample_count};"
+                f"classification={classification}"
+            )
             await self._db.log_ac_ramp_event(
                 zone_id=zone_id,
                 event_type=AC_RAMP_EVENT_NUDGE_EVALUATED,
                 current_temp=zone.current_temperature,
                 target_high=zone.target_temp_high,
                 kwh_rate_before=kwh_rate_before,
-                kwh_rate_after=kwh_rate_after,
-                notes=f"kwh_avoided={kwh_avoided:.3f}",
+                kwh_rate_after=post_min,
+                effective=effective,
+                notes=notes,
             )
 
-        # Effectiveness decision
-        ineffective = (
-            kwh_rate_after is None
-            or kwh_rate_before is None
-            or kwh_rate_after >= kwh_rate_before * 0.85
-        )
-        if ineffective:
+        if escalate:
             zone.ramp_state = AC_RAMP_STATE_ESCALATING
             _LOGGER.warning(
-                "Nudge ineffective on %s (kwh_rate_before=%.2f, after=%s) "
-                "— escalating to hard reset",
+                "Nudge ineffective on %s (kwh_rate_before=%.2f, post_min=%s, "
+                "samples=%d, classification=%s) — escalating to hard reset",
                 zone.zone_name,
                 kwh_rate_before if kwh_rate_before is not None else 0.0,
-                f"{kwh_rate_after:.2f}" if kwh_rate_after is not None else "None",
+                f"{post_min:.2f}" if post_min is not None else "None",
+                sample_count, classification,
             )
             await self._perform_hard_reset_escalation(
-                zone, kwh_rate_after if kwh_rate_after is not None else 0.0,
+                zone, post_min if post_min is not None else 0.0,
             )
         else:
             zone.ramp_state = AC_RAMP_STATE_IDLE
             zone.nudge_kwh_rate_before = None
-            _LOGGER.info(
-                "Nudge succeeded on %s: kwh_rate %.2f -> %.2f kW "
-                "(avoided ~%.2f kWh est.)",
-                zone.zone_name, kwh_rate_before, kwh_rate_after, kwh_avoided,
-            )
+            if effective:
+                _LOGGER.info(
+                    "Nudge effective on %s: kwh_rate %.2f -> post_min %.2f kW "
+                    "(samples=%d, avoided ~%.2f kWh est.)",
+                    zone.zone_name, kwh_rate_before, post_min,
+                    sample_count, kwh_avoided,
+                )
+            else:
+                # Inconclusive — excluded from FP stats. Log so operator can
+                # see the reason without the row counting against the metric.
+                _LOGGER.info(
+                    "Nudge inconclusive on %s (kwh_rate_before=%s below floor"
+                    " %.2f kW) — excluded from FP statistics",
+                    zone.zone_name,
+                    f"{kwh_rate_before:.2f}" if kwh_rate_before is not None else "None",
+                    AC_NUDGE_KWH_RATE_BEFORE_FLOOR,
+                )
 
     async def _perform_hard_reset_escalation(
         self, zone: ZoneState, kwh_rate_now: float,
@@ -1715,6 +1886,10 @@ class OverrideArrester:
         cancel_eval = self._nudge_eval_timers.pop(zone_id, None)
         if cancel_eval:
             cancel_eval()
+        # v4.7.17.1: clear the restore-ts anchor when cancelling — prevents
+        # a future _evaluate_nudge_outcome from running a recorder query
+        # against a stale window.
+        self._nudge_post_restore_ts.pop(zone_id, None)
         self._nudge_in_flight.discard(zone_id)
 
         original_target = None
@@ -1847,6 +2022,8 @@ class OverrideArrester:
         cancel_eval = self._nudge_eval_timers.pop(zone_id, None)
         if cancel_eval:
             cancel_eval()
+        # v4.7.17.1: clear the restore-ts anchor on startup audit too.
+        self._nudge_post_restore_ts.pop(zone_id, None)
         self._nudge_in_flight.discard(zone_id)
         if self._db is not None:
             try:
