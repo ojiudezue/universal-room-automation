@@ -337,6 +337,12 @@ class ComplianceTracker:
 
     def __init__(self, hass: HomeAssistant) -> None:
         self.hass = hass
+        # v4.7.15 D6: Compliance defer gate.
+        # When ON, suppress compliance-violation anomalies if signal_consensus
+        # has been below 0.6 for >= 60 s sustained. Operator can disable via
+        # switch.ura_compliance_consensus_defer_gate for rollback without
+        # restart. Default ON.
+        self._compliance_defer_gate_enabled: bool = True
 
     @property
     def _database(self) -> Any:
@@ -526,7 +532,39 @@ class ComplianceTracker:
 
         Called only when `not compliant and override_detected` — NOT for
         every decision, so the table is not flooded.  Never raises.
+
+        v4.7.15 D6: Defer gate. When signal_consensus has been below 0.6 for
+        >= 60 s sustained, suppress the emit — the disagreement is the more
+        likely cause of the apparent override than a true user override.
+        Operator can disable via switch.ura_compliance_consensus_defer_gate.
         """
+        # v4.7.15 D6: Consult signal_consensus before emit.
+        try:
+            if self._compliance_defer_gate_enabled:
+                manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+                presence = manager.coordinators.get("presence") if (
+                    manager is not None and hasattr(manager, "coordinators")
+                ) else None
+                if presence is not None:
+                    consensus = getattr(presence, "_signal_consensus", 1.0)
+                    consensus_low_since = getattr(presence, "_consensus_low_since", None)
+                    if consensus < 0.6 and consensus_low_since is not None:
+                        secs_low = (
+                            dt_util.utcnow() - consensus_low_since
+                        ).total_seconds()
+                        if secs_low >= 60:
+                            _LOGGER.info(
+                                "v4.7.15 D6: Compliance violation suppressed — "
+                                "consensus=%.2f sustained for %.0fs",
+                                consensus, secs_low,
+                            )
+                            return  # Do not emit.
+        except Exception:  # noqa: BLE001 — defensive: defer gate must never raise
+            _LOGGER.debug(
+                "v4.7.15 D6 compliance defer gate failed (swallowed)",
+                exc_info=True,
+            )
+
         try:
             from .anomaly_event import (  # noqa: PLC0415
                 AnomalyEvent,
