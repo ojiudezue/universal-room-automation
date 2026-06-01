@@ -18,6 +18,8 @@ For URA cycles, route each phase to the designated subagent. Do NOT default to `
 
 **No soak watching.** Never propose "monitor for 24h" / "soak overnight" as a post-deploy step. Cycles close at live-validation. Trip-wires for regression go in code (anomaly detection wired to NM), not calendar reminders.
 
+**Worktree location discipline (added 2026-05-30 per v4.7.15 Reviewer C C5.2).** All agent worktrees MUST live under `.claude/worktrees/<agent-id>` (the project-managed location, already gitignored). The `/tmp` directory and other system tmpdirs are OFF-LIMITS for any worktree intended to hold uncommitted work, because macOS / Linux tmpfs eviction policies can wipe state without warning. If the main checkout is under contention from concurrent agents, use `git worktree add .claude/worktrees/<agent-id>-<cycle> <branch>` — never `/tmp/...`.
+
 ## Release Process — MANDATORY
 - **Always use `./scripts/deploy.sh <version> <summary> <release-notes>`** for releases
 - Create `docs/readmes/README_v<version>.md` BEFORE deploying

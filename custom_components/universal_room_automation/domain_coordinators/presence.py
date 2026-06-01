@@ -22,6 +22,7 @@ Camera integration hardened from camera_census.py lessons:
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Set
 
@@ -80,6 +81,71 @@ PRESENCE_SUPPRESSED_FROM_PERSISTENCE: frozenset[str] = frozenset({
     "census_count",
     "zone_occupied_count",
 })
+
+
+# ============================================================================
+# v4.7.15 D1: Bug Class #48 shared veto helper — types
+# ============================================================================
+#
+# The helper unifies the trust-hierarchy pattern shipped ad-hoc in v4.7.13
+# (zone aggregator, scope="zone_aggregator" SLEEP) and v4.7.14 (house
+# inference, scope="house_inference" AWAY). Future cycles plug additional
+# patterns by extending should_veto_due_to_reliable_signals() — no new files,
+# no callable proliferation.
+#
+# Conservative bias is preserved: the default fall-through returns fired=False,
+# so adding a new caller without a matching pattern is a no-op.
+
+# v4.7.15 D2 / D3: thresholds shared by helper patterns. Module-level so tests
+# and operator tuning can introspect them without instantiating a coordinator.
+_NONSLEEP_QUIET_THRESHOLD_SECONDS = 300  # 5 min — bridge structural degeneration
+_WAKING_SUSTAINED_THRESHOLD_SECONDS = 90  # ≥3 Frigate confirmations at 15-30s cadence
+
+
+@dataclass(frozen=True)
+class ReliableSignal:
+    """A reliable, persistent presence signal (person tracker, BLE, zone_persons).
+
+    kind: one of "person_tracker_away", "person_tracker_home",
+          "zone_persons_home", "ble_proximity_present", "ble_proximity_absent".
+    value: truthiness of the signal at evaluation time.
+    """
+
+    kind: str
+    value: bool
+
+
+@dataclass(frozen=True)
+class TransientSignal:
+    """A transient presence signal (camera burst, mmWave bounce, PIR).
+
+    kind: one of "camera_person_detected", "mmwave_occupied", "pir_motion",
+          "unidentified_person_count".
+    count: numeric quantity (1/0 for boolean signals, N for unidentified).
+    """
+
+    kind: str
+    count: int
+
+
+@dataclass(frozen=True)
+class VetoDecision:
+    """Result of a Bug Class #48 transient-vs-reliable arbitration.
+
+    fired: True iff the reliable signal vetoed the transient evidence.
+    confidence: 0.0-1.0 confidence in the vetoed conclusion (only meaningful
+                when fired=True). Mirrors the 1.0=good / 0.0=bad scale used
+                by inference_engine.confidence and signal_consensus.
+    reason: Short human-readable reason for activity-log + diagnostics.
+            Empty string when fired=False.
+    scope: The state_context scope the decision was evaluated against.
+           Empty string when no scope was provided.
+    """
+
+    fired: bool
+    confidence: float
+    reason: str
+    scope: str = ""
 
 
 # ============================================================================
@@ -570,6 +636,21 @@ class PresenceCoordinator(BaseCoordinator):
         # Surfaced in the veto-fired INFO log so operators can diagnose why a
         # particular person did NOT block the veto.
         self._excluded_persons: dict[str, str] = {}
+        # v4.7.15 D1: Last shared-veto-helper decision (diagnostics).
+        # Populated each _run_inference tick when the helper is consulted.
+        self._last_veto_decision: VetoDecision = VetoDecision(False, 0.0, "", "")
+        # v4.7.15 D3: Sustained-occupancy tracking — set when any_zone_occupied
+        # flips False -> True, cleared when False. Drives WAKING gate.
+        self._first_positive_zone_occupied_since: Optional[datetime] = None
+        self._wake_blocked_ticks: int = 0
+        # v4.7.15 D3: Exit-side persistence for GUEST -> HOME_*. Set when
+        # the "no unidentified, no guest_gate_armed" condition first becomes
+        # true while in GUEST state; cleared when it goes false.
+        self._guest_exit_quiet_since: Optional[datetime] = None
+        # v4.7.15 D5: Per-cycle signal_consensus + sustained-low tracker.
+        self._signal_consensus: float = 1.0
+        self._signal_consensus_inputs: Dict[str, Any] = {}
+        self._consensus_low_since: Optional[datetime] = None
         self._transitions_today: int = 0
         self._transition_reset_date: str = ""
         # Room area_id lookup: room_name -> area_id (from config entries)
@@ -640,6 +721,237 @@ class PresenceCoordinator(BaseCoordinator):
     def confidence(self) -> float:
         """Return confidence of current state inference."""
         return self._inference_engine.confidence
+
+    # ------------------------------------------------------------------
+    # v4.7.15 D1: Shared Bug Class #48 veto helper
+    # ------------------------------------------------------------------
+    def should_veto_due_to_reliable_signals(
+        self,
+        *,
+        reliable_signals: List[ReliableSignal],
+        transient_signals: List[TransientSignal],
+        state_context: Dict[str, Any],
+    ) -> VetoDecision:
+        """Bug Class #48 arbitration: reliable-signal veto of transient evidence.
+
+        v4.7.15 D1: Promotes the v4.7.13 (zone aggregator SLEEP) and v4.7.14
+        (house inference AWAY) inline patterns to a shared utility so future
+        cycles (v4.7.16 room-level, v4.8.x BLE proximity) plug new patterns
+        here rather than fork the logic. Default fall-through is fired=False —
+        adding a new caller without a matching pattern is a no-op.
+
+        Patterns shipped (scope dispatch):
+          - "house_inference"  : Pattern A — v4.7.14 AWAY veto
+          - "zone_aggregator"  : Pattern B (SLEEP, v4.7.13) + Pattern C (non-sleep, v4.7.15 D2)
+          - "waking_transition": Pattern D — v4.7.15 D3 sustained-signal WAKING gate
+          - "guest_exit"       : Pattern E — v4.7.15 D3 GUEST→HOME exit-side persistence
+        """
+        scope = str(state_context.get("scope", ""))
+        # Bug Class #22 mitigation: accept enum or string for house_state.
+        _hs_raw = state_context.get("house_state", "")
+        house_state = str(getattr(_hs_raw, "value", _hs_raw)).lower()
+        tracked_count = int(state_context.get("tracked_count", 0))
+
+        # Pattern A — v4.7.14 house-inference AWAY veto.
+        if scope == "house_inference":
+            all_away = any(
+                s.kind == "person_tracker_away" and s.value for s in reliable_signals
+            )
+            any_home = any(
+                s.kind == "person_tracker_home" and s.value for s in reliable_signals
+            )
+            unid = next(
+                (s.count for s in transient_signals
+                 if s.kind == "unidentified_person_count"),
+                0,
+            )
+            if tracked_count > 0 and all_away and not any_home and unid == 0:
+                return VetoDecision(
+                    True, 0.95, "all_tracked_persons_away (no guests)", scope,
+                )
+            return VetoDecision(False, 0.0, "", scope)
+
+        # Pattern B — v4.7.13 zone-aggregator SLEEP fallback.
+        if scope == "zone_aggregator" and house_state == "sleep":
+            any_home = any(
+                s.kind == "zone_persons_home" and s.value for s in reliable_signals
+            )
+            if any_home:
+                return VetoDecision(True, 0.90, "zone_persons home during sleep", scope)
+            return VetoDecision(False, 0.0, "", scope)
+
+        # Pattern C — v4.7.15 D2 zone-aggregator non-sleep states.
+        if scope == "zone_aggregator" and house_state in (
+            "home_day", "home_evening", "home_night",
+            "arriving", "guest", "waking",
+        ):
+            any_home = any(
+                s.kind == "zone_persons_home" and s.value for s in reliable_signals
+            )
+            sensors_quiet_seconds = int(
+                state_context.get("room_sensors_quiet_seconds", 0)
+            )
+            if any_home and sensors_quiet_seconds >= _NONSLEEP_QUIET_THRESHOLD_SECONDS:
+                return VetoDecision(
+                    True,
+                    0.85,
+                    f"zone_persons home during {house_state} "
+                    f"(quiet {sensors_quiet_seconds}s)",
+                    scope,
+                )
+            return VetoDecision(False, 0.0, "", scope)
+
+        # Pattern D — v4.7.15 D3 WAKING sustained-signal gate.
+        if scope == "waking_transition":
+            sustained_seconds = int(
+                state_context.get("sustained_occupancy_seconds", 0)
+            )
+            if sustained_seconds >= _WAKING_SUSTAINED_THRESHOLD_SECONDS:
+                return VetoDecision(
+                    False, 0.85,
+                    f"sustained occupancy confirms wake ({sustained_seconds}s)",
+                    scope,
+                )
+            return VetoDecision(
+                True, 0.6,
+                f"insufficient sustained signal ({sustained_seconds}s "
+                f"< {_WAKING_SUSTAINED_THRESHOLD_SECONDS}s)",
+                scope,
+            )
+
+        # Pattern E — v4.7.15 D3 GUEST exit-side persistence.
+        if scope == "guest_exit":
+            quiet_seconds = int(state_context.get("guest_exit_quiet_seconds", 0))
+            threshold = int(
+                state_context.get(
+                    "guest_persistence_seconds", self._guest_persistence_seconds,
+                )
+            )
+            if threshold <= 0:
+                return VetoDecision(False, 0.0, "guest exit persistence disabled", scope)
+            if quiet_seconds >= threshold:
+                return VetoDecision(
+                    False, 0.85,
+                    f"guest exit sustained ({quiet_seconds}s >= {threshold}s)",
+                    scope,
+                )
+            return VetoDecision(
+                True, 0.7,
+                f"guest exit not yet sustained ({quiet_seconds}s < {threshold}s)",
+                scope,
+            )
+
+        # Unknown / unmatched scope — fall through (forward compatible).
+        # v4.7.15 fix-up A7-H1 / B6 / Reviewer C C4 (deferral comment):
+        # v4.7.16 D3 calls this helper with scope="room_level_weighted" for
+        # diagnostic-only purposes (per v4.7.16 plan §0.7 — D3 is intentionally
+        # diagnostic-only until v4.7.17 flips it to gating). v4.7.15 deliberately
+        # does NOT add a Pattern F handler here because the threshold semantic
+        # (sum vs max weights, 1.0 vs 0.6 etc.) needs the diagnostic data first,
+        # and ReliableSignal/VetoDecision need extending with weight + defer-to-
+        # consensus fields. Both belong in the same cycle that flips D3 from
+        # diagnostic to gating. Until then, falling through to fired=False is
+        # the correct conservative behaviour — diagnostic recorder logs a
+        # constant-False signal that v4.7.17+ will refine. Do NOT add Pattern F
+        # in a v4.7.15 hotfix without coordinating the contract evolution.
+        return VetoDecision(False, 0.0, "", scope)
+
+    # ------------------------------------------------------------------
+    # v4.7.15 D4: Multi-source zone occupancy confidence (relocated from HVAC)
+    # ------------------------------------------------------------------
+    def check_zone_occupancy_confidence(self, zone) -> tuple[int, int]:
+        """Count independent occupancy sources confirming zone presence.
+
+        Migrated from hvac.py:1350 in v4.7.15 D4. Identical semantics; now
+        public on PresenceCoordinator so D5/D6 consensus calc and v4.7.16
+        room-level callers can consume it without HVAC ↔ presence circular
+        imports.
+
+        Returns (confirmed, possible) where:
+        - confirmed: number of source types actively confirming presence (0-4)
+        - possible: number of source types available for this zone (0-4)
+
+        Source types:
+        1. Motion/mmWave sensors (recent activity within 30 min)
+        2. BLE person detection (phone detected in zone)
+        3. Camera person detection (Frigate person entity "on")
+        4. Multiple occupied rooms (2+ rooms occupied = unlikely all stuck)
+
+        The caller uses adaptive threshold: require min(2, possible) sources.
+        Accepts HVAC's `Zone` dataclass shape duck-typed (reads .rooms,
+        .zone_cameras, .room_conditions).
+        """
+        # function-local import — Bug Class #34
+        from ..const import (  # noqa: PLC0415
+            CONF_ENTRY_TYPE, CONF_ROOM_NAME, ENTRY_TYPE_ROOM,
+        )
+        confirmed = 0
+        possible = 0
+
+        # Source 1: Motion/mmWave — always available (every room has sensors)
+        possible += 1
+        has_recent_motion = False
+        now = dt_util.utcnow()
+        try:
+            for room_name in getattr(zone, "rooms", []) or []:
+                for entry in self.hass.config_entries.async_entries(DOMAIN):
+                    if (
+                        entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_ROOM
+                        and entry.data.get(CONF_ROOM_NAME) == room_name
+                    ):
+                        coord = self.hass.data.get(DOMAIN, {}).get(entry.entry_id)
+                        if (
+                            coord
+                            and hasattr(coord, "_last_motion_time")
+                            and coord._last_motion_time
+                        ):
+                            age = (now - coord._last_motion_time).total_seconds()
+                            if age < 1800:  # Motion in last 30 min
+                                has_recent_motion = True
+                        break
+        except Exception:  # noqa: BLE001 — defensive: stale registry
+            pass
+        if has_recent_motion:
+            confirmed += 1
+
+        # Source 2: BLE person detection
+        person_coord = self.hass.data.get(DOMAIN, {}).get("person_coordinator")
+        if person_coord:
+            possible += 1
+            try:
+                ble_persons = person_coord.get_persons_in_zone(
+                    getattr(zone, "rooms", []) or [],
+                )
+                if ble_persons:
+                    confirmed += 1
+            except Exception:  # noqa: BLE001
+                pass
+
+        # Source 3: Camera person detection
+        zone_cameras = getattr(zone, "zone_cameras", None) or []
+        if zone_cameras:
+            possible += 1
+            for camera_entity in zone_cameras:
+                state = self.hass.states.get(camera_entity)
+                if state and state.state == "on":
+                    confirmed += 1
+                    break  # One camera confirmation is enough
+
+        # Source 4: Multiple occupied rooms (only possible if zone has 2+ rooms)
+        rooms = getattr(zone, "rooms", []) or []
+        if len(rooms) >= 2:
+            possible += 1
+            try:
+                room_conditions = getattr(zone, "room_conditions", []) or []
+                occupied_count = sum(
+                    1 for rc in room_conditions if getattr(rc, "occupied", False)
+                )
+                if occupied_count >= 2:
+                    confirmed += 1
+            except Exception:  # noqa: BLE001
+                pass
+
+        return confirmed, possible
 
     def get_next_state_prediction(self) -> dict:
         """Return the next-state prediction in the D1 PWA contract shape.
@@ -2061,6 +2373,17 @@ class PresenceCoordinator(BaseCoordinator):
             for t in self._zone_trackers.values()
         )
 
+        # v4.7.15 D3: Track sustained-occupancy timer for the WAKING gate.
+        # Bug Class #11: UTC-aware timestamps.
+        _now_utc = dt_util.utcnow()
+        if any_zone_occupied:
+            if self._first_positive_zone_occupied_since is None:
+                self._first_positive_zone_occupied_since = _now_utc
+        else:
+            # Cleared on any False — a brief True→False→True burst cannot
+            # accumulate sustained seconds (per plan §3 D3 acceptance).
+            self._first_positive_zone_occupied_since = None
+
         current_state = manager.house_state_machine.state
 
         # v4.6.2.2: Evaluate guest gate (threshold + confidence + persistence)
@@ -2170,10 +2493,126 @@ class PresenceCoordinator(BaseCoordinator):
                 any_zone_occupied,
             )
 
+        # v4.7.15 fix-up A1-M1: also evaluate Pattern A via the shared D1 helper
+        # so the same decision is exposed via _last_veto_decision diagnostics.
+        # Pure no-op against transition logic — the inline v4.7.14 path inside
+        # _inference_engine.infer() already produced new_state. This call only
+        # populates the diagnostic surface so the helper's Pattern A surface
+        # is actually exercised at runtime, not just in tests.
+        # v4.7.14.1 hotfix surfaces (H1/H2/H3 — phone-left-behind, tracking_status,
+        # census_count predicate) are NOT yet plumbed through the helper;
+        # v4.7.15.1 will refactor Pattern A to consume them per Reviewer C C3.
+        try:
+            house_inference_decision = self.should_veto_due_to_reliable_signals(
+                reliable_signals=[
+                    ReliableSignal("person_tracker_away", all_tracked_persons_away),
+                    ReliableSignal(
+                        "person_tracker_home",
+                        not all_tracked_persons_away and tracked_count > 0,
+                    ),
+                ],
+                transient_signals=[
+                    TransientSignal(
+                        "unidentified_person_count", self._unidentified_count,
+                    ),
+                ],
+                state_context={
+                    "scope": "house_inference",
+                    "house_state": current_state,
+                    "tracked_count": tracked_count,
+                },
+            )
+            # Only overwrite if a real result — preserve WAKING/GUEST diagnostics
+            # that the gates below set explicitly.
+            if house_inference_decision.fired:
+                self._last_veto_decision = house_inference_decision
+        except Exception:  # noqa: BLE001 — defensive: diagnostic-only path
+            pass
+
         # Override confidence if transitioning to GUEST via the D5 guest_room path.
         # The inference engine sets 0.8 by default; D5 raises it to 0.9 when warranted.
         if new_state == HouseState.GUEST and guest_room_gate_armed:
             self._inference_engine._confidence = _d5_guest_confidence
+
+        # v4.7.15 D3: WAKING sustained-signal gate (Pattern D).
+        # When the engine wants to flip SLEEP→WAKING, require sustained
+        # occupancy. A single 03:24 Frigate blip cannot flip WAKING.
+        if (
+            new_state == HouseState.WAKING
+            and current_state == HouseState.SLEEP
+        ):
+            sustained_seconds = 0
+            if self._first_positive_zone_occupied_since is not None:
+                sustained_seconds = int(
+                    (_now_utc - self._first_positive_zone_occupied_since)
+                    .total_seconds()
+                )
+            wake_decision = self.should_veto_due_to_reliable_signals(
+                reliable_signals=[],
+                transient_signals=[],
+                state_context={
+                    "scope": "waking_transition",
+                    "house_state": current_state,
+                    "sustained_occupancy_seconds": sustained_seconds,
+                },
+            )
+            self._last_veto_decision = wake_decision
+            if wake_decision.fired:
+                self._wake_blocked_ticks += 1
+                _LOGGER.debug(
+                    "v4.7.15 D3: WAKING transition blocked — %s",
+                    wake_decision.reason,
+                )
+                new_state = None  # Suppress the WAKING transition this tick.
+
+        # v4.7.15 D3: GUEST exit sustained-signal gate (Pattern E).
+        # When the engine wants to flip GUEST → a HOME_* state, require the
+        # exit condition (unidentified_count==0 AND not guest_armed) to have
+        # persisted for >= _guest_persistence_seconds. Single-frame Frigate
+        # FP that drops unidentified_count to 0 momentarily cannot exit GUEST.
+        # Mirrors the v4.6.2.2 entry-side persistence symmetrically.
+        if (
+            current_state == HouseState.GUEST
+            and new_state is not None
+            and new_state != HouseState.GUEST
+            and new_state in (
+                HouseState.HOME_DAY,
+                HouseState.HOME_EVENING,
+                HouseState.HOME_NIGHT,
+            )
+        ):
+            # The condition for exit must currently be true (otherwise infer()
+            # wouldn't have returned a HOME_* state). Track first-seen time.
+            if self._guest_exit_quiet_since is None:
+                self._guest_exit_quiet_since = _now_utc
+            quiet_seconds = int(
+                (_now_utc - self._guest_exit_quiet_since).total_seconds()
+            )
+            exit_decision = self.should_veto_due_to_reliable_signals(
+                reliable_signals=[],
+                transient_signals=[],
+                state_context={
+                    "scope": "guest_exit",
+                    "house_state": current_state,
+                    "guest_exit_quiet_seconds": quiet_seconds,
+                    # guest_persistence_seconds: helper will fall back to
+                    # self._guest_persistence_seconds if omitted (symmetric).
+                },
+            )
+            self._last_veto_decision = exit_decision
+            if exit_decision.fired:
+                _LOGGER.debug(
+                    "v4.7.15 D3: GUEST exit blocked — %s", exit_decision.reason,
+                )
+                new_state = None  # Suppress the GUEST exit this tick.
+            else:
+                # Exit sustained — clear the timer so the next GUEST entry
+                # restarts from None.
+                self._guest_exit_quiet_since = None
+        else:
+            # Either not in GUEST, or engine did not signal exit — reset timer.
+            if current_state != HouseState.GUEST or new_state == HouseState.GUEST:
+                self._guest_exit_quiet_since = None
 
         if new_state is not None:
             accepted = manager.house_state_machine.transition(
@@ -2302,6 +2741,70 @@ class PresenceCoordinator(BaseCoordinator):
                 remaining = manager.house_state_machine.remaining_hysteresis()
                 if remaining > 0 and trigger != "deferred_retry":
                     self._schedule_deferred_retry(remaining + 1)
+
+        # v4.7.15 D5: signal_consensus calculation.
+        # v4.7.15 fix-up B2-HIGH: Relocated past the transition-record block so
+        # readers (HVAC defer gate, compliance gate) never observe new-consensus
+        # paired with stale `_last_transition_time`. The read race used to invert
+        # the D6 HVAC gate at exactly the tick the new state landed.
+        # Computed every cycle (even when new_state is None) — consensus
+        # tracks INPUT agreement, not output transitions.
+        # 1.0 = inputs in perfect agreement, 0.0 = severely degraded.
+        # All four deltas per INVESTIGATION §6.5 line 257-268.
+        camera_occupied_count = 0
+        mmwave_occupied_count = 0
+        try:
+            for t in self._zone_trackers.values():
+                # Camera tier: any True in _camera_occupied dict.
+                if any(getattr(t, "_camera_occupied", {}).values()):
+                    camera_occupied_count += 1
+                # mmWave/PIR tier: any True in _room_occupied dict.
+                if any(getattr(t, "_room_occupied", {}).values()):
+                    mmwave_occupied_count += 1
+        except Exception:  # noqa: BLE001 — defensive
+            camera_occupied_count = 0
+            mmwave_occupied_count = 0
+
+        any_stale_or_lost_tracker = False
+        try:
+            person_coord = self.hass.data.get(DOMAIN, {}).get("person_coordinator")
+            if person_coord and getattr(person_coord, "data", None):
+                any_stale_or_lost_tracker = any(
+                    (info.get("location") or "") == "unknown"
+                    for info in (person_coord.data or {}).values()
+                )
+        except Exception:  # noqa: BLE001
+            any_stale_or_lost_tracker = False
+
+        consensus = 1.0
+        # Disagreement 1: phones say away, zones say occupied (the v4.7.14 shape).
+        if all_tracked_persons_away and any_zone_occupied:
+            consensus -= 0.4
+        # Disagreement 2: at least one tracker is STALE/LOST (not confirmed away).
+        if any_stale_or_lost_tracker and not all_tracked_persons_away:
+            consensus -= 0.2
+        # Disagreement 3: cameras firing without mmWave/PIR backup.
+        if camera_occupied_count > 0 and mmwave_occupied_count == 0:
+            consensus -= 0.15
+        # Disagreement 4: engine itself is uncertain about its chosen state.
+        if self._inference_engine.confidence < 0.85:
+            consensus -= 0.1
+        self._signal_consensus = max(0.0, consensus)
+        self._signal_consensus_inputs = {
+            "all_tracked_persons_away": all_tracked_persons_away,
+            "any_zone_occupied": any_zone_occupied,
+            "any_stale_or_lost_tracker": any_stale_or_lost_tracker,
+            "camera_occupied_count": camera_occupied_count,
+            "mmwave_occupied_count": mmwave_occupied_count,
+            "state_confidence": round(self._inference_engine.confidence, 2),
+        }
+
+        # Sustained-low tracker (D6 compliance gate input).
+        if self._signal_consensus < 0.6:
+            if self._consensus_low_since is None:
+                self._consensus_low_since = _now_utc
+        else:
+            self._consensus_low_since = None
 
         # D4: Log zone mode changes to database
         db = self.hass.data.get(DOMAIN, {}).get("database")

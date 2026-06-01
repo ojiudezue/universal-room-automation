@@ -203,6 +203,9 @@ async def async_setup_entry(
             # v4.7.8 D2: Egress Window HVAC Pause master toggle.
             HVACEgressWindowPauseSwitch(hass, entry),
             HVACObservationModeSwitch(hass, entry),
+            # v4.7.15 D6: Consensus defer gates (HVAC + compliance).
+            HVACConsensusDeferGateSwitch(hass, entry),
+            ComplianceConsensusDeferGateSwitch(hass, entry),
             # v3.17.0: Zone Intelligence toggle
             HVACZoneIntelligenceSwitch(hass, entry),
             # v3.18.2: Zone Sweep toggle
@@ -1795,6 +1798,146 @@ class HVACObservationModeSwitch(SwitchEntity, RestoreEntity):
     def available(self) -> bool:
         """Only available when HVAC coordinator is active."""
         return self._get_hvac() is not None
+
+
+# ============================================================================
+# v4.7.15 D6: Consensus defer gate switches (HVAC + compliance)
+# ============================================================================
+
+
+class HVACConsensusDeferGateSwitch(SwitchEntity, RestoreEntity):
+    """v4.7.15 D6: Toggle HVAC consensus defer gate.
+
+    When ON (default): _apply_house_state_presets skips preset writes when
+    signal_consensus < 0.5 AND last house-state transition < 30 s ago.
+    When OFF: gate disabled — HVAC reverts to pre-v4.7.15 behaviour.
+
+    Entity: switch.ura_hvac_consensus_defer_gate
+    Device: URA: HVAC Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:gate-arrow-right"
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        self.hass = hass
+        self._entry = entry
+        self._attr_unique_id = f"{DOMAIN}_hvac_consensus_defer_gate"
+        self._attr_name = "HVAC Consensus Defer Gate"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "hvac_coordinator")},
+            name="URA: HVAC Coordinator",
+            manufacturer="Universal Room Automation",
+            model="HVAC Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+
+    def _get_hvac(self):
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        return manager.coordinators.get("hvac")
+
+    @property
+    def is_on(self) -> bool:
+        hvac = self._get_hvac()
+        if hvac is None:
+            return True  # default ON when coord unavailable
+        return getattr(hvac, "_defer_gate_enabled", True)
+
+    async def async_turn_on(self, **kwargs) -> None:
+        hvac = self._get_hvac()
+        if hvac is not None:
+            hvac._defer_gate_enabled = True
+            self.async_write_ha_state()
+
+    async def async_turn_off(self, **kwargs) -> None:
+        hvac = self._get_hvac()
+        if hvac is not None:
+            hvac._defer_gate_enabled = False
+            self.async_write_ha_state()
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        last_state = await self.async_get_last_state()
+        # Default ON: only flip to OFF if explicitly restored to OFF.
+        if last_state is not None and last_state.state == "off":
+            hvac = self._get_hvac()
+            if hvac is not None:
+                hvac._defer_gate_enabled = False
+
+    @property
+    def available(self) -> bool:
+        return self._get_hvac() is not None
+
+
+class ComplianceConsensusDeferGateSwitch(SwitchEntity, RestoreEntity):
+    """v4.7.15 D6: Toggle compliance violation defer gate.
+
+    When ON (default): _emit_compliance_violation_anomaly suppresses emits
+    when signal_consensus < 0.6 sustained for >= 60 s.
+    When OFF: gate disabled — compliance violations emit at v4.7.14 cadence.
+
+    Entity: switch.ura_compliance_consensus_defer_gate
+    Device: URA: Coordinator Manager
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:gate-arrow-right"
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        self.hass = hass
+        self._entry = entry
+        self._attr_unique_id = f"{DOMAIN}_compliance_consensus_defer_gate"
+        self._attr_name = "Compliance Consensus Defer Gate"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "coordinator_manager")},
+            name="URA: Coordinator Manager",
+            manufacturer="Universal Room Automation",
+            model="Coordinator Manager",
+            sw_version=VERSION,
+        )
+
+    def _get_compliance(self):
+        """Get the ComplianceTracker instance (lives on coordinator_manager)."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        return getattr(manager, "compliance_tracker", None)
+
+    @property
+    def is_on(self) -> bool:
+        tracker = self._get_compliance()
+        if tracker is None:
+            return True  # default ON
+        return getattr(tracker, "_compliance_defer_gate_enabled", True)
+
+    async def async_turn_on(self, **kwargs) -> None:
+        tracker = self._get_compliance()
+        if tracker is not None:
+            tracker._compliance_defer_gate_enabled = True
+            self.async_write_ha_state()
+
+    async def async_turn_off(self, **kwargs) -> None:
+        tracker = self._get_compliance()
+        if tracker is not None:
+            tracker._compliance_defer_gate_enabled = False
+            self.async_write_ha_state()
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        last_state = await self.async_get_last_state()
+        if last_state is not None and last_state.state == "off":
+            tracker = self._get_compliance()
+            if tracker is not None:
+                tracker._compliance_defer_gate_enabled = False
+
+    @property
+    def available(self) -> bool:
+        return self._get_compliance() is not None
 
 
 # ============================================================================

@@ -187,7 +187,9 @@ _LOGGER = logging.getLogger(__name__)
 # person fallback was unavailable so we WARN at most once per boot per zone.
 # Module-level intentionally: cleared on HA process restart, persists across
 # coordinator reloads within a single boot.
-_SLEEP_FALLBACK_WARNED_ZONES: set[str] = set()
+# v4.7.15 D2: cache key widened from str to (zone_id, scope) so SLEEP and
+# non-sleep fallback unavailability don't dedup-mask each other.
+_SLEEP_FALLBACK_WARNED_ZONES: set[tuple[str, str]] = set()
 
 # Update interval for aggregation sensors
 AGGREGATION_UPDATE_INTERVAL = timedelta(seconds=30)
@@ -3186,12 +3188,18 @@ class ZoneAnyoneBinarySensor(ZoneSensorBase, BinarySensorEntity):
         """Return True if any room in zone occupied.
 
         v4.7.13: Sleep-state zone presence trust fallback.
+        v4.7.15 D2: Non-sleep-state zone presence trust fallback.
+
         Layer 1 (existing): any room-level occupancy sensor reports occupied.
-        Layer 2 (NEW): during house_state == "sleep", if any zone_persons
-        member tracker is "home", treat the zone as occupied. This covers
-        the structural degeneration where mmWave drops motionless sleepers,
-        PIR can't fire on stationary bodies, and cameras are blind in dark
-        rooms — leaving the room-level rollup falsely off mid-sleep.
+        Layer 2 (v4.7.13): during house_state == "sleep", if any zone_persons
+        member tracker is "home", treat the zone as occupied. This covers the
+        structural degeneration where mmWave drops motionless sleepers, PIR
+        can't fire on stationary bodies, and cameras are blind in dark rooms.
+        Layer 3 (v4.7.15 D2): during HOME_DAY/EVENING/NIGHT/ARRIVING/GUEST/WAKING,
+        if any zone_persons member is "home" AND room sensors have been quiet
+        for >= 5 min, treat the zone as occupied. Bridges the same structural
+        degeneration outside the sleep window (operator at desk going still
+        for >5 min, guest reading on couch, etc).
         """
         # Layer 1: existing room-level rollup
         for coord in self._get_zone_coordinators():
@@ -3200,6 +3208,10 @@ class ZoneAnyoneBinarySensor(ZoneSensorBase, BinarySensorEntity):
 
         # Layer 2: sleep-state person tracker fallback
         if self._sleep_person_fallback_occupied():
+            return True
+
+        # Layer 3: non-sleep-state person tracker fallback (v4.7.15 D2)
+        if self._nonsleep_person_fallback_occupied():
             return True
 
         return False
@@ -3250,16 +3262,60 @@ class ZoneAnyoneBinarySensor(ZoneSensorBase, BinarySensorEntity):
             if not zone_persons:
                 return False
 
+            any_person_home = False
+            home_person_entity = ""
             for person_entity in zone_persons:
                 # Strict "home" only — unknown/unavailable intentionally not trusted.
                 state = self.hass.states.get(person_entity)
                 if state is not None and state.state == "home":
-                    _LOGGER.info(
-                        "Zone '%s': sleep-state person fallback engaged — "
-                        "%s == home (room sensors degraded)",
-                        self.zone, person_entity,
-                    )
-                    return True
+                    any_person_home = True
+                    home_person_entity = person_entity
+                    break
+            if not any_person_home:
+                return False
+
+            # v4.7.15 fix-up A1-M2: delegate the actual sleep-fallback decision
+            # to the shared D1 helper via scope="zone_aggregator" Pattern B.
+            # Behaviour preserved (any zone_persons home during sleep → veto)
+            # but the SLEEP path now routes through the same arbitration as
+            # the non-sleep path (Pattern C), so future cycles that retune
+            # the sleep predicate only touch one place.
+            presence = manager.coordinators.get("presence") if hasattr(
+                manager, "coordinators",
+            ) else None
+            if presence is None or not hasattr(
+                presence, "should_veto_due_to_reliable_signals",
+            ):
+                # Boot race — presence not ready. Fall back to v4.7.13's direct
+                # bias so a slow boot doesn't lose the sleep-fallback safety net.
+                _LOGGER.info(
+                    "Zone '%s': sleep-state person fallback engaged — "
+                    "%s == home (room sensors degraded, presence pending)",
+                    self.zone, home_person_entity,
+                )
+                return True
+
+            # function-local import — Bug Class #34
+            from .domain_coordinators.presence import (  # noqa: PLC0415
+                ReliableSignal,
+            )
+
+            decision = presence.should_veto_due_to_reliable_signals(
+                reliable_signals=[ReliableSignal("zone_persons_home", True)],
+                transient_signals=[],
+                state_context={
+                    "scope": "zone_aggregator",
+                    "house_state": "sleep",
+                    "zone_name": self.zone,
+                },
+            )
+            if decision.fired:
+                _LOGGER.info(
+                    "Zone '%s': sleep-state person fallback engaged — "
+                    "%s (%s == home, room sensors degraded)",
+                    self.zone, decision.reason, home_person_entity,
+                )
+                return True
             return False
         except Exception as exc:  # noqa: BLE001
             self._warn_sleep_fallback_unavailable(
@@ -3267,24 +3323,147 @@ class ZoneAnyoneBinarySensor(ZoneSensorBase, BinarySensorEntity):
             )
             return False
 
-    def _warn_sleep_fallback_unavailable(self, reason: str) -> None:
-        """Log a one-shot WARN per zone per boot when the sleep fallback is unavailable.
+    def _warn_sleep_fallback_unavailable(self, reason: str, scope: str = "sleep") -> None:
+        """Log a one-shot WARN per (zone, scope) per boot when the fallback is unavailable.
 
-        v4.7.13 fix-up MEDIUM-2 (interim). Only fires while house_state == "sleep"
-        because that is the only state where the missing fallback can cause the
-        bug v4.7.13 fixes (motionless occupants reported unoccupied). The caller
-        has already verified sleep state before reaching the warn sites.
+        v4.7.13 fix-up MEDIUM-2 (interim) — sleep-side telemetry.
+        v4.7.15 D2: extended cache key to (zone_id, scope) so SLEEP and non-sleep
+        path unavailability don't dedup-mask each other.
         """
         zone_id_for_warn = getattr(self, "zone", "?")
-        if zone_id_for_warn in _SLEEP_FALLBACK_WARNED_ZONES:
+        key = (zone_id_for_warn, scope)
+        if key in _SLEEP_FALLBACK_WARNED_ZONES:
             return
-        _SLEEP_FALLBACK_WARNED_ZONES.add(zone_id_for_warn)
+        _SLEEP_FALLBACK_WARNED_ZONES.add(key)
         _LOGGER.warning(
-            "v4.7.13 sleep fallback unavailable for zone=%s (%s). During sleep "
-            "with motionless occupants, room may incorrectly report unoccupied. "
+            "v4.7.13/v4.7.15 zone fallback unavailable: zone=%s scope=%s (%s). "
+            "Room may incorrectly report unoccupied with motionless occupants. "
             "Subsequent occurrences this boot suppressed.",
-            zone_id_for_warn, reason,
+            zone_id_for_warn, scope, reason,
         )
+
+    def _nonsleep_person_fallback_occupied(self) -> bool:
+        """Return True if house is in a non-sleep state where a zone_persons
+        tracker is "home" AND all room-level sensors in this zone have been
+        quiet for >= _NONSLEEP_QUIET_THRESHOLD_SECONDS.
+
+        v4.7.15 D2: Layer 3 fallback. Mirrors v4.7.13 Layer 2's strict
+        zone_persons=="home" bias but extends to HOME_DAY/EVENING/NIGHT,
+        ARRIVING, GUEST, WAKING. SLEEP is intentionally excluded — Layer 2
+        already covers it without the quiet-window guard (a sleeping occupant
+        is structurally going to be quiet for hours).
+
+        The quiet-window guard is the key safety belt for non-sleep states:
+        a room briefly going dark while the occupant is in fact there is
+        normal noise. We only veto when sensors have been quiet long enough
+        that "structural degeneration" is the more likely explanation than
+        "occupant left and rejoined".
+
+        Calls the shared v4.7.15 D1 helper via scope="zone_aggregator" so this
+        path stays unified with Layer 2 / Pattern C as patterns evolve.
+        """
+        try:
+            manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+            if manager is None:
+                return False
+
+            # State guard: ONLY non-sleep home-like states. SLEEP is Layer 2.
+            current_state = getattr(manager, "house_state", None)
+            current_state_str = (
+                current_state.value if hasattr(current_state, "value")
+                else str(current_state or "")
+            ).lower()
+            if current_state_str not in (
+                "home_day", "home_evening", "home_night",
+                "arriving", "guest", "waking",
+            ):
+                return False
+
+            hvac = manager.coordinators.get("hvac") if hasattr(manager, "coordinators") else None
+            if hvac is None or not hasattr(hvac, "_zone_manager"):
+                self._warn_sleep_fallback_unavailable(
+                    "hvac coordinator or _zone_manager not ready", scope="nonsleep",
+                )
+                return False
+
+            zone = hvac._zone_manager.zones.get(self.zone)
+            if zone is None:
+                self._warn_sleep_fallback_unavailable(
+                    "zone not registered in zone_manager.zones", scope="nonsleep",
+                )
+                return False
+
+            zone_persons = getattr(zone, "zone_persons", None) or []
+            if not zone_persons:
+                return False
+
+            # Conservative: require literal "home" — unknown/unavailable not trusted.
+            any_person_home = False
+            for person_entity in zone_persons:
+                state = self.hass.states.get(person_entity)
+                if state is not None and state.state == "home":
+                    any_person_home = True
+                    break
+            if not any_person_home:
+                return False
+
+            # Compute quiet seconds from room coordinators' _last_motion_time.
+            # Use the freshest motion across all rooms in the zone — even a
+            # single room with recent motion means we should NOT engage the
+            # fallback (an active room is real signal, not degeneration).
+            now = dt_util.utcnow()
+            freshest_motion: datetime | None = None
+            for coord in self._get_zone_coordinators():
+                last_motion = getattr(coord, "_last_motion_time", None)
+                if last_motion is None:
+                    continue
+                if freshest_motion is None or last_motion > freshest_motion:
+                    freshest_motion = last_motion
+            if freshest_motion is None:
+                # No recent motion at all — quiet "forever" for our purposes.
+                room_sensors_quiet_seconds = 10**9
+            else:
+                room_sensors_quiet_seconds = max(
+                    0, int((now - freshest_motion).total_seconds()),
+                )
+
+            # Delegate the actual decision to the shared D1 helper.
+            presence = manager.coordinators.get("presence") if hasattr(manager, "coordinators") else None
+            if presence is None or not hasattr(
+                presence, "should_veto_due_to_reliable_signals",
+            ):
+                # Boot race — presence not ready. Conservative: no veto.
+                return False
+
+            # function-local import — Bug Class #34
+            from .domain_coordinators.presence import (  # noqa: PLC0415
+                ReliableSignal,
+            )
+
+            decision = presence.should_veto_due_to_reliable_signals(
+                reliable_signals=[ReliableSignal("zone_persons_home", True)],
+                transient_signals=[],
+                state_context={
+                    "scope": "zone_aggregator",
+                    "house_state": current_state_str,
+                    "room_sensors_quiet_seconds": room_sensors_quiet_seconds,
+                    "zone_name": self.zone,
+                },
+            )
+            if decision.fired:
+                _LOGGER.info(
+                    "Zone '%s': non-sleep person fallback engaged — %s "
+                    "(state=%s, quiet=%ds)",
+                    self.zone, decision.reason, current_state_str,
+                    room_sensors_quiet_seconds,
+                )
+                return True
+            return False
+        except Exception as exc:  # noqa: BLE001
+            self._warn_sleep_fallback_unavailable(
+                f"unexpected exception: {exc}", scope="nonsleep",
+            )
+            return False
 
 
 class ZoneSafetyAlertSensor(ZoneSensorBase, BinarySensorEntity):
