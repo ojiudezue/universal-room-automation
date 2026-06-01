@@ -289,10 +289,16 @@ def test_v4511_conf_key_defined(hvac_const_src, conf_name):
 
 class TestConstants:
 
-    def test_overshoot_gap_is_half_degree(self, hvac_const_src):
-        """0.5°F gap below target prevents flap (Bryant rounds to 0.5°F so
-        current==target is constant during legit cycling)."""
-        assert "AC_NUDGE_OVERSHOOT_GAP: Final = 0.5" in hvac_const_src
+    def test_overshoot_gap_is_zero_post_hotfix(self, hvac_const_src):
+        """v4.7.x.x hotfix: gap reduced from 0.5°F to 0.0°F.
+
+        Variable-speed Bryant modulates AT setpoint and rarely undershoots
+        0.5°F, so the previous 0.5°F gap suppressed auto-nudge for the
+        exact waste pattern check_ac_reset was designed to catch
+        (sustained kWh burn after reaching setpoint). Gates 7/7b/8
+        already provide three independent false-positive guards.
+        """
+        assert "AC_NUDGE_OVERSHOOT_GAP: Final = 0.0" in hvac_const_src
 
     def test_kwh_staleness_threshold(self, hvac_const_src):
         # 10 min before treating a sensor reading as missing (R3)
