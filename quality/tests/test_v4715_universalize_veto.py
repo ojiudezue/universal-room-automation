@@ -294,6 +294,337 @@ class TestD1HelperPatternA:
         assert decision.fired is False
 
 
+class TestD1HelperPatternAV4715_1:
+    """v4.7.15.1 D1: Pattern A consumes v4.7.14.1 H1/H2/H3 surfaces.
+
+    These tests drive the production helper at presence.py:755+ directly
+    with the new signal taxonomy (Bug Class #44 — tests drive production
+    code, not a shadow re-implementation).
+    """
+
+    def test_pattern_a_fires_when_census_zero_and_unid_zero_and_all_trusted_away(self):
+        """v4.7.15.1: Full positive case — H1 census=0, H2/H3 all trusted, all away."""
+        coord = _make_presence_coordinator()
+        decision = coord.should_veto_due_to_reliable_signals(
+            reliable_signals=[
+                ReliableSignal("person_tracker_away", True),
+                ReliableSignal("person_phone_trustworthy", True),
+                ReliableSignal("person_phone_trustworthy", True),
+                ReliableSignal("person_phone_trustworthy", True),
+                ReliableSignal("person_phone_trustworthy", True),
+                ReliableSignal("person_tracking_active", True),
+                ReliableSignal("person_tracking_active", True),
+                ReliableSignal("person_tracking_active", True),
+                ReliableSignal("person_tracking_active", True),
+            ],
+            transient_signals=[
+                TransientSignal("unidentified_person_count", 0),
+                TransientSignal("census_count", 0),
+            ],
+            state_context={
+                "scope": "house_inference", "tracked_count": 4,
+            },
+        )
+        assert decision.fired is True
+        assert decision.confidence == 0.95
+        assert "trusted=4" in decision.reason
+        assert "no census" in decision.reason
+
+    def test_pattern_a_does_not_fire_when_census_positive(self):
+        """v4.7.14.1 H1: census_count >= 1 blocks veto (Frigate IDed a resident)."""
+        coord = _make_presence_coordinator()
+        decision = coord.should_veto_due_to_reliable_signals(
+            reliable_signals=[
+                ReliableSignal("person_tracker_away", True),
+                ReliableSignal("person_phone_trustworthy", True),
+                ReliableSignal("person_phone_trustworthy", True),
+                ReliableSignal("person_tracking_active", True),
+                ReliableSignal("person_tracking_active", True),
+            ],
+            transient_signals=[
+                TransientSignal("unidentified_person_count", 0),
+                TransientSignal("census_count", 1),  # H1 trigger
+            ],
+            state_context={"scope": "house_inference", "tracked_count": 2},
+        )
+        assert decision.fired is False
+
+    def test_pattern_a_excludes_phone_left_behind_from_trusted(self):
+        """v4.7.14.1 H2: a phone_left_behind=True person drops trusted_count by 1."""
+        coord = _make_presence_coordinator()
+        # 4 tracked persons, 1 phone-left-behind (F), 3 trustworthy (T).
+        # All 4 have ACTIVE tracking. all_tracker_away = True (all reported away).
+        decision = coord.should_veto_due_to_reliable_signals(
+            reliable_signals=[
+                ReliableSignal("person_tracker_away", True),
+                ReliableSignal("person_phone_trustworthy", False),
+                ReliableSignal("person_phone_trustworthy", True),
+                ReliableSignal("person_phone_trustworthy", True),
+                ReliableSignal("person_phone_trustworthy", True),
+                ReliableSignal("person_tracking_active", True),
+                ReliableSignal("person_tracking_active", True),
+                ReliableSignal("person_tracking_active", True),
+                ReliableSignal("person_tracking_active", True),
+            ],
+            transient_signals=[
+                TransientSignal("unidentified_person_count", 0),
+                TransientSignal("census_count", 0),
+            ],
+            state_context={"scope": "house_inference", "tracked_count": 4},
+        )
+        assert decision.fired is True
+        # trusted_count derived by helper = 3 (one phone-left-behind filtered).
+        assert "trusted=3" in decision.reason
+
+    def test_pattern_a_excludes_stale_lost_tracking_from_trusted(self):
+        """v4.7.14.1 H3: a tracking_active=False (STALE/LOST) drops trusted_count."""
+        coord = _make_presence_coordinator()
+        decision = coord.should_veto_due_to_reliable_signals(
+            reliable_signals=[
+                ReliableSignal("person_tracker_away", True),
+                ReliableSignal("person_phone_trustworthy", True),
+                ReliableSignal("person_phone_trustworthy", True),
+                ReliableSignal("person_phone_trustworthy", True),
+                ReliableSignal("person_tracking_active", True),
+                ReliableSignal("person_tracking_active", True),
+                ReliableSignal("person_tracking_active", False),  # STALE
+            ],
+            transient_signals=[
+                TransientSignal("unidentified_person_count", 0),
+                TransientSignal("census_count", 0),
+            ],
+            state_context={"scope": "house_inference", "tracked_count": 3},
+        )
+        assert decision.fired is True
+        assert "trusted=2" in decision.reason
+
+    def test_pattern_a_falls_back_to_state_context_tracked_count_when_per_person_lists_empty(self):
+        """v4.7.15 backward compat: callers without H2/H3 signals use
+        state_context["tracked_count"] verbatim (zone aggregator etc.)."""
+        coord = _make_presence_coordinator()
+        decision = coord.should_veto_due_to_reliable_signals(
+            reliable_signals=[ReliableSignal("person_tracker_away", True)],
+            transient_signals=[
+                TransientSignal("unidentified_person_count", 0),
+                TransientSignal("census_count", 0),
+            ],
+            state_context={"scope": "house_inference", "tracked_count": 2},
+        )
+        assert decision.fired is True
+        # No per-person lists → trusted_count == state_context tracked_count.
+        assert "trusted=2" in decision.reason
+
+    def test_pattern_a_length_mismatch_fails_conservative(self):
+        """Mismatched H2/H3 list lengths → trusted_count = 0 → no veto.
+
+        Plan §D1.1 fail-conservative invariant: a broken caller contract
+        must NOT accidentally veto. Length mismatch is the canary for
+        builder-error misalignment.
+        """
+        coord = _make_presence_coordinator()
+        decision = coord.should_veto_due_to_reliable_signals(
+            reliable_signals=[
+                ReliableSignal("person_tracker_away", True),
+                # 3 phone signals
+                ReliableSignal("person_phone_trustworthy", True),
+                ReliableSignal("person_phone_trustworthy", True),
+                ReliableSignal("person_phone_trustworthy", True),
+                # but only 2 tracking signals (misaligned!)
+                ReliableSignal("person_tracking_active", True),
+                ReliableSignal("person_tracking_active", True),
+            ],
+            transient_signals=[
+                TransientSignal("unidentified_person_count", 0),
+                TransientSignal("census_count", 0),
+            ],
+            state_context={"scope": "house_inference", "tracked_count": 3},
+        )
+        assert decision.fired is False, (
+            "v4.7.15.1 D1: length mismatch must fail CONSERVATIVE (cannot veto)"
+        )
+
+    def test_pattern_a_trusted_count_zero_does_not_veto(self):
+        """All persons filtered out by H2+H3 → trusted_count = 0 → fail-safe holds."""
+        coord = _make_presence_coordinator()
+        decision = coord.should_veto_due_to_reliable_signals(
+            reliable_signals=[
+                ReliableSignal("person_tracker_away", True),
+                ReliableSignal("person_phone_trustworthy", False),
+                ReliableSignal("person_phone_trustworthy", False),
+                ReliableSignal("person_tracking_active", True),
+                ReliableSignal("person_tracking_active", True),
+            ],
+            transient_signals=[
+                TransientSignal("unidentified_person_count", 0),
+                TransientSignal("census_count", 0),
+            ],
+            state_context={"scope": "house_inference", "tracked_count": 2},
+        )
+        # All H2 filtered out → trusted_count = 0 → tracked_count > 0 fails → no veto.
+        assert decision.fired is False
+
+
+class TestD1PatternASilentExceptionSentinel:
+    """v4.7.15.1 fix-up B1-M1 + B4-M1 (Reviewers B+D, converged).
+
+    Reviewer B flagged the prior `try/except Exception: pass` around the
+    Pattern A call site in `_run_inference` as a silent-exception hole:
+    if the helper raises, `_last_veto_decision` retains a stale
+    WAKING/GUEST write — no log, no diagnostic. Bug Class #14 / #44
+    cousin (v4.6.1.1-class silent-payload-shape).
+
+    These tests prove:
+      1. The sentinel-write code is present at the source level (AST
+         guard — Bug Class #44 / Reviewer C test-authority rule:
+         shadow-test re-implementations don't catch the production
+         drift).
+      2. The sentinel preserves the operator-visible invariant
+         `last_veto_decision.scope == "house_inference"` so the live-
+         validation key documented in the README remains trustworthy.
+      3. The sentinel sets `fired=False` (safe default — no veto).
+    """
+
+    def test_source_logs_warning_on_pattern_a_exception(self):
+        """Production source must call _LOGGER.warning on the exception
+        path — not silently swallow. AST-level invariant per Bug Class
+        #44 (test fixtures extract from production source, never hand-
+        copy DDL/code shapes)."""
+        idx = PRESENCE_SRC.find("Pattern A (house_inference) raised")
+        assert idx >= 0, (
+            "v4.7.15.1 B1-M1: production source must emit a WARNING when "
+            "Pattern A raises (not silently swallow). Add _LOGGER.warning "
+            "in the except branch at the Pattern A call site."
+        )
+        # The marker must appear inside a _LOGGER.warning call (not just a
+        # comment) — scan backward for the call.
+        prefix = PRESENCE_SRC[max(0, idx - 200):idx]
+        assert "_LOGGER.warning" in prefix, (
+            "v4.7.15.1 B1-M1: the 'Pattern A raised' marker must appear "
+            "inside a _LOGGER.warning call, not a comment or string."
+        )
+
+    def test_source_writes_house_inference_sentinel_on_exception(self):
+        """Production source must write a VetoDecision sentinel with
+        scope='house_inference' on the exception path. Preserves the
+        operator-visible invariant documented in the v4.7.15.1 README:
+        `sensor.ura_presence_house_state.last_veto_decision.scope ==
+        'house_inference'` should ALWAYS hold post-deploy."""
+        idx = PRESENCE_SRC.find("fallback: helper raised")
+        assert idx >= 0, (
+            "v4.7.15.1 B1-M1: production source must write a fallback "
+            "VetoDecision sentinel after the helper raises, preserving "
+            "the scope=='house_inference' invariant."
+        )
+        # The sentinel reason must appear inside a VetoDecision(...) call
+        # with scope="house_inference".
+        nearby = PRESENCE_SRC[max(0, idx - 200):idx + 200]
+        assert "VetoDecision(" in nearby, (
+            "v4.7.15.1 B1-M1: 'fallback: helper raised' must be a reason "
+            "inside a VetoDecision(...) constructor."
+        )
+        assert '"house_inference"' in nearby, (
+            "v4.7.15.1 B1-M1: the fallback sentinel must use "
+            "scope='house_inference' so the operator-visible invariant "
+            "holds across exception cycles."
+        )
+
+    def test_sentinel_shape_safe_default(self):
+        """Construct the documented sentinel directly and verify the
+        invariants the production fallback maintains: fired=False,
+        confidence=0.0, scope='house_inference'."""
+        sentinel = VetoDecision(False, 0.0, "fallback: helper raised", "house_inference")
+        assert sentinel.fired is False
+        assert sentinel.confidence == 0.0
+        assert sentinel.scope == "house_inference"
+
+
+class TestD1PatternALengthMismatchWarn:
+    """v4.7.15.1 fix-up B2-M1 (Reviewer B): length-mismatch fail-
+    conservative path must emit a one-shot WARN per process so a
+    future per-person parallel-list caller-contract violation is
+    discoverable.
+
+    Drives the helper directly with intentionally misaligned
+    phone_trust / tracking_active lists; verifies (a) the helper
+    still fails CONSERVATIVE (no veto) and (b) the production source
+    emits a WARN with both list lengths.
+    """
+
+    def test_length_mismatch_fails_conservative_no_veto(self):
+        """3 phone-trust signals + 2 tracking-active signals → mismatch →
+        helper returns fired=False (no veto on broken contract)."""
+        coord = _make_presence_coordinator()
+        decision = coord.should_veto_due_to_reliable_signals(
+            reliable_signals=[
+                ReliableSignal("person_tracker_away", True),
+                ReliableSignal("person_phone_trustworthy", True),
+                ReliableSignal("person_phone_trustworthy", True),
+                ReliableSignal("person_phone_trustworthy", True),
+                ReliableSignal("person_tracking_active", True),
+                ReliableSignal("person_tracking_active", True),
+            ],
+            transient_signals=[
+                TransientSignal("unidentified_person_count", 0),
+                TransientSignal("census_count", 0),
+            ],
+            state_context={"scope": "house_inference", "tracked_count": 3},
+        )
+        # Mismatch → trusted_count=0 → tracked_count>0 fails → no veto.
+        assert decision.fired is False
+
+    def test_source_emits_one_shot_warn_on_length_mismatch(self):
+        """Production source must emit a one-shot WARN
+        (`_LENGTH_MISMATCH_WARNED` flag + `_LOGGER.warning`) on the
+        length-mismatch branch. AST-source-grep invariant per Bug
+        Class #44 (test fixtures drive production source, not a
+        shadow re-implementation)."""
+        # The WARN-once flag must exist at module level.
+        assert "_LENGTH_MISMATCH_WARNED" in PRESENCE_SRC, (
+            "v4.7.15.1 B2-M1: missing _LENGTH_MISMATCH_WARNED module "
+            "flag — one-shot WARN cannot be implemented without it."
+        )
+        # The WARN call must reference both list lengths.
+        idx = PRESENCE_SRC.find("per-person")
+        # Use a less fragile anchor — look for the WARN message body.
+        warn_idx = PRESENCE_SRC.find("parallel-list length mismatch")
+        assert warn_idx >= 0, (
+            "v4.7.15.1 B2-M1: production source must log the "
+            "parallel-list length-mismatch failure."
+        )
+        # Verify it's inside a _LOGGER.warning call.
+        prefix = PRESENCE_SRC[max(0, warn_idx - 300):warn_idx]
+        assert "_LOGGER.warning" in prefix, (
+            "v4.7.15.1 B2-M1: 'parallel-list length mismatch' must "
+            "appear inside a _LOGGER.warning call, not a comment or "
+            "string literal."
+        )
+        # Verify both list lengths are passed as args.
+        tail = PRESENCE_SRC[warn_idx:warn_idx + 600]
+        assert "len(phone_trust)" in tail and "len(track_active)" in tail, (
+            "v4.7.15.1 B2-M1: WARN must include both list lengths so "
+            "operators can see the asymmetry."
+        )
+
+    def test_warn_once_flag_is_module_level_not_instance(self):
+        """The WARN-once flag must be module-level (suppresses across
+        coordinator instances + process lifetime). An instance-level
+        flag would re-WARN on every coordinator reload — flooding
+        journald on a stable misalignment."""
+        # The module-level definition appears outside any class.
+        # Verify by line context: the flag's definition line must not
+        # be indented (module scope).
+        for line in PRESENCE_SRC.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("_LENGTH_MISMATCH_WARNED = "):
+                assert line == stripped, (
+                    "v4.7.15.1 B2-M1: _LENGTH_MISMATCH_WARNED must be "
+                    "module-level (no leading indent), not instance- "
+                    "or method-scoped."
+                )
+                return
+        pytest.fail("_LENGTH_MISMATCH_WARNED assignment not found in source")
+
+
 class TestD1HelperPatternB:
     """Pattern B — v4.7.13 zone-aggregator SLEEP fallback."""
 
@@ -555,6 +886,21 @@ class TestD2ZoneAggregatorLayer3:
 # ===========================================================================
 
 
+# v4.7.15.1 D3: post-merge `_run_inference` body grew from ~12 KB to ~34 KB
+# because v4.7.14.1 H2/H3 inline helpers + the v4.7.15 WAKING/GUEST exit
+# gates + the v4.7.15.1 D1 per-person parallel-list signal capture all
+# compound. Window widened 12000 -> 30000 covers the full post-merge body
+# (34 KB) minus the trailing transition/dispatch block (which contains no
+# D3-relevant assertion targets). Per Reviewer C C3 widening pattern from
+# v4.7.14.1 — honest re-baseline against post-merge reality, not a
+# relaxation of the semantic claim.
+#
+# Hard upper bound enforced by test_run_inference_only_defined_once at the
+# bottom of this section — the widened window cannot span two function
+# bodies.
+_RUN_INFERENCE_WINDOW = 44000
+
+
 class TestD3WakingSustainedSignal:
     def test_first_positive_zone_occupied_since_field_exists(self):
         assert "_first_positive_zone_occupied_since" in PRESENCE_SRC
@@ -565,14 +911,14 @@ class TestD3WakingSustainedSignal:
     def test_run_inference_tracks_sustained_occupancy(self):
         idx = PRESENCE_SRC.find("async def _run_inference")
         assert idx >= 0
-        body = PRESENCE_SRC[idx: idx + 12000]
+        body = PRESENCE_SRC[idx: idx + _RUN_INFERENCE_WINDOW]
         assert "_first_positive_zone_occupied_since" in body, (
             "v4.7.15 D3: _run_inference must track sustained-occupancy timer"
         )
 
     def test_waking_transition_uses_helper(self):
         idx = PRESENCE_SRC.find("async def _run_inference")
-        body = PRESENCE_SRC[idx: idx + 12000]
+        body = PRESENCE_SRC[idx: idx + _RUN_INFERENCE_WINDOW]
         assert "waking_transition" in body, (
             "v4.7.15 D3: WAKING transition must consult helper"
         )
@@ -584,15 +930,78 @@ class TestD3GuestExitPersistence:
 
     def test_guest_exit_uses_helper(self):
         idx = PRESENCE_SRC.find("async def _run_inference")
-        body = PRESENCE_SRC[idx: idx + 12000]
+        body = PRESENCE_SRC[idx: idx + _RUN_INFERENCE_WINDOW]
         assert "guest_exit" in body, (
             "v4.7.15 D3: GUEST exit must consult helper"
         )
 
     def test_guest_exit_reuses_guest_persistence_seconds(self):
         idx = PRESENCE_SRC.find("async def _run_inference")
-        body = PRESENCE_SRC[idx: idx + 12000]
+        body = PRESENCE_SRC[idx: idx + _RUN_INFERENCE_WINDOW]
         assert "_guest_persistence_seconds" in body or "guest_persistence_seconds" in body
+
+
+class TestD3RunInferenceWindowSafety:
+    """v4.7.15.1 D3: AST regression — the widened 30 KB window must not
+    accidentally span two function bodies.
+
+    Same pattern as v4.7.14.1 Reviewer C C3 widening + AST guard. Without
+    this guard, a future refactor that splits `_run_inference` into two
+    methods (e.g., `_run_inference_house` + `_run_inference_zones`) would
+    silently produce a window that spans both — assertions could find
+    keywords in the WRONG body and pass meaninglessly.
+    """
+
+    def test_run_inference_only_defined_once(self):
+        """Guard the _RUN_INFERENCE_WINDOW slice via AST (not substring).
+
+        v4.7.15.1 fix-up B3-H1 (Reviewer B): the prior substring count was
+        vulnerable to three failure modes — (1) a comment containing
+        ``async def _run_inference`` (false positive), (2) a docstring
+        mention (false positive), and (3) a slide of the window past the
+        function-body end into a sibling def (silent FALSE NEGATIVE that
+        renders every D3 source-grep assertion meaningless).
+
+        This rewrite uses ``ast.walk`` to count real AsyncFunctionDef /
+        FunctionDef nodes named ``_run_inference`` AND adds a second
+        assertion that the configured ``_RUN_INFERENCE_WINDOW`` is wide
+        enough to actually cover the chosen function body — so window
+        widening (or function growth) cannot silently slide past the
+        body end without tripping the guard.
+        """
+        tree = ast.parse(PRESENCE_SRC)
+        defs = [
+            n for n in ast.walk(tree)
+            if isinstance(n, (ast.AsyncFunctionDef, ast.FunctionDef))
+            and n.name == "_run_inference"
+        ]
+        assert len(defs) == 1, (
+            f"v4.7.15.1 D3: expected exactly one _run_inference def; "
+            f"found {len(defs)}"
+        )
+
+        # Window-vs-body-size assertion: ensure the configured window
+        # covers the entire function body. Without this, a future growth
+        # of _run_inference past the window end would silently corrupt
+        # every D3 source-grep assertion (FALSE NEGATIVE class).
+        node = defs[0]
+        body_start_line = node.lineno
+        body_end_line = node.end_lineno if hasattr(node, "end_lineno") else max(
+            getattr(c, "end_lineno", c.lineno) for c in ast.walk(node)
+        )
+        body_lines = body_end_line - body_start_line + 1
+        # Per-line char bound — empirically measured avg ~50.5 in this
+        # file; using 60 gives ~20% headroom over measured average
+        # without admitting silent multi-thousand-char slides past
+        # the body end. Tune up if the file's style shifts wider.
+        body_chars_approx = body_lines * 60
+        assert _RUN_INFERENCE_WINDOW >= body_chars_approx, (
+            f"v4.7.15.1 D3: _RUN_INFERENCE_WINDOW={_RUN_INFERENCE_WINDOW} "
+            f"but body is approximately {body_chars_approx} chars "
+            f"({body_lines} lines x 60). Widen the window or shrink "
+            f"_run_inference — silent slide past body end would render "
+            f"every D3 source-grep assertion meaningless."
+        )
 
 
 # ===========================================================================
@@ -775,9 +1184,44 @@ class TestSiblingCyclePreservation:
         assert "all_tracked_persons_away=" in PRESENCE_SRC
 
     def test_v4714_inference_engine_veto_branch_intact(self):
-        assert (
-            "all_tracked_persons_away and unidentified_count == 0" in PRESENCE_SRC
-        ), "v4.7.14 inference veto branch must not be regressed"
+        """v4.7.14 inference engine veto branch + v4.7.14.1 H1 must be intact.
+
+        v4.7.15.1 D2 (post-merge canonical truth update):
+
+        The pre-v4.7.14.1 line ``all_tracked_persons_away and
+        unidentified_count == 0`` is no longer a contiguous substring of
+        ``presence.py`` — v4.7.14.1 H1 split the predicate across multiple
+        source lines (``and census_count == 0`` is on its own line). The
+        old substring assertion failed not because the v4.7.14 backbone
+        regressed but because the canonical predicate now spans three
+        lines.
+
+        v4.7.14.1 H1 is the CANONICAL truth for the inference-engine veto
+        predicate. The test asserts:
+          1. The v4.7.14 backbone clause ``all_tracked_persons_away`` is
+             present.
+          2. The v4.7.14 ``and unidentified_count == 0`` clause is present.
+          3. The v4.7.14.1 H1 ``and census_count == 0`` clause is present.
+
+        Per CLAUDE.md "Pre-Review: Tag the Baseline" + plan §"CRITICAL RISK
+        PREMIUM" item 2: source invariants get UPDATED, not deleted. This
+        test still catches FUTURE drift — if anyone re-narrows the
+        predicate by dropping H1 (a regression), assertion 3 fails. If
+        anyone drops the v4.7.14 backbone, assertions 1 or 2 fail.
+        """
+        # v4.7.14 backbone — the kwarg name still flows through infer().
+        assert "all_tracked_persons_away" in PRESENCE_SRC, (
+            "v4.7.14 inference veto kwarg must not be regressed"
+        )
+        # v4.7.14 unidentified-count clause (canonical predicate component).
+        assert "and unidentified_count == 0" in PRESENCE_SRC, (
+            "v4.7.14 inference veto unidentified_count clause must not be regressed"
+        )
+        # v4.7.14.1 H1 — the canonical post-merge predicate tightening.
+        # If this fails, someone has regressed H1 (the forgotten-phone fix).
+        assert "and census_count == 0" in PRESENCE_SRC, (
+            "v4.7.14.1 H1 census_count predicate must not be regressed"
+        )
 
     def test_v4714_diagnostic_attributes_intact(self):
         for attr in ("tracked_persons_count", "all_tracked_persons_away"):

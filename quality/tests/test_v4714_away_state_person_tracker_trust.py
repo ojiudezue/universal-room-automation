@@ -244,10 +244,15 @@ class TestD1AllTrackedPersonsAwayComputation:
         A-H1/A-M1/A-M3 added the entity_registry resolution helper + the
         excluded-persons capture loop (~1200 chars), pushing the distance
         further. Window widened 3500 -> 5000.
+
+        v4.7.15.1 D1: the per-person H2/H3 parallel-list signal capture
+        adds another ~600 chars between the person_coordinator lookup and
+        the all(...) reduction (Reviewer C C3 widening pattern). Window
+        widened 5000 -> 7000.
         """
         idx = PRESENCE_SRC.find("all_tracked_persons_away = all(")
         assert idx >= 0, "veto computation block not found"
-        block = PRESENCE_SRC[max(0, idx - 5000): idx + 200]
+        block = PRESENCE_SRC[max(0, idx - 7000): idx + 200]
         assert '"person_coordinator"' in block, (
             "v4.7.14 D1: must read hass.data[DOMAIN]['person_coordinator']"
         )
