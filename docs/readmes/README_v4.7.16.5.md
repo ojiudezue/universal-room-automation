@@ -38,3 +38,48 @@ HA error log: the platform warning should not reappear after the next restart.
 ## Tier
 
 1. 1 LoC production + 1 comment block + 2 tests. No DB / config-flow / migration / entity surface change.
+
+## Acceptance
+
+```yaml
+version: v4.7.16.5
+hypotheses:
+  - id: H1
+    name: energy_import_state_class_total
+    description: |
+      After install + HA restart, the sensor's state_class attribute
+      should be "total" (was "measurement" pre-hotfix). HA's deprecation
+      warning was the symptom; this is the cause check.
+    query:
+      kind: ha_state_attribute
+      entity: sensor.ura_energy_coordinator_energy_import_today
+      attribute: state_class
+    expected:
+      condition: "=="
+      value: "total"
+    window:
+      first_check_after: 1h
+      confirm_after: 24h
+      alert_if_violated_after: 72h
+
+  - id: H2
+    name: ha_platform_warning_absent_post_restart
+    description: |
+      After v4.7.16.5 install, HA's error_log should NOT contain
+      the "state class 'measurement' which is impossible considering
+      device class ('energy')" line for this sensor. Buffer rotation
+      may take time to clear pre-deploy entries; the window allows
+      that drift.
+    query:
+      kind: ha_log_count
+      source: error_log
+      search: "state class 'measurement' which is impossible considering device class ('energy')"
+      hours_back: 6
+    expected:
+      condition: "=="
+      value: 0
+    window:
+      first_check_after: 24h
+      confirm_after: 72h
+      alert_if_violated_after: 168h
+```
