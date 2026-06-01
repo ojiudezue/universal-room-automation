@@ -99,7 +99,7 @@ _ura_const.DOMAIN = "universal_room_automation"
 _ura_const.VERSION = "4.0.15"
 _ura_const.CONF_ENTRY_TYPE = "entry_type"
 _ura_const.CONF_ROOM_NAME = "room_name"
-# v4.7.x.x: bedroom gate for sleep-state occupied fan trust
+# v4.7.16.2: bedroom gate for sleep-state occupied fan trust
 _ura_const.CONF_ROOM_TYPE = "room_type"
 _ura_const.ROOM_TYPE_BEDROOM = "bedroom"
 _ura_const.ROOM_TYPE_GENERIC = "generic"

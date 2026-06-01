@@ -58,7 +58,7 @@ class TestPathA_HvacFans:
         body = hvac_fans_src[idx: idx + 3000]
         assert "and occupied" in body
         assert "room_fan.room_type == ROOM_TYPE_BEDROOM" in body, (
-            "v4.7.x.x: sleep+occupied trust must gate on ROOM_TYPE_BEDROOM "
+            "v4.7.16.2: sleep+occupied trust must gate on ROOM_TYPE_BEDROOM "
             "to prevent spurious presence in common areas from holding fans on"
         )
 
@@ -156,7 +156,7 @@ class TestPathB_AutomationEngine:
         assert "self.is_sleep_mode_active()" in body
         assert "and occupied" in body
         assert "and room_type == ROOM_TYPE_BEDROOM" in body, (
-            "v4.7.x.x: Path B sleep_occupied_hold must gate on ROOM_TYPE_BEDROOM "
+            "v4.7.16.2: Path B sleep_occupied_hold must gate on ROOM_TYPE_BEDROOM "
             "to prevent common-area fans from being held on mid-night"
         )
 

@@ -150,7 +150,7 @@ from .const import (
     DEFAULT_SHARED_SPACE_AUTO_OFF_HOUR,
     # v3.18.1: HVAC deconfliction
     CONF_ROOM_NAME,
-    # v4.7.x.x: bedroom gate for sleep-state occupied fan trust
+    # v4.7.16.2: bedroom gate for sleep-state occupied fan trust
     CONF_ROOM_TYPE,
     ROOM_TYPE_BEDROOM,
     ROOM_TYPE_GENERIC,

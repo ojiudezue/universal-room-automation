@@ -56,7 +56,7 @@ class RoomFanState:
 
     room_name: str
     zone_id: str
-    # v4.7.x.x: per-room CONF_ROOM_TYPE, used to gate the sleep-state
+    # v4.7.16.2: per-room CONF_ROOM_TYPE, used to gate the sleep-state
     # occupied fan trust to bedrooms only — prevents spurious presence
     # in common areas (kitchen, living room) from activating fans
     # mid-night. Defaults to ROOM_TYPE_GENERIC so unset rooms safely
