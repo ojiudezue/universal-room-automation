@@ -8028,7 +8028,13 @@ class EnergyImportTodaySensor(AggregationEntity, SensorEntity):
     _attr_has_entity_name = True
     _attr_icon = "mdi:transmission-tower-import"
     _attr_device_class = SensorDeviceClass.ENERGY
-    _attr_state_class = SensorStateClass.MEASUREMENT
+    # v4.7.16.5 hotfix: was MEASUREMENT which HA platform rejects for
+    # device_class=ENERGY. Use TOTAL (not TOTAL_INCREASING) because
+    # native_value can go NEGATIVE on export-heavy days (import_kwh -
+    # export_kwh). TOTAL allows decreases; TOTAL_INCREASING would log
+    # a different warning each time the value dipped. Matches the
+    # convention used by sibling net-energy sensors at lines 713, 773.
+    _attr_state_class = SensorStateClass.TOTAL
     _attr_native_unit_of_measurement = "kWh"
     _attr_suggested_display_precision = 2
 
