@@ -290,7 +290,7 @@ def test_v4511_conf_key_defined(hvac_const_src, conf_name):
 class TestConstants:
 
     def test_overshoot_gap_is_zero_post_hotfix(self, hvac_const_src):
-        """v4.7.x.x hotfix: gap reduced from 0.5°F to 0.0°F.
+        """v4.7.16.2 hotfix: gap reduced from 0.5°F to 0.0°F.
 
         Variable-speed Bryant modulates AT setpoint and rarely undershoots
         0.5°F, so the previous 0.5°F gap suppressed auto-nudge for the
@@ -432,11 +432,11 @@ class TestDetectionLogic:
     def test_check_ac_reset_uses_overshoot_gap(self, hvac_override_src):
         """Overshoot threshold is `current <= target_high - AC_NUDGE_OVERSHOOT_GAP`.
 
-        v4.7.x.x hotfix: gap value is now 0.0°F (was 0.5°F). Downstream
+        v4.7.16.2 hotfix: gap value is now 0.0°F (was 0.5°F). Downstream
         Gates 7/7b/8 (kwh_rate threshold + sustained samples + time-
         sustained) provide the substantive false-positive defense.
 
-        v4.7.x.x window widening: same precedent as `test_check_ac_reset_
+        v4.7.16.2 window widening: same precedent as `test_check_ac_reset_
         per_zone_threshold` below — Gate 6 inline comment expanded by
         the hotfix pushed the constant reference past the prior 6000-char
         boundary. Bumped to 9000 to match the sibling tests.

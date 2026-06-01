@@ -985,7 +985,7 @@ class OverrideArrester:
                     continue
 
             # Gate 6: overshoot — current at-or-below target setpoint.
-            # v4.7.x.x hotfix: gap reduced 0.5°F → 0.0°F. Variable-speed
+            # v4.7.16.2 hotfix: gap reduced 0.5°F → 0.0°F. Variable-speed
             # Bryant modulates AT setpoint and rarely undershoots 0.5°F,
             # so the previous gap suppressed auto-nudge for the exact
             # waste pattern this gate exists to catch (sustained kWh burn
