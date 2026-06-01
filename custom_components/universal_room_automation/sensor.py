@@ -3622,12 +3622,26 @@ class PresenceHouseStateSensor(AggregationEntity, SensorEntity):
             attrs["confidence"] = round(presence.confidence, 2)
             attrs["census_count"] = presence.census_count
             # v4.7.14: Person-tracker veto diagnostics. tracked_persons_count
-            # is the number of configured person.* trackers seen by
-            # person_coordinator; all_tracked_persons_away True means every
+            # is the RAW number of configured person.* trackers seen by
+            # person_coordinator (pre-v4.7.14.1 semantic preserved per
+            # fix-up A-M2). all_tracked_persons_away True means every TRUSTED
             # one is reporting away (drives the AWAY-state veto in
             # StateInferenceEngine.infer()).
+            #
+            # v4.7.14.1 fix-up A-M2: expose BOTH the raw count and the new
+            # post-H2/H3-filter trusted count, plus the exclusion-reason map.
+            # Without this dual exposure operators with 4 configured persons +
+            # 1 phone_left_behind would see `tracked_persons_count = 3` and
+            # misdiagnose person_coordinator dropout instead of the
+            # phone-left-behind diagnostic firing.
             attrs["tracked_persons_count"] = getattr(
                 presence, "_tracked_persons_count", 0
+            )
+            attrs["tracked_persons_count_trusted"] = getattr(
+                presence, "_tracked_persons_count_trusted", 0
+            )
+            attrs["excluded_persons"] = dict(
+                getattr(presence, "_excluded_persons", {}) or {}
             )
             attrs["all_tracked_persons_away"] = getattr(
                 presence, "_all_tracked_persons_away", False
