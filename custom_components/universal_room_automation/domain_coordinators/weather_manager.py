@@ -479,9 +479,19 @@ class WeatherProviderManager:
                 # window for DPM's relative_delta computation. Dedupe by
                 # date inside _record_daily_apparent_high — same date called
                 # twice in one day is a single ring entry.
+                #
+                # v4.7.17.2 fix-up A-H2: ring key uses UTC date, not local.
+                # Semantic: one canonical reading per UTC day. WPM's other
+                # datetimes (fetched_at, last_changed comparisons) are all
+                # UTC; mixing local-date keys with UTC timestamps created a
+                # DST/tz-boundary regression risk on the cycle's central
+                # correctness anchor. NOTE: this is INTENTIONALLY different
+                # from the DPM winter gate's dt_util.now() — winter is a
+                # calendar/operator-facing concept, this ring key is a
+                # canonical-day concept.
                 if apparent_high is not None:
                     await self._record_daily_apparent_high(
-                        dt_util.now().date().isoformat(), float(apparent_high),
+                        dt_util.utcnow().date().isoformat(), float(apparent_high),
                     )
             else:
                 self._cached_forecast = None
@@ -646,7 +656,10 @@ class WeatherProviderManager:
             return
         if not data or not isinstance(data, dict) or "ring" not in data:
             return
-        cutoff_date = dt_util.now().date() - timedelta(days=21)
+        # v4.7.17.2 fix-up A-H2: cutoff uses UTC to match the ring's UTC
+        # date keys (recorded via dt_util.utcnow().date() at the
+        # _record_daily_apparent_high call site).
+        cutoff_date = dt_util.utcnow().date() - timedelta(days=21)
         cleaned: list[tuple[str, float]] = []
         for entry in data["ring"]:
             try:
