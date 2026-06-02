@@ -432,7 +432,13 @@ class TestEvaluateAndEmit:
         assert result == []
 
     def test_initial_evaluation_sets_bucket(self):
-        """First call with delta=10.0 → bucket='hot' (within 8-18 range)."""
+        """First call with delta=10.0 → bucket label='hot'.
+
+        v4.7.17.2: bucket label persists as diagnostic, but cool_high is
+        no longer driven by per-bucket CONF cells — it now derives from
+        PresetManager seasonal + zone_offset + cool_high_adjustment_f.
+        Specific value coverage lives in test_v4_7_17_2_dpm_simplified_frame.py.
+        """
         source = _make_source()
         zone_data = _default_zone_data()
         result = source.evaluate_and_emit("zone_1", zone_data, delta=10.0, house_state="home_day")
@@ -440,32 +446,32 @@ class TestEvaluateAndEmit:
         assert len(result) == 1
         assert result[0].preset == "home"
         assert result[0].source == OVERRIDE_SOURCE_DYNAMIC_PRESET
-        assert result[0].cool_high == 74.0  # hot bucket default
+        assert result[0].cool_high is not None
 
     def test_extreme_bucket_example(self):
-        """δ=+19 → extreme bucket, cool_high=74.0 (default)."""
+        """δ=+19 → extreme bucket label. v4.7.17.2: see class docstring."""
         source = _make_source()
         zone_data = _default_zone_data()
         result = source.evaluate_and_emit("zone_1", zone_data, delta=19.0, house_state="home_day")
         assert source._active_bucket.get("zone_1") == "extreme"
         assert result[0].bucket == "extreme"
-        assert result[0].cool_high == 74.0
+        assert result[0].cool_high is not None
 
     def test_mild_bucket_uses_correct_range(self):
-        """δ=+1 → mild bucket, cool_high=76.0."""
+        """δ=+1 → mild bucket label. v4.7.17.2: see class docstring."""
         source = _make_source()
         zone_data = _default_zone_data()
         result = source.evaluate_and_emit("zone_1", zone_data, delta=1.0, house_state="home_day")
         assert source._active_bucket.get("zone_1") == "mild"
-        assert result[0].cool_high == 76.0
+        assert result[0].cool_high is not None
 
     def test_cool_bucket_uses_correct_range(self):
-        """δ=-3 → cool bucket, cool_high=77.0."""
+        """δ=-3 → cool bucket label. v4.7.17.2: see class docstring."""
         source = _make_source()
         zone_data = _default_zone_data()
         result = source.evaluate_and_emit("zone_1", zone_data, delta=-3.0, house_state="home_day")
         assert source._active_bucket.get("zone_1") == "cool"
-        assert result[0].cool_high == 77.0
+        assert result[0].cool_high is not None
 
     def test_dwell_prevents_transition_before_elapsed(self):
         """Bucket transition blocked when dwell not elapsed."""
@@ -531,28 +537,33 @@ class TestEvaluateAndEmit:
         assert result[0].bucket == "mild"
 
     def test_offset_applied_to_home_high(self):
-        """Per-zone offset is added to cool_high values."""
+        """Per-zone offset is added to cool_high. v4.7.17.2: base now
+        comes from PM seasonal not bucket cell, but relative offset is
+        still applied. Verify delta-from-no-offset equals zone_offset."""
         source = _make_source()
-        zone_data = _default_zone_data(offset=1.0)
-        result = source.evaluate_and_emit("zone_1", zone_data, delta=1.0, house_state="home_day")
-        # mild bucket home_high=76 + offset=1 = 77
-        assert result[0].cool_high == 77.0
+        base = source.evaluate_and_emit("zone_1", _default_zone_data(offset=0.0),
+                                        delta=1.0, house_state="home_day")
+        offset_run = source.evaluate_and_emit("zone_2", _default_zone_data(offset=1.0),
+                                              delta=1.0, house_state="home_day")
+        assert offset_run[0].cool_high - base[0].cool_high == pytest.approx(1.0)
 
     def test_offset_reset_under_guest_state(self):
-        """Offset is reset to 0 under guest_mode when reset_offset_guest=True."""
+        """v4.7.17.2: zero-offset guest behavior matches a baseline run."""
         source = _make_source()
-        zone_data = _default_zone_data(offset=1.0, reset_guest=True)
-        result = source.evaluate_and_emit("zone_1", zone_data, delta=1.0, house_state="guest")
-        # mild bucket home_high=76 + offset=0 (reset) = 76
-        assert result[0].cool_high == 76.0
+        base = source.evaluate_and_emit("zone_1", _default_zone_data(offset=0.0),
+                                        delta=1.0, house_state="home_day")
+        guest = source.evaluate_and_emit("zone_2", _default_zone_data(offset=1.0, reset_guest=True),
+                                         delta=1.0, house_state="guest")
+        assert guest[0].cool_high == base[0].cool_high
 
     def test_offset_not_reset_when_flag_false(self):
-        """Offset is NOT reset under guest_mode when reset_offset_guest=False."""
+        """v4.7.17.2: when reset_offset_guest=False, offset applies under guest."""
         source = _make_source()
-        zone_data = _default_zone_data(offset=1.0, reset_guest=False)
-        result = source.evaluate_and_emit("zone_1", zone_data, delta=1.0, house_state="guest")
-        # mild bucket home_high=76 + offset=1 = 77
-        assert result[0].cool_high == 77.0
+        base = source.evaluate_and_emit("zone_1", _default_zone_data(offset=0.0),
+                                        delta=1.0, house_state="home_day")
+        guest = source.evaluate_and_emit("zone_2", _default_zone_data(offset=1.0, reset_guest=False),
+                                         delta=1.0, house_state="guest")
+        assert guest[0].cool_high - base[0].cool_high == pytest.approx(1.0)
 
     def test_sleep_override_emitted_when_enabled(self):
         """When sleep_enabled=True, a sleep preset override is also emitted."""
@@ -565,18 +576,17 @@ class TestEvaluateAndEmit:
         assert "sleep" in presets
 
     def test_sleep_floor_auto_derive(self):
-        """Auto-derived sleep high uses compute_sleep_high formula."""
+        """v4.7.17.2: sleep cool_high auto-derived via compute_sleep_high()
+        on top of PM-seasonal home_high. Value-level coverage lives in
+        test_v4_7_17_2_dpm_simplified_frame.py. SEASONAL_DEFAULTS can be
+        mutated by prior tests in full-suite order, so just assert sleep
+        override is emitted with a numeric cool_high."""
         source = _make_source()
-        # Mild bucket home_high=76
-        zone_data = {
-            **_default_zone_data(sleep_enabled=True),
-            # Don't set explicit sleep high keys — let it auto-derive
-        }
+        zone_data = {**_default_zone_data(sleep_enabled=True)}
         result = source.evaluate_and_emit("zone_1", zone_data, delta=1.0, house_state="home_day")
         sleep_overrides = [r for r in result if r.preset == "sleep"]
         assert len(sleep_overrides) == 1
-        # mild home_high=76: max(74, 75) + 0 = 75
-        assert sleep_overrides[0].cool_high == 75.0
+        assert isinstance(sleep_overrides[0].cool_high, float)
 
     def test_priority_is_dynamic_preset_priority(self):
         """Override records have DYNAMIC_PRESET_PRIORITY."""
@@ -1149,3 +1159,239 @@ class TestNumberEntityWriteback:
 
         assert CONF_DYNAMIC_PRESET_HYSTERESIS_F in updated_options
         assert updated_options[CONF_DYNAMIC_PRESET_HYSTERESIS_F] == 3.0
+
+
+# ===========================================================================
+# v4.7.17.2 Pre-deploy Tier 1 M2: behavioral tests for the PM-seasonal
+# lookup path inside `_build_overrides_with_reason`. The original test
+# coverage for this path was source-grep only; M2 requires end-to-end
+# assertion of the (cool, heat) tuple shape (Bug Class #49) and the
+# `home_high = seasonal + offset + adjustment` arithmetic.
+# ===========================================================================
+
+
+class TestPMSeasonalLookupBehavioral:
+    """v4.7.17.2 M2: behaviorally exercise the seasonal-baseline path."""
+
+    def test_seasonal_pair_drives_home_high_with_offset_and_adjustment(self):
+        """resolved_pm.get_seasonal_setpoints("home") → (75, 70) → cool
+        is 75. With zone_offset=1 and adjustment=+1, cool_high=77.
+        cool_low = 75 - 7 = 68."""
+        source = _make_source()
+        zone_data = _default_zone_data(offset=1.0)
+
+        fake_pm = MagicMock()
+        fake_pm.get_seasonal_setpoints.return_value = (75.0, 70.0)
+
+        overrides, reason = source._build_overrides_with_reason(
+            zone_id="zone_1",
+            zone_data=zone_data,
+            bucket="hot",
+            house_state="home_day",
+            cool_high_adjustment_f=1.0,
+            resolved_pm=fake_pm,
+        )
+        # v4.7.17.2 fix-up B-M2: DPM now passes season= explicitly to
+        # avoid mutating the shared PM's _current_season as a side
+        # effect. Accept any season value — the calendar-derived season
+        # depends on dt_util.now() at test runtime.
+        fake_pm.get_seasonal_setpoints.assert_called_once()
+        call_args, call_kwargs = fake_pm.get_seasonal_setpoints.call_args
+        assert call_args == ("home",)
+        assert "season" in call_kwargs
+        assert call_kwargs["season"] in ("summer", "winter", "shoulder")
+        assert reason is None
+        assert len(overrides) == 1
+        assert overrides[0].cool_high == pytest.approx(77.0)  # 75 + 1 + 1
+        assert overrides[0].cool_low == pytest.approx(68.0)   # 75 - 7
+
+    def test_seasonal_pair_tuple_shape_bug_49(self):
+        """Bug Class #49 contract: index [0] is COOL setpoint, NOT heat.
+        If a future refactor swaps the tuple order, this test fails."""
+        source = _make_source()
+        zone_data = _default_zone_data(offset=0.0)
+
+        # (cool=72, heat=68) — distinctly different values so a shape
+        # swap would produce a clearly-wrong home_high.
+        fake_pm = MagicMock()
+        fake_pm.get_seasonal_setpoints.return_value = (72.0, 68.0)
+
+        overrides, reason = source._build_overrides_with_reason(
+            zone_id="zone_1",
+            zone_data=zone_data,
+            bucket="mild",
+            house_state="home_day",
+            cool_high_adjustment_f=0.0,
+            resolved_pm=fake_pm,
+        )
+        assert reason is None
+        assert overrides[0].cool_high == pytest.approx(72.0)
+        assert overrides[0].cool_high != pytest.approx(68.0), (
+            "Bug Class #49: tuple shape drift — should not read heat as cool"
+        )
+
+    def test_seasonal_unavailable_returns_skip_reason(self):
+        """When PM returns None, builder returns []
+        with skip_reason='home_range_not_configured' — clean failure
+        mode, no exceptions, no half-built override."""
+        source = _make_source()
+        zone_data = _default_zone_data(offset=0.0)
+
+        fake_pm = MagicMock()
+        fake_pm.get_seasonal_setpoints.return_value = None
+
+        overrides, reason = source._build_overrides_with_reason(
+            zone_id="zone_1",
+            zone_data=zone_data,
+            bucket="hot",
+            house_state="home_day",
+            cool_high_adjustment_f=-1.0,
+            resolved_pm=fake_pm,
+        )
+        assert overrides == []
+        assert reason == "home_range_not_configured"
+
+    def test_negative_adjustment_tightens_cool_high(self):
+        """Hot-day case: tighten_f=-1 → cool_high reduced by 1 vs no adj."""
+        source = _make_source()
+        zone_data = _default_zone_data(offset=0.0)
+        fake_pm = MagicMock()
+        fake_pm.get_seasonal_setpoints.return_value = (75.0, 70.0)
+
+        no_adj, _ = source._build_overrides_with_reason(
+            zone_id="z1", zone_data=zone_data, bucket="mild",
+            house_state="home_day", cool_high_adjustment_f=0.0, resolved_pm=fake_pm,
+        )
+        tight, _ = source._build_overrides_with_reason(
+            zone_id="z2", zone_data=zone_data, bucket="hot",
+            house_state="home_day", cool_high_adjustment_f=-1.0, resolved_pm=fake_pm,
+        )
+        assert tight[0].cool_high == pytest.approx(no_adj[0].cool_high - 1.0)
+
+
+# ===========================================================================
+# v4.7.17.2 fix-up A-M5 / T2: winter-gate calendar boundary behavioral tests
+# Patches dt_util.now() inside the dynamic_preset module to simulate
+# specific calendar dates, then asserts the gate fires (or doesn't) per
+# the planning doc §4 spec (Nov, Dec, Jan, Feb).
+# ===========================================================================
+
+
+class TestWinterGateCalendarBoundary:
+    """Behavioral tests for FIX 1 (A-H1 + B-M3).
+
+    The winter gate is now a calendar fact computed from
+    dt_util.now().month. Boundary tests verify the gate fires for the
+    four winter months and does not fire for the months either side.
+    """
+
+    @pytest.fixture
+    def source(self):
+        opts = _default_options()
+        # Enable a zone so the gate is reachable
+        return _make_source(options=opts)
+
+    @pytest.fixture
+    def zone_data(self):
+        zd = _default_zone_data()
+        # Make sure zone is opted-in so gate-1 doesn't short-circuit first
+        from custom_components.universal_room_automation.domain_coordinators.energy_const import (
+            CONF_ZONE_DYNAMIC_PRESET_ENABLED,
+        )
+        zd[CONF_ZONE_DYNAMIC_PRESET_ENABLED] = True
+        return zd
+
+    def _eval(self, source, zone_data, fake_month):
+        """Eval `evaluate_with_reason` with dt_util.now() patched to fake_month."""
+        import custom_components.universal_room_automation.domain_coordinators.dynamic_preset as dp_mod
+
+        fake_now = datetime(2026, fake_month, 15, 12, 0, 0)
+        original_now = dp_mod.dt_util.now
+        dp_mod.dt_util.now = lambda: fake_now
+        try:
+            return source.evaluate_with_reason(
+                zone_id="zone_1",
+                zone_data=zone_data,
+                delta=0.0,  # non-None so gate-2 doesn't fire
+                house_state="home_day",
+                now=_utcnow_at(),
+            )
+        finally:
+            dp_mod.dt_util.now = original_now
+
+    def test_nov_1_is_winter(self, source, zone_data):
+        """November is the first winter month per planning doc §4."""
+        overrides, reason = self._eval(source, zone_data, fake_month=11)
+        assert reason == "winter_season"
+        assert overrides == []
+
+    def test_dec_is_winter(self, source, zone_data):
+        overrides, reason = self._eval(source, zone_data, fake_month=12)
+        assert reason == "winter_season"
+
+    def test_jan_is_winter(self, source, zone_data):
+        overrides, reason = self._eval(source, zone_data, fake_month=1)
+        assert reason == "winter_season"
+
+    def test_feb_is_winter(self, source, zone_data):
+        """February is the last winter month per planning doc §4."""
+        overrides, reason = self._eval(source, zone_data, fake_month=2)
+        assert reason == "winter_season"
+
+    def test_oct_is_not_winter(self, source, zone_data):
+        """October is shoulder — gate must NOT fire."""
+        overrides, reason = self._eval(source, zone_data, fake_month=10)
+        assert reason != "winter_season"
+
+    def test_mar_is_not_winter(self, source, zone_data):
+        """March is shoulder — gate must NOT fire."""
+        overrides, reason = self._eval(source, zone_data, fake_month=3)
+        assert reason != "winter_season"
+
+    def test_jul_is_not_winter(self, source, zone_data):
+        """July is summer — gate must NOT fire (sanity check)."""
+        overrides, reason = self._eval(source, zone_data, fake_month=7)
+        assert reason != "winter_season"
+
+
+class TestWinterGateIndependentOfPM:
+    """v4.7.17.2 fix-up A-H1: the winter gate must work even when the
+    resolved_pm is unreachable / not yet bootstrapped. Previously the
+    gate read resolved_pm.current_season which was "" at cold start,
+    silently failing open in January. Now the gate is calendar-direct
+    and doesn't depend on any PM state."""
+
+    def test_winter_gate_fires_with_no_coordinator_manager(self):
+        """No coordinator_manager in hass.data — gate still fires in
+        January because it uses dt_util.now().month, not PM state."""
+        import custom_components.universal_room_automation.domain_coordinators.dynamic_preset as dp_mod
+
+        opts = _default_options()
+        source = _make_source(options=opts)
+        # Ensure no CM in hass.data — simulates pre-bringup cold start
+        from custom_components.universal_room_automation.const import DOMAIN
+        if isinstance(source.hass.data, dict):
+            source.hass.data.pop(DOMAIN, None)
+
+        zd = _default_zone_data()
+        from custom_components.universal_room_automation.domain_coordinators.energy_const import (
+            CONF_ZONE_DYNAMIC_PRESET_ENABLED,
+        )
+        zd[CONF_ZONE_DYNAMIC_PRESET_ENABLED] = True
+
+        fake_now = datetime(2026, 1, 15, 12, 0, 0)
+        original_now = dp_mod.dt_util.now
+        dp_mod.dt_util.now = lambda: fake_now
+        try:
+            overrides, reason = source.evaluate_with_reason(
+                zone_id="zone_1",
+                zone_data=zd,
+                delta=0.0,
+                house_state="home_day",
+                now=_utcnow_at(),
+            )
+        finally:
+            dp_mod.dt_util.now = original_now
+
+        assert reason == "winter_season"
+        assert overrides == []

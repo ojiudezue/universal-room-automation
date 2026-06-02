@@ -990,22 +990,20 @@
       },
       "hvac_dynamic_preset": {
         "title": "🌡️ Dynamic Preset Auto-Adjust",
-        "description": "House-wide Dynamic Preset settings. Enable or disable DPM globally; expand Advanced to tune bucket boundaries. Per-zone settings live under Zone Manager → [zone] → Dynamic Preset.",
+        "description": "When outside feels cooler than the last two weeks, DPM relaxes the upper end of Home and Sleep cool ranges (e.g. 70-75 → 70-76). When outside feels hotter, DPM tightens (70-74). Two knobs control how much. DPM is off in winter and stays off until 7 days of forecast data have been collected.",
         "data": {
-          "dynamic_preset_delta_cool_max": "Cool Bucket Max Delta",
-          "dynamic_preset_delta_mild_max": "Mild Bucket Max Delta",
-          "dynamic_preset_delta_hot_max": "Hot Bucket Max Delta",
-          "dynamic_preset_dwell_minutes": "Bucket Dwell Minutes",
-          "dynamic_preset_hysteresis_f": "Bucket Hysteresis (°F)",
-          "dynamic_preset_enabled": "Enable Dynamic Preset Auto-Adjust"
+          "dynamic_preset_enabled": "Enable Dynamic Preset Auto-Adjust",
+          "dpm_cool_day_relax_f": "Relax cool ceiling on cool-feeling days (°F)",
+          "dpm_hot_day_tighten_f": "Tighten cool ceiling on hot-feeling days (°F)",
+          "dynamic_preset_dwell_minutes": "Adjustment Dwell Minutes",
+          "dynamic_preset_hysteresis_f": "Adjustment Hysteresis (°F)"
         },
         "data_description": {
-          "dynamic_preset_delta_cool_max": "Maximum setpoint reduction (negative) when outdoor conditions are cool. Range: -10 to 0°F. Default: -2°F.",
-          "dynamic_preset_delta_mild_max": "Maximum setpoint increase when outdoor conditions are mild. Range: 0 to 15°F. Default: 8°F.",
-          "dynamic_preset_delta_hot_max": "Maximum setpoint increase when outdoor conditions are hot. Range: 10 to 30°F. Default: 18°F.",
-          "dynamic_preset_dwell_minutes": "Minutes a bucket condition must persist before adjustments apply. Prevents rapid cycling. Range: 15-240 min. Default: 60.",
-          "dynamic_preset_hysteresis_f": "Temperature band around bucket boundary before switching buckets. Prevents flapping at thresholds. Range: 0.5-5.0°F. Default: 2.0.",
-          "dynamic_preset_enabled": "Master toggle for the Dynamic Preset feature. When off, all zones fall back to the seasonal baseline setpoints."
+          "dynamic_preset_enabled": "Master toggle for the Dynamic Preset feature. When off, all zones fall back to the seasonal baseline setpoints.",
+          "dpm_cool_day_relax_f": "How many °F to raise the Home/Sleep cool ceiling on days the forecast feels cooler than the last 2 weeks. 0 = off. Default 1°F (e.g., 70-75 becomes 70-76).",
+          "dpm_hot_day_tighten_f": "How many °F to lower the Home/Sleep cool ceiling on days the forecast feels hotter than the last 2 weeks. 0 = off. Default 1°F (e.g., 70-75 becomes 70-74).",
+          "dynamic_preset_dwell_minutes": "Minutes a cool/hot/typical-day condition must persist before adjustments apply. Prevents rapid cycling. Range: 15-240 min. Default: 60.",
+          "dynamic_preset_hysteresis_f": "Temperature band around the adjustment threshold before switching states. Prevents flapping. Range: 0.5-5.0°F. Default: 2.0."
         },
         "sections": {
           "advanced": "Advanced (rarely change)"
