@@ -1626,10 +1626,6 @@
       "derived_entity_missing": "Auto-derived Envoy entity not found in Home Assistant — serial may be wrong, or the Enphase integration is partial.",
       "envoy_derived_missing": "One or more critical Envoy-derived entities are missing. Check that the Enphase integration is fully set up for this Envoy serial.",
       "cover_temp_hysteresis_too_small": "Cover Open Temp must be at least 3°F below Cover Close Temp to prevent solar-gain flapping. Adjust either value and try again.",
-      "dynamic_preset_bucket_required_cool": "Cool bucket values are required when Dynamic Preset is enabled. Fill in both cool_low and cool_high for the cool bucket.",
-      "dynamic_preset_bucket_required_mild": "Mild bucket values are required when Dynamic Preset is enabled. Fill in both cool_low and cool_high for the mild bucket.",
-      "dynamic_preset_bucket_required_hot": "Hot bucket values are required when Dynamic Preset is enabled. Fill in both cool_low and cool_high for the hot bucket.",
-      "dynamic_preset_bucket_required_extreme": "Extreme bucket values are required when Dynamic Preset is enabled. Fill in both cool_low and cool_high for the extreme bucket.",
       "dynamic_preset_range_invalid": "Cool low must be at least 2°F below cool high for each bucket (minimum deadband). Adjust the range and try again.",
       "dynamic_preset_sleep_below_floor": "Sleep cool high would fall below the 74°F floor after applying the zone offset. Raise the sleep cool high value or reduce the offset.",
       "baseline_preset_invalid_deadband": "Each season/preset row's Cool High must be at least 3°F above its Heat Low. Adjust the values and try again."
