@@ -1191,7 +1191,15 @@ class TestPMSeasonalLookupBehavioral:
             cool_high_adjustment_f=1.0,
             resolved_pm=fake_pm,
         )
-        fake_pm.get_seasonal_setpoints.assert_called_once_with("home")
+        # v4.7.17.2 fix-up B-M2: DPM now passes season= explicitly to
+        # avoid mutating the shared PM's _current_season as a side
+        # effect. Accept any season value — the calendar-derived season
+        # depends on dt_util.now() at test runtime.
+        fake_pm.get_seasonal_setpoints.assert_called_once()
+        call_args, call_kwargs = fake_pm.get_seasonal_setpoints.call_args
+        assert call_args == ("home",)
+        assert "season" in call_kwargs
+        assert call_kwargs["season"] in ("summer", "winter", "shoulder")
         assert reason is None
         assert len(overrides) == 1
         assert overrides[0].cool_high == pytest.approx(77.0)  # 75 + 1 + 1
@@ -1259,3 +1267,131 @@ class TestPMSeasonalLookupBehavioral:
             house_state="home_day", cool_high_adjustment_f=-1.0, resolved_pm=fake_pm,
         )
         assert tight[0].cool_high == pytest.approx(no_adj[0].cool_high - 1.0)
+
+
+# ===========================================================================
+# v4.7.17.2 fix-up A-M5 / T2: winter-gate calendar boundary behavioral tests
+# Patches dt_util.now() inside the dynamic_preset module to simulate
+# specific calendar dates, then asserts the gate fires (or doesn't) per
+# the planning doc §4 spec (Nov, Dec, Jan, Feb).
+# ===========================================================================
+
+
+class TestWinterGateCalendarBoundary:
+    """Behavioral tests for FIX 1 (A-H1 + B-M3).
+
+    The winter gate is now a calendar fact computed from
+    dt_util.now().month. Boundary tests verify the gate fires for the
+    four winter months and does not fire for the months either side.
+    """
+
+    @pytest.fixture
+    def source(self):
+        opts = _default_options()
+        # Enable a zone so the gate is reachable
+        return _make_source(options=opts)
+
+    @pytest.fixture
+    def zone_data(self):
+        zd = _default_zone_data()
+        # Make sure zone is opted-in so gate-1 doesn't short-circuit first
+        from custom_components.universal_room_automation.domain_coordinators.energy_const import (
+            CONF_ZONE_DYNAMIC_PRESET_ENABLED,
+        )
+        zd[CONF_ZONE_DYNAMIC_PRESET_ENABLED] = True
+        return zd
+
+    def _eval(self, source, zone_data, fake_month):
+        """Eval `evaluate_with_reason` with dt_util.now() patched to fake_month."""
+        import custom_components.universal_room_automation.domain_coordinators.dynamic_preset as dp_mod
+
+        fake_now = datetime(2026, fake_month, 15, 12, 0, 0)
+        original_now = dp_mod.dt_util.now
+        dp_mod.dt_util.now = lambda: fake_now
+        try:
+            return source.evaluate_with_reason(
+                zone_id="zone_1",
+                zone_data=zone_data,
+                delta=0.0,  # non-None so gate-2 doesn't fire
+                house_state="home_day",
+                now=_utcnow_at(),
+            )
+        finally:
+            dp_mod.dt_util.now = original_now
+
+    def test_nov_1_is_winter(self, source, zone_data):
+        """November is the first winter month per planning doc §4."""
+        overrides, reason = self._eval(source, zone_data, fake_month=11)
+        assert reason == "winter_season"
+        assert overrides == []
+
+    def test_dec_is_winter(self, source, zone_data):
+        overrides, reason = self._eval(source, zone_data, fake_month=12)
+        assert reason == "winter_season"
+
+    def test_jan_is_winter(self, source, zone_data):
+        overrides, reason = self._eval(source, zone_data, fake_month=1)
+        assert reason == "winter_season"
+
+    def test_feb_is_winter(self, source, zone_data):
+        """February is the last winter month per planning doc §4."""
+        overrides, reason = self._eval(source, zone_data, fake_month=2)
+        assert reason == "winter_season"
+
+    def test_oct_is_not_winter(self, source, zone_data):
+        """October is shoulder — gate must NOT fire."""
+        overrides, reason = self._eval(source, zone_data, fake_month=10)
+        assert reason != "winter_season"
+
+    def test_mar_is_not_winter(self, source, zone_data):
+        """March is shoulder — gate must NOT fire."""
+        overrides, reason = self._eval(source, zone_data, fake_month=3)
+        assert reason != "winter_season"
+
+    def test_jul_is_not_winter(self, source, zone_data):
+        """July is summer — gate must NOT fire (sanity check)."""
+        overrides, reason = self._eval(source, zone_data, fake_month=7)
+        assert reason != "winter_season"
+
+
+class TestWinterGateIndependentOfPM:
+    """v4.7.17.2 fix-up A-H1: the winter gate must work even when the
+    resolved_pm is unreachable / not yet bootstrapped. Previously the
+    gate read resolved_pm.current_season which was "" at cold start,
+    silently failing open in January. Now the gate is calendar-direct
+    and doesn't depend on any PM state."""
+
+    def test_winter_gate_fires_with_no_coordinator_manager(self):
+        """No coordinator_manager in hass.data — gate still fires in
+        January because it uses dt_util.now().month, not PM state."""
+        import custom_components.universal_room_automation.domain_coordinators.dynamic_preset as dp_mod
+
+        opts = _default_options()
+        source = _make_source(options=opts)
+        # Ensure no CM in hass.data — simulates pre-bringup cold start
+        from custom_components.universal_room_automation.const import DOMAIN
+        if isinstance(source.hass.data, dict):
+            source.hass.data.pop(DOMAIN, None)
+
+        zd = _default_zone_data()
+        from custom_components.universal_room_automation.domain_coordinators.energy_const import (
+            CONF_ZONE_DYNAMIC_PRESET_ENABLED,
+        )
+        zd[CONF_ZONE_DYNAMIC_PRESET_ENABLED] = True
+
+        fake_now = datetime(2026, 1, 15, 12, 0, 0)
+        original_now = dp_mod.dt_util.now
+        dp_mod.dt_util.now = lambda: fake_now
+        try:
+            overrides, reason = source.evaluate_with_reason(
+                zone_id="zone_1",
+                zone_data=zd,
+                delta=0.0,
+                house_state="home_day",
+                now=_utcnow_at(),
+            )
+        finally:
+            dp_mod.dt_util.now = original_now
+
+        assert reason == "winter_season"
+        assert overrides == []

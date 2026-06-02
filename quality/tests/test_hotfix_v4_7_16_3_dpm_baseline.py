@@ -157,6 +157,33 @@ class TestTupleShapeAgreement:
             src = f.read()
         assert "{season: {preset: (cool, heat)}}" in src
 
+    def test_v4_7_17_2_new_call_site_indexes_cool_at_zero(self):
+        """v4.7.17.2 fix-up A-M2: lock the tuple shape for the new DPM
+        call site in `_build_overrides_with_reason`. The cycle added a
+        fresh `get_seasonal_setpoints` consumer at dynamic_preset.py
+        (`_season_pair = _pm.get_seasonal_setpoints(...)`) and indexes
+        `_season_pair[0]` as the cool setpoint. Bug Class #49 requires
+        a parallel test that fails if the tuple order regresses.
+
+        This test guards two things:
+          1. The new caller uses `[0]` (cool), not `[1]` (heat).
+          2. The canonical-contract comment is present in the new caller
+             so a future reader understands why `[0]` is correct.
+        """
+        with open(
+            "custom_components/universal_room_automation/"
+            "domain_coordinators/dynamic_preset.py"
+        ) as f:
+            src = f.read()
+        idx = src.find("def _build_overrides_with_reason")
+        assert idx > 0
+        body = src[idx: idx + 8000]
+        # The new call site indexes [0] for cool — not [1].
+        assert "_season_pair[0]" in body
+        assert "_season_pair[1]" not in body
+        # Canonical-contract comment from Bug Class #49 fix pattern
+        assert "(cool_setpoint, heat_setpoint)" in body
+
 
 class TestPublicCallerContractV4_7_17_2:
     """v4.7.17.2: `baseline_delta_for_zone(zone_id, preset)` remains

@@ -289,7 +289,10 @@ class TestEvaluateWiring:
     def test_adjustment_applied_to_effective_home_high(self, dynamic_preset_src):
         """The adjustment must layer ON TOP of zone offset for cool_high."""
         idx = dynamic_preset_src.find("def _build_overrides_with_reason")
-        body = dynamic_preset_src[idx: idx + 4000]
+        # v4.7.17.2 fix-up B-M2 added a calendar-season derivation block
+        # ahead of the home_high arithmetic, pushing the line past the
+        # original 4000-char window. Widen to 6000.
+        body = dynamic_preset_src[idx: idx + 6000]
         # effective_home_high = float(home_high) + zone_offset + cool_high_adjustment_f
         assert (
             "effective_home_high = float(home_high) + zone_offset + cool_high_adjustment_f"
@@ -429,3 +432,100 @@ class TestMigrationSafety:
         """classify_bucket() retained for diagnostic bucket label —
         even though the bucket no longer drives override values."""
         assert "classify_bucket(" in dynamic_preset_src
+
+
+# ===========================================================================
+# Fix-up T3 (A-H2 follow-up) — UTC date key for rolling ring
+# ===========================================================================
+
+
+class TestRollingRingUtcDateKey:
+    """v4.7.17.2 fix-up A-H2: ring date key uses dt_util.utcnow().date(),
+    NOT dt_util.now().date(). Mixing local-date keys with UTC-based
+    timestamps elsewhere in WPM created a DST / tz-boundary regression
+    risk on the cycle's central correctness anchor."""
+
+    def test_record_site_uses_utc_date_key(self, weather_manager_src):
+        """The record-site (inside _refresh_all_providers_locked) keys
+        the ring entry by UTC date so a forecast crossing local-midnight
+        but not UTC-midnight does not double-key."""
+        # Find the _record_daily_apparent_high call site
+        idx = weather_manager_src.find("await self._record_daily_apparent_high(")
+        assert idx > 0
+        # The argument MUST be dt_util.utcnow().date().isoformat()
+        call_body = weather_manager_src[idx: idx + 300]
+        assert "dt_util.utcnow().date().isoformat()" in call_body, (
+            "v4.7.17.2 fix-up A-H2: ring key must use UTC date, not local"
+        )
+        # And the old local-date key must be gone from this site
+        assert "dt_util.now().date().isoformat()" not in call_body
+
+    def test_hydrate_cutoff_uses_utc_date(self, weather_manager_src):
+        """The 21-day staleness cutoff in _hydrate_rolling_window_from_store
+        must also use UTC so it compares apples-to-apples with the recorded
+        UTC date keys."""
+        idx = weather_manager_src.find("async def _hydrate_rolling_window_from_store")
+        body = weather_manager_src[idx: idx + 3000]
+        assert "dt_util.utcnow().date()" in body, (
+            "fix-up A-H2: hydrate cutoff must use UTC to match recorded ring keys"
+        )
+        # Old local-date cutoff line must be gone from this body
+        assert "dt_util.now().date() - timedelta(days=21)" not in body
+
+
+# ===========================================================================
+# Fix-up T4 (B-H2 follow-up) — DPM_SKIP_REASONS taxonomy completeness
+# ===========================================================================
+
+
+class TestSkipReasonsTaxonomyCompleteness:
+    """v4.7.17.2 fix-up B-H2: DPM_SKIP_REASONS in energy_const.py is the
+    single source of truth for the skip-reason taxonomy. This test
+    scans dynamic_preset.py for every literal skip-reason string
+    returned by evaluate_with_reason / _build_overrides_with_reason
+    and asserts the set equals DPM_SKIP_REASONS. Drift between producer
+    and the canonical set is caught at test time, not in production."""
+
+    def test_dpm_skip_reasons_defined_in_energy_const(self, energy_const_src):
+        """The canonical frozenset must be defined and typed Final."""
+        assert "DPM_SKIP_REASONS: Final[frozenset[str]]" in energy_const_src
+        # winter_season must be a member (regression guard for v4.7.17.2)
+        assert '"winter_season"' in energy_const_src
+
+    def test_producer_returns_match_canonical_set(self, dynamic_preset_src):
+        """Every `return [], "<reason>"` (or `return overrides, "<reason>"`)
+        in dynamic_preset.py must yield a reason that is a member of
+        DPM_SKIP_REASONS. Drift here means a new reason was added in
+        the producer without updating the canonical set."""
+        import re
+
+        # Find `return <overrides_or_[]>, "<reason>"` tuple-returns in
+        # evaluate_with_reason / _build_overrides_with_reason. The producer
+        # only returns reasons via two forms:
+        #   return [], "<reason>"
+        #   return overrides, "<reason>"
+        # Tighten to those two specifically so we don't capture dict-key
+        # commas inside multiline `return {...}` blocks (e.g.,
+        # get_zone_state's "last_transition_iso": ... is not a reason).
+        pattern = re.compile(r'return\s+(?:\[\]|overrides),\s+"([a-z_]+)"')
+        producer_reasons = set(pattern.findall(dynamic_preset_src))
+
+        # Import the canonical set
+        from custom_components.universal_room_automation.domain_coordinators.energy_const import (
+            DPM_SKIP_REASONS,
+        )
+
+        # Every producer reason must be a canonical reason.
+        missing = producer_reasons - DPM_SKIP_REASONS
+        assert not missing, (
+            f"Producer returns reasons not in DPM_SKIP_REASONS: {missing}. "
+            f"Either add them to the canonical frozenset in energy_const.py "
+            f"or fix the producer."
+        )
+
+    def test_winter_season_in_canonical_set(self):
+        """v4.7.17.2 added winter_season — must be in DPM_SKIP_REASONS."""
+        from custom_components.universal_room_automation.domain_coordinators.energy_const import (
+            DPM_SKIP_REASONS,
+        )
+        assert "winter_season" in DPM_SKIP_REASONS
