@@ -4083,6 +4083,10 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             CONF_DPM_HOT_DAY_TIGHTEN_F,
             DEFAULT_DPM_COOL_DAY_RELAX_F,
             DEFAULT_DPM_HOT_DAY_TIGHTEN_F,
+            # v4.7.18 D4: heat-wave relax-ceiling mode dropdown
+            CONF_DPM_RELAX_CEILING_MODE,
+            DEFAULT_DPM_RELAX_CEILING_MODE,
+            DPM_RELAX_CEILING_MODES,
         )
 
         if user_input is not None:
@@ -4090,6 +4094,16 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             # block dropped (no cross-field check needed when there are no
             # boundary fields). New knobs are independent.
             _adv = user_input.get("advanced", user_input)
+
+            # v4.7.18 D4: validate dropdown value server-side (HA SelectSelector
+            # validates only on the FE — guard against direct API edits).
+            _raw_mode = user_input.get(
+                CONF_DPM_RELAX_CEILING_MODE, DEFAULT_DPM_RELAX_CEILING_MODE,
+            )
+            ceiling_mode = (
+                _raw_mode if _raw_mode in DPM_RELAX_CEILING_MODES
+                else DEFAULT_DPM_RELAX_CEILING_MODE
+            )
 
             # Store house-wide CONFs in CM entry options.
             cm_update = {
@@ -4109,6 +4123,8 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                         DEFAULT_DPM_HOT_DAY_TIGHTEN_F,
                     )
                 ),
+                # v4.7.18 D4: relax-ceiling mode (Skip relax on hot days).
+                CONF_DPM_RELAX_CEILING_MODE: ceiling_mode,
                 CONF_DYNAMIC_PRESET_DWELL_MINUTES: int(
                     _adv.get(CONF_DYNAMIC_PRESET_DWELL_MINUTES,
                              user_input.get(CONF_DYNAMIC_PRESET_DWELL_MINUTES, 60))
@@ -4120,10 +4136,11 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             }
             _LOGGER.info(
                 "DPM Surface 1 saved house-wide settings (enabled=%s, "
-                "relax_f=%.1f, tighten_f=%.1f)",
+                "relax_f=%.1f, tighten_f=%.1f, relax_ceiling_mode=%s)",
                 cm_update[CONF_DYNAMIC_PRESET_ENABLED],
                 cm_update[CONF_DPM_COOL_DAY_RELAX_F],
                 cm_update[CONF_DPM_HOT_DAY_TIGHTEN_F],
+                cm_update[CONF_DPM_RELAX_CEILING_MODE],
             )
             self.hass.config_entries.async_update_entry(
                 self._config_entry,
@@ -4142,8 +4159,8 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
 
         v4.7.4 D1: House-wide only — NO per-zone fields.
         v4.7.4 D2: 5 tunables wrapped in collapsed "Advanced (rarely change)" section.
-        Total visible fields on first render: 1 (master enable toggle).
-        On expand: 5 tuning knobs (bucket boundaries + dwell + hysteresis).
+        v4.7.18 D4: New `relax_ceiling_mode` dropdown ("Skip relax on hot days") —
+            5 options: auto / conservative_85 / moderate_90 / aggressive_95 / off.
         """
         import voluptuous as vol
         from homeassistant.data_entry_flow import section
@@ -4156,6 +4173,15 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             CONF_DPM_HOT_DAY_TIGHTEN_F,
             DEFAULT_DPM_COOL_DAY_RELAX_F,
             DEFAULT_DPM_HOT_DAY_TIGHTEN_F,
+            # v4.7.18 D4: heat-wave relax-ceiling mode dropdown
+            CONF_DPM_RELAX_CEILING_MODE,
+            DEFAULT_DPM_RELAX_CEILING_MODE,
+            DPM_RELAX_CEILING_MODE_AUTO,
+            DPM_RELAX_CEILING_MODE_CONSERVATIVE_85,
+            DPM_RELAX_CEILING_MODE_MODERATE_90,
+            DPM_RELAX_CEILING_MODE_AGGRESSIVE_95,
+            DPM_RELAX_CEILING_MODE_OFF,
+            DPM_RELAX_CEILING_MODES,
         )
 
         def _f_cm(key, default):
@@ -4172,12 +4198,43 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 v = self._config_entry.options.get(key)
             return bool(v) if v is not None else default
 
+        def _s_cm(key, default):
+            """v4.7.18 D4: string-typed fetch for the relax_ceiling_mode dropdown."""
+            if current_data and key in current_data:
+                v = current_data[key]
+            else:
+                v = self._config_entry.options.get(key)
+            return str(v) if v is not None else default
+
+        # v4.7.18 D4: relax-ceiling mode dropdown options. Labels match
+        # the operator-approved strings in §3 of the planning doc; UI
+        # text comes from strings.json. The 5-option list is the
+        # authoritative source — DPM_RELAX_CEILING_MODES tuple in
+        # energy_const.py mirrors this. Default `auto` (recommended).
+        _ceiling_mode_options = [
+            {"label": "Auto (recommended)", "value": DPM_RELAX_CEILING_MODE_AUTO},
+            {"label": "Conservative — skip above 85°F", "value": DPM_RELAX_CEILING_MODE_CONSERVATIVE_85},
+            {"label": "Moderate — skip above 90°F", "value": DPM_RELAX_CEILING_MODE_MODERATE_90},
+            {"label": "Aggressive — skip above 95°F", "value": DPM_RELAX_CEILING_MODE_AGGRESSIVE_95},
+            {"label": "Off — no ceiling", "value": DPM_RELAX_CEILING_MODE_OFF},
+        ]
+        # Defensive: if entry.options holds a non-matching string (manual
+        # edit / future migration drift), surface the default instead of
+        # letting the dropdown's FE validator reject the render.
+        _current_mode = _s_cm(
+            CONF_DPM_RELAX_CEILING_MODE, DEFAULT_DPM_RELAX_CEILING_MODE,
+        )
+        if _current_mode not in DPM_RELAX_CEILING_MODES:
+            _current_mode = DEFAULT_DPM_RELAX_CEILING_MODE
+
         # v4.7.17.2: Surface 1 now shows 3 visible fields by default
         # (master toggle + relax + tighten); Advanced collapsed section
         # holds {dwell, hysteresis} only. Bucket-boundary CONFs removed
         # from form per operator framing ("internal mechanics MUST NOT
         # be exposed as control knobs"); they remain in const for the
         # diagnostic classify_bucket() bucket-label sensor.
+        # v4.7.18 D4 adds the `relax_ceiling_mode` dropdown adjacent to
+        # the existing relax/tighten knobs (visible-by-default).
         return vol.Schema({
             vol.Optional(
                 CONF_DYNAMIC_PRESET_ENABLED,
@@ -4191,6 +4248,16 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 CONF_DPM_HOT_DAY_TIGHTEN_F,
                 default=_f_cm(CONF_DPM_HOT_DAY_TIGHTEN_F, DEFAULT_DPM_HOT_DAY_TIGHTEN_F),
             ): vol.All(vol.Coerce(float), vol.Range(min=0.0, max=3.0)),
+            # v4.7.18 D4: "Skip relax on hot days" — named-bucket dropdown.
+            vol.Optional(
+                CONF_DPM_RELAX_CEILING_MODE,
+                default=_current_mode,
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=_ceiling_mode_options,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                )
+            ),
             # v4.7.4 D2: "Advanced (rarely change)" section — collapsed by default.
             # v4.7.17.2: only dwell + hysteresis remain here.
             vol.Optional("advanced"): section(

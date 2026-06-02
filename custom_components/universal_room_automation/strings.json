@@ -995,6 +995,7 @@
           "dynamic_preset_enabled": "Enable Dynamic Preset Auto-Adjust",
           "dpm_cool_day_relax_f": "Relax cool ceiling on cool-feeling days (°F)",
           "dpm_hot_day_tighten_f": "Tighten cool ceiling on hot-feeling days (°F)",
+          "dpm_relax_ceiling_mode": "Skip relax on hot days",
           "dynamic_preset_dwell_minutes": "Adjustment Dwell Minutes",
           "dynamic_preset_hysteresis_f": "Adjustment Hysteresis (°F)"
         },
@@ -1002,6 +1003,7 @@
           "dynamic_preset_enabled": "Master toggle for the Dynamic Preset feature. When off, all zones fall back to the seasonal baseline setpoints.",
           "dpm_cool_day_relax_f": "How many °F to raise the Home/Sleep cool ceiling on days the forecast feels cooler than the last 2 weeks. 0 = off. Default 1°F (e.g., 70-75 becomes 70-76).",
           "dpm_hot_day_tighten_f": "How many °F to lower the Home/Sleep cool ceiling on days the forecast feels hotter than the last 2 weeks. 0 = off. Default 1°F (e.g., 70-75 becomes 70-74).",
+          "dpm_relax_ceiling_mode": "When the forecast is above this temperature, the system won't widen cool ranges even if today is cooler than recent days. Auto picks a sensible value for your climate.",
           "dynamic_preset_dwell_minutes": "Minutes a cool/hot/typical-day condition must persist before adjustments apply. Prevents rapid cycling. Range: 15-240 min. Default: 60.",
           "dynamic_preset_hysteresis_f": "Temperature band around the adjustment threshold before switching states. Prevents flapping. Range: 0.5-5.0°F. Default: 2.0."
         },
