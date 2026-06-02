@@ -78,6 +78,12 @@ from .energy_const import (
     DEFAULT_DYNAMIC_PRESET_DELTA_MILD_MAX,
     DEFAULT_DYNAMIC_PRESET_DWELL_MINUTES,
     DEFAULT_DYNAMIC_PRESET_HYSTERESIS_F,
+    # v4.7.17.2: new operator-facing knobs + internal deadzone
+    CONF_DPM_COOL_DAY_RELAX_F,
+    CONF_DPM_HOT_DAY_TIGHTEN_F,
+    DEFAULT_DPM_COOL_DAY_RELAX_F,
+    DEFAULT_DPM_HOT_DAY_TIGHTEN_F,
+    DPM_RELATIVE_DELTA_DEADZONE_F,
     DYNAMIC_PRESET_PRIORITY,
 )
 from .preset_overrides import (
@@ -89,6 +95,32 @@ _LOGGER = logging.getLogger(__name__)
 
 # Sleep floor: sleep_high = max(SLEEP_FLOOR, home_high - 1) + offset
 SLEEP_FLOOR_F: float = 74.0
+
+
+def _compute_cool_high_adjustment(
+    relative_delta: float,
+    relax_f: float,
+    tighten_f: float,
+) -> float:
+    """v4.7.17.2: Compute the °F adjustment to apply to cool_high values.
+
+    Per planning doc §3:
+      relative_delta <= -DEADZONE -> cool day -> +relax_f
+      -DEADZONE < relative_delta < +DEADZONE -> typical -> 0.0
+      relative_delta >= +DEADZONE -> hot day -> -tighten_f
+
+    relative_delta = (today_apparent_high - 14d_rolling_median_apparent_high).
+    Positive = hotter than usual locally; negative = cooler than usual locally.
+
+    Returns signed °F to add to cool_high. Operator's two knobs are
+    asymmetric — a non-zero relax_f with relax_f=0 means cool days relax
+    but hot days don't tighten, and vice versa.
+    """
+    if relative_delta <= -DPM_RELATIVE_DELTA_DEADZONE_F:
+        return float(relax_f)
+    if relative_delta >= DPM_RELATIVE_DELTA_DEADZONE_F:
+        return -float(tighten_f)
+    return 0.0
 
 
 class BucketClass(StrEnum):
@@ -378,18 +410,57 @@ class DynamicPresetOverrideSource:
         if not zone_data.get(CONF_ZONE_DYNAMIC_PRESET_ENABLED, False):
             return [], "gate_disabled"
 
-        # --- Gate 2: WPM has forecast
+        # --- v4.7.17.2: resolve the coordinator-owned PresetManager ONCE.
+        # Used by (a) winter-gate short-circuit and (b) seasonal baseline
+        # lookup in `_build_overrides_with_reason`. Pre-deploy Tier 1 H1:
+        # do NOT construct a fresh `PresetManager(self.hass)` per tick —
+        # that loses `_current_season` continuity and bypasses any CM
+        # override caching the resolved PM holds.
+        resolved_pm = None
+        try:
+            from ..const import DOMAIN
+            from .hvac_const import SEASON_WINTER
+            _cm = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+            if _cm is not None:
+                _hvac = _cm.coordinators.get("hvac")
+                if _hvac is not None:
+                    resolved_pm = getattr(_hvac, "_preset_manager", None)
+                    if resolved_pm is not None:
+                        _season = getattr(resolved_pm, "current_season", "")
+                        if _season == SEASON_WINTER:
+                            return [], "winter_season"
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "DynamicPreset zone=%s: winter-gate probe errored — proceeding (fail-open)",
+                zone_id, exc_info=True,
+            )
+
+        # --- Gate 2: WPM has forecast / ring populated (v4.7.17.2: delta
+        # is now relative_delta = forecast_apparent_high - 14d rolling median,
+        # not the v4.7.16.4 forecast-vs-cool-target semantic).
         if delta is None:
-            _LOGGER.debug("DynamicPreset zone=%s: no forecast delta — skipping", zone_id)
+            _LOGGER.debug("DynamicPreset zone=%s: no relative_delta — skipping", zone_id)
             return [], "no_forecast_delta"
 
         # --- Read config fresh (Bug #14)
+        # v4.7.17.2: bucket boundary CONFs kept callable for diagnostic
+        # `classify_bucket()` labelling only — they are no longer the
+        # operator's primary tuning surface. The two new knobs below
+        # (relax_f, tighten_f) drive the actual cool_high adjustment.
         options = self._get_options()
         cool_max = float(options.get(CONF_DYNAMIC_PRESET_DELTA_COOL_MAX, DEFAULT_DYNAMIC_PRESET_DELTA_COOL_MAX))
         mild_max = float(options.get(CONF_DYNAMIC_PRESET_DELTA_MILD_MAX, DEFAULT_DYNAMIC_PRESET_DELTA_MILD_MAX))
         hot_max = float(options.get(CONF_DYNAMIC_PRESET_DELTA_HOT_MAX, DEFAULT_DYNAMIC_PRESET_DELTA_HOT_MAX))
         dwell_min = float(options.get(CONF_DYNAMIC_PRESET_DWELL_MINUTES, DEFAULT_DYNAMIC_PRESET_DWELL_MINUTES))
         hysteresis_f = float(options.get(CONF_DYNAMIC_PRESET_HYSTERESIS_F, DEFAULT_DYNAMIC_PRESET_HYSTERESIS_F))
+        # v4.7.17.2: operator-facing knobs
+        relax_f = float(options.get(CONF_DPM_COOL_DAY_RELAX_F, DEFAULT_DPM_COOL_DAY_RELAX_F))
+        tighten_f = float(options.get(CONF_DPM_HOT_DAY_TIGHTEN_F, DEFAULT_DPM_HOT_DAY_TIGHTEN_F))
+        # v4.7.17.2: compute the actual °F adjustment to apply to cool_high.
+        # Drives override emission below; bucket label is now diagnostic.
+        cool_high_adjustment_f = _compute_cool_high_adjustment(
+            delta, relax_f, tighten_f,
+        )
 
         # --- Classify fresh bucket
         fresh_bucket = classify_bucket(delta, cool_max, mild_max, hot_max)
@@ -461,11 +532,16 @@ class DynamicPresetOverrideSource:
         # --- Build override records for the current bucket.
         # v4.7.7 B2: capture skip_reason from build path so the caller
         # can surface it (unknown_bucket / home_range_not_configured).
+        # v4.7.17.2: cool_high_adjustment_f propagates the operator's
+        # relax/tighten knob result into the override math. 0.0 → no
+        # adjustment (typical day in the dead zone).
         overrides, build_reason = self._build_overrides_with_reason(
             zone_id=zone_id,
             zone_data=zone_data,
             bucket=current_bucket,
             house_state=house_state,
+            cool_high_adjustment_f=cool_high_adjustment_f,
+            resolved_pm=resolved_pm,
         )
 
         if overrides:
@@ -486,15 +562,20 @@ class DynamicPresetOverrideSource:
         zone_data: dict,
         bucket: str,
         house_state: str,
+        cool_high_adjustment_f: float = 0.0,
     ) -> list[PresetOverride]:
         """Build PresetOverride records from zone_data for the given bucket.
 
         v4.7.7 B2: kept as thin wrapper around `_build_overrides_with_reason`
         for any out-of-tree callers; internal callers use the reason-aware
         variant directly.
+
+        v4.7.17.2: cool_high_adjustment_f defaults to 0.0 for backward-compat
+        with any out-of-tree callers. Internal calls now pass the
+        operator-knob-driven adjustment value.
         """
         overrides, _ = self._build_overrides_with_reason(
-            zone_id, zone_data, bucket, house_state,
+            zone_id, zone_data, bucket, house_state, cool_high_adjustment_f,
         )
         return overrides
 
@@ -504,6 +585,8 @@ class DynamicPresetOverrideSource:
         zone_data: dict,
         bucket: str,
         house_state: str,
+        cool_high_adjustment_f: float = 0.0,
+        resolved_pm=None,
     ) -> tuple[list[PresetOverride], str | None]:
         """v4.7.7 B2: like `_build_overrides` but returns the skip_reason
         when overrides comes back empty.
@@ -518,7 +601,12 @@ class DynamicPresetOverrideSource:
             _LOGGER.warning("DynamicPreset: unknown bucket %r for zone=%s", bucket, zone_id)
             return [], "unknown_bucket"
 
-        home_low_key, home_high_key, sleep_low_key, sleep_high_key = _BUCKET_CONF_KEYS[bucket]
+        # v4.7.17.2 §6: per-bucket CONF cells (HOT_HOME_HIGH, etc.) remain
+        # dormant in entry.options but are NOT read at runtime. The single
+        # base preset comes from PresetManager seasonal defaults. Bucket
+        # label still propagates as a diagnostic (assigned to override at
+        # construction time).
+        _ = _BUCKET_CONF_KEYS.get(bucket)  # presence-check only
 
         # Per-zone offset (§B.B.5)
         base_offset = float(zone_data.get(CONF_ZONE_DYNAMIC_PRESET_OFFSET, 0.0))
@@ -528,44 +616,45 @@ class DynamicPresetOverrideSource:
         else:
             zone_offset = base_offset
 
-        # Read bucket table values.
-        # v4.7.4 D3: When customize_buckets=False (or not set), bucket cells may be
-        # absent from zone_data. Derive from seasonal baseline "home" setpoints + offset.
-        home_low = zone_data.get(home_low_key)
-        home_high = zone_data.get(home_high_key)
-        if (home_low is None or home_high is None) and not zone_data.get(
-            CONF_ZONE_DYNAMIC_PRESET_CUSTOMIZE_BUCKETS, False
-        ):
-            # Derived fallback: use seasonal home baseline as the bucket range.
-            # This gives a meaningful override (the seasonal home setpoints shifted by
-            # the zone's offset) without requiring per-bucket customization.
-            try:
+        # v4.7.17.2 P6: single base from PresetManager seasonal — the bucket
+        # cell overlay (v4.7.x discrete-bucket mechanic) is retired in favor
+        # of continuous adjustment off the seasonal baseline.
+        #
+        # Tier 1 H1: prefer the coordinator-resolved PM (passed in from
+        # evaluate_with_reason) so we don't pay re-construction cost and
+        # preserve `_current_season` continuity. Fall back to a fresh
+        # construction only when the resolved PM is unavailable (e.g.,
+        # direct call from a test or pre-coordinator-bringup path).
+        home_low: float | None = None
+        home_high: float | None = None
+        try:
+            _pm = resolved_pm
+            if _pm is None:
                 from .hvac_preset import PresetManager
                 _pm = PresetManager(self.hass)
-                _season_pair = _pm.get_seasonal_setpoints("home")
-                if _season_pair is not None:
-                    home_high = _season_pair[0]  # cool_setpoint
-                    home_low = home_high - 7.0    # standard 7°F spread
-                    _LOGGER.debug(
-                        "DynamicPreset zone=%s bucket=%s: derived from baseline "
-                        "(cool=%.1f low=%.1f)",
-                        zone_id, bucket, home_high, home_low,
-                    )
-            except Exception:
-                _LOGGER.debug(
-                    "DynamicPreset zone=%s bucket=%s: baseline derivation failed",
-                    zone_id, bucket, exc_info=True,
-                )
+            _season_pair = _pm.get_seasonal_setpoints("home")
+            if _season_pair is not None:
+                # Tuple is (cool_setpoint, heat_setpoint) — Bug Class #49.
+                home_high = float(_season_pair[0])
+                home_low = home_high - 7.0
+        except Exception:
+            _LOGGER.debug(
+                "DynamicPreset zone=%s bucket=%s: seasonal baseline lookup failed",
+                zone_id, bucket, exc_info=True,
+            )
 
         if home_low is None or home_high is None:
             _LOGGER.debug(
-                "DynamicPreset zone=%s bucket=%s: home range not configured — no override",
+                "DynamicPreset zone=%s bucket=%s: seasonal baseline unavailable — no override",
                 zone_id, bucket,
             )
             return [], "home_range_not_configured"
 
-        # Apply offset to high values
-        effective_home_high = float(home_high) + zone_offset
+        # Apply per-zone offset to the high values, then layer the
+        # v4.7.17.2 operator-knob adjustment on top. Order matters: zone
+        # offset is per-room bias (e.g., Back Hallway +1°F because it
+        # runs warmer); the adjustment is house-wide weather-driven.
+        effective_home_high = float(home_high) + zone_offset + cool_high_adjustment_f
         effective_home_low = float(home_low)
 
         overrides: list[PresetOverride] = [
@@ -584,16 +673,13 @@ class DynamicPresetOverrideSource:
         # Sleep preset (if enabled)
         sleep_enabled = zone_data.get(CONF_ZONE_DYNAMIC_PRESET_SLEEP_ENABLED, False)
         if sleep_enabled:
-            sleep_low = zone_data.get(sleep_low_key)
-            sleep_high = zone_data.get(sleep_high_key)
-
-            if sleep_low is not None and sleep_high is not None:
-                effective_sleep_high = float(sleep_high) + zone_offset
-                effective_sleep_low = float(sleep_low)
-            else:
-                # Auto-derive from home range
-                effective_sleep_high = compute_sleep_high(float(home_high), zone_offset)
-                effective_sleep_low = effective_home_low
+            # v4.7.17.2 §6: sleep bucket cells also dormant — derive sleep
+            # range from home_high via the sleep-floor rule, then layer the
+            # cool_high adjustment on top.
+            effective_sleep_high = compute_sleep_high(
+                float(home_high) + cool_high_adjustment_f, zone_offset,
+            )
+            effective_sleep_low = effective_home_low
 
             overrides.append(PresetOverride(
                 source=OVERRIDE_SOURCE_DYNAMIC_PRESET,

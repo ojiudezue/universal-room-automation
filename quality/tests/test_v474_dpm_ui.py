@@ -124,21 +124,29 @@ class TestD1Surface1HouseWideOnly:
             "D1: Surface 1 must include the master enable toggle (CONF_DYNAMIC_PRESET_ENABLED)"
         )
 
-    def test_d1_surface1_has_all_5_house_wide_tunables(self, config_flow_src):
-        """D1: All 5 house-wide tuning CONFs must appear in the schema builder."""
+    def test_d1_surface1_has_v4_7_17_2_tunables(self, config_flow_src):
+        """v4.7.17.2 supersedes v4.7.4 D1 layout.
+
+        v4.7.4: 5 advanced tunables (cool_max, mild_max, hot_max, dwell,
+        hysteresis) + master toggle.
+        v4.7.17.2: 2 visible operator knobs (relax_f, tighten_f) +
+        master toggle + 2 advanced (dwell, hysteresis). Bucket-boundary
+        CONFs removed from form per operator framing ("internal mechanics
+        MUST NOT be exposed as control knobs"); they remain in const
+        for the diagnostic classify_bucket() bucket-label sensor.
+        """
         idx = config_flow_src.find("def _build_hvac_dynamic_preset_schema(self")
-        body = config_flow_src[idx:idx + 3000]
-        tunables = [
-            "CONF_DYNAMIC_PRESET_DELTA_COOL_MAX",
-            "CONF_DYNAMIC_PRESET_DELTA_MILD_MAX",
-            "CONF_DYNAMIC_PRESET_DELTA_HOT_MAX",
-            "CONF_DYNAMIC_PRESET_DWELL_MINUTES",
-            "CONF_DYNAMIC_PRESET_HYSTERESIS_F",
-        ]
-        for conf in tunables:
-            assert conf in body, (
-                f"D1: Surface 1 schema builder must reference {conf}"
-            )
+        body = config_flow_src[idx:idx + 4000]
+        # v4.7.17.2 visible operator knobs
+        assert "CONF_DPM_COOL_DAY_RELAX_F" in body
+        assert "CONF_DPM_HOT_DAY_TIGHTEN_F" in body
+        # v4.7.17.2 advanced (kept from v4.7.4)
+        assert "CONF_DYNAMIC_PRESET_DWELL_MINUTES" in body
+        assert "CONF_DYNAMIC_PRESET_HYSTERESIS_F" in body
+        # v4.7.17.2 removed from form
+        assert "CONF_DYNAMIC_PRESET_DELTA_COOL_MAX" not in body
+        assert "CONF_DYNAMIC_PRESET_DELTA_MILD_MAX" not in body
+        assert "CONF_DYNAMIC_PRESET_DELTA_HOT_MAX" not in body
 
     def test_d1_surface1_description_mentions_zone_manager(self, config_flow_src):
         """D1: Surface 1 help text must direct users to Zone Manager for per-zone editing."""
@@ -164,12 +172,22 @@ class TestD1Surface1HouseWideOnly:
             "D1: translations/en.json hvac_dynamic_preset.data must include dynamic_preset_enabled"
         )
 
-    def test_d1_strings_surface1_has_6_data_fields(self, strings):
-        """D1: Surface 1 has exactly 6 data fields (master enable + 5 tunables)."""
+    def test_d1_strings_surface1_has_v4_7_17_2_data_fields(self, strings):
+        """v4.7.17.2: surface 1 has exactly 5 data fields (master enable
+        + 2 visible knobs + 2 advanced). Was 6 in v4.7.4."""
         data = strings["options"]["step"]["hvac_dynamic_preset"].get("data", {})
-        assert len(data) == 6, (
-            f"D1: strings.json hvac_dynamic_preset must have exactly 6 data fields, found {len(data)}"
+        assert len(data) == 5, (
+            f"v4.7.17.2: strings.json hvac_dynamic_preset must have "
+            f"exactly 5 data fields, found {len(data)}"
         )
+        for key in (
+            "dpm_cool_day_relax_f",
+            "dpm_hot_day_tighten_f",
+            "dynamic_preset_enabled",
+            "dynamic_preset_dwell_minutes",
+            "dynamic_preset_hysteresis_f",
+        ):
+            assert key in data, f"v4.7.17.2: missing data field {key}"
 
 
 # ===========================================================================
@@ -193,21 +211,17 @@ class TestD2AdvancedSection:
             "D2: advanced section must be collapsed by default"
         )
 
-    def test_d2_advanced_section_contains_5_fields(self, config_flow_src):
-        """D2: The advanced section wraps exactly 5 CONF fields."""
+    def test_d2_advanced_section_contains_v4_7_17_2_fields(self, config_flow_src):
+        """v4.7.17.2: Advanced section now holds dwell + hysteresis only.
+        Was 5 fields in v4.7.4 (3 bucket boundaries + dwell + hysteresis).
+        Bucket-boundary CONFs removed per operator framing."""
         idx = config_flow_src.find("def _build_hvac_dynamic_preset_schema(self")
         body = config_flow_src[idx:idx + 4000]
-        tunables = [
-            "CONF_DYNAMIC_PRESET_DELTA_COOL_MAX",
-            "CONF_DYNAMIC_PRESET_DELTA_MILD_MAX",
-            "CONF_DYNAMIC_PRESET_DELTA_HOT_MAX",
+        for conf in (
             "CONF_DYNAMIC_PRESET_DWELL_MINUTES",
             "CONF_DYNAMIC_PRESET_HYSTERESIS_F",
-        ]
-        for conf in tunables:
-            assert conf in body, (
-                f"D2: advanced section must contain {conf}"
-            )
+        ):
+            assert conf in body
 
     def test_d2_section_import_present(self, config_flow_src):
         """D2: 'from homeassistant.data_entry_flow import section' must be present."""
@@ -322,12 +336,15 @@ class TestD3Surface2ConditionalRendering:
         )
 
     def test_d3_runtime_fallback_in_dynamic_preset(self, dynamic_preset_src):
-        """D3: dynamic_preset.py must handle customize_buckets=False with baseline derivation."""
-        assert "CONF_ZONE_DYNAMIC_PRESET_CUSTOMIZE_BUCKETS" in dynamic_preset_src, (
-            "D3: dynamic_preset.py must import and check CONF_ZONE_DYNAMIC_PRESET_CUSTOMIZE_BUCKETS"
+        """v4.7.17.2 supersedes v4.7.4 D3: customize_buckets becomes
+        irrelevant because bucket cells are no longer read at runtime.
+        DPM always derives the base home_high from PresetManager seasonal
+        (the v4.7.4 D3 'fallback' path is now the ONLY path)."""
+        assert "PresetManager" in dynamic_preset_src, (
+            "v4.7.17.2: dynamic_preset.py must import PresetManager for seasonal lookup"
         )
-        assert "customize_buckets" in dynamic_preset_src, (
-            "D3: dynamic_preset.py must read customize_buckets from zone_data"
+        assert "get_seasonal_setpoints" in dynamic_preset_src, (
+            "v4.7.17.2: home_high must come from PresetManager.get_seasonal_setpoints"
         )
 
     def test_d3_strings_have_customize_buckets_section_title(self, strings):

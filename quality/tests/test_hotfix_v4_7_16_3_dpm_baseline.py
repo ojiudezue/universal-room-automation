@@ -40,50 +40,51 @@ def hvac_preset_src() -> str:
 
 
 class TestBaselineFix:
-    """Verify the new canonical accessor call replaces the broken probes."""
+    """v4.7.17.2 SUPERSEDES this fix.
 
-    def test_uses_canonical_accessor(self, weather_manager_src):
-        """The function must call `preset_mgr.get_seasonal_setpoints(preset)`
-        — the public method that merges SEASONAL_DEFAULTS with CM overrides."""
-        idx = weather_manager_src.find("def _get_zone_baseline_high")
+    v4.7.16.3/v4.7.16.4 fixed `_get_zone_baseline_high` to use the
+    canonical `PresetManager.get_seasonal_setpoints(preset)` accessor
+    + correct tuple-index (cool, not heat).
+
+    v4.7.17.2 redesign DELETED `_get_zone_baseline_high` entirely.
+    The semantic is no longer "forecast - operator cool_target" but
+    "forecast - 14-day rolling median apparent_high" (a self-tuning
+    proxy for local climate norm). Operator framing rejected the
+    indoor-target frame because it conflated "what I want indoors"
+    with "what counts as a mild outdoor day."
+
+    The tests below now verify the v4.7.17.2 post-deletion state:
+    the broken function is gone, the canonical accessor is still
+    importable for HVAC consumers (hvac.py:1191 still uses it), and
+    Bug Class #49's tuple-shape contract guard remains intact.
+    """
+
+    def test_v4_7_17_2_removed_zone_baseline_helper(self, weather_manager_src):
+        """v4.7.17.2: _get_zone_baseline_high was deleted entirely —
+        the rolling-median mechanic replaces it. Removes the v4.7.16.4
+        Bug Class #49 surface point at the source."""
+        assert "def _get_zone_baseline_high" not in weather_manager_src
+
+    def test_baseline_delta_uses_rolling_median_not_preset_manager(
+        self, weather_manager_src,
+    ):
+        """v4.7.17.2: baseline_delta_for_zone now calls
+        _rolling_median_apparent_high(), NOT the deleted helper."""
+        idx = weather_manager_src.find("def baseline_delta_for_zone(")
         assert idx > 0
-        body = weather_manager_src[idx: idx + 3000]
-        assert "preset_mgr.get_seasonal_setpoints(preset)" in body, (
-            "v4.7.16.3 hotfix: must use the canonical accessor, not "
-            "private-attr probes"
-        )
+        body = weather_manager_src[idx: idx + 2500]
+        assert "self._rolling_median_apparent_high()" in body
+        # Old helper call must be gone from the body
+        assert "_get_zone_baseline_high" not in body
+        # No direct PresetManager access from WPM anymore
+        assert "get_seasonal_setpoints" not in body
 
-    def test_old_broken_probes_removed(self, weather_manager_src):
-        """Neither of the broken probes should remain in the function body.
-
-        - `getattr(preset_mgr, "SEASONAL_DEFAULTS", None)` — module const,
-          never on the instance
-        - `getattr(preset_mgr, "zone_presets", {})` — attribute does not exist
-        """
-        idx = weather_manager_src.find("def _get_zone_baseline_high")
-        body = weather_manager_src[idx: idx + 3000]
-        assert 'getattr(preset_mgr, "SEASONAL_DEFAULTS"' not in body, (
-            "SEASONAL_DEFAULTS probe is the bug — must be removed"
-        )
-        assert 'getattr(preset_mgr, "zone_presets"' not in body, (
-            "zone_presets probe is the bug — must be removed"
-        )
-
-    def test_returns_cool_setpoint_index(self, weather_manager_src):
-        """v4.7.16.4 fix-up: the tuple is `(cool_setpoint, heat_setpoint)`,
-        per hvac_const.py:283 + hvac.py:1197. Cool IS the high — index 0.
-
-        v4.7.16.3 shipped pair[1] (the heat setpoint) and biased DPM one
-        bucket hotter on every summer day. The retroactive Tier 1 review
-        caught this and confirmed against the canonical consumer at
-        hvac.py:1190-1198 which destructures as `baseline_cool, _heat = baseline`.
-        """
-        idx = weather_manager_src.find("def _get_zone_baseline_high")
-        body = weather_manager_src[idx: idx + 3000]
-        assert "float(pair[0])" in body
-        # Hardening: assert the wrong index is NOT used.
-        # If a future refactor inadvertently reverts to pair[1], catch it here.
-        assert "float(pair[1])" not in body
+    def test_broken_v4_7_16_3_probes_remain_absent(self, weather_manager_src):
+        """The original SEASONAL_DEFAULTS / zone_presets probes were the
+        v4.7.16.3 bug. They must never reappear — even though the helper
+        is gone, future replacements must not regress to the bad pattern."""
+        assert 'getattr(preset_mgr, "SEASONAL_DEFAULTS"' not in weather_manager_src
+        assert 'getattr(preset_mgr, "zone_presets"' not in weather_manager_src
 
 
 class TestUpstreamAccessorExists:
@@ -157,22 +158,22 @@ class TestTupleShapeAgreement:
         assert "{season: {preset: (cool, heat)}}" in src
 
 
-class TestFunctionStructureUnchanged:
-    """The function's public signature and call-site contract must remain
-    stable so DPM + Battery callers don't have to change."""
+class TestPublicCallerContractV4_7_17_2:
+    """v4.7.17.2: `baseline_delta_for_zone(zone_id, preset)` remains
+    the public API; DPM + Battery + sensor callers are unchanged. The
+    internal mechanic flipped from `forecast - cool_target` to
+    `forecast - 14d rolling median apparent_high`."""
 
-    def test_signature_unchanged(self, weather_manager_src):
-        """`baseline_delta_for_zone(zone_id, preset="home")` call path."""
-        # baseline_delta_for_zone is the public caller; verify it still
-        # calls _get_zone_baseline_high(zone_id, preset).
+    def test_public_signature_unchanged(self, weather_manager_src):
+        """Callers pass (zone_id, preset). Signature must stay stable."""
         idx = weather_manager_src.find("def baseline_delta_for_zone(")
         assert idx > 0
-        body = weather_manager_src[idx: idx + 1000]
-        assert "self._get_zone_baseline_high(zone_id, preset)" in body
+        sig = weather_manager_src[idx: idx + 200]
+        assert "zone_id" in sig and "preset" in sig
 
-    def test_internal_signature_unchanged(self, weather_manager_src):
-        """Function still takes (zone_id, preset) and returns float | None."""
-        assert (
-            "def _get_zone_baseline_high(self, zone_id: str, preset: str) -> float | None:"
-            in weather_manager_src
-        )
+    def test_returns_float_or_none(self, weather_manager_src):
+        """Return contract preserved for callers that None-guard."""
+        idx = weather_manager_src.find("def baseline_delta_for_zone(")
+        assert idx > 0
+        sig = weather_manager_src[idx: idx + 200]
+        assert "float | None" in sig
