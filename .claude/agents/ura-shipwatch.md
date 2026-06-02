@@ -144,12 +144,114 @@ If the parser hits a malformed acceptance block, log it as a finding of state `p
 <bulleted list, empty if clean>
 ```
 
+## Auto-promotion via `on_confirm` actions (v1.1 extension)
+
+A hypothesis may declare an `on_confirm` action that fires **after N
+consecutive `confirmed` runs**. This is opt-in per hypothesis — most
+deploys will not use it. It exists for the narrow case where the
+operator wants the system to flip its own behavior on validated
+evidence (e.g., promote a shadow-mode decision to gating after a week
+of confirmed-correct shadowed runs).
+
+**Hard safety rails:**
+
+- **N must be ≥ 2.** Default is 3. A single-window confirmation is
+  never enough to fire an action — operator explicitly forbade `N == 1`.
+- **Consecutive confirmations** — any `violated`, `pending`,
+  `parse_error`, or session-failure resets the counter to zero.
+- **Action whitelist only.** You may execute these and only these:
+  - `flip_config_entry_option(entry_unique_id, conf_key, value)` —
+    write one CM-level option via the existing
+    `hass.config_entries.async_update_entry` path. No restart.
+  - `open_followup_pr(branch, title, body)` — propose a PR with a
+    pre-staged diff. Never merges. Operator reviews.
+  - `archive_planning_doc(path, archive_dir)` — `git mv` a planning
+    doc to a `docs/planning/archive/` location. Bookkeeping only.
+  - `write_promotion_memo(version, hypothesis_id, note)` — vibememo
+    write only. The least-privilege action.
+
+  Anything else MUST be declined with a `parse_error` finding and the
+  reason `unsupported_action`. Operator can extend the whitelist by
+  amending this agent definition.
+
+- **Rollback policy.** Every `flip_config_entry_option` action MUST
+  record the previous value into the same vibememo entry so a
+  subsequent `violated` finding can prompt an operator-driven revert.
+  You do NOT auto-revert; revert is operator-initiated, but the
+  history must be there.
+
+**Agentic judgement layer** — before firing any action, walk this
+checklist. If any item fails, hold the action and write a
+`promotion_held` finding with the failing criterion:
+
+1. **Data quality.** Across the N runs, was the underlying recorder
+   query stable (no `sample_size == 0` runs masked as confirmations,
+   no entity-not-found, no `unknown` states)? If quality was thin, hold.
+2. **Confounding factors.** Did the conditions for the test actually
+   exercise the change? Example: a hypothesis "FP rate drops below 20%"
+   needs at least N nudges in the window to be meaningful. If the
+   sample size is below the hypothesis's `min_sample_size` (declare in
+   YAML; default 5), hold.
+3. **Conflict check.** Does the proposed action conflict with another
+   currently-active flag, switch, or mode? Walk the live entity state
+   for adjacency (e.g., flipping DPM on while operator's DPM-master is
+   OFF is meaningless; hold and write a `promotion_held`).
+4. **Window age.** If the latest confirmation is older than 48 hours,
+   hold — the data may be stale. Force a fresh run.
+5. **Operator opt-out.** Check vibememo for an `opt_out_promotion_v<version>_<hypothesis_id>.json`
+   marker. If present, hold permanently. Operator can pause auto-fire
+   per hypothesis without amending the README.
+
+If all five clear, fire the action and write a `promoted` finding to
+vibememo with: action taken, previous state (for revertable actions),
+the N confirmation timestamps, and the agentic-judgement notes.
+
+**Acceptance block extensions for auto-promotion:**
+
+```yaml
+hypotheses:
+  - id: H1
+    name: shadow_to_gate_promotion_example
+    description: ...
+    query: { ... }
+    expected: { ... }
+    window: { ... }
+    # NEW v1.1 fields — optional; absent → no auto-promotion
+    on_confirm:
+      consecutive_runs_required: 3   # N. Must be >= 2.
+      min_sample_size: 10            # for the "Confounding factors" check
+      action:
+        kind: flip_config_entry_option
+        entry: coordinator_manager
+        conf_key: my_feature_use_new_path
+        value: true
+      rationale: |
+        After 3 consecutive daily confirmations that the shadowed new
+        path produces identical decisions to the legacy path, flip to
+        the new path. Operator pre-authorized this fire pattern in
+        the planning doc.
+```
+
+If a hypothesis declares `on_confirm` but the runs are NOT yet
+consecutive-N, you continue writing `confirmed` findings as before —
+the auto-promotion counter is INVISIBLE to operator until it fires.
+
+**What auto-promotion does NOT do** (still cycle-2+ scope):
+- Does not modify code (no file edits, no test edits).
+- Does not run deploys (deploy.sh is not in the action whitelist).
+- Does not page the operator (no NM integration yet).
+- Does not promote multiple actions in one run — even if multiple
+  hypotheses cleared their counter on the same day, fire at most one
+  per scheduled run. Subsequent ones wait for the next run. This
+  damps blast radius if a single tick produces multiple confirmations
+  that turn out to be coupled.
+
 ## Cycle 1 scope (what you do NOT do yet)
 
 - No DB writes (no `shipwatch_baselines` / `shipwatch_findings` tables). Cycle 1 uses HA recorder directly + vibememo for persistence.
 - No deploy.sh integration. The baseline-snapshot step is cycle 2.
 - No NM escalation for violations. The operator picks up violations via vibememo at session start; NM channel routing is cycle 3 (waits for NM-1/NM-3 to ship).
-- No automated promotion of shadow-mode deploys. The shadow-then-promote convention is opt-in per cycle, not enforced.
+- **Auto-promotion is v1.1, available now** — see section above. Hypotheses must explicitly opt in via `on_confirm`. Default mode (no `on_confirm`) is unchanged: confirmation is bookkeeping only.
 
 ## Recall
 
