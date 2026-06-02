@@ -45,7 +45,9 @@ from .energy_const import (
     DEFAULT_WEATHER_DIVERGENCE_THRESHOLD_F,
     # v4.7.17.2: rolling-median mechanic constants
     DPM_ROLLING_WINDOW_DAYS,
+    DPM_ROLLING_WINDOW_MAX_DAYS,
     DPM_ROLLING_WINDOW_MIN_DAYS,
+    DPM_P25_MIN_DAYS,
 )
 from .signals import SIGNAL_WEATHER_PROVIDER_CHANGED, SIGNAL_WEATHER_DIVERGENCE_DETECTED
 
@@ -588,28 +590,65 @@ class WeatherProviderManager:
     # -------------------------------------------------------------------------
 
     def _rolling_median_apparent_high(self) -> float | None:
-        """Return median of the ring; None if fewer than MIN_DAYS entries.
+        """Return median of the ring (most-recent 14 entries); None if fewer
+        than MIN_DAYS entries.
 
         Below DPM_ROLLING_WINDOW_MIN_DAYS (7), the median is too noisy
         to trust — DPM falls back to the existing 'no_forecast_delta'
         skip reason, identical UX to a stale forecast. After 7+ entries
         accumulate (one per day post-deploy), DPM begins emitting.
+
+        v4.7.18 D3 (load-bearing): the ring cap widened from 14 to 90
+        entries to back the 90-day p25 used by `_p25_apparent_high()`.
+        The 14-day median MUST continue to slice the most-recent 14
+        entries via `ring[-DPM_ROLLING_WINDOW_DAYS:]` — without this
+        slice the median silently becomes a 90-day median across a
+        single deploy. Reviewer A explicitly stamps this line.
         """
         if len(self._apparent_high_ring) < DPM_ROLLING_WINDOW_MIN_DAYS:
             return None
-        values = [v for _, v in self._apparent_high_ring]
+        # v4.7.18 D3: median is computed over the most-recent 14 entries
+        # of the now-widened ring, NOT over the full ring.
+        values = [v for _, v in self._apparent_high_ring[-DPM_ROLLING_WINDOW_DAYS:]]
         return float(statistics.median(values))
+
+    def _p25_apparent_high(self) -> float | None:
+        """v4.7.18 D3: 25th percentile of apparent_high over the full 90-day
+        ring. Backs the self-tuning `relax_ceiling` auto mode.
+
+        Returns None when the ring has fewer than DPM_P25_MIN_DAYS (30)
+        entries — auto mode then falls back to the moderate 90.0°F
+        ceiling (see _resolve_relax_ceiling). 30 days is the minimum
+        sample size for a stable 25th percentile in this climate
+        context; below that the value is too noisy to use as a control
+        signal.
+
+        Uses `statistics.quantiles(values, n=4)[0]` (the first quartile
+        cut) — order-invariant, matches the median's order-invariant
+        property, and uses the inclusive method by default.
+        """
+        if len(self._apparent_high_ring) < DPM_P25_MIN_DAYS:
+            return None
+        values = [v for _, v in self._apparent_high_ring]
+        try:
+            return float(statistics.quantiles(values, n=4)[0])
+        except (statistics.StatisticsError, IndexError):  # pragma: no cover
+            return None
 
     async def _record_daily_apparent_high(
         self, date_iso: str, value: float,
     ) -> None:
         """Append today's apparent_high to the ring; dedupe by date; cap at
-        DPM_ROLLING_WINDOW_DAYS; persist via Store.
+        DPM_ROLLING_WINDOW_MAX_DAYS (90); persist via Store.
 
         Called once per day from `_refresh_all_providers_locked` when a
         fresh forecast lands. Same-day calls update the existing entry
         rather than appending (forecast may be refreshed multiple times
         on the same calendar day).
+
+        v4.7.18 D3: cap widened from 14 to 90 to back the 90-day p25
+        used by `_p25_apparent_high()`. The 14-day median is preserved
+        by slicing inside `_rolling_median_apparent_high`.
         """
         # Dedupe by date — replace if today already recorded
         for i, (existing_date, _) in enumerate(self._apparent_high_ring):
@@ -620,7 +659,7 @@ class WeatherProviderManager:
                 return
         # New date — append, evict oldest if over cap
         self._apparent_high_ring.append((date_iso, value))
-        while len(self._apparent_high_ring) > DPM_ROLLING_WINDOW_DAYS:
+        while len(self._apparent_high_ring) > DPM_ROLLING_WINDOW_MAX_DAYS:
             self._apparent_high_ring.pop(0)
         await self._persist_ring()
 
@@ -645,12 +684,13 @@ class WeatherProviderManager:
             )
 
     async def _hydrate_rolling_window_from_store(self) -> None:
-        """Load the ring from Store on startup; drop entries > 21 days old.
+        """Load the ring from Store on startup; drop entries older than the
+        90-day window staleness margin.
 
-        The 21-day staleness threshold is wider than the 14-day window
-        so a brief multi-day outage doesn't drop otherwise-valid entries.
-        Entries older than that lose enough relevance (e.g., shoulder
-        season transition) that we'd rather start fresh.
+        v4.7.18 D3: cap widened 14 → 90. Staleness threshold widened
+        accordingly (window + 7-day margin = 97 days) so the ring can
+        grow toward 90 days post-deploy. Pre-v4.7.18 stores capped at
+        14 entries → still load cleanly here (no upper-bound drop).
         """
         try:
             data = await self._apparent_high_store.async_load()
@@ -666,7 +706,11 @@ class WeatherProviderManager:
         # v4.7.17.2 fix-up A-H2: cutoff uses UTC to match the ring's UTC
         # date keys (recorded via dt_util.utcnow().date() at the
         # _record_daily_apparent_high call site).
-        cutoff_date = dt_util.utcnow().date() - timedelta(days=21)
+        # v4.7.18 D3: cutoff widened to MAX_DAYS + 7-day margin (97
+        # days) so the 90-day ring can grow naturally.
+        cutoff_date = dt_util.utcnow().date() - timedelta(
+            days=DPM_ROLLING_WINDOW_MAX_DAYS + 7
+        )
         cleaned: list[tuple[str, float]] = []
         for entry in data["ring"]:
             try:
@@ -680,8 +724,11 @@ class WeatherProviderManager:
                 cleaned.append((date_iso, float(value)))
             except (ValueError, TypeError):
                 continue
-        # Cap to most-recent DPM_ROLLING_WINDOW_DAYS entries
-        self._apparent_high_ring = cleaned[-DPM_ROLLING_WINDOW_DAYS:]
+        # v4.7.18 D3: cap to most-recent DPM_ROLLING_WINDOW_MAX_DAYS (90)
+        # entries. Pre-v4.7.18 stores have ≤14 entries → no-op cap.
+        # The 14-day median is preserved by `_rolling_median_apparent_high`
+        # slicing `ring[-DPM_ROLLING_WINDOW_DAYS:]`.
+        self._apparent_high_ring = cleaned[-DPM_ROLLING_WINDOW_MAX_DAYS:]
         _LOGGER.debug(
             "WeatherProviderManager: rolling window hydrated with %d entries",
             len(self._apparent_high_ring),
