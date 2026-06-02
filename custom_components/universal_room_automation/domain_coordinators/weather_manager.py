@@ -149,6 +149,19 @@ class WeatherProviderManager:
             if legacy:
                 providers = [legacy]
 
+        # v4.7.17.2 fix-up B-H1: hydrate the ring BEFORE registering
+        # state-change listeners. If listener registration happened first,
+        # a provider state-change scheduled by HA core could fire
+        # _handle_provider_state_change, which schedules a tracked refresh
+        # task. That task races the in-flight Store.async_load(): the
+        # refresh appends today's entry to a not-yet-hydrated empty ring
+        # and persists, then the hydrate completes and overwrites the
+        # in-memory ring with the OLD pre-race contents — silently
+        # discarding today's entry. Bug Class #45 (concurrent reload race)
+        # variant. Doing hydrate first closes the window — listeners are
+        # registered against a fully-initialized ring.
+        await self._hydrate_rolling_window_from_store()
+
         for entity_id in providers:
             if not entity_id:
                 continue
@@ -165,12 +178,6 @@ class WeatherProviderManager:
             len(providers),
             providers,
         )
-
-        # v4.7.17.2: hydrate the apparent-high ring from Store BEFORE the
-        # first probe. The first probe writes today's value into the ring;
-        # if hydration ran after the probe, the ring would be silently
-        # truncated by the Store reload.
-        await self._hydrate_rolling_window_from_store()
 
         # Do an immediate probe so sensors have data before the first state change
         await self._refresh_all_providers()
