@@ -482,6 +482,12 @@ def _get_customize_buckets_default(schema: vol.Schema) -> bool:
 # ===========================================================================
 
 
+@pytest.mark.skip(
+    reason="v4.7.18 D1: customize_buckets toggle + bucket cells removed from "
+    "Surface 2 schema. The lazy-derivation path (_customize_buckets_value) is "
+    "deleted dead code under the new shape. This v4.7.4.3 contract is "
+    "intentionally retired."
+)
 class TestSchemaDerivesCBFromCells:
     """When source_data has saved per-bucket cells but no explicit flag, derive True."""
 
@@ -512,6 +518,11 @@ class TestSchemaDerivesCBFromCells:
 # ===========================================================================
 
 
+@pytest.mark.skip(
+    reason="v4.7.18 D1: customize_buckets toggle removed from Surface 2; "
+    "the schema no longer exposes the field. Retired with the lazy-derivation "
+    "path."
+)
 class TestSchemaReturnsFalseWhenNoCellsNoFlag:
     """When source_data has no saved cells and no flag, default is False."""
 
@@ -538,6 +549,11 @@ class TestSchemaReturnsFalseWhenNoCellsNoFlag:
 # ===========================================================================
 
 
+@pytest.mark.skip(
+    reason="v4.7.18 D1: customize_buckets toggle removed from Surface 2. "
+    "Explicit-flag-wins-over-cells semantics no longer apply — the field "
+    "doesn't exist."
+)
 class TestSchemaRespectsExplicitFlag:
     """Explicit customize_buckets=False overrides the presence of saved cells."""
 

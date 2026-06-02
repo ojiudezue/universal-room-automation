@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.7.17.2
+# Universal Room Automation vv4.7.18
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -6927,6 +6927,12 @@ class DynamicPresetActiveBucketSensor(AggregationEntity, SensorEntity, RestoreEn
             self._restored_bucket = last_state.state
             # Inject into DynamicPresetOverrideSource when it's available
             self._try_restore_to_source(last_state)
+        # v4.7.18 D5: also restore relax-ceiling counter attrs even when
+        # bucket state is unknown/unavailable (counters are independent
+        # of bucket — they may be > 0 with bucket="unknown" if the gate
+        # fired in a session that crashed before bucket initialization).
+        if last_state is not None:
+            self._try_restore_blocked_counter(last_state)
 
     def _try_restore_to_source(self, last_state) -> None:
         """Inject restored state into DynamicPresetOverrideSource (Bug #10)."""
@@ -6949,6 +6955,32 @@ class DynamicPresetActiveBucketSensor(AggregationEntity, SensorEntity, RestoreEn
                 last_tx = dt_util.utcnow()
             source.restore_zone_state(self._zone_id, bucket, last_tx)
         except Exception:
+            pass
+
+    def _try_restore_blocked_counter(self, last_state) -> None:
+        """v4.7.18 D5: hydrate the per-zone relax-ceiling counter from
+        RestoreEntity attrs on startup. Mirrors `_try_restore_to_source`
+        — counter survives across HA restart (Bug #10 compliance for
+        the new attrs).
+        """
+        from datetime import datetime, timezone
+        try:
+            source = _get_dynamic_preset_source(self.hass)
+            if source is None:
+                return
+            attrs = last_state.attributes or {}
+            raw_count = attrs.get("relax_ceiling_blocked_count")
+            raw_last = attrs.get("relax_ceiling_last_blocked_at")
+            last_blocked = None
+            if raw_last:
+                try:
+                    last_blocked = datetime.fromisoformat(raw_last)
+                    if last_blocked.tzinfo is None:
+                        last_blocked = last_blocked.replace(tzinfo=timezone.utc)
+                except (ValueError, TypeError):
+                    last_blocked = None
+            source.restore_blocked_counter(self._zone_id, raw_count, last_blocked)
+        except Exception:  # noqa: BLE001
             pass
 
     @callback
@@ -7042,6 +7074,18 @@ class DynamicPresetActiveBucketSensor(AggregationEntity, SensorEntity, RestoreEn
                 "last_transition_iso": state.get("last_transition_iso"),
                 "dwell_remaining_min": state.get("dwell_remaining_min"),
                 "active_overrides_count": len(zone_overrides),
+                # v4.7.18 D5: heat-wave relax-ceiling gate telemetry.
+                # `relax_ceiling_f` is the resolved °F threshold (None when
+                # mode=off or DPM has not evaluated for this zone yet).
+                # `relax_ceiling_source` is one of: auto / manual_conservative /
+                # manual_moderate / manual_aggressive / off / None.
+                # `relax_ceiling_blocked_count` is monotonically non-decreasing
+                # and persists via RestoreEntity. `relax_ceiling_last_blocked_at`
+                # is ISO-8601 timestamp of the most recent gate fire (or None).
+                "relax_ceiling_f": state.get("relax_ceiling_f"),
+                "relax_ceiling_source": state.get("relax_ceiling_source"),
+                "relax_ceiling_blocked_count": state.get("relax_ceiling_blocked_count", 0),
+                "relax_ceiling_last_blocked_at": state.get("relax_ceiling_last_blocked_at"),
             }
         except Exception:
             return {}

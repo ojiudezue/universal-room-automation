@@ -136,8 +136,9 @@ class TestWeatherManagerRollingMedian:
         body = weather_manager_src[idx: idx + 2000]
         # Same-date dedupe logic
         assert "if existing_date == date_iso:" in body
-        # Cap at window days
-        assert "while len(self._apparent_high_ring) > DPM_ROLLING_WINDOW_DAYS:" in body
+        # v4.7.18 D3: ring cap widened 14 → 90; the constant in the cap loop
+        # changed from DPM_ROLLING_WINDOW_DAYS to DPM_ROLLING_WINDOW_MAX_DAYS.
+        assert "while len(self._apparent_high_ring) > DPM_ROLLING_WINDOW_MAX_DAYS:" in body
 
     def test_hydrate_from_store_exists(self, weather_manager_src):
         assert "async def _hydrate_rolling_window_from_store(self) -> None:" in weather_manager_src
@@ -145,8 +146,10 @@ class TestWeatherManagerRollingMedian:
     def test_hydrate_drops_stale_entries(self, weather_manager_src):
         idx = weather_manager_src.find("async def _hydrate_rolling_window_from_store")
         body = weather_manager_src[idx: idx + 2000]
-        # 21-day cutoff
-        assert "timedelta(days=21)" in body
+        # v4.7.18 D3: cutoff widened from 21 (14+7) to 97 (90+7) days so the
+        # 90-day ring can grow naturally. Cutoff is now expressed as
+        # DPM_ROLLING_WINDOW_MAX_DAYS + 7.
+        assert "DPM_ROLLING_WINDOW_MAX_DAYS + 7" in body
         assert "if entry_date < cutoff_date:" in body
 
     def test_hydrate_called_before_first_probe(self, weather_manager_src):

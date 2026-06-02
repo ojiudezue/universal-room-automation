@@ -84,14 +84,18 @@ ha_get_state("sensor.ura_energy_coordinator_dynamic_preset_bucket_<zone>",
 version: v4.7.17.2
 hypotheses:
   - id: H1
-    name: new_knob_numbers_present
+    name: dpm_bucket_sensor_available_post_restart
     description: |
-      The two new operator knobs must appear on the Energy Coordinator
-      device after install — these are the ≤2 user-facing knobs the
-      operator framing demands.
+      v4.7.17.2 simplified-frame code must load and the DPM coordinator
+      must complete its first 5-min cycle post-restart. Validated by
+      the bucket sensor for a canonical zone (Upstairs) reaching a
+      non-unavailable state. The ≤2 operator knobs themselves are
+      CONFIG-FLOW options (CONF_DPM_COOL_DAY_RELAX_F / CONF_DPM_HOT_DAY_TIGHTEN_F,
+      defaults 1.0°F each — see energy_const.py:220-223), NOT Number
+      entities. Their behavioral effect is covered by H4.
     query:
       kind: ha_state
-      entity: number.ura_energy_coordinator_dpm_cool_day_relax_f
+      entity: sensor.ura_energy_coordinator_dynamic_preset_bucket_upstairs
     expected:
       condition: "!="
       value: "unavailable"
@@ -109,7 +113,7 @@ hypotheses:
       attribute name still present indicates an incomplete rename.
     query:
       kind: ha_state_attribute
-      entity: sensor.ura_energy_coordinator_dynamic_preset_bucket
+      entity: sensor.ura_energy_coordinator_dynamic_preset_bucket_upstairs
       attribute: cool_high_adjustment_f
     expected:
       condition: "!="
@@ -128,7 +132,7 @@ hypotheses:
       Once the ring has ≥7 entries DPM begins emitting normally.
     query:
       kind: ha_state_attribute
-      entity: sensor.ura_energy_coordinator_dynamic_preset_bucket
+      entity: sensor.ura_energy_coordinator_dynamic_preset_bucket_upstairs
       attribute: last_skip_reason
     expected:
       condition: "in"
@@ -149,7 +153,7 @@ hypotheses:
       the new mechanic.
     query:
       kind: ha_state_attribute
-      entity: sensor.ura_energy_coordinator_dynamic_preset_bucket
+      entity: sensor.ura_energy_coordinator_dynamic_preset_bucket_upstairs
       attribute: cool_high_adjustment_f
     expected:
       condition: "in"
@@ -168,7 +172,7 @@ hypotheses:
       churn bucket transitions. Verify only during a winter month.
     query:
       kind: ha_state_attribute
-      entity: sensor.ura_energy_coordinator_dynamic_preset_bucket
+      entity: sensor.ura_energy_coordinator_dynamic_preset_bucket_upstairs
       attribute: last_skip_reason
     expected:
       condition: "=="

@@ -210,36 +210,27 @@ class TestD5Surface1FieldCoverage:
 
 
 class TestD5Surface2FieldCoverage:
-    """D5: Every Surface 2 field key must have a translation entry."""
+    """D5: Every Surface 2 field key must have a translation entry.
+
+    v4.7.18 D1 + fix-up B-L3/C-L1: Surface 2 collapsed to 4 top-level
+    fields (enabled, offset, reset_guest, sleep_enabled). The
+    `customize_buckets` toggle + `customize_buckets_section` wrapper +
+    16 bucket-cell labels were stripped because the bucket cells were
+    unread at runtime in v4.7.17.2 (the median-driven mechanic
+    replaced bucket-cell setpoints). Bucket data still survives in
+    entry.options for a future Bucket Editor surface.
+    """
 
     _SURFACE2_EXPECTED_FIELDS = [
         "zone_dynamic_preset_enabled",
         "zone_dynamic_preset_offset",
         "zone_dynamic_preset_reset_offset_guest",
         "zone_dynamic_preset_sleep_enabled",
-        "zone_dynamic_preset_customize_buckets",
-        # Home bucket cells (4 buckets × 2 dims)
-        "zone_dynamic_preset_cool_home_low",
-        "zone_dynamic_preset_cool_home_high",
-        "zone_dynamic_preset_mild_home_low",
-        "zone_dynamic_preset_mild_home_high",
-        "zone_dynamic_preset_hot_home_low",
-        "zone_dynamic_preset_hot_home_high",
-        "zone_dynamic_preset_extreme_home_low",
-        "zone_dynamic_preset_extreme_home_high",
-        # Sleep bucket cells (4 buckets × 2 dims)
-        "zone_dynamic_preset_cool_sleep_low",
-        "zone_dynamic_preset_cool_sleep_high",
-        "zone_dynamic_preset_mild_sleep_low",
-        "zone_dynamic_preset_mild_sleep_high",
-        "zone_dynamic_preset_hot_sleep_low",
-        "zone_dynamic_preset_hot_sleep_high",
-        "zone_dynamic_preset_extreme_sleep_low",
-        "zone_dynamic_preset_extreme_sleep_high",
     ]
 
     def test_d5_surface2_field_coverage_strings(self, strings):
-        """All 21 Surface 2 fields must have translation entries in strings.json."""
+        """All 4 Surface 2 top-level fields must have translation entries
+        in strings.json (post v4.7.18 D1 strip)."""
         data = strings["options"]["step"]["zone_dynamic_preset"].get("data", {})
         for field in self._SURFACE2_EXPECTED_FIELDS:
             assert field in data, (
@@ -247,7 +238,8 @@ class TestD5Surface2FieldCoverage:
             )
 
     def test_d5_surface2_field_coverage_translations_en(self, translations_en):
-        """All 21 Surface 2 fields must have translation entries in translations/en.json."""
+        """All 4 Surface 2 top-level fields must have translation entries
+        in translations/en.json (post v4.7.18 D1 strip)."""
         data = translations_en["options"]["step"]["zone_dynamic_preset"].get("data", {})
         for field in self._SURFACE2_EXPECTED_FIELDS:
             assert field in data, (
@@ -255,20 +247,26 @@ class TestD5Surface2FieldCoverage:
             )
 
     def test_d5_surface2_section_keys_in_strings(self, strings):
-        """D5: Section wrapper keys must have labels in strings.json sections."""
+        """D5: post-v4.7.18 D1 strip, only `sleep_section` remains in
+        Surface 2 sections (customize_buckets_section was retired)."""
         sections = strings["options"]["step"]["zone_dynamic_preset"].get("sections", {})
-        for section_key in ("customize_buckets_section", "sleep_section"):
-            assert section_key in sections, (
-                f"D5: strings.json zone_dynamic_preset.sections must have '{section_key}'"
-            )
+        assert "sleep_section" in sections, (
+            "D5: strings.json zone_dynamic_preset.sections must have 'sleep_section'"
+        )
+        assert "customize_buckets_section" not in sections, (
+            "v4.7.18 B-L3/C-L1: customize_buckets_section must be stripped"
+        )
 
     def test_d5_surface2_section_keys_in_translations(self, translations_en):
-        """D5: Section wrapper keys must have labels in translations/en.json sections."""
+        """D5: post-v4.7.18 D1 strip, only `sleep_section` remains in
+        Surface 2 sections (customize_buckets_section was retired)."""
         sections = translations_en["options"]["step"]["zone_dynamic_preset"].get("sections", {})
-        for section_key in ("customize_buckets_section", "sleep_section"):
-            assert section_key in sections, (
-                f"D5: translations/en.json zone_dynamic_preset.sections must have '{section_key}'"
-            )
+        assert "sleep_section" in sections, (
+            "D5: translations/en.json zone_dynamic_preset.sections must have 'sleep_section'"
+        )
+        assert "customize_buckets_section" not in sections, (
+            "v4.7.18 B-L3/C-L1: customize_buckets_section must be stripped"
+        )
 
     def test_d5_surface2_no_no_zone_prefixed_fields(self, strings):
         """D5 regression guard: no field key in zone_dynamic_preset data has __ (zone prefix bug)."""

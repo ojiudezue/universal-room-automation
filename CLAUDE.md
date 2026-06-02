@@ -1,5 +1,29 @@
 # URA Project Instructions
 
+## Sibling project: Shipwatch
+
+Shipwatch (post-deploy acceptance-hypothesis watcher) lives as a
+sibling repo at `~/Code/shipwatch/` as of 2026-06-02. It used to live
+inside this repo at `.claude/agents/ura-shipwatch.md` + `docs/dashboard-prototypes/shipwatch/`.
+
+- **Runtime agent:** `~/.claude/agents/shipwatch.md` (global; invokable
+  as `@shipwatch` or `/shipwatch` from any project).
+- **Repo:** `~/Code/shipwatch/`. Its own `CLAUDE.md`, `scripts/deploy.sh`,
+  versioning (1.x), and release cadence.
+- **URA's `scripts/deploy.sh` is URA-only.** Do not co-opt it for
+  Shipwatch releases — Shipwatch has its own deploy script.
+- **URA's `.claude/agents/ura-shipwatch.md` is a deprecation stub**
+  pointing at the new location. Invocations of `@ura-shipwatch` still
+  resolve, but new work should use `@shipwatch`.
+- **URA-side config:** none needed today. When Shipwatch v1.2.0 ships
+  the `deploy.sh` integration, URA's `scripts/deploy.sh` will gain a
+  small hook that writes `~/.shipwatch/sessions/ura_<version>.json` on
+  successful deploy. Scoped under a separate URA cycle planning doc.
+
+Shipwatch's `~/.shipwatch/projects.yaml` is user-local (not in any
+repo) and registers URA as one of its onboarded projects. See
+`~/Code/shipwatch/config/projects.yaml.example` for the schema.
+
 ## Subagent Usage Protocol — MANDATORY
 
 For URA cycles, route each phase to the designated subagent. Do NOT default to `general-purpose` for cycle work — the URA subagents have institutional muscle memory (bug class names, file caution levels, ceremony rules).

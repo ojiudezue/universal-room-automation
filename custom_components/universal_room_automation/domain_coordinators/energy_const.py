@@ -234,6 +234,40 @@ DPM_ROLLING_WINDOW_DAYS: Final = 14
 DPM_ROLLING_WINDOW_MIN_DAYS: Final = 7
 DPM_RELATIVE_DELTA_DEADZONE_F: Final = 2.0
 
+# v4.7.18 D3: rolling-window ring cap widened 14 → 90 days. The 14-day
+# median used for relax/tighten math is unchanged (preserved by slicing
+# `ring[-DPM_ROLLING_WINDOW_DAYS:]` inside `_rolling_median_apparent_high`
+# — load-bearing). The wider 90-day window backs `_p25_apparent_high()`
+# (25th percentile) which feeds the v4.7.18 self-tuning `relax_ceiling`
+# auto mode. p25 requires DPM_P25_MIN_DAYS=30 entries before it emits;
+# below the threshold the ceiling falls back to 90.0°F (moderate).
+DPM_ROLLING_WINDOW_MAX_DAYS: Final = 90
+DPM_P25_MIN_DAYS: Final = 30
+
+# v4.7.18 D4: relax-ceiling mode (operator-facing dropdown on Surface 1).
+# String enum — see _resolve_relax_ceiling() in dynamic_preset.py.
+# Defaults to "auto" (p25 of 90-day apparent_high ring). Manual buckets
+# are named (Conservative=85°F, Moderate=90°F, Aggressive=95°F) per
+# operator framing — no raw threshold Number, no internal mechanics
+# leaked to the operator surface.
+CONF_DPM_RELAX_CEILING_MODE: Final = "dpm_relax_ceiling_mode"
+DEFAULT_DPM_RELAX_CEILING_MODE: Final = "auto"
+DPM_RELAX_CEILING_MODE_AUTO: Final = "auto"
+DPM_RELAX_CEILING_MODE_CONSERVATIVE_85: Final = "conservative_85"
+DPM_RELAX_CEILING_MODE_MODERATE_90: Final = "moderate_90"
+DPM_RELAX_CEILING_MODE_AGGRESSIVE_95: Final = "aggressive_95"
+DPM_RELAX_CEILING_MODE_OFF: Final = "off"
+DPM_RELAX_CEILING_MODES: Final = (
+    DPM_RELAX_CEILING_MODE_AUTO,
+    DPM_RELAX_CEILING_MODE_CONSERVATIVE_85,
+    DPM_RELAX_CEILING_MODE_MODERATE_90,
+    DPM_RELAX_CEILING_MODE_AGGRESSIVE_95,
+    DPM_RELAX_CEILING_MODE_OFF,
+)
+# Auto fallback when ring has < DPM_P25_MIN_DAYS entries (cold start)
+# and for unrecognized mode strings (defensive).
+DPM_RELAX_CEILING_AUTO_FALLBACK_F: Final = 90.0
+
 # v4.7.17.2 fix-up (B-H2): canonical DPM skip-reason taxonomy. Single
 # source of truth — referenced from the producer (dynamic_preset.py
 # docstrings + return paths) and the consumer (energy.py
