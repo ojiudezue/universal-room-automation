@@ -364,9 +364,10 @@ class DynamicPresetOverrideSource:
 
         Notes on skip_reason exposure (v4.7.7 B2): callers wanting the
         skip reason should use `evaluate_with_reason()` which returns
-        `(overrides, skip_reason)`. The skip_reason taxonomy is one of:
-        gate_disabled / no_forecast_delta / dwell_pending /
-        unknown_bucket / home_range_not_configured / None.
+        `(overrides, skip_reason)`. The skip_reason taxonomy is the
+        canonical `DPM_SKIP_REASONS` frozenset in energy_const.py
+        (single source of truth — see fix-up B-H2). None when overrides
+        is non-empty.
         """
         overrides, _reason = self.evaluate_with_reason(
             zone_id=zone_id,
@@ -395,9 +396,9 @@ class DynamicPresetOverrideSource:
         Returns:
             (overrides, skip_reason)
             - overrides non-empty -> skip_reason is None
-            - overrides empty -> skip_reason in {"gate_disabled",
-              "no_forecast_delta", "dwell_pending", "unknown_bucket",
-              "home_range_not_configured"}
+            - overrides empty -> skip_reason is a member of the canonical
+              `DPM_SKIP_REASONS` frozenset in energy_const.py (single
+              source of truth — see fix-up B-H2 for drift-guard test).
         """
         if now is None:
             now = dt_util.utcnow()

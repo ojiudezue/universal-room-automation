@@ -234,6 +234,23 @@ DPM_ROLLING_WINDOW_DAYS: Final = 14
 DPM_ROLLING_WINDOW_MIN_DAYS: Final = 7
 DPM_RELATIVE_DELTA_DEADZONE_F: Final = 2.0
 
+# v4.7.17.2 fix-up (B-H2): canonical DPM skip-reason taxonomy. Single
+# source of truth — referenced from the producer (dynamic_preset.py
+# docstrings + return paths) and the consumer (energy.py
+# _dynamic_preset_skip_reasons comment). Adding a new reason here is
+# the gate: tests assert producer-return-set equals this frozenset, so
+# drift is caught at test time. Keep alphabetical for diff stability.
+DPM_SKIP_REASONS: Final[frozenset[str]] = frozenset({
+    "canonical_label_mismatch",
+    "dwell_pending",
+    "evaluation_failed",
+    "gate_disabled",
+    "home_range_not_configured",
+    "no_forecast_delta",
+    "unknown_bucket",
+    "winter_season",  # v4.7.17.2: calendar-direct winter gate
+})
+
 # Priority (lower than guest_mode=50; higher = wins)
 DYNAMIC_PRESET_PRIORITY: Final = 30
 GUEST_MODE_PRIORITY: Final = 50
