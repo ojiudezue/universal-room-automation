@@ -418,14 +418,17 @@ class DynamicPresetOverrideSource:
             c = 0
         if c < 0:
             c = 0
-        # Only set if we have a positive value — leave dict empty when
-        # restored count is 0 (matches the never-fired pattern).
+        # v4.7.18 C-M3: pair count and last_blocked_at restoration. If count
+        # is 0, REJECT the timestamp too — a "last_blocked_at" without a
+        # counter is logically inconsistent (you can't have a "last blocked
+        # at" without ever being blocked). Prevents Shipwatch H4 from reading
+        # a malformed `blocked_count=0, last_blocked_at=<iso>` shape.
         if c > 0:
             self._relax_ceiling_blocked_count[zone_id] = c
-        if last_blocked_at is not None:
-            if last_blocked_at.tzinfo is None:
-                last_blocked_at = last_blocked_at.replace(tzinfo=timezone.utc)
-            self._relax_ceiling_last_blocked_at[zone_id] = last_blocked_at
+            if last_blocked_at is not None:
+                if last_blocked_at.tzinfo is None:
+                    last_blocked_at = last_blocked_at.replace(tzinfo=timezone.utc)
+                self._relax_ceiling_last_blocked_at[zone_id] = last_blocked_at
         _LOGGER.debug(
             "DynamicPreset: restored zone=%s relax_ceiling_blocked_count=%d last_blocked_at=%s",
             zone_id, c,

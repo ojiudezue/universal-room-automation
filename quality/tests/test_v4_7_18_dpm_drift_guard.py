@@ -338,6 +338,29 @@ class TestCounterRestartResilience:
             "(Bug #11 pattern)."
         )
 
+    def test_restore_rejects_timestamp_when_count_is_zero(self):
+        """C-M3: a malformed pre-restart attrs dict carrying count=0 with a
+        non-None last_blocked_at must NOT restore the timestamp. Both fields
+        are tied — Shipwatch H4 reads them as a pair and an inconsistent
+        shape (`blocked_count=0, last_blocked_at=<iso>`) is rejected."""
+        source = _make_source()
+        stale_ts = datetime(2026, 5, 30, 12, 0, tzinfo=_UTC)
+
+        source.restore_blocked_counter(
+            zone_id="zone_inconsistent",
+            count=0,
+            last_blocked_at=stale_ts,
+        )
+
+        # Neither dict should carry an entry for this zone.
+        assert source._relax_ceiling_blocked_count.get("zone_inconsistent", 0) == 0, (
+            "C-M3: count=0 must leave _relax_ceiling_blocked_count empty for zone."
+        )
+        assert "zone_inconsistent" not in source._relax_ceiling_last_blocked_at, (
+            "C-M3: when count=0, last_blocked_at MUST also be rejected — "
+            "the two fields must restore as a pair."
+        )
+
 
 # ---------------------------------------------------------------------------
 # Test 6 — H4 close-out timing gate
