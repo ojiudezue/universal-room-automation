@@ -581,8 +581,7 @@
           "zone_dynamic_preset_hot_sleep_low": "Hot: Sleep Low",
           "zone_dynamic_preset_hot_sleep_high": "Hot: Sleep High",
           "zone_dynamic_preset_extreme_sleep_low": "Extreme: Sleep Low",
-          "zone_dynamic_preset_extreme_sleep_high": "Extreme: Sleep High",
-          "zone_dynamic_preset_customize_buckets": "Customize bucket temperature ranges for this zone"
+          "zone_dynamic_preset_extreme_sleep_high": "Extreme: Sleep High"
         },
         "data_description": {
           "zone_dynamic_preset_enabled": "When enabled, DPM adjusts this zone's thermostat setpoints based on outdoor conditions.",
@@ -604,11 +603,9 @@
           "zone_dynamic_preset_hot_sleep_low": "Minimum cooling setpoint (°F) for sleep preset in hot conditions.",
           "zone_dynamic_preset_hot_sleep_high": "Maximum cooling setpoint (°F) for sleep preset in hot conditions.",
           "zone_dynamic_preset_extreme_sleep_low": "Minimum cooling setpoint (°F) for sleep preset in extreme conditions.",
-          "zone_dynamic_preset_extreme_sleep_high": "Maximum cooling setpoint (°F) for sleep preset in extreme conditions.",
-          "zone_dynamic_preset_customize_buckets": "When checked, expand the 'Customize Bucket Ranges' section to set per-bucket temperature ranges. When unchecked, the system derives ranges from the seasonal baseline + zone offset automatically."
+          "zone_dynamic_preset_extreme_sleep_high": "Maximum cooling setpoint (°F) for sleep preset in extreme conditions."
         },
         "sections": {
-          "customize_buckets_section": "Customize Bucket Ranges",
           "sleep_section": "Sleep Preset Ranges"
         }
       },
@@ -1626,8 +1623,6 @@
       "derived_entity_missing": "Auto-derived Envoy entity not found in Home Assistant — serial may be wrong, or the Enphase integration is partial.",
       "envoy_derived_missing": "One or more critical Envoy-derived entities are missing. Check that the Enphase integration is fully set up for this Envoy serial.",
       "cover_temp_hysteresis_too_small": "Cover Open Temp must be at least 3°F below Cover Close Temp to prevent solar-gain flapping. Adjust either value and try again.",
-      "dynamic_preset_range_invalid": "Cool low must be at least 2°F below cool high for each bucket (minimum deadband). Adjust the range and try again.",
-      "dynamic_preset_sleep_below_floor": "Sleep cool high would fall below the 74°F floor after applying the zone offset. Raise the sleep cool high value or reduce the offset.",
       "baseline_preset_invalid_deadband": "Each season/preset row's Cool High must be at least 3°F above its Heat Low. Adjust the values and try again."
     },
     "abort": {
