@@ -4206,17 +4206,49 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 v = self._config_entry.options.get(key)
             return str(v) if v is not None else default
 
-        # v4.7.18 D4: relax-ceiling mode dropdown options. Labels match
-        # the operator-approved strings in §3 of the planning doc; UI
-        # text comes from strings.json. The 5-option list is the
-        # authoritative source — DPM_RELAX_CEILING_MODES tuple in
-        # energy_const.py mirrors this. Default `auto` (recommended).
+        # v4.7.18 D4 + fix-up C-M2: relax-ceiling mode dropdown. Labels +
+        # per-option descriptions both come verbatim from planning §3
+        # ("Operator-approved labels + helper text — DO NOT paraphrase").
+        # HA's SelectOptionDict only carries {label, value}; per-option
+        # descriptions are concatenated into the label with an em-dash
+        # separator (the URA-precedent path — no `translation_key` plumbing
+        # exists elsewhere in this file). DPM_RELAX_CEILING_MODES tuple in
+        # energy_const.py mirrors the 5 option values. Default `auto`.
         _ceiling_mode_options = [
-            {"label": "Auto (recommended)", "value": DPM_RELAX_CEILING_MODE_AUTO},
-            {"label": "Conservative — skip above 85°F", "value": DPM_RELAX_CEILING_MODE_CONSERVATIVE_85},
-            {"label": "Moderate — skip above 90°F", "value": DPM_RELAX_CEILING_MODE_MODERATE_90},
-            {"label": "Aggressive — skip above 95°F", "value": DPM_RELAX_CEILING_MODE_AGGRESSIVE_95},
-            {"label": "Off — no ceiling", "value": DPM_RELAX_CEILING_MODE_OFF},
+            {
+                "label": (
+                    "Auto (recommended) — Self-tuning based on your local "
+                    "climate history. Adjusts seasonally."
+                ),
+                "value": DPM_RELAX_CEILING_MODE_AUTO,
+            },
+            {
+                "label": (
+                    "Conservative — skip above 85°F — Tighter comfort margin."
+                ),
+                "value": DPM_RELAX_CEILING_MODE_CONSERVATIVE_85,
+            },
+            {
+                "label": (
+                    "Moderate — skip above 90°F — Sane fallback for most "
+                    "climates."
+                ),
+                "value": DPM_RELAX_CEILING_MODE_MODERATE_90,
+            },
+            {
+                "label": (
+                    "Aggressive — skip above 95°F — More relaxation; accepts "
+                    "heat-wave drift."
+                ),
+                "value": DPM_RELAX_CEILING_MODE_AGGRESSIVE_95,
+            },
+            {
+                "label": (
+                    "Off — no ceiling — Pure rolling-median behavior "
+                    "(v4.7.17.2 default)."
+                ),
+                "value": DPM_RELAX_CEILING_MODE_OFF,
+            },
         ]
         # Defensive: if entry.options holds a non-matching string (manual
         # edit / future migration drift), surface the default instead of
