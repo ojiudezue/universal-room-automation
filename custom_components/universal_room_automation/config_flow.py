@@ -4275,70 +4275,17 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             ),
         })
 
-    def _validate_dynamic_preset_input(
-        self,
-        user_input: dict,
-        zone_name: str,
-        sleep_floor: float,
-        conf_enabled: str,
-        conf_offset: str,
-        conf_sleep_enabled: str,
-        conf_cool_home_low: str,
-        conf_cool_home_high: str,
-        conf_mild_home_low: str,
-        conf_mild_home_high: str,
-        conf_hot_home_low: str,
-        conf_hot_home_high: str,
-        conf_extreme_home_low: str,
-        conf_extreme_home_high: str,
-        min_deadband: float,
-        zone_prefix: str = "",
-    ) -> str:
-        """Shared per-zone preset validation helper (v4.7.2 D1).
-
-        Validates per-zone bucket ranges extracted from user_input.
-        When zone_prefix is set, keys are expected as f"{zone_prefix}__{key}".
-        Returns an error string key on failure, empty string on success.
-
-        Sync invariant: called by both Surface 1 (async_step_hvac_dynamic_preset)
-        and Surface 2 (async_step_zone_dynamic_preset). Error keys are identical.
-        """
-        def _key(k):
-            return f"{zone_prefix}__{k}" if zone_prefix else k
-
-        enabled = user_input.get(_key(conf_enabled), False)
-        if not enabled:
-            return ""
-
-        sleep_enabled = user_input.get(_key(conf_sleep_enabled), False)
-        bucket_pairs = [
-            (_key(conf_cool_home_low), _key(conf_cool_home_high), "cool"),
-            (_key(conf_mild_home_low), _key(conf_mild_home_high), "mild"),
-            (_key(conf_hot_home_low), _key(conf_hot_home_high), "hot"),
-            (_key(conf_extreme_home_low), _key(conf_extreme_home_high), "extreme"),
-        ]
-        for low_key, high_key, bname in bucket_pairs:
-            low = user_input.get(low_key)
-            high = user_input.get(high_key)
-            if low is None or high is None:
-                return f"dynamic_preset_bucket_required_{bname}"
-            if float(low) > float(high) - min_deadband:
-                return "dynamic_preset_range_invalid"
-
-        if sleep_enabled:
-            offset = float(user_input.get(_key(conf_offset), 0.0))
-            sleep_high_keys = [
-                _key(conf_cool_home_high).replace("home_high", "sleep_high"),
-                _key(conf_mild_home_high).replace("home_high", "sleep_high"),
-                _key(conf_hot_home_high).replace("home_high", "sleep_high"),
-                _key(conf_extreme_home_high).replace("home_high", "sleep_high"),
-            ]
-            for shk in sleep_high_keys:
-                sleep_high = user_input.get(shk)
-                if sleep_high is not None and float(sleep_high) + offset < sleep_floor:
-                    return "dynamic_preset_sleep_below_floor"
-
-        return ""
+    # v4.7.18 D2: `_validate_dynamic_preset_input` deleted.
+    #
+    # The shared helper validated per-zone bucket-cell ranges (cool/mild/hot/
+    # extreme home_low/home_high pairs + sleep-below-floor checks). D1 of
+    # this cycle stripped Surface 2's bucket cells (the runtime no longer
+    # reads them — the median-driven mechanic supersedes operator-tuned
+    # ranges). With no caller remaining in production code, the helper is
+    # dead. Obsolete v4.7.2 / v4.7.4 AST tests that asserted its existence
+    # or its call from Surface 2 have been removed alongside it. The
+    # `customize_buckets` toggle and the inline `_buckets_raw`/`_sleep_raw`
+    # extraction blocks were removed in D1.
 
     async def async_step_hvac_baseline_presets(self, user_input=None):
         """HVAC Coordinator → Configure → Baseline Presets (Seasonal).

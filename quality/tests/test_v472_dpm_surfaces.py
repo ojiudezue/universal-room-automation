@@ -153,17 +153,10 @@ class TestD1HvacDynamicPresetStep:
             "Surface 1 must call _build_hvac_dynamic_preset_schema"
         )
 
-    def test_validate_dynamic_preset_input_helper_exists(self, config_flow_src):
-        assert "def _validate_dynamic_preset_input(" in config_flow_src
-
-    def test_validate_helper_accepts_zone_prefix(self, config_flow_src):
-        idx = config_flow_src.find("def _validate_dynamic_preset_input(")
-        # Signature + keyword-only defaults can span up to 600 chars
-        body = config_flow_src[idx:idx + 700]
-        assert "zone_prefix" in body, (
-            "_validate_dynamic_preset_input must accept zone_prefix so it can "
-            "handle both Surface 1 (prefixed keys) and Surface 2 (bare keys)"
-        )
+    # v4.7.18 D2: test_validate_dynamic_preset_input_helper_exists DROPPED.
+    # The shared helper was deleted in D2 after D1 stripped Surface 2's
+    # bucket cells (no remaining caller in production code).
+    # v4.7.18 D2: test_validate_helper_accepts_zone_prefix DROPPED — same.
 
     def test_build_hvac_dynamic_preset_schema_exists(self, config_flow_src):
         assert "def _build_hvac_dynamic_preset_schema(" in config_flow_src
@@ -333,17 +326,10 @@ class TestC1ValidationParityBothSurfaces:
     # test_surface_1_calls_validate_helper DROPPED (v4.7.4 D1: Surface 1 has no per-zone fields).
     # test_validate_helper_called_with_zone_prefix_in_surface_1 DROPPED (same reason).
 
-    def test_surface_2_calls_validate_helper(self, config_flow_src):
-        """C1 CRITICAL fix: Surface 2 must delegate to shared helper."""
-        idx = config_flow_src.find("async def async_step_zone_dynamic_preset(")
-        assert idx > 0, "Surface 2 must exist"
-        # v4.7.4 D3 expanded this function; validate call is ~6100 chars in.
-        body = config_flow_src[idx:idx + 9000]
-        assert "_validate_dynamic_preset_input" in body, (
-            "C1 fix: Surface 2 (async_step_zone_dynamic_preset) MUST call "
-            "_validate_dynamic_preset_input — sync invariant with Surface 1. "
-            "Inline validation in Surface 2 was replaced by shared helper call."
-        )
+    # v4.7.18 D2: test_surface_2_calls_validate_helper DROPPED. The helper
+    # was deleted in D2 after D1 stripped Surface 2's bucket cells. Surface 2
+    # now collapses to 4 fields (enabled/offset/reset_guest/sleep_enabled)
+    # with no per-bucket validation needed.
 
     def test_surface_2_no_inline_bucket_keys_loop(self, config_flow_src):
         """C1 fix: Surface 2 must NOT contain the old inline bucket_keys validation loop."""
@@ -358,22 +344,9 @@ class TestC1ValidationParityBothSurfaces:
             "loop — validation must be delegated to _validate_dynamic_preset_input"
         )
 
-    def test_validate_helper_called_with_zone_prefix_empty_in_surface_2(self, config_flow_src):
-        """Surface 2 passes zone_prefix='' (bare keys) to the shared helper."""
-        idx = config_flow_src.find("async def async_step_zone_dynamic_preset(")
-        assert idx > 0
-        # Surface 2 is a large function — use 8000-char window to reach the
-        # validate call (~7040 chars into the function body post-v4.7.5
-        # unlink wiring).
-        body = config_flow_src[idx:idx + 8000]
-        # zone_prefix="" means keys are not prefixed (Surface 2 shows one zone at a time).
-        assert 'zone_prefix=""' in body or "zone_prefix=''" in body, (
-            "C1 fix: Surface 2 must pass zone_prefix='' to _validate_dynamic_preset_input "
-            "— Surface 2 presents bare (unprefixed) keys; Surface 1 uses zone_name prefix"
-        )
-
+    # v4.7.18 D2: test_validate_helper_called_with_zone_prefix_empty_in_surface_2
+    # DROPPED. Helper deleted; Surface 2 has no per-bucket validation path.
     # test_validate_helper_called_with_zone_prefix_in_surface_1 DROPPED (v4.7.4 D1).
-    # Surface 1 no longer calls _validate_dynamic_preset_input with any zone prefix.
 
 
 # ===========================================================================
