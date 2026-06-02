@@ -410,28 +410,39 @@ class DynamicPresetOverrideSource:
         if not zone_data.get(CONF_ZONE_DYNAMIC_PRESET_ENABLED, False):
             return [], "gate_disabled"
 
-        # --- v4.7.17.2: resolve the coordinator-owned PresetManager ONCE.
-        # Used by (a) winter-gate short-circuit and (b) seasonal baseline
-        # lookup in `_build_overrides_with_reason`. Pre-deploy Tier 1 H1:
-        # do NOT construct a fresh `PresetManager(self.hass)` per tick —
-        # that loses `_current_season` continuity and bypasses any CM
-        # override caching the resolved PM holds.
+        # --- v4.7.17.2 fix-up (A-H1 + B-M3): winter gate is a calendar fact,
+        # not a cross-coordinator PM-state fact. The previous PM-based check
+        # (resolved_pm.current_season == SEASON_WINTER) silently failed open
+        # on two paths:
+        #   1. PresetManager._current_season is "" until determine_season()
+        #      fires (HVAC setup + once daily), so cold-start ticks would
+        #      skip the winter gate even in January.
+        #   2. _current_season is never refreshed across season boundaries
+        #      without an HA restart, so a Nov 1 boundary crossing on a
+        #      long-running HA would also miss the gate.
+        # Use dt_util.now() (HA local timezone) — "winter" is an
+        # operator-facing-calendar concept, not UTC. Months per planning
+        # doc §4 (Nov, Dec, Jan, Feb).
+        month = dt_util.now().month
+        if month in (11, 12, 1, 2):
+            return [], "winter_season"
+
+        # --- v4.7.17.2: resolve the coordinator-owned PresetManager ONCE
+        # for the seasonal baseline lookup in `_build_overrides_with_reason`.
+        # Pre-deploy Tier 1 H1: do NOT construct a fresh `PresetManager(
+        # self.hass)` per tick — that loses `_current_season` continuity and
+        # bypasses any CM override caching the resolved PM holds.
         resolved_pm = None
         try:
             from ..const import DOMAIN
-            from .hvac_const import SEASON_WINTER
             _cm = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
             if _cm is not None:
                 _hvac = _cm.coordinators.get("hvac")
                 if _hvac is not None:
                     resolved_pm = getattr(_hvac, "_preset_manager", None)
-                    if resolved_pm is not None:
-                        _season = getattr(resolved_pm, "current_season", "")
-                        if _season == SEASON_WINTER:
-                            return [], "winter_season"
         except Exception:  # noqa: BLE001
             _LOGGER.debug(
-                "DynamicPreset zone=%s: winter-gate probe errored — proceeding (fail-open)",
+                "DynamicPreset zone=%s: resolved_pm probe errored — proceeding (fail-open)",
                 zone_id, exc_info=True,
             )
 
