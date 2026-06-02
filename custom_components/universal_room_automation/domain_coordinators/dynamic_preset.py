@@ -424,7 +424,17 @@ class DynamicPresetOverrideSource:
         # at" without ever being blocked). Prevents Shipwatch H4 from reading
         # a malformed `blocked_count=0, last_blocked_at=<iso>` shape.
         if c > 0:
-            self._relax_ceiling_blocked_count[zone_id] = c
+            # v4.7.18 fix-up B-L2: restart-window race. The sensor subscribes
+            # to SIGNAL_DYNAMIC_PRESET_TRANSITIONED / _OVERRIDES_UPDATED
+            # BEFORE async_get_last_state() completes; if an EC tick happens
+            # to fire the heat-wave gate inside this microsecond window for
+            # a cold-start zone (counter 0 → 1), the unconditional assignment
+            # below would clobber the freshly-incremented in-memory value.
+            # Take MAX of restored vs. current in-memory so a transient
+            # increment is preserved. Same `later-wins` rule for the
+            # timestamp.
+            current = self._relax_ceiling_blocked_count.get(zone_id, 0)
+            self._relax_ceiling_blocked_count[zone_id] = max(current, c)
             if last_blocked_at is not None:
                 if last_blocked_at.tzinfo is None:
                     last_blocked_at = last_blocked_at.replace(tzinfo=timezone.utc)
@@ -443,7 +453,13 @@ class DynamicPresetOverrideSource:
                     )
                     last_blocked_at = None
                 if last_blocked_at is not None:
-                    self._relax_ceiling_last_blocked_at[zone_id] = last_blocked_at
+                    # v4.7.18 fix-up B-L2: take MAX (later-wins) so a
+                    # freshly-stamped in-memory value isn't clobbered by an
+                    # older stored value if the restore lands after the
+                    # gate's first fire.
+                    current_ts = self._relax_ceiling_last_blocked_at.get(zone_id)
+                    if current_ts is None or last_blocked_at > current_ts:
+                        self._relax_ceiling_last_blocked_at[zone_id] = last_blocked_at
         _LOGGER.debug(
             "DynamicPreset: restored zone=%s relax_ceiling_blocked_count=%d last_blocked_at=%s",
             zone_id, c,

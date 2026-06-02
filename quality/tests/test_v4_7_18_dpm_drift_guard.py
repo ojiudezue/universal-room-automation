@@ -460,6 +460,40 @@ class TestCounterRestartResilience:
             "the two fields must restore as a pair."
         )
 
+    def test_restore_blocked_counter_preserves_higher_in_memory(self):
+        """v4.7.18 fix-up B-L2: restart-window race. If the EC tick fires the
+        heat-wave gate inside the microsecond window between listener
+        subscription and `async_get_last_state()` completion, the in-memory
+        counter can be bumped (e.g., 0 → 1) BEFORE restore lands. The naive
+        unconditional assignment in restore_blocked_counter would clobber
+        the fresh in-memory value with the lower stored value. Fix uses
+        max() — later/higher wins."""
+        source = _make_source()
+        zone_id = "zone_race"
+
+        # Simulate the gate already firing post-restart (in-memory bumped
+        # to 5) BEFORE the restore call lands.
+        source._relax_ceiling_blocked_count[zone_id] = 5
+        in_memory_ts = datetime(2026, 6, 2, 15, 0, tzinfo=_UTC)
+        source._relax_ceiling_last_blocked_at[zone_id] = in_memory_ts
+
+        # Restore lands afterwards with the (older, lower) stored values.
+        older_ts = datetime(2026, 6, 1, 12, 0, tzinfo=_UTC)
+        source.restore_blocked_counter(
+            zone_id=zone_id,
+            count=3,  # lower than in-memory 5
+            last_blocked_at=older_ts,  # older than in-memory ts
+        )
+
+        assert source._relax_ceiling_blocked_count[zone_id] == 5, (
+            "B-L2: in-memory counter (5) must be preserved against the "
+            "lower stored value (3) — max() / later-wins."
+        )
+        assert source._relax_ceiling_last_blocked_at[zone_id] == in_memory_ts, (
+            "B-L2: the more-recent in-memory timestamp must be preserved "
+            "against the older stored timestamp."
+        )
+
 
 # ---------------------------------------------------------------------------
 # Test 6 — H4 close-out timing gate
