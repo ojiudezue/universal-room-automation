@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.7.17.1
+# Universal Room Automation vv4.7.17.2
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -6989,21 +6989,56 @@ class DynamicPresetActiveBucketSensor(AggregationEntity, SensorEntity, RestoreEn
 
             state = source.get_zone_state(self._zone_id) if source else {}
 
-            # Get WPM data for delta/apparent high
+            # Get WPM data for relative_delta + rolling median context.
+            # v4.7.17.2: attribute names renamed to reflect the new semantic
+            # (forecast vs 14-day rolling median, not forecast vs cool_target).
             mgr = self.hass.data.get(DOMAIN, {}).get("weather_manager")
             apparent_high = None
-            delta_f = None
-            baseline_high = None
+            relative_delta_f = None
+            rolling_median = None
             if mgr is not None:
                 apparent_high = mgr.current_apparent_forecast_high()
-                delta_f = mgr.baseline_delta_for_zone(self._zone_id, "home")
-                if apparent_high is not None and delta_f is not None:
-                    baseline_high = apparent_high - delta_f
+                relative_delta_f = mgr.baseline_delta_for_zone(self._zone_id, "home")
+                if apparent_high is not None and relative_delta_f is not None:
+                    rolling_median = apparent_high - relative_delta_f
+
+            # v4.7.17.2: derive the operator-knob-driven cool_high adjustment
+            # so the sensor surfaces what DPM is actually doing today.
+            cool_high_adjustment_f = None
+            if relative_delta_f is not None and mgr is not None:
+                try:
+                    from .domain_coordinators.energy_const import (
+                        CONF_DPM_COOL_DAY_RELAX_F,
+                        CONF_DPM_HOT_DAY_TIGHTEN_F,
+                        DEFAULT_DPM_COOL_DAY_RELAX_F,
+                        DEFAULT_DPM_HOT_DAY_TIGHTEN_F,
+                    )
+                    from .domain_coordinators.dynamic_preset import (
+                        _compute_cool_high_adjustment,
+                    )
+                    cm_opts = self._config_entry.options if self._config_entry else {}
+                    _relax = float(cm_opts.get(
+                        CONF_DPM_COOL_DAY_RELAX_F, DEFAULT_DPM_COOL_DAY_RELAX_F,
+                    ))
+                    _tighten = float(cm_opts.get(
+                        CONF_DPM_HOT_DAY_TIGHTEN_F, DEFAULT_DPM_HOT_DAY_TIGHTEN_F,
+                    ))
+                    cool_high_adjustment_f = round(
+                        _compute_cool_high_adjustment(
+                            relative_delta_f, _relax, _tighten,
+                        ),
+                        2,
+                    )
+                except Exception:  # noqa: BLE001
+                    cool_high_adjustment_f = None
 
             return {
-                "delta_f": round(delta_f, 1) if delta_f is not None else None,
+                # v4.7.17.2: legacy `delta_f` / `baseline_high_f` names
+                # renamed for semantic accuracy. Kept the same shape.
+                "relative_delta_f": round(relative_delta_f, 1) if relative_delta_f is not None else None,
                 "apparent_high_f": apparent_high,
-                "baseline_high_f": baseline_high,
+                "rolling_median_apparent_high_f": rolling_median,
+                "cool_high_adjustment_f": cool_high_adjustment_f,
                 "last_transition_iso": state.get("last_transition_iso"),
                 "dwell_remaining_min": state.get("dwell_remaining_min"),
                 "active_overrides_count": len(zone_overrides),

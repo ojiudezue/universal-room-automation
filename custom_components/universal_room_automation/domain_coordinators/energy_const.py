@@ -212,6 +212,45 @@ DEFAULT_DYNAMIC_PRESET_DWELL_MINUTES: Final = 60
 DEFAULT_DYNAMIC_PRESET_HYSTERESIS_F: Final = 2.0
 DEFAULT_DYNAMIC_PRESET_ENABLED: Final = False
 DEFAULT_DYNAMIC_PRESET_NOTIFY_ON_TRANSITION: Final = False
+
+# v4.7.17.2: Operator-facing DPM knobs (the only 2 surfaces the operator
+# tunes for cool/hot-day behavior). Both house-wide, both °F, both 0.0-3.0
+# range. Defaults from operator's framing memo example: "70-75 → 70-76 on
+# cool day, 70-74 on hot day" → each knob = 1.0°F adjustment.
+CONF_DPM_COOL_DAY_RELAX_F: Final = "dpm_cool_day_relax_f"
+DEFAULT_DPM_COOL_DAY_RELAX_F: Final = 1.0  # °F added to cool_high on cool days
+CONF_DPM_HOT_DAY_TIGHTEN_F: Final = "dpm_hot_day_tighten_f"
+DEFAULT_DPM_HOT_DAY_TIGHTEN_F: Final = 1.0  # °F subtracted from cool_high on hot days
+
+# v4.7.17.2: Internal-only constants for the rolling-median mechanic.
+# NOT exposed in config_flow, NOT operator-tunable. Code-only adjustment
+# requires a deploy. Calibration rationale per planning doc §3:
+#  - 14-day window: long enough to smooth single-day forecast noise,
+#    short enough to track seasonal transitions
+#  - 7-day minimum: emit nothing below this (median would be too noisy)
+#  - 2.0°F dead zone around median: prevents flicker when relative_delta
+#    hovers near zero
+DPM_ROLLING_WINDOW_DAYS: Final = 14
+DPM_ROLLING_WINDOW_MIN_DAYS: Final = 7
+DPM_RELATIVE_DELTA_DEADZONE_F: Final = 2.0
+
+# v4.7.17.2 fix-up (B-H2): canonical DPM skip-reason taxonomy. Single
+# source of truth — referenced from the producer (dynamic_preset.py
+# docstrings + return paths) and the consumer (energy.py
+# _dynamic_preset_skip_reasons comment). Adding a new reason here is
+# the gate: tests assert producer-return-set equals this frozenset, so
+# drift is caught at test time. Keep alphabetical for diff stability.
+DPM_SKIP_REASONS: Final[frozenset[str]] = frozenset({
+    "canonical_label_mismatch",
+    "dwell_pending",
+    "evaluation_failed",
+    "gate_disabled",
+    "home_range_not_configured",
+    "no_forecast_delta",
+    "unknown_bucket",
+    "winter_season",  # v4.7.17.2: calendar-direct winter gate
+})
+
 # Priority (lower than guest_mode=50; higher = wins)
 DYNAMIC_PRESET_PRIORITY: Final = 30
 GUEST_MODE_PRIORITY: Final = 50

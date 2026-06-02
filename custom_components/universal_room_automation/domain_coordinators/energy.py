@@ -442,9 +442,8 @@ class EnergyCoordinator(BaseCoordinator):
         # v4.7.7 B2: skip_reason per zone from the most recent evaluate call.
         # Populated when overrides is empty for that zone; missing key means
         # the zone produced overrides (no skip).
-        # Allowed reasons: gate_disabled / no_forecast_delta / dwell_pending
-        #   / unknown_bucket / home_range_not_configured
-        #   / canonical_label_mismatch / evaluation_failed
+        # Allowed reasons: see canonical `DPM_SKIP_REASONS` frozenset in
+        # energy_const.py (single source of truth — fix-up B-H2 v4.7.17.2).
         # Read by DynamicPresetOverridesAppliedSensor.extra_state_attributes
         # to expose the per-zone reason on the existing skipped_zones attr.
         self._dynamic_preset_skip_reasons: dict[str, str] = {}

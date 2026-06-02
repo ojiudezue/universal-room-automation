@@ -17,8 +17,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import statistics
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta
 try:
     from enum import StrEnum
 except ImportError:  # Python < 3.11
@@ -30,6 +31,7 @@ from typing import Any
 
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.event import async_track_state_change_event
+from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
 from .energy_const import (
@@ -41,6 +43,9 @@ from .energy_const import (
     DEFAULT_WEATHER_ENTITY,
     DEFAULT_WEATHER_STALENESS_MAX_HOURS,
     DEFAULT_WEATHER_DIVERGENCE_THRESHOLD_F,
+    # v4.7.17.2: rolling-median mechanic constants
+    DPM_ROLLING_WINDOW_DAYS,
+    DPM_ROLLING_WINDOW_MIN_DAYS,
 )
 from .signals import SIGNAL_WEATHER_PROVIDER_CHANGED, SIGNAL_WEATHER_DIVERGENCE_DETECTED
 
@@ -118,6 +123,16 @@ class WeatherProviderManager:
         # WPM-C2: track tasks created by state-change handler (Bug #19)
         self._pending_refresh_tasks: set[asyncio.Task] = set()
 
+        # v4.7.17.2: rolling 14-day median of forecast apparent_high.
+        # In-memory list of (date_iso, value) tuples. Persisted via HA Store
+        # under key 'ura_dpm_apparent_high_ring' (hydrated lazily in
+        # async_setup; saved on every record). DPM's relative_delta semantic
+        # (today vs rolling median) replaces the v4.7.16.4 indoor-target frame.
+        self._apparent_high_ring: list[tuple[str, float]] = []
+        self._apparent_high_store: Store = Store(
+            hass, version=1, key="ura_dpm_apparent_high_ring"
+        )
+
     # -------------------------------------------------------------------------
     # Lifecycle
     # -------------------------------------------------------------------------
@@ -133,6 +148,19 @@ class WeatherProviderManager:
             legacy = self._options.get(CONF_ENERGY_WEATHER_ENTITY, DEFAULT_WEATHER_ENTITY)
             if legacy:
                 providers = [legacy]
+
+        # v4.7.17.2 fix-up B-H1: hydrate the ring BEFORE registering
+        # state-change listeners. If listener registration happened first,
+        # a provider state-change scheduled by HA core could fire
+        # _handle_provider_state_change, which schedules a tracked refresh
+        # task. That task races the in-flight Store.async_load(): the
+        # refresh appends today's entry to a not-yet-hydrated empty ring
+        # and persists, then the hydrate completes and overwrites the
+        # in-memory ring with the OLD pre-race contents — silently
+        # discarding today's entry. Bug Class #45 (concurrent reload race)
+        # variant. Doing hydrate first closes the window — listeners are
+        # registered against a fully-initialized ring.
+        await self._hydrate_rolling_window_from_store()
 
         for entity_id in providers:
             if not entity_id:
@@ -211,21 +239,33 @@ class WeatherProviderManager:
             return (None, 0.0)
 
     def baseline_delta_for_zone(self, zone_id: str, preset: str = "home") -> float | None:
-        """Return (forecast_apparent_high − zone_home_baseline_cool_high).
+        """Return (today's forecast_apparent_high − 14-day rolling median).
 
-        Pulls the zone's home cool_high from HVAC's PresetManager via
-        SEASONAL_DEFAULTS[current_season]["home"][0]. Returns None when
-        forecast is unavailable.
+        v4.7.17.2 semantic change: the baseline is now the rolling 14-day
+        median of forecast apparent_high (a self-tuning proxy for "what
+        feels normal here"), NOT the operator's indoor cool_target. The
+        operator framing memo rejected the indoor-target frame because
+        it conflated "what I want indoors" with "what counts as a mild
+        outdoor day."
+
+        zone_id and preset args are retained for signature stability —
+        the rolling median is house-wide (single location, single weather
+        provider), so zone-level baselines no longer apply. Callers at
+        sensor.py + energy.py do not need to change.
+
+        Returns None when:
+          - forecast is unavailable (provider unhealthy / startup race)
+          - rolling window has < DPM_ROLLING_WINDOW_MIN_DAYS entries
+            (just-deployed install; ring is filling)
         """
         forecast = self._cached_forecast
         if forecast is None or forecast.apparent_high is None:
             return None
 
-        # Resolve the zone's home baseline cool_high via HVAC PresetManager
-        baseline_high = self._get_zone_baseline_high(zone_id, preset)
-        if baseline_high is None:
+        baseline_median = self._rolling_median_apparent_high()
+        if baseline_median is None:
             return None
-        return forecast.apparent_high - baseline_high
+        return forecast.apparent_high - baseline_median
 
     # -------------------------------------------------------------------------
     # Internal helpers
@@ -442,6 +482,24 @@ class WeatherProviderManager:
                     divergence_f=divergence_f,
                     fetched_at=dt_util.utcnow(),
                 )
+                # v4.7.17.2: record today's apparent_high into the rolling
+                # window for DPM's relative_delta computation. Dedupe by
+                # date inside _record_daily_apparent_high — same date called
+                # twice in one day is a single ring entry.
+                #
+                # v4.7.17.2 fix-up A-H2: ring key uses UTC date, not local.
+                # Semantic: one canonical reading per UTC day. WPM's other
+                # datetimes (fetched_at, last_changed comparisons) are all
+                # UTC; mixing local-date keys with UTC timestamps created a
+                # DST/tz-boundary regression risk on the cycle's central
+                # correctness anchor. NOTE: this is INTENTIONALLY different
+                # from the DPM winter gate's dt_util.now() — winter is a
+                # calendar/operator-facing concept, this ring key is a
+                # canonical-day concept.
+                if apparent_high is not None:
+                    await self._record_daily_apparent_high(
+                        dt_util.utcnow().date().isoformat(), float(apparent_high),
+                    )
             else:
                 self._cached_forecast = None
         else:
@@ -519,56 +577,115 @@ class WeatherProviderManager:
         threshold = self._divergence_threshold_f()
         return (delta, delta >= threshold)
 
-    def _get_zone_baseline_high(self, zone_id: str, preset: str) -> float | None:
-        """Read zone's home cool_high from HVAC PresetManager.
+    # -------------------------------------------------------------------------
+    # v4.7.17.2: Rolling 14-day median of forecast apparent_high
+    #
+    # Replaces the v4.7.16.4 _get_zone_baseline_high path. The rolling
+    # median is a self-tuning proxy for "what feels normal here" — no
+    # operator config required, naturally adapts to seasonal transitions
+    # and climate shift. Persisted across HA restarts via HA Store under
+    # key 'ura_dpm_apparent_high_ring' (cap 14 entries, keyed by ISO date).
+    # -------------------------------------------------------------------------
 
-        Returns None if PresetManager is not available.
+    def _rolling_median_apparent_high(self) -> float | None:
+        """Return median of the ring; None if fewer than MIN_DAYS entries.
 
-        v4.7.16.3 hotfix: previous implementation tried ``getattr`` on two
-        instance attributes that PresetManager does not expose:
-        ``SEASONAL_DEFAULTS`` (module constant in ``hvac_const.py:284``,
-        never bound to the instance) and ``zone_presets`` (does not exist
-        at all). Both probes returned None → every call returned None →
-        ``baseline_delta_for_zone`` returned None → DPM emitted
-        ``skipped_zones_with_reason: "no_forecast_delta"`` on every tick.
-        Silently broken since the v4.7.3 baseline-editor refactor moved
-        zone-level overrides to CM ``entry.options``.
+        Below DPM_ROLLING_WINDOW_MIN_DAYS (7), the median is too noisy
+        to trust — DPM falls back to the existing 'no_forecast_delta'
+        skip reason, identical UX to a stale forecast. After 7+ entries
+        accumulate (one per day post-deploy), DPM begins emitting.
+        """
+        if len(self._apparent_high_ring) < DPM_ROLLING_WINDOW_MIN_DAYS:
+            return None
+        values = [v for _, v in self._apparent_high_ring]
+        return float(statistics.median(values))
 
-        The canonical accessor is ``get_seasonal_setpoints(preset)`` at
-        ``hvac_preset.py:118``. It already merges SEASONAL_DEFAULTS with
-        CM ``entry.options`` per-CONF overrides (v4.7.3 D2 contract) and
-        uses the current season — exactly what we want.
+    async def _record_daily_apparent_high(
+        self, date_iso: str, value: float,
+    ) -> None:
+        """Append today's apparent_high to the ring; dedupe by date; cap at
+        DPM_ROLLING_WINDOW_DAYS; persist via Store.
+
+        Called once per day from `_refresh_all_providers_locked` when a
+        fresh forecast lands. Same-day calls update the existing entry
+        rather than appending (forecast may be refreshed multiple times
+        on the same calendar day).
+        """
+        # Dedupe by date — replace if today already recorded
+        for i, (existing_date, _) in enumerate(self._apparent_high_ring):
+            if existing_date == date_iso:
+                if self._apparent_high_ring[i][1] != value:
+                    self._apparent_high_ring[i] = (date_iso, value)
+                    await self._persist_ring()
+                return
+        # New date — append, evict oldest if over cap
+        self._apparent_high_ring.append((date_iso, value))
+        while len(self._apparent_high_ring) > DPM_ROLLING_WINDOW_DAYS:
+            self._apparent_high_ring.pop(0)
+        await self._persist_ring()
+
+    async def _persist_ring(self) -> None:
+        """Save the ring to HA Store. Cap is 14 entries → tiny write.
+
+        Pre-deploy Tier 1 M3: log Store failures at WARNING level so a
+        silent disk/permission/schema-corruption failure surfaces in HA
+        logs. Without this the rolling window would degrade to in-memory
+        only and the operator would never know — across the next restart
+        DPM would silently revert to the 7-day cold-start no-op state.
         """
         try:
-            from ..const import DOMAIN
-            manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
-            if manager is None:
-                return None
-            hvac = manager.coordinators.get("hvac")
-            if hvac is None:
-                return None
-            preset_mgr = getattr(hvac, "_preset_manager", None)
-            if preset_mgr is None:
-                return None
-            # Tuple shape per hvac_const.py:283 + hvac.py:1197 canonical
-            # consumer: (cool_setpoint, heat_setpoint). The cool setpoint
-            # IS the "cool_high" we want — index 0, not 1. v4.7.16.3
-            # shipped pair[1] (heat) and biased DPM one bucket hotter
-            # across all summer days (e.g., 91°F forecast - 70°F heat
-            # setpoint = 21°F delta = EXTREME bucket vs intended 91 - 77
-            # cool setpoint = 14°F = HOT bucket). Caught by retroactive
-            # Tier 1 review against canonical contract.
-            pair = preset_mgr.get_seasonal_setpoints(preset)  # (cool_setpoint, heat_setpoint)
-            if pair is None:
-                return None
-            return float(pair[0])
-        except Exception:
-            _LOGGER.debug(
-                "WeatherProviderManager._get_zone_baseline_high failed for zone=%s",
-                zone_id,
+            await self._apparent_high_store.async_save(
+                {"ring": [list(entry) for entry in self._apparent_high_ring]}
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.warning(
+                "WeatherProviderManager: DPM rolling-window persist failed — "
+                "ring will not survive restart. Check disk/permissions.",
                 exc_info=True,
             )
-            return None
+
+    async def _hydrate_rolling_window_from_store(self) -> None:
+        """Load the ring from Store on startup; drop entries > 21 days old.
+
+        The 21-day staleness threshold is wider than the 14-day window
+        so a brief multi-day outage doesn't drop otherwise-valid entries.
+        Entries older than that lose enough relevance (e.g., shoulder
+        season transition) that we'd rather start fresh.
+        """
+        try:
+            data = await self._apparent_high_store.async_load()
+        except Exception:  # noqa: BLE001
+            _LOGGER.warning(
+                "WeatherProviderManager: DPM rolling-window hydrate failed — "
+                "starting with empty ring (DPM will no-op until 7 days collected).",
+                exc_info=True,
+            )
+            return
+        if not data or not isinstance(data, dict) or "ring" not in data:
+            return
+        # v4.7.17.2 fix-up A-H2: cutoff uses UTC to match the ring's UTC
+        # date keys (recorded via dt_util.utcnow().date() at the
+        # _record_daily_apparent_high call site).
+        cutoff_date = dt_util.utcnow().date() - timedelta(days=21)
+        cleaned: list[tuple[str, float]] = []
+        for entry in data["ring"]:
+            try:
+                date_iso, value = entry[0], entry[1]
+                entry_date = datetime.fromisoformat(date_iso).date()
+            except (ValueError, TypeError, IndexError):
+                continue
+            if entry_date < cutoff_date:
+                continue
+            try:
+                cleaned.append((date_iso, float(value)))
+            except (ValueError, TypeError):
+                continue
+        # Cap to most-recent DPM_ROLLING_WINDOW_DAYS entries
+        self._apparent_high_ring = cleaned[-DPM_ROLLING_WINDOW_DAYS:]
+        _LOGGER.debug(
+            "WeatherProviderManager: rolling window hydrated with %d entries",
+            len(self._apparent_high_ring),
+        )
 
     # -------------------------------------------------------------------------
     # State-change event handler (Bug #42: @callback-decorated bound method)

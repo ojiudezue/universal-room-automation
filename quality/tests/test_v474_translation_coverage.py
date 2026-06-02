@@ -132,11 +132,13 @@ class TestD5NoPrefixedFieldKeys:
 class TestD5Surface1FieldCoverage:
     """D5: Every Surface 1 field key must have a translation entry."""
 
+    # v4.7.17.2: Surface 1 redesigned. Was 6 fields (master + 5 advanced).
+    # Now 5 fields (master + 2 visible knobs + 2 advanced). Bucket-boundary
+    # CONFs removed from form per operator framing.
     _SURFACE1_EXPECTED_FIELDS = [
         "dynamic_preset_enabled",
-        "dynamic_preset_delta_cool_max",
-        "dynamic_preset_delta_mild_max",
-        "dynamic_preset_delta_hot_max",
+        "dpm_cool_day_relax_f",
+        "dpm_hot_day_tighten_f",
         "dynamic_preset_dwell_minutes",
         "dynamic_preset_hysteresis_f",
     ]

@@ -89,7 +89,7 @@ hypotheses:
       the HVAC Coordinator device after install.
     query:
       kind: ha_state
-      entity: number.ura_hvac_coordinator_ac_nudge_eval_delay
+      entity: number.ura_hvac_coordinator_76_ac_nudge_eval_delay
     expected:
       condition: "!="
       value: "unavailable"

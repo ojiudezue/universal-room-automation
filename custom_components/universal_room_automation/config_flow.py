@@ -4076,63 +4076,60 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         import voluptuous as vol
         from .domain_coordinators.energy_const import (
             CONF_DYNAMIC_PRESET_ENABLED,
-            CONF_DYNAMIC_PRESET_DELTA_COOL_MAX,
-            CONF_DYNAMIC_PRESET_DELTA_MILD_MAX,
-            CONF_DYNAMIC_PRESET_DELTA_HOT_MAX,
             CONF_DYNAMIC_PRESET_DWELL_MINUTES,
             CONF_DYNAMIC_PRESET_HYSTERESIS_F,
+            # v4.7.17.2: new operator-facing knobs
+            CONF_DPM_COOL_DAY_RELAX_F,
+            CONF_DPM_HOT_DAY_TIGHTEN_F,
+            DEFAULT_DPM_COOL_DAY_RELAX_F,
+            DEFAULT_DPM_HOT_DAY_TIGHTEN_F,
         )
 
         if user_input is not None:
-            errors = {}
-
-            # Validate house-wide bucket boundary ordering:
-            # DELTA_COOL_MAX < DELTA_MILD_MAX < DELTA_HOT_MAX
-            # Tunables arrive inside the "advanced" nested dict when section is submitted.
+            # v4.7.17.2: bucket-boundary CONFs removed from form; validation
+            # block dropped (no cross-field check needed when there are no
+            # boundary fields). New knobs are independent.
             _adv = user_input.get("advanced", user_input)
-            cool_max = float(_adv.get(CONF_DYNAMIC_PRESET_DELTA_COOL_MAX,
-                             user_input.get(CONF_DYNAMIC_PRESET_DELTA_COOL_MAX, -2.0)))
-            mild_max = float(_adv.get(CONF_DYNAMIC_PRESET_DELTA_MILD_MAX,
-                             user_input.get(CONF_DYNAMIC_PRESET_DELTA_MILD_MAX, 8.0)))
-            hot_max = float(_adv.get(CONF_DYNAMIC_PRESET_DELTA_HOT_MAX,
-                            user_input.get(CONF_DYNAMIC_PRESET_DELTA_HOT_MAX, 18.0)))
-            if not (cool_max < mild_max < hot_max):
-                errors["base"] = "dynamic_preset_bucket_boundary_disorder"
 
-            if not errors:
-                # Store house-wide CONFs in CM entry options.
-                cm_update = {
-                    CONF_DYNAMIC_PRESET_ENABLED: bool(
-                        user_input.get(CONF_DYNAMIC_PRESET_ENABLED, False)
-                    ),
-                    CONF_DYNAMIC_PRESET_DELTA_COOL_MAX: cool_max,
-                    CONF_DYNAMIC_PRESET_DELTA_MILD_MAX: mild_max,
-                    CONF_DYNAMIC_PRESET_DELTA_HOT_MAX: hot_max,
-                    CONF_DYNAMIC_PRESET_DWELL_MINUTES: int(
-                        _adv.get(CONF_DYNAMIC_PRESET_DWELL_MINUTES,
-                                 user_input.get(CONF_DYNAMIC_PRESET_DWELL_MINUTES, 60))
-                    ),
-                    CONF_DYNAMIC_PRESET_HYSTERESIS_F: float(
-                        _adv.get(CONF_DYNAMIC_PRESET_HYSTERESIS_F,
-                                 user_input.get(CONF_DYNAMIC_PRESET_HYSTERESIS_F, 2.0))
-                    ),
-                }
-                _LOGGER.info(
-                    "DPM Surface 1 saved house-wide settings (enabled=%s)",
-                    cm_update[CONF_DYNAMIC_PRESET_ENABLED],
-                )
-                self.hass.config_entries.async_update_entry(
-                    self._config_entry,
-                    options={**self._config_entry.options, **cm_update},
-                )
-                return self.async_create_entry(title="", data=self._config_entry.options)
-
-            # Re-render with errors.
-            return self.async_show_form(
-                step_id="hvac_dynamic_preset",
-                data_schema=self._build_hvac_dynamic_preset_schema(user_input),
-                errors=errors,
+            # Store house-wide CONFs in CM entry options.
+            cm_update = {
+                CONF_DYNAMIC_PRESET_ENABLED: bool(
+                    user_input.get(CONF_DYNAMIC_PRESET_ENABLED, False)
+                ),
+                # v4.7.17.2: new operator knobs (visible-by-default).
+                CONF_DPM_COOL_DAY_RELAX_F: float(
+                    user_input.get(
+                        CONF_DPM_COOL_DAY_RELAX_F,
+                        DEFAULT_DPM_COOL_DAY_RELAX_F,
+                    )
+                ),
+                CONF_DPM_HOT_DAY_TIGHTEN_F: float(
+                    user_input.get(
+                        CONF_DPM_HOT_DAY_TIGHTEN_F,
+                        DEFAULT_DPM_HOT_DAY_TIGHTEN_F,
+                    )
+                ),
+                CONF_DYNAMIC_PRESET_DWELL_MINUTES: int(
+                    _adv.get(CONF_DYNAMIC_PRESET_DWELL_MINUTES,
+                             user_input.get(CONF_DYNAMIC_PRESET_DWELL_MINUTES, 60))
+                ),
+                CONF_DYNAMIC_PRESET_HYSTERESIS_F: float(
+                    _adv.get(CONF_DYNAMIC_PRESET_HYSTERESIS_F,
+                             user_input.get(CONF_DYNAMIC_PRESET_HYSTERESIS_F, 2.0))
+                ),
+            }
+            _LOGGER.info(
+                "DPM Surface 1 saved house-wide settings (enabled=%s, "
+                "relax_f=%.1f, tighten_f=%.1f)",
+                cm_update[CONF_DYNAMIC_PRESET_ENABLED],
+                cm_update[CONF_DPM_COOL_DAY_RELAX_F],
+                cm_update[CONF_DPM_HOT_DAY_TIGHTEN_F],
             )
+            self.hass.config_entries.async_update_entry(
+                self._config_entry,
+                options={**self._config_entry.options, **cm_update},
+            )
+            return self.async_create_entry(title="", data=self._config_entry.options)
 
         # Initial render.
         return self.async_show_form(
@@ -4152,11 +4149,13 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         from homeassistant.data_entry_flow import section
         from .domain_coordinators.energy_const import (
             CONF_DYNAMIC_PRESET_ENABLED,
-            CONF_DYNAMIC_PRESET_DELTA_COOL_MAX,
-            CONF_DYNAMIC_PRESET_DELTA_MILD_MAX,
-            CONF_DYNAMIC_PRESET_DELTA_HOT_MAX,
             CONF_DYNAMIC_PRESET_DWELL_MINUTES,
             CONF_DYNAMIC_PRESET_HYSTERESIS_F,
+            # v4.7.17.2: new operator-facing knobs
+            CONF_DPM_COOL_DAY_RELAX_F,
+            CONF_DPM_HOT_DAY_TIGHTEN_F,
+            DEFAULT_DPM_COOL_DAY_RELAX_F,
+            DEFAULT_DPM_HOT_DAY_TIGHTEN_F,
         )
 
         def _f_cm(key, default):
@@ -4173,26 +4172,29 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 v = self._config_entry.options.get(key)
             return bool(v) if v is not None else default
 
+        # v4.7.17.2: Surface 1 now shows 3 visible fields by default
+        # (master toggle + relax + tighten); Advanced collapsed section
+        # holds {dwell, hysteresis} only. Bucket-boundary CONFs removed
+        # from form per operator framing ("internal mechanics MUST NOT
+        # be exposed as control knobs"); they remain in const for the
+        # diagnostic classify_bucket() bucket-label sensor.
         return vol.Schema({
             vol.Optional(
                 CONF_DYNAMIC_PRESET_ENABLED,
                 default=_b_cm(CONF_DYNAMIC_PRESET_ENABLED, False),
             ): bool,
+            vol.Optional(
+                CONF_DPM_COOL_DAY_RELAX_F,
+                default=_f_cm(CONF_DPM_COOL_DAY_RELAX_F, DEFAULT_DPM_COOL_DAY_RELAX_F),
+            ): vol.All(vol.Coerce(float), vol.Range(min=0.0, max=3.0)),
+            vol.Optional(
+                CONF_DPM_HOT_DAY_TIGHTEN_F,
+                default=_f_cm(CONF_DPM_HOT_DAY_TIGHTEN_F, DEFAULT_DPM_HOT_DAY_TIGHTEN_F),
+            ): vol.All(vol.Coerce(float), vol.Range(min=0.0, max=3.0)),
             # v4.7.4 D2: "Advanced (rarely change)" section — collapsed by default.
+            # v4.7.17.2: only dwell + hysteresis remain here.
             vol.Optional("advanced"): section(
                 vol.Schema({
-                    vol.Optional(
-                        CONF_DYNAMIC_PRESET_DELTA_COOL_MAX,
-                        default=_f_cm(CONF_DYNAMIC_PRESET_DELTA_COOL_MAX, -2.0),
-                    ): vol.All(vol.Coerce(float), vol.Range(min=-10.0, max=0.0)),
-                    vol.Optional(
-                        CONF_DYNAMIC_PRESET_DELTA_MILD_MAX,
-                        default=_f_cm(CONF_DYNAMIC_PRESET_DELTA_MILD_MAX, 8.0),
-                    ): vol.All(vol.Coerce(float), vol.Range(min=0.0, max=15.0)),
-                    vol.Optional(
-                        CONF_DYNAMIC_PRESET_DELTA_HOT_MAX,
-                        default=_f_cm(CONF_DYNAMIC_PRESET_DELTA_HOT_MAX, 18.0),
-                    ): vol.All(vol.Coerce(float), vol.Range(min=10.0, max=30.0)),
                     vol.Optional(
                         CONF_DYNAMIC_PRESET_DWELL_MINUTES,
                         default=int(_f_cm(CONF_DYNAMIC_PRESET_DWELL_MINUTES, 60)),
