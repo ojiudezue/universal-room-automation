@@ -637,6 +637,25 @@ class DynamicPresetOverrideSource:
         # preserve `_current_season` continuity. Fall back to a fresh
         # construction only when the resolved PM is unavailable (e.g.,
         # direct call from a test or pre-coordinator-bringup path).
+        #
+        # v4.7.17.2 fix-up B-M2: derive season from the calendar and pass
+        # it explicitly to get_seasonal_setpoints. Without season=, the
+        # accessor falls through to `self._current_season or
+        # self.determine_season()` (hvac_preset.py:132-133) which MUTATES
+        # the resolved PM's _current_season field as a side effect. DPM
+        # under EC must treat the HVAC-owned PM read-only. Same-event-loop
+        # so no data race today, but v4.7.17.2 multiplies the call
+        # frequency by N_zones — codifying read-only access now prevents
+        # quieter forms of cross-coordinator coupling later.
+        from .hvac_const import SUMMER_MONTHS, WINTER_MONTHS, SEASON_SUMMER, SEASON_WINTER, SEASON_SHOULDER
+        _cal_month = dt_util.now().month
+        if _cal_month in SUMMER_MONTHS:
+            _season = SEASON_SUMMER
+        elif _cal_month in WINTER_MONTHS:
+            _season = SEASON_WINTER
+        else:
+            _season = SEASON_SHOULDER
+
         home_low: float | None = None
         home_high: float | None = None
         try:
@@ -644,7 +663,7 @@ class DynamicPresetOverrideSource:
             if _pm is None:
                 from .hvac_preset import PresetManager
                 _pm = PresetManager(self.hass)
-            _season_pair = _pm.get_seasonal_setpoints("home")
+            _season_pair = _pm.get_seasonal_setpoints("home", season=_season)
             if _season_pair is not None:
                 # Tuple is (cool_setpoint, heat_setpoint) — Bug Class #49.
                 home_high = float(_season_pair[0])
