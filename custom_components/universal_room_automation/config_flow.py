@@ -6134,8 +6134,6 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         current_thermostat = zone_data.get(CONF_ZONE_THERMOSTAT)
 
         if user_input is not None:
-            errors = {}
-
             # v4.7.18 D1: Surface 2 schema collapsed to 4 top-level fields
             # (enabled, offset, reset_guest, sleep_enabled). The bucket-cell
             # sections and `customize_buckets` toggle are stripped — bucket
@@ -6143,45 +6141,24 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             # editable on this surface. Validation reduces to the validator
             # function's enabled-only stub (D2). Cross-field bucket validation
             # is no longer reachable because there are no bucket fields.
-
-            if not errors:
-                # v4.7.18 D1: zone_update is a straight copy of user_input
-                # (4 scalar fields; no nested dicts to flatten now that the
-                # section blocks are gone).
-                zone_update = {k: v for k, v in user_input.items()
-                               if not isinstance(v, dict)}
-                _LOGGER.info(
-                    "DPM Surface 2 saved zone=%s (v4.7.18 D1: 4-field surface)",
-                    zone_name,
-                )
-                self._auto_mirror_to_siblings(
-                    zm_entry, zone_name, zone_update, MIRROR_KEYS_ZONE_DPM,
-                    old_thermostat=current_thermostat,
-                )
-                return await self.async_step_zone_config_menu()
-
-            return self.async_show_form(
-                step_id="zone_dynamic_preset",
-                data_schema=self._build_dynamic_preset_schema(
-                    zone_data, user_input,
-                    MIN_TEMP, MAX_TEMP,
-                    CONF_ZONE_DYNAMIC_PRESET_ENABLED,
-                    CONF_ZONE_DYNAMIC_PRESET_OFFSET,
-                    CONF_ZONE_DYNAMIC_PRESET_RESET_OFFSET_GUEST,
-                    CONF_ZONE_DYNAMIC_PRESET_SLEEP_ENABLED,
-                    CONF_ZONE_DYNAMIC_PRESET_CUSTOMIZE_BUCKETS,
-                    CONF_ZONE_DYNAMIC_PRESET_COOL_HOME_LOW, CONF_ZONE_DYNAMIC_PRESET_COOL_HOME_HIGH,
-                    CONF_ZONE_DYNAMIC_PRESET_MILD_HOME_LOW, CONF_ZONE_DYNAMIC_PRESET_MILD_HOME_HIGH,
-                    CONF_ZONE_DYNAMIC_PRESET_HOT_HOME_LOW, CONF_ZONE_DYNAMIC_PRESET_HOT_HOME_HIGH,
-                    CONF_ZONE_DYNAMIC_PRESET_EXTREME_HOME_LOW, CONF_ZONE_DYNAMIC_PRESET_EXTREME_HOME_HIGH,
-                    CONF_ZONE_DYNAMIC_PRESET_COOL_SLEEP_LOW, CONF_ZONE_DYNAMIC_PRESET_COOL_SLEEP_HIGH,
-                    CONF_ZONE_DYNAMIC_PRESET_MILD_SLEEP_LOW, CONF_ZONE_DYNAMIC_PRESET_MILD_SLEEP_HIGH,
-                    CONF_ZONE_DYNAMIC_PRESET_HOT_SLEEP_LOW, CONF_ZONE_DYNAMIC_PRESET_HOT_SLEEP_HIGH,
-                    CONF_ZONE_DYNAMIC_PRESET_EXTREME_SLEEP_LOW, CONF_ZONE_DYNAMIC_PRESET_EXTREME_SLEEP_HIGH,
-                ),
-                errors=errors,
-                description_placeholders={"zone_name": zone_name},
+            # v4.7.18 fix-up B-L1: dead `errors`/`async_show_form` branch
+            # removed — no codepath populates `errors` under the 4-field
+            # shape, so the error-render branch was unreachable. Voluptuous
+            # coercion failures still surface via HA's data-entry-flow
+            # plumbing.
+            # zone_update is a straight copy of user_input (4 scalar fields;
+            # no nested dicts to flatten now that the section blocks are gone).
+            zone_update = {k: v for k, v in user_input.items()
+                           if not isinstance(v, dict)}
+            _LOGGER.info(
+                "DPM Surface 2 saved zone=%s (v4.7.18 D1: 4-field surface)",
+                zone_name,
             )
+            self._auto_mirror_to_siblings(
+                zm_entry, zone_name, zone_update, MIRROR_KEYS_ZONE_DPM,
+                old_thermostat=current_thermostat,
+            )
+            return await self.async_step_zone_config_menu()
 
         # Initial render: use zone_data as defaults
         return self.async_show_form(
