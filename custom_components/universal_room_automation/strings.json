@@ -583,8 +583,7 @@
           "zone_dynamic_preset_hot_sleep_low": "Hot: Sleep Low",
           "zone_dynamic_preset_hot_sleep_high": "Hot: Sleep High",
           "zone_dynamic_preset_extreme_sleep_low": "Extreme: Sleep Low",
-          "zone_dynamic_preset_extreme_sleep_high": "Extreme: Sleep High",
-          "zone_dynamic_preset_customize_buckets": "Customize bucket temperature ranges for this zone"
+          "zone_dynamic_preset_extreme_sleep_high": "Extreme: Sleep High"
         },
         "data_description": {
           "zone_dynamic_preset_enabled": "When enabled, DPM adjusts this zone's thermostat setpoints based on outdoor conditions.",
@@ -606,11 +605,9 @@
           "zone_dynamic_preset_hot_sleep_low": "Minimum cooling setpoint (°F) for sleep preset in hot conditions.",
           "zone_dynamic_preset_hot_sleep_high": "Maximum cooling setpoint (°F) for sleep preset in hot conditions.",
           "zone_dynamic_preset_extreme_sleep_low": "Minimum cooling setpoint (°F) for sleep preset in extreme conditions.",
-          "zone_dynamic_preset_extreme_sleep_high": "Maximum cooling setpoint (°F) for sleep preset in extreme conditions.",
-          "zone_dynamic_preset_customize_buckets": "When checked, expand the 'Customize Bucket Ranges' section to set per-bucket temperature ranges. When unchecked, the system derives ranges from the seasonal baseline + zone offset automatically."
+          "zone_dynamic_preset_extreme_sleep_high": "Maximum cooling setpoint (°F) for sleep preset in extreme conditions."
         },
         "sections": {
-          "customize_buckets_section": "Customize Bucket Ranges",
           "sleep_section": "Sleep Preset Ranges"
         }
       },
@@ -995,6 +992,7 @@
           "dynamic_preset_enabled": "Enable Dynamic Preset Auto-Adjust",
           "dpm_cool_day_relax_f": "Relax cool ceiling on cool-feeling days (°F)",
           "dpm_hot_day_tighten_f": "Tighten cool ceiling on hot-feeling days (°F)",
+          "dpm_relax_ceiling_mode": "Skip relax on hot days",
           "dynamic_preset_dwell_minutes": "Adjustment Dwell Minutes",
           "dynamic_preset_hysteresis_f": "Adjustment Hysteresis (°F)"
         },
@@ -1002,6 +1000,7 @@
           "dynamic_preset_enabled": "Master toggle for the Dynamic Preset feature. When off, all zones fall back to the seasonal baseline setpoints.",
           "dpm_cool_day_relax_f": "How many °F to raise the Home/Sleep cool ceiling on days the forecast feels cooler than the last 2 weeks. 0 = off. Default 1°F (e.g., 70-75 becomes 70-76).",
           "dpm_hot_day_tighten_f": "How many °F to lower the Home/Sleep cool ceiling on days the forecast feels hotter than the last 2 weeks. 0 = off. Default 1°F (e.g., 70-75 becomes 70-74).",
+          "dpm_relax_ceiling_mode": "When the forecast is above this temperature, the system won't widen cool ranges even if today is cooler than recent days. Auto picks a sensible value for your climate.",
           "dynamic_preset_dwell_minutes": "Minutes a cool/hot/typical-day condition must persist before adjustments apply. Prevents rapid cycling. Range: 15-240 min. Default: 60.",
           "dynamic_preset_hysteresis_f": "Temperature band around the adjustment threshold before switching states. Prevents flapping. Range: 0.5-5.0°F. Default: 2.0."
         },
@@ -1628,12 +1627,6 @@
       "derived_entity_missing": "Auto-derived Envoy entity not found in Home Assistant — serial may be wrong, or the Enphase integration is partial.",
       "envoy_derived_missing": "One or more critical Envoy-derived entities are missing. Check that the Enphase integration is fully set up for this Envoy serial.",
       "cover_temp_hysteresis_too_small": "Cover Open Temp must be at least 3°F below Cover Close Temp to prevent solar-gain flapping. Adjust either value and try again.",
-      "dynamic_preset_bucket_required_cool": "Cool bucket values are required when Dynamic Preset is enabled. Fill in both cool_low and cool_high for the cool bucket.",
-      "dynamic_preset_bucket_required_mild": "Mild bucket values are required when Dynamic Preset is enabled. Fill in both cool_low and cool_high for the mild bucket.",
-      "dynamic_preset_bucket_required_hot": "Hot bucket values are required when Dynamic Preset is enabled. Fill in both cool_low and cool_high for the hot bucket.",
-      "dynamic_preset_bucket_required_extreme": "Extreme bucket values are required when Dynamic Preset is enabled. Fill in both cool_low and cool_high for the extreme bucket.",
-      "dynamic_preset_range_invalid": "Cool low must be at least 2°F below cool high for each bucket (minimum deadband). Adjust the range and try again.",
-      "dynamic_preset_sleep_below_floor": "Sleep cool high would fall below the 74°F floor after applying the zone offset. Raise the sleep cool high value or reduce the offset.",
       "baseline_preset_invalid_deadband": "Each season/preset row's Cool High must be at least 3°F above its Heat Low. Adjust the values and try again."
     },
     "abort": {

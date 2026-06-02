@@ -84,6 +84,15 @@ from .energy_const import (
     DEFAULT_DPM_COOL_DAY_RELAX_F,
     DEFAULT_DPM_HOT_DAY_TIGHTEN_F,
     DPM_RELATIVE_DELTA_DEADZONE_F,
+    # v4.7.18 D4: heat-wave relax-ceiling gate
+    CONF_DPM_RELAX_CEILING_MODE,
+    DEFAULT_DPM_RELAX_CEILING_MODE,
+    DPM_RELAX_CEILING_MODE_AUTO,
+    DPM_RELAX_CEILING_MODE_CONSERVATIVE_85,
+    DPM_RELAX_CEILING_MODE_MODERATE_90,
+    DPM_RELAX_CEILING_MODE_AGGRESSIVE_95,
+    DPM_RELAX_CEILING_MODE_OFF,
+    DPM_RELAX_CEILING_AUTO_FALLBACK_F,
     DYNAMIC_PRESET_PRIORITY,
 )
 from .preset_overrides import (
@@ -121,6 +130,70 @@ def _compute_cool_high_adjustment(
     if relative_delta >= DPM_RELATIVE_DELTA_DEADZONE_F:
         return -float(tighten_f)
     return 0.0
+
+
+# v4.7.18 D4: heat-wave relax-ceiling gate. The rolling-median mechanic
+# v4.7.17.2 shipped drifts during sustained heat waves — 30 days of
+# 100°F shifts the median to 100°F so a 95°F day reads as
+# `relative_delta = -5` (cool day) → relax fires while 95°F is still
+# objectively hot. The ceiling gate detects this by anchoring against
+# an absolute threshold derived from the climate's p25 (auto mode) or
+# a fixed named bucket. When today's apparent_high ≥ ceiling AND the
+# relax adjustment is positive, the gate suppresses the relax. Tighten
+# direction is NEVER gated (asymmetric: we suppress relax on hot days;
+# we never suppress tightening).
+_CEILING_SOURCE_AUTO = "auto"
+_CEILING_SOURCE_MANUAL_CONSERVATIVE = "manual_conservative"
+_CEILING_SOURCE_MANUAL_MODERATE = "manual_moderate"
+_CEILING_SOURCE_MANUAL_AGGRESSIVE = "manual_aggressive"
+_CEILING_SOURCE_OFF = "off"
+
+_CEILING_MANUAL_MAP: dict[str, tuple[float, str]] = {
+    DPM_RELAX_CEILING_MODE_CONSERVATIVE_85: (85.0, _CEILING_SOURCE_MANUAL_CONSERVATIVE),
+    DPM_RELAX_CEILING_MODE_MODERATE_90: (90.0, _CEILING_SOURCE_MANUAL_MODERATE),
+    DPM_RELAX_CEILING_MODE_AGGRESSIVE_95: (95.0, _CEILING_SOURCE_MANUAL_AGGRESSIVE),
+}
+
+
+def _resolve_relax_ceiling(
+    today_apparent_high: float | None,
+    p25_apparent_high: float | None,
+    mode: str | None,
+) -> tuple[float | None, str]:
+    """v4.7.18 D4: resolve the absolute °F ceiling above which a relax
+    adjustment is suppressed.
+
+    Resolution table (from PLANNING_v4.7.18 §4):
+      - auto  → p25_apparent_high if available, else DPM_RELAX_CEILING_AUTO_FALLBACK_F (90.0); source="auto"
+      - conservative_85 → 85.0; source="manual_conservative"
+      - moderate_90    → 90.0; source="manual_moderate"
+      - aggressive_95  → 95.0; source="manual_aggressive"
+      - off            → None; source="off"  (gate disabled)
+      - unrecognized string → DEFENSIVE: 90.0; source="manual_moderate"
+
+    today_apparent_high is accepted for signature stability — the
+    resolver does NOT inspect it; the gate caller compares
+    today_apparent_high against the returned ceiling.
+
+    Returns (ceiling_f, source_label).
+    """
+    if mode == DPM_RELAX_CEILING_MODE_OFF:
+        return (None, _CEILING_SOURCE_OFF)
+    if mode == DPM_RELAX_CEILING_MODE_AUTO or mode is None:
+        # Cold start: p25 below DPM_P25_MIN_DAYS → fallback to moderate.
+        if p25_apparent_high is None:
+            return (DPM_RELAX_CEILING_AUTO_FALLBACK_F, _CEILING_SOURCE_AUTO)
+        return (float(p25_apparent_high), _CEILING_SOURCE_AUTO)
+    manual = _CEILING_MANUAL_MAP.get(mode)
+    if manual is not None:
+        return manual
+    # Defensive: unrecognized string → moderate fallback (logged at debug
+    # to avoid log spam during form rendering before save).
+    _LOGGER.debug(
+        "DynamicPreset: unrecognized relax_ceiling_mode=%r — defaulting to moderate (90.0°F)",
+        mode,
+    )
+    return (DPM_RELAX_CEILING_AUTO_FALLBACK_F, _CEILING_SOURCE_MANUAL_MODERATE)
 
 
 class BucketClass(StrEnum):
@@ -283,6 +356,21 @@ class DynamicPresetOverrideSource:
         self._active_bucket: dict[str, str] = {}
         self._last_transition_at: dict[str, datetime] = {}
 
+        # v4.7.18 D5: per-zone relax-ceiling gate counters. Increment each
+        # time the ceiling suppresses a relax that the rolling-median
+        # delta would otherwise have produced. Mirrors the _active_bucket
+        # cross-restart pattern — restored from RestoreEntity attrs via
+        # `restore_blocked_counter`. Monotonically non-decreasing within
+        # a session; only the initial restored value can be > 0 on first
+        # set.
+        self._relax_ceiling_blocked_count: dict[str, int] = {}
+        self._relax_ceiling_last_blocked_at: dict[str, datetime] = {}
+        # Snapshot of the most-recent ceiling decision per zone — read
+        # by the sensor's extra_state_attributes for `relax_ceiling_f` /
+        # `relax_ceiling_source`. None ceiling = "off" mode.
+        self._relax_ceiling_last_value: dict[str, float | None] = {}
+        self._relax_ceiling_last_source: dict[str, str] = {}
+
         # Re-entrancy guard (WPM-C1 pattern; Bug class from plan)
         self._eval_lock: asyncio.Lock = asyncio.Lock()
 
@@ -312,6 +400,72 @@ class DynamicPresetOverrideSource:
             zone_id, bucket, last_transition_at.isoformat() if last_transition_at else None,
         )
 
+    def restore_blocked_counter(
+        self,
+        zone_id: str,
+        count: int | None,
+        last_blocked_at: datetime | None,
+    ) -> None:
+        """v4.7.18 D5: restore the per-zone relax-ceiling counter from
+        RestoreEntity attrs on startup. Mirrors `restore_zone_state` exactly.
+
+        All datetime values must already be UTC-aware (Bug #11). Defensive
+        coercion handles legacy/naïve values.
+        """
+        try:
+            c = int(count) if count is not None else 0
+        except (ValueError, TypeError):
+            c = 0
+        if c < 0:
+            c = 0
+        # v4.7.18 C-M3: pair count and last_blocked_at restoration. If count
+        # is 0, REJECT the timestamp too — a "last_blocked_at" without a
+        # counter is logically inconsistent (you can't have a "last blocked
+        # at" without ever being blocked). Prevents Shipwatch H4 from reading
+        # a malformed `blocked_count=0, last_blocked_at=<iso>` shape.
+        if c > 0:
+            # v4.7.18 fix-up B-L2: restart-window race. The sensor subscribes
+            # to SIGNAL_DYNAMIC_PRESET_TRANSITIONED / _OVERRIDES_UPDATED
+            # BEFORE async_get_last_state() completes; if an EC tick happens
+            # to fire the heat-wave gate inside this microsecond window for
+            # a cold-start zone (counter 0 → 1), the unconditional assignment
+            # below would clobber the freshly-incremented in-memory value.
+            # Take MAX of restored vs. current in-memory so a transient
+            # increment is preserved. Same `later-wins` rule for the
+            # timestamp.
+            current = self._relax_ceiling_blocked_count.get(zone_id, 0)
+            self._relax_ceiling_blocked_count[zone_id] = max(current, c)
+            if last_blocked_at is not None:
+                if last_blocked_at.tzinfo is None:
+                    last_blocked_at = last_blocked_at.replace(tzinfo=timezone.utc)
+                # v4.7.18 fix-up A-L2: reject future timestamps. A corrupted
+                # `last_state.attributes` payload (clock skew, manual edit)
+                # could carry a future-dated value. Discard rather than
+                # render the inconsistent state on the sensor. Self-heals
+                # on the next gate fire anyway, but until then the sensor
+                # would display a misleading "last blocked at" attribute.
+                _now = dt_util.utcnow()
+                if last_blocked_at > _now:
+                    _LOGGER.debug(
+                        "DynamicPreset: discarding future last_blocked_at=%s "
+                        "(now=%s) on restore zone=%s",
+                        last_blocked_at.isoformat(), _now.isoformat(), zone_id,
+                    )
+                    last_blocked_at = None
+                if last_blocked_at is not None:
+                    # v4.7.18 fix-up B-L2: take MAX (later-wins) so a
+                    # freshly-stamped in-memory value isn't clobbered by an
+                    # older stored value if the restore lands after the
+                    # gate's first fire.
+                    current_ts = self._relax_ceiling_last_blocked_at.get(zone_id)
+                    if current_ts is None or last_blocked_at > current_ts:
+                        self._relax_ceiling_last_blocked_at[zone_id] = last_blocked_at
+        _LOGGER.debug(
+            "DynamicPreset: restored zone=%s relax_ceiling_blocked_count=%d last_blocked_at=%s",
+            zone_id, c,
+            last_blocked_at.isoformat() if last_blocked_at else None,
+        )
+
     def get_zone_state(self, zone_id: str) -> dict[str, Any]:
         """Return current state for a zone (for sensor attribute rendering)."""
         now = dt_util.utcnow()
@@ -324,10 +478,26 @@ class DynamicPresetOverrideSource:
             elapsed = (now - last_tx).total_seconds() / 60.0
             remaining = dwell_min - elapsed
             dwell_remaining_min = max(0.0, remaining)
+        # v4.7.18 D5: surface ceiling state on the per-zone dict so the
+        # bucket sensor can render `relax_ceiling_f`, `relax_ceiling_source`,
+        # `relax_ceiling_blocked_count`, `relax_ceiling_last_blocked_at`.
+        blocked_count = self._relax_ceiling_blocked_count.get(zone_id, 0)
+        last_blocked = self._relax_ceiling_last_blocked_at.get(zone_id)
+        ceiling_f = self._relax_ceiling_last_value.get(zone_id)
+        # If the gate has not yet evaluated for this zone (cold start),
+        # report None for ceiling/source — sensor renders as missing.
+        ceiling_source = self._relax_ceiling_last_source.get(zone_id)
         return {
             "bucket": bucket,
             "last_transition_iso": last_tx.isoformat() if last_tx else None,
             "dwell_remaining_min": dwell_remaining_min,
+            # v4.7.18 D5 — relax-ceiling attrs
+            "relax_ceiling_f": ceiling_f,
+            "relax_ceiling_source": ceiling_source,
+            "relax_ceiling_blocked_count": int(blocked_count),
+            "relax_ceiling_last_blocked_at": (
+                last_blocked.isoformat() if last_blocked else None
+            ),
         }
 
     # -------------------------------------------------------------------------
@@ -473,6 +643,71 @@ class DynamicPresetOverrideSource:
         cool_high_adjustment_f = _compute_cool_high_adjustment(
             delta, relax_f, tighten_f,
         )
+
+        # v4.7.18 D4: heat-wave relax-ceiling gate. Fetch today's
+        # apparent_high + p25 via WPM (single source of truth — Option B
+        # in planning §6 risk 4). Defensive — fail-open on any error:
+        # missing WPM → ceiling stays None → gate inactive (preserves
+        # v4.7.17.2 behavior).
+        ceiling_mode = options.get(
+            CONF_DPM_RELAX_CEILING_MODE, DEFAULT_DPM_RELAX_CEILING_MODE,
+        )
+        today_apparent_high: float | None = None
+        p25_apparent_high: float | None = None
+        try:
+            from ..const import DOMAIN
+            _wpm = self.hass.data.get(DOMAIN, {}).get("weather_manager")
+            if _wpm is not None:
+                today_apparent_high = _wpm.current_apparent_forecast_high()
+                # _p25_apparent_high may be absent on stale modules during
+                # hot-reload — getattr guard preserves fail-open.
+                _p25_fn = getattr(_wpm, "_p25_apparent_high", None)
+                if callable(_p25_fn):
+                    p25_apparent_high = _p25_fn()
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "DynamicPreset zone=%s: relax-ceiling WPM probe errored — gate fail-open",
+                zone_id, exc_info=True,
+            )
+
+        ceiling_f, ceiling_source = _resolve_relax_ceiling(
+            today_apparent_high, p25_apparent_high, ceiling_mode,
+        )
+        # Snapshot for sensor exposure (D5).
+        # v4.7.18 fix-up A-L3: only snapshot the ceiling when the gate is
+        # actually armable (today_apparent_high is not None). Otherwise the
+        # sensor would render `relax_ceiling_f=90.0, relax_ceiling_source="auto"`
+        # while the gate cannot fire (WPM down or cold-start) — operator
+        # would think the gate is armed when it cannot suppress anything.
+        # When WPM is unavailable, leave the per-zone snapshot untouched
+        # (preserves last known value if any) and surface None on cold start.
+        if today_apparent_high is not None:
+            self._relax_ceiling_last_value[zone_id] = ceiling_f
+            self._relax_ceiling_last_source[zone_id] = ceiling_source
+
+        # Gate fires only when:
+        #   - mode is not "off" (ceiling_f is not None), AND
+        #   - WPM has today's forecast (today_apparent_high not None), AND
+        #   - today ≥ ceiling (objectively hot day), AND
+        #   - the adjustment is positive (relax direction).
+        # Tighten direction is NEVER gated.
+        if (
+            ceiling_f is not None
+            and today_apparent_high is not None
+            and today_apparent_high >= ceiling_f
+            and cool_high_adjustment_f > 0.0
+        ):
+            self._relax_ceiling_blocked_count[zone_id] = (
+                self._relax_ceiling_blocked_count.get(zone_id, 0) + 1
+            )
+            self._relax_ceiling_last_blocked_at[zone_id] = now
+            _LOGGER.info(
+                "DynamicPreset zone=%s: relax-ceiling blocked (today=%.1f°F >= "
+                "ceiling=%.1f°F, source=%s) — suppressing +%.1f°F relax",
+                zone_id, today_apparent_high, ceiling_f, ceiling_source,
+                cool_high_adjustment_f,
+            )
+            cool_high_adjustment_f = 0.0
 
         # --- Classify fresh bucket
         fresh_bucket = classify_bucket(delta, cool_max, mild_max, hot_max)
