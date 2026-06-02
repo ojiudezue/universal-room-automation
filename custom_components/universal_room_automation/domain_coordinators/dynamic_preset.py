@@ -428,7 +428,22 @@ class DynamicPresetOverrideSource:
             if last_blocked_at is not None:
                 if last_blocked_at.tzinfo is None:
                     last_blocked_at = last_blocked_at.replace(tzinfo=timezone.utc)
-                self._relax_ceiling_last_blocked_at[zone_id] = last_blocked_at
+                # v4.7.18 fix-up A-L2: reject future timestamps. A corrupted
+                # `last_state.attributes` payload (clock skew, manual edit)
+                # could carry a future-dated value. Discard rather than
+                # render the inconsistent state on the sensor. Self-heals
+                # on the next gate fire anyway, but until then the sensor
+                # would display a misleading "last blocked at" attribute.
+                _now = dt_util.utcnow()
+                if last_blocked_at > _now:
+                    _LOGGER.debug(
+                        "DynamicPreset: discarding future last_blocked_at=%s "
+                        "(now=%s) on restore zone=%s",
+                        last_blocked_at.isoformat(), _now.isoformat(), zone_id,
+                    )
+                    last_blocked_at = None
+                if last_blocked_at is not None:
+                    self._relax_ceiling_last_blocked_at[zone_id] = last_blocked_at
         _LOGGER.debug(
             "DynamicPreset: restored zone=%s relax_ceiling_blocked_count=%d last_blocked_at=%s",
             zone_id, c,
@@ -643,8 +658,16 @@ class DynamicPresetOverrideSource:
             today_apparent_high, p25_apparent_high, ceiling_mode,
         )
         # Snapshot for sensor exposure (D5).
-        self._relax_ceiling_last_value[zone_id] = ceiling_f
-        self._relax_ceiling_last_source[zone_id] = ceiling_source
+        # v4.7.18 fix-up A-L3: only snapshot the ceiling when the gate is
+        # actually armable (today_apparent_high is not None). Otherwise the
+        # sensor would render `relax_ceiling_f=90.0, relax_ceiling_source="auto"`
+        # while the gate cannot fire (WPM down or cold-start) — operator
+        # would think the gate is armed when it cannot suppress anything.
+        # When WPM is unavailable, leave the per-zone snapshot untouched
+        # (preserves last known value if any) and surface None on cold start.
+        if today_apparent_high is not None:
+            self._relax_ceiling_last_value[zone_id] = ceiling_f
+            self._relax_ceiling_last_source[zone_id] = ceiling_source
 
         # Gate fires only when:
         #   - mode is not "off" (ceiling_f is not None), AND

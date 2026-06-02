@@ -197,6 +197,83 @@ class TestStoreHydrateCap:
         # But verify the ring is non-trivial:
         assert all(80.0 <= v <= 82.0 for _, v in mgr._apparent_high_ring)
 
+    def test_hydrate_preserves_newest_90_when_chronologically_ordered(self):
+        """v4.7.18 fix-up A-L1: production writes the ring chronologically
+        ascending (oldest first, newest last) via `_record_daily_apparent_high`
+        append. After `cleaned[-90:]`, the retained 90 entries MUST be the
+        NEWEST 90, not the oldest 90. This locks the ordering contract."""
+        wm = _load_weather_manager()
+        WeatherProviderManager = wm.WeatherProviderManager
+
+        hass = _make_hass()
+        mgr = WeatherProviderManager(hass, {})
+
+        # Chronologically ASCENDING: oldest=today-94, newest=today.
+        today = datetime.now(_UTC).date()
+        entries = []
+        for i in range(95):
+            d = today - timedelta(days=94 - i)  # i=0 → today-94, i=94 → today
+            entries.append([d.isoformat(), 80.0 + i * 0.01])
+
+        async def _fake_load():
+            return {"ring": entries}
+
+        mgr._apparent_high_store = MagicMock()
+        mgr._apparent_high_store.async_load = _fake_load
+
+        import asyncio
+        asyncio.run(mgr._hydrate_rolling_window_from_store())
+
+        # Length is 90 (cap).
+        assert len(mgr._apparent_high_ring) == DPM_ROLLING_WINDOW_MAX_DAYS
+
+        # OLDEST retained entry = entries[5] = today - 89, value = 80.05.
+        # NEWEST retained entry = entries[94] = today, value = 80.94.
+        first_date, first_value = mgr._apparent_high_ring[0]
+        last_date, last_value = mgr._apparent_high_ring[-1]
+        assert first_date == (today - timedelta(days=89)).isoformat(), (
+            "A-L1: cleaned[-90:] must retain the NEWEST 90 chronologically. "
+            f"Got first_date={first_date}, expected today-89."
+        )
+        assert last_date == today.isoformat(), (
+            "A-L1: cleaned[-90:] last entry must be 'today' (the newest). "
+            f"Got {last_date}."
+        )
+        # Values monotonically ascending → confirms order preserved.
+        assert first_value == pytest.approx(80.05)
+        assert last_value == pytest.approx(80.94)
+
+
+# ---------------------------------------------------------------------------
+# A-L1 also: hydrate ordering (must run BEFORE listener registration)
+# ---------------------------------------------------------------------------
+
+
+class TestHydrateOrderingBeforeListeners:
+    """v4.7.18 fix-up A-L1: `async_setup` MUST call
+    `_hydrate_rolling_window_from_store()` BEFORE registering the
+    `async_track_state_change_event` listeners. Otherwise a provider
+    state-change can race the in-flight hydrate and silently discard
+    today's entry (Bug Class #45). The fix landed in v4.7.17.2; this
+    test locks the contract so a future refactor cannot regress it."""
+
+    def test_hydrate_called_before_listener_registration(self):
+        wm = _load_weather_manager()
+        # AST/source-level lock: in `async_setup`, the
+        # `_hydrate_rolling_window_from_store` call MUST appear BEFORE the
+        # first `async_track_state_change_event` invocation.
+        import inspect
+        src = inspect.getsource(wm.WeatherProviderManager.async_setup)
+        hydrate_idx = src.find("_hydrate_rolling_window_from_store")
+        listener_idx = src.find("async_track_state_change_event")
+        assert hydrate_idx != -1, "hydrate call missing from async_setup"
+        assert listener_idx != -1, "listener registration missing from async_setup"
+        assert hydrate_idx < listener_idx, (
+            "A-L1: `_hydrate_rolling_window_from_store()` must run BEFORE "
+            "`async_track_state_change_event(...)` in async_setup. "
+            f"Got hydrate at offset {hydrate_idx}, listener at {listener_idx}."
+        )
+
 
 # ---------------------------------------------------------------------------
 # Test 3 — WPM accessor used (not kwarg)
@@ -338,6 +415,28 @@ class TestCounterRestartResilience:
             "(Bug #11 pattern)."
         )
 
+    def test_restore_drops_future_timestamp(self):
+        """v4.7.18 fix-up A-L2: a future-dated `last_blocked_at` (clock
+        skew or manual edit) must be discarded on restore. Self-healing
+        on next gate fire — but the sensor shouldn't render an
+        inconsistent future timestamp in the meantime."""
+        source = _make_source()
+        # 1 hour in the future relative to dt_util.utcnow().
+        future_ts = datetime.now(_UTC) + timedelta(hours=1)
+        source.restore_blocked_counter(
+            zone_id="zone_future",
+            count=5,
+            last_blocked_at=future_ts,
+        )
+        # Counter restores (the value itself is fine), but the timestamp
+        # is discarded.
+        assert source._relax_ceiling_blocked_count.get("zone_future", 0) == 5, (
+            "A-L2: counter must still restore — only the future timestamp is dropped."
+        )
+        assert "zone_future" not in source._relax_ceiling_last_blocked_at, (
+            "A-L2: future-dated last_blocked_at must NOT restore."
+        )
+
     def test_restore_rejects_timestamp_when_count_is_zero(self):
         """C-M3: a malformed pre-restart attrs dict carrying count=0 with a
         non-None last_blocked_at must NOT restore the timestamp. Both fields
@@ -446,6 +545,85 @@ class TestHeatWaveGateTiming:
         assert source._relax_ceiling_blocked_count.get("z1", 0) == 0, (
             "Decision 6: mode=off must disable the gate even at 110°F."
         )
+
+    def test_ceiling_snapshot_skipped_when_wpm_unavailable(self):
+        """v4.7.18 fix-up A-L3: when WPM probe returns None for
+        today_apparent_high (cold-start or provider down), the per-zone
+        ceiling snapshot must NOT be populated. Otherwise the sensor
+        would show `relax_ceiling_f=90.0` (auto fallback) while the
+        gate cannot fire — misleading operator telemetry."""
+        opts = _default_options()
+        opts[CONF_DPM_COOL_DAY_RELAX_F] = 1.0
+        opts[CONF_DPM_HOT_DAY_TIGHTEN_F] = 1.0
+        opts[CONF_DPM_RELAX_CEILING_MODE] = DPM_RELAX_CEILING_MODE_AUTO
+
+        source = _make_source(options=opts)
+
+        # WPM accessor returns None (provider down) → gate inactive.
+        mock_wpm = MagicMock()
+        mock_wpm.current_apparent_forecast_high = MagicMock(return_value=None)
+        mock_wpm._p25_apparent_high = MagicMock(return_value=None)
+
+        from custom_components.universal_room_automation.const import DOMAIN
+        source.hass.data = {DOMAIN: {"weather_manager": mock_wpm}}
+
+        zone_data = _default_zone_data(
+            enabled=True, offset=0.0, reset_guest=True, sleep_enabled=False,
+        )
+        source.evaluate_and_emit(
+            zone_id="z_cold_wpm",
+            zone_data=zone_data,
+            delta=-3.0,
+            house_state="home",
+            apparent_high=82.0,
+            baseline_high=76.0,
+        )
+
+        # No snapshot recorded for this zone — get_zone_state returns None
+        # for both fields (matches "gate not armable" intent).
+        assert "z_cold_wpm" not in source._relax_ceiling_last_value, (
+            "A-L3: when today_apparent_high is None, the per-zone "
+            "_relax_ceiling_last_value snapshot MUST be skipped — otherwise "
+            "sensor renders an armed ceiling while gate cannot fire."
+        )
+        assert "z_cold_wpm" not in source._relax_ceiling_last_source, (
+            "A-L3: matching skip applies to _relax_ceiling_last_source."
+        )
+
+    def test_ceiling_snapshot_recorded_when_wpm_available(self):
+        """v4.7.18 fix-up A-L3 (positive case): when WPM provides
+        today_apparent_high, the snapshot IS recorded (gate is armable)."""
+        opts = _default_options()
+        opts[CONF_DPM_COOL_DAY_RELAX_F] = 1.0
+        opts[CONF_DPM_HOT_DAY_TIGHTEN_F] = 1.0
+        opts[CONF_DPM_RELAX_CEILING_MODE] = DPM_RELAX_CEILING_MODE_AUTO
+
+        source = _make_source(options=opts)
+
+        mock_wpm = MagicMock()
+        mock_wpm.current_apparent_forecast_high = MagicMock(return_value=82.0)
+        mock_wpm._p25_apparent_high = MagicMock(return_value=None)
+
+        from custom_components.universal_room_automation.const import DOMAIN
+        source.hass.data = {DOMAIN: {"weather_manager": mock_wpm}}
+
+        zone_data = _default_zone_data(
+            enabled=True, offset=0.0, reset_guest=True, sleep_enabled=False,
+        )
+        source.evaluate_and_emit(
+            zone_id="z_warm",
+            zone_data=zone_data,
+            delta=-3.0,
+            house_state="home",
+            apparent_high=82.0,
+            baseline_high=76.0,
+        )
+
+        assert source._relax_ceiling_last_value.get("z_warm") == DPM_RELAX_CEILING_AUTO_FALLBACK_F, (
+            "A-L3 positive: WPM available → ceiling snapshot recorded "
+            "(p25=None → auto fallback 90.0°F)."
+        )
+        assert source._relax_ceiling_last_source.get("z_warm") == "auto"
 
     def test_tighten_direction_never_gated(self):
         # Hot day (high delta) → adjustment is negative (tighten).
