@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.7.18
+# Universal Room Automation vv4.7.18.1
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -3850,6 +3850,8 @@ class PresenceHouseStateSensor(AggregationEntity, SensorEntity):
                 }
             # v4.7.15 D3: WAKING-gate diagnostic counter.
             attrs["wake_blocked_ticks"] = getattr(presence, "_wake_blocked_ticks", 0)
+            # v4.7.18.1 D2: Daytime wake-backstop diagnostic counter.
+            attrs["wake_backstop_fires"] = getattr(presence, "_wake_backstop_fires", 0)
             attrs["zones"] = {
                 name: {
                     "mode": tracker.mode,
