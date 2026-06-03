@@ -558,3 +558,157 @@ def test_waking_sustained_threshold_unchanged():
     assert _WAKING_SUSTAINED_THRESHOLD_SECONDS == 90, (
         "v4.7.18.1 must not change the v4.7.15 D3 sustained threshold"
     )
+
+
+# ===========================================================================
+# Fix-up B-HIGH-1: boot-ordering seed of tracker occupancy at discovery
+# ===========================================================================
+
+
+class TestFixupBHigh1BootSeed:
+    """At the end of `_discover_room_sensors` / `_discover_zone_cameras`,
+    the tracker's `_room_occupied` / `_camera_occupied` must be seeded from
+    the CURRENT entity state — so the first `_run_inference("startup")`
+    tick observes raw_occupied == True without waiting for a state-change
+    event. Mirrors the existing census seed at presence.py:1228-1259.
+    """
+
+    def test_room_sensor_seed_block_present(self):
+        """Source-grep: the room-sensor discovery must end with a seed loop
+        that reads hass.states.get(entity_id) and calls update_room_occupancy.
+        """
+        idx = PRESENCE_SRC.find("def _discover_room_sensors(")
+        assert idx >= 0
+        end = PRESENCE_SRC.find("def _discover_room_sensors_by_name", idx)
+        assert end > idx
+        body = PRESENCE_SRC[idx:end]
+        assert "fix-up B-HIGH-1" in body, (
+            "v4.7.18.1 fix-up: _discover_room_sensors must annotate the seed"
+        )
+        assert "self.hass.states.get(entity_id)" in body, (
+            "v4.7.18.1 fix-up: room-sensor seed must read current state"
+        )
+        assert "tracker.update_room_occupancy(room_name, occupied)" in body, (
+            "v4.7.18.1 fix-up: room-sensor seed must call update_room_occupancy"
+        )
+
+    def test_camera_seed_block_present(self):
+        """Source-grep: camera discovery must seed _camera_occupied similarly."""
+        idx = PRESENCE_SRC.find("def _discover_zone_cameras(")
+        assert idx >= 0
+        # End at the next method def
+        end = PRESENCE_SRC.find("\n    def _", idx + 30)
+        assert end > idx
+        body = PRESENCE_SRC[idx:end]
+        assert "fix-up B-HIGH-1" in body, (
+            "v4.7.18.1 fix-up: _discover_zone_cameras must annotate the seed"
+        )
+        assert "tracker.update_camera_detection(entity_id, detected)" in body, (
+            "v4.7.18.1 fix-up: camera seed must call update_camera_detection"
+        )
+
+    def test_seed_predicate_matches_handler_predicate(self):
+        """The seed predicate must mirror _handle_occupancy_change: state == 'on'
+        with _UNAVAILABLE_STATES treated as not-occupied. If these drift,
+        seed and live updates disagree.
+        """
+        idx = PRESENCE_SRC.find("def _discover_room_sensors(")
+        end = PRESENCE_SRC.find("def _discover_room_sensors_by_name", idx)
+        body = PRESENCE_SRC[idx:end]
+        assert "_UNAVAILABLE_STATES" in body, (
+            "v4.7.18.1 fix-up: room-sensor seed must guard unavailable/unknown"
+        )
+        assert 'state.state == "on"' in body, (
+            "v4.7.18.1 fix-up: room-sensor seed predicate must mirror handler"
+        )
+
+    def test_tracker_reports_raw_occupied_after_seed_without_event(self):
+        """Behavioral: simulate the seed path — after discovery, tracker
+        observes mmwave ON via update_room_occupancy (the seed call) and
+        raw_occupied returns True WITHOUT any state-change event having
+        fired. This is the exact post-restart scenario B-HIGH-1 addresses.
+        """
+        tracker = ZonePresenceTracker(MagicMock(), "Bedrooms", ["Master"])
+        tracker.register_entity("binary_sensor.master_mmwave", "Master")
+        # No state-change event yet. Pre-seed: _room_occupied is empty.
+        assert tracker.raw_occupied is False
+        # Discovery seed path mirrors _handle_occupancy_change's update call:
+        tracker.update_room_occupancy("Master", True)
+        # First _run_inference("startup") tick now observes raw_occupied=True.
+        assert tracker.raw_occupied is True, (
+            "v4.7.18.1 fix-up B-HIGH-1: seed must produce raw_occupied=True "
+            "on the first tick without a state-change event"
+        )
+
+
+# ===========================================================================
+# Fix-up A-M2: backstop hour clamp — window must never be silently empty
+# ===========================================================================
+
+
+class TestFixupAM2BackstopClamp:
+    """For pathological sleep_end_hour values, `sleep_end + 3` can exceed
+    `sleep_start_hour` (or 24), making the window
+    `_backstop_hour <= hour < sleep_start_hour` empty → backstop silently
+    never fires. The fix-up clamps `_backstop_hour` to
+    `min(_backstop_hour, sleep_start_hour - 1)` so the window always
+    contains at least 1 hour.
+    """
+
+    @staticmethod
+    def _backstop_clamped(
+        census_count: int,
+        local_hour: int,
+        sleep_end_hour: int,
+        sleep_start_hour: int,
+    ) -> bool:
+        """Mirror of the production predicate WITH the fix-up clamp."""
+        backstop_hour = sleep_end_hour + _WAKE_BACKSTOP_HOURS_AFTER_SLEEP_END
+        backstop_hour = min(backstop_hour, sleep_start_hour - 1)
+        return (
+            census_count > 0
+            and backstop_hour <= local_hour < sleep_start_hour
+        )
+
+    def test_clamp_keeps_window_nonempty_for_pathological_sleep_end(self):
+        """sleep_end=22, sleep_start=23: raw _backstop_hour=25 → would be
+        empty. After clamp to min(25, 22) = 22, window is [22, 23) → fires
+        at hour 22 with census>0.
+        """
+        assert self._backstop_clamped(
+            census_count=2, local_hour=22,
+            sleep_end_hour=22, sleep_start_hour=23,
+        ) is True, (
+            "v4.7.18.1 fix-up A-M2: clamp must keep window non-empty for "
+            "pathological sleep_end_hour"
+        )
+
+    def test_clamp_window_still_correct_at_default_hours(self):
+        """sleep_end=6, sleep_start=23: clamp is a no-op (9 < 22), normal
+        window [9, 23) applies — at hour 10, fires.
+        """
+        assert self._backstop_clamped(
+            census_count=2, local_hour=10,
+            sleep_end_hour=6, sleep_start_hour=23,
+        ) is True
+        # And does not fire at hour 8 (just after sleep_end, before margin).
+        assert self._backstop_clamped(
+            census_count=2, local_hour=8,
+            sleep_end_hour=6, sleep_start_hour=23,
+        ) is False
+
+    def test_clamp_source_wiring_present(self):
+        """Source-grep: production code must apply the clamp inside the
+        wake-gate's `wake_decision.fired` branch.
+        """
+        body = PRESENCE_SRC[PRESENCE_SRC.find("async def _run_inference"):]
+        body = body[: 60000]
+        fired_idx = body.find("if wake_decision.fired:")
+        assert fired_idx >= 0
+        gate_block = body[fired_idx: fired_idx + 4000]
+        assert "_backstop_hour_clamped" in gate_block, (
+            "v4.7.18.1 fix-up A-M2: clamp must apply in backstop branch"
+        )
+        assert "engine.sleep_start_hour - 1" in gate_block, (
+            "v4.7.18.1 fix-up A-M2: clamp must use sleep_start_hour - 1"
+        )

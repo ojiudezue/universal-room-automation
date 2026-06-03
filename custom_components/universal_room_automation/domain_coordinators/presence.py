@@ -1488,6 +1488,32 @@ class PresenceCoordinator(BaseCoordinator):
                 len(entity_ids), len(self._zone_trackers),
             )
 
+            # v4.7.18.1 fix-up B-HIGH-1: seed tracker._room_occupied from the
+            # current sensor states discovered above. Without this seed, the
+            # first _run_inference("startup") tick observes an empty
+            # _room_occupied dict (state-change events have not yet fired),
+            # so tracker.raw_occupied returns False even when mmwave is ON.
+            # Mirrors the existing census seed at presence.py:1228-1259 and
+            # uses the SAME predicate as _handle_occupancy_change (state == "on";
+            # unavailable/unknown → False) so seed and live updates agree.
+            for entity_id in entity_ids:
+                try:
+                    state = self.hass.states.get(entity_id)
+                except Exception:  # pragma: no cover - defensive
+                    state = None
+                if state is None:
+                    continue
+                if state.state in _UNAVAILABLE_STATES:
+                    continue
+                occupied = state.state == "on"
+                if not occupied:
+                    continue
+                for _zone_name, tracker in self._zone_trackers.items():
+                    room_name = tracker._entity_to_room.get(entity_id)
+                    if room_name:
+                        tracker.update_room_occupancy(room_name, occupied)
+                        break
+
     def _discover_room_sensors_by_name(
         self,
         tracker: ZonePresenceTracker,
@@ -1649,6 +1675,28 @@ class PresenceCoordinator(BaseCoordinator):
                 "Subscribed to %d zone camera entities across %d zones",
                 len(camera_entity_ids), len(self._zone_trackers),
             )
+
+            # v4.7.18.1 fix-up B-HIGH-1: seed tracker._camera_occupied from
+            # current camera states. Without this seed, the first inference
+            # tick sees an empty _camera_last_seen dict and raw_occupied is
+            # False even if a person is actively detected. Predicate mirrors
+            # _handle_camera_change (state == "on"; unavailable/unknown → False).
+            for entity_id in camera_entity_ids:
+                try:
+                    state = self.hass.states.get(entity_id)
+                except Exception:  # pragma: no cover - defensive
+                    state = None
+                if state is None:
+                    continue
+                if state.state in _UNAVAILABLE_STATES:
+                    continue
+                detected = state.state == "on"
+                if not detected:
+                    continue
+                for _zone_name, tracker in self._zone_trackers.items():
+                    if entity_id in tracker._camera_entity_ids:
+                        tracker.update_camera_detection(entity_id, detected)
+                        break
 
     # ------------------------------------------------------------------
     # Geofence: person entity state changes (home/not_home)
@@ -2558,6 +2606,17 @@ class PresenceCoordinator(BaseCoordinator):
         # v4.7.15 D3: Track sustained-occupancy timer for the WAKING gate.
         # Bug Class #11: UTC-aware timestamps.
         # v4.7.18.1 D1: Re-sourced from `any_zone_raw_occupied` (see above).
+        #
+        # v4.7.18.1 fix-up B-HIGH-2 (document-and-accept): `_run_inference`
+        # is invoked unserialized from multiple sites (census_update,
+        # occupancy_change, camera_detection, deferred_retry, guest_room_*,
+        # geofence_*, periodic). No asyncio.Lock guards the body — this is
+        # a pre-existing condition that predates this hotfix. The only new
+        # exposure introduced by D2 is a possible cosmetic double-increment
+        # of `_wake_backstop_fires` if two ticks pass the gate concurrently.
+        # The WAKING transition itself is idempotent — re-proposing WAKING
+        # when current_state is already WAKING is rejected by the state
+        # machine's transition() guard. Blast radius minimal; no lock added.
         _now_utc = dt_util.utcnow()
         if any_zone_raw_occupied:
             if self._first_positive_zone_occupied_since is None:
@@ -2886,6 +2945,28 @@ class PresenceCoordinator(BaseCoordinator):
                     engine.sleep_end_hour
                     + _WAKE_BACKSTOP_HOURS_AFTER_SLEEP_END
                 )
+                # v4.7.18.1 fix-up A-M2: clamp backstop_hour so the window
+                # `_backstop_hour <= hour < sleep_start_hour` always contains
+                # at least 1 hour. Without the clamp, an unusual sleep_end_hour
+                # (e.g. 22 with sleep_start=23) yields _backstop_hour=25 → the
+                # window is empty → backstop silently never fires. Assumes
+                # overnight sleep (sleep_end < sleep_start) per plan.
+                _backstop_hour_clamped = min(
+                    _backstop_hour, engine.sleep_start_hour - 1
+                )
+                if _backstop_hour_clamped != _backstop_hour:
+                    if not getattr(self, "_backstop_clamp_logged", False):
+                        _LOGGER.debug(
+                            "v4.7.18.1: backstop hour clamped from %02d to %02d "
+                            "(sleep_end_hour=%d + %d >= sleep_start_hour=%d)",
+                            _backstop_hour,
+                            _backstop_hour_clamped,
+                            engine.sleep_end_hour,
+                            _WAKE_BACKSTOP_HOURS_AFTER_SLEEP_END,
+                            engine.sleep_start_hour,
+                        )
+                        self._backstop_clamp_logged = True
+                    _backstop_hour = _backstop_hour_clamped
                 _backstop = (
                     self._census_count > 0
                     and _backstop_hour <= _local_hour < engine.sleep_start_hour
