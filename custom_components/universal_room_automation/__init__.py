@@ -2958,6 +2958,11 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         unload_ok = await hass.config_entries.async_unload_platforms(entry, INTEGRATION_PLATFORMS)
         if "zone_manager_entry" in hass.data.get(DOMAIN, {}):
             hass.data[DOMAIN]["zone_manager_entry"] = None
+        # v4.7.18.2: clear the zone-level "no coordinators after 60s" dedup
+        # set so a legitimate Zone Manager reload re-warns for zones whose
+        # coordinators still haven't appeared. See aggregation.py
+        # ZoneSensorBase._check_coordinators.
+        hass.data.get(DOMAIN, {}).pop("_no_coord_warned_zones", None)
         return unload_ok
 
     # v3.6.0: Handle Coordinator Manager entry unload
