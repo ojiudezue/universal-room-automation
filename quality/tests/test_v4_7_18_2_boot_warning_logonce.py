@@ -50,6 +50,7 @@ TEST STRATEGY (behavioral, with AST safety net):
 from __future__ import annotations
 
 import ast
+import asyncio
 import importlib.util
 import logging
 import sys
@@ -388,11 +389,16 @@ pytestmark_behavioral = pytest.mark.skipif(
 )
 
 
-def _make_zone_sensor(hass, entry, zone):
+def _make_zone_sensor(hass, entry, zone, coordinators=None):
     """Build a minimally-initialized ZoneSensorBase without invoking the
-    full __init__ (which sets DeviceInfo etc. we don't need). We assign the
-    handful of attrs `_check_coordinators` reads + an empty
-    `_get_zone_coordinators` so the no-coords branch fires."""
+    full __init__ (which sets DeviceInfo etc. we don't need).
+
+    `coordinators` controls the stubbed `_get_zone_coordinators`:
+      - None / [] (default) → always empty → the no-coordinators branch fires.
+      - a list → coordinators present from the first check.
+      - a callable → used as-is (e.g. a stateful stub that returns [] at
+        add-time then non-empty on a later retry tick, to exercise the
+        coordinators-arrived-late success branch)."""
     # Defensive re-load in case test-suite ordering left a partial stub in
     # sys.modules between import time and test execution.
     if _AGG_MOD is None or not hasattr(_AGG_MOD, "ZoneSensorBase"):
@@ -404,49 +410,67 @@ def _make_zone_sensor(hass, entry, zone):
     inst.entry = entry
     inst.zone = zone
     inst._coordinators_ready = False
+    inst._rooms_ready = False
     inst._retry_unsub = None
     inst._retry_count = 0
-    # Force the no-coordinators branch.
-    inst._get_zone_coordinators = lambda: []
+    if callable(coordinators):
+        inst._get_zone_coordinators = coordinators
+    else:
+        _coords = coordinators or []
+        inst._get_zone_coordinators = lambda: _coords
     # `async_schedule_update_ha_state` is only called on the coords-found
     # branch, but stub it just in case.
     inst.async_schedule_update_ha_state = lambda: None
     return inst
 
 
-def _drive_to_max_retries(entity, max_retries: int = 12):
-    """Simulate the periodic timer firing `max_retries` times.
+def _capture_check_coordinators(entity):
+    """Run the REAL `ZoneSensorBase.async_added_to_hass` so its nested
+    `_check_coordinators` closure is registered through the captured
+    `async_track_time_interval`, then return that closure for direct driving.
 
-    Re-runs the same closure logic that `_check_coordinators` runs. We can't
-    easily extract the nested closure without calling `async_added_to_hass`
-    (which is async + needs `super().async_added_to_hass()`), so we replicate
-    the elif-branch body directly — driven by the same `entity.zone` +
-    `entity.hass.data` the production code reads. This is the SAME code path
-    in terms of the dedup contract under test; any divergence would surface
-    in the AST canaries above.
-    """
-    DOMAIN = _AGG_MOD.DOMAIN
-    _LOGGER = _AGG_MOD._LOGGER
+    A-HIGH (Bug Class #40) fix: the prior helper re-implemented the production
+    elif-branch body, so the test could pass while production silently drifted.
+    We now drive the actual closure. `AggregationEntity.async_added_to_hass` is
+    stubbed to an async no-op because a bare ZoneSensorBase (constructed via
+    `__new__`) has MRO [ZoneSensorBase, AggregationEntity, object] — no
+    SensorEntity/RestoreEntity base — so the parent's own
+    `await super().async_added_to_hass()` would AttributeError. We are
+    exercising ZoneSensorBase's logic only.
+
+    Returns the closure, or None if coordinators were present at add-time (in
+    which case `async_added_to_hass` returns early and registers no timer)."""
+    _CAPTURED_TIMERS.clear()
+    AggregationEntity = _AGG_MOD.AggregationEntity
+    orig = AggregationEntity.async_added_to_hass
+
+    async def _noop(self):
+        return None
+
+    AggregationEntity.async_added_to_hass = _noop
+    try:
+        asyncio.run(entity.async_added_to_hass())
+    finally:
+        AggregationEntity.async_added_to_hass = orig
+
+    for _hass, cb, _interval in _CAPTURED_TIMERS:
+        if getattr(cb, "__name__", "") == "_check_coordinators":
+            return cb
+    return None
+
+
+def _run_no_coord_cycle(entity, max_retries: int = 12):
+    """Capture the real closure and fire it `max_retries` times (the production
+    t=5s..60s retry cadence), exercising the ACTUAL dedup code path rather than
+    a copy of it."""
+    cb = _capture_check_coordinators(entity)
+    assert cb is not None, (
+        "expected ZoneSensorBase._check_coordinators closure to be captured; "
+        "async_track_time_interval may not have been invoked"
+    )
     for _ in range(max_retries):
-        entity._retry_count += 1
-        coords = entity._get_zone_coordinators()
-        if coords:
-            entity._coordinators_ready = True
-            continue
-        if entity._retry_count >= max_retries:
-            warned_zones = entity.hass.data.setdefault(DOMAIN, {}).setdefault(
-                "_no_coord_warned_zones", set()
-            )
-            if entity.zone not in warned_zones:
-                warned_zones.add(entity.zone)
-                _LOGGER.warning(
-                    "Zone '%s': No room coordinators found after %ds - "
-                    "zone may be empty or rooms not configured",
-                    entity.zone, entity._retry_count * 5,
-                )
-            if entity._retry_unsub:
-                entity._retry_unsub()
-                entity._retry_unsub = None
+        cb()
+    return cb
 
 
 @pytestmark_behavioral
@@ -455,7 +479,11 @@ class TestPerZoneDedupBehavior:
 
     def _fresh_hass(self):
         hass = MagicMock()
-        hass.data = {}
+        # Mirror production: integration setup creates the DOMAIN bag
+        # (__init__.py ~600) before any zone sensor is added. The failure
+        # branch reads it via get() and bails if absent (B-LOW-2 teardown
+        # guard), so the bag must exist for the warning path to run.
+        hass.data = {_AGG_MOD.DOMAIN: {}}
         return hass
 
     def test_two_entities_same_zone_warn_only_once(self, caplog):
@@ -472,8 +500,8 @@ class TestPerZoneDedupBehavior:
             logging.WARNING,
             logger=_AGG_MOD._LOGGER.name,
         ):
-            _drive_to_max_retries(e1)
-            _drive_to_max_retries(e2)
+            _run_no_coord_cycle(e1)
+            _run_no_coord_cycle(e2)
 
         warnings = [
             rec for rec in caplog.records
@@ -501,9 +529,9 @@ class TestPerZoneDedupBehavior:
             logging.WARNING,
             logger=_AGG_MOD._LOGGER.name,
         ):
-            _drive_to_max_retries(e1)
-            _drive_to_max_retries(e2)
-            _drive_to_max_retries(e3)
+            _run_no_coord_cycle(e1)
+            _run_no_coord_cycle(e2)
+            _run_no_coord_cycle(e3)
 
         ds = [
             r for r in caplog.records
@@ -531,7 +559,7 @@ class TestPerZoneDedupBehavior:
         with caplog.at_level(
             logging.WARNING, logger=_AGG_MOD._LOGGER.name
         ):
-            _drive_to_max_retries(e1)
+            _run_no_coord_cycle(e1)
         first = [
             r for r in caplog.records
             if "No room coordinators found after" in r.getMessage()
@@ -548,7 +576,7 @@ class TestPerZoneDedupBehavior:
         with caplog.at_level(
             logging.WARNING, logger=_AGG_MOD._LOGGER.name
         ):
-            _drive_to_max_retries(e2)
+            _run_no_coord_cycle(e2)
         second = [
             r for r in caplog.records
             if "No room coordinators found after" in r.getMessage()
@@ -558,4 +586,35 @@ class TestPerZoneDedupBehavior:
             "After clearing the dedup set (simulating Zone Manager unload), "
             "a fresh entity for the same coordinator-less zone must re-emit "
             "its single warning."
+        )
+
+    def test_late_coordinators_discard_zone_from_set(self):
+        """A-MED-1: when coordinators appear AFTER a zone was recorded as
+        coordinator-less, the success branch must discard the zone from the
+        dedup set so it never holds a stale 'unhealthy' entry."""
+        DOMAIN = _AGG_MOD.DOMAIN
+        hass = self._fresh_hass()
+        entry = MagicMock()
+
+        # e1 never sees coordinators → warns and records 'study'.
+        e1 = _make_zone_sensor(hass, entry, "study")
+        _run_no_coord_cycle(e1)
+        assert "study" in hass.data[DOMAIN]["_no_coord_warned_zones"]
+
+        # e2: empty at add-time (so the retry timer registers), then
+        # coordinators appear on the first retry tick → success branch runs.
+        _calls = {"n": 0}
+
+        def _coords_late():
+            _calls["n"] += 1
+            return [] if _calls["n"] == 1 else [MagicMock()]
+
+        e2 = _make_zone_sensor(hass, entry, "study", coordinators=_coords_late)
+        cb = _capture_check_coordinators(e2)
+        assert cb is not None, "expected timer to register (empty at add-time)"
+        cb()  # retry tick: coordinators now present → discard 'study'
+
+        assert "study" not in hass.data[DOMAIN]["_no_coord_warned_zones"], (
+            "coordinators-arrived-late success branch must discard the zone "
+            "from _no_coord_warned_zones"
         )

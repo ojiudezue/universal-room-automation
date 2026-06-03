@@ -2933,6 +2933,15 @@ class ZoneSensorBase(AggregationEntity):
                     "Zone '%s': Room coordinators now ready (%d found, attempt %d)",
                     self.zone, len(coords), self._retry_count,
                 )
+                # v4.7.18.2 review A-MED-1: if a prior entity in this zone hit
+                # the no-coordinators threshold and recorded the zone, clear it
+                # now that coordinators have appeared, so the dedup set never
+                # holds a stale "unhealthy" zone. No-op if the set/zone absent.
+                warned_zones = self.hass.data.get(DOMAIN, {}).get(
+                    "_no_coord_warned_zones"
+                )
+                if warned_zones is not None:
+                    warned_zones.discard(self.zone)
                 self.async_schedule_update_ha_state()
                 # Cancel further retries
                 if self._retry_unsub:
@@ -2950,7 +2959,13 @@ class ZoneSensorBase(AggregationEntity):
                 # reloads re-warn. Single-threaded HA event loop serializes
                 # near-simultaneous t=60s firings, so read-check-then-add in
                 # one synchronous callback body needs no lock.
-                warned_zones = self.hass.data.setdefault(DOMAIN, {}).setdefault(
+                # v4.7.18.2 review B-LOW-2: read DOMAIN via get(), not
+                # setdefault — if the callback somehow fires after integration
+                # teardown removed the DOMAIN bag, skip rather than resurrect it.
+                domain_data = self.hass.data.get(DOMAIN)
+                if domain_data is None:
+                    return
+                warned_zones = domain_data.setdefault(
                     "_no_coord_warned_zones", set()
                 )
                 if self.zone not in warned_zones:
