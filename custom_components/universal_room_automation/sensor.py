@@ -3850,6 +3850,8 @@ class PresenceHouseStateSensor(AggregationEntity, SensorEntity):
                 }
             # v4.7.15 D3: WAKING-gate diagnostic counter.
             attrs["wake_blocked_ticks"] = getattr(presence, "_wake_blocked_ticks", 0)
+            # v4.7.18.1 D2: Daytime wake-backstop diagnostic counter.
+            attrs["wake_backstop_fires"] = getattr(presence, "_wake_backstop_fires", 0)
             attrs["zones"] = {
                 name: {
                     "mode": tracker.mode,

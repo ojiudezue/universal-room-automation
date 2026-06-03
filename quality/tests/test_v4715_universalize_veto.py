@@ -1333,6 +1333,8 @@ class TestD3InferenceOrchestration:
 
             tracker = MagicMock()
             tracker.mode = "occupied"
+            # v4.7.18.1 D1: wake timer reads raw_occupied (override-bypassed)
+            tracker.raw_occupied = True
             coord._zone_trackers = {"bedroom": tracker}
 
             await coord._run_inference("test_tick_1")
@@ -1360,8 +1362,13 @@ class TestD3InferenceOrchestration:
 
         on_tracker = MagicMock()
         on_tracker.mode = "occupied"
+        # v4.7.18.1 D1: wake timer is sourced from raw_occupied (bypasses
+        # the SLEEP override that mode applies). Mocks must set raw_occupied
+        # explicitly — MagicMock's default attribute is truthy.
+        on_tracker.raw_occupied = True
         off_tracker = MagicMock()
         off_tracker.mode = "away"
+        off_tracker.raw_occupied = False
 
         # Tick 1: on. Timer arms.
         coord._zone_trackers = {"bedroom": on_tracker}

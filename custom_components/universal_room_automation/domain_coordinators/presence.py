@@ -106,6 +106,12 @@ PRESENCE_SUPPRESSED_FROM_PERSISTENCE: frozenset[str] = frozenset({
 # and operator tuning can introspect them without instantiating a coordinator.
 _NONSLEEP_QUIET_THRESHOLD_SECONDS = 300  # 5 min — bridge structural degeneration
 _WAKING_SUSTAINED_THRESHOLD_SECONDS = 90  # ≥3 Frigate confirmations at 15-30s cadence
+# v4.7.18.1 D2: Daytime wake backstop margin. If the house remains SLEEP past
+# `sleep_end_hour + _WAKE_BACKSTOP_HOURS_AFTER_SLEEP_END` while census_count>0,
+# the WAKING gate falls through (forces wake) even if sustained signal is
+# insufficient. Safety valve against any future masking regression that could
+# re-trap the house in SLEEP all day.
+_WAKE_BACKSTOP_HOURS_AFTER_SLEEP_END = 3
 
 # v4.7.15.1 fix-up B2-M1 (Reviewer B): Pattern A helper fails CONSERVATIVE
 # (no veto) when the per-person phone-trust / tracking-active parallel-list
@@ -227,6 +233,15 @@ class ZonePresenceTracker:
         if self._override is not None:
             return self._override
         return self._derived_mode
+
+    @property
+    def raw_occupied(self) -> bool:
+        """Occupancy from raw sensor tiers, IGNORING any mode override.
+
+        The WAKING gate must see real movement during sleep, which the
+        SLEEP-override-masked ``mode`` cannot surface. (v4.7.18.1)
+        """
+        return self._derived_mode == ZonePresenceMode.OCCUPIED
 
     @property
     def _derived_mode(self) -> str:
@@ -656,6 +671,9 @@ class PresenceCoordinator(BaseCoordinator):
         # flips False -> True, cleared when False. Drives WAKING gate.
         self._first_positive_zone_occupied_since: Optional[datetime] = None
         self._wake_blocked_ticks: int = 0
+        # v4.7.18.1 D2: Times the daytime wake-backstop forced WAKING despite
+        # insufficient sustained signal. Surfaced on the house-state sensor.
+        self._wake_backstop_fires: int = 0
         # v4.7.15 D3: Exit-side persistence for GUEST -> HOME_*. Set when
         # the "no unidentified, no guest_gate_armed" condition first becomes
         # true while in GUEST state; cleared when it goes false.
@@ -2526,10 +2544,22 @@ class PresenceCoordinator(BaseCoordinator):
             for t in self._zone_trackers.values()
         )
 
+        # v4.7.18.1 D1: Parallel raw-signal local for the WAKING gate. The
+        # mode-based `any_zone_occupied` above is masked to SLEEP during sleep
+        # hours (set_sleep hard-overrides every auto tracker), so it can never
+        # surface real morning movement. The wake timer must observe the raw
+        # tiers (`_derived_mode == OCCUPIED`) to detect the sustained signal
+        # that exits SLEEP. `any_zone_occupied` is left untouched for its
+        # other consumers (infer() arg, AWAY-veto log).
+        any_zone_raw_occupied = any(
+            t.raw_occupied for t in self._zone_trackers.values()
+        )
+
         # v4.7.15 D3: Track sustained-occupancy timer for the WAKING gate.
         # Bug Class #11: UTC-aware timestamps.
+        # v4.7.18.1 D1: Re-sourced from `any_zone_raw_occupied` (see above).
         _now_utc = dt_util.utcnow()
-        if any_zone_occupied:
+        if any_zone_raw_occupied:
             if self._first_positive_zone_occupied_since is None:
                 self._first_positive_zone_occupied_since = _now_utc
         else:
@@ -2843,12 +2873,41 @@ class PresenceCoordinator(BaseCoordinator):
             )
             self._last_veto_decision = wake_decision
             if wake_decision.fired:
-                self._wake_blocked_ticks += 1
-                _LOGGER.debug(
-                    "v4.7.15 D3: WAKING transition blocked — %s",
-                    wake_decision.reason,
+                # v4.7.18.1 D2: Daytime wake backstop. If the house has been
+                # SLEEP well past sleep_end_hour and someone is provably home
+                # (census_count > 0), force the WAKING transition rather than
+                # suppress it. AWAY owns the census==0 case; this branch is the
+                # safety valve for "stuck in SLEEP all morning with people
+                # home." Assumes overnight sleep window (sleep_end < sleep_start,
+                # shipped default 6/23).
+                engine = self._inference_engine
+                _local_hour = dt_util.now().hour
+                _backstop_hour = (
+                    engine.sleep_end_hour
+                    + _WAKE_BACKSTOP_HOURS_AFTER_SLEEP_END
                 )
-                new_state = None  # Suppress the WAKING transition this tick.
+                _backstop = (
+                    self._census_count > 0
+                    and _backstop_hour <= _local_hour < engine.sleep_start_hour
+                )
+                if _backstop:
+                    self._wake_backstop_fires += 1
+                    _LOGGER.warning(
+                        "v4.7.18.1: WAKING backstop fired — SLEEP past %02d:00 "
+                        "with census_count=%d; forcing wake despite "
+                        "insufficient sustained signal (%s)",
+                        _backstop_hour,
+                        self._census_count,
+                        wake_decision.reason,
+                    )
+                    # fall through WITHOUT suppressing — allow WAKING transition
+                else:
+                    self._wake_blocked_ticks += 1
+                    _LOGGER.debug(
+                        "v4.7.15 D3: WAKING transition blocked — %s",
+                        wake_decision.reason,
+                    )
+                    new_state = None  # Suppress the WAKING transition this tick.
 
         # v4.7.15 D3: GUEST exit sustained-signal gate (Pattern E).
         # When the engine wants to flip GUEST → a HOME_* state, require the
