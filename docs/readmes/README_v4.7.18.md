@@ -1,6 +1,6 @@
 # v4.7.18 — DPM Drift Guard + Cleanup (heat-wave absolute-ceiling gate)
 
-**Tier 2-DB (operator-elevated).** ~185 LoC prod across 5 files + ~250 LoC tests. Pre-deploy adversarial review (3 parallel framings: A=data integrity, B=migration/signal-chain, C=new-surfaces/test-authority) found 0 CRITICAL + 0 HIGH + 3 MEDIUM (all C-side) + 14 LOW. All 3 MEDIUMs fixed (C-M1 = this README; C-M2 = deferral logged in planning §14 #6; C-M3 = `dynamic_preset.py` pair-restore guard). 14 LOWs justified for v4.7.19 deferral (see `docs/reviews/code-review/v4.7.18_LOW_deferrals.md`).
+**Tier 2-DB (operator-elevated).** ~185 LoC prod across 5 files + ~250 LoC tests. Pre-deploy adversarial review (3 parallel framings: A=data integrity, B=migration/signal-chain, C=new-surfaces/test-authority) found 0 CRITICAL + 0 HIGH + 3 MEDIUM (all C-side) + 14 LOW. All 3 MEDIUMs fixed (C-M1 = this README; C-M2 = dropdown option descriptions shipped per planning §3; C-M3 = `dynamic_preset.py` pair-restore guard). 8 LOWs fixed in-cycle + 6 deferred to v4.7.19+ (see `docs/reviews/code-review/v4.7.18_LOW_dispositions.md`).
 
 ## Operator framing (the three audit gaps closed in one cycle)
 
@@ -43,9 +43,9 @@ The internal v4.7.17.2 rolling-median mechanic (`relative_delta = today_apparent
 | ID | Sev | Issue | Resolution |
 |---|---|---|---|
 | C-M1 | MED | `README_v4.7.18.md` + acceptance YAML absent | **Fixed** — this file. Acceptance YAML transcribed verbatim from planning §12. |
-| C-M2 | MED | Per-option dropdown DESCRIPTIONS (planning §3) absent in code + strings | **Deferred** to v4.7.19 alongside broader Surface 2 string audit. Logged in planning §14 #6. Labels themselves are operator-approved verbatim and self-explanatory. |
+| C-M2 | MED | Per-option dropdown DESCRIPTIONS (planning §3) absent in code + strings | **Fixed** — dropdown option descriptions shipped verbatim per planning §3 (commit `2dd442b`; deferral reverted at `12a7453`). |
 | C-M3 | MED | `restore_blocked_counter` set `last_blocked_at` independently of count → inconsistent shape `count=0, ts=<iso>` | **Fixed** — paired restore under same `if c > 0:` block. Test `test_restore_rejects_timestamp_when_count_is_zero` locks the contract. |
-| A-L1..L4, B-L1..L4, C-L1..L6 | LOW (14 total) | hygiene / coherence / coverage gaps | **All deferred to v4.7.19+** with per-finding justification in `docs/reviews/code-review/v4.7.18_LOW_deferrals.md`. None are regressions; all pre-existing or telemetry-only. |
+| A-L1..L4, B-L1..L4, C-L1..L6 | LOW (14 total) | hygiene / coherence / coverage gaps | **8 fixed in-cycle** (A-L1/L2/L3, B-L1/L2/L3, C-L1, C-M3-pair) **+ 6 deferred** to v4.7.19+, per-finding justification in `docs/reviews/code-review/v4.7.18_LOW_dispositions.md`. None are regressions; deferred set is genuine non-issues. |
 
 ## Migration
 
