@@ -2890,6 +2890,14 @@ class ZoneSensorBase(AggregationEntity):
         self.zone = zone
         self._coordinators_ready = False
         self._retry_unsub = None
+        # v4.7.18.2: per-entity log-once guard for the "no coordinators after 60s"
+        # warning. Each zone sensor entity runs its own retry timer, so without
+        # this guard every entity in a coordinator-less zone emits the same
+        # warning (~20 lines per restart for the largest HVAC zone). Cosmetic
+        # only — retry/discovery behavior is unchanged. Reset on re-add via
+        # async_added_to_hass to preserve correct behavior across entity
+        # lifecycle (remove + re-add).
+        self._coordinator_warning_logged = False
         # v3.3.5.6: Device is identified by zone name (consistent across entry changes).
         # v3.6.0: Zone devices are registered under the Zone Manager config entry.
         # No via_device needed — devices appear under the Zone Manager entry on
@@ -2912,6 +2920,10 @@ class ZoneSensorBase(AggregationEntity):
         required-for-availability issue.
         """
         await super().async_added_to_hass()
+
+        # v4.7.18.2: Reset log-once guard on (re-)add so a fresh add lifecycle
+        # gets its single warning if coordinators never appear.
+        self._coordinator_warning_logged = False
 
         # Check if coordinators are ready immediately
         if self._get_zone_coordinators():
@@ -2939,11 +2951,17 @@ class ZoneSensorBase(AggregationEntity):
                     self._retry_unsub()
                     self._retry_unsub = None
             elif self._retry_count >= max_retries:
-                _LOGGER.warning(
-                    "Zone '%s': No room coordinators found after %ds - "
-                    "zone may be empty or rooms not configured",
-                    self.zone, self._retry_count * 5,
-                )
+                # v4.7.18.2: log at most once per entity per (re-)add lifecycle.
+                # Every zone sensor entity runs its own retry timer; without
+                # this guard each entity logs the same warning at t=60s,
+                # producing ~20 duplicate lines for the largest HVAC zone.
+                if not self._coordinator_warning_logged:
+                    _LOGGER.warning(
+                        "Zone '%s': No room coordinators found after %ds - "
+                        "zone may be empty or rooms not configured",
+                        self.zone, self._retry_count * 5,
+                    )
+                    self._coordinator_warning_logged = True
                 if self._retry_unsub:
                     self._retry_unsub()
                     self._retry_unsub = None
