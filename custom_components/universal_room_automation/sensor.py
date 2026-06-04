@@ -3938,16 +3938,23 @@ def _zone_provenance_breakdown(tracker) -> dict:
     """Provenance-split cycle (D5) helper: per-zone Tier-1 kind counts.
 
     Returns ``{kind: count_of_rooms_with_that_kind_True}`` for every
-    kind in :data:`TIER1_KINDS`. Always returns a stable shape so
-    operator dashboards can pin attribute names.
+    kind in :data:`TIER1_KINDS` plus a legacy ``"tier1"`` sentinel
+    bucket (A-LOW-2 review fix-up — rooms written via the back-compat
+    ``kind=None`` path land in the ``"tier1"`` slot and would otherwise
+    be invisible on this diagnostic surface).
+    Always returns a stable shape so operator dashboards can pin
+    attribute names.
     """
     from .const import TIER1_KINDS  # function-local — Bug Class #34
     out = {k: 0 for k in TIER1_KINDS}
+    out["tier1"] = 0
     try:
         for _room, kinds in getattr(tracker, "_room_provenance", {}).items():
             for k in TIER1_KINDS:
                 if kinds.get(k, False):
                     out[k] += 1
+            if kinds.get("tier1", False):
+                out["tier1"] += 1
     except Exception:  # noqa: BLE001 — defensive
         pass
     return out

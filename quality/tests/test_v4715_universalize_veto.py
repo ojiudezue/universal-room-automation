@@ -898,7 +898,11 @@ class TestD2ZoneAggregatorLayer3:
 # Hard upper bound enforced by test_run_inference_only_defined_once at the
 # bottom of this section — the widened window cannot span two function
 # bodies.
-_RUN_INFERENCE_WINDOW = 60000
+# Bumped 60000 -> 64000 when the presence provenance-split cycle's
+# A-LOW-2 review fix-up added a `"tier1"` sentinel bucket to the
+# per-zone Tier-1 provenance breakdown inside `_run_inference`
+# (presence.py ~:3810). Honest re-baseline; not a relaxation.
+_RUN_INFERENCE_WINDOW = 64000
 
 
 class TestD3WakingSustainedSignal:

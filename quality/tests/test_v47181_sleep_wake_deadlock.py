@@ -32,6 +32,7 @@ import ast
 import importlib
 import importlib.util
 import os
+import re
 import sys
 import types
 from datetime import datetime
@@ -590,13 +591,23 @@ class TestFixupBHigh1BootSeed:
         )
         # The seed must call tracker.update_room_occupancy with
         # (room_name, occupied[, kind=...]). The provenance-split cycle
-        # added an optional `kind` kwarg — assert the call shape is
-        # preserved structurally regardless of whether kind is passed.
-        assert "tracker.update_room_occupancy(" in body, (
-            "v4.7.18.1 fix-up: room-sensor seed must call update_room_occupancy"
+        # added an optional `kind` kwarg — pin the call SHAPE via regex
+        # so substring presence of "room_name" / "occupied" elsewhere in
+        # the function body does NOT satisfy the assertion
+        # (C-HIGH-1 review fix-up — prior pair-of-substring loosening
+        # was regression-blinded against rewrites to a hard-coded literal).
+        seed_call_re = re.compile(
+            r"tracker\.update_room_occupancy\("
+            r"\s*room_name\s*,"
+            r"\s*occupied"
+            r"(?:\s*,\s*kind\s*=\s*\w+)?"
+            r"\s*,?\s*\)"
         )
-        assert "room_name" in body and "occupied" in body, (
-            "v4.7.18.1 fix-up: room-sensor seed must pass (room_name, occupied)"
+        assert seed_call_re.search(body), (
+            "v4.7.18.1 fix-up: room-sensor seed must call "
+            "update_room_occupancy(room_name, occupied[, kind=...]) — "
+            "C-HIGH-1: substring-only assertion would silently pass on a "
+            "hard-coded literal rewrite"
         )
 
     def test_camera_seed_block_present(self):

@@ -244,34 +244,54 @@ def _new_input_keys() -> set:
 
 
 def test_signal_consensus_inputs_additive_only() -> None:
-    """Snapshot the expected key-set; the new dict is a SUPERSET of the old."""
-    # Build a coordinator and a fake tick.
-    from custom_components.universal_room_automation.domain_coordinators.presence import (
-        PresenceCoordinator,
+    """Source-grep canary: every legacy key and every new key appears as
+    a string literal inside the production `_signal_consensus_inputs = {...}`
+    emit block in presence.py.
+
+    Why a source-grep canary, not a behavioral assertion. The prior shape
+    of this test synthesized a literal dict locally and asserted its own
+    keys — a tautology (C-MED-1 in the Reviewer C report). Driving the
+    real `_run_inference` from the unit harness requires standing up
+    person_coord / camera_manager / inference engine state, which is
+    out-of-scope for this single shape contract. The other tests in this
+    file already exercise the live `_run_inference` for behavior; this
+    canary exists solely to pin the additive-only invariant on the emit
+    dict literal itself. Pattern mirrors
+    `test_presence_provenance_surface.py`.
+    """
+    import inspect
+    src = inspect.getsource(presence_mod)
+    # Find the emit block: `self._signal_consensus_inputs = {` ... `}`.
+    anchor = "self._signal_consensus_inputs = {"
+    start = src.find(anchor)
+    assert start >= 0, (
+        "C-MED-1: cannot find _signal_consensus_inputs emit block in "
+        "presence.py — production emit site moved or was removed"
     )
-    hass = make_hass()
-    coord = PresenceCoordinator(hass)
-    # Inject one tracker so the consensus block iterates a non-empty
-    # generator without raising.
-    coord._zone_trackers = {"z1": ZonePresenceTracker(hass, "z1", ["a"])}
-    coord._signal_consensus_inputs = {}
-    # Stage the consensus inputs by directly invoking the dict shape —
-    # the production code path constructs the dict inside `_run_inference`.
-    # We synthesize the dict here to verify the shape contract.
+    # Walk braces to find the matching close — tolerant of nested dicts.
+    depth = 0
+    end = -1
+    for i in range(start + len(anchor) - 1, len(src)):
+        ch = src[i]
+        if ch == "{":
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0:
+                end = i + 1
+                break
+    assert end > start, (
+        "C-MED-1: _signal_consensus_inputs emit block has unbalanced braces"
+    )
+    block = src[start:end]
     expected_keys = _legacy_input_keys() | _new_input_keys()
-    sample_dict = {
-        "all_tracked_persons_away": False,
-        "any_zone_occupied": False,
-        "any_stale_or_lost_tracker": False,
-        "camera_occupied_count": 0,
-        "tier1_occupied_count": 0,
-        "mmwave_occupied_count": 0,
-        "tier1_provenance_breakdown": {},
-        "fan_interference_active": False,
-        "fan_interference_rooms": [],
-        "state_confidence": 0.0,
-    }
-    assert set(sample_dict.keys()) == expected_keys
+    missing = sorted(k for k in expected_keys if f'"{k}"' not in block)
+    assert not missing, (
+        f"C-MED-1 additive-only canary: production "
+        f"_signal_consensus_inputs emit block is missing key literal(s) "
+        f"{missing}. Both legacy keys (incl. `mmwave_occupied_count`) "
+        f"and the four new provenance-split keys must appear."
+    )
 
 
 def test_invariants_hold_after_inference() -> None:

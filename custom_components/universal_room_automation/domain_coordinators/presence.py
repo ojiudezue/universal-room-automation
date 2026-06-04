@@ -210,9 +210,11 @@ class ZonePresenceMode:
 #      "mmwave"/"presence" → mmwave, "motion" → motion, else "occupancy".
 #
 # CRITICAL invariant: this function is the SINGLE classification source
-# for BOTH the seed loop and the live state-change callback. Bug Class #1
-# (seed-vs-live divergence) was the v4.7.18.1 B-HIGH-1 hazard; both
-# call sites MUST invoke this same function for byte-equal classification.
+# for BOTH the seed loop and the live state-change callback. The
+# seed-vs-live divergence hazard is the v4.7.18.1 review finding
+# B-HIGH-1 (NOT QUALITY_CONTEXT.md "Bug Class #1" — that class is
+# "Coordinator Lifecycle Confusion", a different concern). Both call
+# sites MUST invoke this same function for byte-equal classification.
 #
 # Returns one of the TIER1_KINDS strings ("motion", "mmwave", "occupancy").
 
@@ -234,18 +236,22 @@ def _classify_entity_kind(
     # Step 1 — config-list lookup.
     try:
         for entry in hass.config_entries.async_entries(DOMAIN):
-            if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ROOM:
+            # B-LOW-3 review fix-up: merge data + options for the
+            # entry-type and room-name checks too — not just the sensor
+            # lists below. Options is the canonical post-flow surface,
+            # and mirroring the same merge pattern as the fan-discovery
+            # path at presence.py:1443 keeps the classifier consistent
+            # if a future options flow ever lets the operator edit
+            # CONF_ROOM_NAME or CONF_ENTRY_TYPE.
+            merged = {**(entry.data or {}), **(entry.options or {})}
+            if merged.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ROOM:
                 continue
-            if entry.data.get(CONF_ROOM_NAME) != room_name:
+            if merged.get(CONF_ROOM_NAME) != room_name:
                 continue
-            # Per-step merge of data + options — both can hold sensor lists
-            # (options is the canonical post-flow surface). Empty/missing
-            # lists are tolerated.
-            opts = entry.options or {}
-            data = entry.data or {}
-            mmwave = list(opts.get(CONF_MMWAVE_SENSORS, data.get(CONF_MMWAVE_SENSORS, []) or []) or [])
-            motion = list(opts.get(CONF_MOTION_SENSORS, data.get(CONF_MOTION_SENSORS, []) or []) or [])
-            occ = list(opts.get(CONF_OCCUPANCY_SENSORS, data.get(CONF_OCCUPANCY_SENSORS, []) or []) or [])
+            # Sensor lists also from the merge (options wins).
+            mmwave = list(merged.get(CONF_MMWAVE_SENSORS, []) or [])
+            motion = list(merged.get(CONF_MOTION_SENSORS, []) or [])
+            occ = list(merged.get(CONF_OCCUPANCY_SENSORS, []) or [])
             if entity_id in mmwave:
                 return "mmwave"
             if entity_id in motion:
@@ -1775,17 +1781,27 @@ class PresenceCoordinator(BaseCoordinator):
                 if state.state in _UNAVAILABLE_STATES:
                     continue
                 occupied = state.state == "on"
-                if not occupied:
-                    continue
+                # B-LOW-1 review fix-up: seed OFF rooms too (do NOT
+                # short-circuit on `not occupied`). The False-write path
+                # in update_room_occupancy creates an empty provenance
+                # dict for the room key, which stabilizes
+                # `set(_room_provenance.keys()) == set(_room_occupied.keys())`
+                # (Invariant 4 in _audit_provenance_invariants) across
+                # all discovered rooms — not just ones that fired at
+                # least once. _has_sensors is already True by this point
+                # via register_entity (presence.py:627), so flipping
+                # False at seed has no observable effect on _derived_mode.
                 for _zone_name, tracker in self._zone_trackers.items():
                     room_name = tracker._entity_to_room.get(entity_id)
                     if room_name:
                         # Provenance-split cycle (D2): classify per-kind
                         # at seed time using the SAME module-level
                         # function the live callback uses below. Seed-vs-
-                        # live divergence is Bug Class #1 — both paths
-                        # MUST route through `_classify_entity_kind` for
-                        # byte-equal classification.
+                        # live divergence is the v4.7.18.1 review finding
+                        # B-HIGH-1 (not QUALITY_CONTEXT.md Bug Class #1);
+                        # both paths MUST route through
+                        # `_classify_entity_kind` for byte-equal
+                        # classification.
                         kind = _classify_entity_kind(
                             self.hass, entity_id, room_name,
                         )
@@ -2050,6 +2066,26 @@ class PresenceCoordinator(BaseCoordinator):
         Empty list when D3_DIAGNOSTIC_ENABLED is False, when no fans
         are running anywhere, or when the operator's setup does not
         exhibit the fan-interference pathology in the current tick.
+
+        Off-cadence read note (C-MED-2 review fix-up). This helper
+        reads ``tracker._room_provenance`` and ``tracker._fan_on_rooms``
+        WITHOUT the inference cadence lock — i.e. an occupancy
+        state-change listener (``_handle_occupancy_change``) or a fan
+        state-change listener (``_handle_fan_change``) may mutate
+        either dict between the time this helper begins iterating and
+        the time it returns. This is INTENTIONAL and ACCEPTABLE because:
+          (a) the primitive is OBSERVATION-ONLY (no veto / gate /
+              actuation consumer — see Review C "observation-only
+              guarantee verified GREEN"); a one-listener-event-behind
+              read is reconciled on the next inference tick.
+          (b) the helper short-reads via ``.get(room_name, {})`` /
+              ``getattr(..., set())`` so a mid-iteration insertion or
+              deletion cannot raise.
+        Future readers MUST NOT assume tick-synchrony between
+        ``_room_provenance`` and the consensus emit block; if the
+        primitive is ever promoted to feed a gate or veto, this read
+        path needs to be snapshotted ONCE at the top of
+        ``_run_inference`` instead of called inline.
         """
         if not D3_DIAGNOSTIC_ENABLED:
             return []
@@ -2358,7 +2394,8 @@ class PresenceCoordinator(BaseCoordinator):
             if room_name:
                 # Provenance-split cycle (D2): classify per-kind using
                 # the SAME module-level function the seed loop uses.
-                # Function identity matters — Bug Class #1 hazard.
+                # Function identity matters — v4.7.18.1 review finding
+                # B-HIGH-1 hazard (NOT QUALITY_CONTEXT.md Bug Class #1).
                 kind = _classify_entity_kind(self.hass, entity_id, room_name)
                 tracker.update_room_occupancy(
                     room_name, occupied, kind=kind,
@@ -3808,12 +3845,23 @@ class PresenceCoordinator(BaseCoordinator):
                 if any(getattr(t, "_room_occupied", {}).values()):
                     tier1_occupied_count += 1
                 # Per-kind counts (D2/D5 diagnostic): count rooms where
-                # each kind slot is True.
+                # each kind slot is True. A-LOW-2 review fix-up: include
+                # the legacy "tier1" sentinel slot in the breakdown so
+                # rooms written via the back-compat `kind=None` path
+                # (used by test_v47181_sleep_wake_deadlock.py and any
+                # future external caller that forgets `kind=`) remain
+                # visible on the diagnostic surface. Pre-fix, those
+                # rooms still rolled into `tier1_occupied_count` via the
+                # derived-property OR but contributed ZERO to any
+                # per-kind bucket, silently disappearing from the UI.
                 bucket: Dict[str, int] = {k: 0 for k in TIER1_KINDS}
+                bucket["tier1"] = 0
                 for _room, kinds in getattr(t, "_room_provenance", {}).items():
                     for k in TIER1_KINDS:
                         if kinds.get(k, False):
                             bucket[k] += 1
+                    if kinds.get("tier1", False):
+                        bucket["tier1"] += 1
                 tier1_provenance_breakdown[zname] = bucket
         except Exception:  # noqa: BLE001 — defensive
             camera_occupied_count = 0
