@@ -3220,8 +3220,8 @@ class PresenceCoordinator(BaseCoordinator):
         v3.19.0: Debounced (60s per person+zone). All failures graceful.
         """
         try:
-            from homeassistant.helpers.dispatcher import async_dispatcher_send
-
+            # async_dispatcher_send imported at module top (v4.7.20.1) — no
+            # function-local import, to avoid re-scoping it as a method-local.
             # Map face name to person entity
             person_entity = self._find_person_entity_from_face(face_name)
             if not person_entity:
@@ -4439,10 +4439,10 @@ class PresenceCoordinator(BaseCoordinator):
                         )
                     )
 
-                # Publish signal
-                from homeassistant.helpers.dispatcher import (
-                    async_dispatcher_send,
-                )
+                # Publish signal (async_dispatcher_send imported at module top —
+                # a function-local import here re-scopes the name as a local for
+                # all of _run_inference, leaving later uses unbound on ticks that
+                # skip this branch → UnboundLocalError. v4.7.20.1 regression fix.)
                 # v3.21.1 D1: Observation mode — inference runs but signal
                 # dispatch is suppressed so downstream coordinators don't react.
                 if self.observation_mode:
