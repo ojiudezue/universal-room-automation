@@ -234,6 +234,13 @@ acceptance bar):**
 2. **`ZonePresenceTracker.raw_occupied`** (`presence.py:237-244`) —
    v4.7.18.1's WAKING-gate-private property. Prove raw_occupied semantics
    are byte-identical before vs after split (composition theorem).
+   **Correction (per A.6 #1):** raw_occupied composes through
+   `_derived_mode` (`:247-275`), which evaluates BLE first (`:255`), then
+   `_room_occupied`, then camera — one indirection longer than "directly
+   through `_room_occupied`." The composition theorem still holds because
+   D2's derived `_room_occupied` @property preserves the algebraic value;
+   Reviewer B must walk the full chain `raw_occupied → _derived_mode →
+   BLE → _room_occupied (derived) → any(_room_provenance[r].values())`.
 3. **`ZonePresenceTracker.update_room_occupancy(name, occupied)`** call
    sites (`:1514, :1854, :1864`) — prove backward-compatible API: existing
    callers that don't pass a `kind` arg get the same effect as today (the
@@ -266,12 +273,15 @@ acceptance bar):**
    (`occ := any(prov.values())`). Prove the same room list is produced. DB
    row shape **must be unchanged** (`zone_events.rooms` column unchanged).
 8. **`check_zone_occupancy_confidence(zone)`** (`presence.py:968-1010`)
-   source-1 (motion/mmWave) — currently "1 possible, 1 confirmed if recent
-   activity in any room sensor." After split: **decide explicitly** whether
-   the source count changes. Default proposal: keep source-1 = "Tier 1
-   (mmwave OR pir)" as ONE source. Alternative (raises confidence
-   threshold): split into source-1a (mmwave) + source-1b (pir), bringing
-   `possible` from 4 to 5. **The default keeps HVAC behavior pinned.**
+   source-1 (motion/mmWave). **Correction (per A.6 #2):** this helper reads
+   each room coordinator's `_last_motion_time` (`:998-1021`, Appendix A.2
+   row #21), NOT the zone tracker's `_room_occupied`. It is **independent of
+   the OR split** — source-1 `possible` count is unaffected. **D4 collapses
+   from a code change to a docstring-only fix** documenting that independence
+   (so no future reviewer re-raises it). `hvac.py:953-961` adaptive-threshold
+   behavior is automatically pinned. (The earlier "split source-1a/1b →
+   possible 4→5" alternative is withdrawn — it was premised on a coupling
+   that does not exist.)
 9. **AWAY-state veto reader** (`presence.py:2580-2630`) —
    `any_zone_occupied` (mode-based) unaffected; `any_zone_raw_occupied` is
    `t.raw_occupied`; both prove invariant under D1 §2 above. Audit ratifies.
@@ -357,9 +367,18 @@ preserves the existing read shape used by line `:3282` and `:3337`.
 `_handle_occupancy_change` (`presence.py:1828-1870`) to classify
 entity_ids by reading the owning room coordinator's
 `CONF_MOTION_SENSORS` / `CONF_MMWAVE_SENSORS` /
-`CONF_OCCUPANCY_SENSORS` config (already accessible via
-`hass.data[DOMAIN][room_name].config` or equivalent — D2 builder verifies
-the access path). Classification fallback: "occupancy".
+`CONF_OCCUPANCY_SENSORS` config. **Correction (per A.6 #3):** the zone
+tracker does NOT consult those CONF_* lists today — it discovers Tier-1
+binary_sensors by `area_id` + name-keyword (`:1442-1476`, filter at
+`:1460`). Reading the room config to classify is a **NEW
+cross-coordinator read path**; recommended access is
+`hass.config_entries.async_entries(DOMAIN)` filtered to
+`CONF_ENTRY_TYPE == ENTRY_TYPE_ROOM`, reading `entry.data.get(
+CONF_MMWAVE_SENSORS, [])` etc. Fallback when the room entry is
+unresolvable at classification time: entity_id substring per the `:1460`
+discovery filter. D2 builder MUST verify this path in BOTH the seed loop
+and the live callback (A.7 build-time item #3). Classification fallback
+kind: "occupancy".
 
 **Diagnostic surface.** Add `signal_consensus_inputs` keys (additive):
 - `tier1_occupied_count` (rename-marker for old `mmwave_occupied_count`
@@ -472,10 +491,13 @@ the diagnostic shows fan-suspect rooms reliably, v4.7.20 can ship Layer
 
 ### D4 — `check_zone_occupancy_confidence` audit ratification (CONDITIONAL on D1 GREEN)
 
-**Change.** Code-level update to source-1 reflecting the D1 verdict
-(default: keep source-1 = "Tier 1 (mmwave OR pir)" = ONE source;
-explicit comment citing the D1 audit). Adds a docstring section
-explicitly defining the source count and pinning it to the D1 decision.
+**Change.** **Docstring-only (per A.6 #2).** The helper reads each room
+coordinator's `_last_motion_time` (`:998-1021`), NOT the zone tracker's
+`_room_occupied`, so it is independent of the OR split and source-1
+`possible` is unaffected. D4 is reduced to a docstring section
+documenting that independence (so a future reviewer does not re-raise the
+coupling question). No source-1 logic change; `hvac.py:953-961` is
+automatically pinned.
 
 #### Acceptance Criteria — D4
 
@@ -680,3 +702,255 @@ doc dominates the doc volume.
   origin + the field-usage-audit pattern this doc generalizes.
 - Memory `project-fan-noise-mmwave-mitigation-backlog` (recall: "fan noise
   mmwave").
+
+---
+
+# APPENDIX A — CONSUMER AUDIT (added 2026-06-03)
+
+**Audit-first deliverable, the operator's actual gate.** This appendix
+executes the audit the rest of the doc only described. Every claim is
+file:line; reasoning marked HYPOTHESIS where unverified at runtime.
+
+## A.1 Re-pin the OR site(s)
+
+**Pinned site — `presence.py:3282`.** Confirmed:
+
+```
+3274     camera_occupied_count = 0
+3275     mmwave_occupied_count = 0
+3276     try:
+3277         for t in self._zone_trackers.values():
+3278             # Camera tier: any True in _camera_occupied dict.
+3279             if any(getattr(t, "_camera_occupied", {}).values()):
+3280                 camera_occupied_count += 1
+3281             # mmWave/PIR tier: any True in _room_occupied dict.
+3282             if any(getattr(t, "_room_occupied", {}).values()):
+3283                 mmwave_occupied_count += 1
+```
+
+**But the OR is wider than this single site.** `_room_occupied[room]`
+is itself a single bool — the OR happens UPSTREAM when the value gets
+written, not where it gets read. The actual provenance collapse points
+are the two writer sites, NOT line 3282:
+
+| Site | file:line | What it does |
+|---|---|---|
+| Seed path (boot) | `presence.py:1499-1515` | Iterates `entity_ids` discovered via area_id, picks first `state.state == "on"`, calls `tracker.update_room_occupancy(room_name, True)` without ANY classification of motion vs mmwave vs occupancy. |
+| Live path (steady-state) | `presence.py:1828-1870` (`_handle_occupancy_change`) | One state-change callback for ALL room sensor entities; calls `tracker.update_room_occupancy(room_name, occupied)` with a single bool. |
+| Mutator | `presence.py:315-318` (`update_room_occupancy`) | `self._room_occupied[room_name] = occupied`. Last-writer-wins per room. Two sensors in the same room can OVERWRITE each other tick-to-tick. |
+
+**This means the "OR" is structurally last-writer-wins, not algebraic
+OR.** If a mmwave sensor and a PIR sensor in the same room toggle on
+different ticks, `_room_occupied[room]` reflects whichever event fired
+most recently. That is a different (and slightly weaker) semantic than
+"OR" — worth naming in the audit because D2's derived-OR property
+(`any(provenance[r].values())`) is actually STRONGER than today's
+behavior, not equivalent. NO-FAB: this is a structural read of the code,
+not runtime observation; whether it ever produces a visible diff in the
+field is a separate question (HYPOTHESIS — likely "rarely" because
+mmwave tends to stay on while occupied, swamping PIR's brief pulses).
+
+**Discovery uses area_id, not the CONF_*_SENSORS lists.** The zone
+tracker discovers Tier-1 binary_sensors at `presence.py:1442-1476` by
+iterating `entity_registry` and matching `effective_area == area_id`.
+The keyword filter at `:1460` (`"occupancy", "motion", "presence",
+"mmwave"`) is naming-only, not config-driven. **Implication for D2:**
+the audit doc's proposal to classify entities by reading the room
+coordinator's `CONF_MOTION_SENSORS`/`CONF_MMWAVE_SENSORS`/
+`CONF_OCCUPANCY_SENSORS` lists requires a NEW cross-reference path
+because the zone tracker today doesn't consult those lists at all. Two
+options for D2:
+
+1. **Reach across to the room coordinator config** at classification
+   time (e.g. `hass.data[DOMAIN][room_entry_id].config.get(CONF_MMWAVE_SENSORS)`).
+   Verify the access path in the D2 build — the audit doc states this
+   "verified the access path" but this appendix could not confirm
+   without runtime access.
+2. **Classify by entity name** at `:1460` (already the discovery
+   filter): if `"mmwave"` or `"presence"` in entity_id → "mmwave"; if
+   `"motion"` in entity_id → "motion"; else "occupancy". Cheap, no
+   cross-coordinator coupling, but brittle to user-renamed entities.
+
+Audit recommends D2 builder pick #1 (config-driven classification),
+falling back to #2 only when the room entry can't be resolved.
+
+## A.2 Consumer enumeration — SAFE vs AT-RISK
+
+`_room_occupied` and `raw_occupied` direct readers (grep evidence above
+in main body):
+
+| # | Consumer | file:line | Reads | Classification | Reason |
+|---|---|---|---|---|---|
+| 1 | `ZonePresenceTracker._derived_mode` | `presence.py:261` | `any(self._room_occupied.values())` | **SAFE** | D2's derived `_room_occupied` property returns `any(prov.values())` per room — same shape and semantics. |
+| 2 | `ZonePresenceTracker.raw_occupied` | `presence.py:244` | `self._derived_mode == OCCUPIED` | **SAFE (transitively)** | Composes through `_derived_mode`; preserved by #1. NOTE: the audit doc body claims raw_occupied uses `any(_room_occupied.values())` directly — that is **incorrect**. raw_occupied composes through `_derived_mode`, which evaluates BLE FIRST (`:255`), then `_room_occupied`, then camera. The audit verdict is unchanged (SAFE) but the path is one indirection longer than the doc states. |
+| 3 | `ZonePresenceTracker.update_room_occupancy` | `presence.py:315-318` | writes `_room_occupied[room]` | **AT-RISK (manageable)** | This is the seam. Last-writer-wins is replaced by per-kind storage. Audit ratification: any caller passing `occupied=False` clears ALL kinds (matches today's collapse); `occupied=True, kind=None` writes a sentinel "tier1" kind. Backward-compat preserved IFF readers only consult `any(prov.values())`. |
+| 4 | `to_dict` diagnostics dict | `presence.py:405` | `"rooms": dict(self._room_occupied)` | **SAFE** | Read of derived property returns same shape. Diagnostic emitters tolerate the additional `_room_provenance` key if added. |
+| 5 | Seed loop | `presence.py:1499-1515` | calls `update_room_occupancy(room, True)` | **AT-RISK (write site)** | Must be updated to classify entity_id → kind. Identical hazard pattern as v4.7.18.1 B-HIGH-1: seed vs live divergence. |
+| 6 | `_handle_occupancy_change` | `presence.py:1828-1870` | calls `update_room_occupancy(room, occupied)` | **AT-RISK (write site)** | Same as #5; must classify the entity_id firing the callback. |
+| 7 | `signal_consensus` block — mmwave_occupied_count | `presence.py:3282-3283` | `any(getattr(t, "_room_occupied", {}).values())` | **SAFE (semantic name change)** | Reads of the derived property unchanged. The variable name `mmwave_occupied_count` is and has always been a misnomer — counts ALL Tier-1 truth, not mmwave-only. Audit recommends D2 polish rename to `tier1_occupied_count`. |
+| 8 | `signal_consensus` Disagreement 3 check | `presence.py:3306-3308` | `mmwave_occupied_count == 0` while camera > 0 → penalty | **SAFE** | Semantically driven by Tier-1 truth, which D2 preserves. |
+| 9 | `_signal_consensus_inputs` dict | `presence.py:3318` | exposes `mmwave_occupied_count` | **SAFE (deprecation shim required)** | External consumers (sensor attrs) may key on this name. D2 must keep the key as an alias for `tier1_occupied_count` for one cycle. |
+| 10 | zone_events DB write | `presence.py:3329-3346` | `[rn for rn, occ in tracker._room_occupied.items() if occ]` | **SAFE** | Derived property iteration produces identical room list; `database.log_zone_event` row shape unchanged. |
+| 11 | `any_zone_raw_occupied` (WAKING gate) | `presence.py:2602-2603` | `t.raw_occupied` | **SAFE (transitively)** | Composes via #2. |
+| 12 | `any_zone_occupied` (mode-based) | `presence.py:2590-2593` | `t.mode == OCCUPIED` | **SAFE** | Reads `mode` which composes via `_derived_mode` (#1). |
+| 13 | Sleep propagation | `presence.py:3159-3164` | sets `tracker._override`; does NOT read `_room_occupied` | **SAFE** | No interaction. |
+| 14 | Anomaly observation `zone_occupied_count` | `presence.py:3382` | `tracker.mode == OCCUPIED` | **SAFE** | Reads mode (#12 path). |
+| 15 | Diagnostic sensor `signal_tiers` exposure | `sensor.py:3856-3872` | `tracker._has_room_sensors` flag, NOT `_room_occupied` | **SAFE** | Flag-only; provenance split adds new attrs additively. |
+| 16 | `sensor.py:3864` `_camera_occupied` count | `sensor.py:3864` | reads `_camera_occupied` (separate field, NOT `_room_occupied`) | **SAFE** | Out of scope for D2 split. |
+| 17 | `signal_consensus_inputs` attr surface | `sensor.py:3825-3832, 3987-3991` | `dict(_signal_consensus_inputs)` | **SAFE (key-additive)** | Tolerates new keys; consumers use `.get()`. Reviewer A in Tier 2-DB triad verifies. |
+
+**HVAC consumers — completely separate path from the zone tracker:**
+
+| # | Consumer | file:line | Reads | Classification | Reason |
+|---|---|---|---|---|---|
+| 18 | `Zone.any_room_occupied` | `hvac_zones.py:146-148` | `any(r.occupied for r in self.room_conditions)` | **SAFE (independent path)** | Populated at `hvac_zones.py:546` from `coordinator.data["occupied"]` — the per-room coordinator's STATE_OCCUPIED. That bool is itself an OR of motion/mmwave/occupancy at `coordinator.py:1309` (`any_sensor_active`). **HVAC never touches `_room_occupied` directly.** D2 does NOT affect this path. |
+| 19 | HVAC zone defer gate | `hvac.py:917-995, 1653, 1742` | `zone.any_room_occupied` | **SAFE** | Via #18. |
+| 20 | HVAC predict | `hvac_predict.py:357, 650` | `zone.any_room_occupied` | **SAFE** | Via #18. |
+| 21 | `check_zone_occupancy_confidence` source-1 | `presence.py:998-1021` | `coord._last_motion_time` per room coordinator | **SAFE (independent of tracker)** | Source-1 reads the ROOM COORDINATOR's `_last_motion_time`, NOT the zone tracker's `_room_occupied`. **D2 OR split does not touch this consumer.** The audit doc body section 8 implies a coupling that does not exist. CORRECTION: source-1 count is unchanged regardless of D2 — no `min(2, possible)` adjustment needed. |
+| 22 | HVAC adaptive-threshold caller | `hvac.py:953-961` | uses `check_zone_occupancy_confidence` return tuple | **SAFE** | Via #21. |
+
+**Safety / compliance / aggregation:**
+
+| # | Consumer | file:line | Reads | Classification | Reason |
+|---|---|---|---|---|---|
+| 23 | `safety.py` grep | (n/a) | `_room_occupied`, `raw_occupied`, `_zone_trackers` → **NO MATCHES** | **SAFE** | Safety coordinator never reads tracker private state. |
+| 24 | `aggregation.py` grep | (n/a) | `_room_occupied`, `raw_occupied`, `_zone_trackers` → **NO MATCHES** | **SAFE** | Aggregation never reads tracker private state. |
+| 25 | `compliance` references | (no separate `compliance.py`; logic lives in `coordinator_diagnostics.py:536-549`) | `_signal_consensus` only | **SAFE** | Reads aggregated consensus float; no `_room_occupied` access. |
+| 26 | Anomaly emitters | `coordinator_diagnostics.py:341, 536` | `_signal_consensus` | **SAFE** | Aggregated read only. |
+| 27 | `binary_sensor.py` grep | (n/a) | `_room_occupied`, `raw_occupied`, `_zone_trackers`, `signal_consensus` → **NO MATCHES** | **SAFE** | All binary_sensor consumers read room-coordinator `data["occupied"]` or compose through `mode`. |
+| 28 | `PersonPhoneLeftBehindSensor` | `binary_sensor.py:973` | person_coordinator data only | **SAFE** | No tracker interaction. |
+| 29 | `person_coordinator._is_room_occupied` | `person_coordinator.py:665` | sniffs room coord `data["occupied"]`, NOT tracker | **SAFE** | Independent. |
+
+**Tally: 22 SAFE, 5 AT-RISK.** AT-RISK consumers are #3, #5, #6 (the
+three write sites at the seam) and #9 (deprecation shim required for the
+mmwave_occupied_count key) and #21 by NAME ONLY (the audit body claimed
+coupling that doesn't exist; the real consumer is independent).
+
+**No GATING consumers found.** Every reader either reads through the
+derived property (SAFE) or reads an independent path through the room
+coordinator (SAFE). The only AT-RISK items are the writers and one
+deprecation shim — all manageable in D2 without runtime regression.
+
+## A.3 Prior-art verification
+
+| Claim | Verdict | Evidence |
+|---|---|---|
+| `is_direct_ble_room` exists | **NOT FOUND under that name.** Actual method is `is_room_direct_ble(room_name)` at `person_coordinator.py:1149`. Caller at `coordinator.py:1516`. | One callsite only — D3 must add a presence-side caller. |
+| `_check_zone_occupancy_confidence` (private) | **NOT under that name.** The public method is `check_zone_occupancy_confidence(zone)` at `presence.py:968`. Relocated from HVAC in v4.7.15 D4. | Public API, no underscore prefix. Audit doc body uses both names interchangeably; reviewers should normalize to the actual name. |
+| `PersonPhoneLeftBehindSensor` | **CONFIRMED.** `binary_sensor.py:102` (registration) and `binary_sensor.py:973` (class). | Tracks "phone present but person away" — the well-known BLE false-positive that D3 must NOT treat as evidence of presence. |
+| Tier-3 `_ble_occupied` per-zone resolution path | **CONFIRMED.** `ZonePresenceTracker._ble_occupied: bool` at `presence.py:214`; mutator at `:354` (`update_ble_presence`); evaluated FIRST in `_derived_mode` at `:255`. Source of `_ble_occupied`: not searched in this audit pass — assumed to be person_coordinator-driven, VERIFY before D3 build. | Tier 3 BLE is per-zone (one bool per tracker), NOT per-room. This is a finding the BACKLOG.md layered design has not accounted for: Layer-1 "room BLE present" is currently aggregated to zone-level in URA, with no per-room breakdown. D3's Layer-1 gate (`person_coordinator.get_persons_in_room`) bypasses this aggregation by going directly to person_coordinator — that path is verified at `coordinator.py:1512` and `coordinator.py:1516`. |
+
+## A.4 Fan-entity visibility
+
+**Confirmed available.** `CONF_FANS` at `const.py:366`; per-room
+config field at `config_flow.py:1087, 6580-6581`. Read sites:
+
+- `automation.py:1504, 1969` — light/fan automation
+- `hvac_fans.py:132` — HVAC fan policy module
+- `hvac.py:1378, 1386, 1471, 1680, 1695` — HVAC fan-control branches
+- `hvac_predict.py:548, 557` — HVAC predict
+- `coordinator.py:739, 744` — room coordinator entity enumeration
+
+**Presence coordinator does NOT currently subscribe to fan entities.**
+D3 must add a new presence-side state-change listener. Access path
+verified via `coordinator.py:739-744`: the room coordinator's
+`_get_config(CONF_FANS, [])` returns the list. From the presence side
+the enumeration is `for entry in hass.config_entries.async_entries(DOMAIN)
+if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_ROOM:
+entry.data.get(CONF_FANS, [])` — pattern matches the existing
+`check_zone_occupancy_confidence` code at `presence.py:1003-1008`. No
+new config field required.
+
+## A.5 Go / no-go recommendation
+
+**GO.** The OR split is structurally safe to ship under the audit doc's
+proposed D2 design, with the following clarifications from the
+appendix audit:
+
+1. **Pinned site list is wider than `presence.py:3282`.** The collapse
+   actually happens at the two writer sites (`:1499-1515` seed,
+   `:1828-1870` live). D2 must update BOTH writers in lockstep — Bug
+   Class #1 seed-vs-live divergence is the principal risk.
+2. **`check_zone_occupancy_confidence` is NOT coupled to the split.**
+   The audit doc body section 8 claims source-1 may change `possible`
+   count. Source-1 reads the room coordinator's `_last_motion_time`
+   (`presence.py:1014`), which is independent of the zone tracker's
+   `_room_occupied`. Default verdict from D1 is automatic: source count
+   unchanged. D4 collapses to a docstring fix.
+3. **raw_occupied composition is via `_derived_mode`, not direct.** Doc
+   body sections 2 and 6 should be corrected — minor, but the wake gate
+   review depends on this path being well-understood.
+4. **Tier-3 BLE is zone-level today.** The 3-layer ladder's Layer-1
+   ("room BLE present") needs a per-room path; D3's planned use of
+   `person_coordinator.get_persons_in_room` is correct and bypasses the
+   per-zone aggregation cleanly.
+5. **22 of 27 surveyed consumers are SAFE.** 5 AT-RISK consumers are
+   confined to the seam (3 write sites + 1 deprecation shim + 1
+   name-only false alarm). NO GATING consumers found. The audit gate
+   is GREEN on the structural axis.
+6. **Last-writer-wins vs algebraic OR.** Today's collapse is technically
+   last-writer-wins per room (two sensors race per tick). D2's derived
+   OR is STRONGER. This is a quiet semantic improvement, not a
+   regression — should be noted in the planning doc so reviewers don't
+   flag it as a behavior change.
+
+**Recommended review tier: Tier 2-DB (three reviewers, framing-disjoint).**
+Justification:
+
+- Trust-hierarchy ripple is real even though the actual consumer count
+  is small. Reviewer B is needed specifically to verify seed-vs-live
+  classification agreement (the v4.7.18.1 B-HIGH-1 hazard repeats here).
+- `zone_events` row shape is in scope (write site at `presence.py:3337`)
+  — Reviewer A's data-integrity framing covers it.
+- New diagnostic surface (D5 sensor attrs + D3 fan_interference keys)
+  needs Reviewer C's new-surface authority framing.
+
+The audit doc body already commits to Tier 2-DB. **Confirmed.**
+
+**One caveat on go/no-go.** Operator-elevated Tier 2-DB still applies
+regardless of the structural-only findings here. The audit doc body's
+Tier-2-DB elevation language stands.
+
+## A.6 What the audit body should be corrected on before build
+
+These are documentation fidelity items, not gating findings. Build
+agents should be briefed on them:
+
+1. Section D1 §2 (raw_occupied composition): correct the "composition
+   theorem" to compose through `_derived_mode`, not directly through
+   `_room_occupied`.
+2. Section D1 §8 (`check_zone_occupancy_confidence`): the consumer
+   reads `_last_motion_time` per room coordinator, NOT `_room_occupied`.
+   Source-1 count is not affected by the split. Collapse D4 to a
+   docstring update.
+3. D2 producer language ("classify entity_ids by reading the owning
+   room coordinator's CONF_*_SENSORS config"): note that the zone
+   tracker currently discovers entities by `area_id`, NOT via those
+   CONF_* lists, so the classification path is a NEW cross-coordinator
+   read. Verify the access path in D2 build planning.
+4. Section A.1 of this appendix establishes that today's collapse is
+   last-writer-wins, not algebraic OR. The build commentary should
+   acknowledge D2 strengthens the semantic.
+
+## A.7 What this audit does NOT cover
+
+- **Actual runtime distribution of room sensor configurations.**
+  Whether mixed-sensor rooms (both PIR + mmwave) exist in the operator's
+  install, and whether they show last-writer-wins races today, was not
+  observed. Operator can verify with a one-tick log dump or a `print`
+  in `update_room_occupancy`.
+- **Source of `_ble_occupied` for the per-zone tracker.** Set by
+  `update_ble_presence` at `:354`; caller not traced in this pass.
+  Verify before D3 Layer-1 build.
+- **Whether the room coordinator config is reliably reachable from the
+  presence coordinator during the seed loop.** The audit doc body
+  asserts "verified the access path" but this appendix could not
+  confirm. D2 builder must verify before committing classification logic.
+- **Performance impact of adding a CONF_FANS state-change listener
+  per room.** Likely negligible — HA dispatcher is async — but worth
+  measuring in D3.
+
+These four items are stamped as D2/D3 build-time verification, not
+D1 gates.
+
+---

@@ -1,6 +1,6 @@
 """Binary sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.7.19
+# Universal Room Automation vv4.7.20
 # Build: 2026-01-02
 # File: binary_sensor.py
 # v3.2.6: Renamed "Presence" to "Sensor Presence" for clarity
@@ -449,12 +449,55 @@ class OccupiedBinarySensor(UniversalRoomEntity, BinarySensorEntity, RestoreEntit
             attrs["last_kind_to_fire"] = _last_kind
             attrs["fan_on"] = _fan_on
             attrs["fan_interference_suspect"] = _suspect
+            # Fan-noise mitigation D1 (Layer-1 silent gate) attrs.
+            # Hold-active = True when the derived `_room_occupied`
+            # view for this room is being EXTENDED by the gate (the
+            # natural OR has already gone False; the hold is what's
+            # keeping it True). hold_expires_at_iso surfaces the
+            # decay deadline for operator visibility. ble_corroboration
+            # _layer names the strongest non-fired BLE layer label
+            # (L1 / L2 / L3 / none) — only meaningful for suspect rooms.
+            _hold_active = False
+            _hold_iso: str | None = None
+            _ladder_label = "none"
+            try:
+                if _tracker is not None:
+                    _hold_until = getattr(
+                        _tracker, "_fan_interference_hold_until", {},
+                    ).get(_room_name)
+                    if _hold_until is not None:
+                        from homeassistant.util import dt as _dt_util
+                        _now = _dt_util.utcnow()
+                        if _hold_until > _now:
+                            # Hold-active iff hold is in the future AND
+                            # provenance is otherwise empty (the hold is
+                            # what's keeping the room True). If any
+                            # provenance kind is True the OR is doing
+                            # the work, not the hold.
+                            _hold_iso = _hold_until.isoformat()
+                            _hold_active = not any(
+                                bool(v) for v in (_provenance or {}).values()
+                            )
+                if _presence is not None:
+                    _ladder_label = (_inputs.get(
+                        "fan_interference_ladder", {}
+                    ) or {}).get(_room_name, "none")
+            except Exception:
+                _hold_active = False
+                _hold_iso = None
+                _ladder_label = "none"
+            attrs["fan_interference_hold_active"] = _hold_active
+            attrs["fan_interference_hold_expires_at"] = _hold_iso
+            attrs["ble_corroboration_layer"] = _ladder_label
         except Exception:
             from .const import TIER1_KINDS  # function-local
             attrs["tier1_provenance"] = {k: False for k in TIER1_KINDS}
             attrs["last_kind_to_fire"] = ""
             attrs["fan_on"] = False
             attrs["fan_interference_suspect"] = False
+            attrs["fan_interference_hold_active"] = False
+            attrs["fan_interference_hold_expires_at"] = None
+            attrs["ble_corroboration_layer"] = "none"
         return attrs
 
 

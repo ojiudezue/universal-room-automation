@@ -1,5 +1,7 @@
 # PLANNING — Config Subentries Migration + Architectural-Debt Sweep
 
+> **SUPERSEDED 2026-06-03** by `PLANNING_setup_unload_symmetry.md` (D1 prereq, Tier 2) + `PLANNING_config_subentries_migration.md` (D2 + D3a/b/c, Tier 2-DB, GATED on the symmetry hotfix). Body retained for historical record.
+
 **Status:** Planning. Nothing here has shipped.
 **Versioning:** Unversioned until it ships — picks up the next available patch
 number at deploy time. This is NOT a "5.0": major bumps are reserved for major

@@ -1,6 +1,6 @@
 """Number platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.7.19
+# Universal Room Automation vv4.7.20
 # Build: 2026-01-02
 # File: number.py
 #
@@ -67,6 +67,11 @@ async def async_setup_entry(
             # sliders on the HVAC Coordinator device.
             HVACEgressPauseThresholdNumber(hass, entry, 3),
             HVACEgressResumeDelayNumber(hass, entry, 1),
+            # Fan-noise mitigation D1: Layer-1 silent gate hold duration.
+            # Lives on the Presence Coordinator device. Pushes operator
+            # changes into ``PresenceCoordinator._fan_interference_hold_s``
+            # via ``set_fan_interference_hold_s``.
+            FanInterferenceHoldNumber(hass, entry),
             # v4.6.2 D3: Bayesian cell staleness window (default 14 days)
             BayesianCellStalenessNumber(hass, entry),
             # v4.6.2 D6: routine notification tunables
@@ -2188,3 +2193,124 @@ class HVACEgressResumeDelayNumber(NumberEntity, RestoreEntity):
         self._push_to_coordinator()
         self.async_write_ha_state()
         _LOGGER.info("Egress resume delay set to %d min", int(value))
+
+
+class FanInterferenceHoldNumber(NumberEntity, RestoreEntity):
+    """Layer-1 fan-interference hold duration in seconds (D1).
+
+    Lives on the Presence Coordinator device. Operator-tunable slider
+    that pushes into ``PresenceCoordinator._fan_interference_hold_s``
+    via ``set_fan_interference_hold_s``. Default 300s mirrors the
+    camera-tier timeout (``_CAMERA_OCCUPANCY_TIMEOUT_SECONDS`` at
+    presence.py:71). Range 60-1800.
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:timer-outline"
+    _attr_native_step = 30
+    _attr_native_min_value = 60
+    _attr_native_max_value = 1800
+    _attr_native_unit_of_measurement = UnitOfTime.SECONDS
+    _attr_mode = NumberMode.SLIDER
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .const import (
+            CONF_FAN_INTERFERENCE_HOLD_S,
+            DEFAULT_FAN_INTERFERENCE_HOLD_S,
+            VERSION,
+        )
+        self.hass = hass
+        self._entry = entry
+        self._attr_unique_id = f"{DOMAIN}_fan_interference_hold_s"
+        self._attr_name = "Fan Interference Hold"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "presence_coordinator")},
+            name="URA: Presence Coordinator",
+            manufacturer="Universal Room Automation",
+            model="Presence Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+        config = {**entry.data, **entry.options}
+        self._value = int(
+            config.get(
+                CONF_FAN_INTERFERENCE_HOLD_S,
+                DEFAULT_FAN_INTERFERENCE_HOLD_S,
+            )
+        )
+
+    def _get_presence(self):
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        return manager.coordinators.get("presence") if manager else None
+
+    @property
+    def native_value(self) -> float:
+        return self._value
+
+    @property
+    def available(self) -> bool:
+        return True
+
+    def _push_to_coordinator(self) -> bool:
+        presence = self._get_presence()
+        if presence is None:
+            return False
+        try:
+            presence.set_fan_interference_hold_s(self._value)
+        except Exception:
+            return False
+        return True
+
+    async def async_added_to_hass(self) -> None:
+        """Restore last value; best-effort push (no ready signal exists)."""
+        await super().async_added_to_hass()
+        last_state = await self.async_get_last_state()
+        if (
+            last_state is not None
+            and last_state.state not in ("unknown", "unavailable")
+        ):
+            try:
+                self._value = int(float(last_state.state))
+            except (ValueError, TypeError):
+                pass
+        # Best-effort push. If the presence coordinator is not yet
+        # registered (early-boot), the value is still held locally and
+        # the next operator interaction will push it. The presence
+        # coordinator's __init__ also seeds the default, so the gate
+        # always has a sensible value to use in the meantime.
+        self._push_to_coordinator()
+
+    async def async_set_native_value(self, value: float) -> None:
+        self._value = int(value)
+        self._push_to_coordinator()
+        # B-H1 fix-up: mirror the operator value into the
+        # Coordinator-Manager entry.options so the next coordinator
+        # __init__ (post-restart, post-restore-from-backup, or any
+        # no-last-state path) re-seeds the gate at the operator's
+        # value rather than the hard-coded 300s default. URA-mirror
+        # pattern — see feedback_ura_mirror_pattern.md.
+        try:
+            from .const import (
+                CONF_ENTRY_TYPE,
+                CONF_FAN_INTERFERENCE_HOLD_S,
+                ENTRY_TYPE_COORDINATOR_MANAGER,
+            )
+            for ce in self.hass.config_entries.async_entries(DOMAIN):
+                if ce.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_COORDINATOR_MANAGER:
+                    self.hass.config_entries.async_update_entry(
+                        ce,
+                        options={
+                            **ce.options,
+                            CONF_FAN_INTERFERENCE_HOLD_S: int(value),
+                        },
+                    )
+                    break
+        except Exception:  # noqa: BLE001 — best-effort mirror
+            _LOGGER.debug(
+                "Fan-interference hold: entry.options mirror failed (non-fatal)",
+                exc_info=True,
+            )
+        self.async_write_ha_state()
+        _LOGGER.info("Fan-interference hold set to %d seconds", int(value))

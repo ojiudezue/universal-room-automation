@@ -112,6 +112,10 @@ from .const import (
     CONF_LIGHT_CAPABILITIES,
     CONF_FANS,
     CONF_HUMIDITY_FANS,
+    # Fan-noise mitigation D1: per-room adjacency for the Layer-1 BLE
+    # corroboration ladder. Empty list is safe (L2 simply does not
+    # fire; L1 + L3 still work).
+    CONF_ADJACENT_ROOMS,
     CONF_COVERS,
     CONF_COVER_TYPE,
     CONF_AUTO_SWITCHES,
@@ -1089,6 +1093,26 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
             ),
             vol.Optional(CONF_HUMIDITY_FANS, default=[]): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="fan", multiple=True)
+            ),
+            # Fan-noise mitigation D1: per-room adjacency for the
+            # Layer-1 BLE corroboration ladder. Rooms whose BLE
+            # presence should be treated as "probably the same person
+            # drifting" for fan-interference purposes (example:
+            # bathroom <-> adjacent bedroom). Empty list is safe: L2
+            # of the ladder simply does not fire and L1 + L3 still
+            # work. Stored as a list of OTHER room config entry_ids.
+            vol.Optional(CONF_ADJACENT_ROOMS, default=[]): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=[
+                        {
+                            "label": e.data.get(CONF_ROOM_NAME, e.title),
+                            "value": e.entry_id,
+                        }
+                        for e in self._get_all_room_entries()
+                    ],
+                    multiple=True,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                )
             ),
             vol.Optional(CONF_COVERS, default=area_covers or []): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="cover", multiple=True)
@@ -6587,6 +6611,27 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 default=self._get_current(CONF_HUMIDITY_FANS, [])
             ): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="fan", multiple=True)
+            ),
+            # Fan-noise mitigation D1: per-room adjacency (Layer-2 of
+            # the BLE corroboration ladder). Round-trips through
+            # reconfigure so operators can populate it incrementally
+            # after install. Empty list is safe.
+            vol.Optional(
+                CONF_ADJACENT_ROOMS,
+                default=self._get_current(CONF_ADJACENT_ROOMS, [])
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=[
+                        {
+                            "label": e.data.get(CONF_ROOM_NAME, e.title),
+                            "value": e.entry_id,
+                        }
+                        for e in self._get_all_room_entries()
+                        if e.entry_id != self._config_entry.entry_id
+                    ],
+                    multiple=True,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                )
             ),
             vol.Optional(
                 CONF_COVERS,
