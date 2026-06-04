@@ -44,7 +44,7 @@ def _function_local_bare_imports(tree: ast.AST) -> list:
 
 
 def test_no_function_local_async_dispatcher_send_import():
-    with open(_PRESENCE_PATH) as f:
+    with open(_PRESENCE_PATH, encoding="utf-8") as f:
         tree = ast.parse(f.read())
 
     offenders = _function_local_bare_imports(tree)
@@ -57,7 +57,7 @@ def test_no_function_local_async_dispatcher_send_import():
 
 def test_module_top_async_dispatcher_send_import_present():
     """The module-top import must exist — it is the sole binding the gate relies on."""
-    with open(_PRESENCE_PATH) as f:
+    with open(_PRESENCE_PATH, encoding="utf-8") as f:
         tree = ast.parse(f.read())
 
     found = any(
