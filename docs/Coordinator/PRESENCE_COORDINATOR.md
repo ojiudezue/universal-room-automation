@@ -546,6 +546,35 @@ class PersonLocation:
 | At configured sleep time | Prompt sleep transition |
 | At configured wake time | Prompt waking transition |
 
+### Tier-1 provenance (provenance-split cycle)
+
+`ZonePresenceTracker._room_provenance: Dict[str, Dict[str, bool]]` keys
+each room to a per-kind dict where `kind ∈ TIER1_KINDS = ("motion",
+"mmwave", "occupancy")`. The legacy `_room_occupied` view is preserved as
+a derived `@property` returning `{room: any(provenance[room].values())}`
+so all 22 SAFE consumers in the audit's Appendix A.2 read the same shape
+unchanged.
+
+Per-kind classification of firing entities is performed by the module-
+level helper `_classify_entity_kind(hass, entity_id, room_name)` which is
+the SINGLE classification source for BOTH the seed loop and the live
+state-change callback (Bug Class #1 guard — seed vs live divergence).
+The helper consults each owning room ConfigEntry's CONF_MMWAVE_SENSORS /
+CONF_MOTION_SENSORS / CONF_OCCUPANCY_SENSORS lists, falling back to the
+entity-id substring vocabulary already used in discovery
+(`mmwave`/`presence` → mmwave, `motion` → motion, else `occupancy`).
+
+The fan-interference Layer-1 diagnostic
+(`_compute_fan_interference_rooms`) is observation-only; it surfaces a
+per-tick "fan_interference_rooms" flag list via `signal_consensus_inputs`
+without altering consensus arithmetic or zone-tracker `mode` output.
+
+References:
+- `docs/planning/AUDIT_presence_provenance.md` (GREEN audit verdict)
+- `docs/planning/PLANNING_presence_provenance_split_and_fan_diagnostic.md`
+- `docs/planning/PLANNING_presence_fan_actuation_and_ble_ladder_deferred.md`
+  (deferred Layer-2/Layer-3 + PIR fusion)
+
 ---
 
 ## 6. OUTPUTS
