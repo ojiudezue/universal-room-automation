@@ -588,8 +588,15 @@ class TestFixupBHigh1BootSeed:
         assert "self.hass.states.get(entity_id)" in body, (
             "v4.7.18.1 fix-up: room-sensor seed must read current state"
         )
-        assert "tracker.update_room_occupancy(room_name, occupied)" in body, (
+        # The seed must call tracker.update_room_occupancy with
+        # (room_name, occupied[, kind=...]). The provenance-split cycle
+        # added an optional `kind` kwarg — assert the call shape is
+        # preserved structurally regardless of whether kind is passed.
+        assert "tracker.update_room_occupancy(" in body, (
             "v4.7.18.1 fix-up: room-sensor seed must call update_room_occupancy"
+        )
+        assert "room_name" in body and "occupied" in body, (
+            "v4.7.18.1 fix-up: room-sensor seed must pass (room_name, occupied)"
         )
 
     def test_camera_seed_block_present(self):
