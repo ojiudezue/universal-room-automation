@@ -91,11 +91,28 @@ def test_house_state_sensor_top_level_fan_interference_active() -> None:
 
 
 def test_attrs_refresh_via_existing_signal() -> None:
-    """No new dispatcher signal: surface refresh rides SIGNAL_PRESENCE_ENTITIES_UPDATE."""
+    """No new dispatcher signal for the D5 attribute refresh: the surface
+    refresh continues to ride ``SIGNAL_PRESENCE_ENTITIES_UPDATE`` —
+    that was the contract of the provenance-split cycle.
+
+    Fan-noise mitigation D1 adds ONE new signal,
+    ``SIGNAL_FAN_INTERFERENCE_GATE_FIRED``, dispatched only when the
+    silent Layer-1 gate transitions a room from "no hold" to "hold
+    active" — distinct from the per-tick attribute refresh path. The
+    surface-refresh contract is unchanged.
+    """
     from custom_components.universal_room_automation.domain_coordinators import signals
-    # Sentinel — the existing dispatcher is the one used.
+    # Sentinel — the existing per-tick dispatcher is still the one used
+    # to refresh sensor attributes.
     assert hasattr(signals, "SIGNAL_PRESENCE_ENTITIES_UPDATE")
-    # No new D5-specific signal name leaked in.
+    # No D5-specific signal name leaked in.
     for attr in dir(signals):
         assert "PROVENANCE" not in attr.upper(), attr
-        assert "FAN_INTERFERENCE" not in attr.upper(), attr
+    # Fan-noise mitigation D1: the only allowed FAN_INTERFERENCE_*
+    # signal is the edge-triggered gate-fired channel (NOT a per-tick
+    # refresh — it dispatches on hold-active edges only).
+    fan_signals = [
+        a for a in dir(signals)
+        if "FAN_INTERFERENCE" in a.upper()
+    ]
+    assert fan_signals == ["SIGNAL_FAN_INTERFERENCE_GATE_FIRED"], fan_signals

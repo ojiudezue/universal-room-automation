@@ -107,6 +107,16 @@ SIGNAL_DYNAMIC_PRESET_OVERRIDES_UPDATED: Final = "ura_dynamic_preset_overrides_u
 # change, both signals fire; sensor's _on_signal is idempotent.
 SIGNAL_DPM_SKIP_REASONS_UPDATED: Final = "ura_dpm_skip_reasons_updated"
 
+# Fan-noise mitigation D1: dispatched once per inference tick whenever the
+# Layer-1 gate applied a fresh hold (i.e. a room moved from "no hold" to
+# "hold active" because it was fan-interference-suspect AND the BLE ladder
+# did not corroborate). Payload: ``{"rooms": list[str], "ladder": dict[str,
+# str]}`` where ladder maps room -> "L1" | "L2" | "L3" | "none" naming the
+# strongest non-fired layer for the room. Observation channel for UI
+# refresh + diagnostic sensors; downstream consumers MUST NOT actuate on
+# this signal (D2 actuation is build-gated separately).
+SIGNAL_FAN_INTERFERENCE_GATE_FIRED: Final = "ura_fan_interference_gate_fired"
+
 
 # ============================================================================
 # Shared data classes for inter-coordinator communication
