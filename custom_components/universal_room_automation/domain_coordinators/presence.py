@@ -59,10 +59,13 @@ from .coordinator_diagnostics import (
 )
 from .house_state import HouseState, HouseStateMachine
 from .signals import (
-    SIGNAL_HOUSE_STATE_CHANGED,
     SIGNAL_CENSUS_UPDATED,
+    SIGNAL_FAN_INTERFERENCE_GATE_FIRED,
+    SIGNAL_HOUSE_STATE_CHANGED,
     SIGNAL_PERSON_ARRIVING,
+    SIGNAL_PRESENCE_ENTITIES_UPDATE,
 )
+from homeassistant.helpers.dispatcher import async_dispatcher_send
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -323,15 +326,57 @@ def _audit_provenance_invariants(tracker: "ZonePresenceTracker") -> list[str]:
                 f"key-set mismatch: provenance={sorted(prov.keys())} "
                 f"occupied={sorted(occ.keys())}"
             )
-        # Invariant 1: derived OR equality.
-        for room, kinds in prov.items():
-            expected = any(bool(v) for v in kinds.values())
-            actual = bool(occ.get(room, False))
-            if expected != actual:
-                violations.append(
-                    f"room '{room}' _room_occupied={actual} but "
-                    f"any(_room_provenance)={expected}"
-                )
+        # Invariant 1 (RELAXED for fan-noise mitigation D1): the derived
+        # view is `any(provenance.values()) OR hold-active`. The hold
+        # can only EXTEND occupancy (the truth-preserving invariant),
+        # never shorten it. Violation cases:
+        #   * provenance says True but derived says False — always bad.
+        #   * provenance says False AND derived says True AND there is
+        #     NO active hold for the room — also bad.
+        # The pre-D1 strict-equality form would mis-fire on every
+        # legitimate hold-extension, so the audit is widened to allow
+        # "derived broader because of an active hold."
+        # B-M3 fix-up: if either getattr() or dt_util.utcnow() raises
+        # (catastrophic, but we don't want the audit to fabricate a
+        # false-positive flood by flagging every hold-extended room as
+        # a violation), bail out of Invariant 1 with a single diagnostic
+        # entry instead. The other invariants below still run.
+        hold: Dict[str, Any] = {}
+        now = None
+        skip_invariant_1 = False
+        try:
+            hold = getattr(tracker, "_fan_interference_hold_until", {}) or {}
+            now = dt_util.utcnow()
+        except Exception as exc:  # noqa: BLE001 — defensive
+            violations.append(
+                f"audit cannot run Invariant 1: hold/clock read raised "
+                f"{type(exc).__name__}: {exc!r}"
+            )
+            skip_invariant_1 = True
+        if not skip_invariant_1:
+            for room, kinds in prov.items():
+                expected = any(bool(v) for v in kinds.values())
+                actual = bool(occ.get(room, False))
+                if expected and not actual:
+                    violations.append(
+                        f"room '{room}' _room_occupied=False but "
+                        f"any(_room_provenance)=True (truth-preserving "
+                        f"invariant violated — hold cannot shorten "
+                        f"occupancy)"
+                    )
+                elif not expected and actual:
+                    hold_until = hold.get(room)
+                    hold_active = (
+                        hold_until is not None
+                        and now is not None
+                        and hold_until > now
+                    )
+                    if not hold_active:
+                        violations.append(
+                            f"room '{room}' _room_occupied=True but "
+                            f"any(_room_provenance)=False with no active "
+                            f"fan-interference hold"
+                        )
         # Invariant 3: raw_occupied composes through _derived_mode.
         _ = tracker.raw_occupied
     except Exception as exc:  # noqa: BLE001
@@ -387,6 +432,20 @@ class ZonePresenceTracker:
         self._fan_entity_to_room: Dict[str, str] = {}
         self._camera_occupied: Dict[str, bool] = {}  # entity_id -> detection active
         self._camera_last_seen: Dict[str, datetime] = {}  # entity_id -> last detection time
+        # Fan-noise mitigation D1 (Layer-1 silent gate): per-room hold
+        # expiry. Set ONLY by `_compute_fan_interference_rooms` when the
+        # room is fan-interference-suspect AND the BLE corroboration
+        # ladder says not-corroborated. Consulted by the derived
+        # `_room_occupied` view to EXTEND occupancy past the natural drop
+        # point. CRITICAL truth-preserving invariant: the hold can only
+        # extend occupancy, never shorten it — if any kind in
+        # `_room_provenance[room]` is True, the OR alone keeps the room
+        # occupied and the hold is functionally inert. Cleared when L1
+        # fires (mmwave trusted again) or when a non-mmwave kind flips
+        # True. Storage is the SAME shape as `_camera_last_seen`
+        # (presence.py:71 timeout idiom) — different lifetime, same
+        # design pattern.
+        self._fan_interference_hold_until: Dict[str, datetime] = {}
         self._ble_occupied: bool = False
         self._last_activity: Optional[datetime] = None
         self._unsub_listeners: list = []
@@ -443,9 +502,31 @@ class ZonePresenceTracker:
         was rewritten in the same fix-up pass to match this honest
         description. All 22 SAFE consumers in Audit Appendix A.2 read
         this shape unchanged.
+
+        Fan-noise mitigation D1 (Layer-1 silent gate): the derived OR is
+        ADDITIONALLY extended by the `_fan_interference_hold_until` dict
+        — if a room has an active hold (set by
+        ``_compute_fan_interference_rooms`` when the BLE corroboration
+        ladder says not-corroborated), the room reads True for up to
+        ``CONF_FAN_INTERFERENCE_HOLD_S`` past the natural drop point.
+        CRITICAL truth-preserving invariant: the hold can ONLY extend
+        occupancy, never shorten it. ``any(provenance.values())`` is
+        evaluated FIRST and short-circuits — a positively-firing kind
+        always wins regardless of the hold dict shape. This keeps every
+        downstream reader (HVAC defer gate via
+        ``check_zone_occupancy_confidence``, compliance gate, house
+        inference) safe from false-unoccupied regressions: the worst
+        case is "a fan-suspect room stays occupied a bit too long," the
+        operator's no-regression mandate. See `AUDIT_fan_interference_
+        gate_ripple.md` for the consumer-by-consumer trace.
         """
+        now = dt_util.utcnow()
+        hold = self._fan_interference_hold_until
         return {
-            room: any(bool(v) for v in kinds.values())
+            room: (
+                any(bool(v) for v in kinds.values())
+                or (room in hold and hold[room] > now)
+            )
             for room, kinds in self._room_provenance.items()
         }
 
@@ -989,6 +1070,58 @@ class PresenceCoordinator(BaseCoordinator):
         self._signal_consensus: float = 1.0
         self._signal_consensus_inputs: Dict[str, Any] = {}
         self._consensus_low_since: Optional[datetime] = None
+        # Fan-noise mitigation D1: runtime-tunable hold duration (seconds)
+        # for the Layer-1 silent gate. Seeded from the URA Coordinator-
+        # Manager entry.options when present (URA-mirror pattern — see
+        # `feedback_ura_mirror_pattern.md`), falling back to
+        # ``DEFAULT_FAN_INTERFERENCE_HOLD_S`` (300s, mirrors camera
+        # tier). FanInterferenceHoldNumber pushes operator changes via
+        # ``set_fan_interference_hold_s`` AND mirrors them back into
+        # entry.options so the value survives restore-from-backup /
+        # fresh-install-with-config paths where RestoreEntity has no
+        # last state. Range 60-1800 enforced at the Number entity.
+        # B-H1 fix-up: prior code hard-coded the default at __init__ —
+        # operator value only arrived via RestoreEntity, silently
+        # reverting to 300s on any no-last-state path.
+        from ..const import (
+            CONF_ENTRY_TYPE as _CONF_ENTRY_TYPE,
+            CONF_FAN_INTERFERENCE_HOLD_S as _CONF_FAN_INTERFERENCE_HOLD_S,
+            DEFAULT_FAN_INTERFERENCE_HOLD_S,
+            ENTRY_TYPE_COORDINATOR_MANAGER as _ENTRY_TYPE_COORDINATOR_MANAGER,
+        )
+        _seed_hold_s = int(DEFAULT_FAN_INTERFERENCE_HOLD_S)
+        try:
+            for _ce in self.hass.config_entries.async_entries(DOMAIN):
+                if _ce.data.get(_CONF_ENTRY_TYPE) == _ENTRY_TYPE_COORDINATOR_MANAGER:
+                    _seed_hold_s = int(
+                        {**_ce.data, **_ce.options}.get(
+                            _CONF_FAN_INTERFERENCE_HOLD_S,
+                            DEFAULT_FAN_INTERFERENCE_HOLD_S,
+                        )
+                    )
+                    break
+        except Exception:  # noqa: BLE001 — defensive; fall back to default
+            _seed_hold_s = int(DEFAULT_FAN_INTERFERENCE_HOLD_S)
+        # Clamp to the supported range so a hand-edited options blob
+        # can't push out-of-band values into the gate.
+        self._fan_interference_hold_s: int = max(60, min(1800, _seed_hold_s))
+        # Fan-noise mitigation D1: edge-detection set so the
+        # SIGNAL_FAN_INTERFERENCE_GATE_FIRED dispatch only fires on the
+        # tick a room moves from "no hold" to "hold active." Avoids
+        # tick-rate spam during a sustained interference window.
+        self._fan_interference_gated_prev: Set[str] = set()
+        # B-M1 fix-up: cached adjacency map (room_name -> list of
+        # adjacent room_names) for the Layer-1 gate. Previously the
+        # gate rebuilt this dict every tick by walking every URA
+        # config entry — exactly the per-tick walk this feature
+        # family is sensitive to (mirrors the `_room_to_zone` cache
+        # rationale at the C2/C3 fix-up). Built once at the end of
+        # `_discover_zones` / `_discover_room_sensors` and on the
+        # first gate call (lazy initialization for tests that build
+        # the coordinator outside the normal discovery path).
+        # Invalidated by clearing the dict — any code path that
+        # rewires rooms must call `_invalidate_adjacency_cache()`.
+        self._adjacency_cache: Optional[Dict[str, List[str]]] = None
         # v4.7.16 D3: per-zone weighted-veto verdicts populated each cycle.
         # Read by sensors + reviewers for diagnostics; gating wired in
         # post-v4.7.15 helper integration pass.
@@ -1724,6 +1857,75 @@ class PresenceCoordinator(BaseCoordinator):
             {k: v for k, v in self._room_area_ids.items()},
         )
 
+    def _invalidate_adjacency_cache(self) -> None:
+        """Clear the cached fan-interference adjacency map.
+
+        B-M1 fix-up: any discovery path that rewires rooms (zone or
+        room discovery, config-flow update) must invalidate the
+        cache so the gate rebuilds from current config on next read.
+        """
+        self._adjacency_cache = None
+
+    def _rebuild_adjacency_cache(self) -> None:
+        """Rebuild the room_name -> [adjacent_room_name] cache.
+
+        B-M1 fix-up: the Layer-1 fan-interference gate previously
+        walked every URA config entry every tick to resolve
+        `CONF_ADJACENT_ROOMS`. Adjacency only changes on options-flow
+        save; cache it once at discovery (or lazily on first gate
+        call) and let the gate read O(1). Forward-compat note:
+        unresolved tokens are kept as-is (the operator may have
+        configured a bare room_name) — pruning stale entry_id
+        references after room deletion is deferred (review C2 / B-L1
+        in the fix-up doc).
+        """
+        try:
+            from ..const import CONF_ADJACENT_ROOMS  # noqa: PLC0415
+        except Exception:  # noqa: BLE001 — defensive (const import is safe)
+            self._adjacency_cache = {}
+            return
+        adjacency: Dict[str, List[str]] = {}
+        try:
+            entries = self.hass.config_entries.async_entries(DOMAIN)
+            id_to_name: Dict[str, str] = {}
+            name_to_adj_ids: Dict[str, List[str]] = {}
+            for entry in entries:
+                try:
+                    if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ROOM:
+                        continue
+                except Exception:  # noqa: BLE001
+                    continue
+                room_name = (
+                    entry.data.get(CONF_ROOM_NAME, "") or entry.title or ""
+                )
+                if not room_name:
+                    continue
+                id_to_name[entry.entry_id] = room_name
+                merged = {**entry.data, **(entry.options or {})}
+                adj_raw = merged.get(CONF_ADJACENT_ROOMS, []) or []
+                if isinstance(adj_raw, (list, tuple)):
+                    name_to_adj_ids[room_name] = list(adj_raw)
+            for room_name, adj_ids in name_to_adj_ids.items():
+                resolved: List[str] = []
+                for tok in adj_ids:
+                    if not isinstance(tok, str) or not tok:
+                        continue
+                    if tok in id_to_name:
+                        resolved.append(id_to_name[tok])
+                    else:
+                        # Forward-compat: bare room_name token. Stale
+                        # entry_id references after room deletion are
+                        # deferred (review C2 — runtime-safe).
+                        resolved.append(tok)
+                adjacency[room_name] = resolved
+        except Exception:  # noqa: BLE001 — defensive
+            _LOGGER.warning(
+                "Fan-noise D1: adjacency cache rebuild failed (non-fatal)",
+                exc_info=True,
+            )
+            adjacency = {}
+        self._adjacency_cache = adjacency
+
     def _discover_zones(self) -> None:
         """Discover zones and their rooms from config entries.
 
@@ -1838,6 +2040,10 @@ class PresenceCoordinator(BaseCoordinator):
                 if _room_name not in self._room_to_zone:
                     self._room_to_zone[_room_name] = _zone_name
 
+        # B-M1 fix-up: rebuild adjacency cache once at zone discovery
+        # so the per-tick gate doesn't walk all config entries.
+        self._rebuild_adjacency_cache()
+
         _LOGGER.info(
             "Zone discovery complete: %d zone trackers created: %s",
             len(self._zone_trackers), list(self._zone_trackers.keys()),
@@ -1857,6 +2063,10 @@ class PresenceCoordinator(BaseCoordinator):
         # on every re-discovery so a config-flow update that rewires
         # CONF_*_SENSORS lists picks up the new shape on the next firing.
         self._entity_kind_cache.clear()
+        # B-M1 fix-up: room re-discovery may pick up a rewired
+        # CONF_ADJACENT_ROOMS list — invalidate the adjacency cache
+        # so the next gate call rebuilds from the current entries.
+        self._invalidate_adjacency_cache()
         try:
             from homeassistant.helpers import entity_registry as er
             from homeassistant.helpers import device_registry as dr
@@ -2374,6 +2584,240 @@ class PresenceCoordinator(BaseCoordinator):
             )
             return []
         return sorted(flagged)
+
+    def _apply_fan_interference_gate(
+        self,
+        suspect_rooms: List[str],
+        hold_seconds: int,
+    ) -> tuple[List[str], Dict[str, str]]:
+        """Fan-noise mitigation D1 (Layer-1 silent gate).
+
+        Promotes the observation-only ``_compute_fan_interference_rooms``
+        verdict into a SILENT confidence discount: a fan-suspect room
+        whose mmwave-sole provenance is NOT corroborated by the BLE
+        ladder gets a hold applied via
+        ``ZonePresenceTracker._fan_interference_hold_until``. The hold
+        extends the derived ``_room_occupied`` view past the natural
+        drop point — it can never shorten a genuinely-occupied room
+        (the truth-preserving invariant; see the property's docstring).
+
+        The BLE corroboration ladder (3 layers, all evaluated):
+
+          - L1 (room BLE present): if ``get_persons_in_room(room)``
+            returns any phone-TRUSTWORTHY person (mirrors the v4.7.14.1
+            H2 ``PersonPhoneLeftBehindSensor`` carve-out at
+            presence.py:3289 — phones in the "forgotten phone" sensor
+            don't corroborate), mmwave is trusted again. CLEAR any
+            existing hold. No new hold. Ladder verdict = "L1".
+          - L2 (adjacent room BLE present): if any room in
+            ``CONF_ADJACENT_ROOMS`` for the suspect room has a
+            trustworthy phone, treat as "probably the same person
+            drifting." SET hold. Ladder verdict = "L2". (Pause
+            eligibility is FORBIDDEN here — but pause is a D2
+            consideration, deferred.)
+          - L3 (zone-wide BLE absence): if ``tracker._ble_occupied`` is
+            False, this is the strongest discount signal. SET hold.
+            Ladder verdict = "L3".
+          - "none": L3 inconclusive (zone has no BLE infra / BLE
+            occupied but L1 + L2 silent). Fall through: SET hold under
+            decay. Ladder verdict = "none".
+
+        Pets are NOT rejected by L1 / L2 (a dog has no phone); only L3
+        zone-absence positively excludes pets.
+
+        Returns ``(gated_rooms, ladder_verdicts)`` where ``gated_rooms``
+        is the sorted list of rooms whose hold is currently active (set
+        this tick OR a prior tick), and ``ladder_verdicts`` maps every
+        SUSPECT room to its strongest non-fired layer label.
+
+        Truth-preserving: this method writes ONLY to
+        ``tracker._fan_interference_hold_until`` — it never mutates
+        ``_room_provenance``. The derived ``_room_occupied`` view
+        consults the hold dict in addition to the OR (see property
+        docstring). Worst case is a fan-suspect room reads occupied
+        for up to ``hold_seconds`` too long; a genuinely-occupied
+        room (any True in provenance) is NEVER flipped to unoccupied.
+        """
+        ladder: Dict[str, str] = {}
+        gated_rooms: List[str] = []
+        if not D3_DIAGNOSTIC_ENABLED:
+            # H-A2 fix-up: if the kill switch is flipped off (now or
+            # post-restart with the flag flipped in const.py), we MUST
+            # drain every existing hold. Otherwise the `_room_occupied`
+            # property keeps reading the stranded hold dict and a room
+            # stays occupied past the natural drop point with no
+            # mechanism to expire (the gate short-returns and never
+            # reaches the decay/clear path). Draining at the gate entry
+            # is cheaper than gating the per-tick property read.
+            try:
+                for tracker in self._zone_trackers.values():
+                    if getattr(tracker, "_fan_interference_hold_until", None):
+                        tracker._fan_interference_hold_until.clear()
+            except Exception:  # noqa: BLE001 — defensive
+                _LOGGER.warning(
+                    "Fan-noise D1: hold-drain on kill-switch-off failed "
+                    "(non-fatal)",
+                    exc_info=True,
+                )
+            return gated_rooms, ladder
+
+        # Build the phone-trustworthy checker once per call (mirrors the
+        # v4.7.14.1 H2 pattern at presence.py:3289). Fail-OPEN: missing
+        # sensor / unknown / unavailable -> True (preserves v4.7.14
+        # baseline). Resolves entity_id via entity_registry by
+        # unique_id rather than string construction.
+        try:
+            from homeassistant.helpers import entity_registry as er
+            _entity_reg = er.async_get(self.hass)
+        except Exception:  # noqa: BLE001 — defensive
+            _entity_reg = None
+
+        def _phone_trustworthy(person_name: str) -> bool:
+            person_slug = (person_name or "").lower().replace(" ", "_")
+            if not person_slug:
+                return True
+            unique_id = f"{DOMAIN}_person_{person_slug}_phone_left_behind"
+            entity_id: Optional[str] = None
+            if _entity_reg is not None:
+                try:
+                    entity_id = _entity_reg.async_get_entity_id(
+                        "binary_sensor", DOMAIN, unique_id,
+                    )
+                except Exception:  # noqa: BLE001 — fail-OPEN
+                    entity_id = None
+            if entity_id is None:
+                return True
+            try:
+                state = self.hass.states.get(entity_id)
+            except Exception:  # noqa: BLE001 — fail-OPEN
+                return True
+            if state is None or state.state in _UNAVAILABLE_STATES:
+                return True
+            return state.state != "on"
+
+        def _trustworthy_persons_in_room(room: str) -> List[str]:
+            if person_coord is None or not room:
+                return []
+            try:
+                raw = person_coord.get_persons_in_room(room) or []
+            except Exception:  # noqa: BLE001 — defensive
+                return []
+            return [p for p in raw if _phone_trustworthy(p)]
+
+        # B-M1 fix-up: read adjacency from the cached map. Rebuild on
+        # demand if the cache hasn't been populated yet (test paths
+        # that construct the coordinator without calling
+        # `_discover_zones`, first-tick-post-restart edge). Every
+        # discovery method invalidates the cache so a config-flow
+        # reload picks up the new shape.
+        if self._adjacency_cache is None:
+            self._rebuild_adjacency_cache()
+        adjacency: Dict[str, List[str]] = self._adjacency_cache or {}
+
+        person_coord = self.hass.data.get(DOMAIN, {}).get("person_coordinator")
+        now = dt_util.utcnow()
+
+        try:
+            suspect_set = set(suspect_rooms)
+            for tracker in self._zone_trackers.values():
+                for room_name in list(tracker.room_names):
+                    if room_name not in suspect_set:
+                        # Not fan-suspect this tick: if the room had a
+                        # hold, apply reset rules in priority order
+                        # (planning doc §D1.2 "Reset rules"):
+                        #   1. L1 positive corroboration (room BLE
+                        #      present, phone-trustworthy) clears the
+                        #      hold — mmwave is trusted again the
+                        #      moment a known person is in the room.
+                        #      H-A1 fix-up: prior code missed this
+                        #      branch entirely on non-suspect ticks,
+                        #      so a stale hold persisted for the full
+                        #      window after a phone walked in.
+                        #   2. Any non-mmwave provenance kind True
+                        #      clears the hold (room is no longer
+                        #      mmwave-sole — corroborated by another
+                        #      Tier-1 sensor).
+                        #   3. Hold naturally expired (<= now) — drop.
+                        #   4. Otherwise — keep extending occupancy
+                        #      this tick, surface in gated_rooms.
+                        if room_name in tracker._fan_interference_hold_until:
+                            # Reset #1: L1 positive corroboration.
+                            if _trustworthy_persons_in_room(room_name):
+                                tracker._fan_interference_hold_until.pop(
+                                    room_name, None,
+                                )
+                                continue
+                            prov = tracker._room_provenance.get(room_name, {})
+                            non_mmwave_true = any(
+                                bool(prov.get(k, False))
+                                for k in prov.keys()
+                                if k != "mmwave"
+                            )
+                            if non_mmwave_true:
+                                # Reset #2.
+                                tracker._fan_interference_hold_until.pop(
+                                    room_name, None,
+                                )
+                            elif tracker._fan_interference_hold_until[room_name] <= now:
+                                # Reset #3: hold expired naturally.
+                                tracker._fan_interference_hold_until.pop(
+                                    room_name, None,
+                                )
+                            else:
+                                # Hold still active for a previously-
+                                # suspect room; surface it in the gated
+                                # list (the silent extension is still
+                                # in effect this tick).
+                                gated_rooms.append(room_name)
+                        continue
+
+                    # L1 — room BLE present (trustworthy phones).
+                    l1_persons = _trustworthy_persons_in_room(room_name)
+                    if l1_persons:
+                        ladder[room_name] = "L1"
+                        # L1 clears any prior hold — mmwave is trusted
+                        # again the moment a known person is in the room.
+                        tracker._fan_interference_hold_until.pop(
+                            room_name, None,
+                        )
+                        continue
+
+                    # L2 — adjacent room BLE present.
+                    l2_hit = False
+                    for adj_room in adjacency.get(room_name, []):
+                        if _trustworthy_persons_in_room(adj_room):
+                            l2_hit = True
+                            break
+
+                    # L3 — zone-wide BLE absence (strongest discount).
+                    l3_hit = not bool(getattr(tracker, "_ble_occupied", False))
+
+                    if l2_hit:
+                        ladder[room_name] = "L2"
+                    elif l3_hit:
+                        ladder[room_name] = "L3"
+                    else:
+                        ladder[room_name] = "none"
+
+                    # Apply hold (silent extension under decay). Refresh
+                    # on every tick the room remains suspect.
+                    tracker._fan_interference_hold_until[room_name] = (
+                        now + timedelta(seconds=int(hold_seconds))
+                    )
+                    gated_rooms.append(room_name)
+        except Exception:  # noqa: BLE001 — defensive
+            # M-A4 fix-up: elevate to WARNING so a real defect in the
+            # per-room loop is visible at default log level. The
+            # partial `gated_rooms` is still returned (callers prefer
+            # graceful degradation to a `_run_inference` crash).
+            _LOGGER.warning(
+                "Fan-noise D1: gate apply raised (partial gated list "
+                "returned, non-fatal)",
+                exc_info=True,
+            )
+            return sorted(gated_rooms), ladder
+
+        return sorted(set(gated_rooms)), ladder
 
     def _discover_zone_cameras(self) -> None:
         """Discover cameras in each zone using CameraIntegrationManager.
@@ -4137,6 +4581,60 @@ class PresenceCoordinator(BaseCoordinator):
         fan_interference_rooms = self._compute_fan_interference_rooms()
         fan_interference_active = bool(fan_interference_rooms)
 
+        # Fan-noise mitigation D1: silent Layer-1 gate. Applies a hold
+        # via tracker._fan_interference_hold_until to every fan-suspect
+        # room whose BLE corroboration ladder says not-corroborated.
+        # The hold EXTENDS the derived `_room_occupied` view past the
+        # natural drop point — it CANNOT shorten a genuinely-occupied
+        # room (truth-preserving invariant; see property docstring +
+        # AUDIT_fan_interference_gate_ripple.md). Returns the sorted
+        # list of currently-held rooms + the ladder verdict per suspect.
+        fan_interference_gated_rooms, fan_interference_ladder = (
+            self._apply_fan_interference_gate(
+                fan_interference_rooms,
+                self._fan_interference_hold_s,
+            )
+        )
+        # Edge-detect newly-held rooms so SIGNAL_FAN_INTERFERENCE_GATE_FIRED
+        # only dispatches when at least one room moved from "no hold" to
+        # "hold active" this tick. Avoids tick-rate spam during a long
+        # interference window.
+        gated_now = set(fan_interference_gated_rooms)
+        newly_gated = gated_now - self._fan_interference_gated_prev
+        self._fan_interference_gated_prev = gated_now
+        if newly_gated:
+            # B-H2 fix-up: imports for async_dispatcher_send +
+            # SIGNAL_FAN_INTERFERENCE_GATE_FIRED hoisted to module top so
+            # import failures surface at module load, not silently inside
+            # a per-tick `except`. Dispatcher-side exceptions are still
+            # tolerated but now logged at WARNING so they're visible at
+            # default log level (Bug Class #4 — broad-except tightening).
+            try:
+                async_dispatcher_send(
+                    self.hass,
+                    SIGNAL_FAN_INTERFERENCE_GATE_FIRED,
+                    {
+                        "rooms": sorted(newly_gated),
+                        "ladder": {
+                            r: fan_interference_ladder.get(r, "none")
+                            for r in newly_gated
+                        },
+                    },
+                )
+                _LOGGER.info(
+                    "Fan-noise D1: gate fired — newly-held rooms=%s "
+                    "ladder=%s hold_s=%d",
+                    sorted(newly_gated),
+                    {r: fan_interference_ladder.get(r, "none") for r in newly_gated},
+                    self._fan_interference_hold_s,
+                )
+            except Exception:  # noqa: BLE001 — dispatch is best-effort
+                _LOGGER.warning(
+                    "Fan-noise D1: SIGNAL_FAN_INTERFERENCE_GATE_FIRED "
+                    "dispatch failed (non-fatal)",
+                    exc_info=True,
+                )
+
         # Back-compat alias for renamed local — the old name still
         # appears in some downstream string formatters but the value is
         # the same.
@@ -4186,6 +4684,18 @@ class PresenceCoordinator(BaseCoordinator):
             # D3: fan-interference observation-only diagnostic.
             "fan_interference_active": fan_interference_active,
             "fan_interference_rooms": fan_interference_rooms,
+            # Fan-noise mitigation D1 (Layer-1 silent gate):
+            # `fan_interference_gated_rooms` is the list of rooms with
+            # an ACTIVE hold this tick (distinct from
+            # `fan_interference_rooms`, which is the observation-only
+            # suspect list). `fan_interference_ladder` maps each
+            # suspect to the strongest non-fired BLE layer label
+            # (L1 / L2 / L3 / none). Hold-seconds is exposed for the
+            # diagnostic surface so operators can correlate the slider
+            # with observed gate behavior.
+            "fan_interference_gated_rooms": fan_interference_gated_rooms,
+            "fan_interference_ladder": fan_interference_ladder,
+            "fan_interference_hold_s": self._fan_interference_hold_s,
             "state_confidence": round(self._inference_engine.confidence, 2),
         }
 
@@ -4196,22 +4706,45 @@ class PresenceCoordinator(BaseCoordinator):
         else:
             self._consensus_low_since = None
 
-        # D4: Log zone mode changes to database
+        # D4: Log zone mode changes to database.
+        # B-H3 fix-up: tag rooms whose occupancy is currently hold-
+        # extended by the Layer-1 fan-interference gate so post-hoc DB
+        # forensics can distinguish "mmwave actually fired" from
+        # "hold-extension kept the room occupied past mmwave drop."
+        # Without this, the row's `rooms` list silently conflates the
+        # two and operators querying "why was Bedroom 2 occupied at
+        # 3am?" cannot tell the gate apart from genuine occupancy.
+        # Cheap implementation: prefix the room name with `"(hold) "`
+        # in the persisted list — no new DAO/table (that's deferred
+        # D2). The room is hold-extended when provenance OR is False
+        # but the derived view is True (which is exactly the gate's
+        # extension semantic; see _room_occupied property docstring).
         db = self.hass.data.get(DOMAIN, {}).get("database")
         if db is not None:
             for zone_name, tracker in self._zone_trackers.items():
                 old_mode = zone_modes_before.get(zone_name)
                 new_mode = tracker.mode
                 if old_mode is not None and old_mode != new_mode:
-                    occupied_rooms = [
-                        rn for rn, occ in tracker._room_occupied.items() if occ
-                    ]
+                    raw_occupied = tracker._room_occupied
+                    prov = getattr(tracker, "_room_provenance", {}) or {}
+                    tagged_rooms: List[str] = []
+                    for rn, occ in raw_occupied.items():
+                        if not occ:
+                            continue
+                        room_prov = prov.get(rn, {}) or {}
+                        prov_true = any(bool(v) for v in room_prov.values())
+                        if not prov_true:
+                            # Hold-extended — surface in the persisted
+                            # row so forensics can join on the prefix.
+                            tagged_rooms.append(f"(hold) {rn}")
+                        else:
+                            tagged_rooms.append(rn)
                     self.hass.async_create_task(
                         db.log_zone_event(
                             zone=zone_name,
                             event_type=new_mode,
-                            room_count=len(occupied_rooms),
-                            rooms=occupied_rooms if occupied_rooms else None,
+                            room_count=len(tagged_rooms),
+                            rooms=tagged_rooms if tagged_rooms else None,
                         )
                     )
 
@@ -4224,8 +4757,6 @@ class PresenceCoordinator(BaseCoordinator):
         # Security pattern. Function-local import keeps Presence's
         # import surface minimal.
         try:
-            from homeassistant.helpers.dispatcher import async_dispatcher_send
-            from .signals import SIGNAL_PRESENCE_ENTITIES_UPDATE
             async_dispatcher_send(self.hass, SIGNAL_PRESENCE_ENTITIES_UPDATE)
         except Exception:
             _LOGGER.warning(
@@ -4537,6 +5068,58 @@ class PresenceCoordinator(BaseCoordinator):
                         tracker.set_sleep(True)
             except ValueError:
                 _LOGGER.warning("Invalid house state override: %s", state_value)
+
+    def set_fan_interference_hold_s(self, value: int) -> None:
+        """Update the Layer-1 fan-interference hold duration (seconds).
+
+        Fan-noise mitigation D1: called by ``FanInterferenceHoldNumber``
+        when the operator changes the slider. Range is enforced at the
+        Number entity (60-1800).
+
+        H-A3 fix-up: existing per-room hold expiries are RE-CLAMPED to
+        ``min(existing_expiry, now + new_seconds)`` on every change so
+        a slider drop (e.g. 1800 -> 60) takes effect on currently-
+        active holds immediately. The truth-preserving invariant is
+        preserved — we never EXTEND an existing expiry past what was
+        already promised, only shorten it. A slider raise leaves
+        existing expiries alone; only the next suspect-tick refresh
+        picks up the longer duration (which is correct — we should
+        not silently extend past the original promise).
+        """
+        try:
+            clamped = max(60, min(1800, int(value)))
+        except (TypeError, ValueError):
+            _LOGGER.warning(
+                "Fan-noise D1: ignoring non-integer hold-seconds value %r "
+                "(type=%s)",
+                value, type(value).__name__,
+            )
+            return
+        if clamped != self._fan_interference_hold_s:
+            _LOGGER.info(
+                "Fan-noise D1: hold duration updated %ds -> %ds",
+                self._fan_interference_hold_s, clamped,
+            )
+            self._fan_interference_hold_s = clamped
+            # H-A3 fix-up: re-clamp existing holds so the new value
+            # affects already-active holds, not just future
+            # suspect-tick refreshes.
+            try:
+                now = dt_util.utcnow()
+                max_expiry = now + timedelta(seconds=clamped)
+                for tracker in self._zone_trackers.values():
+                    hold = getattr(tracker, "_fan_interference_hold_until", None)
+                    if not hold:
+                        continue
+                    for room_name, expiry in list(hold.items()):
+                        if expiry > max_expiry:
+                            hold[room_name] = max_expiry
+            except Exception:  # noqa: BLE001 — defensive
+                _LOGGER.warning(
+                    "Fan-noise D1: hold re-clamp after slider change failed "
+                    "(non-fatal)",
+                    exc_info=True,
+                )
 
     def get_house_state_override(self) -> str:
         """Get current house state override value for select entity."""

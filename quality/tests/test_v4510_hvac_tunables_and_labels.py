@@ -248,7 +248,11 @@ class TestHVACTunableNumberFactory:
 
     def test_setup_entry_includes_v4510_numbers(self, number_src):
         idx = number_src.find("async def async_setup_entry")
-        body = number_src[idx:idx + 3000]
+        # Widened from 3000 -> 5000 chars (fan-noise mitigation D1
+        # added FanInterferenceHoldNumber to the CM entity list, which
+        # pushed the v4.5.10 builder call past the original window).
+        # This is a structural test — the absolute offset is incidental.
+        body = number_src[idx:idx + 5000]
         assert "_build_hvac_v4510_numbers()" in body, (
             "async_setup_entry must add the 7 v4.5.10 Number entities"
         )

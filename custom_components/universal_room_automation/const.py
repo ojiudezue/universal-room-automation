@@ -350,6 +350,28 @@ BLE_TIER_2_WEIGHT: Final = 0.6
 # performance kill-switch, not a user-facing knob.
 D3_DIAGNOSTIC_ENABLED: Final = True
 
+# Fan-noise mitigation D1 (Layer-1 silent interference-conditioned discount
+# + decay). Per-Presence-Coordinator hold duration applied when a room is
+# fan-interference-suspect AND the BLE corroboration ladder says
+# not-corroborated. The hold can only EXTEND occupancy via the derived
+# `_room_occupied` view — it NEVER shortens a genuinely-occupied room.
+# Default mirrors the camera-tier 300s convention
+# (`_CAMERA_OCCUPANCY_TIMEOUT_SECONDS` at presence.py:71). Range 60-1800.
+# The whole feature (observation diagnostic + gate hold) is kill-switched
+# by `D3_DIAGNOSTIC_ENABLED` above — operator collapsed the proposed
+# `CONF_FAN_INTERFERENCE_GATE_ENABLED` into the existing flag per the
+# locked decision 2026-06-04.
+CONF_FAN_INTERFERENCE_HOLD_S: Final = "fan_interference_hold_s"
+DEFAULT_FAN_INTERFERENCE_HOLD_S: Final = 300
+
+# Fan-noise mitigation D1: per-room adjacency list for Layer-2 BLE
+# corroboration ("probably the same person drifting" — bathroom <-> bedroom).
+# Stored as a list of OTHER room entry_ids. Empty list is SAFE — L2 simply
+# does not fire and the gate falls back to L1 + L3. No migration helper
+# per Bug Class #46 lazy-derivation doctrine: readers use
+# ``entry.options.get(CONF_ADJACENT_ROOMS, [])``.
+CONF_ADJACENT_ROOMS: Final = "adjacent_rooms"
+
 CONF_DOOR_SENSORS: Final = "door_sensor"
 CONF_DOOR_TYPE: Final = "door_type"
 CONF_WINDOW_SENSORS: Final = "window_sensor"
