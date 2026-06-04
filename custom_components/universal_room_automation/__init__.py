@@ -2302,9 +2302,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             # default-arg binding pins _service_name into each lambda's
             # closure so the loop variable doesn't capture-by-reference
             # (every lambda would otherwise remove only the last name).
+            # A-LOW-2 (Review A): guard with `has_service` so partial-
+            # setup unload (where some _async_register_*_services
+            # helpers raised mid-call) doesn't emit up to 10 spurious
+            # "Unable to remove unknown service" warnings from HA core
+            # (homeassistant/core.py:2680-2682).
             entry.async_on_unload(
-                lambda _name=_service_name: hass.services.async_remove(
-                    DOMAIN, _name,
+                lambda _name=_service_name: (
+                    hass.services.async_remove(DOMAIN, _name)
+                    if hass.services.has_service(DOMAIN, _name)
+                    else None
                 )
             )
 
@@ -2330,10 +2337,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 # homeassistant/components/http/__init__.py:512-543) and
                 # exposes NO public removal API in current HA versions.
                 # Routes live for the process lifetime; on entry reload
-                # the duplicate registration is detected by aiohttp and
-                # raises (caught by the surrounding except). Not a leak
-                # we can patch from URA's side. Documenting the gap so
-                # reviewers don't expect a paired teardown.
+                # the duplicate registration may raise depending on
+                # aiohttp version (caught by the surrounding except —
+                # B-LOW-3 (Review B, 2026-06-03): the raise behavior
+                # was not verified against aiohttp source, so the
+                # except is defensive rather than guaranteed).
+                # Not a leak we can patch from URA's side. Documenting
+                # the gap so reviewers don't expect a paired teardown.
                 from homeassistant.components import panel_custom
                 from homeassistant.components import frontend as _ha_frontend
                 _panel_path = "ura-dashboard"
@@ -3430,14 +3440,15 @@ async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> Non
     half-unloaded and the coordinator unable to pick up new config.
     """
     _LOGGER.info("Options changed for '%s' (%s), scheduling reload", entry.title, entry.entry_id)
-    # setup/unload symmetry: use `entry.async_create_background_task`
-    # so the reload task is tracked + cancelled if the entry is being
-    # torn down. REUSED pattern: automation.py:303 cover runner +
-    # __init__.py:854/859/960/2139/2244. The reload itself replaces
-    # this entry's coordinator, so the task is effectively self-
-    # terminating; tracking it still removes one untracked-task site.
-    entry.async_create_background_task(
-        hass,
+    # B-CRIT-1 (Review B, 2026-06-03): MUST be an UNTRACKED task. A
+    # tracked task registered via `entry.async_create_background_task`
+    # gets cancelled by `_async_process_on_unload` during the reload's
+    # own unload phase (config_entries.py:1233-1234 iterates
+    # `entry._background_tasks` and cancels each), aborting the
+    # reload before its setup phase completes and leaving the entry
+    # in NOT_LOADED. The standard HA-core pattern for self-reload
+    # from inside a config entry is the untracked form below —
+    # exemplars: plex, flux_led, tile, epson.
+    hass.async_create_task(  # noqa: untracked-ok — self-reload must outlive entry unload; standard HA core pattern (plex, flux_led, tile, epson)
         hass.config_entries.async_reload(entry.entry_id),
-        f"ura_reload_{entry.entry_id}",
     )

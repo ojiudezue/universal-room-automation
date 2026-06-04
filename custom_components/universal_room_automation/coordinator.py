@@ -485,9 +485,16 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
             # setup/unload symmetry: dispatcher coalescer for a
             # @callback handler. Tracked via the room entry so an
             # in-flight chain is cancelled on entry reload/unload.
+            # B-HIGH-2 (Review B): pass eager_start=False so the
+            # coroutine starts on the loop, not synchronously in
+            # this dispatcher callback. Without it, late-arriving
+            # signals during teardown would eagerly start a coroutine
+            # that touches popped hass.data[DOMAIN] keys and propagate
+            # synchronous errors back to the dispatcher.
             self.entry.async_create_background_task(
                 self.hass, _fire_house_state(),
-                f"ura_fire_house_state_{trigger_key}",
+                f"ura_fire_house_state_{self.entry.entry_id[:8]}",
+                eager_start=False,
             )
 
     @callback
@@ -518,9 +525,12 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                 await self._fire_chained_automations([TRIGGER_ENERGY_CONSTRAINT])
                 await self._execute_ai_rules([TRIGGER_ENERGY_CONSTRAINT])
             # setup/unload symmetry: tracked via the room entry.
+            # B-HIGH-2: eager_start=False for dispatcher callback safety
+            # (see _on_house_state_signal sibling comment above).
             self.entry.async_create_background_task(
                 self.hass, _fire_energy(),
                 "ura_fire_energy_constraint",
+                eager_start=False,
             )
 
     @callback
@@ -554,9 +564,12 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                 await self._fire_chained_automations([TRIGGER_SAFETY_HAZARD])
                 await self._execute_ai_rules([TRIGGER_SAFETY_HAZARD])
             # setup/unload symmetry: tracked via the room entry.
+            # B-HIGH-2: eager_start=False for dispatcher callback safety
+            # (see _on_house_state_signal sibling comment above).
             self.entry.async_create_background_task(
                 self.hass, _fire_safety(),
                 "ura_fire_safety_hazard",
+                eager_start=False,
             )
 
     @callback
@@ -589,9 +602,12 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                 await self._fire_chained_automations([TRIGGER_SECURITY_EVENT])
                 await self._execute_ai_rules([TRIGGER_SECURITY_EVENT])
             # setup/unload symmetry: tracked via the room entry.
+            # B-HIGH-2: eager_start=False for dispatcher callback safety
+            # (see _on_house_state_signal sibling comment above).
             self.entry.async_create_background_task(
                 self.hass, _fire_security(),
                 "ura_fire_security_event",
+                eager_start=False,
             )
 
     # =========================================================================
@@ -926,13 +942,18 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                     self._trailing_refresh_unsub = None
                 self._last_event_refresh = now_mono
                 # setup/unload symmetry: tracked via the room entry so
-                # the refresh is cancelled on entry unload. Switched
-                # from `async_refresh()` to `async_request_refresh()`
-                # to additionally benefit from the DataUpdateCoordinator
-                # debouncer (collapses bursts) — see HA's
-                # update_coordinator.py:303-309.
+                # the refresh is cancelled on entry unload. KEEP
+                # `async_refresh()` (immediate) here — B-HIGH-1
+                # (Review B, 2026-06-03) reverted the swap to
+                # `async_request_refresh()` because URA does NOT
+                # override the DataUpdateCoordinator default debouncer
+                # (cooldown=10s, immediate=True) at `__init__`
+                # (coordinator.py:276), so routing through it would
+                # stack a 10s quiet period on top of the 2s rate
+                # limiter at :914-922 — Tier-1 occupant-confirmation
+                # latency could rise to ~10s in burst conditions.
                 self.entry.async_create_background_task(
-                    self.hass, self.async_request_refresh(),
+                    self.hass, self.async_refresh(),
                     "ura_tier1_refresh",
                 )
 
@@ -1919,7 +1940,11 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                             room=room_name,
                             details={"source": occ_source},
                         ),
-                        f"ura_activity_log_{occ_action}_{room_name}",
+                        # B-MED-3: bound task name to entry_id slice
+                        # (was f"ura_activity_log_{occ_action}_{room_name}"
+                        # — unbounded room_name values were polluting HA's
+                        # _tasks debug surface).
+                        f"ura_activity_log_occ_{self.entry.entry_id[:8]}",
                     )
 
                 # RESILIENCE-003: Verify vacancy exit — non-blocking delayed task
@@ -1932,7 +1957,8 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                         self.entry.async_create_background_task(
                             self.hass,
                             self._delayed_exit_verify(room_name, data),
-                            f"ura_delayed_exit_verify_{room_name}",
+                            # B-MED-3: bound task name to entry_id slice.
+                            f"ura_delayed_exit_verify_{self.entry.entry_id[:8]}",
                         )
 
             # v3.16: Re-trigger entry when occupancy source transitions from
@@ -2303,7 +2329,8 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                     room=room_name,
                     entity_id=entity_id,
                 ),
-                f"ura_activity_log_light_{action_type}",
+                # B-MED-3: bound task name to entry_id slice.
+                f"ura_activity_log_light_{self.entry.entry_id[:8]}",
             )
     
     def get_last_trigger_info(self) -> dict[str, Any]:

@@ -126,13 +126,34 @@ class TestServicesUnregisteredOnUnload:
             "setup/unload symmetry: no `hass.services.async_remove(` call "
             "found in __init__.py — service teardown is missing entirely."
         )
+
+        # A-LOW-1 (Review A, 2026-06-03): narrow the literal-presence
+        # check to the teardown loop's `for _service_name in (...)`
+        # Tuple node, so a coincidental string match elsewhere in the
+        # file (constant, comment, handler ref) does not satisfy the
+        # assertion.
+        teardown_tuple_literals: set[str] = set()
+        tree = ast.parse(init_src)
+        for node in ast.walk(tree):
+            # Look for `for _service_name in (...):` constructs.
+            if isinstance(node, ast.For) and isinstance(node.target, ast.Name) \
+                    and node.target.id == "_service_name" \
+                    and isinstance(node.iter, ast.Tuple):
+                for elt in node.iter.elts:
+                    if isinstance(elt, ast.Constant) and isinstance(elt.value, str):
+                        teardown_tuple_literals.add(elt.value)
+        assert teardown_tuple_literals, (
+            "setup/unload symmetry: no `for _service_name in (...)` Tuple "
+            "found in __init__.py — service teardown loop is missing or "
+            "was refactored. Update this test if the new shape is "
+            "intentional."
+        )
         for name in registered:
-            assert f'"{name}"' in init_src, (
+            assert name in teardown_tuple_literals, (
                 f"setup/unload symmetry: service '{name}' is registered but "
-                "the literal does not appear in the teardown loop in "
-                "__init__.py. Add it to the tuple in the "
-                "`for _service_name in (...)` block following the "
-                "service-registration helpers."
+                "does not appear in the teardown loop tuple "
+                "(`for _service_name in (...)`) in __init__.py. Add it to "
+                "that tuple following the service-registration helpers."
             )
 
 
@@ -317,6 +338,75 @@ class TestNoUntrackedAsyncCreateTaskInScope:
 # Sanity: prove the cited setup sites still exist (catches future drift
 # where the planning doc's line numbers fall out of sync).
 # ---------------------------------------------------------------------------
+
+
+class TestUpdateListenerSelfReloadIsUntracked:
+    """B-CRIT-1 (Review B, 2026-06-03) regression guard.
+
+    `_async_update_listener` MUST schedule the self-reload via the
+    UNTRACKED `hass.async_create_task(...)` form, not the tracked
+    `entry.async_create_background_task(...)` form. A tracked task
+    self-cancels: `_async_process_on_unload` cancels every task in
+    `entry._background_tasks` during the reload's own unload phase,
+    aborting the reload before its setup phase completes and leaving
+    the integration in NOT_LOADED. The standard HA-core pattern for
+    self-reload from inside a config entry is the untracked form —
+    exemplars: plex, flux_led, tile, epson.
+    """
+
+    def _find_update_listener(self, tree: ast.Module) -> ast.AsyncFunctionDef:
+        for node in ast.walk(tree):
+            if isinstance(node, ast.AsyncFunctionDef) and node.name == "_async_update_listener":
+                return node
+        raise AssertionError(
+            "B-CRIT-1: `_async_update_listener` not found in __init__.py — "
+            "regression test cannot run. If the function was renamed, "
+            "update this test."
+        )
+
+    def test_update_listener_uses_untracked_self_reload(self, init_tree):
+        fn = self._find_update_listener(init_tree)
+        # Walk the function body looking for the call shape.
+        has_untracked = False
+        has_tracked = False
+        for sub in ast.walk(fn):
+            if not isinstance(sub, ast.Call):
+                continue
+            try:
+                rendered = ast.unparse(sub.func)
+            except Exception:
+                continue
+            if rendered == "hass.async_create_task":
+                # Inner call must be `hass.config_entries.async_reload(...)`.
+                if sub.args:
+                    try:
+                        arg0 = ast.unparse(sub.args[0])
+                    except Exception:
+                        arg0 = ""
+                    if "config_entries.async_reload" in arg0:
+                        has_untracked = True
+            if rendered.endswith(".async_create_background_task"):
+                # If the registered task is `hass.config_entries.async_reload(...)`,
+                # that's the regression we're guarding against.
+                if len(sub.args) >= 2:
+                    try:
+                        coro_arg = ast.unparse(sub.args[1])
+                    except Exception:
+                        coro_arg = ""
+                    if "config_entries.async_reload" in coro_arg:
+                        has_tracked = True
+        assert has_untracked, (
+            "B-CRIT-1 regression: `_async_update_listener` must call "
+            "`hass.async_create_task(hass.config_entries.async_reload(...))` "
+            "(untracked). See review doc setup_unload_symmetry_review_B_lifecycle.md."
+        )
+        assert not has_tracked, (
+            "B-CRIT-1 regression: `_async_update_listener` registered the "
+            "self-reload via `entry.async_create_background_task(...)`. "
+            "The reload task self-cancels via `_async_process_on_unload`, "
+            "leaving the entry NOT_LOADED. Use the untracked "
+            "`hass.async_create_task(...)` form with `# noqa: untracked-ok`."
+        )
 
 
 class TestCitedSetupSitesStillResolve:
