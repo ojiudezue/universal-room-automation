@@ -315,30 +315,44 @@ def test_audit_invariants_pass_under_hold_extension() -> None:
 
 
 def test_audit_invariants_flag_occupied_with_no_provenance_no_hold() -> None:
-    """Truth-preserving check: derived True without provenance AND
-    without an active hold IS an invariant violation. (Test-only
-    fabrication — never reachable through the property in production.)"""
-    _hass, _coord, tracker = _build()
+    """Truth-preserving safety net: derived True without provenance AND
+    without an active hold MUST be flagged as a violation.
+
+    C1 fix-up: the prior test was hollow — it set up the clean state and
+    asserted the audit returned []. That passes regardless of whether
+    the audit's violation branch works. This rewrite drives the actual
+    violation case by subclassing the tracker to force the derived view
+    True for a room with empty provenance + no hold, then asserting the
+    audit DOES flag it. If the production `_room_occupied` property
+    ever regresses such that derived True can be reached without
+    provenance + without hold, this audit (and this test) catch it.
+    """
+    _hass, _coord, tracker = _build(rooms=("a",))
+    # Establish a provenance row keyed on "a" (so key-set equality
+    # holds) and clear it so OR(provenance) is False.
     tracker.update_room_occupancy("a", True, kind="mmwave")
     tracker.update_room_occupancy("a", False)
-    # No hold. We can't fabricate the derived-True via the property
-    # (it's computed from provenance + hold). Instead simulate by
-    # monkey-patching the property — confirms the audit helper's
-    # branch logic.
-    type(tracker).__test_occ__ = property(lambda _self: {"a": True})
-    # Replace the audit helper's `tracker._room_occupied` view via a
-    # subclass to read __test_occ__ — but the audit function reads the
-    # real property directly. So instead exercise the helper by giving
-    # the tracker an empty provenance entry, forcing the OR to False,
-    # while we manually overlay an active hold + then clear it. The
-    # absence of a hold + derived True is the violation we're after,
-    # but the production property never enters that state. This test
-    # documents that the helper's logic is the safety net for any
-    # future bug that breaks the property's truth-preserving guarantee.
-    # As a meaningful check, we verify the helper's hold-active branch
-    # accepts the hold-extension case (covered by the test above) and
-    # the no-hold + no-provenance + occupied=False case is also clean.
-    assert _audit_provenance_invariants(tracker) == []
+    # Confirm preconditions: provenance OR False, no hold active.
+    assert not any(tracker._room_provenance.get("a", {}).values())
+    assert "a" not in tracker._fan_interference_hold_until
+
+    class _ForcedTrueTracker(type(tracker)):
+        @property
+        def _room_occupied(self_inner):
+            # Force the violation shape: room "a" appears True in the
+            # derived view despite empty provenance + no hold.
+            return {"a": True}
+
+    # Re-class instance so the audit reads the forced property.
+    tracker.__class__ = _ForcedTrueTracker
+    violations = _audit_provenance_invariants(tracker)
+    assert any(
+        "no active" in v and "fan-interference hold" in v
+        for v in violations
+    ), (
+        "Audit must flag derived-True-without-provenance-without-hold; "
+        f"got: {violations}"
+    )
 
 
 # ---------------------------------------------------------------------------

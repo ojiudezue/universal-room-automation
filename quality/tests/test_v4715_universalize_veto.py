@@ -902,7 +902,12 @@ class TestD2ZoneAggregatorLayer3:
 # A-LOW-2 review fix-up added a `"tier1"` sentinel bucket to the
 # per-zone Tier-1 provenance breakdown inside `_run_inference`
 # (presence.py ~:3810). Honest re-baseline; not a relaxation.
-_RUN_INFERENCE_WINDOW = 64000
+# Bumped 64000 -> 68000 in the fan-noise Layer-1 D1 fix-up pass
+# when B-H3 (log_zone_event hold-extension tagging) and inline
+# adjacency-cache wiring grew the body. Honest re-baseline; the
+# hard upper bound below (test_run_inference_only_defined_once)
+# still ensures the window cannot span two function bodies.
+_RUN_INFERENCE_WINDOW = 68000
 
 
 class TestD3WakingSustainedSignal:

@@ -2285,5 +2285,32 @@ class FanInterferenceHoldNumber(NumberEntity, RestoreEntity):
     async def async_set_native_value(self, value: float) -> None:
         self._value = int(value)
         self._push_to_coordinator()
+        # B-H1 fix-up: mirror the operator value into the
+        # Coordinator-Manager entry.options so the next coordinator
+        # __init__ (post-restart, post-restore-from-backup, or any
+        # no-last-state path) re-seeds the gate at the operator's
+        # value rather than the hard-coded 300s default. URA-mirror
+        # pattern — see feedback_ura_mirror_pattern.md.
+        try:
+            from .const import (
+                CONF_ENTRY_TYPE,
+                CONF_FAN_INTERFERENCE_HOLD_S,
+                ENTRY_TYPE_COORDINATOR_MANAGER,
+            )
+            for ce in self.hass.config_entries.async_entries(DOMAIN):
+                if ce.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_COORDINATOR_MANAGER:
+                    self.hass.config_entries.async_update_entry(
+                        ce,
+                        options={
+                            **ce.options,
+                            CONF_FAN_INTERFERENCE_HOLD_S: int(value),
+                        },
+                    )
+                    break
+        except Exception:  # noqa: BLE001 — best-effort mirror
+            _LOGGER.debug(
+                "Fan-interference hold: entry.options mirror failed (non-fatal)",
+                exc_info=True,
+            )
         self.async_write_ha_state()
         _LOGGER.info("Fan-interference hold set to %d seconds", int(value))
