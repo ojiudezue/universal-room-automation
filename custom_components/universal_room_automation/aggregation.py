@@ -2933,17 +2933,48 @@ class ZoneSensorBase(AggregationEntity):
                     "Zone '%s': Room coordinators now ready (%d found, attempt %d)",
                     self.zone, len(coords), self._retry_count,
                 )
+                # v4.7.18.2 review A-MED-1: if a prior entity in this zone hit
+                # the no-coordinators threshold and recorded the zone, clear it
+                # now that coordinators have appeared, so the dedup set never
+                # holds a stale "unhealthy" zone. No-op if the set/zone absent.
+                warned_zones = self.hass.data.get(DOMAIN, {}).get(
+                    "_no_coord_warned_zones"
+                )
+                if warned_zones is not None:
+                    warned_zones.discard(self.zone)
                 self.async_schedule_update_ha_state()
                 # Cancel further retries
                 if self._retry_unsub:
                     self._retry_unsub()
                     self._retry_unsub = None
             elif self._retry_count >= max_retries:
-                _LOGGER.warning(
-                    "Zone '%s': No room coordinators found after %ds - "
-                    "zone may be empty or rooms not configured",
-                    self.zone, self._retry_count * 5,
+                # v4.7.18.2: log at most once PER ZONE. Each zone sensor entity
+                # runs its own retry timer, so without this dedup every entity
+                # in a coordinator-less zone emits the same warning at t=60s
+                # (~20 duplicate lines per restart for the largest HVAC zone).
+                # A per-entity flag would NOT help (each entity already only
+                # logs once via its own timer cancellation). Dedup must be at
+                # the zone level, in integration-scoped state cleared on
+                # Zone Manager unload (see async_unload_entry) so legitimate
+                # reloads re-warn. Single-threaded HA event loop serializes
+                # near-simultaneous t=60s firings, so read-check-then-add in
+                # one synchronous callback body needs no lock.
+                # v4.7.18.2 review B-LOW-2: read DOMAIN via get(), not
+                # setdefault — if the callback somehow fires after integration
+                # teardown removed the DOMAIN bag, skip rather than resurrect it.
+                domain_data = self.hass.data.get(DOMAIN)
+                if domain_data is None:
+                    return
+                warned_zones = domain_data.setdefault(
+                    "_no_coord_warned_zones", set()
                 )
+                if self.zone not in warned_zones:
+                    warned_zones.add(self.zone)
+                    _LOGGER.warning(
+                        "Zone '%s': No room coordinators found after %ds - "
+                        "zone may be empty or rooms not configured",
+                        self.zone, self._retry_count * 5,
+                    )
                 if self._retry_unsub:
                     self._retry_unsub()
                     self._retry_unsub = None

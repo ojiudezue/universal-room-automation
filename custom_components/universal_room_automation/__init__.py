@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv4.7.18.1
+# Universal Room Automation vv4.7.18.2
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -2951,13 +2951,26 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         if "integration" in hass.data[DOMAIN]:
             del hass.data[DOMAIN]["integration"]
 
+        # v4.7.18.2 review B-MED-1: the zone-level "no coordinators" dedup set
+        # is integration-scoped shared state. Clear it on integration-entry
+        # teardown too (not only on Zone Manager unload) so it never outlives
+        # the bag it lives in.
+        hass.data[DOMAIN].pop("_no_coord_warned_zones", None)
+
         return unload_ok
-    
+
     # v3.6.0: Handle Zone Manager entry unload
     if entry_type == ENTRY_TYPE_ZONE_MANAGER:
         unload_ok = await hass.config_entries.async_unload_platforms(entry, INTEGRATION_PLATFORMS)
         if "zone_manager_entry" in hass.data.get(DOMAIN, {}):
             hass.data[DOMAIN]["zone_manager_entry"] = None
+        # v4.7.18.2: clear the zone-level "no coordinators after 60s" dedup
+        # set so a legitimate Zone Manager reload re-warns for zones whose
+        # coordinators still haven't appeared. See aggregation.py
+        # ZoneSensorBase._check_coordinators. B-LOW-1: only touch live state.
+        domain_data = hass.data.get(DOMAIN)
+        if domain_data is not None:
+            domain_data.pop("_no_coord_warned_zones", None)
         return unload_ok
 
     # v3.6.0: Handle Coordinator Manager entry unload

@@ -1,5 +1,109 @@
 # URA Backlog — As of v4.6.10 (May 2026)
 
+## Fan-noise mmwave mitigation — DESIGN ONLY (feature cycle, Tier 2), 2026-06-03
+
+**Problem.** Summer ceiling fans add mmwave noise → false "occupied." Operator's
+earlier home automations used a **dumb periodic**: pause room fan ~3 min, recheck
+occupancy with fan off (clean mmwave), resume if still occupied. He finds the
+pause **"disconcerting in rooms."** His proposed improvement: gate the pause on
+BLE — *"if BLE not present in zone, fire the fan pause/check? If it is, keep fan
+running. So not a dumb periodic?"* Fallback floated: PIR in rooms (fan-immune).
+
+**Load-bearing constraint (verified 2026-06-03).** `presence.py:3281-3282` — Tier 1
+is `any(_room_occupied.values())`; **mmwave AND PIR are OR'd into ONE per-room bool.
+URA does NOT track which sensor fired.** Any scheme that wants to "discount
+fan-suspect mmwave but trust PIR" first needs a **prerequisite: split Tier 1 signal
+provenance** (per-room per-sensor-type state + fan-entity awareness). That
+prerequisite is the real cost, not the gating logic. Prior art to verify before
+building (do NOT assume present): `is_direct_ble_room`,
+`_check_zone_occupancy_confidence`, `PersonPhoneLeftBehindSensor`.
+
+**Design (layered — recommend 1+2; PIR as structural backstop).** The operator's
+instinct is right: the periodic pause disrupts even when occupancy is CERTAIN. Fix
+= only disrupt when genuinely AMBIGUOUS.
+
+1. **Silent confidence-discount + decay (best, no disruption).** When room fan
+   entity is ON *and* mmwave is the SOLE positive signal *and* no
+   BLE/PIR/door/camera corroboration → don't trust mmwave at face value, but hold
+   last-known occupancy under a decay timer. Resolves silently most of the time —
+   no pause at all.
+2. **BLE-gated pause as the disambiguation FALLBACK (operator's idea, refined).**
+   Only when a DECISION is forced (decay about to expire / about to cut HVAC) AND
+   still no corroboration → THEN pause-and-recheck. Converts the dumb periodic into
+   a rare, decision-time disambiguation. Caveat: BLE has poor room-resolution and
+   goes stale (phone-left-behind — what `PersonPhoneLeftBehindSensor` exists for),
+   so "BLE present" suppresses the pause in the common case but isn't a perfect
+   oracle.
+3. **PIR + mmwave fusion (most robust, needs hardware) — NOT PIR alone.** PIR
+   detects warm *moving* bodies; fan blades aren't warm → PIR ignores fans. BUT
+   PIR misses a *still* person (reading/sleeping) — the exact reason mmwave was
+   chosen. PIR-only REGRESSES still-occupancy. Fusion: recent PIR = "real warm body
+   was here," so when fan-on + mmwave-only, lean on recent PIR history before
+   discounting. Kills both the disruptive pause AND the still-person blind spot.
+
+**Operator note a — BLE corroboration is a 3-LAYER LADDER, not one gate (2026-06-03).**
+*"its room, adjacent rooms AND zone absence. These layers will matter."* BLE is
+spatially fuzzy, so each layer carries distinct signal:
+- **Layer 1 — room BLE present** → phone is HERE → occupied, never pause.
+- **Layer 2 — room absent but adjacent configured BLE room present** → DRIFT case
+  (Jaya's phone flips bathroom↔bedroom interchangeably) → lean occupied, hold under
+  decay, do NOT pause. Kills the annoying false-pause. Applies sparse AND dense.
+- **Layer 3 — zone-wide BLE absence** → nobody anywhere in zone → suspect mmwave is
+  almost certainly fan/pet interference → discount / allow the rare pause. The ONLY
+  layer that also beats PETS (no phone on the dog). Works for all room kinds.
+Collapsing these into a single gate loses the distinctions that make the pause feel
+non-disconcerting.
+
+**CORE REFRAME — fusion ≠ interference rejection (operator, 2026-06-03).** Prior art
+solves FUSION (combine N sensors), NOT INTERFERENCE (one sensor actively LYING because
+a fan/pet drives it). Operator RUNS Area-Occupancy-Detection — "hasn't been great."
+Fusion uses STATIC per-sensor reliability; a fan keeps mmwave continuously hot so the
+Bayesian posterior pins to "occupied" and DECAY never engages (it only fires when
+signals go quiet) — a structural blind spot, not a tuning miss. [Hypothesis re AOD —
+verify vs source before publishing.] **The missing primitive = INTERFERENCE-AWARE
+CONDITIONAL RELIABILITY:** fan-on collapses mmwave's standalone vote unless a fan/pet-
+immune signal corroborates. That — not "BLE on top of fusion" — is the contribution.
+Do NOT depend on AOD. Aqara FP2 doesn't count (proprietary, notoriously bad, not
+universal).
+
+**Operator note b — the Tier-1 OR split: do it, but CONTEXT-WIDE, no regression (2026-06-03).**
+*"Its about time that PIR and MMwave Or was questioned. BUT... I am not prepared to
+deal with Presence bugs at the mo... NOTHING is wrong, I just want to make it more
+Right."* → This is an **audit-first** cycle: explore **every path across room, zone,
+house, AND presence-coordinator presence paths** and prove no blind regression
+BEFORE any code. The survey is the gate. Logged as tech debt in `docs/TECH_DEBT.md`
+("Presence — Tier 1 ORs mmWave + PIR"). Likely **Tier 2-DB** (presence↔HVAC↔
+compliance↔safety ripple).
+
+**Prior-art scan (2026-06-03 — don't re-hoe).** `Hankanman/Area-Occupancy-Detection`
+(HA integration) already does Bayesian sensor fusion WITH probability decay = our
+"layer 1." PIR+mmWave hybrid blueprints exist on HA community. Aqara FP2 = on-device
+AI pet filter. Hardware: ceiling-mount 15–30° + 24GHz over 5.8GHz cut fan/vent false
+triggers. **Unfilled gap = BLE-zone-absence GATING with adjacent-room drift
+tolerance (note a)** — that's our differentiated contribution.
+
+**Recommendation.** Headline mechanism = interference-conditioned gate (fan-on
+collapses mmwave's vote) — OURS, do not defer to AOD. The 3-layer BLE ladder (note a)
+decides whether to trust the suspect mmwave: room→trust, adjacent→drift/hold,
+zone-absent→discount/rare-pause. PIR+mmWave fusion (needs the note-b provenance split
++ possibly hardware) is the robust backstop that still misses pets. Sized as a
+**feature cycle (Tier 2/2-DB), audit-first per note b, not a hotfix.** Connects to the
+v4.7.18.1 §Deferred "mmwave fan-noise rejection" side-quest and would kill the
+v4.7.18.1 D1 eager-6AM-wake residual. Memory:
+`project-fan-noise-mmwave-mitigation-backlog` (rehydration: "Resume presence fusion +
+fan-noise cluster").
+
+## Research note + reusable HA blueprint (NON-URA) — sensor fusion for noise-prone presence — STUB 2026-06-03
+
+Standalone deliverable (operator: *"helpful for millions"*). Write up how to use
+**sensor fusion + BLE** to make fan/pet-noisy rooms reliable for presence, and ship a
+**reusable HA blueprint that is NOT URA-dependent** (plain HA entities: mmWave +
+optional PIR + BLE/area presence + fan state → template/Bayesian occupancy sensor).
+Prior-art scan already done (see above + the research doc). Differentiator = BLE-zone-
+absence gating + adjacent-room drift tolerance. **Stub doc:**
+`docs/planning/RESEARCH_2026-06-03_presence_sensor_fusion_noise_prone_environments.md`.
+Full write-up + blueprint = next session.
+
 ## v4.6.10 — Setup Telemetry + Anomaly Wiring + Deferred Polish — SHIPPED 2026-05-18
 
 - D1 boot telemetry capture, D2 `sensor.ura_setup_duration_seconds`, D3 anomaly observation push (scaffold-only — see v4.6.11 below)
