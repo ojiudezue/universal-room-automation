@@ -73,3 +73,9 @@ dashboard-v3/playwright/.cache/
 *~
 .gitkeep
 .mcp.json
+
+# Claude Code runtime state (shared config like .claude/agents/ stays tracked)
+.claude/worktrees/
+.claude/scheduled_tasks.lock
+.claude/*.lock
+.claude/settings.local.json
