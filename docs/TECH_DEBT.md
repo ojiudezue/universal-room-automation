@@ -6,6 +6,21 @@ Living document. Each entry: where the shortcut is, why it's acceptable for now,
 
 ## Presence — Tier 1 ORs mmWave + PIR into one per-room bool (no signal provenance)
 
+**Status: RESOLVED (audit GREEN, provenance-split cycle).** The Tier-1 OR
+shortcut is gone. `ZonePresenceTracker._room_provenance: Dict[str,
+Dict[str, bool]]` now stores per-room per-kind truth keyed by `kind ∈
+TIER1_KINDS = ("motion", "mmwave", "occupancy")`. The legacy
+`_room_occupied` view is preserved as a derived `@property`. The audit
+classified 22 readers SAFE / 5 AT-RISK (seam only) / 0 GATING. Fan
+entities are now visible to the presence layer via the D3
+observation-only `_compute_fan_interference_rooms` helper. See:
+
+- `docs/planning/AUDIT_presence_provenance.md` (verdict GREEN)
+- `docs/planning/PLANNING_presence_provenance_split_and_fan_diagnostic.md`
+  (cycle that landed the split + Layer-1 diagnostic)
+
+The historical entry text below is retained for traceability.
+
 **Where:** `domain_coordinators/presence.py:3281-3282` — Tier 1 occupancy is
 `any(getattr(t, "_room_occupied", {}).values())`. `_room_occupied` is a single
 per-room boolean; mmWave and PIR contributions are merged upstream and the

@@ -38,12 +38,18 @@ from ..const import (
     CONF_AREA_ID,
     CONF_DISABLE_CAMERA_PRESENCE,  # v4.7.16 D4
     CONF_ENTRY_TYPE,  # v4.7.16 D3, D4
+    CONF_FANS,  # provenance-split cycle: D3 fan-interference diagnostic
+    CONF_MMWAVE_SENSORS,  # provenance-split cycle: D2 classifier
+    CONF_MOTION_SENSORS,  # provenance-split cycle: D2 classifier
+    CONF_OCCUPANCY_SENSORS,  # provenance-split cycle: D2 classifier
+    CONF_ROOM_NAME,  # provenance-split cycle: D2 classifier
     CONF_ZONE_ROOMS,
     D3_DIAGNOSTIC_ENABLED,  # v4.7.16 D3 (post-review B MED #1) — kill switch
     DEFAULT_DISABLE_CAMERA_PRESENCE,  # v4.7.16 D4
     DIAGNOSTICS_SCOPE_HOUSE,
     DOMAIN,
     ENTRY_TYPE_ROOM,  # v4.7.16 D3, D4
+    TIER1_KINDS,  # provenance-split cycle: D2 vocabulary
     TRACKING_STATUS_ACTIVE,
 )
 from .base import BaseCoordinator, CoordinatorAction, Intent
@@ -185,6 +191,154 @@ class ZonePresenceMode:
     OVERRIDE_OPTIONS = [AUTO, AWAY, OCCUPIED, SLEEP]
 
 
+# ============================================================================
+# Presence provenance-split cycle: D2 entity-kind classifier
+# ============================================================================
+#
+# The zone tracker today discovers Tier-1 binary_sensors by `area_id`
+# (presence.py:1442-1476). It does NOT consult per-room CONF_*_SENSORS
+# lists. The D2 split needs a per-kind classification of every firing
+# entity. This module-level helper performs that classification with a
+# two-step strategy:
+#
+#   1) Look up the firing entity_id in the owning room ConfigEntry's
+#      CONF_MMWAVE_SENSORS / CONF_MOTION_SENSORS / CONF_OCCUPANCY_SENSORS
+#      lists, in that priority order. First match wins.
+#   2) If the entry cannot be resolved or the entity is not in any list,
+#      fall back to entity_id substring matching using the same vocabulary
+#      the zone tracker already trusts for discovery (presence.py:1460):
+#      "mmwave"/"presence" → mmwave, "motion" → motion, else "occupancy".
+#
+# CRITICAL invariant: this function is the SINGLE classification source
+# for BOTH the seed loop and the live state-change callback. The
+# seed-vs-live divergence hazard is the v4.7.18.1 review finding
+# B-HIGH-1 (NOT QUALITY_CONTEXT.md "Bug Class #1" — that class is
+# "Coordinator Lifecycle Confusion", a different concern). Both call
+# sites MUST invoke this same function for byte-equal classification.
+#
+# Returns one of the TIER1_KINDS strings ("motion", "mmwave", "occupancy").
+
+def _classify_entity_kind(
+    hass: HomeAssistant, entity_id: str, room_name: str
+) -> str:
+    """Classify a firing Tier-1 entity to a kind ∈ TIER1_KINDS.
+
+    See module-level comment block above for the strategy.
+
+    Args:
+        hass: HomeAssistant instance (used to read room entry config).
+        entity_id: The firing binary_sensor entity_id.
+        room_name: The owning URA room's CONF_ROOM_NAME.
+
+    Returns:
+        One of "motion", "mmwave", "occupancy".
+    """
+    # Step 1 — config-list lookup.
+    try:
+        for entry in hass.config_entries.async_entries(DOMAIN):
+            # B-LOW-3 review fix-up: merge data + options for the
+            # entry-type and room-name checks too — not just the sensor
+            # lists below. Options is the canonical post-flow surface,
+            # and mirroring the same merge pattern as the fan-discovery
+            # path at presence.py:1443 keeps the classifier consistent
+            # if a future options flow ever lets the operator edit
+            # CONF_ROOM_NAME or CONF_ENTRY_TYPE.
+            merged = {**(entry.data or {}), **(entry.options or {})}
+            if merged.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ROOM:
+                continue
+            if merged.get(CONF_ROOM_NAME) != room_name:
+                continue
+            # Sensor lists also from the merge (options wins).
+            mmwave = list(merged.get(CONF_MMWAVE_SENSORS, []) or [])
+            motion = list(merged.get(CONF_MOTION_SENSORS, []) or [])
+            occ = list(merged.get(CONF_OCCUPANCY_SENSORS, []) or [])
+            if entity_id in mmwave:
+                return "mmwave"
+            if entity_id in motion:
+                return "motion"
+            if entity_id in occ:
+                return "occupancy"
+            # Right entry found, no list-membership — fall through to substring.
+            break
+    except Exception:  # noqa: BLE001 — defensive: config registry mid-reload
+        _LOGGER.debug(
+            "Tier-1 kind classifier: config-lookup failed for %s/%s — using fallback",
+            entity_id, room_name,
+            exc_info=True,
+        )
+
+    # Step 2 — substring fallback matching the discovery filter at :1460.
+    eid = entity_id.lower()
+    if "mmwave" in eid or "presence" in eid:
+        return "mmwave"
+    if "motion" in eid:
+        return "motion"
+    return "occupancy"
+
+
+def _audit_provenance_invariants(tracker: "ZonePresenceTracker") -> list[str]:
+    """Return a list of invariant-violation strings; empty list = clean.
+
+    Read-only diagnostic per AUDIT_presence_provenance.md. Walks the
+    tracker's `_room_provenance` store and verifies four invariants:
+
+      1) For every room r, ``_room_occupied[r] == any(_room_provenance[r].values())``.
+      2) Every kind in ``_room_provenance[r]`` is in :data:`TIER1_KINDS` (or
+         the legacy "tier1" sentinel slot used by the back-compat path).
+      3) ``raw_occupied`` composes through ``_derived_mode`` without raise.
+      4) ``set(_room_provenance.keys()) == set(_room_occupied.keys())``.
+
+    Used by:
+      - ``quality/tests/test_presence_provenance_split.py::test_invariants_hold_after_inference``
+      - A future diagnostic surface (not in this cycle).
+    """
+    violations: list[str] = []
+    legacy_sentinel = "tier1"
+    prov = getattr(tracker, "_room_provenance", None)
+    if not isinstance(prov, dict):
+        return ["tracker has no _room_provenance dict"]
+    # Invariant 2 first (shape check) — must run before iterating values.
+    for room, kinds in prov.items():
+        if not isinstance(kinds, dict):
+            violations.append(
+                f"room '{room}' provenance is not a dict (got {type(kinds).__name__})"
+            )
+            continue
+        for k in kinds.keys():
+            if k not in TIER1_KINDS and k != legacy_sentinel:
+                violations.append(
+                    f"room '{room}' has unknown kind '{k}' "
+                    f"(allowed: {list(TIER1_KINDS) + [legacy_sentinel]})"
+                )
+    # If any room had a non-dict shape, _room_occupied property will
+    # raise; skip the cross-property checks so we still return useful
+    # diagnostics.
+    if any(not isinstance(v, dict) for v in prov.values()):
+        return violations
+    try:
+        occ = tracker._room_occupied  # property
+        # Invariant 4: key-set equality.
+        if set(prov.keys()) != set(occ.keys()):
+            violations.append(
+                f"key-set mismatch: provenance={sorted(prov.keys())} "
+                f"occupied={sorted(occ.keys())}"
+            )
+        # Invariant 1: derived OR equality.
+        for room, kinds in prov.items():
+            expected = any(bool(v) for v in kinds.values())
+            actual = bool(occ.get(room, False))
+            if expected != actual:
+                violations.append(
+                    f"room '{room}' _room_occupied={actual} but "
+                    f"any(_room_provenance)={expected}"
+                )
+        # Invariant 3: raw_occupied composes through _derived_mode.
+        _ = tracker.raw_occupied
+    except Exception as exc:  # noqa: BLE001
+        violations.append(f"invariants check raised: {exc!r}")
+    return violations
+
+
 class ZonePresenceTracker:
     """Tracks presence for a single zone using room sensors, cameras, and BLE.
 
@@ -208,7 +362,29 @@ class ZonePresenceTracker:
         self.room_names = room_names
         self._override: Optional[str] = None
         self._has_sensors: bool = False
-        self._room_occupied: Dict[str, bool] = {}
+        # Presence provenance-split cycle (D2):
+        # `_room_provenance[room][kind] -> bool`, kind ∈ TIER1_KINDS
+        # (plus legacy "tier1" sentinel when kind=None was passed).
+        # `_room_occupied` is now a derived @property that returns
+        # `{room: any(provenance[room].values())}` — STRICTLY STRONGER
+        # than the pre-split last-writer-wins bool (a quiet semantic
+        # improvement, NOT a behavior regression — see A.6 #4).
+        self._room_provenance: Dict[str, Dict[str, bool]] = {}
+        # Diagnostic-only: last kind whose False→True edge fired per room.
+        # Cleared when the room transitions fully vacant (all kinds False).
+        self._last_kind_per_room: Dict[str, str] = {}
+        # D3: rooms whose fan(s) are currently on. Populated by the
+        # presence-side fan state-change listener. Set membership only —
+        # consensus arithmetic is unchanged.
+        self._fan_on_rooms: Set[str] = set()
+        # D3 / H1 fix-up: per-tracker fan entity_id -> room_name map.
+        # Declared here (instead of monkey-patched via setattr in
+        # `_discover_room_fans`) so the attribute has a stable shape
+        # across the tracker's lifetime — diagnostic dumps, tests, and
+        # future refactors can introspect it safely. Reset on every
+        # re-discovery so stale entries from a previous CONF_FANS shape
+        # do not accumulate.
+        self._fan_entity_to_room: Dict[str, str] = {}
         self._camera_occupied: Dict[str, bool] = {}  # entity_id -> detection active
         self._camera_last_seen: Dict[str, datetime] = {}  # entity_id -> last detection time
         self._ble_occupied: bool = False
@@ -233,6 +409,73 @@ class ZonePresenceTracker:
         if self._override is not None:
             return self._override
         return self._derived_mode
+
+    @property
+    def _room_occupied(self) -> Dict[str, bool]:
+        """Derived per-room occupied view.
+
+        Provenance-split cycle (D2): replaces the prior
+        ``_room_occupied: Dict[str, bool]`` storage attribute. Returns a
+        fresh dict each access so callers never mutate internal state.
+
+        Equivalence: ``{room: any(_room_provenance[room].values())}``.
+
+        Semantics — honest framing (R1-H1 fix-up). Pre-split storage was
+        last-writer-wins per room (bare bool assignment at the old
+        ``update_room_occupancy`` call site). Post-split semantics are:
+          - True-edges are per-kind ADDITIVE: a True write for one kind
+            does NOT clear other kinds, so the OR keeps reading True as
+            long as any kind is still firing. On the True path the
+            derived OR is strictly stronger than the prior collapse —
+            that part of the audit note (Appendix A.6 #4) holds.
+          - False-edges are FULL-ROOM CLEARS: an ``occupied=False`` call
+            wipes the entire per-kind bucket for the room, regardless of
+            ``kind``. Today's discovery path cannot fire per-kind
+            off-edges distinguishably (the state-change callback only
+            knows which ENTITY went off; mapping an off-edge to a kind
+            is omitted because the prior bool was a full-room clear
+            too). See ``update_room_occupancy`` for the call-site
+            comment.
+        Net: the derived OR is "stronger on True, equivalent on False"
+        relative to the pre-split bool — NOT uniformly stronger. The
+        original "strictly stronger" phrasing in
+        ``PLANNING_presence_provenance_split_and_fan_diagnostic.md`` D2
+        was rewritten in the same fix-up pass to match this honest
+        description. All 22 SAFE consumers in Audit Appendix A.2 read
+        this shape unchanged.
+        """
+        return {
+            room: any(bool(v) for v in kinds.values())
+            for room, kinds in self._room_provenance.items()
+        }
+
+    def provenance_for(self, room_name: str) -> Dict[str, bool]:
+        """Return the per-kind provenance bools for a single room.
+
+        Provenance-split cycle (D2/D5). Always returns a stable dict
+        with every TIER1_KINDS slot present (False when never fired).
+        Used by D5 sensor attrs on ``OccupiedBinarySensor``.
+
+        R1-H2 fix-up: the legacy ``"tier1"`` sentinel slot (used by the
+        back-compat ``kind=None`` path in ``update_room_occupancy``) is
+        FOLDED into the canonical ``"occupancy"`` slot of the projection
+        so the derived ``_room_occupied`` view and the D5 attr surface
+        never under-report occupancy relative to the pre-split bool. If
+        a caller fires ``occupied=True`` without a kind, the sentinel
+        records "we don't know which Tier-1 fired" — the projection
+        surfaces it as ``occupancy=True`` (the generic Tier-1 slot)
+        rather than silently dropping it. The raw sentinel remains
+        present in ``_room_provenance`` for diagnostics + invariant
+        checks (``_audit_provenance_invariants`` already allow-lists
+        the ``"tier1"`` key alongside ``TIER1_KINDS``).
+        """
+        stored = self._room_provenance.get(room_name, {})
+        projected = {k: bool(stored.get(k, False)) for k in TIER1_KINDS}
+        # Fold the legacy "tier1" sentinel into "occupancy" so a
+        # kind=None True is not silently dropped from the projection.
+        if bool(stored.get("tier1", False)):
+            projected["occupancy"] = True
+        return projected
 
     @property
     def raw_occupied(self) -> bool:
@@ -312,21 +555,75 @@ class ZonePresenceTracker:
         """Clear manual override."""
         self._override = None
 
-    def update_room_occupancy(self, room_name: str, occupied: bool) -> None:
-        """Update occupancy state for a room in this zone."""
-        if room_name in self.room_names:
-            self._room_occupied[room_name] = occupied
+    def update_room_occupancy(
+        self,
+        room_name: str,
+        occupied: bool,
+        kind: Optional[str] = None,
+    ) -> None:
+        """Update occupancy state for a room in this zone.
+
+        Provenance-split cycle (D2). Signature is backward-compatible —
+        ``kind=None`` preserves pre-split caller behavior.
+
+        Rules:
+          * ``kind ∈ TIER1_KINDS`` and ``occupied=True``: set that single
+            kind's slot to True. Other kinds are untouched.
+          * ``kind=None`` and ``occupied=True`` (LEGACY back-compat
+            path): set a sentinel ``"tier1"`` slot. This preserves the
+            pre-split "we don't know which kind" case while keeping the
+            derived OR returning True. Used only by callers that have
+            not (yet) classified the firing entity.
+          * ``occupied=False`` (any kind, including None): CLEAR ALL
+            kinds for the room. Matches today's collapse semantic.
+
+        See :func:`_classify_entity_kind` for how the seed loop and
+        ``_handle_occupancy_change`` derive ``kind``.
+        """
+        if room_name not in self.room_names:
+            return
+
+        bucket = self._room_provenance.setdefault(room_name, {})
+        if occupied:
+            slot = kind if kind in TIER1_KINDS else "tier1"
+            was_true = bool(bucket.get(slot, False))
+            bucket[slot] = True
             self._has_sensors = True
             self._has_room_sensors = True
-            if occupied:
-                self._last_activity = dt_util.utcnow()
-                # Auto-resume: if override is AWAY but we detect presence, clear it
-                if self._override == ZonePresenceMode.AWAY:
-                    _LOGGER.info(
-                        "Zone %s: auto-resuming from AWAY override — presence detected in %s",
-                        self.zone_name, room_name,
-                    )
-                    self.clear_override()
+            self._last_activity = dt_util.utcnow()
+            if not was_true:
+                self._last_kind_per_room[room_name] = slot
+            # Auto-resume: if override is AWAY but we detect presence, clear it
+            if self._override == ZonePresenceMode.AWAY:
+                _LOGGER.info(
+                    "Zone %s: auto-resuming from AWAY override — presence detected in %s",
+                    self.zone_name, room_name,
+                )
+                self.clear_override()
+        else:
+            # occupied=False clears ALL kinds for the room (matches prior
+            # collapse). Per-kind False writes are not represented because
+            # today's discovery path does not fire per-kind off-edges
+            # distinguishably (the state-change callback only knows the
+            # ENTITY that fired, not the type — and the prior bool was a
+            # full-room clear too).
+            # R1-H1 fix-up: the derived `_room_occupied` is therefore
+            # "stronger on True, equivalent on False" relative to the
+            # pre-split bool — see the `_room_occupied` docstring + the
+            # matching paragraph in
+            # docs/planning/PLANNING_presence_provenance_split_and_fan_diagnostic.md.
+            # Do NOT attempt to heuristically guess the off-kind from
+            # the entity_id here: that would re-introduce the
+            # seed-vs-live divergence hazard (v4.7.18.1 B-HIGH-1).
+            if bucket:
+                self._room_provenance[room_name] = {}
+                self._last_kind_per_room.pop(room_name, None)
+            else:
+                # ensure the room key exists even on first-write False so
+                # the derived `_room_occupied` shape is stable.
+                self._room_provenance[room_name] = {}
+            self._has_sensors = True
+            self._has_room_sensors = True
 
     def update_camera_detection(self, entity_id: str, detected: bool) -> None:
         """Update camera person/motion detection for this zone.
@@ -403,6 +700,16 @@ class ZonePresenceTracker:
                 "ble_sensors": self._has_ble_sensors,
             },
             "rooms": dict(self._room_occupied),
+            # Provenance-split cycle (D2): additive diagnostic dump.
+            # `rooms` above remains the canonical per-room bool view for
+            # back-compat consumers. `rooms_provenance` exposes the new
+            # per-kind store; `last_kind_per_room` and `fan_on_rooms`
+            # round out the D5 diagnostic surface.
+            "rooms_provenance": {
+                r: dict(p) for r, p in self._room_provenance.items()
+            },
+            "last_kind_per_room": dict(self._last_kind_per_room),
+            "fan_on_rooms": sorted(self._fan_on_rooms),
             "cameras": {
                 eid: {
                     "detecting": self._camera_occupied.get(eid, False),
@@ -690,6 +997,39 @@ class PresenceCoordinator(BaseCoordinator):
         self._transition_reset_date: str = ""
         # Room area_id lookup: room_name -> area_id (from config entries)
         self._room_area_ids: Dict[str, str] = {}
+        # C2/C3 fix-up: room_name -> zone_name reverse lookup, populated
+        # once at the end of `_discover_zones`. Lets hot paths (D5 attr
+        # block in binary_sensor.py; D2 classifier; _handle_*_change)
+        # skip the per-call O(N_zones x N_rooms_per_zone) walk over
+        # `_zone_trackers` to find which tracker owns a given room.
+        # Rebuilt on every `_discover_zones` call so a config reload that
+        # rewires zones leaves no stale mapping.
+        self._room_to_zone: Dict[str, str] = {}
+        # M1 fix-up: cache for `_classify_entity_kind` results. Entities'
+        # classifications are stable per (entity_id, room_name) pair —
+        # they only change on a config-flow update to CONF_*_SENSORS.
+        # The cache is invalidated on `_discover_room_sensors` re-entry
+        # so a reload that rewires sensor lists picks up the new shape.
+        self._entity_kind_cache: Dict[tuple, str] = {}
+        # H2 fix-up: dedicated slots for the fan + camera + occupancy
+        # state-change-listener unsubs so re-discovery (config reload,
+        # zone-rewire) can tear down the prior subscription before
+        # registering a new one. Without these slots, repeated calls to
+        # `_discover_room_fans` / `_discover_zone_cameras` /
+        # `_discover_room_sensors` would stack duplicate listeners on
+        # `_unsub_listeners` — a leak in the strictest sense and a
+        # double-emit hazard if a fan / camera / sensor toggles between
+        # discoveries. The unsubs ALSO live in `_unsub_listeners` so the
+        # existing teardown path in `_cancel_listeners` cleans them up
+        # on unload; the dedicated slot lets us find + remove the prior
+        # entry on re-discovery without scanning the whole list. Today
+        # these discovery methods are only invoked once from
+        # `async_setup`, so the slots default to None; the
+        # belt-and-braces unsub logic is defense-in-depth against a
+        # future re-discovery caller (e.g. a config-flow-driven reload).
+        self._fan_listener_unsub: Optional[Any] = None
+        self._camera_listener_unsub: Optional[Any] = None
+        self._occupancy_listener_unsub: Optional[Any] = None
         # Deferred retry for hysteresis-blocked transitions
         self._retry_unsub: Optional[Any] = None
         # Outcome measurement
@@ -737,6 +1077,58 @@ class PresenceCoordinator(BaseCoordinator):
     def zone_trackers(self) -> Dict[str, ZonePresenceTracker]:
         """Return zone presence trackers."""
         return self._zone_trackers
+
+    def _classify_entity_kind_cached(
+        self, entity_id: str, room_name: str,
+    ) -> str:
+        """Cached wrapper around :func:`_classify_entity_kind`.
+
+        M1 fix-up: the underlying classifier walks every URA config
+        entry per call. The (entity_id, room_name) -> kind mapping is
+        STABLE between config-flow edits to CONF_*_SENSORS, so caching
+        the result is safe. The cache is invalidated by
+        ``_discover_room_sensors`` (re-discovery is the only path that
+        can produce a new sensor list).
+
+        Both the seed loop and the live state-change callback route
+        through this wrapper, preserving the v4.7.18.1 B-HIGH-1
+        seed-vs-live byte-equal invariant: a single cache slot per
+        (entity, room) means both call sites get the exact same kind.
+        """
+        key = (entity_id, room_name)
+        cached = self._entity_kind_cache.get(key)
+        if cached is not None:
+            return cached
+        kind = _classify_entity_kind(self.hass, entity_id, room_name)
+        self._entity_kind_cache[key] = kind
+        return kind
+
+    def tracker_for_room(
+        self, room_name: str,
+    ) -> Optional["ZonePresenceTracker"]:
+        """Return the ZonePresenceTracker that owns ``room_name``, or None.
+
+        C2/C3 fix-up: O(1) reverse lookup via ``_room_to_zone`` instead
+        of walking ``_zone_trackers`` per call. Falls back to a linear
+        scan ONLY if the cache is empty (pre-``_discover_zones`` window)
+        to preserve correctness in cold-start edge cases. Used by the D5
+        binary_sensor attr block + any consumer that historically walked
+        all zones to find a room.
+        """
+        zone_name = self._room_to_zone.get(room_name)
+        if zone_name is not None:
+            return self._zone_trackers.get(zone_name)
+        if self._room_to_zone:
+            # Cache is populated but room isn't in it — definitively
+            # unknown, no need to walk.
+            return None
+        # Cache empty — cold-start window. One-shot linear scan; result
+        # is not memoized because the cache is rebuilt by
+        # `_discover_zones`.
+        for _zone_name, _tracker in self._zone_trackers.items():
+            if room_name in _tracker.room_names:
+                return _tracker
+        return None
 
     @property
     def census_count(self) -> int:
@@ -973,12 +1365,24 @@ class PresenceCoordinator(BaseCoordinator):
         room-level callers can consume it without HVAC ↔ presence circular
         imports.
 
+        Provenance-split cycle (D4) docstring fidelity update — per
+        AUDIT_presence_provenance.md Appendix A.6 #2: Source 1 reads
+        each ROOM COORDINATOR's ``_last_motion_time`` (see line ~1014
+        below), NOT the zone tracker's ``_room_occupied``. The
+        provenance OR split therefore does NOT couple to this helper:
+        ``possible`` count is unchanged regardless of D2 storage shape,
+        and ``hvac.py:953-961`` adaptive-threshold behavior is pinned
+        by this docstring, not by code. Source 1 motion is judged on
+        recency (30 minute window) at room granularity — orthogonal to
+        the per-kind split that D2 introduces on the zone-side view.
+
         Returns (confirmed, possible) where:
         - confirmed: number of source types actively confirming presence (0-4)
         - possible: number of source types available for this zone (0-4)
 
         Source types:
-        1. Motion/mmWave sensors (recent activity within 30 min)
+        1. Motion/mmWave sensors (recent activity within 30 min) — reads
+           room coordinator ``_last_motion_time``, independent of D2.
         2. BLE person detection (phone detected in zone)
         3. Camera person detection (Frigate person entity "on")
         4. Multiple occupied rooms (2+ rooms occupied = unlikely all stuck)
@@ -1198,6 +1602,14 @@ class PresenceCoordinator(BaseCoordinator):
             # Discover and subscribe to zone cameras (Tier 2)
             self._discover_zone_cameras()
 
+            # Provenance-split cycle (D3): subscribe to per-room CONF_FANS
+            # state-change events so the fan-interference diagnostic
+            # has live `_fan_on_rooms` truth before the next
+            # _run_inference tick. Observation-only — zone-tracker
+            # `mode` output is unchanged. See module-level docstring on
+            # `_compute_fan_interference_rooms` for the primitive.
+            self._discover_room_fans()
+
             # v4.7.2 D5: Discover and subscribe to guest rooms (Feature B)
             self._discover_guest_rooms()
 
@@ -1412,6 +1824,20 @@ class PresenceCoordinator(BaseCoordinator):
         if not zm_found:
             _LOGGER.warning("No Zone Manager entry found among %d entries", len(all_entries))
 
+        # C2/C3 fix-up: rebuild the room -> zone reverse lookup so hot
+        # paths can do O(1) tracker resolution instead of walking all
+        # zones per call. Cleared first so a re-discovery that drops a
+        # room leaves no stale mapping. If the same room appears in
+        # multiple zones (pathological config), FIRST-writer-wins —
+        # matches the prior `for tracker in ...: if room in
+        # tracker.room_names: ...; break` lookup pattern used by the D5
+        # attr block in binary_sensor.py.
+        self._room_to_zone.clear()
+        for _zone_name, _tracker in self._zone_trackers.items():
+            for _room_name in _tracker.room_names:
+                if _room_name not in self._room_to_zone:
+                    self._room_to_zone[_room_name] = _zone_name
+
         _LOGGER.info(
             "Zone discovery complete: %d zone trackers created: %s",
             len(self._zone_trackers), list(self._zone_trackers.keys()),
@@ -1427,6 +1853,10 @@ class PresenceCoordinator(BaseCoordinator):
         v3.6.0.11: Also checks device area_id when entity area_id is null.
         Many Zigbee/MQTT sensors have area_id on the device, not the entity.
         """
+        # M1 fix-up: invalidate the (entity_id, room_name) -> kind cache
+        # on every re-discovery so a config-flow update that rewires
+        # CONF_*_SENSORS lists picks up the new shape on the next firing.
+        self._entity_kind_cache.clear()
         try:
             from homeassistant.helpers import entity_registry as er
             from homeassistant.helpers import device_registry as dr
@@ -1476,13 +1906,32 @@ class PresenceCoordinator(BaseCoordinator):
                         )
 
         if entity_ids:
-            self._unsub_listeners.append(
-                async_track_state_change_event(
-                    self.hass,
-                    list(entity_ids),
-                    self._handle_occupancy_change,
-                )
+            # H2 fix-up: tear down the prior occupancy-listener
+            # subscription if one was already registered (defense-in-
+            # depth against a future re-discovery caller). Without
+            # this, a second invocation would stack a duplicate
+            # listener and `_handle_occupancy_change` would fire twice
+            # per state change, double-mutating `_room_provenance`.
+            if self._occupancy_listener_unsub is not None:
+                try:
+                    self._occupancy_listener_unsub()
+                except Exception:  # noqa: BLE001 — defensive
+                    _LOGGER.debug(
+                        "Prior occupancy listener unsub raised (non-fatal)",
+                        exc_info=True,
+                    )
+                try:
+                    self._unsub_listeners.remove(self._occupancy_listener_unsub)
+                except ValueError:
+                    pass
+                self._occupancy_listener_unsub = None
+            occ_unsub = async_track_state_change_event(
+                self.hass,
+                list(entity_ids),
+                self._handle_occupancy_change,
             )
+            self._occupancy_listener_unsub = occ_unsub
+            self._unsub_listeners.append(occ_unsub)
             _LOGGER.info(
                 "Subscribed to %d room occupancy entities across %d zones",
                 len(entity_ids), len(self._zone_trackers),
@@ -1506,12 +1955,34 @@ class PresenceCoordinator(BaseCoordinator):
                 if state.state in _UNAVAILABLE_STATES:
                     continue
                 occupied = state.state == "on"
-                if not occupied:
-                    continue
+                # B-LOW-1 review fix-up: seed OFF rooms too (do NOT
+                # short-circuit on `not occupied`). The False-write path
+                # in update_room_occupancy creates an empty provenance
+                # dict for the room key, which stabilizes
+                # `set(_room_provenance.keys()) == set(_room_occupied.keys())`
+                # (Invariant 4 in _audit_provenance_invariants) across
+                # all discovered rooms — not just ones that fired at
+                # least once. _has_sensors is already True by this point
+                # via register_entity (presence.py:627), so flipping
+                # False at seed has no observable effect on _derived_mode.
                 for _zone_name, tracker in self._zone_trackers.items():
                     room_name = tracker._entity_to_room.get(entity_id)
                     if room_name:
-                        tracker.update_room_occupancy(room_name, occupied)
+                        # Provenance-split cycle (D2): classify per-kind
+                        # at seed time using the SAME cached classifier
+                        # the live callback uses below. Seed-vs-live
+                        # divergence is the v4.7.18.1 review finding
+                        # B-HIGH-1 (not QUALITY_CONTEXT.md Bug Class #1);
+                        # both paths MUST route through
+                        # `_classify_entity_kind_cached` (single cache
+                        # slot per (entity, room)) for byte-equal
+                        # classification.
+                        kind = self._classify_entity_kind_cached(
+                            entity_id, room_name,
+                        )
+                        tracker.update_room_occupancy(
+                            room_name, occupied, kind=kind,
+                        )
                         break
 
     def _discover_room_sensors_by_name(
@@ -1594,6 +2065,316 @@ class PresenceCoordinator(BaseCoordinator):
             )
         return opted_out
 
+    def _discover_room_fans(self) -> None:
+        """Discover CONF_FANS entities per room and subscribe to state changes.
+
+        Presence provenance-split cycle (D3). Observation-only — the
+        listener writes into ``ZonePresenceTracker._fan_on_rooms`` so the
+        fan-interference compute helper can read room-level fan truth
+        on the NEXT ``_run_inference`` tick. Does NOT change `mode`
+        output, consensus arithmetic, or HVAC behavior in any way.
+
+        Resolution path: iterate room ConfigEntries
+        (``CONF_ENTRY_TYPE == ENTRY_TYPE_ROOM``), read
+        ``CONF_FANS`` from ``data``/``options`` merge per
+        v4.7.4.4 Bug Class #46 doctrine, then route each fan entity to
+        its owning zone tracker via the existing ``room_names``
+        mapping.
+
+        Lifecycle: listener unsubs are appended to
+        ``self._unsub_listeners`` so the existing teardown path
+        (``async_will_remove_from_hass`` / reload) cleans them up
+        correctly. No new lifecycle hook required.
+        """
+        # H1 + H2 fix-up: clear prior per-tracker fan state before
+        # rebuilding. Without this, a re-discovery (e.g. config-flow
+        # edit to CONF_FANS, or some future caller invoking
+        # `_discover_room_fans` a second time) would leave stale fan
+        # entries in `_fan_entity_to_room` and `_fan_on_rooms`, causing
+        # the D3 diagnostic to mis-attribute a "previously-fan-room"
+        # state to the wrong room. Belt-and-braces: also tear down the
+        # prior fan-listener subscription so we don't double-subscribe.
+        for tracker in self._zone_trackers.values():
+            tracker._fan_entity_to_room.clear()
+            tracker._fan_on_rooms.clear()
+        if self._fan_listener_unsub is not None:
+            try:
+                self._fan_listener_unsub()
+            except Exception:  # noqa: BLE001 — defensive
+                _LOGGER.debug(
+                    "Provenance-split D3: prior fan listener unsub raised "
+                    "(non-fatal)",
+                    exc_info=True,
+                )
+            try:
+                self._unsub_listeners.remove(self._fan_listener_unsub)
+            except ValueError:
+                pass
+            self._fan_listener_unsub = None
+        try:
+            fan_entity_ids: Set[str] = set()
+            # entity_id -> list of (tracker, room_name) — one fan can in
+            # principle live in multiple rooms in pathological configs;
+            # we accept either by iterating all matches.
+            for entry in self.hass.config_entries.async_entries(DOMAIN):
+                if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ROOM:
+                    continue
+                config = {**(entry.data or {}), **(entry.options or {})}
+                room_name = config.get(CONF_ROOM_NAME)
+                if not room_name:
+                    continue
+                fans = config.get(CONF_FANS, []) or []
+                if not fans:
+                    continue
+                for fan_id in fans:
+                    fan_entity_ids.add(fan_id)
+                    # Seed initial _fan_on_rooms from current state.
+                    try:
+                        state = self.hass.states.get(fan_id)
+                    except Exception:  # pragma: no cover - defensive
+                        state = None
+                    is_on = bool(
+                        state is not None
+                        and state.state not in _UNAVAILABLE_STATES
+                        and state.state == "on"
+                    )
+                    # H1 fix-up: `_fan_entity_to_room` is now a declared
+                    # tracker attribute (`ZonePresenceTracker.__init__`),
+                    # NOT a setattr-monkey-patched dict. Assign into it
+                    # directly. The whole map was cleared above so no
+                    # stale entries can persist across re-discovery.
+                    for tracker in self._zone_trackers.values():
+                        if room_name in tracker.room_names:
+                            if is_on:
+                                tracker._fan_on_rooms.add(room_name)
+                            else:
+                                tracker._fan_on_rooms.discard(room_name)
+                            tracker._fan_entity_to_room[fan_id] = room_name
+            if fan_entity_ids:
+                # H2 fix-up: capture the unsub returned by
+                # `async_track_state_change_event` so we can tear it
+                # down on re-discovery (above) without scanning all of
+                # `self._unsub_listeners`. The unsub still goes into
+                # `_unsub_listeners` so the existing
+                # `_cancel_listeners` teardown path (called from
+                # `async_teardown`) cleans it up on unload.
+                fan_unsub = async_track_state_change_event(
+                    self.hass,
+                    list(fan_entity_ids),
+                    self._handle_fan_change,
+                )
+                self._fan_listener_unsub = fan_unsub
+                self._unsub_listeners.append(fan_unsub)
+                _LOGGER.info(
+                    "Provenance-split D3: subscribed to %d fan entities across "
+                    "%d zones for interference diagnostic",
+                    len(fan_entity_ids), len(self._zone_trackers),
+                )
+        except Exception:  # noqa: BLE001 — defensive: config registry mid-reload
+            _LOGGER.exception(
+                "Provenance-split D3: fan discovery failed (non-fatal)"
+            )
+
+    @callback
+    def _handle_fan_change(self, event: Any) -> None:
+        """Handle a CONF_FANS entity state change for D3 diagnostic.
+
+        Writes ``room_name`` into / out of
+        ``ZonePresenceTracker._fan_on_rooms`` based on whether the fan
+        is reporting ``"on"``. Treats unavailable/unknown as off (same
+        convention as occupancy and camera handlers above).
+
+        Observation-only: does NOT trigger ``_run_inference``. The
+        existing occupancy/inference cadence picks up the new flag on
+        the next tick — no need to burn extra cycles on every fan
+        toggle.
+        """
+        entity_id = event.data.get("entity_id", "")
+        new_state = event.data.get("new_state")
+        if not entity_id or new_state is None:
+            return
+        if new_state.state in _UNAVAILABLE_STATES:
+            is_on = False
+        else:
+            is_on = new_state.state == "on"
+        for tracker in self._zone_trackers.values():
+            # H1 fix-up: `_fan_entity_to_room` is now declared in
+            # `ZonePresenceTracker.__init__`, so this is a stable dict
+            # attribute (no `getattr(..., None)` fallback needed).
+            room_name = tracker._fan_entity_to_room.get(entity_id)
+            if not room_name:
+                continue
+            if is_on:
+                tracker._fan_on_rooms.add(room_name)
+            else:
+                tracker._fan_on_rooms.discard(room_name)
+            _LOGGER.debug(
+                "Provenance-split D3: fan %s in room %s -> on=%s "
+                "(fan_on_rooms=%s)",
+                entity_id, room_name, is_on, sorted(tracker._fan_on_rooms),
+            )
+
+    def _compute_fan_interference_rooms(self) -> List[str]:
+        """Per-tick D3 fan-interference observation.
+
+        =====================================================================
+        Interference-conditional reliability — primitive definition (D7).
+        =====================================================================
+
+        This function names + computes a single primitive: an
+        interference-conditional reliability flag that asks, on every
+        inference tick, "is this room's Tier-1 occupancy signal
+        currently driven by mmwave WHILE a known interference source
+        (a fan) is running AND no other corroborating signal exists?"
+
+        Why interference-conditional reliability matters. Static-
+        reliability fusion (Bayesian / Augmented Operator Decisions /
+        weight-by-trust schemes) treats each sensor's reliability as a
+        constant. mmWave sensors, however, have known FAILURE MODES
+        whose probability is conditional on environmental state — fans
+        and oscillating airflow induce micro-motion that mmWave
+        classifiers cannot distinguish from human micro-motion. A
+        sensor that is otherwise highly reliable becomes UNRELIABLE
+        when interference is present. Static fusion has no input
+        channel for "interference is currently happening". This
+        primitive provides exactly that channel as a per-tick
+        observation, without altering the consensus arithmetic.
+
+        Cross-reference: see
+        ``docs/planning/RESEARCH_2026-06-03_presence_sensor_fusion_noise_prone_environments.md``
+        for the full research note stub and the deferred Layer-2 /
+        Layer-3 / PIR-fusion design directions.
+
+        The three conditions a room must satisfy to be FLAGGED.
+            1) A configured ``CONF_FANS`` entity for the room is ``on``
+               (provided by the D3 listener via
+               ``ZonePresenceTracker._fan_on_rooms``). NECESSARY because
+               the primitive is only meaningful when interference is
+               active.
+            2) The room's Tier-1 provenance shows mmwave as the SOLE
+               positive kind — motion=False, occupancy=False, mmwave=True.
+               NECESSARY because PIR + mmwave agreement is the
+               canonical corroboration pattern that disproves the
+               interference hypothesis.
+            3) BLE Layer-1 indicates absence — i.e.,
+               ``person_coordinator.get_persons_in_room(room_name)``
+               returns an empty list AND no camera is currently
+               flagging the same room. NECESSARY because a
+               corroborating BLE / camera signal disproves the
+               interference hypothesis just as PIR would.
+
+        Layers 2 (adjacent-drift hold) and Layer 3 (zone-absent ->
+        fan-pause-and-recheck) are deferred to a later cycle. See
+        ``docs/planning/PLANNING_presence_fan_actuation_and_ble_ladder_deferred.md``.
+
+        Returns the sorted list of room_names currently flagged.
+        Empty list when D3_DIAGNOSTIC_ENABLED is False, when no fans
+        are running anywhere, or when the operator's setup does not
+        exhibit the fan-interference pathology in the current tick.
+
+        Off-cadence read note (C-MED-2 review fix-up). This helper
+        reads ``tracker._room_provenance`` and ``tracker._fan_on_rooms``
+        WITHOUT the inference cadence lock — i.e. an occupancy
+        state-change listener (``_handle_occupancy_change``) or a fan
+        state-change listener (``_handle_fan_change``) may mutate
+        either dict between the time this helper begins iterating and
+        the time it returns. This is INTENTIONAL and ACCEPTABLE because:
+          (a) the primitive is OBSERVATION-ONLY (no veto / gate /
+              actuation consumer — see Review C "observation-only
+              guarantee verified GREEN"); a one-listener-event-behind
+              read is reconciled on the next inference tick.
+          (b) the helper short-reads via ``.get(room_name, {})`` /
+              ``getattr(..., set())`` so a mid-iteration insertion or
+              deletion cannot raise.
+        Future readers MUST NOT assume tick-synchrony between
+        ``_room_provenance`` and the consensus emit block; if the
+        primitive is ever promoted to feed a gate or veto, this read
+        path needs to be snapshotted ONCE at the top of
+        ``_run_inference`` instead of called inline.
+        """
+        if not D3_DIAGNOSTIC_ENABLED:
+            return []
+        flagged: List[str] = []
+        person_coord = self.hass.data.get(DOMAIN, {}).get("person_coordinator")
+        try:
+            for tracker in self._zone_trackers.values():
+                fan_rooms = getattr(tracker, "_fan_on_rooms", set()) or set()
+                if not fan_rooms:
+                    continue
+                for room_name in fan_rooms:
+                    if room_name not in tracker.room_names:
+                        continue
+                    prov = tracker._room_provenance.get(room_name, {})
+                    # Condition 2: mmwave-sole.
+                    mmwave_on = bool(prov.get("mmwave", False))
+                    motion_on = bool(prov.get("motion", False))
+                    occ_on = bool(prov.get("occupancy", False))
+                    if not (mmwave_on and not motion_on and not occ_on):
+                        continue
+                    # Condition 3a: BLE Layer-1 absence.
+                    ble_persons: list = []
+                    if person_coord is not None:
+                        try:
+                            ble_persons = person_coord.get_persons_in_room(
+                                room_name,
+                            ) or []
+                        except Exception:  # noqa: BLE001
+                            ble_persons = []
+                    if ble_persons:
+                        continue
+                    # Condition 3b: camera absence for the zone owning
+                    # the room (R1-H3 fix-up: documented, not re-
+                    # architected). Two design points worth pinning so
+                    # a future reader does not "fix" this into a
+                    # per-room veto:
+                    #   (a) The camera signal feeding this veto is
+                    #       PERSON-classified, not motion. Only
+                    #       ``camera_info.person_binary_sensor``
+                    #       (``*_person_occupancy`` Frigate /
+                    #       ``*_person_detected`` UniFi) is ever
+                    #       registered for a zone — see
+                    #       ``register_camera`` at the
+                    #       ``_discover_zone_cameras`` site
+                    #       (presence.py: ~2201) and the
+                    #       ``camera_census.py`` filter at :251 that
+                    #       drops any non-person binary_sensor before
+                    #       it reaches here. Person-classification is
+                    #       the stable + intentional choice; this
+                    #       observation-only veto is not the place to
+                    #       broaden the camera surface.
+                    #   (b) The grain is ZONE-WIDE
+                    #       (``any(_camera_occupied.values())``)
+                    #       BY DESIGN. URA cameras are registered at
+                    #       zone granularity — no per-room camera
+                    #       routing map exists today (only
+                    #       ``_room_to_zone``; the reverse direction is
+                    #       intentionally absent because a multi-area
+                    #       camera can serve multiple rooms in a zone).
+                    #       A per-room camera veto would require new
+                    #       camera→room mapping in CameraIntegrationManager,
+                    #       which is out of scope for D3. Conservative-
+                    #       by-necessity is fine for an observation-only
+                    #       primitive: the worst case is "we suppress a
+                    #       fan-interference flag in a zone where a
+                    #       different room has a person on camera" —
+                    #       a false negative on an observation-only
+                    #       diagnostic, never a false positive on an
+                    #       actuation.
+                    if any(
+                        bool(v)
+                        for v in getattr(tracker, "_camera_occupied", {}).values()
+                    ):
+                        continue
+                    flagged.append(room_name)
+        except Exception:  # noqa: BLE001 — defensive
+            _LOGGER.debug(
+                "Provenance-split D3: fan-interference compute failed "
+                "(non-fatal)",
+                exc_info=True,
+            )
+            return []
+        return sorted(flagged)
+
     def _discover_zone_cameras(self) -> None:
         """Discover cameras in each zone using CameraIntegrationManager.
 
@@ -1664,13 +2445,32 @@ class PresenceCoordinator(BaseCoordinator):
                     )
 
         if camera_entity_ids:
-            self._unsub_listeners.append(
-                async_track_state_change_event(
-                    self.hass,
-                    list(camera_entity_ids),
-                    self._handle_camera_change,
-                )
+            # H2 fix-up: tear down the prior camera-listener
+            # subscription if one was already registered (defense-in-
+            # depth against a future re-discovery caller). Without
+            # this, a second invocation would stack a duplicate
+            # listener and `_handle_camera_change` would fire twice per
+            # state change, double-counting camera occupancy timeouts.
+            if self._camera_listener_unsub is not None:
+                try:
+                    self._camera_listener_unsub()
+                except Exception:  # noqa: BLE001 — defensive
+                    _LOGGER.debug(
+                        "Prior camera listener unsub raised (non-fatal)",
+                        exc_info=True,
+                    )
+                try:
+                    self._unsub_listeners.remove(self._camera_listener_unsub)
+                except ValueError:
+                    pass
+                self._camera_listener_unsub = None
+            camera_unsub = async_track_state_change_event(
+                self.hass,
+                list(camera_entity_ids),
+                self._handle_camera_change,
             )
+            self._camera_listener_unsub = camera_unsub
+            self._unsub_listeners.append(camera_unsub)
             _LOGGER.info(
                 "Subscribed to %d zone camera entities across %d zones",
                 len(camera_entity_ids), len(self._zone_trackers),
@@ -1851,7 +2651,17 @@ class PresenceCoordinator(BaseCoordinator):
         for _zone_name, tracker in self._zone_trackers.items():
             room_name = tracker._entity_to_room.get(entity_id)
             if room_name:
-                tracker.update_room_occupancy(room_name, occupied)
+                # Provenance-split cycle (D2): classify per-kind using
+                # the SAME cached classifier the seed loop uses.
+                # Function identity + single cache slot matters —
+                # v4.7.18.1 review finding B-HIGH-1 hazard
+                # (NOT QUALITY_CONTEXT.md Bug Class #1).
+                kind = self._classify_entity_kind_cached(
+                    entity_id, room_name,
+                )
+                tracker.update_room_occupancy(
+                    room_name, occupied, kind=kind,
+                )
                 matched = True
                 break
 
@@ -1861,7 +2671,12 @@ class PresenceCoordinator(BaseCoordinator):
                 for room_name in tracker.room_names:
                     room_lower = room_name.lower().replace(" ", "_")
                     if room_lower in entity_id:
-                        tracker.update_room_occupancy(room_name, occupied)
+                        kind = self._classify_entity_kind_cached(
+                            entity_id, room_name,
+                        )
+                        tracker.update_room_occupancy(
+                            room_name, occupied, kind=kind,
+                        )
                         matched = True
                         break
                 if matched:
@@ -3271,19 +4086,61 @@ class PresenceCoordinator(BaseCoordinator):
         # tracks INPUT agreement, not output transitions.
         # 1.0 = inputs in perfect agreement, 0.0 = severely degraded.
         # All four deltas per INVESTIGATION §6.5 line 257-268.
+        # Provenance-split cycle (D2): rename
+        # `mmwave_occupied_count` -> `tier1_occupied_count`. The old name
+        # was always a misnomer — counts ALL Tier-1 truth, not mmwave-
+        # only. Old key is retained in the published dict as a
+        # deprecation shim for one cycle (see D3/D5 below).
         camera_occupied_count = 0
-        mmwave_occupied_count = 0
+        tier1_occupied_count = 0
+        # Per-zone per-kind breakdown for diagnostic surface (D5).
+        # Shape: {zone_name: {"motion": int, "mmwave": int, "occupancy": int}}.
+        tier1_provenance_breakdown: Dict[str, Dict[str, int]] = {}
         try:
-            for t in self._zone_trackers.values():
+            for zname, t in self._zone_trackers.items():
                 # Camera tier: any True in _camera_occupied dict.
                 if any(getattr(t, "_camera_occupied", {}).values()):
                     camera_occupied_count += 1
-                # mmWave/PIR tier: any True in _room_occupied dict.
+                # Tier-1 (mmWave/PIR/occupancy): any True in the derived
+                # _room_occupied view. Identical reading shape to the
+                # pre-split version — the property returns the same dict.
                 if any(getattr(t, "_room_occupied", {}).values()):
-                    mmwave_occupied_count += 1
+                    tier1_occupied_count += 1
+                # Per-kind counts (D2/D5 diagnostic): count rooms where
+                # each kind slot is True. A-LOW-2 review fix-up: include
+                # the legacy "tier1" sentinel slot in the breakdown so
+                # rooms written via the back-compat `kind=None` path
+                # (used by test_v47181_sleep_wake_deadlock.py and any
+                # future external caller that forgets `kind=`) remain
+                # visible on the diagnostic surface. Pre-fix, those
+                # rooms still rolled into `tier1_occupied_count` via the
+                # derived-property OR but contributed ZERO to any
+                # per-kind bucket, silently disappearing from the UI.
+                bucket: Dict[str, int] = {k: 0 for k in TIER1_KINDS}
+                bucket["tier1"] = 0
+                for _room, kinds in getattr(t, "_room_provenance", {}).items():
+                    for k in TIER1_KINDS:
+                        if kinds.get(k, False):
+                            bucket[k] += 1
+                    if kinds.get("tier1", False):
+                        bucket["tier1"] += 1
+                tier1_provenance_breakdown[zname] = bucket
         except Exception:  # noqa: BLE001 — defensive
             camera_occupied_count = 0
-            mmwave_occupied_count = 0
+            tier1_occupied_count = 0
+            tier1_provenance_breakdown = {}
+
+        # D3: fan-on interference-conditional reliability diagnostic
+        # (OBSERVATION ONLY — no actuation, no mode change). See the
+        # `_compute_fan_interference_rooms` docstring for the full
+        # primitive definition + cross-references.
+        fan_interference_rooms = self._compute_fan_interference_rooms()
+        fan_interference_active = bool(fan_interference_rooms)
+
+        # Back-compat alias for renamed local — the old name still
+        # appears in some downstream string formatters but the value is
+        # the same.
+        mmwave_occupied_count = tier1_occupied_count
 
         any_stale_or_lost_tracker = False
         try:
@@ -3315,7 +4172,20 @@ class PresenceCoordinator(BaseCoordinator):
             "any_zone_occupied": any_zone_occupied,
             "any_stale_or_lost_tracker": any_stale_or_lost_tracker,
             "camera_occupied_count": camera_occupied_count,
+            # Provenance-split cycle (D2 rename + D5 deprecation shim):
+            # `tier1_occupied_count` is the new canonical key; the old
+            # name `mmwave_occupied_count` is preserved as an alias for
+            # one cycle so any sensor/dashboard reading the old key
+            # keeps working. Both keys carry the same value within the
+            # SAME tick (asserted by
+            # quality/tests/test_presence_provenance_split.py).
+            "tier1_occupied_count": tier1_occupied_count,
             "mmwave_occupied_count": mmwave_occupied_count,
+            # D2/D5: per-zone per-kind breakdown for the diagnostic UI.
+            "tier1_provenance_breakdown": tier1_provenance_breakdown,
+            # D3: fan-interference observation-only diagnostic.
+            "fan_interference_active": fan_interference_active,
+            "fan_interference_rooms": fan_interference_rooms,
             "state_confidence": round(self._inference_engine.confidence, 2),
         }
 

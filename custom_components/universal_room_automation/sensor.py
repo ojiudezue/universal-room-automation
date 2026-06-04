@@ -3852,6 +3852,11 @@ class PresenceHouseStateSensor(AggregationEntity, SensorEntity):
             attrs["wake_blocked_ticks"] = getattr(presence, "_wake_blocked_ticks", 0)
             # v4.7.18.1 D2: Daytime wake-backstop diagnostic counter.
             attrs["wake_backstop_fires"] = getattr(presence, "_wake_backstop_fires", 0)
+            # Provenance-split cycle (D5): per-zone breakdown + per-room
+            # provenance/fan diagnostic rollup. `tier1_provenance_breakdown`
+            # is a {kind -> int} map of how many rooms in this zone are
+            # currently positive for each Tier-1 kind. `fan_interference_rooms`
+            # is the per-tick D3 flag-list scoped to this zone.
             attrs["zones"] = {
                 name: {
                     "mode": tracker.mode,
@@ -3867,9 +3872,27 @@ class PresenceHouseStateSensor(AggregationEntity, SensorEntity):
                     "last_face_time": (
                         t.isoformat() if (t := getattr(tracker, '_last_face_time', None)) else None
                     ),
+                    "tier1_provenance_breakdown": _zone_provenance_breakdown(tracker),
+                    "fan_interference_rooms": sorted(
+                        rn for rn in (
+                            _signal_consensus_get_list(
+                                presence, "fan_interference_rooms",
+                            )
+                        )
+                        if rn in tracker.room_names
+                    ),
+                    "fan_on_rooms": sorted(
+                        getattr(tracker, "_fan_on_rooms", set()) or set()
+                    ),
                 }
                 for name, tracker in presence.zone_trackers.items()
             }
+            # House-wide rollup — was any room flagged this tick?
+            attrs["fan_interference_active"] = bool(
+                (getattr(presence, "_signal_consensus_inputs", {}) or {}).get(
+                    "fan_interference_active", False,
+                )
+            )
         return attrs
 
 
@@ -3909,6 +3932,44 @@ class HouseStateConfidenceSensor(AggregationEntity, SensorEntity):
         if presence is None:
             return None
         return round(presence.confidence, 2)
+
+
+def _zone_provenance_breakdown(tracker) -> dict:
+    """Provenance-split cycle (D5) helper: per-zone Tier-1 kind counts.
+
+    Returns ``{kind: count_of_rooms_with_that_kind_True}`` for every
+    kind in :data:`TIER1_KINDS` plus a legacy ``"tier1"`` sentinel
+    bucket (A-LOW-2 review fix-up — rooms written via the back-compat
+    ``kind=None`` path land in the ``"tier1"`` slot and would otherwise
+    be invisible on this diagnostic surface).
+    Always returns a stable shape so operator dashboards can pin
+    attribute names.
+    """
+    from .const import TIER1_KINDS  # function-local — Bug Class #34
+    out = {k: 0 for k in TIER1_KINDS}
+    out["tier1"] = 0
+    try:
+        for _room, kinds in getattr(tracker, "_room_provenance", {}).items():
+            for k in TIER1_KINDS:
+                if kinds.get(k, False):
+                    out[k] += 1
+            if kinds.get("tier1", False):
+                out["tier1"] += 1
+    except Exception:  # noqa: BLE001 — defensive
+        pass
+    return out
+
+
+def _signal_consensus_get_list(presence, key: str) -> list:
+    """Safe accessor for ``presence._signal_consensus_inputs[key]`` as a list."""
+    try:
+        inputs = getattr(presence, "_signal_consensus_inputs", {}) or {}
+        val = inputs.get(key, [])
+        if isinstance(val, list):
+            return val
+    except Exception:  # noqa: BLE001
+        pass
+    return []
 
 
 def _signal_consensus_band(value: float) -> str:

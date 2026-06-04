@@ -397,6 +397,64 @@ class OccupiedBinarySensor(UniversalRoomEntity, BinarySensorEntity, RestoreEntit
             attrs["current_persons"] = _persons
         except Exception:
             attrs["current_persons"] = []
+        # Provenance-split cycle (D5): per-room Tier-1 provenance + fan
+        # diagnostic attrs. Sourced from the zone tracker owning this
+        # room. Lazy reads — no RestoreEntity coupling — fresh per
+        # `_run_inference` tick.
+        try:
+            from .const import TIER1_KINDS  # function-local — Bug Class #34
+            _room_name = self.coordinator.entry.data.get("room_name", "")
+            _tier1_default = {k: False for k in TIER1_KINDS}
+            _provenance = dict(_tier1_default)
+            _last_kind = ""
+            _fan_on = False
+            _suspect = False
+            _manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+            _presence = _manager.coordinators.get("presence") if _manager else None
+            if _presence is not None and _room_name:
+                # C2 fix-up: O(1) tracker lookup via the room->zone
+                # reverse cache populated at _discover_zones. Replaces
+                # the prior per-attr-access walk over all zone trackers
+                # (was O(N_zones x N_rooms_per_zone) per access per
+                # sensor; degenerates on a Zone-Manager reload that
+                # spreads N rooms across the same N trackers).
+                _tracker = None
+                if hasattr(_presence, "tracker_for_room"):
+                    _tracker = _presence.tracker_for_room(_room_name)
+                else:
+                    # Pre-fix-up presence build — keep the legacy walk
+                    # so the binary_sensor surface stays robust against
+                    # version-skew during the first restart after the
+                    # cycle lands.
+                    for _t in getattr(_presence, "zone_trackers", {}).values():
+                        if _room_name in _t.room_names:
+                            _tracker = _t
+                            break
+                if _tracker is not None:
+                    if hasattr(_tracker, "provenance_for"):
+                        _provenance = _tracker.provenance_for(_room_name)
+                    _last_kind = getattr(
+                        _tracker, "_last_kind_per_room", {},
+                    ).get(_room_name, "")
+                    _fan_on = _room_name in (
+                        getattr(_tracker, "_fan_on_rooms", set()) or set()
+                    )
+                    _inputs = (
+                        getattr(_presence, "_signal_consensus_inputs", {}) or {}
+                    )
+                    _suspect = _room_name in (
+                        _inputs.get("fan_interference_rooms", []) or []
+                    )
+            attrs["tier1_provenance"] = _provenance
+            attrs["last_kind_to_fire"] = _last_kind
+            attrs["fan_on"] = _fan_on
+            attrs["fan_interference_suspect"] = _suspect
+        except Exception:
+            from .const import TIER1_KINDS  # function-local
+            attrs["tier1_provenance"] = {k: False for k in TIER1_KINDS}
+            attrs["last_kind_to_fire"] = ""
+            attrs["fan_on"] = False
+            attrs["fan_interference_suspect"] = False
         return attrs
 
 
