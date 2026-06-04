@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv4.7.18.3
+# Universal Room Automation vv4.7.19
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v4.7.18.3"
+VERSION: Final = "v4.7.19"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -311,6 +311,13 @@ ROOM_TYPE_INFRASTRUCTURE: Final = "infrastructure"  # v4.2.0: Always-on equipmen
 CONF_MOTION_SENSORS: Final = "motion_sensors"
 CONF_MMWAVE_SENSORS: Final = "presence_sensors"  # Note: blueprint calls them presence_sensors
 CONF_OCCUPANCY_SENSORS: Final = "occupancy_sensors"  # Combined motion+presence sensors
+
+# Presence provenance-split cycle: Tier-1 occupancy provenance vocabulary.
+# Used by ZonePresenceTracker._room_provenance keys and the entity classifier.
+# Order is intentional — mmwave preferred over motion when an entity matches
+# both substrings (e.g. "mmwave_motion"). See _classify_entity_kind in
+# domain_coordinators/presence.py.
+TIER1_KINDS: Final = ("motion", "mmwave", "occupancy")
 # v3.2.4: CONF_PHONE_TRACKER deprecated - use person tracking with Bermuda instead
 CONF_PHONE_TRACKER: Final = "phone_tracker"  # DEPRECATED in v3.2.4 - kept for migration
 # v3.2.4: Scanner areas for sparse scanner homes (optional override)
