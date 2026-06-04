@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv4.7.18.2
+# Universal Room Automation vv4.7.18.3
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -2275,6 +2275,46 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # v3.6.29: Register notification manager services
         await _async_register_notification_services(hass)
 
+        # setup/unload symmetry: every service registered above must be
+        # released on integration-entry unload, otherwise reload
+        # accumulates ghost copies and `hass.services.async_services()[DOMAIN]`
+        # grows unbounded. The service handlers are integration-scoped
+        # (singletons keyed on DOMAIN); their owning lifecycle is the
+        # integration entry. REUSED `entry.async_on_unload` pattern at
+        # :2399 (Zone Manager update-listener) and :2627
+        # (Coordinator Manager update-listener).
+        for _service_name in (
+            # _async_register_presence_services
+            "set_house_state",
+            "clear_house_state_override",
+            # _async_register_safety_services
+            "test_safety_hazard",
+            # _async_register_security_services
+            "security_arm",
+            "security_disarm",
+            "authorize_guest",
+            "add_expected_arrival",
+            # _async_register_notification_services
+            "acknowledge_notification",
+            "test_notification",
+            "test_inbound",
+        ):
+            # default-arg binding pins _service_name into each lambda's
+            # closure so the loop variable doesn't capture-by-reference
+            # (every lambda would otherwise remove only the last name).
+            # A-LOW-2 (Review A): guard with `has_service` so partial-
+            # setup unload (where some _async_register_*_services
+            # helpers raised mid-call) doesn't emit up to 10 spurious
+            # "Unable to remove unknown service" warnings from HA core
+            # (homeassistant/core.py:2680-2682).
+            entry.async_on_unload(
+                lambda _name=_service_name: (
+                    hass.services.async_remove(DOMAIN, _name)
+                    if hass.services.has_service(DOMAIN, _name)
+                    else None
+                )
+            )
+
         # Set up aggregation sensors (sensor and binary_sensor platforms)
         # These will be registered via the platform files
         await hass.config_entries.async_forward_entry_setups(entry, INTEGRATION_PLATFORMS)
@@ -2292,17 +2332,42 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 await hass.http.async_register_static_paths(
                     [StaticPathConfig(panel_url, frontend_path, False)]
                 )
+                # setup/unload symmetry: HA's `async_register_static_paths`
+                # adds aiohttp routes directly to `app.router` (see
+                # homeassistant/components/http/__init__.py:512-543) and
+                # exposes NO public removal API in current HA versions.
+                # Routes live for the process lifetime; on entry reload
+                # the duplicate registration may raise depending on
+                # aiohttp version (caught by the surrounding except —
+                # B-LOW-3 (Review B, 2026-06-03): the raise behavior
+                # was not verified against aiohttp source, so the
+                # except is defensive rather than guaranteed).
+                # Not a leak we can patch from URA's side. Documenting
+                # the gap so reviewers don't expect a paired teardown.
                 from homeassistant.components import panel_custom
+                from homeassistant.components import frontend as _ha_frontend
+                _panel_path = "ura-dashboard"
                 await panel_custom.async_register_panel(
                     hass,
                     webcomponent_name="ura-dashboard-panel",
-                    frontend_url_path="ura-dashboard",
+                    frontend_url_path=_panel_path,
                     sidebar_title="URA",
                     sidebar_icon="mdi:home-automation",
                     module_url=f"{panel_url}/ura-panel.js",
                     embed_iframe=False,
                     require_admin=False,
                     config={},
+                )
+                # setup/unload symmetry: pair the panel registration
+                # with a teardown via `frontend.async_remove_panel`.
+                # Verified at homeassistant/components/frontend/__init__.py:394
+                # (signature: async_remove_panel(hass, frontend_url_path,
+                # *, warn_if_unknown=True)). Without this, every reload
+                # leaves a ghost sidebar entry that fails when clicked.
+                entry.async_on_unload(
+                    lambda _p=_panel_path: _ha_frontend.async_remove_panel(
+                        hass, _p, warn_if_unknown=False,
+                    )
                 )
                 _LOGGER.info("URA Dashboard panel registered at /ura-dashboard")
             except Exception as exc:
@@ -2317,17 +2382,26 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 await hass.http.async_register_static_paths(
                     [StaticPathConfig(panel_v3_url, frontend_v3_path, False)]
                 )
+                # See note above re. static-path teardown gap (no HA API).
                 from homeassistant.components import panel_custom
+                from homeassistant.components import frontend as _ha_frontend
+                _panel_v3_path = "ura-dashboard-v3"
                 await panel_custom.async_register_panel(
                     hass,
                     webcomponent_name="ura-dashboard-panel-v3",
-                    frontend_url_path="ura-dashboard-v3",
+                    frontend_url_path=_panel_v3_path,
                     sidebar_title="URA Dashboard",
                     sidebar_icon="mdi:view-dashboard",
                     module_url=f"{panel_v3_url}/ura-panel-v3.js",
                     embed_iframe=False,
                     require_admin=False,
                     config={},
+                )
+                # setup/unload symmetry: paired teardown for the v3 panel.
+                entry.async_on_unload(
+                    lambda _p=_panel_v3_path: _ha_frontend.async_remove_panel(
+                        hass, _p, warn_if_unknown=False,
+                    )
                 )
                 _LOGGER.info("URA Dashboard v3 panel registered at /ura-dashboard-v3")
             except Exception as exc:
@@ -2825,8 +2899,11 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             pass
 
         # Clean up person tracking
-        if "person_coordinator" in hass.data[DOMAIN]:
-            del hass.data[DOMAIN]["person_coordinator"]
+        # setup/unload symmetry: defensive `pop(key, None)` matches the
+        # v4.6.10 review-fix B2 pattern at :2884 — never raise KeyError
+        # on unload paths because a partial-setup failure may have left
+        # the key absent.
+        hass.data[DOMAIN].pop("person_coordinator", None)
         
         # v4.5.19: tear down TransitionDetector BEFORE removing from
         # hass.data so its event-bus listener + cleanup timer are
@@ -2855,9 +2932,13 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 )
 
         # Clean up cross-room coordination
+        # setup/unload symmetry: defensive `pop(key, None)`. Key list
+        # kept as a `[...]` literal so the v4.5.19 ordering tests at
+        # quality/tests/test_v4519_transition_detector_teardown.py:166,188
+        # (which search for the literal `for key in ["transition_detector",
+        # "pattern_learner"`) still pin the teardown→deletion ordering.
         for key in ["transition_detector", "pattern_learner", "music_following"]:
-            if key in hass.data[DOMAIN]:
-                del hass.data[DOMAIN][key]
+            hass.data[DOMAIN].pop(key, None)
 
         # v4.0.0-B1: Save and clean up Bayesian predictor
         bayesian_predictor = hass.data[DOMAIN].pop("bayesian_predictor", None)
@@ -2890,32 +2971,34 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # v3.10.1: Clean up event-driven census listeners
         for unsub in hass.data[DOMAIN].pop("unsub_census_events", []):
             unsub()
-        for key in ["camera_manager", "census"]:
-            if key in hass.data[DOMAIN]:
-                del hass.data[DOMAIN][key]
+        # setup/unload symmetry: defensive `pop(key, None)`.
+        for key in ("camera_manager", "census"):
+            hass.data[DOMAIN].pop(key, None)
 
         # v3.5.1: Tear down perimeter alert manager
+        # setup/unload symmetry: `pop(..., None)` after teardown so a partial
+        # setup that left the key absent never raises KeyError on unload.
         perimeter_alert_manager = hass.data[DOMAIN].get("perimeter_alert_manager")
         if perimeter_alert_manager:
             await perimeter_alert_manager.async_teardown()
-            del hass.data[DOMAIN]["perimeter_alert_manager"]
+            hass.data[DOMAIN].pop("perimeter_alert_manager", None)
 
         # v3.5.2: Tear down transit validator and egress tracker
         transit_validator = hass.data[DOMAIN].get("transit_validator")
         if transit_validator:
             await transit_validator.async_teardown()
-            del hass.data[DOMAIN]["transit_validator"]
+            hass.data[DOMAIN].pop("transit_validator", None)
 
         egress_tracker = hass.data[DOMAIN].get("egress_tracker")
         if egress_tracker:
             await egress_tracker.async_teardown()
-            del hass.data[DOMAIN]["egress_tracker"]
+            hass.data[DOMAIN].pop("egress_tracker", None)
 
         # v3.6.0: Tear down domain coordinator manager
         coordinator_manager = hass.data[DOMAIN].get("coordinator_manager")
         if coordinator_manager:
             await coordinator_manager.async_stop()
-            del hass.data[DOMAIN]["coordinator_manager"]
+            hass.data[DOMAIN].pop("coordinator_manager", None)
 
         # v4.7.x Cycle A: Tear down WeatherProviderManager state listeners
         weather_manager = hass.data[DOMAIN].pop("weather_manager", None)
@@ -2948,8 +3031,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         hass.data[DOMAIN].pop("database", None)  # Remove stale reference for clean re-init
         hass.data[DOMAIN].pop("_db_init_lock", None)
 
-        if "integration" in hass.data[DOMAIN]:
-            del hass.data[DOMAIN]["integration"]
+        # setup/unload symmetry: defensive `pop(key, None)`.
+        hass.data[DOMAIN].pop("integration", None)
 
         # v4.7.18.2 review B-MED-1: the zone-level "no coordinators" dedup set
         # is integration-scoped shared state. Clear it on integration-entry
@@ -3048,7 +3131,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             if trailing_unsub is not None:
                 trailing_unsub()
                 coordinator._trailing_refresh_unsub = None
-            del hass.data[DOMAIN][entry.entry_id]
+            # setup/unload symmetry: defensive `pop(key, None)`.
+            hass.data[DOMAIN].pop(entry.entry_id, None)
 
     return unload_ok
 
@@ -3356,7 +3440,15 @@ async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> Non
     half-unloaded and the coordinator unable to pick up new config.
     """
     _LOGGER.info("Options changed for '%s' (%s), scheduling reload", entry.title, entry.entry_id)
-    hass.async_create_task(
+    # B-CRIT-1 (Review B, 2026-06-03): MUST be an UNTRACKED task. A
+    # tracked task registered via `entry.async_create_background_task`
+    # gets cancelled by `_async_process_on_unload` during the reload's
+    # own unload phase (config_entries.py:1233-1234 iterates
+    # `entry._background_tasks` and cancels each), aborting the
+    # reload before its setup phase completes and leaving the entry
+    # in NOT_LOADED. The standard HA-core pattern for self-reload
+    # from inside a config entry is the untracked form below —
+    # exemplars: plex, flux_led, tile, epson.
+    hass.async_create_task(  # noqa: untracked-ok — self-reload must outlive entry unload; standard HA core pattern (plex, flux_led, tile, epson)
         hass.config_entries.async_reload(entry.entry_id),
-        f"Reload {entry.title}",
     )

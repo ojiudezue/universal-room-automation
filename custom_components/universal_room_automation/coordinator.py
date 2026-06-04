@@ -1,6 +1,6 @@
 """Data coordinator for Universal Room Automation."""
 #
-# Universal Room Automation vv4.7.18.2
+# Universal Room Automation vv4.7.18.3
 # Build: 2026-01-02
 # File: coordinator.py
 # v3.2.8: Support for active state change listeners in aggregation sensors
@@ -482,7 +482,20 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                 self._last_trigger_time_str = dt_util.utcnow().isoformat()
                 await self._fire_chained_automations([trigger_key])
                 await self._execute_ai_rules([trigger_key])
-            self.hass.async_create_task(_fire_house_state())
+            # setup/unload symmetry: dispatcher coalescer for a
+            # @callback handler. Tracked via the room entry so an
+            # in-flight chain is cancelled on entry reload/unload.
+            # B-HIGH-2 (Review B): pass eager_start=False so the
+            # coroutine starts on the loop, not synchronously in
+            # this dispatcher callback. Without it, late-arriving
+            # signals during teardown would eagerly start a coroutine
+            # that touches popped hass.data[DOMAIN] keys and propagate
+            # synchronous errors back to the dispatcher.
+            self.entry.async_create_background_task(
+                self.hass, _fire_house_state(),
+                f"ura_fire_house_state_{self.entry.entry_id[:8]}",
+                eager_start=False,
+            )
 
     @callback
     def _on_energy_constraint(self, payload) -> None:
@@ -511,7 +524,14 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                 self._last_trigger_time_str = dt_util.utcnow().isoformat()
                 await self._fire_chained_automations([TRIGGER_ENERGY_CONSTRAINT])
                 await self._execute_ai_rules([TRIGGER_ENERGY_CONSTRAINT])
-            self.hass.async_create_task(_fire_energy())
+            # setup/unload symmetry: tracked via the room entry.
+            # B-HIGH-2: eager_start=False for dispatcher callback safety
+            # (see _on_house_state_signal sibling comment above).
+            self.entry.async_create_background_task(
+                self.hass, _fire_energy(),
+                "ura_fire_energy_constraint",
+                eager_start=False,
+            )
 
     @callback
     def _on_safety_hazard(self, payload) -> None:
@@ -543,7 +563,14 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                 self._last_trigger_time_str = dt_util.utcnow().isoformat()
                 await self._fire_chained_automations([TRIGGER_SAFETY_HAZARD])
                 await self._execute_ai_rules([TRIGGER_SAFETY_HAZARD])
-            self.hass.async_create_task(_fire_safety())
+            # setup/unload symmetry: tracked via the room entry.
+            # B-HIGH-2: eager_start=False for dispatcher callback safety
+            # (see _on_house_state_signal sibling comment above).
+            self.entry.async_create_background_task(
+                self.hass, _fire_safety(),
+                "ura_fire_safety_hazard",
+                eager_start=False,
+            )
 
     @callback
     def _on_security_event(self, payload) -> None:
@@ -574,7 +601,14 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                 self._last_trigger_time_str = dt_util.utcnow().isoformat()
                 await self._fire_chained_automations([TRIGGER_SECURITY_EVENT])
                 await self._execute_ai_rules([TRIGGER_SECURITY_EVENT])
-            self.hass.async_create_task(_fire_security())
+            # setup/unload symmetry: tracked via the room entry.
+            # B-HIGH-2: eager_start=False for dispatcher callback safety
+            # (see _on_house_state_signal sibling comment above).
+            self.entry.async_create_background_task(
+                self.hass, _fire_security(),
+                "ura_fire_security_event",
+                eager_start=False,
+            )
 
     # =========================================================================
     # v3.12.0 M3: AI NL RULE EXECUTION & CONFLICT DETECTION
@@ -907,7 +941,21 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                     self._trailing_refresh_unsub()
                     self._trailing_refresh_unsub = None
                 self._last_event_refresh = now_mono
-                self.hass.async_create_task(self.async_refresh())
+                # setup/unload symmetry: tracked via the room entry so
+                # the refresh is cancelled on entry unload. KEEP
+                # `async_refresh()` (immediate) here — B-HIGH-1
+                # (Review B, 2026-06-03) reverted the swap to
+                # `async_request_refresh()` because URA does NOT
+                # override the DataUpdateCoordinator default debouncer
+                # (cooldown=10s, immediate=True) at `__init__`
+                # (coordinator.py:276), so routing through it would
+                # stack a 10s quiet period on top of the 2s rate
+                # limiter at :914-922 — Tier-1 occupant-confirmation
+                # latency could rise to ~10s in burst conditions.
+                self.entry.async_create_background_task(
+                    self.hass, self.async_refresh(),
+                    "ura_tier1_refresh",
+                )
 
             self._unsub_state_listeners.append(
                 async_track_state_change_event(
@@ -1000,7 +1048,11 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
     def _debounce_refresh_callback(self, _now=None) -> None:
         """Re-evaluate occupancy after debounce period expires."""
         self._debounce_refresh_unsub = None
-        self.hass.async_create_task(self.async_refresh())
+        # setup/unload symmetry: tracked via the room entry.
+        self.entry.async_create_background_task(
+            self.hass, self.async_refresh(),
+            "ura_debounce_refresh",
+        )
 
     @callback
     def _trailing_refresh_callback(self, _now=None) -> None:
@@ -1012,7 +1064,11 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         """
         self._trailing_refresh_unsub = None
         self._last_event_refresh = time.monotonic()
-        self.hass.async_create_task(self.async_refresh())
+        # setup/unload symmetry: tracked via the room entry.
+        self.entry.async_create_background_task(
+            self.hass, self.async_refresh(),
+            "ura_trailing_refresh",
+        )
 
     # NOTE: Listener cleanup is in __init__.py async_unload_entry(), NOT here.
     # async_will_remove_from_hass is an Entity lifecycle method — never called
@@ -1874,22 +1930,35 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                         if data[STATE_OCCUPIED]
                         else "Room vacated"
                     )
-                    self.hass.async_create_task(
+                    # setup/unload symmetry: tracked via the room entry.
+                    self.entry.async_create_background_task(
+                        self.hass,
                         activity_logger.log(
                             coordinator="room",
                             action=occ_action,
                             description=occ_desc,
                             room=room_name,
                             details={"source": occ_source},
-                        )
+                        ),
+                        # B-MED-3: bound task name to entry_id slice
+                        # (was f"ura_activity_log_{occ_action}_{room_name}"
+                        # — unbounded room_name values were polluting HA's
+                        # _tasks debug surface).
+                        f"ura_activity_log_occ_{self.entry.entry_id[:8]}",
                     )
 
                 # RESILIENCE-003: Verify vacancy exit — non-blocking delayed task
                 if was_occupied and not data[STATE_OCCUPIED]:
                     exit_action = self._get_config(CONF_EXIT_LIGHT_ACTION, LIGHT_ACTION_TURN_OFF)
                     if exit_action == LIGHT_ACTION_TURN_OFF:
-                        self.hass.async_create_task(
-                            self._delayed_exit_verify(room_name, data)
+                        # setup/unload symmetry: tracked via the room
+                        # entry so the delayed verify is cancelled
+                        # on entry unload/reload.
+                        self.entry.async_create_background_task(
+                            self.hass,
+                            self._delayed_exit_verify(room_name, data),
+                            # B-MED-3: bound task name to entry_id slice.
+                            f"ura_delayed_exit_verify_{self.entry.entry_id[:8]}",
                         )
 
             # v3.16: Re-trigger entry when occupancy source transitions from
@@ -2250,14 +2319,18 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         if activity_logger:
             room_name = self.entry.data.get("room_name")
             entity_id = entity[0] if isinstance(entity, list) and entity else entity
-            self.hass.async_create_task(
+            # setup/unload symmetry: tracked via the room entry.
+            self.entry.async_create_background_task(
+                self.hass,
                 activity_logger.log(
                     coordinator="room",
                     action=f"light_{action_type}",
                     description=description,
                     room=room_name,
                     entity_id=entity_id,
-                )
+                ),
+                # B-MED-3: bound task name to entry_id slice.
+                f"ura_activity_log_light_{self.entry.entry_id[:8]}",
             )
     
     def get_last_trigger_info(self) -> dict[str, Any]:
