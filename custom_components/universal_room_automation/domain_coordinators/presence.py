@@ -377,6 +377,14 @@ class ZonePresenceTracker:
         # presence-side fan state-change listener. Set membership only —
         # consensus arithmetic is unchanged.
         self._fan_on_rooms: Set[str] = set()
+        # D3 / H1 fix-up: per-tracker fan entity_id -> room_name map.
+        # Declared here (instead of monkey-patched via setattr in
+        # `_discover_room_fans`) so the attribute has a stable shape
+        # across the tracker's lifetime — diagnostic dumps, tests, and
+        # future refactors can introspect it safely. Reset on every
+        # re-discovery so stale entries from a previous CONF_FANS shape
+        # do not accumulate.
+        self._fan_entity_to_room: Dict[str, str] = {}
         self._camera_occupied: Dict[str, bool] = {}  # entity_id -> detection active
         self._camera_last_seen: Dict[str, datetime] = {}  # entity_id -> last detection time
         self._ble_occupied: bool = False
@@ -412,11 +420,29 @@ class ZonePresenceTracker:
 
         Equivalence: ``{room: any(_room_provenance[room].values())}``.
 
-        Pre-split semantics were last-writer-wins (the bare assignment at
-        the old ``update_room_occupancy``). Per audit Appendix A.6 #4 the
-        derived OR is strictly STRONGER than the prior collapse — a
-        quiet semantic improvement, not a regression. All 22 SAFE
-        consumers in Appendix A.2 read this shape unchanged.
+        Semantics — honest framing (R1-H1 fix-up). Pre-split storage was
+        last-writer-wins per room (bare bool assignment at the old
+        ``update_room_occupancy`` call site). Post-split semantics are:
+          - True-edges are per-kind ADDITIVE: a True write for one kind
+            does NOT clear other kinds, so the OR keeps reading True as
+            long as any kind is still firing. On the True path the
+            derived OR is strictly stronger than the prior collapse —
+            that part of the audit note (Appendix A.6 #4) holds.
+          - False-edges are FULL-ROOM CLEARS: an ``occupied=False`` call
+            wipes the entire per-kind bucket for the room, regardless of
+            ``kind``. Today's discovery path cannot fire per-kind
+            off-edges distinguishably (the state-change callback only
+            knows which ENTITY went off; mapping an off-edge to a kind
+            is omitted because the prior bool was a full-room clear
+            too). See ``update_room_occupancy`` for the call-site
+            comment.
+        Net: the derived OR is "stronger on True, equivalent on False"
+        relative to the pre-split bool — NOT uniformly stronger. The
+        original "strictly stronger" phrasing in
+        ``PLANNING_presence_provenance_split_and_fan_diagnostic.md`` D2
+        was rewritten in the same fix-up pass to match this honest
+        description. All 22 SAFE consumers in Audit Appendix A.2 read
+        this shape unchanged.
         """
         return {
             room: any(bool(v) for v in kinds.values())
@@ -429,9 +455,27 @@ class ZonePresenceTracker:
         Provenance-split cycle (D2/D5). Always returns a stable dict
         with every TIER1_KINDS slot present (False when never fired).
         Used by D5 sensor attrs on ``OccupiedBinarySensor``.
+
+        R1-H2 fix-up: the legacy ``"tier1"`` sentinel slot (used by the
+        back-compat ``kind=None`` path in ``update_room_occupancy``) is
+        FOLDED into the canonical ``"occupancy"`` slot of the projection
+        so the derived ``_room_occupied`` view and the D5 attr surface
+        never under-report occupancy relative to the pre-split bool. If
+        a caller fires ``occupied=True`` without a kind, the sentinel
+        records "we don't know which Tier-1 fired" — the projection
+        surfaces it as ``occupancy=True`` (the generic Tier-1 slot)
+        rather than silently dropping it. The raw sentinel remains
+        present in ``_room_provenance`` for diagnostics + invariant
+        checks (``_audit_provenance_invariants`` already allow-lists
+        the ``"tier1"`` key alongside ``TIER1_KINDS``).
         """
         stored = self._room_provenance.get(room_name, {})
-        return {k: bool(stored.get(k, False)) for k in TIER1_KINDS}
+        projected = {k: bool(stored.get(k, False)) for k in TIER1_KINDS}
+        # Fold the legacy "tier1" sentinel into "occupancy" so a
+        # kind=None True is not silently dropped from the projection.
+        if bool(stored.get("tier1", False)):
+            projected["occupancy"] = True
+        return projected
 
     @property
     def raw_occupied(self) -> bool:
@@ -563,6 +607,14 @@ class ZonePresenceTracker:
             # distinguishably (the state-change callback only knows the
             # ENTITY that fired, not the type — and the prior bool was a
             # full-room clear too).
+            # R1-H1 fix-up: the derived `_room_occupied` is therefore
+            # "stronger on True, equivalent on False" relative to the
+            # pre-split bool — see the `_room_occupied` docstring + the
+            # matching paragraph in
+            # docs/planning/PLANNING_presence_provenance_split_and_fan_diagnostic.md.
+            # Do NOT attempt to heuristically guess the off-kind from
+            # the entity_id here: that would re-introduce the
+            # seed-vs-live divergence hazard (v4.7.18.1 B-HIGH-1).
             if bucket:
                 self._room_provenance[room_name] = {}
                 self._last_kind_per_room.pop(room_name, None)
@@ -945,6 +997,39 @@ class PresenceCoordinator(BaseCoordinator):
         self._transition_reset_date: str = ""
         # Room area_id lookup: room_name -> area_id (from config entries)
         self._room_area_ids: Dict[str, str] = {}
+        # C2/C3 fix-up: room_name -> zone_name reverse lookup, populated
+        # once at the end of `_discover_zones`. Lets hot paths (D5 attr
+        # block in binary_sensor.py; D2 classifier; _handle_*_change)
+        # skip the per-call O(N_zones x N_rooms_per_zone) walk over
+        # `_zone_trackers` to find which tracker owns a given room.
+        # Rebuilt on every `_discover_zones` call so a config reload that
+        # rewires zones leaves no stale mapping.
+        self._room_to_zone: Dict[str, str] = {}
+        # M1 fix-up: cache for `_classify_entity_kind` results. Entities'
+        # classifications are stable per (entity_id, room_name) pair —
+        # they only change on a config-flow update to CONF_*_SENSORS.
+        # The cache is invalidated on `_discover_room_sensors` re-entry
+        # so a reload that rewires sensor lists picks up the new shape.
+        self._entity_kind_cache: Dict[tuple, str] = {}
+        # H2 fix-up: dedicated slots for the fan + camera + occupancy
+        # state-change-listener unsubs so re-discovery (config reload,
+        # zone-rewire) can tear down the prior subscription before
+        # registering a new one. Without these slots, repeated calls to
+        # `_discover_room_fans` / `_discover_zone_cameras` /
+        # `_discover_room_sensors` would stack duplicate listeners on
+        # `_unsub_listeners` — a leak in the strictest sense and a
+        # double-emit hazard if a fan / camera / sensor toggles between
+        # discoveries. The unsubs ALSO live in `_unsub_listeners` so the
+        # existing teardown path in `_cancel_listeners` cleans them up
+        # on unload; the dedicated slot lets us find + remove the prior
+        # entry on re-discovery without scanning the whole list. Today
+        # these discovery methods are only invoked once from
+        # `async_setup`, so the slots default to None; the
+        # belt-and-braces unsub logic is defense-in-depth against a
+        # future re-discovery caller (e.g. a config-flow-driven reload).
+        self._fan_listener_unsub: Optional[Any] = None
+        self._camera_listener_unsub: Optional[Any] = None
+        self._occupancy_listener_unsub: Optional[Any] = None
         # Deferred retry for hysteresis-blocked transitions
         self._retry_unsub: Optional[Any] = None
         # Outcome measurement
@@ -992,6 +1077,58 @@ class PresenceCoordinator(BaseCoordinator):
     def zone_trackers(self) -> Dict[str, ZonePresenceTracker]:
         """Return zone presence trackers."""
         return self._zone_trackers
+
+    def _classify_entity_kind_cached(
+        self, entity_id: str, room_name: str,
+    ) -> str:
+        """Cached wrapper around :func:`_classify_entity_kind`.
+
+        M1 fix-up: the underlying classifier walks every URA config
+        entry per call. The (entity_id, room_name) -> kind mapping is
+        STABLE between config-flow edits to CONF_*_SENSORS, so caching
+        the result is safe. The cache is invalidated by
+        ``_discover_room_sensors`` (re-discovery is the only path that
+        can produce a new sensor list).
+
+        Both the seed loop and the live state-change callback route
+        through this wrapper, preserving the v4.7.18.1 B-HIGH-1
+        seed-vs-live byte-equal invariant: a single cache slot per
+        (entity, room) means both call sites get the exact same kind.
+        """
+        key = (entity_id, room_name)
+        cached = self._entity_kind_cache.get(key)
+        if cached is not None:
+            return cached
+        kind = _classify_entity_kind(self.hass, entity_id, room_name)
+        self._entity_kind_cache[key] = kind
+        return kind
+
+    def tracker_for_room(
+        self, room_name: str,
+    ) -> Optional["ZonePresenceTracker"]:
+        """Return the ZonePresenceTracker that owns ``room_name``, or None.
+
+        C2/C3 fix-up: O(1) reverse lookup via ``_room_to_zone`` instead
+        of walking ``_zone_trackers`` per call. Falls back to a linear
+        scan ONLY if the cache is empty (pre-``_discover_zones`` window)
+        to preserve correctness in cold-start edge cases. Used by the D5
+        binary_sensor attr block + any consumer that historically walked
+        all zones to find a room.
+        """
+        zone_name = self._room_to_zone.get(room_name)
+        if zone_name is not None:
+            return self._zone_trackers.get(zone_name)
+        if self._room_to_zone:
+            # Cache is populated but room isn't in it — definitively
+            # unknown, no need to walk.
+            return None
+        # Cache empty — cold-start window. One-shot linear scan; result
+        # is not memoized because the cache is rebuilt by
+        # `_discover_zones`.
+        for _zone_name, _tracker in self._zone_trackers.items():
+            if room_name in _tracker.room_names:
+                return _tracker
+        return None
 
     @property
     def census_count(self) -> int:
@@ -1687,6 +1824,20 @@ class PresenceCoordinator(BaseCoordinator):
         if not zm_found:
             _LOGGER.warning("No Zone Manager entry found among %d entries", len(all_entries))
 
+        # C2/C3 fix-up: rebuild the room -> zone reverse lookup so hot
+        # paths can do O(1) tracker resolution instead of walking all
+        # zones per call. Cleared first so a re-discovery that drops a
+        # room leaves no stale mapping. If the same room appears in
+        # multiple zones (pathological config), FIRST-writer-wins —
+        # matches the prior `for tracker in ...: if room in
+        # tracker.room_names: ...; break` lookup pattern used by the D5
+        # attr block in binary_sensor.py.
+        self._room_to_zone.clear()
+        for _zone_name, _tracker in self._zone_trackers.items():
+            for _room_name in _tracker.room_names:
+                if _room_name not in self._room_to_zone:
+                    self._room_to_zone[_room_name] = _zone_name
+
         _LOGGER.info(
             "Zone discovery complete: %d zone trackers created: %s",
             len(self._zone_trackers), list(self._zone_trackers.keys()),
@@ -1702,6 +1853,10 @@ class PresenceCoordinator(BaseCoordinator):
         v3.6.0.11: Also checks device area_id when entity area_id is null.
         Many Zigbee/MQTT sensors have area_id on the device, not the entity.
         """
+        # M1 fix-up: invalidate the (entity_id, room_name) -> kind cache
+        # on every re-discovery so a config-flow update that rewires
+        # CONF_*_SENSORS lists picks up the new shape on the next firing.
+        self._entity_kind_cache.clear()
         try:
             from homeassistant.helpers import entity_registry as er
             from homeassistant.helpers import device_registry as dr
@@ -1751,13 +1906,32 @@ class PresenceCoordinator(BaseCoordinator):
                         )
 
         if entity_ids:
-            self._unsub_listeners.append(
-                async_track_state_change_event(
-                    self.hass,
-                    list(entity_ids),
-                    self._handle_occupancy_change,
-                )
+            # H2 fix-up: tear down the prior occupancy-listener
+            # subscription if one was already registered (defense-in-
+            # depth against a future re-discovery caller). Without
+            # this, a second invocation would stack a duplicate
+            # listener and `_handle_occupancy_change` would fire twice
+            # per state change, double-mutating `_room_provenance`.
+            if self._occupancy_listener_unsub is not None:
+                try:
+                    self._occupancy_listener_unsub()
+                except Exception:  # noqa: BLE001 — defensive
+                    _LOGGER.debug(
+                        "Prior occupancy listener unsub raised (non-fatal)",
+                        exc_info=True,
+                    )
+                try:
+                    self._unsub_listeners.remove(self._occupancy_listener_unsub)
+                except ValueError:
+                    pass
+                self._occupancy_listener_unsub = None
+            occ_unsub = async_track_state_change_event(
+                self.hass,
+                list(entity_ids),
+                self._handle_occupancy_change,
             )
+            self._occupancy_listener_unsub = occ_unsub
+            self._unsub_listeners.append(occ_unsub)
             _LOGGER.info(
                 "Subscribed to %d room occupancy entities across %d zones",
                 len(entity_ids), len(self._zone_trackers),
@@ -1795,15 +1969,16 @@ class PresenceCoordinator(BaseCoordinator):
                     room_name = tracker._entity_to_room.get(entity_id)
                     if room_name:
                         # Provenance-split cycle (D2): classify per-kind
-                        # at seed time using the SAME module-level
-                        # function the live callback uses below. Seed-vs-
-                        # live divergence is the v4.7.18.1 review finding
+                        # at seed time using the SAME cached classifier
+                        # the live callback uses below. Seed-vs-live
+                        # divergence is the v4.7.18.1 review finding
                         # B-HIGH-1 (not QUALITY_CONTEXT.md Bug Class #1);
                         # both paths MUST route through
-                        # `_classify_entity_kind` for byte-equal
+                        # `_classify_entity_kind_cached` (single cache
+                        # slot per (entity, room)) for byte-equal
                         # classification.
-                        kind = _classify_entity_kind(
-                            self.hass, entity_id, room_name,
+                        kind = self._classify_entity_kind_cached(
+                            entity_id, room_name,
                         )
                         tracker.update_room_occupancy(
                             room_name, occupied, kind=kind,
@@ -1911,6 +2086,31 @@ class PresenceCoordinator(BaseCoordinator):
         (``async_will_remove_from_hass`` / reload) cleans them up
         correctly. No new lifecycle hook required.
         """
+        # H1 + H2 fix-up: clear prior per-tracker fan state before
+        # rebuilding. Without this, a re-discovery (e.g. config-flow
+        # edit to CONF_FANS, or some future caller invoking
+        # `_discover_room_fans` a second time) would leave stale fan
+        # entries in `_fan_entity_to_room` and `_fan_on_rooms`, causing
+        # the D3 diagnostic to mis-attribute a "previously-fan-room"
+        # state to the wrong room. Belt-and-braces: also tear down the
+        # prior fan-listener subscription so we don't double-subscribe.
+        for tracker in self._zone_trackers.values():
+            tracker._fan_entity_to_room.clear()
+            tracker._fan_on_rooms.clear()
+        if self._fan_listener_unsub is not None:
+            try:
+                self._fan_listener_unsub()
+            except Exception:  # noqa: BLE001 — defensive
+                _LOGGER.debug(
+                    "Provenance-split D3: prior fan listener unsub raised "
+                    "(non-fatal)",
+                    exc_info=True,
+                )
+            try:
+                self._unsub_listeners.remove(self._fan_listener_unsub)
+            except ValueError:
+                pass
+            self._fan_listener_unsub = None
         try:
             fan_entity_ids: Set[str] = set()
             # entity_id -> list of (tracker, room_name) — one fan can in
@@ -1938,30 +2138,33 @@ class PresenceCoordinator(BaseCoordinator):
                         and state.state not in _UNAVAILABLE_STATES
                         and state.state == "on"
                     )
+                    # H1 fix-up: `_fan_entity_to_room` is now a declared
+                    # tracker attribute (`ZonePresenceTracker.__init__`),
+                    # NOT a setattr-monkey-patched dict. Assign into it
+                    # directly. The whole map was cleared above so no
+                    # stale entries can persist across re-discovery.
                     for tracker in self._zone_trackers.values():
                         if room_name in tracker.room_names:
                             if is_on:
                                 tracker._fan_on_rooms.add(room_name)
                             else:
                                 tracker._fan_on_rooms.discard(room_name)
-                            # We need to remember the fan -> room
-                            # mapping for the state-change callback so
-                            # store on tracker as an attribute.
-                            mapping = getattr(
-                                tracker, "_fan_entity_to_room", None,
-                            )
-                            if mapping is None:
-                                mapping = {}
-                                tracker._fan_entity_to_room = mapping
-                            mapping[fan_id] = room_name
+                            tracker._fan_entity_to_room[fan_id] = room_name
             if fan_entity_ids:
-                self._unsub_listeners.append(
-                    async_track_state_change_event(
-                        self.hass,
-                        list(fan_entity_ids),
-                        self._handle_fan_change,
-                    )
+                # H2 fix-up: capture the unsub returned by
+                # `async_track_state_change_event` so we can tear it
+                # down on re-discovery (above) without scanning all of
+                # `self._unsub_listeners`. The unsub still goes into
+                # `_unsub_listeners` so the existing
+                # `_cancel_listeners` teardown path (called from
+                # `async_teardown`) cleans it up on unload.
+                fan_unsub = async_track_state_change_event(
+                    self.hass,
+                    list(fan_entity_ids),
+                    self._handle_fan_change,
                 )
+                self._fan_listener_unsub = fan_unsub
+                self._unsub_listeners.append(fan_unsub)
                 _LOGGER.info(
                     "Provenance-split D3: subscribed to %d fan entities across "
                     "%d zones for interference diagnostic",
@@ -1995,8 +2198,10 @@ class PresenceCoordinator(BaseCoordinator):
         else:
             is_on = new_state.state == "on"
         for tracker in self._zone_trackers.values():
-            mapping = getattr(tracker, "_fan_entity_to_room", None) or {}
-            room_name = mapping.get(entity_id)
+            # H1 fix-up: `_fan_entity_to_room` is now declared in
+            # `ZonePresenceTracker.__init__`, so this is a stable dict
+            # attribute (no `getattr(..., None)` fallback needed).
+            room_name = tracker._fan_entity_to_room.get(entity_id)
             if not room_name:
                 continue
             if is_on:
@@ -2118,8 +2323,43 @@ class PresenceCoordinator(BaseCoordinator):
                     if ble_persons:
                         continue
                     # Condition 3b: camera absence for the zone owning
-                    # the room. We use zone-level camera truth because
-                    # URA cameras live at zone granularity, not room.
+                    # the room (R1-H3 fix-up: documented, not re-
+                    # architected). Two design points worth pinning so
+                    # a future reader does not "fix" this into a
+                    # per-room veto:
+                    #   (a) The camera signal feeding this veto is
+                    #       PERSON-classified, not motion. Only
+                    #       ``camera_info.person_binary_sensor``
+                    #       (``*_person_occupancy`` Frigate /
+                    #       ``*_person_detected`` UniFi) is ever
+                    #       registered for a zone — see
+                    #       ``register_camera`` at the
+                    #       ``_discover_zone_cameras`` site
+                    #       (presence.py: ~2201) and the
+                    #       ``camera_census.py`` filter at :251 that
+                    #       drops any non-person binary_sensor before
+                    #       it reaches here. Person-classification is
+                    #       the stable + intentional choice; this
+                    #       observation-only veto is not the place to
+                    #       broaden the camera surface.
+                    #   (b) The grain is ZONE-WIDE
+                    #       (``any(_camera_occupied.values())``)
+                    #       BY DESIGN. URA cameras are registered at
+                    #       zone granularity — no per-room camera
+                    #       routing map exists today (only
+                    #       ``_room_to_zone``; the reverse direction is
+                    #       intentionally absent because a multi-area
+                    #       camera can serve multiple rooms in a zone).
+                    #       A per-room camera veto would require new
+                    #       camera→room mapping in CameraIntegrationManager,
+                    #       which is out of scope for D3. Conservative-
+                    #       by-necessity is fine for an observation-only
+                    #       primitive: the worst case is "we suppress a
+                    #       fan-interference flag in a zone where a
+                    #       different room has a person on camera" —
+                    #       a false negative on an observation-only
+                    #       diagnostic, never a false positive on an
+                    #       actuation.
                     if any(
                         bool(v)
                         for v in getattr(tracker, "_camera_occupied", {}).values()
@@ -2205,13 +2445,32 @@ class PresenceCoordinator(BaseCoordinator):
                     )
 
         if camera_entity_ids:
-            self._unsub_listeners.append(
-                async_track_state_change_event(
-                    self.hass,
-                    list(camera_entity_ids),
-                    self._handle_camera_change,
-                )
+            # H2 fix-up: tear down the prior camera-listener
+            # subscription if one was already registered (defense-in-
+            # depth against a future re-discovery caller). Without
+            # this, a second invocation would stack a duplicate
+            # listener and `_handle_camera_change` would fire twice per
+            # state change, double-counting camera occupancy timeouts.
+            if self._camera_listener_unsub is not None:
+                try:
+                    self._camera_listener_unsub()
+                except Exception:  # noqa: BLE001 — defensive
+                    _LOGGER.debug(
+                        "Prior camera listener unsub raised (non-fatal)",
+                        exc_info=True,
+                    )
+                try:
+                    self._unsub_listeners.remove(self._camera_listener_unsub)
+                except ValueError:
+                    pass
+                self._camera_listener_unsub = None
+            camera_unsub = async_track_state_change_event(
+                self.hass,
+                list(camera_entity_ids),
+                self._handle_camera_change,
             )
+            self._camera_listener_unsub = camera_unsub
+            self._unsub_listeners.append(camera_unsub)
             _LOGGER.info(
                 "Subscribed to %d zone camera entities across %d zones",
                 len(camera_entity_ids), len(self._zone_trackers),
@@ -2393,10 +2652,13 @@ class PresenceCoordinator(BaseCoordinator):
             room_name = tracker._entity_to_room.get(entity_id)
             if room_name:
                 # Provenance-split cycle (D2): classify per-kind using
-                # the SAME module-level function the seed loop uses.
-                # Function identity matters — v4.7.18.1 review finding
-                # B-HIGH-1 hazard (NOT QUALITY_CONTEXT.md Bug Class #1).
-                kind = _classify_entity_kind(self.hass, entity_id, room_name)
+                # the SAME cached classifier the seed loop uses.
+                # Function identity + single cache slot matters —
+                # v4.7.18.1 review finding B-HIGH-1 hazard
+                # (NOT QUALITY_CONTEXT.md Bug Class #1).
+                kind = self._classify_entity_kind_cached(
+                    entity_id, room_name,
+                )
                 tracker.update_room_occupancy(
                     room_name, occupied, kind=kind,
                 )
@@ -2409,8 +2671,8 @@ class PresenceCoordinator(BaseCoordinator):
                 for room_name in tracker.room_names:
                     room_lower = room_name.lower().replace(" ", "_")
                     if room_lower in entity_id:
-                        kind = _classify_entity_kind(
-                            self.hass, entity_id, room_name,
+                        kind = self._classify_entity_kind_cached(
+                            entity_id, room_name,
                         )
                         tracker.update_room_occupancy(
                             room_name, occupied, kind=kind,

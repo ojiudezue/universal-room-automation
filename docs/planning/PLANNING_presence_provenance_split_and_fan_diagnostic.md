@@ -184,11 +184,29 @@ kind ∈ `TIER1_KINDS = ("motion", "mmwave", "occupancy")`. Expose `_room_occupi
 as a derived `@property` returning
 `{r: any(p.values()) for r, p in self._room_provenance.items()}`.
 
-**Critical semantic note (per Corrections #4).** Today's `_room_occupied` is
-last-writer-wins per room (mutator at `presence.py:315-318` is bare assignment).
-D2's derived OR is strictly STRONGER — a quiet semantic improvement, NOT a
-regression. The build agent MUST flag this to reviewer A in the PR description so
-the strengthening is not mistaken for a behavior change.
+**Critical semantic note (per Corrections #4, restated honestly post-fix-up).**
+Today's `_room_occupied` is last-writer-wins per room (mutator at
+`presence.py:315-318` is bare assignment). D2's derived OR is "stronger on True,
+equivalent on False" relative to that bool — NOT uniformly stronger:
+
+- **True-edges:** per-kind ADDITIVE — a True write for one kind does not clear
+  other kinds, so the OR stays True as long as any kind is still firing. This
+  IS strictly stronger than the prior collapse (a quiet semantic improvement).
+- **False-edges:** FULL-ROOM CLEAR — an `occupied=False` call wipes the entire
+  per-kind bucket for the room regardless of `kind`, because today's discovery
+  path cannot distinguish per-kind off-edges (the state-change callback only
+  knows the ENTITY that went off; the prior bool was a full-room clear too).
+  Equivalent to the old bool here, not stronger. Per-kind False clearing is
+  intentionally NOT pursued in this cycle — the discovery path genuinely can't
+  surface per-kind off-edges, and any heuristic "guess the kind from the
+  entity_id at off-time" would re-introduce the seed-vs-live divergence hazard
+  (v4.7.18.1 B-HIGH-1).
+
+The build agent MUST flag this honest framing to reviewer A in the PR
+description so the strengthening on True is not mistaken for uniform
+strengthening, and so the full-room-clear semantics are visible up front. The
+matching docstring on the `_room_occupied` property in `presence.py` carries
+the same description verbatim (R1-H1 fix-up).
 
 **API.** `update_room_occupancy(room_name, occupied, kind=None)`:
 - `kind=None` (legacy path, backward compatible): when `occupied=True`, writes a

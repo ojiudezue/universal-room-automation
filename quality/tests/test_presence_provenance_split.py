@@ -120,6 +120,26 @@ def test_update_room_occupancy_kind_occupancy_only() -> None:
     assert p == {"motion": False, "mmwave": False, "occupancy": True}
 
 
+def test_provenance_for_folds_legacy_tier1_sentinel_into_occupancy() -> None:
+    """R1-H2 fix-up: the `tier1` sentinel (kind=None back-compat path) must
+    not be silently dropped from the `provenance_for` projection — it
+    surfaces as the canonical `occupancy=True` slot so the derived
+    `_room_occupied` view and the D5 attr surface stay consistent."""
+    hass = make_hass()
+    t = ZonePresenceTracker(hass, "z1", ["a"])
+    t.update_room_occupancy("a", True)  # kind=None -> sentinel
+    assert t._room_provenance["a"].get("tier1") is True
+    projected = t.provenance_for("a")
+    # The sentinel folds into the canonical occupancy slot.
+    assert projected["occupancy"] is True
+    assert projected["motion"] is False
+    assert projected["mmwave"] is False
+    # And the derived `_room_occupied` view still reads True (was true
+    # pre-fix-up too because the OR includes the sentinel bucket; this
+    # check pins it so a future refactor of either path stays consistent).
+    assert t._room_occupied["a"] is True
+
+
 def test_update_room_occupancy_occupied_false_clears_all_kinds() -> None:
     hass = make_hass()
     t = ZonePresenceTracker(hass, "z1", ["a"])
@@ -193,29 +213,37 @@ def test_classify_entity_kind_falls_back_to_substring() -> None:
 
 def test_seed_and_live_use_same_classifier_function() -> None:
     """Bug Class #1 hazard: function identity check on the classifier."""
-    # The classifier is referenced by string `_classify_entity_kind` in
-    # presence.py from BOTH the seed loop and the callback. We verify
-    # identity by reading the module attribute once and confirming it
-    # is the exact same callable both paths use, by introspecting the
-    # function source (greppable).
+    # The classifier is referenced from BOTH the seed loop and the live
+    # state-change callback. Post-M1 fix-up both paths route through the
+    # `_classify_entity_kind_cached` wrapper (single cache slot per
+    # (entity, room)), which itself delegates to the module-level
+    # `_classify_entity_kind`. We count either form so the test stays
+    # green across the wrapping refactor.
     import inspect
     source = inspect.getsource(presence_mod)
     # Count call sites — tolerant of multi-line argument wrapping.
-    # We look for `_classify_entity_kind(` openings; the function
-    # definition (`def _classify_entity_kind(`) is filtered out.
-    open_paren_count = source.count("_classify_entity_kind(")
-    def_count = source.count("def _classify_entity_kind(")
-    call_sites = open_paren_count - def_count
-    # Seed loop + live callback + name-fallback callback = 3 invocations.
+    raw_open = source.count("_classify_entity_kind(")
+    raw_def = source.count("def _classify_entity_kind(")
+    raw_calls = raw_open - raw_def
+    cached_open = source.count("_classify_entity_kind_cached(")
+    cached_def = source.count("def _classify_entity_kind_cached(")
+    cached_calls = cached_open - cached_def
+    call_sites = raw_calls + cached_calls
+    # Seed loop + live callback + name-fallback callback = 3 invocations
+    # routed through the cached wrapper; the wrapper itself + the
+    # classify-by-substring tests count as the raw-form sites.
     assert call_sites >= 2, (
-        f"Expected >=2 call sites for _classify_entity_kind; "
-        f"found {call_sites} (open_paren_count={open_paren_count}, "
-        f"def_count={def_count}). "
+        f"Expected >=2 call sites for the classifier; "
+        f"found raw={raw_calls}, cached={cached_calls}. "
         "Seed-vs-live classifier divergence is Bug Class #1."
     )
-    # And the function is module-level (not a method).
+    # And the raw function is module-level (not a method).
     assert hasattr(presence_mod, "_classify_entity_kind")
     assert callable(presence_mod._classify_entity_kind)
+    # The cached wrapper exists as a coordinator method.
+    assert hasattr(
+        presence_mod.PresenceCoordinator, "_classify_entity_kind_cached"
+    )
 
 
 # ---------------------------------------------------------------------------
