@@ -1377,8 +1377,31 @@ The earlier-use check is critical: not all function-local re-imports cause this 
 **Historical Example:**
 - **v4.5.11:** Added `from ..const import DOMAIN` inside `HVACCoordinator.async_setup` at line 459 to wire database access for the AC ramp-down feature. `DOMAIN` was already imported at module level (line 27) and used earlier in the same function at line 356 (`for ce in self.hass.config_entries.async_entries(DOMAIN)`). HVAC coord crashed during setup with `UnboundLocalError`. All v4.5.11 entities loaded but stayed `unavailable` because their `_get_arrester()` lookups returned None (the arrester was never set up). Decision cycle never ran. User experienced ~hours of confusion before traceback was extracted from the log buffer.
 
-**Discovered:** v4.5.11.2 (the hotfix)
-**Impact:** Coordinator setup crashes, dependent entities never become operational, user-visible as "feature broken / greyed out"
+**Recurrence — v4.7.20 (conditional-import blind spot):** v4.7.20's fan-noise
+fix-up hoisted `async_dispatcher_send` to a module-top import in `presence.py`
+but left bare function-local imports of the same name inside `_run_inference`
+(line 4443) and `_handle_face_arrival`. The local import in `_run_inference`
+sits inside the **conditional** house-state-change branch, so on every tick
+without a state change it never executes — leaving the textually-*later* uses
+(`SIGNAL_PRESENCE_ENTITIES_UPDATE` dispatch + the new fan-gate dispatch) unbound
+→ `UnboundLocalError` ~every tick. Fixed in v4.7.20.1 by removing the redundant
+local imports.
+
+**Blind spot in the original detection heuristic:** the v4.5.11 AST guard
+(`TestNoLocalImportShadowsModuleImport`) only flags a re-import when the name is
+used *before the import line* (`earliest_use_of(name, before=import_node.lineno)`).
+v4.7.20 evaded it because the uses are textually *after* the import line — but the
+import is **conditional**, so line order does not imply execution order. A correct
+guard for the conditional case must flag ANY bare function-local re-import of a
+name that is also module-top-imported, regardless of textual use position (this is
+what `test_v4_7_20_1_dispatcher_unbound_regression.py` does for `async_dispatcher_send`).
+Note: a generalized "any module-top name" guard currently flags ~14 pre-existing
+latent sites in `presence.py` (CONF_* constants, `datetime`, `AnomalyDetector`) —
+all non-triggering today; a file-wide cleanup is tracked as backlog rather than a
+hotfix expansion.
+
+**Discovered:** v4.5.11.2 (the hotfix); recurred v4.7.20 → fixed v4.7.20.1
+**Impact:** Coordinator setup crashes, dependent entities never become operational, user-visible as "feature broken / greyed out"; or (v4.7.20 shape) a per-tick dispatch failure that degrades proactive sensor re-render and breaks downstream signal subscribers
 **Severity:** HIGH (silent at code-review time, immediately fatal at runtime)
 
 **Prevention:**
