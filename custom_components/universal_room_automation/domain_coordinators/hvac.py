@@ -233,6 +233,19 @@ class HVACCoordinator(BaseCoordinator):
         self._pending_tasks: set[asyncio.Task] = set()
         self._last_runtime_accumulation: Any = None  # UTC datetime
 
+        # Cold-boot away-actuation storm mitigation (Gate 2 — HVAC first
+        # decision cycle gate). Sibling of the presence dispatch gate
+        # (presence.py): the storm may originate downstream of the presence
+        # dispatch — HVAC's own first cold-boot decision cycle can fan out
+        # turn_off / preset-apply before any house-state signal fires
+        # (scenario γ in the planning doc). When False, _async_decision_cycle
+        # short-circuits with an INFO log so the periodic timer's first tick
+        # at boot is held until Predicate B (EVENT_HOMEASSISTANT_STARTED or
+        # BOOT_SETTLE_TIMEOUT_SECONDS) elapses. Scoped to cold boot only.
+        self._boot_settle_done: bool = False
+        self._boot_settle_release_reason: str = "pending"
+        self._boot_settle_hvac_suppressed: int = 0
+
         # v3.18.6: Pre-arrival source filter and tracking
         self._pre_arrival_enabled: bool = True
         self._pre_arrival_sources: list[str] = ["geofence", "ble"]
@@ -358,6 +371,54 @@ class HVACCoordinator(BaseCoordinator):
     async def async_setup(self) -> None:
         """Set up HVAC Coordinator."""
         _LOGGER.info("HVAC Coordinator: starting setup")
+
+        # Cold-boot away-actuation storm mitigation — Gate 2 init.
+        # Scope to cold boot only: if HA core is already RUNNING (options-flow
+        # reload), release the gate immediately so the reload's first decision
+        # cycle actuates normally. Otherwise schedule both Predicate B release
+        # paths (EVENT_HOMEASSISTANT_STARTED + failsafe timeout).
+        try:
+            _ha_running = bool(getattr(self.hass, "is_running", False))
+        except Exception:  # noqa: BLE001
+            _ha_running = False
+        if _ha_running:
+            self._boot_settle_done = True
+            self._boot_settle_release_reason = "not_cold_boot"
+            _LOGGER.info(
+                "HVAC boot-settle: HA already RUNNING — gate released at "
+                "setup (reload path, not cold boot)"
+            )
+        else:
+            from ..const import BOOT_SETTLE_TIMEOUT_SECONDS  # noqa: PLC0415
+            from homeassistant.helpers.event import async_call_later  # noqa: PLC0415
+            try:
+                from homeassistant.const import EVENT_HOMEASSISTANT_STARTED  # noqa: PLC0415
+            except Exception:  # noqa: BLE001
+                EVENT_HOMEASSISTANT_STARTED = "homeassistant_started"
+            try:
+                _unsub_started = self.hass.bus.async_listen_once(
+                    EVENT_HOMEASSISTANT_STARTED,
+                    self._on_ha_started_release_boot_settle,
+                )
+                self._unsub_listeners.append(_unsub_started)
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "HVAC boot-settle: failed to register "
+                    "EVENT_HOMEASSISTANT_STARTED listener",
+                    exc_info=True,
+                )
+            try:
+                _unsub_to = async_call_later(
+                    self.hass,
+                    BOOT_SETTLE_TIMEOUT_SECONDS,
+                    self._timeout_release_boot_settle,
+                )
+                self._unsub_listeners.append(_unsub_to)
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "HVAC boot-settle: failed to register failsafe timeout",
+                    exc_info=True,
+                )
 
         # Discover zones
         zone_count = await self._zone_manager.async_discover_zones()
@@ -642,6 +703,39 @@ class HVACCoordinator(BaseCoordinator):
         except Exception as e:
             _LOGGER.debug("HVAC: Could not load anomaly baselines: %s", e)
 
+    # ------------------------------------------------------------------
+    # Cold-boot away-actuation storm mitigation — Gate 2 release callbacks
+    # ------------------------------------------------------------------
+    def _release_boot_settle(self, reason: str) -> None:
+        """Idempotent gate-flip used by both Predicate B release paths."""
+        if self._boot_settle_done:
+            return
+        self._boot_settle_done = True
+        self._boot_settle_release_reason = reason
+        if reason == "timeout":
+            from ..const import BOOT_SETTLE_TIMEOUT_SECONDS  # noqa: PLC0415
+            _LOGGER.warning(
+                "HVAC boot-settle: released via TIMEOUT after %ss — first "
+                "decision cycle will now proceed",
+                BOOT_SETTLE_TIMEOUT_SECONDS,
+            )
+        else:
+            _LOGGER.info(
+                "HVAC boot-settle: released via %s — first decision cycle "
+                "will now proceed",
+                reason,
+            )
+
+    @callback
+    def _on_ha_started_release_boot_settle(self, _event: Any) -> None:
+        """EVENT_HOMEASSISTANT_STARTED listener — Predicate B path 1."""
+        self._release_boot_settle("ha_started")
+
+    @callback
+    def _timeout_release_boot_settle(self, _now: Any = None) -> None:
+        """Failsafe timeout — Predicate B path 2."""
+        self._release_boot_settle("timeout")
+
     async def _async_decision_cycle(self, _now=None) -> None:
         """Run the periodic HVAC decision cycle (every 5 minutes).
 
@@ -649,6 +743,23 @@ class HVACCoordinator(BaseCoordinator):
         intent-based evaluate() path since no intents route to HVAC.
         """
         if not self._enabled:
+            return
+
+        # Cold-boot away-actuation storm mitigation — Gate 2. The first
+        # decision cycle on a cold boot is held until Predicate B releases
+        # the gate (EVENT_HOMEASSISTANT_STARTED or BOOT_SETTLE_TIMEOUT_SECONDS).
+        # This is the scenario-γ guard: even if presence holds its dispatch,
+        # the periodic 5-min timer's initial tick + the explicit kickoff at
+        # the end of async_setup can still fan turn_off / preset re-apply
+        # before sensor/zone data has settled.
+        if not self._boot_settle_done:
+            self._boot_settle_hvac_suppressed += 1
+            _LOGGER.info(
+                "Boot-settle: suppressed HVAC first decision cycle "
+                "(suppressed_count=%d, release_reason=%s)",
+                self._boot_settle_hvac_suppressed,
+                self._boot_settle_release_reason,
+            )
             return
 
         # Re-entrancy guard: skip if already running (e.g. signal + timer overlap)
