@@ -2287,6 +2287,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             # _async_register_presence_services
             "set_house_state",
             "clear_house_state_override",
+            "fan_recheck_force_restore",
             # _async_register_safety_services
             "test_safety_hazard",
             # _async_register_security_services
@@ -3177,6 +3178,34 @@ async def _async_register_presence_services(hass: HomeAssistant) -> None:
         else:
             manager.house_state_machine.clear_override()
 
+    async def handle_fan_recheck_force_restore(call):
+        """Handle fan_recheck_force_restore service call.
+
+        Routes to FanRecheckManager.force_restore for the named room.
+        Defensive: silent no-op when presence/manager not registered yet.
+        """
+        room_name = call.data.get("room_name", "")
+        if not room_name:
+            return
+        manager = hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            _LOGGER.warning(
+                "fan_recheck_force_restore: coordinator manager not ready",
+            )
+            return
+        presence = manager.coordinators.get("presence")
+        fr_mgr = (
+            getattr(presence, "_fan_recheck_manager", None)
+            if presence is not None else None
+        )
+        if fr_mgr is None:
+            _LOGGER.warning(
+                "fan_recheck_force_restore: FanRecheckManager not registered "
+                "(room=%s)", room_name,
+            )
+            return
+        await fr_mgr.force_restore(room_name)
+
     # Only register once
     if not hass.services.has_service(DOMAIN, "set_house_state"):
         hass.services.async_register(
@@ -3197,6 +3226,17 @@ async def _async_register_presence_services(hass: HomeAssistant) -> None:
             schema=vol.Schema({}),
         )
         _LOGGER.info("Registered house state services")
+
+    if not hass.services.has_service(DOMAIN, "fan_recheck_force_restore"):
+        hass.services.async_register(
+            DOMAIN,
+            "fan_recheck_force_restore",
+            handle_fan_recheck_force_restore,
+            schema=vol.Schema({
+                vol.Required("room_name"): str,
+            }),
+        )
+        _LOGGER.info("Registered fan_recheck_force_restore service")
 
 
 async def _async_register_safety_services(hass: HomeAssistant) -> None:

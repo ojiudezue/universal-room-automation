@@ -116,6 +116,16 @@ from .const import (
     # corroboration ladder. Empty list is safe (L2 simply does not
     # fire; L1 + L3 still work).
     CONF_ADJACENT_ROOMS,
+    # Fan-noise Mode-2 (room-tier fan-pause + clean recheck) per-room
+    # opt-ins. Master + each room default OFF; operator pins the
+    # rooms where Mode-2 is the live failure mode (Exercise + Jaya +
+    # Ziri first).
+    CONF_ROOM_FAN_RECHECK_ENABLED,
+    DEFAULT_ROOM_FAN_RECHECK_ENABLED,
+    CONF_FAN_RECHECK_L2_ALLOWED,
+    DEFAULT_FAN_RECHECK_L2_ALLOWED,
+    CONF_FAN_RECHECK_TRUST_SENSORS_OK,
+    DEFAULT_FAN_RECHECK_TRUST_SENSORS_OK,
     CONF_COVERS,
     CONF_COVER_TYPE,
     CONF_AUTO_SWITCHES,
@@ -1114,6 +1124,22 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
                     mode=selector.SelectSelectorMode.DROPDOWN,
                 )
             ),
+            # Fan-noise Mode-2 per-room opt-ins (default OFF). The master
+            # kill switch lives on the Presence Coordinator; this trio is
+            # per-room. Mode-2 (room-tier fan-pause + clean recheck) only
+            # fires when BOTH master AND this per-room flag are True.
+            vol.Optional(
+                CONF_ROOM_FAN_RECHECK_ENABLED,
+                default=DEFAULT_ROOM_FAN_RECHECK_ENABLED,
+            ): selector.BooleanSelector(),
+            vol.Optional(
+                CONF_FAN_RECHECK_L2_ALLOWED,
+                default=DEFAULT_FAN_RECHECK_L2_ALLOWED,
+            ): selector.BooleanSelector(),
+            vol.Optional(
+                CONF_FAN_RECHECK_TRUST_SENSORS_OK,
+                default=DEFAULT_FAN_RECHECK_TRUST_SENSORS_OK,
+            ): selector.BooleanSelector(),
             vol.Optional(CONF_COVERS, default=area_covers or []): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="cover", multiple=True)
             ),
@@ -2806,6 +2832,8 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
 
         v3.6.0-c2.1: Sleep hours and geofence entity selection.
         v4.6.2.2: Guest mode false-positive hardening knobs.
+        Fan-noise Mode-2: master kill switch + 7 timing knobs for the
+        room-tier fan-pause + clean recheck mechanism. Default OFF.
         Settings stored in CM entry options, read by __init__.py during
         coordinator setup.
         """
@@ -2819,9 +2847,35 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             CONF_GUEST_MODE_REQUIRE_CONFIDENCE,
             DEFAULT_GUEST_PERSISTENCE_SECONDS,
             DEFAULT_GUEST_REQUIRE_CONFIDENCE,
+            CONF_FAN_RECHECK_ENABLED,
+            DEFAULT_FAN_RECHECK_ENABLED,
+            CONF_FAN_RECHECK_ARM_DELAY_S,
+            DEFAULT_FAN_RECHECK_ARM_DELAY_S,
+            CONF_FAN_RECHECK_SPINDOWN_S,
+            DEFAULT_FAN_RECHECK_SPINDOWN_S,
+            CONF_FAN_RECHECK_WINDOW_S,
+            DEFAULT_FAN_RECHECK_WINDOW_S,
+            CONF_FAN_RECHECK_COOLDOWN_S,
+            DEFAULT_FAN_RECHECK_COOLDOWN_S,
+            CONF_FAN_RECHECK_MAX_PER_HOUR,
+            DEFAULT_FAN_RECHECK_MAX_PER_HOUR,
+            CONF_FAN_RECHECK_HVAC_SUPPRESS_S,
+            DEFAULT_FAN_RECHECK_HVAC_SUPPRESS_S,
+            CONF_FAN_RECHECK_MMWAVE_HISTORY_TICKS,
+            DEFAULT_FAN_RECHECK_MMWAVE_HISTORY_TICKS,
+            DOMAIN,
         )
 
         if user_input is not None:
+            # Mirror the master flag into hass.data so FanRecheckManager
+            # picks it up immediately without waiting for a reload.
+            try:
+                if CONF_FAN_RECHECK_ENABLED in user_input:
+                    self.hass.data.setdefault(DOMAIN, {})[
+                        "fan_recheck_master_enabled"
+                    ] = bool(user_input[CONF_FAN_RECHECK_ENABLED])
+            except Exception:  # noqa: BLE001 — best-effort mirror
+                pass
             return self.async_create_entry(
                 title="",
                 data={**self._config_entry.options, **user_input},
@@ -2897,6 +2951,108 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                         {"value": "very_sensitive", "label": "Very Sensitive — flags small deviations; expect frequent advisories"},
                     ],
                     mode=selector.SelectSelectorMode.LIST,
+                )
+            ),
+            # Fan-noise Mode-2 (room-tier fan-pause + clean recheck).
+            # Master kill switch — default OFF; operator flips ON after
+            # live validation. The 7 timing fields below are the
+            # operator-tunable form-field defaults that seed the
+            # corresponding Number entities on the Presence Coordinator
+            # device (URA mirror pattern — entry.options = seed,
+            # RestoreEntity = runtime store).
+            vol.Optional(
+                CONF_FAN_RECHECK_ENABLED,
+                default=self._get_current(
+                    CONF_FAN_RECHECK_ENABLED, DEFAULT_FAN_RECHECK_ENABLED,
+                ),
+            ): selector.BooleanSelector(),
+            vol.Optional(
+                CONF_FAN_RECHECK_ARM_DELAY_S,
+                default=self._get_current(
+                    CONF_FAN_RECHECK_ARM_DELAY_S,
+                    DEFAULT_FAN_RECHECK_ARM_DELAY_S,
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=30, max=300, step=15,
+                    unit_of_measurement="s",
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
+            vol.Optional(
+                CONF_FAN_RECHECK_SPINDOWN_S,
+                default=self._get_current(
+                    CONF_FAN_RECHECK_SPINDOWN_S,
+                    DEFAULT_FAN_RECHECK_SPINDOWN_S,
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=15, max=90, step=5,
+                    unit_of_measurement="s",
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
+            vol.Optional(
+                CONF_FAN_RECHECK_WINDOW_S,
+                default=self._get_current(
+                    CONF_FAN_RECHECK_WINDOW_S,
+                    DEFAULT_FAN_RECHECK_WINDOW_S,
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=30, max=180, step=15,
+                    unit_of_measurement="s",
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
+            vol.Optional(
+                CONF_FAN_RECHECK_COOLDOWN_S,
+                default=self._get_current(
+                    CONF_FAN_RECHECK_COOLDOWN_S,
+                    DEFAULT_FAN_RECHECK_COOLDOWN_S,
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=600, max=7200, step=60,
+                    unit_of_measurement="s",
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
+            vol.Optional(
+                CONF_FAN_RECHECK_MAX_PER_HOUR,
+                default=self._get_current(
+                    CONF_FAN_RECHECK_MAX_PER_HOUR,
+                    DEFAULT_FAN_RECHECK_MAX_PER_HOUR,
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0, max=4, step=1,
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
+            vol.Optional(
+                CONF_FAN_RECHECK_HVAC_SUPPRESS_S,
+                default=self._get_current(
+                    CONF_FAN_RECHECK_HVAC_SUPPRESS_S,
+                    DEFAULT_FAN_RECHECK_HVAC_SUPPRESS_S,
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=120, max=1800, step=30,
+                    unit_of_measurement="s",
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
+            vol.Optional(
+                CONF_FAN_RECHECK_MMWAVE_HISTORY_TICKS,
+                default=self._get_current(
+                    CONF_FAN_RECHECK_MMWAVE_HISTORY_TICKS,
+                    DEFAULT_FAN_RECHECK_MMWAVE_HISTORY_TICKS,
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=1, max=10, step=1,
+                    mode=selector.NumberSelectorMode.BOX,
                 )
             ),
         })
@@ -6633,6 +6789,31 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     mode=selector.SelectSelectorMode.DROPDOWN,
                 )
             ),
+            # Fan-noise Mode-2 per-room opt-ins. Round-trip through
+            # reconfigure so operators can flip per-room after install.
+            # Default OFF for all three; master kill switch lives on the
+            # Presence Coordinator options step.
+            vol.Optional(
+                CONF_ROOM_FAN_RECHECK_ENABLED,
+                default=self._get_current(
+                    CONF_ROOM_FAN_RECHECK_ENABLED,
+                    DEFAULT_ROOM_FAN_RECHECK_ENABLED,
+                ),
+            ): selector.BooleanSelector(),
+            vol.Optional(
+                CONF_FAN_RECHECK_L2_ALLOWED,
+                default=self._get_current(
+                    CONF_FAN_RECHECK_L2_ALLOWED,
+                    DEFAULT_FAN_RECHECK_L2_ALLOWED,
+                ),
+            ): selector.BooleanSelector(),
+            vol.Optional(
+                CONF_FAN_RECHECK_TRUST_SENSORS_OK,
+                default=self._get_current(
+                    CONF_FAN_RECHECK_TRUST_SENSORS_OK,
+                    DEFAULT_FAN_RECHECK_TRUST_SENSORS_OK,
+                ),
+            ): selector.BooleanSelector(),
             vol.Optional(
                 CONF_COVERS,
                 default=self._get_current(CONF_COVERS, [])

@@ -5228,6 +5228,21 @@ class PresenceCoordinator(BaseCoordinator):
         self._guest_room_unsubs.clear()
         self._guest_room_state.clear()
 
+        # Fan-noise Mode-2: cancel per-room async_call_later timers in the
+        # FanRecheckManager and persist final state. Leaked timers across
+        # reload would otherwise fire callbacks against a discarded
+        # PresenceCoordinator instance (Bug Class #38/#42). The manager's
+        # shutdown is safe to call multiple times.
+        if self._fan_recheck_manager is not None:
+            try:
+                await self._fan_recheck_manager.shutdown()
+            except Exception:  # noqa: BLE001
+                _LOGGER.warning(
+                    "FanRecheckManager shutdown failed during teardown",
+                    exc_info=True,
+                )
+            self._fan_recheck_manager = None
+
         self._cancel_listeners()
 
         # Save anomaly baselines

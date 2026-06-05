@@ -72,6 +72,19 @@ async def async_setup_entry(
             # changes into ``PresenceCoordinator._fan_interference_hold_s``
             # via ``set_fan_interference_hold_s``.
             FanInterferenceHoldNumber(hass, entry),
+            # Fan-noise Mode-2: 7 timing knobs on the Presence Coordinator
+            # device. RestoreEntity mirror pattern — entry.options is the
+            # form-field seed, RestoreEntity is the runtime store; the
+            # FanRecheckManager reads merged config off the room entry,
+            # so the Numbers mirror their value into CM entry.options on
+            # change. Defaults match const.py.
+            FanRecheckArmDelayNumber(hass, entry),
+            FanRecheckSpindownNumber(hass, entry),
+            FanRecheckWindowNumber(hass, entry),
+            FanRecheckCooldownNumber(hass, entry),
+            FanRecheckMaxPerHourNumber(hass, entry),
+            FanRecheckHvacSuppressNumber(hass, entry),
+            FanRecheckMmwaveHistoryTicksNumber(hass, entry),
             # v4.6.2 D3: Bayesian cell staleness window (default 14 days)
             BayesianCellStalenessNumber(hass, entry),
             # v4.6.2 D6: routine notification tunables
@@ -2314,3 +2327,237 @@ class FanInterferenceHoldNumber(NumberEntity, RestoreEntity):
             )
         self.async_write_ha_state()
         _LOGGER.info("Fan-interference hold set to %d seconds", int(value))
+
+
+# =============================================================================
+# Fan-noise Mode-2 — 7 timing knobs on URA: Presence Coordinator device
+# -----------------------------------------------------------------------------
+# Each Number is a runtime slider. Form values seed install-time only,
+# then RestoreEntity-backed value is the source of truth. On change, the
+# new value is mirrored into the CM entry.options so FanRecheckManager
+# (which reads merged_config off the ROOM entry but takes timing from the
+# MASTER entry via merged precedence) sees the operator value on the next
+# eligibility tick. Best-effort mirror — failures are non-fatal.
+# =============================================================================
+
+
+class _FanRecheckNumberBase(NumberEntity, RestoreEntity):
+    """Shared scaffolding for Mode-2 timing Numbers.
+
+    Subclasses set: ``_conf_key``, ``_default``, native min/max/step, unit,
+    icon, name, and unique_id. Restore + mirror are inherited.
+    """
+
+    _attr_has_entity_name = True
+    _attr_mode = NumberMode.BOX
+    _attr_entity_category = EntityCategory.CONFIG
+
+    _conf_key: str = ""
+    _default: int = 0
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .const import VERSION
+        self.hass = hass
+        self._entry = entry
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "presence_coordinator")},
+            name="URA: Presence Coordinator",
+            manufacturer="Universal Room Automation",
+            model="Presence Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+        merged = {**entry.data, **entry.options}
+        self._value = int(merged.get(self._conf_key, self._default))
+
+    @property
+    def native_value(self) -> float:
+        return self._value
+
+    @property
+    def available(self) -> bool:
+        return True
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        last_state = await self.async_get_last_state()
+        if (
+            last_state is not None
+            and last_state.state not in ("unknown", "unavailable")
+        ):
+            try:
+                self._value = int(float(last_state.state))
+            except (ValueError, TypeError):
+                pass
+        # Re-seed the entry.options so the just-restored value is the
+        # one FanRecheckManager sees on its next read. Mirrors the
+        # FanInterferenceHoldNumber pattern at number.py:2299.
+        self._mirror_options(self._value)
+
+    def _mirror_options(self, value: int) -> None:
+        try:
+            from .const import CONF_ENTRY_TYPE, ENTRY_TYPE_COORDINATOR_MANAGER
+            for ce in self.hass.config_entries.async_entries(DOMAIN):
+                if ce.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_COORDINATOR_MANAGER:
+                    self.hass.config_entries.async_update_entry(
+                        ce,
+                        options={**ce.options, self._conf_key: int(value)},
+                    )
+                    break
+        except Exception:  # noqa: BLE001 — best-effort mirror
+            _LOGGER.debug(
+                "FanRecheck Number: entry.options mirror failed (key=%s)",
+                self._conf_key, exc_info=True,
+            )
+
+    async def async_set_native_value(self, value: float) -> None:
+        self._value = int(value)
+        self._mirror_options(self._value)
+        self.async_write_ha_state()
+        _LOGGER.info("FanRecheck %s set to %d", self._conf_key, int(value))
+
+
+class FanRecheckArmDelayNumber(_FanRecheckNumberBase):
+    """Arm-delay seconds — settle window before fan is paused."""
+
+    _attr_icon = "mdi:timer-sand"
+    _attr_native_step = 15
+    _attr_native_min_value = 30
+    _attr_native_max_value = 300
+    _attr_native_unit_of_measurement = UnitOfTime.SECONDS
+    _attr_name = "Fan Recheck Arm Delay"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        from .const import (
+            CONF_FAN_RECHECK_ARM_DELAY_S,
+            DEFAULT_FAN_RECHECK_ARM_DELAY_S,
+        )
+        self._conf_key = CONF_FAN_RECHECK_ARM_DELAY_S
+        self._default = DEFAULT_FAN_RECHECK_ARM_DELAY_S
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_fan_recheck_arm_delay_s"
+
+
+class FanRecheckSpindownNumber(_FanRecheckNumberBase):
+    """Spindown seconds — wait for blades to stop before observation."""
+
+    _attr_icon = "mdi:fan-off"
+    _attr_native_step = 5
+    _attr_native_min_value = 15
+    _attr_native_max_value = 90
+    _attr_native_unit_of_measurement = UnitOfTime.SECONDS
+    _attr_name = "Fan Recheck Spindown"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        from .const import (
+            CONF_FAN_RECHECK_SPINDOWN_S,
+            DEFAULT_FAN_RECHECK_SPINDOWN_S,
+        )
+        self._conf_key = CONF_FAN_RECHECK_SPINDOWN_S
+        self._default = DEFAULT_FAN_RECHECK_SPINDOWN_S
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_fan_recheck_spindown_s"
+
+
+class FanRecheckWindowNumber(_FanRecheckNumberBase):
+    """Observe-window seconds — fan-off observation window after spindown."""
+
+    _attr_icon = "mdi:eye-outline"
+    _attr_native_step = 15
+    _attr_native_min_value = 30
+    _attr_native_max_value = 180
+    _attr_native_unit_of_measurement = UnitOfTime.SECONDS
+    _attr_name = "Fan Recheck Window"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        from .const import (
+            CONF_FAN_RECHECK_WINDOW_S,
+            DEFAULT_FAN_RECHECK_WINDOW_S,
+        )
+        self._conf_key = CONF_FAN_RECHECK_WINDOW_S
+        self._default = DEFAULT_FAN_RECHECK_WINDOW_S
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_fan_recheck_window_s"
+
+
+class FanRecheckCooldownNumber(_FanRecheckNumberBase):
+    """Cooldown seconds — per-room rate limit between rechecks."""
+
+    _attr_icon = "mdi:timer-pause"
+    _attr_native_step = 60
+    _attr_native_min_value = 600
+    _attr_native_max_value = 7200
+    _attr_native_unit_of_measurement = UnitOfTime.SECONDS
+    _attr_name = "Fan Recheck Cooldown"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        from .const import (
+            CONF_FAN_RECHECK_COOLDOWN_S,
+            DEFAULT_FAN_RECHECK_COOLDOWN_S,
+        )
+        self._conf_key = CONF_FAN_RECHECK_COOLDOWN_S
+        self._default = DEFAULT_FAN_RECHECK_COOLDOWN_S
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_fan_recheck_cooldown_s"
+
+
+class FanRecheckMaxPerHourNumber(_FanRecheckNumberBase):
+    """Hard ceiling per room per hour. 0 disables."""
+
+    _attr_icon = "mdi:counter"
+    _attr_native_step = 1
+    _attr_native_min_value = 0
+    _attr_native_max_value = 4
+    _attr_name = "Fan Recheck Max Per Hour"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        from .const import (
+            CONF_FAN_RECHECK_MAX_PER_HOUR,
+            DEFAULT_FAN_RECHECK_MAX_PER_HOUR,
+        )
+        self._conf_key = CONF_FAN_RECHECK_MAX_PER_HOUR
+        self._default = DEFAULT_FAN_RECHECK_MAX_PER_HOUR
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_fan_recheck_max_per_hour"
+
+
+class FanRecheckHvacSuppressNumber(_FanRecheckNumberBase):
+    """HVAC handshake suppression seconds (sized SPINDOWN + WINDOW + margin)."""
+
+    _attr_icon = "mdi:thermostat-cog"
+    _attr_native_step = 30
+    _attr_native_min_value = 120
+    _attr_native_max_value = 1800
+    _attr_native_unit_of_measurement = UnitOfTime.SECONDS
+    _attr_name = "Fan Recheck HVAC Suppress"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        from .const import (
+            CONF_FAN_RECHECK_HVAC_SUPPRESS_S,
+            DEFAULT_FAN_RECHECK_HVAC_SUPPRESS_S,
+        )
+        self._conf_key = CONF_FAN_RECHECK_HVAC_SUPPRESS_S
+        self._default = DEFAULT_FAN_RECHECK_HVAC_SUPPRESS_S
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_fan_recheck_hvac_suppress_s"
+
+
+class FanRecheckMmwaveHistoryTicksNumber(_FanRecheckNumberBase):
+    """Consecutive mmwave-sole tick requirement before trigger arms."""
+
+    _attr_icon = "mdi:history"
+    _attr_native_step = 1
+    _attr_native_min_value = 1
+    _attr_native_max_value = 10
+    _attr_name = "Fan Recheck mmWave History Ticks"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        from .const import (
+            CONF_FAN_RECHECK_MMWAVE_HISTORY_TICKS,
+            DEFAULT_FAN_RECHECK_MMWAVE_HISTORY_TICKS,
+        )
+        self._conf_key = CONF_FAN_RECHECK_MMWAVE_HISTORY_TICKS
+        self._default = DEFAULT_FAN_RECHECK_MMWAVE_HISTORY_TICKS
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_fan_recheck_mmwave_history_ticks"

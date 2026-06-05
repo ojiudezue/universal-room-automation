@@ -72,6 +72,10 @@ _EXPECTED_SERVICE_NAMES = (
     # _async_register_presence_services
     "set_house_state",
     "clear_house_state_override",
+    # Fan-noise Mode-2 (room-tier fan-pause + clean recheck) operator
+    # escape hatch. Registered in the presence-services block so its
+    # teardown rides the same async_on_unload lambda list.
+    "fan_recheck_force_restore",
     # _async_register_safety_services
     "test_safety_hazard",
     # _async_register_security_services
