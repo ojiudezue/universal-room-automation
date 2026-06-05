@@ -685,9 +685,11 @@ async def test_force_restore_service_path():
 @pytest.mark.asyncio
 async def test_manual_off_cooldown_blocks_trigger():
     mod, hass, mgr, rc, fc, pc, db = _build_world()
-    # Set manual_off_cooldown_until in the future.
+    # Set manual_off_cooldown_until in the future. Use the same dt_util the
+    # code under test imported (cross-test stubs may swap naive vs aware).
+    base_now = mod.dt_util.now()
     fc._room_fans["exercise"].manual_off_cooldown_until = (
-        (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat()
+        (base_now + timedelta(hours=1)).isoformat()
     )
     await mgr.async_setup()
     mgr.on_room_tick(rc)
@@ -706,13 +708,13 @@ async def test_rehydrate_armed_drops_to_idle_bug_class_14():
     db.rows["entry_exercise"] = {
         "room_id": "entry_exercise",
         "state": "armed",
-        "state_entered_at": datetime.now(timezone.utc).isoformat(),
+        "state_entered_at": mod.dt_util.now().isoformat(),
         "snapshot_json": None,
         "attempts_in_hour": 0,
         "last_outcome": None,
         "last_attempt_at": None,
         "ble_ladder_layer": "L3",
-        "last_update_ts": datetime.now(timezone.utc).isoformat(),
+        "last_update_ts": mod.dt_util.now().isoformat(),
     }
     hass.config_entries = _FakeConfigEntries([rc.entry])
     await mgr.async_setup()
@@ -722,7 +724,7 @@ async def test_rehydrate_armed_drops_to_idle_bug_class_14():
 @pytest.mark.asyncio
 async def test_rehydrate_paused_too_old_idle():
     mod, hass, mgr, rc, fc, pc, db = _build_world()
-    old = datetime.now(timezone.utc) - timedelta(seconds=600)
+    old = mod.dt_util.now() - timedelta(seconds=600)
     db.rows["entry_exercise"] = {
         "room_id": "entry_exercise",
         "state": "paused",
@@ -742,7 +744,7 @@ async def test_rehydrate_paused_too_old_idle():
 @pytest.mark.asyncio
 async def test_rehydrate_cooldown_honors_remaining():
     mod, hass, mgr, rc, fc, pc, db = _build_world()
-    entered = datetime.now(timezone.utc) - timedelta(seconds=300)
+    entered = mod.dt_util.now() - timedelta(seconds=300)
     db.rows["entry_exercise"] = {
         "room_id": "entry_exercise",
         "state": "cooldown",
@@ -772,7 +774,7 @@ async def test_rehydrate_corrupt_row_drops_to_idle():
         "last_outcome": None,
         "last_attempt_at": None,
         "ble_ladder_layer": None,
-        "last_update_ts": datetime.now(timezone.utc).isoformat(),
+        "last_update_ts": mod.dt_util.now().isoformat(),
     }
     hass.config_entries = _FakeConfigEntries([rc.entry])
     await mgr.async_setup()

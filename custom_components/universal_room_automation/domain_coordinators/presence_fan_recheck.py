@@ -798,9 +798,12 @@ class FanRecheckManager:
             state = row.get("state") or STATE_IDLE
         except Exception:  # noqa: BLE001
             state = STATE_IDLE
+        # ISO-string -> datetime via stdlib fromisoformat; we own the encode
+        # path (always isoformat in _persist), so no need for dt_util's
+        # broader parser.
         try:
             entered = (
-                dt_util.parse_datetime(row["state_entered_at"])
+                datetime.fromisoformat(row["state_entered_at"])
                 if row.get("state_entered_at") else None
             )
         except Exception:  # noqa: BLE001
@@ -823,7 +826,7 @@ class FanRecheckManager:
         try:
             last_attempt = row.get("last_attempt_at")
             ctx.last_attempt_at = (
-                dt_util.parse_datetime(last_attempt) if last_attempt else None
+                datetime.fromisoformat(last_attempt) if last_attempt else None
             )
         except Exception:  # noqa: BLE001
             ctx.last_attempt_at = None
