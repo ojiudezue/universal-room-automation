@@ -726,17 +726,29 @@ class HVACCoordinator(BaseCoordinator):
                 reason,
             )
         # Reviewer A HIGH-A2 (2026-06-04): if we suppressed the boot kickoff,
-        # re-run one decision cycle NOW rather than waiting up to 5min for the
-        # next periodic tick. Without this, Gate 2 trades the cold-boot storm
-        # for a 0-5min actuation-lag hole after release. Tracked via the
-        # established _pending_tasks discipline so teardown can cancel it.
+        # re-run one decision cycle rather than waiting up to 5min for the next
+        # periodic tick. Without this, Gate 2 trades the cold-boot storm for a
+        # 0-5min actuation-lag hole after release.
+        # Reviewer B HIGH-B1 (2026-06-04): defer via async_call_later and store
+        # the unsub in _unsub_listeners — NOT a bare un-cancellable task — so a
+        # parent-entry reload that calls async_teardown between release and the
+        # kickoff cancels it in the SAME envelope as the gate's own timers,
+        # closing the teardown-race window (cf. "parent reload watchdog" memo).
+        # _async_decision_cycle already accepts the _now arg the scheduler passes.
         if self._boot_settle_hvac_suppressed > 0:
-            task = self.hass.async_create_task(
-                self._async_decision_cycle(),
-                name="hvac_post_boot_settle_kickoff",
+            from homeassistant.helpers.event import (  # noqa: PLC0415
+                async_call_later,
             )
-            self._pending_tasks.add(task)
-            task.add_done_callback(self._pending_tasks.discard)
+            try:
+                _unsub_kick = async_call_later(
+                    self.hass, 1, self._async_decision_cycle
+                )
+                self._unsub_listeners.append(_unsub_kick)
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "HVAC boot-settle: failed to schedule post-release kickoff",
+                    exc_info=True,
+                )
 
     @callback
     def _on_ha_started_release_boot_settle(self, _event: Any) -> None:
@@ -774,8 +786,12 @@ class HVACCoordinator(BaseCoordinator):
             )
             return
 
-        # Re-entrancy guard: skip if already running (e.g. signal + timer overlap)
+        # Re-entrancy guard: skip if already running (e.g. signal + timer overlap,
+        # or the post-boot-settle re-kick landing on top of a periodic tick).
         if self._decision_cycle_lock.locked():
+            _LOGGER.debug(
+                "HVAC decision cycle skipped — already running (re-entrancy guard)"
+            )
             return
         async with self._decision_cycle_lock:
             await self._run_decision_cycle()

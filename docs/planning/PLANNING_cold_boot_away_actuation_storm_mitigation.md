@@ -223,6 +223,23 @@ The §4 open question and the §6 γ-risk were resolved by the operator at build
 
 **Prune protocol (follow-up, not this cycle):** once live data from ≥3 cold boots shows one gate's suppressed-counter is consistently 0 while the other is >0, the zero gate may be removed in a dedicated cleanup hotfix. Until then, both stay — the redundancy is cheap (one bool check per first-tick) and the instrumentation is the whole point.
 
+### Tier 2 review outcome (2026-06-04)
+Two parallel reviewers ran on `da596a4` (A = correctness/edge, B = async/lifecycle/race). Both returned **FIX-FIRST**. All CRITICAL/HIGH + the reasonable MEDIUMs fixed in commit fix-up (see `docs/reviews/code-review/boot_storm_review_A_correctness.md` + `_B_lifecycle.md`).
+
+**Fixed in-cycle:**
+- **HIGH-A1** — Predicate A made data-driven only (dropped trigger-label clause). Boot triggers `camera_detection`/`occupancy_change`/`census_update` are NOT in the old exclusion set and would release Gate 1 early on the exact cold-boot profile it must hold. Verified the full trigger set by grepping every `_run_inference("...")` call site.
+- **HIGH-A2 / HIGH-B1** — HVAC re-kicks one decision cycle on release (closes 0-5min post-release lag), deferred via `async_call_later(...,1,...)` with unsub in `_unsub_listeners` (NOT a bare task) so a parent-entry-reload teardown cancels it in the same envelope. Avoids the "parent reload watchdog" race.
+- **MED-A3** — defensive `(self._zone_trackers or {})` guard.
+- **MED-A4** — `observation_mode` surfaced in Gate 1 suppression log.
+- **MED-B2** — `base._cancel_listeners` isolates each unsub in try/except so one stale handle can't leak the rest (all coordinators benefit).
+- **MED-B4** — DEBUG log on the HVAC re-entrancy skip.
+- **MED-A5** — investigated, FALSE ALARM: all 44 v472 tests pass; `_method_body()` GUEST sub-slices are intact.
+
+**Deferred from review (LOW value / unverified premise):**
+- **MED-A6** — `boot_settle_seconds_elapsed` attr (operability nicety; the suppressed counters already let an operator distinguish cold-boot vs reload). Reconsider if deploy-watch wants exact timeout-engaged confirmation.
+- **MED-B3** — `hass.is_running` post-registration double-check. Narrow race, self-heals within 60s via failsafe, and Reviewer B flagged its premise as unverified HA-docs inference. Not worth the churn.
+- **LOW-A7/A8/A9, B-LOWs** — log-accuracy + code-clarity nits; no live bug.
+
 ### Explicitly DEFERRED (with reasons)
 - **`CONF_BOOT_SETTLE_SECONDS` user-configurable timeout.** Deferred to a follow-up cycle ONLY IF post-deploy live data shows the 60s default needs tuning. Operator convention: ship the constant first, configurability later (see `feedback_configurability_clarity`). Tracked in: post-deploy live observations; this doc.
 - **Per-coordinator boot-settle gates on HVAC / Security / energy paths.** Deferred. Presence is the SOLE publisher of `SIGNAL_HOUSE_STATE_CHANGED`; if Presence holds the signal, downstream coordinators receive nothing to act on — that's the point. Adding the same gate on each subscriber would be duplicate defense. Re-evaluate ONLY if a Tier-2 review surfaces a non-house_state boot fan-out we missed.

@@ -433,14 +433,18 @@ class TestHVACWiring:
 
     def test_hvac_release_rekicks_suppressed_cycle(self):
         # HIGH-A2: on release, if any decision cycle was suppressed, re-run one
-        # immediately rather than waiting up to 5min for the next periodic tick.
-        # Tracked via _pending_tasks so teardown can cancel it.
+        # rather than waiting up to 5min for the next periodic tick.
+        # HIGH-B1: the re-kick MUST be deferred via async_call_later with its
+        # unsub stored in _unsub_listeners (NOT async_create_task) so a reload
+        # that tears down between release and kickoff cancels it atomically.
         body = HVAC_SRC[HVAC_SRC.find("def _release_boot_settle"):]
         body = body[: body.find("@callback")]
         assert "if self._boot_settle_hvac_suppressed > 0:" in body
-        assert "self._async_decision_cycle()" in body
-        assert "self._pending_tasks.add(task)" in body
-        assert "hvac_post_boot_settle_kickoff" in body
+        assert "async_call_later(" in body
+        assert "self._async_decision_cycle" in body
+        assert "self._unsub_listeners.append(_unsub_kick)" in body
+        # HIGH-B1 regression guard: must NOT use the un-cancellable task path.
+        assert "async_create_task" not in body
 
     def test_hvac_setup_registers_both_release_paths(self):
         # async_setup must register the EVENT_HOMEASSISTANT_STARTED listener
