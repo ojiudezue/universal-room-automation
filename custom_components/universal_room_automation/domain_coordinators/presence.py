@@ -35,6 +35,8 @@ from homeassistant.util import dt as dt_util
 
 from ..const import (
     BLE_TIER_2_WEIGHT,  # v4.7.16 D3
+    BOOT_SETTLE_MIN_INPUTS,  # boot-settle gate
+    BOOT_SETTLE_TIMEOUT_SECONDS,  # boot-settle gate
     CONF_AREA_ID,
     CONF_DISABLE_CAMERA_PRESENCE,  # v4.7.16 D4
     CONF_ENTRY_TYPE,  # v4.7.16 D3, D4
@@ -1175,6 +1177,22 @@ class PresenceCoordinator(BaseCoordinator):
         # dispatched.  Controlled via switch.ura_presence_observation_mode.
         self.observation_mode: bool = False
 
+        # Cold-boot away-actuation storm mitigation (Gate 1 — presence
+        # dispatch settle gate). When False, the dispatch site for
+        # SIGNAL_HOUSE_STATE_CHANGED short-circuits with an INFO log so the
+        # boot-time AWAY default does not fan-out into HA chained automations
+        # before census/zone data has settled. The HouseStateMachine still
+        # transitions internally — only cross-coordinator fan-out is held.
+        # Flips True via Predicate A (first real input observed inside
+        # _run_inference) OR Predicate B (EVENT_HOMEASSISTANT_STARTED fires
+        # OR BOOT_SETTLE_TIMEOUT_SECONDS elapses), whichever comes first.
+        # Scoped to cold boot only — released immediately when async_setup
+        # runs during an options-flow reload (hass.is_running already True).
+        self._boot_settle_done: bool = False
+        self._boot_settle_started_utc: Optional[datetime] = None
+        self._boot_settle_release_reason: str = "pending"
+        self._boot_settle_presence_suppressed: int = 0
+
         # v3.19.0: Face-confirmed arrival state
         self._face_arrival_cooldown: Dict[str, datetime] = {}
         self._face_recognition_enabled: bool = False
@@ -1637,6 +1655,47 @@ class PresenceCoordinator(BaseCoordinator):
             "transition_eta_minutes": None,
         }
 
+    # ------------------------------------------------------------------
+    # Cold-boot away-actuation storm mitigation — Gate 1 release callbacks
+    # ------------------------------------------------------------------
+    def _release_boot_settle(self, reason: str) -> None:
+        """Idempotent gate-flip used by all three release paths.
+
+        Predicate A (real_input) and B (ha_started, timeout) all converge
+        here. Subsequent calls are no-ops so duplicate release paths firing
+        late (e.g., a timeout that races with the HA-started event) cannot
+        emit duplicate log lines or stomp on the recorded reason.
+        """
+        if self._boot_settle_done:
+            return
+        self._boot_settle_done = True
+        self._boot_settle_release_reason = reason
+        if reason == "timeout":
+            _LOGGER.warning(
+                "Boot-settle: released via TIMEOUT after %ss (no real input "
+                "observed and HA-started event did not fire) — actuation will "
+                "now proceed on next inference tick",
+                BOOT_SETTLE_TIMEOUT_SECONDS,
+            )
+        else:
+            _LOGGER.info(
+                "Boot-settle: released via %s — actuation will now proceed",
+                reason,
+            )
+
+    @callback
+    def _on_ha_started_release_boot_settle(self, _event: Any) -> None:
+        """EVENT_HOMEASSISTANT_STARTED listener — Predicate B path 1."""
+        self._release_boot_settle("ha_started")
+
+    @callback
+    def _timeout_release_boot_settle(self, _now: Any = None) -> None:
+        """Failsafe timeout — Predicate B path 2. Bounded by
+        BOOT_SETTLE_TIMEOUT_SECONDS so the gate can NEVER suppress
+        actuation indefinitely.
+        """
+        self._release_boot_settle("timeout")
+
     async def async_setup(self) -> None:
         """Set up the Presence Coordinator.
 
@@ -1648,6 +1707,59 @@ class PresenceCoordinator(BaseCoordinator):
         self._ready_event = asyncio.Event()
 
         _LOGGER.info("Setting up Presence Coordinator")
+
+        # Cold-boot away-actuation storm mitigation — Gate 1 init.
+        # Scope strictly to genuine HA startup: if HA core has already
+        # reached RUNNING (i.e. this is an options-flow reload, not a cold
+        # boot), the gate is born already-released so the reload actuates
+        # normally. Otherwise schedule both release paths (Predicate B) and
+        # let Predicate A flip the gate from inside _run_inference.
+        try:
+            _ha_running = bool(getattr(self.hass, "is_running", False))
+        except Exception:  # noqa: BLE001 — defensive against stub hass
+            _ha_running = False
+        if _ha_running:
+            self._boot_settle_done = True
+            self._boot_settle_release_reason = "not_cold_boot"
+            _LOGGER.info(
+                "Boot-settle: HA already RUNNING — gate released at setup "
+                "(reload path, not cold boot)"
+            )
+        else:
+            self._boot_settle_started_utc = dt_util.utcnow()
+            from homeassistant.helpers.event import async_call_later  # noqa: PLC0415
+            try:
+                from homeassistant.const import EVENT_HOMEASSISTANT_STARTED  # noqa: PLC0415
+            except Exception:  # noqa: BLE001 — defensive (older HA shapes / test stubs)
+                EVENT_HOMEASSISTANT_STARTED = "homeassistant_started"
+            # Predicate B path 1: EVENT_HOMEASSISTANT_STARTED.
+            try:
+                _unsub_ha_started = self.hass.bus.async_listen_once(
+                    EVENT_HOMEASSISTANT_STARTED,
+                    self._on_ha_started_release_boot_settle,
+                )
+                self._unsub_listeners.append(_unsub_ha_started)
+            except Exception:  # noqa: BLE001 — defensive (bus may be a stub in tests)
+                _LOGGER.debug(
+                    "Boot-settle: failed to register EVENT_HOMEASSISTANT_STARTED listener",
+                    exc_info=True,
+                )
+            # Predicate B path 2: failsafe timeout — guarantees release
+            # within BOOT_SETTLE_TIMEOUT_SECONDS even if Predicate A and
+            # the HA-started event both fail to fire (empty house cold boot
+            # with no sensors changing state).
+            try:
+                _unsub_timeout = async_call_later(
+                    self.hass,
+                    BOOT_SETTLE_TIMEOUT_SECONDS,
+                    self._timeout_release_boot_settle,
+                )
+                self._unsub_listeners.append(_unsub_timeout)
+            except Exception:  # noqa: BLE001 — defensive
+                _LOGGER.debug(
+                    "Boot-settle: failed to register failsafe timeout",
+                    exc_info=True,
+                )
 
         # v3.6.0.3: Instantiate anomaly detector FIRST so it's always available
         # even if discovery fails. Minimum 24 samples (~1 day of hourly
@@ -3687,6 +3799,29 @@ class PresenceCoordinator(BaseCoordinator):
         if manager is None:
             return
 
+        # Cold-boot settle gate — Predicate A (input-driven release).
+        # Flip BEFORE the dispatch decision so the first inference tick that
+        # sees real-world signal is NOT itself suppressed. Counts as "real":
+        #   - census_count >= BOOT_SETTLE_MIN_INPUTS, OR
+        #   - any zone tracker already in OCCUPIED mode.
+        # DATA-DRIVEN ONLY — the inference trigger label is deliberately NOT
+        # consulted. Boot-time triggers like "camera_detection" / "census_update"
+        # / "occupancy_change" arrive before census has settled, so releasing on
+        # trigger-label would defeat the gate on exactly the cold-boot profile it
+        # exists to hold (Reviewer A HIGH-A1, 2026-06-04). census_update naturally
+        # bumps _census_count, and a real occupant flips a zone tracker OCCUPIED,
+        # so both legitimate release paths are still covered by the data checks.
+        if not self._boot_settle_done:
+            _real_input = (
+                self._census_count >= BOOT_SETTLE_MIN_INPUTS
+                or any(
+                    t.mode == ZonePresenceMode.OCCUPIED
+                    for t in (self._zone_trackers or {}).values()
+                )
+            )
+            if _real_input:
+                self._release_boot_settle("real_input")
+
         # D4: Capture zone modes before inference for change detection
         zone_modes_before = {
             name: tracker.mode for name, tracker in self._zone_trackers.items()
@@ -4445,7 +4580,23 @@ class PresenceCoordinator(BaseCoordinator):
                 # skip this branch → UnboundLocalError. v4.7.20.1 regression fix.)
                 # v3.21.1 D1: Observation mode — inference runs but signal
                 # dispatch is suppressed so downstream coordinators don't react.
-                if self.observation_mode:
+                # Cold-boot away-actuation storm mitigation (Gate 1): same
+                # short-circuit pattern, different trigger. Either gate
+                # suppresses; both gates can be active at once on a cold-boot
+                # observation-mode run — the boot-settle log wins for clarity.
+                if not self._boot_settle_done:
+                    self._boot_settle_presence_suppressed += 1
+                    _LOGGER.info(
+                        "Boot-settle: suppressed presence away-dispatch "
+                        "SIGNAL_HOUSE_STATE_CHANGED %s -> %s (trigger=%s, "
+                        "suppressed_count=%d, observation_mode=%s)",
+                        current_state.value,
+                        new_state.value,
+                        trigger,
+                        self._boot_settle_presence_suppressed,
+                        self.observation_mode,
+                    )
+                elif self.observation_mode:
                     _LOGGER.info(
                         "[observation mode] Presence would dispatch "
                         "SIGNAL_HOUSE_STATE_CHANGED %s → %s (trigger=%s) — suppressed",

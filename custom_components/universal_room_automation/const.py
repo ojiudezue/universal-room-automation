@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv4.7.20.1
+# Universal Room Automation vv4.7.21
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v4.7.20.1"
+VERSION: Final = "v4.7.21"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -1372,3 +1372,19 @@ CONF_ENERGY_ON_HAZARD_SHED_LOADS: Final = "energy_on_hazard_shed_loads"
 CONF_MUSIC_ON_HAZARD_STOP: Final = "music_on_hazard_stop"
 CONF_MUSIC_ON_ARRIVAL_START: Final = "music_on_arrival_start"
 CONF_MUSIC_ON_SECURITY_STOP: Final = "music_on_security_stop"
+
+# ============================================================================
+# Cold-boot away-actuation storm mitigation — module-level constants only.
+# NO CONF_* / NO Number entity. Tunables are intentionally compile-time so
+# the gate has the strongest possible "can never suppress forever" guarantee
+# (Predicate B failsafe). See PLANNING_cold_boot_away_actuation_storm_mitigation.md.
+# ============================================================================
+# Failsafe timeout: even if no "real input" arrives, both boot-settle gates
+# (presence dispatch + HVAC first decision cycle) release after this many
+# seconds. Bounds the maximum delay of actuation post-boot.
+BOOT_SETTLE_TIMEOUT_SECONDS: Final = 60
+# Predicate A: minimum number of "real" inputs (census_count, or any zone
+# occupied, or non-startup trigger) required to count as the first real
+# compute. Currently 1 — present so a future cycle can raise the bar without
+# a magic number proliferating through presence.py.
+BOOT_SETTLE_MIN_INPUTS: Final = 1

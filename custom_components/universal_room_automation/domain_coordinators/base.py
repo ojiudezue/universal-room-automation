@@ -280,7 +280,15 @@ class BaseCoordinator(ABC):
         return config.get(key, default)
 
     def _cancel_listeners(self) -> None:
-        """Cancel all registered state listeners."""
+        """Cancel all registered state listeners.
+
+        Each unsub is isolated: a single already-fired/stale handle that raises
+        must not abort the loop and leak the remaining listeners (Reviewer B
+        MED-B2, boot-storm cycle 2026-06-04).
+        """
         for unsub in self._unsub_listeners:
-            unsub()
+            try:
+                unsub()
+            except Exception:  # noqa: BLE001 — defensive teardown
+                _LOGGER.debug("Listener unsub raised during teardown", exc_info=True)
         self._unsub_listeners.clear()

@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.7.20.1
+# Universal Room Automation vv4.7.21
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -3852,6 +3852,38 @@ class PresenceHouseStateSensor(AggregationEntity, SensorEntity):
             attrs["wake_blocked_ticks"] = getattr(presence, "_wake_blocked_ticks", 0)
             # v4.7.18.1 D2: Daytime wake-backstop diagnostic counter.
             attrs["wake_backstop_fires"] = getattr(presence, "_wake_backstop_fires", 0)
+            # Cold-boot away-actuation storm mitigation — gate observability.
+            # `boot_settle_done` flips True once the gate releases (or at
+            # setup-time on a reload). `boot_settle_release_reason` is one
+            # of: pending, real_input, ha_started, timeout, not_cold_boot.
+            # `boot_settle_presence_suppressed` counts dispatch sites
+            # short-circuited by Gate 1; `boot_settle_hvac_suppressed`
+            # counts HVAC first-decision-cycle calls short-circuited by
+            # Gate 2. Both counters let the operator tell which gate
+            # actually caught the storm so the redundant one can be pruned
+            # in a later cycle.
+            attrs["boot_settle_done"] = bool(
+                getattr(presence, "_boot_settle_done", False)
+            )
+            attrs["boot_settle_release_reason"] = str(
+                getattr(presence, "_boot_settle_release_reason", "pending")
+            )
+            attrs["boot_settle_presence_suppressed"] = int(
+                getattr(presence, "_boot_settle_presence_suppressed", 0)
+            )
+            # HVAC counter lives on the HVAC coordinator; pull defensively.
+            _hvac_suppressed = 0
+            try:
+                _mgr = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+                if _mgr is not None:
+                    _hvac = _mgr.coordinators.get("hvac")
+                    if _hvac is not None:
+                        _hvac_suppressed = int(
+                            getattr(_hvac, "_boot_settle_hvac_suppressed", 0)
+                        )
+            except Exception:  # noqa: BLE001 — defensive: stale CM / early boot
+                _hvac_suppressed = 0
+            attrs["boot_settle_hvac_suppressed"] = _hvac_suppressed
             # Provenance-split cycle (D5): per-zone breakdown + per-room
             # provenance/fan diagnostic rollup. `tier1_provenance_breakdown`
             # is a {kind -> int} map of how many rooms in this zone are
