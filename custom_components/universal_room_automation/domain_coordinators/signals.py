@@ -117,6 +117,15 @@ SIGNAL_DPM_SKIP_REASONS_UPDATED: Final = "ura_dpm_skip_reasons_updated"
 # this signal (D2 actuation is build-gated separately).
 SIGNAL_FAN_INTERFERENCE_GATE_FIRED: Final = "ura_fan_interference_gate_fired"
 
+# Fan-noise Mode-2 mitigation (room-tier BLE-gated fan-pause + clean recheck).
+# Fired when the state machine transitions idle -> armed for a room.
+# Payload: ``{"room": str, "ble_ladder_layer": str}``.
+SIGNAL_FAN_RECHECK_STARTED: Final = "ura_fan_recheck_started"
+
+# Fired when the state machine transitions restoring -> cooldown for a room.
+# Payload: ``{"room": str, "outcome": "vacated" | "occupied_confirmed"}``.
+SIGNAL_FAN_RECHECK_FINISHED: Final = "ura_fan_recheck_finished"
+
 
 # ============================================================================
 # Shared data classes for inter-coordinator communication

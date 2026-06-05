@@ -70,6 +70,10 @@ class RoomFanState:
     last_on_time: str = ""
     vacancy_detected_time: str = ""
     manual_off_cooldown_until: str = ""  # ISO datetime — skip activation until this time
+    # Fan-noise Mode-2 mitigation: HVAC handshake. While set in the future,
+    # FanController.update skips this room's fan write so the room-tier
+    # recheck mechanism can pause + observe mmwave without HVAC re-issuing.
+    fan_recheck_suppress_until: str = ""
     # v4.6.2.1: Humidity fan config pulled from room options at registration time
     humidity_fan_threshold: float = DEFAULT_HUMIDITY_THRESHOLD
     humidity_fan_max_runtime: int = DEFAULT_HUMIDITY_FAN_MAX_RUNTIME
@@ -198,6 +202,21 @@ class FanController:
         now = dt_util.now()
 
         for room_name, room_fan in self._room_fans.items():
+            # Fan-noise Mode-2 mitigation: HVAC handshake. Skip this room
+            # entirely while the room-tier fan-recheck mechanism holds the
+            # fan paused. Don't trip external-cooldown either (the entity
+            # is off because WE turned it off).
+            if room_fan.fan_recheck_suppress_until:
+                try:
+                    suppress_until = datetime.fromisoformat(
+                        room_fan.fan_recheck_suppress_until,
+                    )
+                    if now < suppress_until:
+                        continue
+                    room_fan.fan_recheck_suppress_until = ""
+                except (ValueError, TypeError):
+                    room_fan.fan_recheck_suppress_until = ""
+
             # Sync internal state with actual HA entity state.
             # Prevents stale is_on/last_on_time if external automations
             # or manual actions changed fan state while we weren't looking.
@@ -530,6 +549,132 @@ class FanController:
                         )
             except Exception as e:
                 _LOGGER.error("HVAC Fans: failed to control %s: %s", entity_id, e)
+
+    def suppress_room_until(self, room_name: str, until_iso: str) -> None:
+        """Set HVAC suppression window for a room (fan-recheck handshake)."""
+        room_fan = self._room_fans.get(room_name)
+        if room_fan is None:
+            return
+        room_fan.fan_recheck_suppress_until = until_iso
+
+    def is_room_fan_on(self, room_name: str) -> bool:
+        """Return whether any managed fan in this room is currently ON."""
+        room_fan = self._room_fans.get(room_name)
+        if room_fan is None:
+            return False
+        return any(self._is_entity_on(e) for e in room_fan.fan_entities)
+
+    def snapshot_room_fan(self, room_name: str) -> dict[str, Any] | None:
+        """Snapshot pre-pause attrs for restore. None if no fans in room."""
+        room_fan = self._room_fans.get(room_name)
+        if room_fan is None or not room_fan.fan_entities:
+            return None
+        snapshot: dict[str, Any] = {
+            "entities": list(room_fan.fan_entities),
+            "is_on": room_fan.is_on,
+            "speed_pct": room_fan.speed_pct,
+            "trigger": room_fan.trigger,
+            "last_on_time": room_fan.last_on_time,
+            "entity_attrs": {},
+        }
+        for entity_id in room_fan.fan_entities:
+            state = self.hass.states.get(entity_id)
+            if state is None:
+                continue
+            attrs = state.attributes or {}
+            snapshot["entity_attrs"][entity_id] = {
+                "percentage": attrs.get("percentage"),
+                "preset_mode": attrs.get("preset_mode"),
+                "oscillating": attrs.get("oscillating"),
+                "direction": attrs.get("direction"),
+            }
+        return snapshot
+
+    async def pause_for_recheck(
+        self, room_name: str, suppress_until_iso: str,
+    ) -> dict[str, Any] | None:
+        """Snapshot + pause a room's fan for the recheck window.
+
+        Internal write — does NOT trip manual_off_cooldown_until (that path
+        is for external operator-driven off). Returns the snapshot for the
+        caller to hold + later pass to restore_after_recheck. Returns None
+        if the room has no managed fans.
+        """
+        snapshot = self.snapshot_room_fan(room_name)
+        if snapshot is None:
+            return None
+        room_fan = self._room_fans[room_name]
+        room_fan.fan_recheck_suppress_until = suppress_until_iso
+        if snapshot["is_on"]:
+            await self._set_fan_state(snapshot["entities"], False, 0)
+        _LOGGER.info(
+            "HVAC Fans: %s paused for fan-recheck (suppress_until=%s)",
+            room_name, suppress_until_iso,
+        )
+        return snapshot
+
+    async def restore_after_recheck(
+        self, room_name: str, snapshot: dict[str, Any] | None,
+    ) -> None:
+        """Restore pre-pause fan state from snapshot. Clears suppression."""
+        room_fan = self._room_fans.get(room_name)
+        if room_fan is None:
+            return
+        room_fan.fan_recheck_suppress_until = ""
+        if snapshot is None:
+            return
+        if snapshot.get("is_on"):
+            speed = int(snapshot.get("speed_pct") or 0) or 100
+            await self._set_fan_state(snapshot["entities"], True, speed)
+            room_fan.is_on = True
+            room_fan.speed_pct = speed
+            room_fan.trigger = snapshot.get("trigger", "") or ""
+            if snapshot.get("last_on_time"):
+                room_fan.last_on_time = snapshot["last_on_time"]
+            for entity_id, attrs in (snapshot.get("entity_attrs") or {}).items():
+                preset = attrs.get("preset_mode")
+                if preset:
+                    try:
+                        await self.hass.services.async_call(
+                            "fan", "set_preset_mode",
+                            {"entity_id": entity_id, "preset_mode": preset},
+                            blocking=False,
+                        )
+                    except Exception as exc:  # noqa: BLE001
+                        _LOGGER.debug(
+                            "HVAC Fans: restore set_preset_mode %s failed: %s",
+                            entity_id, exc,
+                        )
+                oscillating = attrs.get("oscillating")
+                if oscillating is not None:
+                    try:
+                        await self.hass.services.async_call(
+                            "fan", "oscillate",
+                            {"entity_id": entity_id, "oscillating": bool(oscillating)},
+                            blocking=False,
+                        )
+                    except Exception as exc:  # noqa: BLE001
+                        _LOGGER.debug(
+                            "HVAC Fans: restore oscillate %s failed: %s",
+                            entity_id, exc,
+                        )
+                direction = attrs.get("direction")
+                if direction:
+                    try:
+                        await self.hass.services.async_call(
+                            "fan", "set_direction",
+                            {"entity_id": entity_id, "direction": direction},
+                            blocking=False,
+                        )
+                    except Exception as exc:  # noqa: BLE001
+                        _LOGGER.debug(
+                            "HVAC Fans: restore set_direction %s failed: %s",
+                            entity_id, exc,
+                        )
+        _LOGGER.info(
+            "HVAC Fans: %s restored after fan-recheck (was_on=%s)",
+            room_name, snapshot.get("is_on"),
+        )
 
     def get_fan_status(self) -> dict[str, Any]:
         """Return fan status for sensor attributes."""

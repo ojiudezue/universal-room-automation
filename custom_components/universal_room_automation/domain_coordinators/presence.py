@@ -1219,6 +1219,11 @@ class PresenceCoordinator(BaseCoordinator):
         # Per-room listener unsubs (separate from _unsub_listeners for targeted cleanup)
         self._guest_room_unsubs: Dict[str, Any] = {}
 
+        # Fan-noise Mode-2 mitigation: room-tier fan-recheck manager. Built
+        # lazily in async_setup so we don't import the module at __init__ time
+        # (avoids a circular if presence_fan_recheck ever needs PC types).
+        self._fan_recheck_manager: Optional[Any] = None
+
     @property
     def inference_engine(self) -> StateInferenceEngine:
         """Return the state inference engine."""
@@ -1915,6 +1920,18 @@ class PresenceCoordinator(BaseCoordinator):
         except Exception as e:
             _LOGGER.warning("Failed to seed census count: %s", e)
 
+        # Fan-noise Mode-2 mitigation: build + rehydrate the state machine.
+        try:
+            from .presence_fan_recheck import FanRecheckManager  # noqa: PLC0415
+            self._fan_recheck_manager = FanRecheckManager(self.hass, self)
+            await self._fan_recheck_manager.async_setup()
+        except Exception:  # noqa: BLE001 — defensive
+            _LOGGER.warning(
+                "FanRecheck: manager setup failed (Mode-2 disabled)",
+                exc_info=True,
+            )
+            self._fan_recheck_manager = None
+
         # Run initial inference with seeded census count
         await self._run_inference("startup")
 
@@ -2037,6 +2054,20 @@ class PresenceCoordinator(BaseCoordinator):
             )
             adjacency = {}
         self._adjacency_cache = adjacency
+
+    def get_adjacent_rooms(self, room_name: str) -> List[str]:
+        """Return the list of adjacent room names for a given room.
+
+        Public method for the room-tier fan-recheck state machine — lets it
+        read the cached adjacency map without rebuilding its own. Lazily
+        builds the cache on first call (mirrors the zone-tier gate's lazy
+        path at presence.py:2825-2827).
+        """
+        if not room_name:
+            return []
+        if self._adjacency_cache is None:
+            self._rebuild_adjacency_cache()
+        return list((self._adjacency_cache or {}).get(room_name, []))
 
     def _discover_zones(self) -> None:
         """Discover zones and their rooms from config entries.
@@ -4783,6 +4814,26 @@ class PresenceCoordinator(BaseCoordinator):
                 _LOGGER.warning(
                     "Fan-noise D1: SIGNAL_FAN_INTERFERENCE_GATE_FIRED "
                     "dispatch failed (non-fatal)",
+                    exc_info=True,
+                )
+
+        # Fan-noise Mode-2 mitigation: room-tier fan-recheck per-room tick.
+        # Runs after the zone-tier gate so any visible state from this tick
+        # is settled. The state machine is opt-in (master OFF by default).
+        if self._fan_recheck_manager is not None:
+            try:
+                for entry in self.hass.config_entries.async_entries(DOMAIN):
+                    if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ROOM:
+                        continue
+                    room_coord = self.hass.data.get(DOMAIN, {}).get(
+                        entry.entry_id,
+                    )
+                    if room_coord is None or not hasattr(room_coord, "entry"):
+                        continue
+                    self._fan_recheck_manager.on_room_tick(room_coord)
+            except Exception:  # noqa: BLE001 — defensive
+                _LOGGER.debug(
+                    "FanRecheck: per-tick fan-out failed (non-fatal)",
                     exc_info=True,
                 )
 
