@@ -725,6 +725,18 @@ class HVACCoordinator(BaseCoordinator):
                 "will now proceed",
                 reason,
             )
+        # Reviewer A HIGH-A2 (2026-06-04): if we suppressed the boot kickoff,
+        # re-run one decision cycle NOW rather than waiting up to 5min for the
+        # next periodic tick. Without this, Gate 2 trades the cold-boot storm
+        # for a 0-5min actuation-lag hole after release. Tracked via the
+        # established _pending_tasks discipline so teardown can cancel it.
+        if self._boot_settle_hvac_suppressed > 0:
+            task = self.hass.async_create_task(
+                self._async_decision_cycle(),
+                name="hvac_post_boot_settle_kickoff",
+            )
+            self._pending_tasks.add(task)
+            task.add_done_callback(self._pending_tasks.discard)
 
     @callback
     def _on_ha_started_release_boot_settle(self, _event: Any) -> None:

@@ -3803,18 +3803,21 @@ class PresenceCoordinator(BaseCoordinator):
         # Flip BEFORE the dispatch decision so the first inference tick that
         # sees real-world signal is NOT itself suppressed. Counts as "real":
         #   - census_count >= BOOT_SETTLE_MIN_INPUTS, OR
-        #   - any zone tracker already in OCCUPIED mode, OR
-        #   - the inference trigger is event-driven (NOT "startup" / "periodic"
-        #     / "deferred_retry") — meaning a real observed change drove this
-        #     tick, not the construction-time defaults.
+        #   - any zone tracker already in OCCUPIED mode.
+        # DATA-DRIVEN ONLY — the inference trigger label is deliberately NOT
+        # consulted. Boot-time triggers like "camera_detection" / "census_update"
+        # / "occupancy_change" arrive before census has settled, so releasing on
+        # trigger-label would defeat the gate on exactly the cold-boot profile it
+        # exists to hold (Reviewer A HIGH-A1, 2026-06-04). census_update naturally
+        # bumps _census_count, and a real occupant flips a zone tracker OCCUPIED,
+        # so both legitimate release paths are still covered by the data checks.
         if not self._boot_settle_done:
             _real_input = (
                 self._census_count >= BOOT_SETTLE_MIN_INPUTS
                 or any(
                     t.mode == ZonePresenceMode.OCCUPIED
-                    for t in self._zone_trackers.values()
+                    for t in (self._zone_trackers or {}).values()
                 )
-                or trigger not in ("startup", "periodic", "deferred_retry")
             )
             if _real_input:
                 self._release_boot_settle("real_input")
@@ -4586,11 +4589,12 @@ class PresenceCoordinator(BaseCoordinator):
                     _LOGGER.info(
                         "Boot-settle: suppressed presence away-dispatch "
                         "SIGNAL_HOUSE_STATE_CHANGED %s -> %s (trigger=%s, "
-                        "suppressed_count=%d)",
+                        "suppressed_count=%d, observation_mode=%s)",
                         current_state.value,
                         new_state.value,
                         trigger,
                         self._boot_settle_presence_suppressed,
+                        self.observation_mode,
                     )
                 elif self.observation_mode:
                     _LOGGER.info(

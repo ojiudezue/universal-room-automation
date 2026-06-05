@@ -314,17 +314,21 @@ class TestPresenceWiring:
 
     def test_predicate_a_check_present_in_run_inference(self):
         """Predicate A must run BEFORE the dispatch decision so the first
-        real tick is NOT itself suppressed."""
+        real tick is NOT itself suppressed. DATA-DRIVEN ONLY — the trigger
+        label is deliberately NOT consulted (Reviewer A HIGH-A1)."""
         body = PRESENCE_SRC[PRESENCE_SRC.find("async def _run_inference"):]
         # Predicate A flips via _release_boot_settle("real_input")
         assert '_release_boot_settle("real_input")' in body
-        # Must reference all three real-input arms.
+        # Must reference both data-driven release arms.
         pred_a_start = body.find("if not self._boot_settle_done:")
         assert pred_a_start >= 0
         window = body[pred_a_start: pred_a_start + 1200]
         assert "self._census_count" in window
         assert "ZonePresenceMode.OCCUPIED" in window
-        assert 'trigger not in ("startup", "periodic", "deferred_retry")' in window
+        # HIGH-A1 regression guard: the trigger-label clause must NOT come back.
+        # Boot triggers (camera_detection / occupancy_change / census_update)
+        # are NOT in the old exclusion set and would release the gate early.
+        assert 'trigger not in (' not in window
 
 
 class TestPresenceGateBehavior:
@@ -426,6 +430,17 @@ class TestHVACWiring:
         assert "def _release_boot_settle(self, reason: str)" in HVAC_SRC
         assert "_on_ha_started_release_boot_settle" in HVAC_SRC
         assert "_timeout_release_boot_settle" in HVAC_SRC
+
+    def test_hvac_release_rekicks_suppressed_cycle(self):
+        # HIGH-A2: on release, if any decision cycle was suppressed, re-run one
+        # immediately rather than waiting up to 5min for the next periodic tick.
+        # Tracked via _pending_tasks so teardown can cancel it.
+        body = HVAC_SRC[HVAC_SRC.find("def _release_boot_settle"):]
+        body = body[: body.find("@callback")]
+        assert "if self._boot_settle_hvac_suppressed > 0:" in body
+        assert "self._async_decision_cycle()" in body
+        assert "self._pending_tasks.add(task)" in body
+        assert "hvac_post_boot_settle_kickoff" in body
 
     def test_hvac_setup_registers_both_release_paths(self):
         # async_setup must register the EVENT_HOMEASSISTANT_STARTED listener
