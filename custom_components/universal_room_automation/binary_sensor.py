@@ -59,6 +59,13 @@ from .const import (
     ENTRY_TYPE_INTEGRATION,
     ENTRY_TYPE_ROOM,
     CONF_ENTRY_TYPE,
+    # B-M4 fix-up: TIER1_KINDS moved to module-top — the prior
+    # function-local imports were annotated "Bug Class #34" but that
+    # class is about async_dispatcher_* function-local imports causing
+    # UnboundLocalError, not plain constants. Hoisting to module-top
+    # both eliminates the misleading comment AND drops 4 redundant
+    # function-local imports.
+    TIER1_KINDS,
 )
 from .aggregation import AggregationEntity
 from .coordinator import UniversalRoomCoordinator
@@ -407,7 +414,7 @@ class OccupiedBinarySensor(UniversalRoomEntity, BinarySensorEntity, RestoreEntit
         # room. Lazy reads — no RestoreEntity coupling — fresh per
         # `_run_inference` tick.
         try:
-            from .const import TIER1_KINDS  # function-local — Bug Class #34
+            # B-M4 fix-up: TIER1_KINDS imported at module top.
             _room_name = self.coordinator.entry.data.get("room_name", "")
             _tier1_default = {k: False for k in TIER1_KINDS}
             _provenance = dict(_tier1_default)
@@ -495,7 +502,7 @@ class OccupiedBinarySensor(UniversalRoomEntity, BinarySensorEntity, RestoreEntit
             attrs["fan_interference_hold_expires_at"] = _hold_iso
             attrs["ble_corroboration_layer"] = _ladder_label
         except Exception:
-            from .const import TIER1_KINDS  # function-local
+            # B-M4 fix-up: TIER1_KINDS imported at module top.
             attrs["tier1_provenance"] = {k: False for k in TIER1_KINDS}
             attrs["last_kind_to_fire"] = ""
             attrs["fan_on"] = False
@@ -553,7 +560,7 @@ class OccupiedBinarySensor(UniversalRoomEntity, BinarySensorEntity, RestoreEntit
         # False} shape on any error so HA dev-tools never sees a
         # missing key.
         try:
-            from .const import TIER1_KINDS  # function-local — Bug Class #34
+            # B-M4 fix-up: TIER1_KINDS imported at module top.
             _sub_kinds = {k: False for k in TIER1_KINDS}
             _room_name = self.coordinator.entry.data.get("room_name", "")
             _manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
@@ -569,7 +576,7 @@ class OccupiedBinarySensor(UniversalRoomEntity, BinarySensorEntity, RestoreEntit
                     pass
             attrs["substrate_kinds"] = _sub_kinds
         except Exception:
-            from .const import TIER1_KINDS  # function-local
+            # B-M4 fix-up: TIER1_KINDS imported at module top.
             attrs["substrate_kinds"] = {k: False for k in TIER1_KINDS}
         return attrs
 

@@ -229,6 +229,22 @@ class OccupancySubstrate:
             for k in TIER1_KINDS:
                 bucket[k] = False
             for entity_id, kind in entity_map.items():
+                # C-MEDIUM-2 fix-up: WARN on cross-room duplicate entity_id.
+                # If the same entity_id was already claimed by another
+                # room earlier in the iteration order, keep the first
+                # claim (stable for the operator) and surface the
+                # divergence loudly — the substrate cycle exists exactly
+                # to surface configuration overlap, so silently losing
+                # one room would defeat the point.
+                prior = self._entity_to_room_kind.get(entity_id)
+                if prior is not None and prior[0] != room_name:
+                    _LOGGER.warning(
+                        "OccupancySubstrate: entity %s claimed by multiple "
+                        "rooms — kept first claim (room=%s kind=%s), "
+                        "ignoring duplicate (room=%s kind=%s)",
+                        entity_id, prior[0], prior[1], room_name, kind,
+                    )
+                    continue
                 self._entity_to_room_kind[entity_id] = (room_name, kind)
                 all_entity_ids.add(entity_id)
                 total_listener_entities += 1

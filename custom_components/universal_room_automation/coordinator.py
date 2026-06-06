@@ -261,6 +261,16 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         # v3.12.0: M2 signal listener unsub handles
         self._unsub_signal_listeners: list = []
 
+        # Occupancy substrate unification cycle (B-C1 fix-up): dedicated
+        # unsub list for SIGNAL_SUBSTRATE_KIND_CHANGED subscription. MUST
+        # NOT share storage with _unsub_signal_listeners, because
+        # _update_signal_subscriptions() clears that list wholesale every
+        # time options-flow saves (and also at first_refresh setup), which
+        # would silently unsubscribe the substrate handler and break the
+        # D3 actuation-critical path. Cleared only on first_refresh (stale
+        # listener purge) and on unload (see __init__.py).
+        self._unsub_substrate_listeners: list = []
+
         # v3.12.0: M3 AI rule conflict tracking
         self._conflict_detected: bool = False
         self._last_conflicts: list = []
@@ -868,6 +878,11 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         for unsub in self._unsub_signal_listeners:
             unsub()
         self._unsub_signal_listeners.clear()
+        # B-C1 fix-up: tear down stale substrate-listener subscriptions
+        # symmetrically with _unsub_state_listeners / _unsub_signal_listeners.
+        for unsub in self._unsub_substrate_listeners:
+            unsub()
+        self._unsub_substrate_listeners.clear()
         # v4.0.7: Cancel any pending trailing-edge refresh from rate limiter
         if self._trailing_refresh_unsub is not None:
             self._trailing_refresh_unsub()
@@ -983,7 +998,14 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                 )
                 _trigger_rate_limited_refresh()
 
-            self._unsub_signal_listeners.append(
+            # B-C1 fix-up: append to dedicated substrate-listener list,
+            # NOT _unsub_signal_listeners. _update_signal_subscriptions()
+            # (called immediately below at first_refresh AND on every
+            # options-flow save) clears _unsub_signal_listeners wholesale
+            # and only rebuilds the M2 trigger/AI-rule signal set — so
+            # routing the substrate sub through it would silently kill
+            # the room tier's substrate edges every options save.
+            self._unsub_substrate_listeners.append(
                 async_dispatcher_connect(
                     self.hass,
                     SIGNAL_SUBSTRATE_KIND_CHANGED,
@@ -1016,13 +1038,31 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                     )
                 )
 
+            # B-H2 fix-up: the count of substrate-routed entities is
+            # motion + mmwave + occupancy only. Lux is Tier-1 for
+            # latency budgeting but lives outside the substrate's
+            # CONF surface — it keeps its own direct state-change
+            # listener (registered below). Report lux separately so
+            # post-deploy audits comparing the substrate's
+            # "subscribed to N Tier-1 entities" log against this line
+            # match exactly.
+            substrate_routed_count = (
+                len(motion_sensors)
+                + len(mmwave_sensors)
+                + len(occupancy_sensors)
+            )
+            lux_suffix = (
+                " + 1 lux (direct state-change)"
+                if self._get_config(CONF_ILLUMINANCE_SENSOR)
+                else ""
+            )
             _LOGGER.info(
-                "Room %s: Event-driven mode — %d Tier 1 sensors via "
-                "substrate signal (%d motion / %d mmwave / %d occupancy), "
+                "Room %s: Event-driven mode — %d substrate-driven Tier-1 "
+                "sensors (%d motion / %d mmwave / %d occupancy)%s, "
                 "%d Tier 2 sensors (30s poll)",
-                room_name, len(tier1_sensors),
+                room_name, substrate_routed_count,
                 len(motion_sensors), len(mmwave_sensors),
-                len(occupancy_sensors), tier2_count,
+                len(occupancy_sensors), lux_suffix, tier2_count,
             )
             # Silence unused-name warnings for the occupancy_sensor_set
             # (kept for diagnostic parity with the pre-substrate body if

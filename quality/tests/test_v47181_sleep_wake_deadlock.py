@@ -631,7 +631,7 @@ class TestFixupBHigh1BootSeed:
             r"(?:\s*,\s*kind\s*=\s*\w+)?"
             r"\s*,?\s*\)"
         )
-        assert seed_call_re.search(body) or "update_room_occupancy(" in body, (
+        assert seed_call_re.search(body), (
             "v4.7.18.1 + substrate: zone-tier _discover_room_sensors must "
             "seed the tracker via update_room_occupancy from the substrate "
             "snapshot"

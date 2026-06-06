@@ -67,7 +67,10 @@ from .signals import (
     SIGNAL_PERSON_ARRIVING,
     SIGNAL_PRESENCE_ENTITIES_UPDATE,
 )
-from homeassistant.helpers.dispatcher import async_dispatcher_send
+from homeassistant.helpers.dispatcher import (
+    async_dispatcher_connect,
+    async_dispatcher_send,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -1915,9 +1918,9 @@ class PresenceCoordinator(BaseCoordinator):
                     )
             # Zone-tier subscription (D2): replace the prior state-change
             # listener path with a substrate signal subscription.
-            from homeassistant.helpers.dispatcher import (  # noqa: PLC0415
-                async_dispatcher_connect,
-            )
+            # B-H1 fix-up: async_dispatcher_connect imported at module top
+            # (alongside async_dispatcher_send) to avoid Bug Class #34
+            # function-local shadow-binding hazard.
             from .signals import (  # noqa: PLC0415
                 SIGNAL_SUBSTRATE_KIND_CHANGED,
             )
@@ -1953,7 +1956,8 @@ class PresenceCoordinator(BaseCoordinator):
             self._subscribe_geofence()
 
             # Subscribe to census updates
-            from homeassistant.helpers.dispatcher import async_dispatcher_connect
+            # B-H1 fix-up: async_dispatcher_connect now imported at
+            # module top — no function-local import needed.
             self._unsub_listeners.append(
                 async_dispatcher_connect(
                     self.hass,
@@ -3217,10 +3221,10 @@ class PresenceCoordinator(BaseCoordinator):
                     entity_id,
                 )
             else:
-                from homeassistant.helpers.dispatcher import (
-                    async_dispatcher_send as _dispatcher_send,
-                )
-                _dispatcher_send(
+                # B-H1 fix-up: async_dispatcher_send is imported at module
+                # top — use it directly. Eliminates the Bug Class #34
+                # latent function-local import.
+                async_dispatcher_send(
                     self.hass,
                     SIGNAL_PERSON_ARRIVING,
                     {"person_entity": entity_id, "source": "geofence"},
