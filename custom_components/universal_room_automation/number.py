@@ -325,7 +325,9 @@ class ZoneEntryDwellNumber(NumberEntity):
             via_device=(DOMAIN, "coordinator_manager"),
         )
         config = {**entry.data, **entry.options}
-        self._value = config.get(CONF_HVAC_ZONE_ENTRY_DWELL, DEFAULT_ZONE_ENTRY_DWELL_MINUTES)
+        self._value = int(config.get(
+            CONF_HVAC_ZONE_ENTRY_DWELL, DEFAULT_ZONE_ENTRY_DWELL_MINUTES,
+        ))
 
     def _get_hvac(self):
         """Get the HVAC coordinator instance."""
@@ -351,6 +353,12 @@ class ZoneEntryDwellNumber(NumberEntity):
         source of truth. Live-attr push happens BEFORE writeback so the
         decision-cycle reader picks up the value on the very next tick;
         the writeback persists it across restarts and reloads.
+
+        Reload-window note (review B-M1): the writeback below triggers an
+        untracked CM reload. If a prior save's reload is mid-flight, the
+        live-attr push here may write into a soon-to-be-discarded hvac
+        instance — harmless: the rebuilt coordinator re-seeds the same attr
+        from entry.options (__init__.py CM setup), so the value converges.
         """
         from .domain_coordinators.hvac_const import CONF_HVAC_ZONE_ENTRY_DWELL
         self._value = int(value)
@@ -423,17 +431,37 @@ class VacancyGraceMinutesNumber(NumberEntity):
         return self._get_hvac() is not None
 
     async def async_set_native_value(self, value: float) -> None:
-        from .domain_coordinators.hvac_const import CONF_HVAC_VACANCY_GRACE_MINUTES
-        self._value = int(value)
+        from .domain_coordinators.hvac_const import (
+            CONF_HVAC_VACANCY_GRACE_MINUTES,
+            CONF_HVAC_VACANCY_GRACE_CONSTRAINED,
+            DEFAULT_VACANCY_GRACE_CONSTRAINED,
+        )
+        new_value = int(value)
+        self._value = new_value
         hvac = self._get_hvac()
         if hvac is not None:
-            hvac._vacancy_grace = int(value)
-        self.hass.config_entries.async_update_entry(
-            self._entry,
-            options={**self._entry.options, CONF_HVAC_VACANCY_GRACE_MINUTES: int(value)},
-        )
+            hvac._vacancy_grace = new_value
+        # Invariant (review HIGH-1): energy-saving delay must stay <= normal.
+        # If lowering the normal delay below the persisted energy-saving
+        # delay, clamp the latter down in the SAME writeback so the pair is
+        # never left inverted.
+        options = {**self._entry.options, CONF_HVAC_VACANCY_GRACE_MINUTES: new_value}
+        config = {**self._entry.data, **self._entry.options}
+        constrained = int(config.get(
+            CONF_HVAC_VACANCY_GRACE_CONSTRAINED, DEFAULT_VACANCY_GRACE_CONSTRAINED,
+        ))
+        if constrained > new_value:
+            options[CONF_HVAC_VACANCY_GRACE_CONSTRAINED] = new_value
+            if hvac is not None:
+                hvac._vacancy_grace_constrained = new_value
+            _LOGGER.info(
+                "Energy-saving zone vacancy delay clamped from %d to %d "
+                "minutes to stay <= new normal delay",
+                constrained, new_value,
+            )
+        self.hass.config_entries.async_update_entry(self._entry, options=options)
         self.async_write_ha_state()
-        _LOGGER.info("Zone vacancy delay set to %d minutes", int(value))
+        _LOGGER.info("Zone vacancy delay set to %d minutes", new_value)
 
 
 class VacancyGraceConstrainedNumber(NumberEntity):
@@ -495,18 +523,38 @@ class VacancyGraceConstrainedNumber(NumberEntity):
         return self._get_hvac() is not None
 
     async def async_set_native_value(self, value: float) -> None:
-        from .domain_coordinators.hvac_const import CONF_HVAC_VACANCY_GRACE_CONSTRAINED
-        self._value = int(value)
+        from .domain_coordinators.hvac_const import (
+            CONF_HVAC_VACANCY_GRACE_CONSTRAINED,
+            CONF_HVAC_VACANCY_GRACE_MINUTES,
+            DEFAULT_VACANCY_GRACE_MINUTES,
+        )
+        # Invariant (review HIGH-1): energy-saving delay must be <= normal
+        # delay, else the HVAC energy_constrained branch (hvac.py) waits
+        # LONGER to back off during the very regime it should throttle. The
+        # config-flow form enforces this, but a direct number.set_value can't
+        # — clamp here so the entity path can't violate it.
+        config = {**self._entry.data, **self._entry.options}
+        normal = int(config.get(
+            CONF_HVAC_VACANCY_GRACE_MINUTES, DEFAULT_VACANCY_GRACE_MINUTES,
+        ))
+        new_value = min(int(value), normal)
+        if new_value != int(value):
+            _LOGGER.info(
+                "Energy-saving zone vacancy delay clamped from %d to %d "
+                "minutes (must be <= normal delay of %d)",
+                int(value), new_value, normal,
+            )
+        self._value = new_value
         hvac = self._get_hvac()
         if hvac is not None:
-            hvac._vacancy_grace_constrained = int(value)
+            hvac._vacancy_grace_constrained = new_value
         self.hass.config_entries.async_update_entry(
             self._entry,
-            options={**self._entry.options, CONF_HVAC_VACANCY_GRACE_CONSTRAINED: int(value)},
+            options={**self._entry.options, CONF_HVAC_VACANCY_GRACE_CONSTRAINED: new_value},
         )
         self.async_write_ha_state()
         _LOGGER.info(
-            "Zone vacancy delay (energy-saving) set to %d minutes", int(value),
+            "Zone vacancy delay (energy-saving) set to %d minutes", new_value,
         )
 
 

@@ -736,6 +736,62 @@ def test_set_native_value_end_to_end(class_name, attr, conf_key, value):
     assert inst._value == value
 
 
+def test_constrained_number_clamps_to_normal():
+    """HIGH-1: setting energy-saving delay > normal via the Number entity is
+    clamped to the normal delay (the form blocks it; the entity path must too).
+    """
+    number_mod = _load_number_module()
+    hass, hvac = _make_hass_with_hvac()
+    # normal delay persisted at 15; try to set energy-saving to 30.
+    entry = _make_entry({"hvac_vacancy_grace_minutes": 15})
+    inst = number_mod.VacancyGraceConstrainedNumber(hass, entry)
+
+    captured = {}
+
+    def _mock_update_entry(target_entry, options=None, **_):
+        captured["options"] = options
+        target_entry.options = options
+
+    hass.config_entries.async_update_entry.side_effect = _mock_update_entry
+    inst.async_write_ha_state = MagicMock()
+
+    asyncio.run(inst.async_set_native_value(30))
+
+    assert captured["options"]["hvac_vacancy_grace_constrained"] == 15
+    assert hvac._vacancy_grace_constrained == 15
+    assert inst._value == 15
+
+
+def test_lowering_normal_clamps_constrained_down():
+    """HIGH-1: lowering the normal delay below the persisted energy-saving
+    delay clamps the latter down in the SAME writeback (never left inverted).
+    """
+    number_mod = _load_number_module()
+    hass, hvac = _make_hass_with_hvac()
+    # normal 30, energy-saving 20 persisted; drop normal to 10.
+    entry = _make_entry({
+        "hvac_vacancy_grace_minutes": 30,
+        "hvac_vacancy_grace_constrained": 20,
+    })
+    inst = number_mod.VacancyGraceMinutesNumber(hass, entry)
+
+    captured = {}
+
+    def _mock_update_entry(target_entry, options=None, **_):
+        captured["options"] = options
+        target_entry.options = options
+
+    hass.config_entries.async_update_entry.side_effect = _mock_update_entry
+    inst.async_write_ha_state = MagicMock()
+
+    asyncio.run(inst.async_set_native_value(10))
+
+    assert captured["options"]["hvac_vacancy_grace_minutes"] == 10
+    assert captured["options"]["hvac_vacancy_grace_constrained"] == 10
+    assert hvac._vacancy_grace == 10
+    assert hvac._vacancy_grace_constrained == 10
+
+
 def test_reset_button_end_to_end():
     """Behavioural mock for ResetPresenceTimersButton — one update_entry call
     carrying all four defaults; all four live attrs pushed.
