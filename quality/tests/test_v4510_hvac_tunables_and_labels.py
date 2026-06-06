@@ -557,11 +557,12 @@ class TestLabelRenames:
         )
 
     def test_zone_sweep_renamed(self, switch_src):
-        # v4.5.21 device-page ordering: prefix `50 · ` (CONFIG cluster).
+        # device-page ordering: prefix `46 · ` — clustered with switch 45
+        # (Solar Cover) by the presence-timer-knobs cycle (was `50 · `).
         idx = switch_src.find("class HVACZoneSweepSwitch")
         assert idx > 0
         body = switch_src[idx:idx + 2000]
-        assert '_attr_name = "50 · Vacancy Auto-Off"' in body
+        assert '_attr_name = "46 · Vacancy Auto-Off"' in body
         assert '_attr_name = "Zone Sweep"' not in body
 
     def test_zone_sweep_unique_id_unchanged(self, switch_src):

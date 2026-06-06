@@ -971,7 +971,10 @@
           "hvac_ac_reset_enabled": "AC Reset",
           "zone_vacancy_sweep_enabled": "Vacancy Auto-Off",
           "pre_arrival_sources": "Pre-Arrival Trigger Sources",
-          "hvac_zone_entry_dwell": "Zone Entry Dwell",
+          "hvac_zone_entry_dwell": "Zone Entry Dwell (minutes)",
+          "hvac_vacancy_grace_minutes": "Zone Vacancy Delay (minutes)",
+          "hvac_vacancy_grace_constrained": "Zone Vacancy Delay · Energy-Saving (minutes)",
+          "hvac_max_occupancy_hours": "Max Zone Occupied Time (hours)",
           "hvac_occupied_cover_close_delta": "Occupied-Room Cover Close Threshold",
           "hvac_solar_gain_cover_enabled": "Solar Cover Management",
           "hvac_cover_close_temp": "Cover Close Temp",
@@ -998,6 +1001,9 @@
           "zone_vacancy_sweep_enabled": "Turn off lights and fans in zones after they become vacant. Runs after the vacancy grace period expires. Disable to keep lights/fans running when zones empty.",
           "pre_arrival_sources": "Which detection methods trigger zone pre-conditioning when a person arrives home. Geofence uses phone GPS; BLE uses Bluetooth proximity beacons; Camera Face uses Frigate/UniFi face recognition for instant confirmation.",
           "hvac_zone_entry_dwell": "Minutes a zone must be occupied before switching from away to home preset. Prevents HVAC from conditioning zones when someone just walks through briefly. Only applies when the house is already occupied — has no effect on arrival from away. Set to 0 to disable. Default: 3.",
+          "hvac_vacancy_grace_minutes": "Minutes a zone must stay empty before HVAC backs off to the Away preset. Lower = AC retreats faster after you leave. Default: 15.",
+          "hvac_vacancy_grace_constrained": "Shorter vacancy delay used while the house is energy-coasting (constrained). Must be ≤ the normal Zone Vacancy Delay. Default: 5.",
+          "hvac_max_occupancy_hours": "If a zone reads continuously occupied this long, HVAC treats the presence signal as stuck and stops trusting it. Default: 8 (hours).",
           "hvac_occupied_cover_close_delta": "When a room is occupied, HVAC only closes its covers for solar-gain reduction if the room temp is at least this many °F above the zone's cooling setpoint. Lower = more aggressive (closes covers sooner when occupied), higher = more conservative (lets occupied rooms get warmer before closing). Default: 2.0°F.",
           "hvac_solar_gain_cover_enabled": "Master toggle for the entire solar-gain cover management feature. When OFF, HVAC does not close or open any covers regardless of per-room settings. Per-room cover automation (timed open/close, exit close) is unaffected.",
           "hvac_cover_close_temp": "Outdoor temperature at which HVAC starts closing covers for solar-gain reduction (during the solar window hours). Texas summer ≥85°F is typical; humid climates may want lower. Default: 85°F.",
@@ -1009,6 +1015,9 @@
           "hvac_solar_bank_soc_min": "Battery state-of-charge above which surplus solar is dumped into thermal banking instead of grid export. Lower = more aggressive banking; higher = more battery headroom for evening. Default: 95%.",
           "hvac_precool_forecast_high": "When tomorrow's forecast high exceeds this, HVAC pre-cools occupied zones before peak hours. Lower = more pre-cooling; higher = pre-cool only on extreme days. Default: 90°F.",
           "hvac_preheat_forecast_low": "When outdoor temp drops below this in winter, HVAC pre-heats occupied zones before off-peak ends. Higher = more pre-heating; lower = pre-heat only on coldest days. Default: 35°F."
+        },
+        "sections": {
+          "presence_timing": "Advanced — presence timing (rarely change)"
         }
       },
       "hvac_dynamic_preset": {
@@ -1653,7 +1662,8 @@
       "derived_entity_missing": "Auto-derived Envoy entity not found in Home Assistant — serial may be wrong, or the Enphase integration is partial.",
       "envoy_derived_missing": "One or more critical Envoy-derived entities are missing. Check that the Enphase integration is fully set up for this Envoy serial.",
       "cover_temp_hysteresis_too_small": "Cover Open Temp must be at least 3°F below Cover Close Temp to prevent solar-gain flapping. Adjust either value and try again.",
-      "baseline_preset_invalid_deadband": "Each season/preset row's Cool High must be at least 3°F above its Heat Low. Adjust the values and try again."
+      "baseline_preset_invalid_deadband": "Each season/preset row's Cool High must be at least 3°F above its Heat Low. Adjust the values and try again.",
+      "vacancy_grace_constrained_exceeds_normal": "Energy-Saving Zone Vacancy Delay must be less than or equal to the normal Zone Vacancy Delay."
     },
     "abort": {
       "no_zones_configured": "No zones have been configured yet. Add a zone from the integration setup first.",
