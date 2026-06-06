@@ -1,5 +1,14 @@
 # PLANNING — Presence Fan Actuation + BLE Ladder Layers 2/3 (DEFERRED)
 
+**Status (2026-06-05): PARTIALLY SUPERSEDED.** Items 1 + 2 — the two headline
+actuation items — **shipped in v4.7.22 Mode-2** (room-tier BLE-gated fan-pause +
+recheck via `presence_fan_recheck.py` / `_ble_corroboration.py`; `CONF_ADJACENT_ROOMS`
+is live at `const.py:373`). They were built on the ROOM tier, NOT as the zone-tier
+`SIGNAL_FAN_INTERFERENCE_GATE_FIRED` consumer this doc assumed. **Still genuinely
+open:** Item 3 (PIR+mmwave fusion, hardware-gated), Item 4 (NON-URA research note),
+Item 5 (`mmwave_occupied_count` shim removal — alias still present at
+`presence.py:4950`). See the per-item annotations in the index table below.
+
 **Versioning.** No version numbers pre-stamped. Per operator convention
 (2026-06-03), versions are assigned at deploy time. Each cycle below is sized
 relative to the predecessor, NOT pinned to a vX.Y.Z. The cycle bands ("next
@@ -24,11 +33,11 @@ gating + ownership keeps each item discoverable.
 
 | # | Item | Defer reason | Gating condition before promotion to buildable | Audience |
 |---|---|---|---|---|
-| 1 | BLE Layer-2 — adjacent-drift hold | Needs adjacent-room config model + ~1 week of D3 diagnostic feedback | Layer-1 D3 fires in ≥1 room over a week of normal usage AND operator confirms the "drift" pattern from `_fan_on_rooms` × person-coordinator timeline | URA |
-| 2 | BLE Layer-3 — zone-absent → rare fan-pause-and-recheck (THE FIRST ACTUATION) | Needs Layer-1+2 data + actuation contract with HVAC fan policy + Tier 2-DB review of the actuation surface | Layer-2 ships AND `fan_interference_rooms` exhibits ≥N events/week where N is operator-decided | URA |
-| 3 | PIR + mmwave fusion backstop (still-person rejection) | Hardware-gated — rooms today have mmwave-only | Operator audits which rooms have PIR coverage and which don't; sized as a hardware-audit cycle THEN a code cycle | URA |
-| 4 | NON-URA research note + reusable HA blueprint | Separate audience (HA community), URA-independent | Layer-1 diagnostic data confirms the interference-conditional-reliability primitive is empirically real in this house, AND the algorithm is stable enough to teach | NON-URA / community |
-| 5 | Removal of `mmwave_occupied_count` deprecation shim | Shim ships in the first buildable cycle; removal is the next cycle's tail | First buildable cycle is LIVE for one full cycle without regression | URA |
+| 1 | BLE Layer-2 — adjacent-drift hold | ✅ **SHIPPED v4.7.22** (`CONF_ADJACENT_ROOMS` live, room-tier ladder) | — | URA |
+| 2 | BLE Layer-3 — zone-absent → rare fan-pause-and-recheck (THE FIRST ACTUATION) | ✅ **SHIPPED v4.7.22 Mode-2** (`presence_fan_recheck.py`, room tier — bypassed the zone gate this row assumed) | — | URA |
+| 3 | PIR + mmwave fusion backstop (still-person rejection) | **OPEN.** Hardware-gated — rooms today have mmwave-only | Operator audits which rooms have PIR coverage and which don't; sized as a hardware-audit cycle THEN a code cycle | URA |
+| 4 | NON-URA research note + reusable HA blueprint | **OPEN.** Separate audience (HA community), URA-independent | Layer-1 diagnostic data confirms the interference-conditional-reliability primitive is empirically real in this house, AND the algorithm is stable enough to teach | NON-URA / community |
+| 5 | Removal of `mmwave_occupied_count` deprecation shim | **OPEN.** Alias still present at `presence.py:4950`; removal is a one-line change + test update | First buildable cycle is LIVE for one full cycle without regression | URA |
 
 ---
 

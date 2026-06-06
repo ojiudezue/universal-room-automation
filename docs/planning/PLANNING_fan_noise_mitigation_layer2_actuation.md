@@ -1,6 +1,8 @@
 # PLANNING — Fan-noise mitigation Layer-2 (actuation that responds to `SIGNAL_FAN_INTERFERENCE_GATE_FIRED`)
 
-**Status:** **BUILD-HELD — prep only.** Layer-1 (silent gate) shipped + validated in v4.7.20 / v4.7.20.1 (LIVE 2026-06-04). Layer-2 is the actuation rung that Layer-1 deliberately withheld. Per operator (2026-06-04): *"prep now and hold in reserve."* This document is scoped, reviewable, and frozen at planning. **No production code may be written for D1–D5 below until the observation gate in §0 lifts.**
+**Status:** ⚠️ **SUPERSEDED by v4.7.22 Mode-2 (LIVE 2026-06-05).** The headline deliverable here — Option C, an active fan-pause + recheck-mmwave-with-fan-stopped state machine (§D1.3, the operator's 2026-06-04 lean in §D1.5) — was **built a different way**: as the ROOM-tier `presence_fan_recheck.py` + `_ble_corroboration.py` ladder (`PLANNING_fan_noise_mode2_ble_pause_recheck.md`, memory `project_v4_7_22_fan_recheck_mode2_live`), NOT as a consumer of the zone-tier `SIGNAL_FAN_INTERFERENCE_GATE_FIRED` this doc was architected around. That gate **still has zero subscribers** and the §0 lift-check addendum (2026-06-05, below) already found it QUIET (mmwave-sole rarely met because PIR co-fires). So the whole "BUILD-HELD waiting for ≥10 gate-fire events" premise is moot. **Do not build from this doc.** The only surviving thread is the investigation question in the §0 addendum — *is the mmwave-sole gate precondition too narrow to ever engage?* — which is an investigation, not this actuation cycle. Retained as historical record.
+
+~~**BUILD-HELD — prep only.** Layer-1 (silent gate) shipped + validated in v4.7.20 / v4.7.20.1 (LIVE 2026-06-04). Per operator (2026-06-04): *"prep now and hold in reserve."*~~ (premise overtaken by the room-tier Mode-2 ship — see status above.)
 
 No version stamped — assigned at deploy time per operator convention.
 
