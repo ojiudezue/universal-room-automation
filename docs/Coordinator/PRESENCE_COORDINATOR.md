@@ -7,6 +7,46 @@
 
 ---
 
+## ADDENDUM — Occupancy substrate (unified Tier-1 raw-signal layer)
+
+The `OccupancySubstrate`
+(`custom_components/universal_room_automation/domain_coordinators/occupancy_substrate.py`)
+is a sensor-layer abstraction that sits **BENEATH** the room
+(`RoomCoordinator` / `coordinator.py`) and zone (`ZonePresenceTracker` /
+`presence.py`) tiers. It is **NOT a new tier and does NOT replace either
+of the existing room or zone tiers** — both tiers continue to apply
+their own legitimate temporal smoothing (room: 900s timeout / failsafe /
+camera + BLE override; zone: derived OR over `_room_provenance`,
+`raw_occupied`, fan-interference hold, camera timeout, BLE precedence)
+on top of the substrate's instantaneous per-room, per-kind raw view.
+
+What the substrate unifies:
+
+* **Discovery.** Sources entities exclusively from the operator's curated
+  `CONF_MOTION_SENSORS` / `CONF_MMWAVE_SENSORS` / `CONF_OCCUPANCY_SENSORS`
+  per-room lists. NO entity-registry area-sweep, NO substring name
+  heuristic.
+* **Classification.** Kind ∈ `TIER1_KINDS` is determined by which CONF
+  list slot the entity is in, with precedence motion → mmwave → occupancy
+  for the defensive case of multi-list membership.
+* **Subscription.** One `async_track_state_change_event` listener per
+  discovered entity — both tiers consume from the substrate (room tier
+  via `SIGNAL_SUBSTRATE_KIND_CHANGED` in `coordinator.py`; zone tier via
+  the same signal in `presence.py:_on_substrate_kind_changed`).
+* **Publishing.** Per-kind edges emit `SIGNAL_SUBSTRATE_KIND_CHANGED(room,
+  kind, new_state)`. Suppressed while the PresenceCoordinator's
+  `_boot_settle_done` gate is False; `_raw_state` is still updated, and a
+  synthetic dispatch per True-slot fires at settle (False slots emit
+  nothing — consumers default False).
+
+The room tier's smoothing pipeline in
+`UniversalRoomCoordinator._async_update_data` is unchanged — the
+substrate only changes WHERE the Tier-1 listener edge originates. The
+zone tier's `raw_occupied` semantics (the v4.7.18.1 wake-timer
+dependency) and the `_room_provenance` shape are preserved.
+
+---
+
 ## TABLE OF CONTENTS
 
 1. [Overview](#1-overview)
