@@ -541,6 +541,36 @@ class OccupiedBinarySensor(UniversalRoomEntity, BinarySensorEntity, RestoreEntit
             attrs["fan_recheck_last_outcome"] = None
             attrs["fan_recheck_last_attempt_iso"] = None
             attrs["fan_recheck_ble_ladder_layer"] = "none"
+        # Occupancy substrate unification cycle (D7): lazy diagnostic attr
+        # surfacing the substrate's per-room, per-kind raw-signal view
+        # for THIS room at the last tick. Sourced from the
+        # PresenceCoordinator-owned OccupancySubstrate via the same
+        # data path used by `tier1_provenance` above — but read from
+        # the substrate directly (instead of from
+        # `_room_provenance`) so the substrate's CONF-driven truth is
+        # surfaced even before the zone tier has fanned an edge into
+        # the tracker. Defaults to the same {motion/mmwave/occupancy:
+        # False} shape on any error so HA dev-tools never sees a
+        # missing key.
+        try:
+            from .const import TIER1_KINDS  # function-local — Bug Class #34
+            _sub_kinds = {k: False for k in TIER1_KINDS}
+            _room_name = self.coordinator.entry.data.get("room_name", "")
+            _manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+            _presence = _manager.coordinators.get("presence") if _manager else None
+            _substrate = (
+                getattr(_presence, "_substrate", None)
+                if _presence is not None else None
+            )
+            if _substrate is not None and _room_name:
+                try:
+                    _sub_kinds = _substrate.get_room_kinds(_room_name)
+                except Exception:
+                    pass
+            attrs["substrate_kinds"] = _sub_kinds
+        except Exception:
+            from .const import TIER1_KINDS  # function-local
+            attrs["substrate_kinds"] = {k: False for k in TIER1_KINDS}
         return attrs
 
 

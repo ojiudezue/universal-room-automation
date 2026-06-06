@@ -7,6 +7,44 @@
 
 ---
 
+## ADDENDUM — Occupancy substrate in the layered lattice
+
+URA's presence layering is a lattice:
+
+```
+House tier    (StateInferenceEngine)
+  |
+Zone tier     (ZonePresenceTracker, presence.py)
+  |
+Room tier     (RoomCoordinator, coordinator.py)
+  |
+Occupancy substrate     <-- unified raw-signal input layer (NEW)
+   (OccupancySubstrate, domain_coordinators/occupancy_substrate.py)
+   driven exclusively by CONF_MOTION_SENSORS / CONF_MMWAVE_SENSORS /
+   CONF_OCCUPANCY_SENSORS per room. NOT a new tier — it is the shared
+   raw-signal layer that BOTH the room and zone tiers consume from
+   instead of each running its own discovery + classification path.
+```
+
+The substrate is **NOT a tier**. It does NOT deprecate the room tier,
+the zone tier, or the house tier. Each tier continues to own its
+distinct smoothing/composition policy:
+
+* Room tier — 900s timeout decay, failsafe force-vacant, camera +
+  BLE override, immediate Tier-1 refresh through a 2s rate limiter +
+  trailing-edge `async_refresh()`.
+* Zone tier — derived `_room_occupied` OR over `_room_provenance`,
+  `raw_occupied` for the v4.7.18.1 wake-timer, fan-interference hold
+  extension, camera timeout, BLE precedence in `_derived_mode`.
+* House tier — `StateInferenceEngine.infer()` over the zone-tier
+  composite signals (`any_zone_occupied`, `any_zone_raw_occupied`, etc.).
+
+What changes with the substrate landing: the per-room, per-kind raw
+view becomes a single canonical input for both the room and zone tiers,
+sourced from CONF lists. The state-change subscription set is exactly
+the union of operator-curated entities — no more area-sweep / substring
+divergence between the two tiers.
+
 ## TABLE OF CONTENTS
 
 1. [Overview](#1-overview)

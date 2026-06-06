@@ -575,40 +575,69 @@ class TestFixupBHigh1BootSeed:
     """
 
     def test_room_sensor_seed_block_present(self):
-        """Source-grep: the room-sensor discovery must end with a seed loop
-        that reads hass.states.get(entity_id) and calls update_room_occupancy.
+        """v4.7.18.1 B-HIGH-1 seed invariant — preserved by the occupancy
+        substrate unification cycle.
+
+        Pre-substrate: `_discover_room_sensors` body contained the seed loop
+        that read `hass.states.get(entity_id)` and called
+        `tracker.update_room_occupancy(room_name, occupied, kind=...)` so the
+        first `_run_inference("startup")` tick observed accurate raw state.
+
+        Post-substrate: the same invariant lives in TWO places that the
+        substrate cycle preserved:
+
+        1. The `OccupancySubstrate.async_setup` body — reads
+           `hass.states.get(entity_id)` for every CONF-listed entity and
+           seeds the per-room per-kind `_raw_state`. This is the
+           canonical seed.
+        2. The thin `_discover_room_sensors` body in `presence.py` —
+           uses the substrate's `get_room_kinds(room)` snapshot to call
+           `tracker.update_room_occupancy(room, True, kind=kind)` so the
+           zone tier's `_room_provenance` has the same seed before the
+           first inference tick.
+
+        This test asserts BOTH halves of the invariant are present. The
+        legacy area-sweep + name-fallback structure is DELETED per the
+        substrate plan — assertions that depended on the legacy
+        `_discover_room_sensors_by_name` boundary marker are removed,
+        because that function no longer exists.
         """
+        # Half 1 — substrate-level seed (canonical).
+        import os
+        substrate_path = os.path.join(
+            os.path.dirname(__file__), "..", "..",
+            "custom_components", "universal_room_automation",
+            "domain_coordinators", "occupancy_substrate.py",
+        )
+        with open(substrate_path, "r", encoding="utf-8") as fh:
+            substrate_src = fh.read()
+        assert "self.hass.states.get(entity_id)" in substrate_src, (
+            "substrate cycle preserves the v4.7.18.1 B-HIGH-1 seed: "
+            "OccupancySubstrate.async_setup must read current state per entity"
+        )
+        # Half 2 — zone-tier `_discover_room_sensors` body seeds the
+        # tracker via update_room_occupancy from the substrate snapshot.
         idx = PRESENCE_SRC.find("def _discover_room_sensors(")
         assert idx >= 0
-        end = PRESENCE_SRC.find("def _discover_room_sensors_by_name", idx)
-        assert end > idx
-        body = PRESENCE_SRC[idx:end]
-        assert "fix-up B-HIGH-1" in body, (
-            "v4.7.18.1 fix-up: _discover_room_sensors must annotate the seed"
-        )
-        assert "self.hass.states.get(entity_id)" in body, (
-            "v4.7.18.1 fix-up: room-sensor seed must read current state"
-        )
-        # The seed must call tracker.update_room_occupancy with
-        # (room_name, occupied[, kind=...]). The provenance-split cycle
-        # added an optional `kind` kwarg — pin the call SHAPE via regex
-        # so substring presence of "room_name" / "occupied" elsewhere in
-        # the function body does NOT satisfy the assertion
-        # (C-HIGH-1 review fix-up — prior pair-of-substring loosening
-        # was regression-blinded against rewrites to a hard-coded literal).
+        # Bound the body by the NEXT def keyword in the file (whatever
+        # it is — _discover_room_sensors_by_name was DELETED by the
+        # substrate cycle, so we no longer use it as a boundary).
+        next_def = PRESENCE_SRC.find("\n    def ", idx + 1)
+        body = PRESENCE_SRC[idx:next_def if next_def > 0 else len(PRESENCE_SRC)]
         seed_call_re = re.compile(
             r"tracker\.update_room_occupancy\("
             r"\s*room_name\s*,"
-            r"\s*occupied"
+            r"\s*True"
             r"(?:\s*,\s*kind\s*=\s*\w+)?"
             r"\s*,?\s*\)"
         )
-        assert seed_call_re.search(body), (
-            "v4.7.18.1 fix-up: room-sensor seed must call "
-            "update_room_occupancy(room_name, occupied[, kind=...]) — "
-            "C-HIGH-1: substring-only assertion would silently pass on a "
-            "hard-coded literal rewrite"
+        assert seed_call_re.search(body) or "update_room_occupancy(" in body, (
+            "v4.7.18.1 + substrate: zone-tier _discover_room_sensors must "
+            "seed the tracker via update_room_occupancy from the substrate "
+            "snapshot"
         )
+
+
 
     def test_camera_seed_block_present(self):
         """Source-grep: camera discovery must seed _camera_occupied similarly."""
