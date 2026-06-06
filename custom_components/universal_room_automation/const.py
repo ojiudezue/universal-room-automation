@@ -372,6 +372,72 @@ DEFAULT_FAN_INTERFERENCE_HOLD_S: Final = 300
 # ``entry.options.get(CONF_ADJACENT_ROOMS, [])``.
 CONF_ADJACENT_ROOMS: Final = "adjacent_rooms"
 
+# Fan-noise Mode-2 mitigation (room-tier BLE-gated fan-pause + clean recheck).
+# Master kill switch per PresenceCoordinator; default False = opt-in.
+CONF_FAN_RECHECK_ENABLED: Final = "fan_recheck_enabled"
+DEFAULT_FAN_RECHECK_ENABLED: Final = False
+
+# Per-room opt-in. Default True — operator wants the recheck broadly active
+# (Exercise + Jaya + Ziri are the motivating rooms); find-and-disable per room
+# rather than find-and-enable. Master switch + sleep gate still bound behaviour.
+CONF_ROOM_FAN_RECHECK_ENABLED: Final = "room_fan_recheck_enabled"
+DEFAULT_ROOM_FAN_RECHECK_ENABLED: Final = True
+
+# Per-room Tier-1-only weak-authorize via L2 adjacent-empty path. Default True
+# (advanced/collapsed) — a user is unlikely to discover and flip this, so a
+# False default would leave it inert; find-and-disable instead. Ignored in
+# Tier-2 (where L2 is an unconditional safety veto, never flag-gated).
+CONF_FAN_RECHECK_L2_ALLOWED: Final = "fan_recheck_l2_allowed"
+DEFAULT_FAN_RECHECK_L2_ALLOWED: Final = True
+
+# Per-room still-capability attestation for Tier-0/2 rooms. With no scanner,
+# BLE absence cannot authorize a drop — the drop rests on the physical recheck.
+# Safe ONLY if the room's mmwave can see stillness. Default True (advanced/
+# collapsed) — find-and-disable per room. Ignored for Tier-1 rooms (BLE
+# backstops the recheck).
+CONF_FAN_RECHECK_TRUST_SENSORS_OK: Final = "fan_recheck_trust_sensors_ok"
+DEFAULT_FAN_RECHECK_TRUST_SENSORS_OK: Final = True
+
+# Settle time before pausing — gives L1/L2 a chance to fire and cancel.
+CONF_FAN_RECHECK_ARM_DELAY_S: Final = "fan_recheck_arm_delay_s"
+DEFAULT_FAN_RECHECK_ARM_DELAY_S: Final = 60
+
+# Fan spin-down window. Long enough for airflow to stop so mmwave sees a clean field.
+CONF_FAN_RECHECK_SPINDOWN_S: Final = "fan_recheck_spindown_s"
+DEFAULT_FAN_RECHECK_SPINDOWN_S: Final = 30
+
+# After spin-down, hold fan off while observing mmwave. Drops -> fan-coupled,
+# release; persists -> real presence, restore.
+CONF_FAN_RECHECK_WINDOW_S: Final = "fan_recheck_window_s"
+DEFAULT_FAN_RECHECK_WINDOW_S: Final = 60
+
+# Per-room rate limit.
+CONF_FAN_RECHECK_COOLDOWN_S: Final = "fan_recheck_cooldown_s"
+DEFAULT_FAN_RECHECK_COOLDOWN_S: Final = 1800
+
+# Hard ceiling per room per hour. 0 disables.
+CONF_FAN_RECHECK_MAX_PER_HOUR: Final = "fan_recheck_max_per_hour"
+DEFAULT_FAN_RECHECK_MAX_PER_HOUR: Final = 2
+
+# HVAC handshake duration. Sized as SPINDOWN + WINDOW + 2*margin.
+CONF_FAN_RECHECK_HVAC_SUPPRESS_S: Final = "fan_recheck_hvac_suppress_s"
+DEFAULT_FAN_RECHECK_HVAC_SUPPRESS_S: Final = 600
+
+# Trigger requires occupancy_source == "mmwave" for N consecutive ticks.
+CONF_FAN_RECHECK_MMWAVE_HISTORY_TICKS: Final = "fan_recheck_mmwave_history_ticks"
+DEFAULT_FAN_RECHECK_MMWAVE_HISTORY_TICKS: Final = 3
+
+# room_type as a conservatism DIAL (D1.5): high-still-risk types extend the
+# recheck window and force L3-only in Tier-1. NOT an eligibility gate.
+ROOM_TYPE_RECHECK_FACTOR: Final = {
+    "bedroom": 2.0,
+    "media_room": 2.0,
+}
+DEFAULT_RECHECK_FACTOR: Final = 1.0
+
+# STATE_OCCUPANCY_SOURCE value set when the room-tier fan-recheck releases.
+OCCUPANCY_SOURCE_FAN_RECHECK_RELEASE: Final = "fan_recheck_release"
+
 CONF_DOOR_SENSORS: Final = "door_sensor"
 CONF_DOOR_TYPE: Final = "door_type"
 CONF_WINDOW_SENSORS: Final = "window_sensor"

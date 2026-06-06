@@ -72,6 +72,8 @@ async def async_setup_entry(
             # changes into ``PresenceCoordinator._fan_interference_hold_s``
             # via ``set_fan_interference_hold_s``.
             FanInterferenceHoldNumber(hass, entry),
+            # Fan-noise Mode-2: 7 timing knobs moved to collapsed
+            # options-flow section; runtime Numbers deleted.
             # v4.6.2 D3: Bayesian cell staleness window (default 14 days)
             BayesianCellStalenessNumber(hass, entry),
             # v4.6.2 D6: routine notification tunables
@@ -2314,3 +2316,5 @@ class FanInterferenceHoldNumber(NumberEntity, RestoreEntity):
             )
         self.async_write_ha_state()
         _LOGGER.info("Fan-interference hold set to %d seconds", int(value))
+
+

@@ -907,7 +907,10 @@ class TestD2ZoneAggregatorLayer3:
 # adjacency-cache wiring grew the body. Honest re-baseline; the
 # hard upper bound below (test_run_inference_only_defined_once)
 # still ensures the window cannot span two function bodies.
-_RUN_INFERENCE_WINDOW = 68000
+# Bumped 68000 -> 72000 in the fan-noise Mode-2 cycle when the
+# per-room fan-recheck per-tick fan-out block was added inside
+# _run_inference. Honest re-baseline.
+_RUN_INFERENCE_WINDOW = 72000
 
 
 class TestD3WakingSustainedSignal:

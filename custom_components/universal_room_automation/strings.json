@@ -745,14 +745,40 @@
           "sleep_end_hour": "Sleep End Hour",
           "geofence_entities": "Geofence Device Trackers",
           "guest_mode_persistence_seconds": "Guest Mode Persistence (seconds)",
-          "guest_mode_require_confidence": "Guest Mode Min Census Confidence"
+          "guest_mode_require_confidence": "Guest Mode Min Census Confidence",
+          "fan_recheck_enabled": "Fan Recheck (master)"
         },
         "data_description": {
           "sleep_start_hour": "Hour (0–23) when the house enters sleep mode. Default: 23 (11 PM).",
           "sleep_end_hour": "Hour (0–23) when the house exits sleep mode. Default: 6 (6 AM).",
           "geofence_entities": "Device tracker entities used for geofence-based arrival/departure detection. Select person device trackers that report home/not_home zones.",
           "guest_mode_persistence_seconds": "How long an unidentified person must persist before the house enters Guest mode. Filters transient ID failures (face DB miss, BLE coverage gap). Set to 0 to disable persistence (instant trigger). Default: 300s (5 min).",
-          "guest_mode_require_confidence": "Minimum census confidence required to trigger Guest mode. 'medium' refuses to fire when cameras disagree or no camera data. 'high' requires both camera platforms agree. Default: medium."
+          "guest_mode_require_confidence": "Minimum census confidence required to trigger Guest mode. 'medium' refuses to fire when cameras disagree or no camera data. 'high' requires both camera platforms agree. Default: medium.",
+          "fan_recheck_enabled": "Master kill-switch for the fan-noise Mode-2 BLE-gated fan-pause+recheck. Default OFF; flip ON after live validation. Timing knobs live under the collapsed Advanced section."
+        },
+        "sections": {
+          "fan_recheck_advanced": {
+            "name": "Fan Recheck Timing (Advanced — rarely change)",
+            "description": "Timing knobs for the fan-noise Mode-2 recheck state machine. Defaults are tuned for typical mmwave + ceiling-fan setups; only adjust if you understand the trade-offs.",
+            "data": {
+              "fan_recheck_arm_delay_s": "Arm Delay (s)",
+              "fan_recheck_spindown_s": "Fan Spindown (s)",
+              "fan_recheck_window_s": "Recheck Window (s)",
+              "fan_recheck_cooldown_s": "Cooldown After Recheck (s)",
+              "fan_recheck_max_per_hour": "Max Rechecks Per Hour",
+              "fan_recheck_hvac_suppress_s": "HVAC Suppression Window (s)",
+              "fan_recheck_mmwave_history_ticks": "mmWave-Sole Consecutive Ticks"
+            },
+            "data_description": {
+              "fan_recheck_arm_delay_s": "Delay between trigger eligibility and arming the recheck. Filters quick false-positives. Default: 60s.",
+              "fan_recheck_spindown_s": "How long airflow takes to stop after the fan is paused. mmWave is ignored during this period. Default: 30s.",
+              "fan_recheck_window_s": "Observation window after spindown. If mmWave drops while the fan is paused, the room vacates. Default: 60s.",
+              "fan_recheck_cooldown_s": "Wait time between rechecks per room before another can fire. Default: 1800s (30 min).",
+              "fan_recheck_max_per_hour": "Hard cap on how many rechecks a single room can run per hour. 0 disables the cap. Default: 2.",
+              "fan_recheck_hvac_suppress_s": "How long HVAC fan-routing stays suppressed for this room after a recheck pauses the fan, so heat/cool doesn't immediately re-energize it. Default: 600s (10 min).",
+              "fan_recheck_mmwave_history_ticks": "Number of consecutive presence ticks that must be mmWave-only (no motion/occupancy/camera) before a recheck is eligible. Default: 3."
+            }
+          }
         }
       },
       "coordinator_safety": {

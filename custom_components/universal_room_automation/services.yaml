@@ -142,6 +142,18 @@ acknowledge_notification:
   name: Acknowledge Notification
   description: Acknowledge the active CRITICAL alert, stopping repeat notifications and starting the cooldown timer.
 
+fan_recheck_force_restore:
+  name: Fan Recheck Force Restore
+  description: Operator escape hatch — abandon any in-flight fan-recheck for the named room and restore the original fan state. Forces the per-room cooldown so a fresh recheck cannot fire immediately. No-op if the room is idle or in cooldown.
+  fields:
+    room_name:
+      name: Room Name
+      description: The room whose in-flight fan-recheck should be aborted.
+      required: true
+      example: "Exercise"
+      selector:
+        text:
+
 test_notification:
   name: Test Notification
   description: Send a test notification to verify channel configuration. Does not trigger real hazard responses.

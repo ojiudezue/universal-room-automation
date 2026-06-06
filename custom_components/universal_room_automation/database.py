@@ -1132,6 +1132,26 @@ class UniversalRoomDatabase:
                 ]):
                     failed_tables.append("egress_state")
 
+                # Fan-noise Mode-2 mitigation: per-room state machine row,
+                # persists across HA restart. Mirrors v4.7.8 egress_state shape.
+                if not await self._create_table_safe(db, "fan_recheck_state", [
+                    """CREATE TABLE IF NOT EXISTS fan_recheck_state (
+                        room_id TEXT NOT NULL,
+                        state TEXT NOT NULL,
+                        state_entered_at TEXT,
+                        snapshot_json TEXT,
+                        attempts_in_hour INTEGER NOT NULL DEFAULT 0,
+                        last_outcome TEXT,
+                        last_attempt_at TEXT,
+                        ble_ladder_layer TEXT,
+                        last_update_ts TEXT NOT NULL,
+                        PRIMARY KEY (room_id)
+                    )""",
+                    """CREATE INDEX IF NOT EXISTS idx_fan_recheck_state_state
+                    ON fan_recheck_state(state)""",
+                ]):
+                    failed_tables.append("fan_recheck_state")
+
                 # -- v4.5.11: AC ramp-down append-only event log --------------
                 # Every state transition logged for offline analysis. 30-day
                 # rolling retention (auto-prune during day rollover).
@@ -5791,6 +5811,116 @@ class UniversalRoomDatabase:
         if deleted > 0:
             _LOGGER.info(
                 "egress_state prune: deleted %d stale rows (cutoff_days=%d)",
+                deleted, cutoff_days,
+            )
+        return deleted
+
+    # =========================================================================
+    # Fan-noise Mode-2 mitigation: per-room state machine persistence.
+    # Five DAOs mirror the egress_state shape (v4.7.8 precedent). All reads
+    # and writes guard with try/except so transient SQLite failures degrade
+    # gracefully (state machine restart-rehydrates as idle instead of crashing).
+    # =========================================================================
+
+    async def get_fan_recheck_state(self, room_id: str) -> dict | None:
+        """Return fan_recheck_state row for a room, or None if no row exists."""
+        try:
+            async with self._db_read() as db:
+                cursor = await db.execute(
+                    "SELECT * FROM fan_recheck_state WHERE room_id = ?",
+                    (room_id,),
+                )
+                row = await cursor.fetchone()
+                if row is None:
+                    return None
+                columns = [d[0] for d in cursor.description]
+                return dict(zip(columns, row))
+        except Exception as err:
+            _LOGGER.warning(
+                "fan_recheck_state read failed for %s: %s",
+                room_id, err,
+            )
+            return None
+
+    async def save_fan_recheck_state(self, state: dict) -> None:
+        """Upsert a fan_recheck_state row.
+
+        snapshot_json is a JSON-serialized FanSnapshot. All timestamps are
+        ISO strings (callers must format tz-aware datetimes via .isoformat()).
+        """
+        try:
+            async with self._db() as db:
+                await db.execute(
+                    """INSERT OR REPLACE INTO fan_recheck_state (
+                        room_id, state, state_entered_at, snapshot_json,
+                        attempts_in_hour, last_outcome, last_attempt_at,
+                        ble_ladder_layer, last_update_ts
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        state["room_id"],
+                        state["state"],
+                        state.get("state_entered_at"),
+                        state.get("snapshot_json"),
+                        int(state.get("attempts_in_hour") or 0),
+                        state.get("last_outcome"),
+                        state.get("last_attempt_at"),
+                        state.get("ble_ladder_layer"),
+                        state.get("last_update_ts") or dt_util.now().isoformat(),
+                    ),
+                )
+                await db.commit()
+        except Exception as err:
+            _LOGGER.warning(
+                "fan_recheck_state save failed for %s: %s",
+                state.get("room_id"), err,
+            )
+
+    async def get_all_fan_recheck_state(self) -> list[dict]:
+        """Return all fan_recheck_state rows (rehydrate on PC startup)."""
+        try:
+            async with self._db_read() as db:
+                cursor = await db.execute("SELECT * FROM fan_recheck_state")
+                rows = await cursor.fetchall()
+                columns = [d[0] for d in cursor.description]
+                return [dict(zip(columns, r)) for r in rows]
+        except Exception as err:
+            _LOGGER.warning("fan_recheck_state scan failed: %s", err)
+            return []
+
+    async def clear_fan_recheck_state(self, room_id: str) -> None:
+        """Delete the fan_recheck_state row for a room."""
+        try:
+            async with self._db() as db:
+                await db.execute(
+                    "DELETE FROM fan_recheck_state WHERE room_id = ?",
+                    (room_id,),
+                )
+                await db.commit()
+        except Exception as err:
+            _LOGGER.warning(
+                "fan_recheck_state clear failed for %s: %s",
+                room_id, err,
+            )
+
+    async def prune_stale_fan_recheck_state(self, cutoff_days: int = 14) -> int:
+        """Prune idle rows + any row older than cutoff_days. Returns row count."""
+        cutoff = (dt_util.now() - timedelta(days=cutoff_days)).isoformat()
+        deleted = 0
+        try:
+            async with self._db() as db:
+                cursor = await db.execute(
+                    "DELETE FROM fan_recheck_state "
+                    "WHERE state = 'idle' OR last_update_ts < ?",
+                    (cutoff,),
+                )
+                await db.commit()
+                deleted = cursor.rowcount
+        except Exception as err:
+            _LOGGER.warning("fan_recheck_state prune failed: %s", err)
+            return 0
+        if deleted > 0:
+            _LOGGER.info(
+                "fan_recheck_state prune: deleted %d stale rows (cutoff_days=%d)",
                 deleted, cutoff_days,
             )
         return deleted
