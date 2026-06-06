@@ -1550,13 +1550,27 @@ class TestV4502GridImportGuard:
         assert h.strategy._arbitrage_guard_aborted_at is None
 
     def test_charge_aborts_when_grid_import_exceeds_threshold(self):
-        """Net import 25 kW > 20 kW guard → abort, lock chunk, return WAIT."""
+        """Net import 25 kW > 20 kW guard → abort, lock chunk, return WAIT.
+
+        Lock now requires TWO consecutive over-cap ticks (absorbs the
+        battery-CT lag at charge entry — see
+        ``ARBITRAGE_GUARD_CONSECUTIVE_TRIPS_TO_LOCK``). Tick 1 defers and
+        keeps charging; tick 2 locks.
+        """
         h = _BatteryHarness(
             soc=15, solcast_today="20", solcast_tomorrow="20",
             arbitrage_enabled=True, with_tou_engine=True,
             net_power="25000",  # 25 kW import — over guard
             grid_import_guard_kw=20.0,
         )
+        # Tick 1 — deferred lock (CT-lag absorption); still CHARGE, not locked
+        r1 = h.strategy.determine_mode(
+            "off_peak", "summer", now=_SUMMER_INSIDE_WINDOW,
+        )
+        assert r1["arbitrage_phase"] == ARBITRAGE_PHASE_CHARGE
+        assert h.strategy._arbitrage_chunk_completed is False
+        assert h.strategy._arbitrage_guard_aborted_at is None
+        # Tick 2 — second consecutive over-cap → lock + WAIT
         result = h.strategy.determine_mode(
             "off_peak", "summer", now=_SUMMER_INSIDE_WINDOW,
         )
@@ -1564,10 +1578,12 @@ class TestV4502GridImportGuard:
         assert result["arbitrage_active"] is False
         # Chunk locked so subsequent ticks don't re-attempt CHARGE
         assert h.strategy._arbitrage_chunk_completed is True
-        # Diagnostic populated
+        # Diagnostic populated. Harness default battery_power raw entity
+        # is "-200" W (sign-flipped → +200 W = charging at 0.2 kW), so the
+        # EFFECTIVE non-battery import recorded is 25.0 − 0.2 = 24.8 kW.
         assert h.strategy._arbitrage_guard_aborted_at is not None
         assert h.strategy._arbitrage_guard_aborted_kw is not None
-        assert h.strategy._arbitrage_guard_aborted_kw == 25.0
+        assert h.strategy._arbitrage_guard_aborted_kw == pytest.approx(24.8)
 
     def test_guard_handles_kw_unit_normalization(self):
         """Same threshold check works when net_power entity reports kW.
@@ -1582,6 +1598,8 @@ class TestV4502GridImportGuard:
             net_power="25", net_power_uom="kW",  # 25 kW reported in kW
             grid_import_guard_kw=20.0,
         )
+        # Two consecutive over-cap ticks required to lock (CT-lag absorption)
+        h.strategy.determine_mode("off_peak", "summer", now=_SUMMER_INSIDE_WINDOW)
         result = h.strategy.determine_mode(
             "off_peak", "summer", now=_SUMMER_INSIDE_WINDOW,
         )
@@ -1595,7 +1613,8 @@ class TestV4502GridImportGuard:
             arbitrage_enabled=True, with_tou_engine=True,
             net_power="25000", grid_import_guard_kw=20.0,
         )
-        # Trigger the guard
+        # Trigger the guard — two consecutive over-cap ticks to lock
+        h.strategy.determine_mode("off_peak", "summer", now=_SUMMER_INSIDE_WINDOW)
         h.strategy.determine_mode("off_peak", "summer", now=_SUMMER_INSIDE_WINDOW)
         assert h.strategy._arbitrage_guard_aborted_at is not None
         # Reset chunk
@@ -1613,7 +1632,8 @@ class TestV4502GridImportGuard:
             arbitrage_enabled=True, with_tou_engine=True,
             net_power="25000", grid_import_guard_kw=20.0,
         )
-        # First tick — guard fires
+        # Two consecutive over-cap ticks → guard locks the chunk
+        h.strategy.determine_mode("off_peak", "summer", now=_SUMMER_INSIDE_WINDOW)
         r1 = h.strategy.determine_mode("off_peak", "summer", now=_SUMMER_INSIDE_WINDOW)
         assert r1["arbitrage_phase"] == ARBITRAGE_PHASE_WAIT
         assert h.strategy._arbitrage_chunk_completed is True
@@ -1650,11 +1670,15 @@ class TestV4502GridImportGuard:
             arbitrage_enabled=True, with_tou_engine=True,
             net_power="25000", grid_import_guard_kw=20.0,
         )
+        # Two consecutive over-cap ticks to lock + populate the diagnostic
+        h.strategy.determine_mode("off_peak", "summer", now=_SUMMER_INSIDE_WINDOW)
         h.strategy.determine_mode("off_peak", "summer", now=_SUMMER_INSIDE_WINDOW)
         status = h.strategy.get_status()
         assert status["arbitrage_grid_import_guard_kw"] == 20.0
         assert status["arbitrage_guard_aborted_at"] is not None
-        assert status["arbitrage_guard_aborted_kw"] == 25.0
+        # Effective (non-battery) import: 25.0 − 0.2 (harness default
+        # battery_power_w = +200W charging) = 24.8 kW.
+        assert status["arbitrage_guard_aborted_kw"] == pytest.approx(24.8)
 
     def test_default_guard_threshold_is_60A_breaker_sized(self):
         """v4.5.0.3: default DEFAULT_ARBITRAGE_GRID_IMPORT_GUARD_KW = 12 kW.
@@ -1689,11 +1713,219 @@ class TestV4502GridImportGuard:
         )
         # Verify harness honored the new default
         assert h.strategy._arbitrage_grid_import_guard_kw == DEFAULT_ARBITRAGE_GRID_IMPORT_GUARD_KW
+        # Two consecutive over-cap ticks required to lock
+        h.strategy.determine_mode("off_peak", "summer", now=_SUMMER_INSIDE_WINDOW)
         result = h.strategy.determine_mode(
             "off_peak", "summer", now=_SUMMER_INSIDE_WINDOW,
         )
         assert result["arbitrage_phase"] == ARBITRAGE_PHASE_WAIT
         assert h.strategy._arbitrage_chunk_completed is True
+
+
+class TestArbitrageGuardBatteryExclusion:
+    """Grid-import guard must measure house+EV draw, NOT the battery's own
+    charge-from-grid pull.
+
+    Live bug observed: as the battery charged on a poor-solar day,
+    ``net_power`` climbed (3.7 → 11.6 → 13.4 → 16.0 → 18.6 kW) while the
+    non-battery draw stayed flat at ~2.8–3.2 kW. The 12 kW cap (sized to
+    protect the panel breaker from house + EV draw) tripped at 18.6 kW
+    even though the load it was meant to limit was nowhere near the cap.
+    Charge ran ~4 min before self-aborting, SOC barely moved.
+
+    Fix: subtract ``max(0, battery_power_w)`` from ``net_power_w`` before
+    comparing to the cap. Sign convention per battery_power_w docstring:
+    positive = charging. We never *add* a discharging battery's draw.
+    Fail-safe: if battery sensor is None, fall back to total net_power
+    (stricter) — a sensor dropout must never uncap the guard.
+    """
+
+    def _charging_harness(
+        self,
+        *,
+        net_power_w,
+        battery_power_w_signed,
+        cap_kw=12.0,
+    ):
+        """Build a harness with explicit net_power and battery_power.
+
+        ``battery_power_w_signed`` is the value to set on the underlying
+        raw entity. The strategy negates it (see ``battery_power_w``
+        docstring: raw entity = positive=discharging; property flips to
+        positive=charging). So to simulate "battery charging at 15.8 kW",
+        pass "-15800".
+
+        Pass None for ``battery_power_w_signed`` to simulate the battery
+        sensor being briefly unavailable (fail-safe path).
+        """
+        h = _BatteryHarness(
+            soc=15,
+            solcast_today="20",
+            solcast_tomorrow="20",
+            arbitrage_enabled=True,
+            with_tou_engine=True,
+            net_power=net_power_w,
+            grid_import_guard_kw=cap_kw,
+        )
+        if battery_power_w_signed is None:
+            h.hass.set_state(DEFAULT_BATTERY_POWER_ENTITY, "unavailable")
+        else:
+            h.hass.set_state(
+                DEFAULT_BATTERY_POWER_ENTITY,
+                battery_power_w_signed,
+                attributes={"unit_of_measurement": "W"},
+            )
+        return h
+
+    def test_charging_battery_does_not_self_trip_guard(self):
+        """Regression case from live data: net=18.5 kW with battery
+        charging 15.8 kW, cap=12 → effective ≈ 2.7 kW < 12 → no trip."""
+        h = self._charging_harness(
+            net_power_w="18500",
+            battery_power_w_signed="-15800",  # → battery_power_w = +15800 (charging)
+            cap_kw=12.0,
+        )
+        # Sanity: confirmed sign convention
+        assert h.strategy.battery_power_w == 15800.0
+        assert h.strategy.net_power_w == 18500.0
+        # Guard helper must not trip
+        assert h.strategy._grid_import_guard_triggered() is False
+        # End-to-end: CHARGE phase proceeds
+        result = h.strategy.determine_mode(
+            "off_peak", "summer", now=_SUMMER_INSIDE_WINDOW,
+        )
+        assert result["arbitrage_phase"] == ARBITRAGE_PHASE_CHARGE
+        assert h.strategy._arbitrage_chunk_completed is False
+        assert h.strategy._arbitrage_guard_aborted_at is None
+
+    def test_ev_and_house_overdraw_still_caught(self):
+        """net=25 kW with battery charging 10 kW, cap=12 → effective
+        15 kW > 12 → still trips (house+EV draw is the real risk)."""
+        h = self._charging_harness(
+            net_power_w="25000",
+            battery_power_w_signed="-10000",  # → +10000 (charging)
+            cap_kw=12.0,
+        )
+        assert h.strategy._grid_import_guard_triggered() is True
+        # Two consecutive over-cap ticks to lock (CT-lag absorption)
+        h.strategy.determine_mode("off_peak", "summer", now=_SUMMER_INSIDE_WINDOW)
+        result = h.strategy.determine_mode(
+            "off_peak", "summer", now=_SUMMER_INSIDE_WINDOW,
+        )
+        assert result["arbitrage_phase"] == ARBITRAGE_PHASE_WAIT
+        assert h.strategy._arbitrage_chunk_completed is True
+        # Effective import recorded, not total
+        assert h.strategy._arbitrage_guard_aborted_kw == pytest.approx(15.0)
+
+    def test_battery_sensor_none_falls_back_to_total_import(self):
+        """Fail-safe: battery sensor unavailable → compare TOTAL net_power
+        against cap. A sensor dropout must NEVER uncap the guard."""
+        h = self._charging_harness(
+            net_power_w="18500",
+            battery_power_w_signed=None,  # sensor unavailable
+            cap_kw=12.0,
+        )
+        # battery_power_w returns None
+        assert h.strategy.battery_power_w is None
+        # Falls back to total: 18.5 kW > 12 → trips (stricter than excluding)
+        assert h.strategy._grid_import_guard_triggered() is True
+        # Two consecutive over-cap ticks to lock (CT-lag absorption)
+        h.strategy.determine_mode("off_peak", "summer", now=_SUMMER_INSIDE_WINDOW)
+        result = h.strategy.determine_mode(
+            "off_peak", "summer", now=_SUMMER_INSIDE_WINDOW,
+        )
+        assert result["arbitrage_phase"] == ARBITRAGE_PHASE_WAIT
+        assert h.strategy._arbitrage_chunk_completed is True
+        # Recorded value = total (no subtraction possible)
+        assert h.strategy._arbitrage_guard_aborted_kw == pytest.approx(18.5)
+
+    def test_discharging_battery_not_added_to_effective_import(self):
+        """If battery is discharging (negative), do NOT add its magnitude
+        to net_power. effective = max(0, batt_w) so discharging → 0
+        subtraction. net=5 kW, battery=-3 kW (discharging), cap=12 →
+        effective = 5 kW (unchanged), no trip."""
+        h = self._charging_harness(
+            net_power_w="5000",
+            battery_power_w_signed="3000",  # raw +3000 → battery_power_w = -3000 (discharging)
+            cap_kw=12.0,
+        )
+        assert h.strategy.battery_power_w == -3000.0  # confirmed discharging
+        # Effective = 5000 - max(0, -3000) = 5000 - 0 = 5000 W → 5 kW < 12 → no trip
+        assert h.strategy._grid_import_guard_triggered() is False
+
+    def test_ct_lag_tick_does_not_false_lock_chunk(self):
+        """H-B1 regression: battery_power CT lags net_power by one Envoy poll
+        at CHARGE entry. On the lagged tick net reads full inrush (18.5 kW)
+        while battery still reads ~0 → effective ≈ net → over cap. A one-shot
+        lock would kill the whole off-peak chunk to sensor lag. The deferred
+        (2-consecutive-trip) lock must keep charging on that single bad tick;
+        once the battery CT catches up, effective drops below cap and the
+        streak resets — chunk never locks."""
+        # Tick 1: battery CT not yet showing inrush (reads ~0 charge)
+        h = self._charging_harness(
+            net_power_w="18500",
+            battery_power_w_signed="0",  # battery CT lagging → 0 charge
+            cap_kw=12.0,
+        )
+        r1 = h.strategy.determine_mode(
+            "off_peak", "summer", now=_SUMMER_INSIDE_WINDOW,
+        )
+        # Over cap, but deferred — keep charging, NOT locked
+        assert r1["arbitrage_phase"] == ARBITRAGE_PHASE_CHARGE
+        assert h.strategy._arbitrage_chunk_completed is False
+        assert h.strategy._arbitrage_guard_aborted_at is None
+        assert h.strategy._arbitrage_guard_consecutive_trips == 1
+        # Tick 2: battery CT catches up (now shows 15.8 kW charge) →
+        # effective ≈ 2.7 kW < 12 → streak resets, charge continues
+        h.hass.set_state(
+            DEFAULT_BATTERY_POWER_ENTITY, "-15800",
+            attributes={"unit_of_measurement": "W"},
+        )
+        r2 = h.strategy.determine_mode(
+            "off_peak", "summer", now=_SUMMER_INSIDE_WINDOW,
+        )
+        assert r2["arbitrage_phase"] == ARBITRAGE_PHASE_CHARGE
+        assert h.strategy._arbitrage_chunk_completed is False
+        assert h.strategy._arbitrage_guard_aborted_at is None
+        assert h.strategy._arbitrage_guard_consecutive_trips == 0
+
+    def test_sustained_overdraw_locks_on_second_consecutive_tick(self):
+        """A genuine house+EV overdraw (battery CT correct on both ticks)
+        persists across two consecutive ticks → chunk locks on tick 2. The
+        deferred lock costs one extra ~30s tick of import, well within the
+        physical breaker margin."""
+        h = self._charging_harness(
+            net_power_w="25000",
+            battery_power_w_signed="-10000",  # +10 kW charging, correct
+            cap_kw=12.0,
+        )
+        # effective = 25 - 10 = 15 kW > 12 on both ticks
+        r1 = h.strategy.determine_mode(
+            "off_peak", "summer", now=_SUMMER_INSIDE_WINDOW,
+        )
+        assert r1["arbitrage_phase"] == ARBITRAGE_PHASE_CHARGE  # deferred
+        assert h.strategy._arbitrage_guard_consecutive_trips == 1
+        r2 = h.strategy.determine_mode(
+            "off_peak", "summer", now=_SUMMER_INSIDE_WINDOW,
+        )
+        assert r2["arbitrage_phase"] == ARBITRAGE_PHASE_WAIT  # locked
+        assert h.strategy._arbitrage_chunk_completed is True
+        assert h.strategy._arbitrage_guard_aborted_kw == pytest.approx(15.0)
+
+    def test_net_power_none_returns_false(self):
+        """net_power_w None (envoy unavailable) → guard returns False;
+        upstream envoy-unavailable branch handles the case."""
+        h = _BatteryHarness(
+            soc=15,
+            solcast_today="20",
+            solcast_tomorrow="20",
+            arbitrage_enabled=True,
+            with_tou_engine=True,
+            grid_import_guard_kw=12.0,
+        )
+        h.hass.set_state(DEFAULT_NET_POWER_ENTITY, "unavailable")
+        assert h.strategy.net_power_w is None
+        assert h.strategy._grid_import_guard_triggered() is False
 
 
 class TestV4501EnvoyUnavailableLastReasonSync:
