@@ -1990,6 +1990,56 @@ the v4.7.16.4 fix-up had DPM biased one bucket hotter than spec. The
 operator-warning-as-mitigation in the README is not a system-level
 safeguard. Filed 2026-06-01 alongside v4.7.16.4 fix-up.
 
+### Bug Class #50 — Long-lived subscription stored in a list cleared by a periodic rebuild
+
+**Symptom.** A subscription that must live for the lifetime of a
+coordinator is appended to an unsubscribe-list that some OTHER routine
+clears and rebuilds wholesale on a recurring trigger (options-flow save,
+config-entry update, signal-subscription refresh). The long-lived sub is
+silently torn down — at first refresh and again on every rebuild — and
+never re-added, because the rebuild routine only knows about its own
+subscription set. No exception, no log: the edge simply stops arriving.
+
+**Exemplar — occupancy-substrate unification (B-C1).** The room
+coordinator's `SIGNAL_SUBSTRATE_KIND_CHANGED` subscription (its Tier-1
+fast-path that drives the HVAC away-flip) was appended to
+`self._unsub_signal_listeners`. But `_update_signal_subscriptions()` —
+called once during setup AND on every options-flow save via the
+`add_update_listener` callback — clears that list wholesale and rebuilds
+ONLY the M2 trigger/AI-rule signal set. Net effect: the substrate edge
+was clobbered immediately at first refresh, leaving the room tier on the
+30s poll with zero Tier-1 substrate edges, and re-clobbered on every
+options save. The lux direct listener survived only because it lived on a
+different list (`_unsub_state_listeners`). Runtime-invisible; the build
+shipped green because the cycle tests didn't simulate an options-save
+between substrate setup and a substrate dispatch.
+
+**Common shape.**
+- Two (or more) categories of subscription share one unsub list.
+- One category is rebuilt periodically (clear-then-readd) by a routine
+  scoped to only that category.
+- A long-lived sub from the OTHER category is appended to the shared list
+  and is collateral damage of the rebuild.
+
+**Fix pattern.**
+1. Give each independently-managed subscription category its OWN unsub
+   list (`_unsub_substrate_listeners` separate from
+   `_unsub_signal_listeners`). The rebuild routine touches only its own
+   list.
+2. Tear every list down in the SAME places (reload-clear,
+   `async_unload_entry`) — grep that the new list is cleared everywhere
+   the sibling lists are.
+3. Add a behavioral regression test that fires the rebuild routine
+   BETWEEN setup and a dispatch, and asserts the long-lived edge still
+   reaches its handler. A source-grep "is it on the right list" test is a
+   useful supplement but does not prove survival — only a clobber
+   simulation does.
+
+**Detection.** Invisible at runtime. The tell is structural: any time a
+new long-lived subscription is appended to a list, check whether ANY
+routine clears that list on a recurring trigger. If so, it needs its own
+list. Filed 2026-06-05 alongside the occupancy-substrate fix-up.
+
 ---
 
 ## ✅ MANDATORY VALIDATION CHECKLIST
