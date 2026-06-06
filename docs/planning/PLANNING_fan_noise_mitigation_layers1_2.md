@@ -1,6 +1,6 @@
 # PLANNING — Fan-noise mmwave mitigation: Layer-1 (silent interference-conditioned discount + decay) + Layer-2 (BLE-gated rare fan-pause fallback)
 
-**Status:** Draft (planning).  No version pre-stamped — assigned at deploy time per operator convention.
+**Status:** ⚠️ **SUPERSEDED — do not build from this doc.** Layer-1 (silent discount + decay gate) **SHIPPED as v4.7.20 / v4.7.20.1** (LIVE 2026-06-04, memory `project_v4_7_20_fan_noise_layer1_live`). The Layer-2 BLE-gated fan-pause design here was reshaped and **shipped in a different form as the Mode-2 room-tier pause+recheck, v4.7.22** (`PLANNING_fan_noise_mode2_ble_pause_recheck.md`, LIVE 2026-06-05). Any still-unbuilt actuation work lives in the BUILD-HELD `PLANNING_fan_noise_mitigation_layer2_actuation.md`, not here. Retained as historical record only.
 **Predecessor cycle (LIVE 2026-06-04):** Tier-1 provenance split + observation-only fan-interference Layer-1 diagnostic (`README_v4.7.19.md`).  This plan promotes the diagnostic into a gate (D1 here) and designs the actuation rung that follows it (D2 here).
 **Supersedes the deferred-items doc relevant sections:** `docs/planning/PLANNING_presence_fan_actuation_and_ble_ladder_deferred.md` Items 1 + 2 (Items 3 / 4 / 5 remain there).
 **Origin notes:** memory body `project_fan_noise_mmwave_mitigation_backlog.md`; `docs/BACKLOG.md` "Fan-noise mmwave mitigation" entry; `docs/TECH_DEBT.md` Presence Tier-1 OR entry (now RESOLVED via predecessor).

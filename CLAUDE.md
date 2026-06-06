@@ -158,6 +158,16 @@ Run the three reviews in PARALLEL — different framings can't share blind spots
 
 **Live Validation (Review D):** Post-restart, verify real values flow through — at least one row in the affected table has non-zero NOT NULL columns within an hour of restart. **Sentinels-only = payload shape broken** (the v4.6.1.1 / v4.6.3-initial-build shape). This single check would have caught both prior incidents.
 
+### Record Live Validation Back Into the README — MANDATORY
+
+**Operator-coined 2026-06-05 (v4.7.24).** The `README_v<version>.md` is written pre-deploy with *prospective* "Live" acceptance criteria. After Live Validation (Review 3 / Review D) runs against the restarted HA instance, the README is NOT done — you MUST write the *observed* results back into it before closing the cycle:
+
+- Replace the prospective "Live Validation" bullet list with a **`Validated <date>`** results table: one row per acceptance criterion, each marked PASS / FAIL / as-expected, with the concrete observed evidence (entity_id + attribute value, log scan result, DB row read). Cite the authoritative signal actually used (e.g. a live entity attribute), not just "looks fine".
+- Note any criterion that could only be proven in-suite rather than live (and why), and any boot-only transients you saw and dismissed.
+- This makes the README the durable record of what the running house actually did, so future cycles don't re-litigate whether the feature shipped working. The git history of the README *is* the validation ledger.
+
+A cycle is not closed until its README carries the post-restart validation table.
+
 ### Post-Review Documentation — MANDATORY
 After every review cycle, persist findings in `docs/reviews/code-review/v<version>_<name>.md`:
 - All bugs found (CRITICAL/HIGH/MEDIUM/LOW) and whether they were fixed

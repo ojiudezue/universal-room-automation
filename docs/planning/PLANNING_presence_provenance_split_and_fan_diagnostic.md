@@ -1,5 +1,7 @@
 # PLANNING — Presence Provenance Split + Fan-Interference Diagnostic (Observation-Only)
 
+**Status:** ✅ **SHIPPED as v4.7.19 — LIVE + validated 2026-06-03** (PR #358). See memory `project_v4_7_19_live`. Retained as historical record only — do not re-scope from it.
+
 **Versioning.** No version number pre-stamped. Per operator convention
 (2026-06-03), the next available patch number is assigned at deploy time.
 References to "this cycle" in deliverables intentionally avoid a vX.Y.Z stamp.
