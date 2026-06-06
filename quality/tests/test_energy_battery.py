@@ -1564,10 +1564,12 @@ class TestV4502GridImportGuard:
         assert result["arbitrage_active"] is False
         # Chunk locked so subsequent ticks don't re-attempt CHARGE
         assert h.strategy._arbitrage_chunk_completed is True
-        # Diagnostic populated
+        # Diagnostic populated. Harness default battery_power raw entity
+        # is "-200" W (sign-flipped → +200 W = charging at 0.2 kW), so the
+        # EFFECTIVE non-battery import recorded is 25.0 − 0.2 = 24.8 kW.
         assert h.strategy._arbitrage_guard_aborted_at is not None
         assert h.strategy._arbitrage_guard_aborted_kw is not None
-        assert h.strategy._arbitrage_guard_aborted_kw == 25.0
+        assert h.strategy._arbitrage_guard_aborted_kw == pytest.approx(24.8)
 
     def test_guard_handles_kw_unit_normalization(self):
         """Same threshold check works when net_power entity reports kW.
@@ -1654,7 +1656,9 @@ class TestV4502GridImportGuard:
         status = h.strategy.get_status()
         assert status["arbitrage_grid_import_guard_kw"] == 20.0
         assert status["arbitrage_guard_aborted_at"] is not None
-        assert status["arbitrage_guard_aborted_kw"] == 25.0
+        # Effective (non-battery) import: 25.0 − 0.2 (harness default
+        # battery_power_w = +200W charging) = 24.8 kW.
+        assert status["arbitrage_guard_aborted_kw"] == pytest.approx(24.8)
 
     def test_default_guard_threshold_is_60A_breaker_sized(self):
         """v4.5.0.3: default DEFAULT_ARBITRAGE_GRID_IMPORT_GUARD_KW = 12 kW.
@@ -1694,6 +1698,149 @@ class TestV4502GridImportGuard:
         )
         assert result["arbitrage_phase"] == ARBITRAGE_PHASE_WAIT
         assert h.strategy._arbitrage_chunk_completed is True
+
+
+class TestArbitrageGuardBatteryExclusion:
+    """Grid-import guard must measure house+EV draw, NOT the battery's own
+    charge-from-grid pull.
+
+    Live bug observed: as the battery charged on a poor-solar day,
+    ``net_power`` climbed (3.7 → 11.6 → 13.4 → 16.0 → 18.6 kW) while the
+    non-battery draw stayed flat at ~2.8–3.2 kW. The 12 kW cap (sized to
+    protect the panel breaker from house + EV draw) tripped at 18.6 kW
+    even though the load it was meant to limit was nowhere near the cap.
+    Charge ran ~4 min before self-aborting, SOC barely moved.
+
+    Fix: subtract ``max(0, battery_power_w)`` from ``net_power_w`` before
+    comparing to the cap. Sign convention per battery_power_w docstring:
+    positive = charging. We never *add* a discharging battery's draw.
+    Fail-safe: if battery sensor is None, fall back to total net_power
+    (stricter) — a sensor dropout must never uncap the guard.
+    """
+
+    def _charging_harness(
+        self,
+        *,
+        net_power_w,
+        battery_power_w_signed,
+        cap_kw=12.0,
+    ):
+        """Build a harness with explicit net_power and battery_power.
+
+        ``battery_power_w_signed`` is the value to set on the underlying
+        raw entity. The strategy negates it (see ``battery_power_w``
+        docstring: raw entity = positive=discharging; property flips to
+        positive=charging). So to simulate "battery charging at 15.8 kW",
+        pass "-15800".
+
+        Pass None for ``battery_power_w_signed`` to simulate the battery
+        sensor being briefly unavailable (fail-safe path).
+        """
+        h = _BatteryHarness(
+            soc=15,
+            solcast_today="20",
+            solcast_tomorrow="20",
+            arbitrage_enabled=True,
+            with_tou_engine=True,
+            net_power=net_power_w,
+            grid_import_guard_kw=cap_kw,
+        )
+        if battery_power_w_signed is None:
+            h.hass.set_state(DEFAULT_BATTERY_POWER_ENTITY, "unavailable")
+        else:
+            h.hass.set_state(
+                DEFAULT_BATTERY_POWER_ENTITY,
+                battery_power_w_signed,
+                attributes={"unit_of_measurement": "W"},
+            )
+        return h
+
+    def test_charging_battery_does_not_self_trip_guard(self):
+        """Regression case from live data: net=18.5 kW with battery
+        charging 15.8 kW, cap=12 → effective ≈ 2.7 kW < 12 → no trip."""
+        h = self._charging_harness(
+            net_power_w="18500",
+            battery_power_w_signed="-15800",  # → battery_power_w = +15800 (charging)
+            cap_kw=12.0,
+        )
+        # Sanity: confirmed sign convention
+        assert h.strategy.battery_power_w == 15800.0
+        assert h.strategy.net_power_w == 18500.0
+        # Guard helper must not trip
+        assert h.strategy._grid_import_guard_triggered() is False
+        # End-to-end: CHARGE phase proceeds
+        result = h.strategy.determine_mode(
+            "off_peak", "summer", now=_SUMMER_INSIDE_WINDOW,
+        )
+        assert result["arbitrage_phase"] == ARBITRAGE_PHASE_CHARGE
+        assert h.strategy._arbitrage_chunk_completed is False
+        assert h.strategy._arbitrage_guard_aborted_at is None
+
+    def test_ev_and_house_overdraw_still_caught(self):
+        """net=25 kW with battery charging 10 kW, cap=12 → effective
+        15 kW > 12 → still trips (house+EV draw is the real risk)."""
+        h = self._charging_harness(
+            net_power_w="25000",
+            battery_power_w_signed="-10000",  # → +10000 (charging)
+            cap_kw=12.0,
+        )
+        assert h.strategy._grid_import_guard_triggered() is True
+        result = h.strategy.determine_mode(
+            "off_peak", "summer", now=_SUMMER_INSIDE_WINDOW,
+        )
+        assert result["arbitrage_phase"] == ARBITRAGE_PHASE_WAIT
+        assert h.strategy._arbitrage_chunk_completed is True
+        # Effective import recorded, not total
+        assert h.strategy._arbitrage_guard_aborted_kw == pytest.approx(15.0)
+
+    def test_battery_sensor_none_falls_back_to_total_import(self):
+        """Fail-safe: battery sensor unavailable → compare TOTAL net_power
+        against cap. A sensor dropout must NEVER uncap the guard."""
+        h = self._charging_harness(
+            net_power_w="18500",
+            battery_power_w_signed=None,  # sensor unavailable
+            cap_kw=12.0,
+        )
+        # battery_power_w returns None
+        assert h.strategy.battery_power_w is None
+        # Falls back to total: 18.5 kW > 12 → trips (stricter than excluding)
+        assert h.strategy._grid_import_guard_triggered() is True
+        result = h.strategy.determine_mode(
+            "off_peak", "summer", now=_SUMMER_INSIDE_WINDOW,
+        )
+        assert result["arbitrage_phase"] == ARBITRAGE_PHASE_WAIT
+        assert h.strategy._arbitrage_chunk_completed is True
+        # Recorded value = total (no subtraction possible)
+        assert h.strategy._arbitrage_guard_aborted_kw == pytest.approx(18.5)
+
+    def test_discharging_battery_not_added_to_effective_import(self):
+        """If battery is discharging (negative), do NOT add its magnitude
+        to net_power. effective = max(0, batt_w) so discharging → 0
+        subtraction. net=5 kW, battery=-3 kW (discharging), cap=12 →
+        effective = 5 kW (unchanged), no trip."""
+        h = self._charging_harness(
+            net_power_w="5000",
+            battery_power_w_signed="3000",  # raw +3000 → battery_power_w = -3000 (discharging)
+            cap_kw=12.0,
+        )
+        assert h.strategy.battery_power_w == -3000.0  # confirmed discharging
+        # Effective = 5000 - max(0, -3000) = 5000 - 0 = 5000 W → 5 kW < 12 → no trip
+        assert h.strategy._grid_import_guard_triggered() is False
+
+    def test_net_power_none_returns_false(self):
+        """net_power_w None (envoy unavailable) → guard returns False;
+        upstream envoy-unavailable branch handles the case."""
+        h = _BatteryHarness(
+            soc=15,
+            solcast_today="20",
+            solcast_tomorrow="20",
+            arbitrage_enabled=True,
+            with_tou_engine=True,
+            grid_import_guard_kw=12.0,
+        )
+        h.hass.set_state(DEFAULT_NET_POWER_ENTITY, "unavailable")
+        assert h.strategy.net_power_w is None
+        assert h.strategy._grid_import_guard_triggered() is False
 
 
 class TestV4501EnvoyUnavailableLastReasonSync:

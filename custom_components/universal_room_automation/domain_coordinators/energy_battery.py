@@ -595,23 +595,49 @@ class BatteryStrategy:
         return False
 
     def _grid_import_guard_triggered(self) -> bool:
-        """v4.5.0.2: True iff actual grid import exceeds the configured guard.
+        """True iff non-battery grid import (house + EV draw) exceeds the guard.
 
         Reads `net_power_w` (already unit-normalized via the v4.5.0 sweep —
-        see Bug Class #30) and converts to kW. A None reading (envoy
-        unavailable) returns False — let the envoy-unavailable branch
-        upstream handle that case. A 0 (or negative — exporting) reading
-        is safe by definition.
+        see Bug Class #30) and subtracts the battery's own charge power
+        before comparing to the cap. The guard exists to prevent excess
+        grid draw from house+EV loads tripping the panel breaker — not to
+        constrain battery charge-from-grid itself. Without the subtraction,
+        the act of arbitrage CHARGE drives `net_power` above the cap and
+        self-aborts (observed live: net 18.6 kW with battery charging 15.8
+        kW and non-battery draw flat ~2.8 kW tripped a 12 kW cap).
 
-        Threshold default 20 kW. Configurable via
-        `arbitrage_grid_import_guard_kw` constructor arg (will become a
-        config-flow form field in v4.5.1).
+        Sign convention (see ``battery_power_w`` docstring): positive =
+        charging, negative = discharging. We subtract only when charging
+        (``max(0.0, battery_power_w)``) so that a discharging battery
+        cannot *raise* the effective import.
+
+        None-handling / fail-safe:
+            * ``net_power_w`` is None (envoy unavailable) → return False;
+              the envoy-unavailable branch upstream handles that case.
+            * ``battery_power_w`` is None (battery sensor briefly
+              unavailable) → do NOT subtract; fall back to comparing
+              total ``net_power_w`` against the cap. A sensor dropout
+              must never *uncap* the guard.
+
+        Threshold default 12 kW (60A breaker sized). Configurable via
+        ``arbitrage_grid_import_guard_kw`` constructor arg.
         """
         net_w = self.net_power_w
         if net_w is None:
             return False
-        net_kw = net_w / 1000.0
-        return net_kw > self._arbitrage_grid_import_guard_kw
+        batt_w = self.battery_power_w
+        # Fail-safe: if the battery sensor is unavailable, fall back to the
+        # stricter total-import comparison. NEVER uncap the guard because a
+        # sensor briefly went None — that would defeat the breaker-protection
+        # purpose entirely.
+        if batt_w is None:
+            effective_w = net_w
+        else:
+            # Only subtract when charging (positive). A discharging battery
+            # (negative battery_power_w) must not be added to net_power.
+            effective_w = net_w - max(0.0, batt_w)
+        effective_kw = effective_w / 1000.0
+        return effective_kw > self._arbitrage_grid_import_guard_kw
 
     def _gate_is_open(self, now: datetime, target_day_class: str) -> bool:
         """Pre-conditions for *any* arbitrage phase consideration.
@@ -692,15 +718,24 @@ class BatteryStrategy:
                 self._arbitrage_chunk_completed = True
                 from homeassistant.util import dt as dt_util
                 self._arbitrage_guard_aborted_at = dt_util.now().isoformat()
-                self._arbitrage_guard_aborted_kw = (
-                    (self.net_power_w or 0) / 1000.0
-                )
+                # Record the EFFECTIVE (non-battery) import that actually
+                # exceeded the cap — that's what the guard compared.
+                net_w = self.net_power_w or 0.0
+                batt_w = self.battery_power_w
+                if batt_w is None:
+                    effective_kw = net_w / 1000.0
+                else:
+                    effective_kw = (net_w - max(0.0, batt_w)) / 1000.0
+                self._arbitrage_guard_aborted_kw = effective_kw
                 _LOGGER.warning(
                     "Arbitrage CHARGE aborted by grid-import guard: "
-                    "net_power=%.1f kW exceeds threshold=%.1f kW. Chunk "
-                    "locked; will retry next off-peak chunk. (Likely "
-                    "panel breaker risk — consider rate control.)",
-                    self._arbitrage_guard_aborted_kw,
+                    "effective_import=%.1f kW (net=%.1f kW, battery_charge=%.1f kW) "
+                    "exceeds threshold=%.1f kW. Chunk locked; will retry "
+                    "next off-peak chunk. (Likely panel breaker risk from "
+                    "house+EV draw — consider rate control.)",
+                    effective_kw,
+                    net_w / 1000.0,
+                    max(0.0, (batt_w or 0.0)) / 1000.0,
                     self._arbitrage_grid_import_guard_kw,
                 )
                 return ARBITRAGE_PHASE_WAIT
