@@ -59,12 +59,14 @@ from ..const import (
     DEFAULT_RECHECK_FACTOR,
     DEFAULT_ROOM_FAN_RECHECK_ENABLED,
     DOMAIN,
+    ENTRY_TYPE_COORDINATOR_MANAGER,
     ENTRY_TYPE_ROOM,
     ROOM_TYPE_BEDROOM,
     ROOM_TYPE_MEDIA_ROOM,
     ROOM_TYPE_RECHECK_FACTOR,
 )
 from ._ble_corroboration import trustworthy_persons_in_room
+from .house_state import HouseState
 from .signals import (
     SIGNAL_FAN_RECHECK_FINISHED,
     SIGNAL_FAN_RECHECK_STARTED,
@@ -179,7 +181,7 @@ class FanRecheckManager:
             return
 
         self.hass.async_create_task(
-            self._enter_armed(ctx, room_coord),
+            self._enter_armed(ctx),
         )
 
     async def force_restore(self, room_name: str) -> None:
@@ -223,6 +225,10 @@ class FanRecheckManager:
         """Evaluate all 9 trigger conditions (D1)."""
         room_name = ctx.room_name
         merged = self._merged_config(room_coord)
+        # The 7 timing knobs live on the CM entry, not the room entry.
+        # Read them from the coordinator-tier accessor — anything operator-
+        # tuned via the coordinator_presence options step lands here.
+        timing = self._timing_config()
 
         # Master + per-room kill switches.
         master_enabled = self._master_enabled()
@@ -236,13 +242,22 @@ class FanRecheckManager:
         if merged.get(CONF_FAN_CONTROL_ENABLED) is False:
             return False
 
+        # Sleep gate: never pause a fan while the house is asleep.
+        # hvac_fans (v4.7.13) deliberately holds bedroom fans ON through sleep
+        # despite occupancy bounce; arming a recheck here would pause that fan
+        # and fight the keep-on logic. WAKING is NOT covered by the v4.7.13
+        # contract (SLEEP-only) — allow recheck during the groggy transition.
+        house_state = getattr(self._presence, "house_state", "")
+        if house_state == HouseState.SLEEP:
+            return False
+
         data = getattr(room_coord, "data", None) or {}
         if not data.get("occupied"):
             return False
 
         # Condition 2: mmwave-sole AND for N consecutive ticks.
         ticks_required = int(
-            merged.get(
+            timing.get(
                 CONF_FAN_RECHECK_MMWAVE_HISTORY_TICKS,
                 DEFAULT_FAN_RECHECK_MMWAVE_HISTORY_TICKS,
             )
@@ -277,7 +292,7 @@ class FanRecheckManager:
 
         # Condition 5: rate limit.
         max_per_hour = int(
-            merged.get(
+            timing.get(
                 CONF_FAN_RECHECK_MAX_PER_HOUR,
                 DEFAULT_FAN_RECHECK_MAX_PER_HOUR,
             )
@@ -314,16 +329,16 @@ class FanRecheckManager:
         if ble_tier == 1:
             # Tier-1 path. L3 strongest; L2 weak-authorize requires opt-in
             # AND is REJECTED for high-still-risk room_types (D1.5 dial).
+            # Zone-aware L3: scan trustworthy phones across ALL rooms in the
+            # same zone (not just this room). If _zone_rooms_for returns an
+            # empty list (no zone tracker covers this room), fall back to
+            # the room itself so we don't get a free L3-vacate from an
+            # unconfigured zone (A-M1 + C2 fix).
             try:
-                zone_rooms = self._zone_rooms_for(room_name)
-                zone_persons = []
-                if zone_rooms:
-                    zone_persons = trustworthy_persons_in_room(
-                        self.hass, person_coord, room_name,
-                    )  # zone-aware path
-                    zone_persons = self._trustworthy_persons_in_zone(
-                        person_coord, zone_rooms,
-                    )
+                zone_rooms = self._zone_rooms_for(room_name) or [room_name]
+                zone_persons = self._trustworthy_persons_in_zone(
+                    person_coord, zone_rooms,
+                )
             except Exception:  # noqa: BLE001
                 zone_persons = []
             if not zone_persons:
@@ -345,6 +360,15 @@ class FanRecheckManager:
             ctx.ble_ladder_layer = LAYER_L2
             return False
 
+        # D1.5 high-still-risk guard also applies on the Tier-0/2 path.
+        # With CONF_FAN_RECHECK_TRUST_SENSORS_OK defaulting True (v4.7.x),
+        # a still napper in a bedroom or media_room would otherwise be
+        # eligible to vacate without any BLE-tier protection — match the
+        # Tier-1 L2 guard's semantics here. (C1 fix.)
+        if room_type in HIGH_STILL_RISK_ROOM_TYPES:
+            ctx.ble_ladder_layer = LAYER_NONE
+            return False
+
         # Sensors-only authorize gate.
         if not merged.get(
             CONF_FAN_RECHECK_TRUST_SENSORS_OK,
@@ -358,10 +382,10 @@ class FanRecheckManager:
 
     # ---- internals: state transitions -------------------------------------
 
-    async def _enter_armed(self, ctx: _RoomCtx, room_coord: Any) -> None:
-        merged = self._merged_config(room_coord)
+    async def _enter_armed(self, ctx: _RoomCtx) -> None:
+        timing = self._timing_config()
         arm_delay = int(
-            merged.get(
+            timing.get(
                 CONF_FAN_RECHECK_ARM_DELAY_S,
                 DEFAULT_FAN_RECHECK_ARM_DELAY_S,
             )
@@ -398,22 +422,25 @@ class FanRecheckManager:
 
     async def _enter_paused(self, ctx: _RoomCtx, room_coord: Any) -> None:
         merged = self._merged_config(room_coord)
+        timing = self._timing_config()
         spindown = int(
-            merged.get(
+            timing.get(
                 CONF_FAN_RECHECK_SPINDOWN_S,
                 DEFAULT_FAN_RECHECK_SPINDOWN_S,
             )
         )
         window = int(
-            merged.get(
+            timing.get(
                 CONF_FAN_RECHECK_WINDOW_S,
                 DEFAULT_FAN_RECHECK_WINDOW_S,
             )
         )
+        # _recheck_factor still reads CONF_ROOM_TYPE from the room entry
+        # (per-room property — not coordinator-tier).
         factor = self._recheck_factor(merged)
         window = int(window * factor)
         hvac_suppress = int(
-            merged.get(
+            timing.get(
                 CONF_FAN_RECHECK_HVAC_SUPPRESS_S,
                 DEFAULT_FAN_RECHECK_HVAC_SUPPRESS_S,
             )
@@ -507,12 +534,9 @@ class FanRecheckManager:
         await self._enter_cooldown(ctx)
 
     async def _enter_cooldown(self, ctx: _RoomCtx) -> None:
-        room_coord = self._room_coord_for(ctx.room_name)
-        merged = (
-            self._merged_config(room_coord) if room_coord is not None else {}
-        )
+        timing = self._timing_config()
         cooldown_s = int(
-            merged.get(
+            timing.get(
                 CONF_FAN_RECHECK_COOLDOWN_S,
                 DEFAULT_FAN_RECHECK_COOLDOWN_S,
             )
@@ -581,6 +605,12 @@ class FanRecheckManager:
             return False
         if merged.get(CONF_FAN_CONTROL_ENABLED) is False:
             return False
+        # Sleep can begin during the arm delay — abort before pausing so we
+        # never fight the v4.7.13 keep-fans-on-through-sleep logic. SLEEP-only
+        # to match the v4.7.13 contract; WAKING is allowed.
+        house_state = getattr(self._presence, "house_state", "")
+        if house_state == HouseState.SLEEP:
+            return False
         data = getattr(room_coord, "data", None) or {}
         if not data.get("occupied"):
             return False
@@ -610,6 +640,47 @@ class FanRecheckManager:
         if room_coord is None or not hasattr(room_coord, "entry"):
             return {}
         return {**room_coord.entry.data, **(room_coord.entry.options or {})}
+
+    def _timing_config(self) -> dict:
+        """Return the 7 fan-recheck timing values from the CM entry options.
+
+        The 7 timing knobs live on the CoordinatorManager entry's options
+        (same entry the master ``FanRecheckEnabledSwitch`` writes to via
+        its ``_mirror_options``; same entry the ``coordinator_presence``
+        options step persists). PresenceCoordinator itself does NOT carry
+        an ``entry`` attribute, so we resolve the CM entry by entry-type
+        sweep — identical pattern to ``FanRecheckEnabledSwitch._mirror_options``.
+
+        Falls through to ``DEFAULT_*`` from const.py for any missing key.
+        Best-effort: failures return defaults (the read is non-fatal — the
+        state machine continues with default timings).
+        """
+        out = {
+            CONF_FAN_RECHECK_ARM_DELAY_S: DEFAULT_FAN_RECHECK_ARM_DELAY_S,
+            CONF_FAN_RECHECK_SPINDOWN_S: DEFAULT_FAN_RECHECK_SPINDOWN_S,
+            CONF_FAN_RECHECK_WINDOW_S: DEFAULT_FAN_RECHECK_WINDOW_S,
+            CONF_FAN_RECHECK_COOLDOWN_S: DEFAULT_FAN_RECHECK_COOLDOWN_S,
+            CONF_FAN_RECHECK_MAX_PER_HOUR: DEFAULT_FAN_RECHECK_MAX_PER_HOUR,
+            CONF_FAN_RECHECK_HVAC_SUPPRESS_S: DEFAULT_FAN_RECHECK_HVAC_SUPPRESS_S,
+            CONF_FAN_RECHECK_MMWAVE_HISTORY_TICKS: (
+                DEFAULT_FAN_RECHECK_MMWAVE_HISTORY_TICKS
+            ),
+        }
+        try:
+            for ce in self.hass.config_entries.async_entries(DOMAIN):
+                if ce.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_COORDINATOR_MANAGER:
+                    continue
+                opts = ce.options or {}
+                for key in list(out.keys()):
+                    if key in opts and opts[key] is not None:
+                        out[key] = opts[key]
+                break
+        except Exception:  # noqa: BLE001 — best-effort read; defaults preserved
+            _LOGGER.debug(
+                "FanRecheck: timing-config read failed; using DEFAULT_* values",
+                exc_info=True,
+            )
+        return out
 
     def _is_entity_on(self, entity_id: str) -> bool:
         try:
@@ -687,7 +758,14 @@ class FanRecheckManager:
                 return False
             if not room_fan.manual_off_cooldown_until:
                 return False
-            until = datetime.fromisoformat(room_fan.manual_off_cooldown_until)
+            # M-A3: parse via dt_util so a tz-naive stored ISO doesn't blow up
+            # the tz-aware comparison against dt_util.now(). hvac_fans stores
+            # dt_util.now().isoformat() (tz-aware), but be permissive.
+            until = dt_util.parse_datetime(room_fan.manual_off_cooldown_until)
+            if until is None:
+                return False
+            if until.tzinfo is None:
+                until = dt_util.as_local(until)
             return dt_util.now() < until
         except Exception:  # noqa: BLE001
             return False

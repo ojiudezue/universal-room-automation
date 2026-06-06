@@ -123,6 +123,14 @@ def _load_fan_recheck_manager_module():
         mod = importlib.util.module_from_spec(spec)
         sys.modules[f"{coord_pkg_name}._ble_corroboration"] = mod
         spec.loader.exec_module(mod)
+    if f"{coord_pkg_name}.house_state" not in sys.modules:
+        src = ROOT_DIR / ROOT_REL / "domain_coordinators" / "house_state.py"
+        spec = importlib.util.spec_from_file_location(
+            f"{coord_pkg_name}.house_state", str(src),
+        )
+        mod = importlib.util.module_from_spec(spec)
+        sys.modules[f"{coord_pkg_name}.house_state"] = mod
+        spec.loader.exec_module(mod)
     if f"{coord_pkg_name}.presence_fan_recheck" not in sys.modules:
         src = ROOT_DIR / ROOT_REL / "domain_coordinators" / "presence_fan_recheck.py"
         spec = importlib.util.spec_from_file_location(
@@ -148,11 +156,12 @@ def test_const_round_trip_for_mode2_keys():
     assert c.CONF_FAN_RECHECK_ENABLED == "fan_recheck_enabled"
     assert c.DEFAULT_FAN_RECHECK_ENABLED is False
     assert c.CONF_ROOM_FAN_RECHECK_ENABLED == "room_fan_recheck_enabled"
-    assert c.DEFAULT_ROOM_FAN_RECHECK_ENABLED is False
+    # Default-ON per-room (find-and-disable). Master switch + sleep gate bound it.
+    assert c.DEFAULT_ROOM_FAN_RECHECK_ENABLED is True
     assert c.CONF_FAN_RECHECK_L2_ALLOWED == "fan_recheck_l2_allowed"
-    assert c.DEFAULT_FAN_RECHECK_L2_ALLOWED is False
+    assert c.DEFAULT_FAN_RECHECK_L2_ALLOWED is True
     assert c.CONF_FAN_RECHECK_TRUST_SENSORS_OK == "fan_recheck_trust_sensors_ok"
-    assert c.DEFAULT_FAN_RECHECK_TRUST_SENSORS_OK is False
+    assert c.DEFAULT_FAN_RECHECK_TRUST_SENSORS_OK is True
     # 7 timing knobs with documented bounds.
     assert c.DEFAULT_FAN_RECHECK_ARM_DELAY_S == 60
     assert c.DEFAULT_FAN_RECHECK_SPINDOWN_S == 30
@@ -161,9 +170,11 @@ def test_const_round_trip_for_mode2_keys():
     assert c.DEFAULT_FAN_RECHECK_MAX_PER_HOUR == 2
     assert c.DEFAULT_FAN_RECHECK_HVAC_SUPPRESS_S == 600
     assert c.DEFAULT_FAN_RECHECK_MMWAVE_HISTORY_TICKS == 3
-    # Default-OFF safety: every flag the operator never touches must be False.
+    # Master switch stays default-OFF: the whole feature is opt-in at the
+    # coordinator. Per-room flags default-ON so they're not inert once the
+    # master is enabled (find-and-disable, not find-and-enable).
     assert c.DEFAULT_FAN_RECHECK_ENABLED is False
-    assert c.DEFAULT_ROOM_FAN_RECHECK_ENABLED is False
+    assert c.DEFAULT_ROOM_FAN_RECHECK_ENABLED is True
 
 
 # ---------------------------------------------------------------------------
@@ -227,15 +238,16 @@ def test_switch_platform_wires_master_and_room_switches():
 
 
 # ---------------------------------------------------------------------------
-# T4 — number.py source protection: 7 timing Number entities exist, share
-# a base class, and the base mirrors to CM entry.options on
-# async_set_native_value (URA mirror pattern verified by source-grep).
+# T4 — number.py source protection: the 7 timing Number entities have been
+# DELETED. They now live as options-flow form fields inside a collapsed
+# "Advanced" section on the coordinator_presence step. CONF_/DEFAULT_ names
+# still exist in const.py (options flow + _timing_config() still use them).
 # ---------------------------------------------------------------------------
 
 
-def test_number_platform_wires_seven_timing_numbers():
+def test_number_platform_no_longer_registers_seven_timing_numbers():
     src = (ROOT_DIR / ROOT_REL / "number.py").read_text()
-    # 7 entity classes.
+    # 7 entity classes must NOT exist anywhere in number.py.
     for cls in (
         "FanRecheckArmDelayNumber",
         "FanRecheckSpindownNumber",
@@ -245,26 +257,70 @@ def test_number_platform_wires_seven_timing_numbers():
         "FanRecheckHvacSuppressNumber",
         "FanRecheckMmwaveHistoryTicksNumber",
     ):
-        assert f"class {cls}" in src, f"missing class {cls}"
-        assert f"{cls}(hass, entry)" in src, (
-            f"{cls} not added in async_setup_entry"
+        assert f"class {cls}" not in src, f"deleted class {cls} still present"
+        assert f"{cls}(hass, entry)" not in src, (
+            f"{cls} still registered in async_setup_entry"
         )
-    # Shared base.
-    assert "class _FanRecheckNumberBase" in src
-    # Mirror lands on the CoordinatorManager entry (not the integration entry).
-    assert "ENTRY_TYPE_COORDINATOR_MANAGER" in src
-    # RestoreEntity-backed runtime store (last_state restored, then mirrored).
-    assert "async_get_last_state" in src
-    # Bounds: each Number declares native min/max consistent with planning
-    # doc D8 ranges. Source-grep against the attr style used in number.py.
-    assert "_attr_native_min_value = 30" in src   # arm_delay or window
-    assert "_attr_native_max_value = 300" in src  # arm_delay
-    assert "_attr_native_max_value = 90" in src   # spindown
-    assert "_attr_native_max_value = 180" in src  # window
-    assert "_attr_native_min_value = 600" in src  # cooldown
-    assert "_attr_native_max_value = 7200" in src  # cooldown
-    assert "_attr_native_min_value = 120" in src  # hvac_suppress
-    assert "_attr_native_max_value = 1800" in src  # hvac_suppress
+    # Shared base also gone.
+    assert "class _FanRecheckNumberBase" not in src
+
+
+def test_init_cleans_up_orphan_fan_recheck_number_registry_entries():
+    """The 7 deleted FanRecheck*Number unique_ids must be removed from
+    the entity registry once per integration entry (run-once flag
+    `fan_recheck_number_cleanup_done`). Precedent: safety_alert dedup
+    block at __init__.py:740."""
+    src = (ROOT_DIR / ROOT_REL / "__init__.py").read_text()
+    assert "fan_recheck_number_cleanup_done" in src
+    for uid_suffix in (
+        "fan_recheck_arm_delay_s",
+        "fan_recheck_spindown_s",
+        "fan_recheck_window_s",
+        "fan_recheck_cooldown_s",
+        "fan_recheck_max_per_hour",
+        "fan_recheck_hvac_suppress_s",
+        "fan_recheck_mmwave_history_ticks",
+    ):
+        assert uid_suffix in src, (
+            f"cleanup migration missing unique_id suffix {uid_suffix}"
+        )
+    # Routed through entity_registry.async_remove (the precedent pattern).
+    assert "ent_reg.async_remove(eid)" in src
+
+
+def test_const_still_exposes_seven_timing_conf_keys():
+    """Options-flow + _timing_config still consume the 7 CONF_/DEFAULT_
+    names — they MUST remain in const.py even though the Number entities
+    were deleted."""
+    c = _load_const()
+    for pair in (
+        ("CONF_FAN_RECHECK_ARM_DELAY_S", "DEFAULT_FAN_RECHECK_ARM_DELAY_S"),
+        ("CONF_FAN_RECHECK_SPINDOWN_S", "DEFAULT_FAN_RECHECK_SPINDOWN_S"),
+        ("CONF_FAN_RECHECK_WINDOW_S", "DEFAULT_FAN_RECHECK_WINDOW_S"),
+        ("CONF_FAN_RECHECK_COOLDOWN_S", "DEFAULT_FAN_RECHECK_COOLDOWN_S"),
+        ("CONF_FAN_RECHECK_MAX_PER_HOUR", "DEFAULT_FAN_RECHECK_MAX_PER_HOUR"),
+        ("CONF_FAN_RECHECK_HVAC_SUPPRESS_S", "DEFAULT_FAN_RECHECK_HVAC_SUPPRESS_S"),
+        ("CONF_FAN_RECHECK_MMWAVE_HISTORY_TICKS",
+         "DEFAULT_FAN_RECHECK_MMWAVE_HISTORY_TICKS"),
+    ):
+        for name in pair:
+            assert hasattr(c, name), f"const.{name} missing"
+
+
+def test_config_flow_collapses_timing_knobs_into_advanced_section():
+    """The 7 timing knobs are wrapped in a collapsed section on the
+    coordinator_presence options step."""
+    src = (ROOT_DIR / ROOT_REL / "config_flow.py").read_text()
+    # section helper imported on this step.
+    assert "from homeassistant.data_entry_flow import section" in src
+    # Collapsed section key + collapsed flag wired on the coordinator step.
+    assert '"fan_recheck_advanced"' in src
+    assert '{"collapsed": True}' in src
+    # Master enable still visible at top-level (outside the section).
+    assert "CONF_FAN_RECHECK_ENABLED" in src
+    # Flatten path persists the section keys at top-level entry.options
+    # (verifies submit-handler integrity — Change 2 depends on this).
+    assert 'user_input.pop("fan_recheck_advanced"' in src
 
 
 # ---------------------------------------------------------------------------
@@ -454,7 +510,9 @@ async def test_fan_recheck_shutdown_idempotent_and_cancels_timers():
 def test_mirror_pattern_present_in_switch_and_number():
     sw_src = (ROOT_DIR / ROOT_REL / "switch.py").read_text()
     num_src = (ROOT_DIR / ROOT_REL / "number.py").read_text()
-    # Master switch restores AND mirrors.
+    # Master switch restores AND mirrors. Per-room switches and the master
+    # toggle still own the RestoreEntity/mirror discipline — only the 7
+    # timing Number entities were removed (now options-flow form fields).
     assert "class FanRecheckEnabledSwitch" in sw_src
     master_idx = sw_src.find("class FanRecheckEnabledSwitch")
     next_idx = sw_src.find("\nclass ", master_idx + 1)
@@ -462,11 +520,7 @@ def test_mirror_pattern_present_in_switch_and_number():
     assert "async_get_last_state" in master_body
     assert "_mirror_runtime" in master_body
     assert "_mirror_options" in master_body
-    # 7 Numbers share _FanRecheckNumberBase whose async_added_to_hass
-    # restores and then re-mirrors.
-    assert "class _FanRecheckNumberBase" in num_src
-    base_idx = num_src.find("class _FanRecheckNumberBase")
-    next_idx = num_src.find("\nclass FanRecheck", base_idx + 1)
-    base_body = num_src[base_idx:next_idx]
-    assert "async_get_last_state" in base_body
-    assert "_mirror_options" in base_body
+    # The shared _FanRecheckNumberBase + 7 subclasses were intentionally
+    # removed. Confirm the absence (sister to
+    # test_number_platform_no_longer_registers_seven_timing_numbers).
+    assert "class _FanRecheckNumberBase" not in num_src

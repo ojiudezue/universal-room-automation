@@ -749,6 +749,47 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             except Exception as e:
                 _LOGGER.debug("Safety alert dedup migration: %s", e)
 
+        # Fan-noise Mode-2: clean up orphaned FanRecheck*Number registry
+        # entries from the v4.7.x Number-entity surface that was deleted
+        # this cycle (timing knobs are now config_flow NumberSelector
+        # form fields on the Coordinator Manager entry, not platform
+        # Number entities). Pattern mirrors the safety_alert dedup
+        # precedent above (entity_registry.async_remove by unique_id).
+        if not entry.options.get("fan_recheck_number_cleanup_done"):
+            try:
+                from homeassistant.helpers import entity_registry as er_mod
+                ent_reg = er_mod.async_get(hass)
+                orphan_unique_ids = (
+                    f"{DOMAIN}_fan_recheck_arm_delay_s",
+                    f"{DOMAIN}_fan_recheck_spindown_s",
+                    f"{DOMAIN}_fan_recheck_window_s",
+                    f"{DOMAIN}_fan_recheck_cooldown_s",
+                    f"{DOMAIN}_fan_recheck_max_per_hour",
+                    f"{DOMAIN}_fan_recheck_hvac_suppress_s",
+                    f"{DOMAIN}_fan_recheck_mmwave_history_ticks",
+                )
+                removed = 0
+                for uid in orphan_unique_ids:
+                    eid = ent_reg.async_get_entity_id("number", DOMAIN, uid)
+                    if eid:
+                        ent_reg.async_remove(eid)
+                        removed += 1
+                if removed:
+                    _LOGGER.info(
+                        "Fan-recheck Number cleanup: removed %d orphan registry entries",
+                        removed,
+                    )
+                entry = hass.config_entries.async_get_entry(entry.entry_id) or entry
+                hass.config_entries.async_update_entry(
+                    entry,
+                    options={
+                        **entry.options,
+                        "fan_recheck_number_cleanup_done": True,
+                    },
+                )
+            except Exception as e:
+                _LOGGER.debug("Fan-recheck Number cleanup migration: %s", e)
+
         # Initialize database (shared across all rooms — use existing if already created).
         # v4.0.17: Lock prevents race with concurrent room entry setup.
         if hass.data[DOMAIN].get("database") is None:

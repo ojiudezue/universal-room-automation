@@ -127,6 +127,15 @@ def _load_fan_recheck_module():
     sys.modules[f"{pkg_name}.domain_coordinators._ble_corroboration"] = ble_mod
     ble_spec.loader.exec_module(ble_mod)
 
+    # Load REAL house_state.py for the HouseState enum (sleep gate).
+    hs_src = ROOT_DIR / ROOT_REL / "domain_coordinators" / "house_state.py"
+    hs_spec = importlib.util.spec_from_file_location(
+        f"{pkg_name}.domain_coordinators.house_state", str(hs_src),
+    )
+    hs_mod = importlib.util.module_from_spec(hs_spec)
+    sys.modules[f"{pkg_name}.domain_coordinators.house_state"] = hs_mod
+    hs_spec.loader.exec_module(hs_mod)
+
     # Load REAL presence_fan_recheck.py.
     src_path = ROOT_DIR / ROOT_REL / "domain_coordinators" / "presence_fan_recheck.py"
     spec = importlib.util.spec_from_file_location(
@@ -326,6 +335,7 @@ class _FakePresence:
         self._boot_settle_done = True
         self.zone_trackers = {}
         self.adjacency = {}
+        self.house_state = "home_day"
 
     def get_adjacent_rooms(self, room_name):
         return list(self.adjacency.get(room_name, []))
@@ -360,7 +370,8 @@ def _build_world(*, recent_sources=None, with_fan_on=True, person_in_room=False,
                  ble_tier=1, l2_adjacent_present=False,
                  master_enabled=True, room_opt_in=True,
                  room_type="generic", l2_allowed=False, trust_sensors_ok=False,
-                 fan_control_enabled=True):
+                 fan_control_enabled=True, house_state="home_day",
+                 cm_timing_options=None):
     mod = _load_fan_recheck_module()
     hass = _FakeHass()
     fc = _FakeFanController()
@@ -382,18 +393,32 @@ def _build_world(*, recent_sources=None, with_fan_on=True, person_in_room=False,
     hass.data["universal_room_automation"]["person_coordinator"] = pc
 
     presence = _FakePresence()
+    presence.house_state = house_state
     presence.adjacency["exercise"] = ["jaya_bedroom"]
     presence.zone_trackers["upstairs"] = _FakeZoneTracker(
         ["exercise", "jaya_bedroom"],
     )
     hass.data["universal_room_automation"]["fan_recheck_master_enabled"] = master_enabled
 
+    # Per-room keys live on the room entry (correctly per-room).
     room_extras = {
         "room_fan_recheck_enabled": room_opt_in,
         "fan_recheck_l2_allowed": l2_allowed,
         "fan_recheck_trust_sensors_ok": trust_sensors_ok,
         "room_type": room_type,
         "fan_control_enabled": fan_control_enabled,
+    }
+    rc = _FakeRoomCoord(
+        "exercise", "entry_exercise", ["fan.exercise"],
+        recent_sources=recent_sources or ["mmwave", "mmwave", "mmwave"],
+        **room_extras,
+    )
+
+    # The 7 timing knobs live on the CM entry. Default to const defaults
+    # so eligibility/state-machine tests behave exactly as they did before
+    # the flag-#3 fix; tests that want to prove timing-tunability pass
+    # `cm_timing_options=...` to override.
+    cm_options = {
         "fan_recheck_arm_delay_s": 60,
         "fan_recheck_spindown_s": 30,
         "fan_recheck_window_s": 60,
@@ -402,11 +427,14 @@ def _build_world(*, recent_sources=None, with_fan_on=True, person_in_room=False,
         "fan_recheck_hvac_suppress_s": 600,
         "fan_recheck_mmwave_history_ticks": 3,
     }
-    rc = _FakeRoomCoord(
-        "exercise", "entry_exercise", ["fan.exercise"],
-        recent_sources=recent_sources or ["mmwave", "mmwave", "mmwave"],
-        **room_extras,
-    )
+    if cm_timing_options:
+        cm_options.update(cm_timing_options)
+    cm_entry = _FakeConfigEntry("entry_cm", "", [], extras=None)
+    cm_entry.data = {"entry_type": "coordinator_manager"}
+    cm_entry.options = dict(cm_options)
+    # Register the CM entry on hass.config_entries so _timing_config()
+    # can resolve it via the entry-type sweep (mirrors switch.py:2400-2407).
+    hass.config_entries = _FakeConfigEntries([cm_entry, rc.entry])
 
     if with_fan_on:
         hass.states.set("fan.exercise", "on")
@@ -417,6 +445,10 @@ def _build_world(*, recent_sources=None, with_fan_on=True, person_in_room=False,
     hass.data["universal_room_automation"]["database"] = db
 
     mgr = mod.FanRecheckManager(hass, presence)
+    # Stash cm_entry on hass so tests that re-create config_entries can
+    # preserve it without threading an extra return value (see usages
+    # at the D6 rehydrate tests).
+    hass._fan_recheck_cm_entry = cm_entry
     return mod, hass, mgr, rc, fc, pc, db
 
 
@@ -453,6 +485,42 @@ async def test_master_kill_blocks_trigger():
     mgr.on_room_tick(rc)
     await _drain_tasks(hass)
     assert mgr.get_room_state("exercise") == mod.STATE_IDLE
+
+
+@pytest.mark.asyncio
+async def test_sleep_house_state_blocks_trigger():
+    # Never pause a fan while the house is asleep — would fight the v4.7.13
+    # keep-fans-on-through-sleep logic.
+    mod, hass, mgr, rc, fc, pc, db = _build_world(house_state="sleep")
+    await mgr.async_setup()
+    mgr.on_room_tick(rc)
+    await _drain_tasks(hass)
+    assert mgr.get_room_state("exercise") == mod.STATE_IDLE
+
+
+@pytest.mark.asyncio
+async def test_waking_house_state_does_not_block_trigger():
+    # WAKING is NOT covered by the v4.7.13 hvac_fans keep-on contract
+    # (SLEEP-only). The sleep gate was narrowed during review fix-up to
+    # SLEEP-only; WAKING-state rooms remain eligible for recheck.
+    mod, hass, mgr, rc, fc, pc, db = _build_world(house_state="waking")
+    await mgr.async_setup()
+    mgr.on_room_tick(rc)
+    await _drain_tasks(hass)
+    assert mgr.get_room_state("exercise") == mod.STATE_ARMED
+
+
+@pytest.mark.asyncio
+async def test_sleep_begins_during_arm_delay_aborts_before_pause():
+    # Eligible at tick → ARMED. House enters sleep before arm expiry → the
+    # post-arm re-check must abort (cooldown), never reaching PAUSED.
+    mod, hass, mgr, rc, fc, pc, db = _build_world()
+    await mgr.async_setup()
+    mgr.on_room_tick(rc)
+    await _drain_tasks(hass)
+    assert mgr.get_room_state("exercise") == mod.STATE_ARMED
+    mgr._presence.house_state = "sleep"
+    assert mgr._still_armed_eligible(mgr._rooms["exercise"], rc) is False
 
 
 @pytest.mark.asyncio
@@ -585,6 +653,41 @@ async def test_tier1_bedroom_l2_allowed_still_rejects_l2():
     assert mgr.get_room_state("exercise") == mod.STATE_IDLE
 
 
+@pytest.mark.asyncio
+async def test_tier2_bedroom_blocked_even_with_trust_sensors_ok():
+    """D1.5 high-still-risk guard also applies on the Tier-0/2 path.
+
+    Regression: with CONF_FAN_RECHECK_TRUST_SENSORS_OK now defaulting
+    True, a still napper in a bedroom would otherwise be eligible to
+    vacate without BLE-tier protection on the Tier-0/2 fall-through.
+    """
+    mod, hass, mgr, rc, fc, pc, db = _build_world(
+        ble_tier=2,
+        l2_adjacent_present=False,
+        trust_sensors_ok=True,
+        room_type="bedroom",
+    )
+    await mgr.async_setup()
+    mgr.on_room_tick(rc)
+    await _drain_tasks(hass)
+    assert mgr.get_room_state("exercise") == mod.STATE_IDLE
+
+
+@pytest.mark.asyncio
+async def test_tier2_media_room_blocked_even_with_trust_sensors_ok():
+    """Same C1 guard, media_room — paired room_type from HIGH_STILL_RISK_ROOM_TYPES."""
+    mod, hass, mgr, rc, fc, pc, db = _build_world(
+        ble_tier=2,
+        l2_adjacent_present=False,
+        trust_sensors_ok=True,
+        room_type="media_room",
+    )
+    await mgr.async_setup()
+    mgr.on_room_tick(rc)
+    await _drain_tasks(hass)
+    assert mgr.get_room_state("exercise") == mod.STATE_IDLE
+
+
 # =============================================================================
 # D3 state machine + cancellation
 # =============================================================================
@@ -630,7 +733,7 @@ async def test_restore_calls_fan_controller_and_releases_room_when_vacated():
     mod, hass, mgr, rc, fc, pc, db = _build_world()
     # Wire the room coord into hass.data + config_entries so _room_coord_for
     # can find it during the verdict step.
-    hass.config_entries = _FakeConfigEntries([rc.entry])
+    hass.config_entries = _FakeConfigEntries([hass._fan_recheck_cm_entry, rc.entry])
     hass.data["universal_room_automation"][rc.entry.entry_id] = rc
     await mgr.async_setup()
     mgr.on_room_tick(rc)
@@ -650,7 +753,7 @@ async def test_restore_calls_fan_controller_and_releases_room_when_vacated():
 @pytest.mark.asyncio
 async def test_restore_does_not_release_when_mmwave_persists():
     mod, hass, mgr, rc, fc, pc, db = _build_world()
-    hass.config_entries = _FakeConfigEntries([rc.entry])
+    hass.config_entries = _FakeConfigEntries([hass._fan_recheck_cm_entry, rc.entry])
     hass.data["universal_room_automation"][rc.entry.entry_id] = rc
     await mgr.async_setup()
     mgr.on_room_tick(rc)
@@ -716,7 +819,7 @@ async def test_rehydrate_armed_drops_to_idle_bug_class_14():
         "ble_ladder_layer": "L3",
         "last_update_ts": mod.dt_util.now().isoformat(),
     }
-    hass.config_entries = _FakeConfigEntries([rc.entry])
+    hass.config_entries = _FakeConfigEntries([hass._fan_recheck_cm_entry, rc.entry])
     await mgr.async_setup()
     assert mgr.get_room_state("exercise") == mod.STATE_IDLE
 
@@ -736,7 +839,7 @@ async def test_rehydrate_paused_too_old_idle():
         "ble_ladder_layer": "L3",
         "last_update_ts": old.isoformat(),
     }
-    hass.config_entries = _FakeConfigEntries([rc.entry])
+    hass.config_entries = _FakeConfigEntries([hass._fan_recheck_cm_entry, rc.entry])
     await mgr.async_setup()
     assert mgr.get_room_state("exercise") == mod.STATE_IDLE
 
@@ -756,7 +859,7 @@ async def test_rehydrate_cooldown_honors_remaining():
         "ble_ladder_layer": "L3",
         "last_update_ts": entered.isoformat(),
     }
-    hass.config_entries = _FakeConfigEntries([rc.entry])
+    hass.config_entries = _FakeConfigEntries([hass._fan_recheck_cm_entry, rc.entry])
     await mgr.async_setup()
     # Still in cooldown (default 1800s, only 300 elapsed).
     assert mgr.get_room_state("exercise") == mod.STATE_COOLDOWN
@@ -776,7 +879,7 @@ async def test_rehydrate_corrupt_row_drops_to_idle():
         "ble_ladder_layer": None,
         "last_update_ts": mod.dt_util.now().isoformat(),
     }
-    hass.config_entries = _FakeConfigEntries([rc.entry])
+    hass.config_entries = _FakeConfigEntries([hass._fan_recheck_cm_entry, rc.entry])
     await mgr.async_setup()
     # Implementation falls through unknown state -> idle.
     assert mgr.get_room_state("exercise") == mod.STATE_IDLE
@@ -936,6 +1039,95 @@ def test_database_module_has_fan_recheck_daos():
         "async def prune_stale_fan_recheck_state",
     ):
         assert dao in src, f"missing DAO {dao}"
+
+
+# =============================================================================
+# Flag #3 regression — operator-tuned timing on the CM entry must reach the
+# state machine. Pre-fix, FanRecheckManager._merged_config read only the per-
+# room entry, so a non-default arm_delay / cooldown set on the CM-tier
+# coordinator_presence options step was silently dropped, falling back to
+# DEFAULT_* every time.
+# =============================================================================
+
+
+@pytest.mark.asyncio
+async def test_cm_entry_arm_delay_overrides_default_in_state_machine():
+    """Operator-tuned arm_delay on the CM entry must reach _enter_armed."""
+    mod, hass, mgr, rc, fc, pc, db = _build_world(
+        cm_timing_options={"fan_recheck_arm_delay_s": 222},
+    )
+    captured_delays = []
+
+    # presence_fan_recheck binds async_call_later by name at module-load
+    # (line 29). Patch the bound name in the loaded module to capture
+    # the scheduled delay.
+    real_acl = mod.async_call_later
+
+    def _capture(hass_, seconds, cb):
+        captured_delays.append(int(seconds))
+        return lambda: None
+
+    mod.async_call_later = _capture
+    try:
+        await mgr.async_setup()
+        mgr.on_room_tick(rc)
+        await _drain_tasks(hass)
+    finally:
+        mod.async_call_later = real_acl
+
+    assert mgr.get_room_state("exercise") == mod.STATE_ARMED
+    # The first scheduled timer in _enter_armed is the arm-delay timer.
+    # 222 is the operator value, NOT the const DEFAULT (60).
+    assert 222 in captured_delays, (
+        f"expected operator arm_delay=222 in scheduled delays, got {captured_delays}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_cm_entry_cooldown_overrides_default_in_state_machine():
+    """Operator-tuned cooldown on the CM entry must reach _enter_cooldown."""
+    mod, hass, mgr, rc, fc, pc, db = _build_world(
+        cm_timing_options={"fan_recheck_cooldown_s": 1111},
+    )
+    captured_delays = []
+    real_acl = mod.async_call_later
+
+    def _capture(hass_, seconds, cb):
+        captured_delays.append(int(seconds))
+        return lambda: None
+
+    mod.async_call_later = _capture
+    try:
+        await mgr.async_setup()
+        ctx = mod._RoomCtx(room_name="exercise", entry_id="entry_exercise")
+        mgr._rooms["exercise"] = ctx
+        await mgr._enter_cooldown(ctx)
+    finally:
+        mod.async_call_later = real_acl
+
+    # 1111 is the operator value, NOT the const DEFAULT (1800).
+    assert 1111 in captured_delays, (
+        f"expected operator cooldown=1111 in scheduled delays, got {captured_delays}"
+    )
+
+
+def test_timing_config_falls_back_to_defaults_when_cm_entry_missing():
+    """If the CM entry is somehow unavailable, _timing_config returns the
+    const DEFAULT_* values for all 7 keys (no KeyError, no AttributeError)."""
+    mod = _load_fan_recheck_module()
+    const = _const()
+    hass = _FakeHass()
+    hass.config_entries = _FakeConfigEntries([])  # no CM entry at all
+    presence = _FakePresence()
+    mgr = mod.FanRecheckManager(hass, presence)
+    timing = mgr._timing_config()
+    assert timing[const.CONF_FAN_RECHECK_ARM_DELAY_S] == const.DEFAULT_FAN_RECHECK_ARM_DELAY_S
+    assert timing[const.CONF_FAN_RECHECK_SPINDOWN_S] == const.DEFAULT_FAN_RECHECK_SPINDOWN_S
+    assert timing[const.CONF_FAN_RECHECK_WINDOW_S] == const.DEFAULT_FAN_RECHECK_WINDOW_S
+    assert timing[const.CONF_FAN_RECHECK_COOLDOWN_S] == const.DEFAULT_FAN_RECHECK_COOLDOWN_S
+    assert timing[const.CONF_FAN_RECHECK_MAX_PER_HOUR] == const.DEFAULT_FAN_RECHECK_MAX_PER_HOUR
+    assert timing[const.CONF_FAN_RECHECK_HVAC_SUPPRESS_S] == const.DEFAULT_FAN_RECHECK_HVAC_SUPPRESS_S
+    assert timing[const.CONF_FAN_RECHECK_MMWAVE_HISTORY_TICKS] == const.DEFAULT_FAN_RECHECK_MMWAVE_HISTORY_TICKS
 
 
 # helper

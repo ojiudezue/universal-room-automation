@@ -377,22 +377,26 @@ CONF_ADJACENT_ROOMS: Final = "adjacent_rooms"
 CONF_FAN_RECHECK_ENABLED: Final = "fan_recheck_enabled"
 DEFAULT_FAN_RECHECK_ENABLED: Final = False
 
-# Per-room opt-in. Operator pins to Exercise + Jaya + Ziri first; default False.
+# Per-room opt-in. Default True — operator wants the recheck broadly active
+# (Exercise + Jaya + Ziri are the motivating rooms); find-and-disable per room
+# rather than find-and-enable. Master switch + sleep gate still bound behaviour.
 CONF_ROOM_FAN_RECHECK_ENABLED: Final = "room_fan_recheck_enabled"
-DEFAULT_ROOM_FAN_RECHECK_ENABLED: Final = False
+DEFAULT_ROOM_FAN_RECHECK_ENABLED: Final = True
 
-# Per-room Tier-1-only weak-authorize via L2 adjacent-empty path. Default False
-# because adjacency drift may be real next-door presence. Ignored in Tier-2
-# (where L2 is an unconditional safety veto, never flag-gated).
+# Per-room Tier-1-only weak-authorize via L2 adjacent-empty path. Default True
+# (advanced/collapsed) — a user is unlikely to discover and flip this, so a
+# False default would leave it inert; find-and-disable instead. Ignored in
+# Tier-2 (where L2 is an unconditional safety veto, never flag-gated).
 CONF_FAN_RECHECK_L2_ALLOWED: Final = "fan_recheck_l2_allowed"
-DEFAULT_FAN_RECHECK_L2_ALLOWED: Final = False
+DEFAULT_FAN_RECHECK_L2_ALLOWED: Final = True
 
 # Per-room still-capability attestation for Tier-0/2 rooms. With no scanner,
 # BLE absence cannot authorize a drop — the drop rests on the physical recheck.
-# Safe ONLY if the room's mmwave can see stillness. Default False = opt-out.
-# Ignored for Tier-1 rooms (BLE backstops the recheck).
+# Safe ONLY if the room's mmwave can see stillness. Default True (advanced/
+# collapsed) — find-and-disable per room. Ignored for Tier-1 rooms (BLE
+# backstops the recheck).
 CONF_FAN_RECHECK_TRUST_SENSORS_OK: Final = "fan_recheck_trust_sensors_ok"
-DEFAULT_FAN_RECHECK_TRUST_SENSORS_OK: Final = False
+DEFAULT_FAN_RECHECK_TRUST_SENSORS_OK: Final = True
 
 # Settle time before pausing — gives L1/L2 a chance to fire and cancel.
 CONF_FAN_RECHECK_ARM_DELAY_S: Final = "fan_recheck_arm_delay_s"

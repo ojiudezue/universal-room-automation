@@ -1124,10 +1124,14 @@ class UniversalRoomAutomationConfigFlow(config_entries.ConfigFlow, domain=DOMAIN
                     mode=selector.SelectSelectorMode.DROPDOWN,
                 )
             ),
-            # Fan-noise Mode-2 per-room opt-ins (default OFF). The master
-            # kill switch lives on the Presence Coordinator; this trio is
-            # per-room. Mode-2 (room-tier fan-pause + clean recheck) only
-            # fires when BOTH master AND this per-room flag are True.
+            # Fan-noise Mode-2 per-room flags. The master kill switch
+            # (CONF_FAN_RECHECK_ENABLED, default OFF) lives on the Presence
+            # Coordinator; this trio is per-room. Mode-2 (room-tier fan-
+            # pause + clean recheck) only fires when BOTH master AND
+            # CONF_ROOM_FAN_RECHECK_ENABLED are True. Per-room defaults
+            # are ON (DEFAULT_ROOM_FAN_RECHECK_ENABLED, DEFAULT_FAN_RECHECK_L2_ALLOWED,
+            # DEFAULT_FAN_RECHECK_TRUST_SENSORS_OK all True) — opt-in still
+            # gated by the master kill switch staying OFF until validated.
             vol.Optional(
                 CONF_ROOM_FAN_RECHECK_ENABLED,
                 default=DEFAULT_ROOM_FAN_RECHECK_ENABLED,
@@ -2866,6 +2870,14 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             DOMAIN,
         )
 
+        # 7 fan-recheck timing knobs are wrapped in a collapsed "Advanced"
+        # section below — hidden by default. HA's `section()` helper nests
+        # the contained keys under a section key in `user_input`. Flatten
+        # them back to top-level so the persisted entry.options keeps the
+        # SAME shape as before (FanRecheckManager._timing_config reads
+        # top-level CONF_FAN_RECHECK_*_S keys from CM entry.options).
+        from homeassistant.data_entry_flow import section
+
         if user_input is not None:
             # Mirror the master flag into hass.data so FanRecheckManager
             # picks it up immediately without waiting for a reload.
@@ -2876,6 +2888,14 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     ] = bool(user_input[CONF_FAN_RECHECK_ENABLED])
             except Exception:  # noqa: BLE001 — best-effort mirror
                 pass
+            # Flatten the collapsed-section nest. The section key matches
+            # the vol.Optional key used to wrap the 7 timing fields below
+            # ("fan_recheck_advanced"). If the section is missing (operator
+            # never expanded it on submit), the existing CM options values
+            # are preserved as-is by the {…, **user_input} merge.
+            advanced = user_input.pop("fan_recheck_advanced", None)
+            if isinstance(advanced, dict):
+                user_input = {**user_input, **advanced}
             return self.async_create_entry(
                 title="",
                 data={**self._config_entry.options, **user_input},
@@ -2955,105 +2975,112 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             ),
             # Fan-noise Mode-2 (room-tier fan-pause + clean recheck).
             # Master kill switch — default OFF; operator flips ON after
-            # live validation. The 7 timing fields below are the
-            # operator-tunable form-field defaults that seed the
-            # corresponding Number entities on the Presence Coordinator
-            # device (URA mirror pattern — entry.options = seed,
-            # RestoreEntity = runtime store).
+            # live validation. The 7 timing fields are nested inside a
+            # COLLAPSED "Advanced (rarely change)" section below to keep
+            # the coordinator step parsimonious — operator must expand
+            # the section to see / edit them. On submit, the section
+            # contents are flattened back to top-level entry.options
+            # so FanRecheckManager._timing_config reads the SAME keys
+            # it would have read pre-collapse.
             vol.Optional(
                 CONF_FAN_RECHECK_ENABLED,
                 default=self._get_current(
                     CONF_FAN_RECHECK_ENABLED, DEFAULT_FAN_RECHECK_ENABLED,
                 ),
             ): selector.BooleanSelector(),
-            vol.Optional(
-                CONF_FAN_RECHECK_ARM_DELAY_S,
-                default=self._get_current(
-                    CONF_FAN_RECHECK_ARM_DELAY_S,
-                    DEFAULT_FAN_RECHECK_ARM_DELAY_S,
-                ),
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=30, max=300, step=15,
-                    unit_of_measurement="s",
-                    mode=selector.NumberSelectorMode.BOX,
-                )
-            ),
-            vol.Optional(
-                CONF_FAN_RECHECK_SPINDOWN_S,
-                default=self._get_current(
-                    CONF_FAN_RECHECK_SPINDOWN_S,
-                    DEFAULT_FAN_RECHECK_SPINDOWN_S,
-                ),
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=15, max=90, step=5,
-                    unit_of_measurement="s",
-                    mode=selector.NumberSelectorMode.BOX,
-                )
-            ),
-            vol.Optional(
-                CONF_FAN_RECHECK_WINDOW_S,
-                default=self._get_current(
-                    CONF_FAN_RECHECK_WINDOW_S,
-                    DEFAULT_FAN_RECHECK_WINDOW_S,
-                ),
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=30, max=180, step=15,
-                    unit_of_measurement="s",
-                    mode=selector.NumberSelectorMode.BOX,
-                )
-            ),
-            vol.Optional(
-                CONF_FAN_RECHECK_COOLDOWN_S,
-                default=self._get_current(
-                    CONF_FAN_RECHECK_COOLDOWN_S,
-                    DEFAULT_FAN_RECHECK_COOLDOWN_S,
-                ),
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=600, max=7200, step=60,
-                    unit_of_measurement="s",
-                    mode=selector.NumberSelectorMode.BOX,
-                )
-            ),
-            vol.Optional(
-                CONF_FAN_RECHECK_MAX_PER_HOUR,
-                default=self._get_current(
-                    CONF_FAN_RECHECK_MAX_PER_HOUR,
-                    DEFAULT_FAN_RECHECK_MAX_PER_HOUR,
-                ),
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=0, max=4, step=1,
-                    mode=selector.NumberSelectorMode.BOX,
-                )
-            ),
-            vol.Optional(
-                CONF_FAN_RECHECK_HVAC_SUPPRESS_S,
-                default=self._get_current(
-                    CONF_FAN_RECHECK_HVAC_SUPPRESS_S,
-                    DEFAULT_FAN_RECHECK_HVAC_SUPPRESS_S,
-                ),
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=120, max=1800, step=30,
-                    unit_of_measurement="s",
-                    mode=selector.NumberSelectorMode.BOX,
-                )
-            ),
-            vol.Optional(
-                CONF_FAN_RECHECK_MMWAVE_HISTORY_TICKS,
-                default=self._get_current(
-                    CONF_FAN_RECHECK_MMWAVE_HISTORY_TICKS,
-                    DEFAULT_FAN_RECHECK_MMWAVE_HISTORY_TICKS,
-                ),
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=1, max=10, step=1,
-                    mode=selector.NumberSelectorMode.BOX,
-                )
+            vol.Optional("fan_recheck_advanced"): section(
+                vol.Schema({
+                    vol.Optional(
+                        CONF_FAN_RECHECK_ARM_DELAY_S,
+                        default=self._get_current(
+                            CONF_FAN_RECHECK_ARM_DELAY_S,
+                            DEFAULT_FAN_RECHECK_ARM_DELAY_S,
+                        ),
+                    ): selector.NumberSelector(
+                        selector.NumberSelectorConfig(
+                            min=30, max=300, step=15,
+                            unit_of_measurement="s",
+                            mode=selector.NumberSelectorMode.BOX,
+                        )
+                    ),
+                    vol.Optional(
+                        CONF_FAN_RECHECK_SPINDOWN_S,
+                        default=self._get_current(
+                            CONF_FAN_RECHECK_SPINDOWN_S,
+                            DEFAULT_FAN_RECHECK_SPINDOWN_S,
+                        ),
+                    ): selector.NumberSelector(
+                        selector.NumberSelectorConfig(
+                            min=15, max=90, step=5,
+                            unit_of_measurement="s",
+                            mode=selector.NumberSelectorMode.BOX,
+                        )
+                    ),
+                    vol.Optional(
+                        CONF_FAN_RECHECK_WINDOW_S,
+                        default=self._get_current(
+                            CONF_FAN_RECHECK_WINDOW_S,
+                            DEFAULT_FAN_RECHECK_WINDOW_S,
+                        ),
+                    ): selector.NumberSelector(
+                        selector.NumberSelectorConfig(
+                            min=30, max=180, step=15,
+                            unit_of_measurement="s",
+                            mode=selector.NumberSelectorMode.BOX,
+                        )
+                    ),
+                    vol.Optional(
+                        CONF_FAN_RECHECK_COOLDOWN_S,
+                        default=self._get_current(
+                            CONF_FAN_RECHECK_COOLDOWN_S,
+                            DEFAULT_FAN_RECHECK_COOLDOWN_S,
+                        ),
+                    ): selector.NumberSelector(
+                        selector.NumberSelectorConfig(
+                            min=600, max=7200, step=60,
+                            unit_of_measurement="s",
+                            mode=selector.NumberSelectorMode.BOX,
+                        )
+                    ),
+                    vol.Optional(
+                        CONF_FAN_RECHECK_MAX_PER_HOUR,
+                        default=self._get_current(
+                            CONF_FAN_RECHECK_MAX_PER_HOUR,
+                            DEFAULT_FAN_RECHECK_MAX_PER_HOUR,
+                        ),
+                    ): selector.NumberSelector(
+                        selector.NumberSelectorConfig(
+                            min=0, max=4, step=1,
+                            mode=selector.NumberSelectorMode.BOX,
+                        )
+                    ),
+                    vol.Optional(
+                        CONF_FAN_RECHECK_HVAC_SUPPRESS_S,
+                        default=self._get_current(
+                            CONF_FAN_RECHECK_HVAC_SUPPRESS_S,
+                            DEFAULT_FAN_RECHECK_HVAC_SUPPRESS_S,
+                        ),
+                    ): selector.NumberSelector(
+                        selector.NumberSelectorConfig(
+                            min=120, max=1800, step=30,
+                            unit_of_measurement="s",
+                            mode=selector.NumberSelectorMode.BOX,
+                        )
+                    ),
+                    vol.Optional(
+                        CONF_FAN_RECHECK_MMWAVE_HISTORY_TICKS,
+                        default=self._get_current(
+                            CONF_FAN_RECHECK_MMWAVE_HISTORY_TICKS,
+                            DEFAULT_FAN_RECHECK_MMWAVE_HISTORY_TICKS,
+                        ),
+                    ): selector.NumberSelector(
+                        selector.NumberSelectorConfig(
+                            min=1, max=10, step=1,
+                            mode=selector.NumberSelectorMode.BOX,
+                        )
+                    ),
+                }),
+                {"collapsed": True},
             ),
         })
 
@@ -6789,10 +6816,11 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     mode=selector.SelectSelectorMode.DROPDOWN,
                 )
             ),
-            # Fan-noise Mode-2 per-room opt-ins. Round-trip through
+            # Fan-noise Mode-2 per-room flags. Round-trip through
             # reconfigure so operators can flip per-room after install.
-            # Default OFF for all three; master kill switch lives on the
-            # Presence Coordinator options step.
+            # Per-room defaults are ON for all three (room-fan-recheck,
+            # L2-allowed, trust-sensors-ok); the master kill switch
+            # (default OFF) lives on the Presence Coordinator options step.
             vol.Optional(
                 CONF_ROOM_FAN_RECHECK_ENABLED,
                 default=self._get_current(
