@@ -454,6 +454,14 @@ DEFAULT_ARBITRAGE_GRID_IMPORT_GUARD_KW: Final = 12.0
 CONF_ENERGY_ARBITRAGE_GRID_IMPORT_GUARD_KW: Final = (
     "energy_arbitrage_grid_import_guard_kw"
 )
+# Consecutive guard trips required before the chunk is locked. The
+# battery_power CT lags net_power by one Envoy poll at CHARGE entry, so a
+# single tick can read full inrush on net while battery still reads ~0 →
+# a one-shot lock would lose the whole off-peak chunk to sensor lag. Two
+# consecutive trips means a genuine house+EV overdraw still locks (one
+# extra ~30s tick of import is well within the physical breaker margin),
+# while a lone CT-lag tick is absorbed.
+ARBITRAGE_GUARD_CONSECUTIVE_TRIPS_TO_LOCK: Final = 2
 # v4.5.0 D3: multi-day Solcast lookback (D+2 awareness). Default OFF
 # during calibration cycle per Open Question #3.
 DEFAULT_SOLCAST_DAY_3_ENTITY: Final = (
