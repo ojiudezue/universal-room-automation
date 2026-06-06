@@ -1,5 +1,13 @@
 # URA Backlog — As of v4.6.10 (May 2026)
 
+## ★ PINNED NEXT — Config Subentries Migration (D2) — after planned core work (2026-06-05)
+
+Operator (2026-06-05): subentries is **queued behind some core work he has planned**,
+but keep it **near the top of next-work**. Plan filed + gate cleared:
+`docs/planning/PLANNING_config_subentries_migration.md` (Status: GATE CLEARED, READY TO
+ENTER BUILD; Tier 2-DB; ~30-50h: D2 subentries + D3a/b/c cleanup). Do NOT start without
+explicit operator sign-off — core work goes first.
+
 ## Fan-noise mmwave mitigation — DESIGN ONLY (feature cycle, Tier 2), 2026-06-03
 
 **Problem.** Summer ceiling fans add mmwave noise → false "occupied." Operator's

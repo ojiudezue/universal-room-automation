@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.7.21
+# Universal Room Automation vv4.7.22
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -505,6 +505,14 @@ async def async_setup_entry(
         TimeOccupiedTodaySensor(coordinator),
         TimeUncomfortableTodaySensor(coordinator),
         AvgTimeToComfortSensor(coordinator),
+    ])
+
+    # Fan-noise Mode-2: per-room diagnostic sensors. Disabled by default
+    # in entity registry — operator enables the rooms they care about.
+    # Read FanRecheckManager.get_room_attrs each access.
+    entities.extend([
+        RoomFanRecheckStateSensor(coordinator),
+        RoomFanRecheckLastOutcomeSensor(coordinator),
     ])
 
     async_add_entities(entities)
@@ -13434,3 +13442,99 @@ class HVACEgressPausedZonesSensor(SensorEntity):
         self.async_on_remove(
             async_dispatcher_connect(self.hass, SIGNAL_HVAC_ENTITIES_UPDATE, _on_update)
         )
+
+
+# =============================================================================
+# Fan-noise Mode-2 — per-room diagnostic sensors
+# -----------------------------------------------------------------------------
+# Both disabled by default in entity registry. Native value reads
+# FanRecheckManager.get_room_attrs(room_name) each access; no listener
+# wiring (UI poll cadence is sufficient and avoids per-room dispatch
+# subscriptions for an opt-in operability surface).
+# =============================================================================
+
+
+def _fan_recheck_attrs_for(hass: HomeAssistant, room_name: str) -> dict:
+    """Read FanRecheckManager attrs for a room. Defensive — never raises."""
+    try:
+        manager = hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        presence = (
+            manager.coordinators.get("presence") if manager else None
+        )
+        fr_mgr = (
+            getattr(presence, "_fan_recheck_manager", None)
+            if presence is not None else None
+        )
+        if fr_mgr is None or not room_name:
+            return {}
+        return fr_mgr.get_room_attrs(room_name) or {}
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+class RoomFanRecheckStateSensor(UniversalRoomEntity, SensorEntity):
+    """Current fan-recheck state for this room (idle/armed/paused/...)."""
+
+    _attr_icon = "mdi:fan-clock"
+    _attr_entity_registry_enabled_default = False
+
+    def __init__(self, coordinator: UniversalRoomCoordinator) -> None:
+        super().__init__(
+            coordinator, "fan_recheck_state", "Fan Recheck State",
+        )
+
+    @property
+    def native_value(self) -> str:
+        attrs = _fan_recheck_attrs_for(
+            self.hass,
+            self.coordinator.entry.data.get("room_name", ""),
+        )
+        return str(attrs.get("fan_recheck_state", "idle"))
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        attrs = _fan_recheck_attrs_for(
+            self.hass,
+            self.coordinator.entry.data.get("room_name", ""),
+        )
+        return {
+            "fan_recheck_ble_ladder_layer": attrs.get(
+                "fan_recheck_ble_ladder_layer", "none",
+            ),
+            "fan_recheck_last_attempt_iso": attrs.get(
+                "fan_recheck_last_attempt_iso",
+            ),
+        }
+
+
+class RoomFanRecheckLastOutcomeSensor(UniversalRoomEntity, SensorEntity):
+    """Outcome of the last fan-recheck (vacated / occupied_confirmed / None)."""
+
+    _attr_icon = "mdi:fan-chevron-down"
+    _attr_entity_registry_enabled_default = False
+
+    def __init__(self, coordinator: UniversalRoomCoordinator) -> None:
+        super().__init__(
+            coordinator, "fan_recheck_last_outcome", "Fan Recheck Last Outcome",
+        )
+
+    @property
+    def native_value(self) -> Optional[str]:
+        attrs = _fan_recheck_attrs_for(
+            self.hass,
+            self.coordinator.entry.data.get("room_name", ""),
+        )
+        outcome = attrs.get("fan_recheck_last_outcome")
+        return outcome if outcome else None
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        attrs = _fan_recheck_attrs_for(
+            self.hass,
+            self.coordinator.entry.data.get("room_name", ""),
+        )
+        return {
+            "fan_recheck_last_attempt_iso": attrs.get(
+                "fan_recheck_last_attempt_iso",
+            ),
+        }

@@ -1,6 +1,6 @@
 """Switch platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.7.21
+# Universal Room Automation vv4.7.22
 # Build: 2026-01-02
 # File: switch.py
 #
@@ -203,6 +203,11 @@ async def async_setup_entry(
             # v4.7.8 D2: Egress Window HVAC Pause master toggle.
             HVACEgressWindowPauseSwitch(hass, entry),
             HVACObservationModeSwitch(hass, entry),
+            # Fan-noise Mode-2: master kill switch for room-tier
+            # fan-pause + clean recheck. Lives on the Presence
+            # Coordinator device. Default OFF — operator pins ON after
+            # live validation. Per-room opt-in is on each room entry.
+            FanRecheckEnabledSwitch(hass, entry),
             # v4.7.15 D6: Consensus defer gates (HVAC + compliance).
             HVACConsensusDeferGateSwitch(hass, entry),
             ComplianceConsensusDeferGateSwitch(hass, entry),
@@ -238,6 +243,12 @@ async def async_setup_entry(
         ManualModeSwitch(coordinator),
         AiAutomationSwitch(coordinator),
         InfrastructureRoomSwitch(coordinator),
+        # Fan-noise Mode-2 per-room opt-ins. Both default OFF.
+        # RoomFanRecheckEnabledSwitch is the eligibility gate; the L2
+        # opt-in is Tier-1-only weak-authorize (ignored in Tier-2 where
+        # L2 is an unconditional safety veto).
+        RoomFanRecheckEnabledSwitch(coordinator),
+        RoomFanRecheckL2AllowedSwitch(coordinator),
     ]
 
     async_add_entities(entities)
@@ -3421,3 +3432,227 @@ class HVACEgressWindowPauseSwitch(SwitchEntity, RestoreEntity):
     def available(self) -> bool:
         """Only available when HVAC coordinator is active."""
         return self._get_hvac() is not None
+
+
+# =============================================================================
+# Fan-noise Mode-2 — master kill switch + per-room opt-ins
+# -----------------------------------------------------------------------------
+# Master switch lives on URA: Presence Coordinator device. Mirrors the
+# operator value into hass.data[DOMAIN]["fan_recheck_master_enabled"]
+# (FanRecheckManager reads from there each eligibility check) AND into
+# the CM entry.options (URA mirror pattern — entry.options seeds the next
+# coordinator __init__, RestoreEntity is the runtime store).
+#
+# Per-room switches live on the room device. They write directly into
+# the room entry.options so the next FanRecheckManager._is_eligible call
+# picks them up; RestoreEntity preserves operator intent across restart.
+# Defaults default to False — a post-deploy instance with no operator
+# action does NOT actuate.
+# =============================================================================
+
+
+class FanRecheckEnabledSwitch(SwitchEntity, RestoreEntity):
+    """Master kill switch for room-tier fan-recheck (Mode-2 mitigation).
+
+    Default OFF. RestoreEntity is the canonical runtime store; entry.options
+    seeds install-time only. Operator flips ON after live validation.
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:fan-alert"
+    _attr_entity_category = EntityCategory.CONFIG
+    _attr_name = "Fan Recheck"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        from .const import (
+            CONF_FAN_RECHECK_ENABLED,
+            DEFAULT_FAN_RECHECK_ENABLED,
+        )
+        self.hass = hass
+        self._entry = entry
+        self._conf_key = CONF_FAN_RECHECK_ENABLED
+        self._default = DEFAULT_FAN_RECHECK_ENABLED
+        self._attr_unique_id = f"{DOMAIN}_fan_recheck_enabled"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "presence_coordinator")},
+            name="URA: Presence Coordinator",
+            manufacturer="Universal Room Automation",
+            model="Presence Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+        config = {**entry.data, **entry.options}
+        self._is_on = bool(config.get(self._conf_key, self._default))
+        # Seed the runtime master flag on construction so eligibility
+        # checks before async_added_to_hass land on the install-time
+        # default (False) rather than KeyError-then-default-False.
+        self.hass.data.setdefault(DOMAIN, {})[
+            "fan_recheck_master_enabled"
+        ] = self._is_on
+
+    @property
+    def is_on(self) -> bool:
+        return self._is_on
+
+    def _mirror_runtime(self, value: bool) -> None:
+        """Push current value to hass.data so FanRecheckManager sees it."""
+        self.hass.data.setdefault(DOMAIN, {})[
+            "fan_recheck_master_enabled"
+        ] = value
+
+    def _mirror_options(self, value: bool) -> None:
+        """Mirror to CM entry.options (URA mirror pattern).
+
+        Next coordinator __init__ re-seeds from this value rather than
+        snapping back to DEFAULT_FAN_RECHECK_ENABLED on reload.
+        """
+        try:
+            self.hass.config_entries.async_update_entry(
+                self._entry,
+                options={**self._entry.options, self._conf_key: value},
+            )
+        except Exception:  # noqa: BLE001 — best-effort mirror
+            _LOGGER.debug(
+                "FanRecheckEnabledSwitch: entry.options mirror failed",
+                exc_info=True,
+            )
+
+    async def async_added_to_hass(self) -> None:
+        """Restore last state — RestoreEntity is the runtime source."""
+        await super().async_added_to_hass()
+        last_state = await self.async_get_last_state()
+        if last_state is not None and last_state.state in ("on", "off"):
+            self._is_on = last_state.state == "on"
+        self._mirror_runtime(self._is_on)
+        self.async_write_ha_state()
+
+    async def async_turn_on(self, **kwargs) -> None:
+        self._is_on = True
+        self._mirror_runtime(True)
+        self._mirror_options(True)
+        self.async_write_ha_state()
+        _LOGGER.info("FanRecheckEnabledSwitch: master enabled")
+
+    async def async_turn_off(self, **kwargs) -> None:
+        self._is_on = False
+        self._mirror_runtime(False)
+        self._mirror_options(False)
+        self.async_write_ha_state()
+        _LOGGER.info("FanRecheckEnabledSwitch: master disabled")
+
+
+class RoomFanRecheckEnabledSwitch(
+    UniversalRoomEntity, SwitchEntity, RestoreEntity,
+):
+    """Per-room opt-in for the fan-recheck mechanism.
+
+    Default OFF. RestoreEntity is the runtime store; entry.options
+    seeds install-time only. Writes the value back into the room
+    entry.options on toggle so the FanRecheckManager
+    `_merged_config(room_coord)` read picks it up immediately.
+    """
+
+    _attr_icon = "mdi:fan-clock"
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, coordinator: UniversalRoomCoordinator) -> None:
+        from .const import (
+            CONF_ROOM_FAN_RECHECK_ENABLED,
+            DEFAULT_ROOM_FAN_RECHECK_ENABLED,
+        )
+        super().__init__(
+            coordinator, "fan_recheck_enabled", "Fan Recheck",
+        )
+        self._conf_key = CONF_ROOM_FAN_RECHECK_ENABLED
+        merged = {**coordinator.entry.data, **coordinator.entry.options}
+        self._attr_is_on = bool(
+            merged.get(self._conf_key, DEFAULT_ROOM_FAN_RECHECK_ENABLED),
+        )
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        last_state = await self.async_get_last_state()
+        if last_state is not None and last_state.state in ("on", "off"):
+            self._attr_is_on = last_state.state == "on"
+
+    def _mirror_options(self, value: bool) -> None:
+        try:
+            entry = self.coordinator.entry
+            self.hass.config_entries.async_update_entry(
+                entry,
+                options={**entry.options, self._conf_key: value},
+            )
+        except Exception:  # noqa: BLE001 — best-effort mirror
+            _LOGGER.debug(
+                "RoomFanRecheckEnabledSwitch: options mirror failed",
+                exc_info=True,
+            )
+
+    async def async_turn_on(self, **kwargs) -> None:
+        self._attr_is_on = True
+        self._mirror_options(True)
+        self.async_write_ha_state()
+
+    async def async_turn_off(self, **kwargs) -> None:
+        self._attr_is_on = False
+        self._mirror_options(False)
+        self.async_write_ha_state()
+
+
+class RoomFanRecheckL2AllowedSwitch(
+    UniversalRoomEntity, SwitchEntity, RestoreEntity,
+):
+    """Per-room Tier-1 L2 weak-authorize opt-in for fan-recheck.
+
+    Tier-1-only: enables the weak L2 path where a trustworthy phone in
+    an adjacent room may *authorize* a recheck (person provably
+    next-door). Default OFF because adjacency drift may be real
+    next-door presence. Ignored in Tier-2/0 (L2 there is an unconditional
+    safety VETO regardless of this flag).
+    """
+
+    _attr_icon = "mdi:fan-chevron-up"
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, coordinator: UniversalRoomCoordinator) -> None:
+        from .const import (
+            CONF_FAN_RECHECK_L2_ALLOWED,
+            DEFAULT_FAN_RECHECK_L2_ALLOWED,
+        )
+        super().__init__(
+            coordinator, "fan_recheck_l2_allowed", "Fan Recheck L2 Allowed",
+        )
+        self._conf_key = CONF_FAN_RECHECK_L2_ALLOWED
+        merged = {**coordinator.entry.data, **coordinator.entry.options}
+        self._attr_is_on = bool(
+            merged.get(self._conf_key, DEFAULT_FAN_RECHECK_L2_ALLOWED),
+        )
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        last_state = await self.async_get_last_state()
+        if last_state is not None and last_state.state in ("on", "off"):
+            self._attr_is_on = last_state.state == "on"
+
+    def _mirror_options(self, value: bool) -> None:
+        try:
+            entry = self.coordinator.entry
+            self.hass.config_entries.async_update_entry(
+                entry,
+                options={**entry.options, self._conf_key: value},
+            )
+        except Exception:  # noqa: BLE001 — best-effort mirror
+            _LOGGER.debug(
+                "RoomFanRecheckL2AllowedSwitch: options mirror failed",
+                exc_info=True,
+            )
+
+    async def async_turn_on(self, **kwargs) -> None:
+        self._attr_is_on = True
+        self._mirror_options(True)
+        self.async_write_ha_state()
+
+    async def async_turn_off(self, **kwargs) -> None:
+        self._attr_is_on = False
+        self._mirror_options(False)
+        self.async_write_ha_state()

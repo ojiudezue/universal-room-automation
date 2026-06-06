@@ -1,6 +1,6 @@
 """Data coordinator for Universal Room Automation."""
 #
-# Universal Room Automation vv4.7.21
+# Universal Room Automation vv4.7.22
 # Build: 2026-01-02
 # File: coordinator.py
 # v3.2.8: Support for active state change listeners in aggregation sensors
@@ -54,6 +54,7 @@ from .const import (
     STATE_TIMEOUT_REMAINING,
     STATE_BLE_PERSONS,
     STATE_OCCUPANCY_SOURCE,
+    OCCUPANCY_SOURCE_FAN_RECHECK_RELEASE,
     STATE_POWER_CURRENT,
     STATE_ENERGY_TODAY,
     STATE_ENERGY_WEEKLY,
@@ -182,6 +183,14 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
 
         # Failsafe tracking
         self._failsafe_fired: bool = False
+
+        # Fan-noise Mode-2 mitigation: ring of recent occupancy sources so the
+        # room-tier fan-recheck trigger can require N consecutive mmwave-sole
+        # ticks (D1 #2). Appended at end of _async_update_data.
+        import collections
+        self._recent_occupancy_sources: collections.deque[str] = (
+            collections.deque(maxlen=10)
+        )
 
         # v3.20.0: Room state DB backup throttle
         # v4.2.6: Initialize to now() — room state was just restored from DB, no need to save immediately
@@ -2249,8 +2258,40 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                 # (Bug Class #19 — aiosqlite INSERT is sub-ms, won't block refresh)
                 await db.save_room_state(room_id, state)
 
+        self._recent_occupancy_sources.append(
+            str(data.get(STATE_OCCUPANCY_SOURCE, "none"))
+        )
         return data
-    
+
+    def recent_occupancy_sources(self) -> list[str]:
+        """Return the recent-tick occupancy_source ring as a list (newest last)."""
+        return list(self._recent_occupancy_sources)
+
+    def apply_fan_recheck_release(self) -> None:
+        """Force vacancy from the room-tier fan-recheck mechanism.
+
+        Mirrors the failsafe clear path (coordinator.py:1509-1513): clears
+        _last_motion_time + _became_occupied_time so the next tick sees a
+        clean unoccupied state. Marks STATE_OCCUPANCY_SOURCE with the
+        new "fan_recheck_release" value so HVAC + dashboards can see why.
+        Does NOT touch _failsafe_fired — this is a separate mechanism and
+        composes with failsafe.
+        """
+        if self.data is None:
+            self.data = {}
+        self.data[STATE_OCCUPIED] = False
+        self.data[STATE_OCCUPANCY_SOURCE] = OCCUPANCY_SOURCE_FAN_RECHECK_RELEASE
+        self.data[STATE_TIMEOUT_REMAINING] = 0
+        self._last_motion_time = None
+        self._became_occupied_time = None
+        self._last_occupied_state = False
+        room_name = self.entry.data.get("room_name", "unknown")
+        _LOGGER.info(
+            "Room %s: fan-recheck released occupancy (mmwave drop confirmed "
+            "with fan off)",
+            room_name,
+        )
+
     async def _delayed_exit_verify(self, room_name: str, data: dict[str, Any]) -> None:
         """RESILIENCE-003: Verify exit automation after 3s delay (non-blocking)."""
         await asyncio.sleep(3)

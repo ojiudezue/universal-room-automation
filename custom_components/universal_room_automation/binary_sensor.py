@@ -1,6 +1,6 @@
 """Binary sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.7.21
+# Universal Room Automation vv4.7.22
 # Build: 2026-01-02
 # File: binary_sensor.py
 # v3.2.6: Renamed "Presence" to "Sensor Presence" for clarity
@@ -187,6 +187,11 @@ async def async_setup_entry(
         # state through coordinator config — graceful no-op when window_sensor
         # unset for this room).
         RoomEgressWindowOpenSensor(coordinator),
+        # Fan-noise Mode-2: per-room "recheck in progress" diagnostic.
+        # Always registered (disabled-by-default) so operators can flip
+        # opt-in rooms without a config-flow round-trip. is_on reads
+        # FanRecheckManager.get_room_attrs each access.
+        RoomFanRecheckInProgressSensor(coordinator),
     ])
 
     async_add_entities(entities)
@@ -498,6 +503,44 @@ class OccupiedBinarySensor(UniversalRoomEntity, BinarySensorEntity, RestoreEntit
             attrs["fan_interference_hold_active"] = False
             attrs["fan_interference_hold_expires_at"] = None
             attrs["ble_corroboration_layer"] = "none"
+        # Fan-noise Mode-2 (room-tier fan-pause + clean recheck) attrs.
+        # Sourced from FanRecheckManager.get_room_attrs(room_name); the
+        # manager owns idempotent defaults for rooms it has not yet
+        # seen (idle / None / "none"). Lazy lookup — survives the case
+        # where presence has not finished setup yet.
+        try:
+            _fr_state = "idle"
+            _fr_last_outcome = None
+            _fr_last_attempt_iso = None
+            _fr_layer = "none"
+            _manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+            _presence = (
+                _manager.coordinators.get("presence") if _manager else None
+            )
+            _fr_mgr = (
+                getattr(_presence, "_fan_recheck_manager", None)
+                if _presence is not None else None
+            )
+            _room_name = self.coordinator.entry.data.get("room_name", "")
+            if _fr_mgr is not None and _room_name:
+                _fr_attrs = _fr_mgr.get_room_attrs(_room_name) or {}
+                _fr_state = _fr_attrs.get("fan_recheck_state", "idle")
+                _fr_last_outcome = _fr_attrs.get("fan_recheck_last_outcome")
+                _fr_last_attempt_iso = _fr_attrs.get(
+                    "fan_recheck_last_attempt_iso",
+                )
+                _fr_layer = _fr_attrs.get(
+                    "fan_recheck_ble_ladder_layer", "none",
+                )
+            attrs["fan_recheck_state"] = _fr_state
+            attrs["fan_recheck_last_outcome"] = _fr_last_outcome
+            attrs["fan_recheck_last_attempt_iso"] = _fr_last_attempt_iso
+            attrs["fan_recheck_ble_ladder_layer"] = _fr_layer
+        except Exception:
+            attrs["fan_recheck_state"] = "idle"
+            attrs["fan_recheck_last_outcome"] = None
+            attrs["fan_recheck_last_attempt_iso"] = None
+            attrs["fan_recheck_ble_ladder_layer"] = "none"
         return attrs
 
 
@@ -2365,3 +2408,69 @@ class HVACZoneEgressWindowOpenSensor(BinarySensorEntity):
         self.async_on_remove(
             async_dispatcher_connect(self.hass, SIGNAL_HVAC_ENTITIES_UPDATE, _on_update)
         )
+
+
+# =============================================================================
+# Fan-noise Mode-2 — per-room "recheck in progress" diagnostic
+# -----------------------------------------------------------------------------
+# Disabled by default. is_on reads the FanRecheckManager state for this room
+# each access — armed/paused/restoring map True; idle/cooldown/unknown map
+# False. The attrs surface FanRecheckManager.get_room_attrs as-is for
+# operator visibility (state + last_outcome + last_attempt_iso + layer).
+# =============================================================================
+
+
+class RoomFanRecheckInProgressSensor(
+    UniversalRoomEntity, BinarySensorEntity,
+):
+    """True while FanRecheckManager is actively rechecking this room."""
+
+    _attr_icon = "mdi:fan-clock"
+    _attr_entity_registry_enabled_default = False
+
+    _IN_FLIGHT = frozenset({"armed", "paused", "restoring"})
+
+    def __init__(self, coordinator: UniversalRoomCoordinator) -> None:
+        super().__init__(
+            coordinator, "fan_recheck_in_progress", "Fan Recheck In Progress",
+        )
+
+    def _manager_attrs(self) -> dict:
+        try:
+            manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+            presence = (
+                manager.coordinators.get("presence") if manager else None
+            )
+            fr_mgr = (
+                getattr(presence, "_fan_recheck_manager", None)
+                if presence is not None else None
+            )
+            room_name = self.coordinator.entry.data.get("room_name", "")
+            if fr_mgr is None or not room_name:
+                return {}
+            return fr_mgr.get_room_attrs(room_name) or {}
+        except Exception:  # noqa: BLE001
+            return {}
+
+    @property
+    def is_on(self) -> bool:
+        attrs = self._manager_attrs()
+        return str(attrs.get("fan_recheck_state", "idle")) in self._IN_FLIGHT
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        attrs = self._manager_attrs()
+        # Idempotent default shape — operator gets the same keys whether
+        # or not the manager has seen this room yet.
+        return {
+            "fan_recheck_state": attrs.get("fan_recheck_state", "idle"),
+            "fan_recheck_last_outcome": attrs.get(
+                "fan_recheck_last_outcome",
+            ),
+            "fan_recheck_last_attempt_iso": attrs.get(
+                "fan_recheck_last_attempt_iso",
+            ),
+            "fan_recheck_ble_ladder_layer": attrs.get(
+                "fan_recheck_ble_ladder_layer", "none",
+            ),
+        }

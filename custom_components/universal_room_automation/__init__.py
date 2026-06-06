@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv4.7.21
+# Universal Room Automation vv4.7.22
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -748,6 +748,47 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 )
             except Exception as e:
                 _LOGGER.debug("Safety alert dedup migration: %s", e)
+
+        # Fan-noise Mode-2: clean up orphaned FanRecheck*Number registry
+        # entries from the v4.7.x Number-entity surface that was deleted
+        # this cycle (timing knobs are now config_flow NumberSelector
+        # form fields on the Coordinator Manager entry, not platform
+        # Number entities). Pattern mirrors the safety_alert dedup
+        # precedent above (entity_registry.async_remove by unique_id).
+        if not entry.options.get("fan_recheck_number_cleanup_done"):
+            try:
+                from homeassistant.helpers import entity_registry as er_mod
+                ent_reg = er_mod.async_get(hass)
+                orphan_unique_ids = (
+                    f"{DOMAIN}_fan_recheck_arm_delay_s",
+                    f"{DOMAIN}_fan_recheck_spindown_s",
+                    f"{DOMAIN}_fan_recheck_window_s",
+                    f"{DOMAIN}_fan_recheck_cooldown_s",
+                    f"{DOMAIN}_fan_recheck_max_per_hour",
+                    f"{DOMAIN}_fan_recheck_hvac_suppress_s",
+                    f"{DOMAIN}_fan_recheck_mmwave_history_ticks",
+                )
+                removed = 0
+                for uid in orphan_unique_ids:
+                    eid = ent_reg.async_get_entity_id("number", DOMAIN, uid)
+                    if eid:
+                        ent_reg.async_remove(eid)
+                        removed += 1
+                if removed:
+                    _LOGGER.info(
+                        "Fan-recheck Number cleanup: removed %d orphan registry entries",
+                        removed,
+                    )
+                entry = hass.config_entries.async_get_entry(entry.entry_id) or entry
+                hass.config_entries.async_update_entry(
+                    entry,
+                    options={
+                        **entry.options,
+                        "fan_recheck_number_cleanup_done": True,
+                    },
+                )
+            except Exception as e:
+                _LOGGER.debug("Fan-recheck Number cleanup migration: %s", e)
 
         # Initialize database (shared across all rooms — use existing if already created).
         # v4.0.17: Lock prevents race with concurrent room entry setup.
@@ -2287,6 +2328,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             # _async_register_presence_services
             "set_house_state",
             "clear_house_state_override",
+            "fan_recheck_force_restore",
             # _async_register_safety_services
             "test_safety_hazard",
             # _async_register_security_services
@@ -3177,6 +3219,34 @@ async def _async_register_presence_services(hass: HomeAssistant) -> None:
         else:
             manager.house_state_machine.clear_override()
 
+    async def handle_fan_recheck_force_restore(call):
+        """Handle fan_recheck_force_restore service call.
+
+        Routes to FanRecheckManager.force_restore for the named room.
+        Defensive: silent no-op when presence/manager not registered yet.
+        """
+        room_name = call.data.get("room_name", "")
+        if not room_name:
+            return
+        manager = hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            _LOGGER.warning(
+                "fan_recheck_force_restore: coordinator manager not ready",
+            )
+            return
+        presence = manager.coordinators.get("presence")
+        fr_mgr = (
+            getattr(presence, "_fan_recheck_manager", None)
+            if presence is not None else None
+        )
+        if fr_mgr is None:
+            _LOGGER.warning(
+                "fan_recheck_force_restore: FanRecheckManager not registered "
+                "(room=%s)", room_name,
+            )
+            return
+        await fr_mgr.force_restore(room_name)
+
     # Only register once
     if not hass.services.has_service(DOMAIN, "set_house_state"):
         hass.services.async_register(
@@ -3197,6 +3267,17 @@ async def _async_register_presence_services(hass: HomeAssistant) -> None:
             schema=vol.Schema({}),
         )
         _LOGGER.info("Registered house state services")
+
+    if not hass.services.has_service(DOMAIN, "fan_recheck_force_restore"):
+        hass.services.async_register(
+            DOMAIN,
+            "fan_recheck_force_restore",
+            handle_fan_recheck_force_restore,
+            schema=vol.Schema({
+                vol.Required("room_name"): str,
+            }),
+        )
+        _LOGGER.info("Registered fan_recheck_force_restore service")
 
 
 async def _async_register_safety_services(hass: HomeAssistant) -> None:
