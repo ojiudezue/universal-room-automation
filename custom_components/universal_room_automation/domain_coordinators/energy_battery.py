@@ -22,6 +22,7 @@ from typing import Any
 from homeassistant.core import HomeAssistant
 
 from .energy_const import (
+    ARBITRAGE_GUARD_CONSECUTIVE_TRIPS_TO_LOCK,
     BATTERY_MODE_BACKUP,
     BATTERY_MODE_SELF_CONSUMPTION,
     DEFAULT_ARBITRAGE_CHARGE_LEAD_TIME_MIN,
@@ -161,6 +162,10 @@ class BatteryStrategy:
         # sensor and tests can assert on the abort cause.
         self._arbitrage_guard_aborted_at: str | None = None
         self._arbitrage_guard_aborted_kw: float | None = None
+        # Consecutive guard-trip counter — only lock the chunk after the
+        # cap is exceeded on N consecutive CHARGE ticks, so a single
+        # battery-CT-lag tick at charge entry can't kill the whole chunk.
+        self._arbitrage_guard_consecutive_trips: int = 0
 
         # v4.5.0 D8 hookup. May be None when constructed from a test
         # harness or before the EnergyCoordinator finishes wiring.
@@ -594,50 +599,53 @@ class BatteryStrategy:
                 return True
         return False
 
-    def _grid_import_guard_triggered(self) -> bool:
-        """True iff non-battery grid import (house + EV draw) exceeds the guard.
+    def _effective_import_kw(self) -> tuple[float, float, float] | None:
+        """Single-snapshot non-battery grid import (house + EV draw), in kW.
 
-        Reads `net_power_w` (already unit-normalized via the v4.5.0 sweep —
-        see Bug Class #30) and subtracts the battery's own charge power
-        before comparing to the cap. The guard exists to prevent excess
-        grid draw from house+EV loads tripping the panel breaker — not to
-        constrain battery charge-from-grid itself. Without the subtraction,
-        the act of arbitrage CHARGE drives `net_power` above the cap and
-        self-aborts (observed live: net 18.6 kW with battery charging 15.8
-        kW and non-battery draw flat ~2.8 kW tripped a 12 kW cap).
+        Returns ``(effective_kw, net_kw, battery_charge_kw)`` from ONE read
+        of each sensor, or ``None`` when ``net_power_w`` is unavailable.
+        This is the single source of truth for both the guard predicate and
+        its diagnostic record — computing it once and threading the result
+        means the value the guard compared is exactly the value recorded
+        (no second-read divergence between decision and diagnostic).
+
+        ``net_power_w`` is already unit-normalized via the v4.5.0 sweep (Bug
+        Class #30). The battery's own charge power is subtracted before
+        comparison: the guard exists to keep house+EV draw from tripping the
+        panel breaker, NOT to constrain battery charge-from-grid itself.
+        Without the subtraction, arbitrage CHARGE drives ``net_power`` above
+        the cap and self-aborts (observed live: net 18.6 kW with battery
+        charging 15.8 kW and non-battery draw flat ~2.8 kW tripped 12 kW).
 
         Sign convention (see ``battery_power_w`` docstring): positive =
         charging, negative = discharging. We subtract only when charging
-        (``max(0.0, battery_power_w)``) so that a discharging battery
-        cannot *raise* the effective import.
+        (``max(0.0, battery_power_w)``) so a discharging battery cannot
+        *raise* the effective import.
 
-        None-handling / fail-safe:
-            * ``net_power_w`` is None (envoy unavailable) → return False;
-              the envoy-unavailable branch upstream handles that case.
-            * ``battery_power_w`` is None (battery sensor briefly
-              unavailable) → do NOT subtract; fall back to comparing
-              total ``net_power_w`` against the cap. A sensor dropout
-              must never *uncap* the guard.
-
-        Threshold default 12 kW (60A breaker sized). Configurable via
-        ``arbitrage_grid_import_guard_kw`` constructor arg.
+        Fail-safe: ``battery_power_w`` None (sensor briefly unavailable) →
+        treat battery charge as 0 (do NOT subtract) → effective collapses to
+        total ``net_power_w``. A sensor dropout must never *uncap* the guard.
         """
         net_w = self.net_power_w
         if net_w is None:
-            return False
+            return None
         batt_w = self.battery_power_w
-        # Fail-safe: if the battery sensor is unavailable, fall back to the
-        # stricter total-import comparison. NEVER uncap the guard because a
-        # sensor briefly went None — that would defeat the breaker-protection
-        # purpose entirely.
-        if batt_w is None:
-            effective_w = net_w
-        else:
-            # Only subtract when charging (positive). A discharging battery
-            # (negative battery_power_w) must not be added to net_power.
-            effective_w = net_w - max(0.0, batt_w)
-        effective_kw = effective_w / 1000.0
-        return effective_kw > self._arbitrage_grid_import_guard_kw
+        batt_charge_w = max(0.0, batt_w) if batt_w is not None else 0.0
+        effective_w = net_w - batt_charge_w
+        return (effective_w / 1000.0, net_w / 1000.0, batt_charge_w / 1000.0)
+
+    def _grid_import_guard_triggered(self) -> bool:
+        """True iff non-battery grid import exceeds the configured guard.
+
+        Thin predicate over :meth:`_effective_import_kw`. A None reading
+        (envoy unavailable) is not a trip — the envoy-unavailable branch
+        upstream handles that case. Threshold default 12 kW (60A breaker
+        sized); configurable via ``arbitrage_grid_import_guard_kw``.
+        """
+        snap = self._effective_import_kw()
+        if snap is None:
+            return False
+        return snap[0] > self._arbitrage_grid_import_guard_kw
 
     def _gate_is_open(self, now: datetime, target_day_class: str) -> bool:
         """Pre-conditions for *any* arbitrage phase consideration.
@@ -707,38 +715,61 @@ class BatteryStrategy:
                         now.isoformat(timespec="minutes") if hasattr(now, "isoformat") else now,
                     )
                     return ARBITRAGE_PHASE_WAIT
-            # v4.5.0.2 defensive guard: if actual grid import exceeds the
-            # configured threshold, abort the chunk. Protects against
-            # undersized breakers tripping under hardware peak draw that
-            # the strategy can't directly throttle (Enphase
-            # charge_from_grid is binary). One-shot per chunk; the
-            # chunk_lock prevents flap. v4.5.1 will replace this with
-            # proper rate control via barneyonline HACS.
-            if self._grid_import_guard_triggered():
+            # Defensive guard: if non-battery grid import (house + EV draw)
+            # exceeds the configured cap, abort the chunk. Protects against
+            # undersized breakers tripping under hardware peak draw the
+            # strategy can't directly throttle (Enphase charge_from_grid is
+            # binary). v4.5.1 will replace this with proper rate control.
+            #
+            # ONE snapshot drives both the comparison and the diagnostic, so
+            # the recorded kW is exactly what the guard compared. The chunk
+            # locks only after the cap is exceeded on N consecutive ticks:
+            # at CHARGE entry battery_power_w lags net_power_w by one Envoy
+            # poll, so a single tick can read full inrush on net while the
+            # battery still reads ~0 — a one-shot lock would lose the whole
+            # chunk to sensor lag. A real house+EV overdraw still locks (one
+            # extra ~30s tick is within the physical breaker margin).
+            snap = self._effective_import_kw()
+            if snap is not None and snap[0] > self._arbitrage_grid_import_guard_kw:
+                effective_kw, net_kw, batt_charge_kw = snap
+                self._arbitrage_guard_consecutive_trips += 1
+                if (
+                    self._arbitrage_guard_consecutive_trips
+                    < ARBITRAGE_GUARD_CONSECUTIVE_TRIPS_TO_LOCK
+                ):
+                    _LOGGER.info(
+                        "Arbitrage grid-import guard trip %d/%d "
+                        "(effective=%.1f kW > %.1f kW cap; net=%.1f, "
+                        "battery_charge=%.1f) — deferring chunk lock one tick "
+                        "to absorb battery-CT lag at charge entry",
+                        self._arbitrage_guard_consecutive_trips,
+                        ARBITRAGE_GUARD_CONSECUTIVE_TRIPS_TO_LOCK,
+                        effective_kw,
+                        self._arbitrage_grid_import_guard_kw,
+                        net_kw,
+                        batt_charge_kw,
+                    )
+                    return ARBITRAGE_PHASE_CHARGE
                 self._arbitrage_chunk_completed = True
                 from homeassistant.util import dt as dt_util
                 self._arbitrage_guard_aborted_at = dt_util.now().isoformat()
-                # Record the EFFECTIVE (non-battery) import that actually
-                # exceeded the cap — that's what the guard compared.
-                net_w = self.net_power_w or 0.0
-                batt_w = self.battery_power_w
-                if batt_w is None:
-                    effective_kw = net_w / 1000.0
-                else:
-                    effective_kw = (net_w - max(0.0, batt_w)) / 1000.0
                 self._arbitrage_guard_aborted_kw = effective_kw
                 _LOGGER.warning(
                     "Arbitrage CHARGE aborted by grid-import guard: "
                     "effective_import=%.1f kW (net=%.1f kW, battery_charge=%.1f kW) "
-                    "exceeds threshold=%.1f kW. Chunk locked; will retry "
-                    "next off-peak chunk. (Likely panel breaker risk from "
-                    "house+EV draw — consider rate control.)",
+                    "exceeds threshold=%.1f kW on %d consecutive ticks. Chunk "
+                    "locked; will retry next off-peak chunk. (Likely panel "
+                    "breaker risk from house+EV draw — consider rate control.)",
                     effective_kw,
-                    net_w / 1000.0,
-                    max(0.0, (batt_w or 0.0)) / 1000.0,
+                    net_kw,
+                    batt_charge_kw,
                     self._arbitrage_grid_import_guard_kw,
+                    self._arbitrage_guard_consecutive_trips,
                 )
                 return ARBITRAGE_PHASE_WAIT
+            # Under the cap (or net unavailable) → reset the streak so an
+            # earlier transient trip can't carry over into a later window.
+            self._arbitrage_guard_consecutive_trips = 0
             return ARBITRAGE_PHASE_CHARGE
 
         # Phase 5 — window not open yet. Battery serves loads naturally.
@@ -843,6 +874,7 @@ class BatteryStrategy:
         # state is fresh.
         self._arbitrage_guard_aborted_at = None
         self._arbitrage_guard_aborted_kw = None
+        self._arbitrage_guard_consecutive_trips = 0
 
     def determine_mode(
         self,
