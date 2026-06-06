@@ -1,9 +1,10 @@
 """Button platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.7.24
+# Universal Room Automation vv4.7.25
 # Build: 2026-01-04
 # File: button.py
 #
+from __future__ import annotations
 
 import json
 import logging
@@ -50,6 +51,10 @@ async def async_setup_entry(
             AnomalyDiagnosticDumpButton(hass, entry),
             # v4.7.x D3: admin force-charge override for EVSE TOU pause
             EVSEForceChargeButton(hass, entry),
+            # Reset Presence Timers — single options-save → single reload.
+            # Lives on the HVAC Coordinator device (slot 51, tail of the
+            # 47-50 presence-timer cluster).
+            ResetPresenceTimersButton(hass, entry),
         ]
         # v4.5.11: 3 buttons per AC zone (force_nudge / cancel_nudge /
         # clear_lockout). Discovers zones from Zone Manager entries — same
@@ -583,6 +588,90 @@ class ClearBayesianBeliefsButton(ButtonEntity):
             _LOGGER.info("Bayesian beliefs cleared and reinitialized via button")
         else:
             _LOGGER.warning("Bayesian predictor not available")
+
+
+class ResetPresenceTimersButton(ButtonEntity):
+    """Reset the four HVAC presence-timer Numbers to factory defaults.
+
+    Slot 51 on the URA: HVAC Coordinator device card — parked right after
+    the 47-50 presence-timer cluster it resets:
+        47 · Zone Entry Dwell (minutes)
+        48 · Zone Vacancy Delay (minutes)
+        49 · Zone Vacancy Delay · Energy-Saving (minutes)
+        50 · Max Zone Occupied Time (hours)
+
+    Behaviour:
+      1. Live-attr push to ``hvac._*`` (guarded) so the next decision cycle
+         sees defaults immediately.
+      2. Single ``async_update_entry`` carrying ALL four defaults so the
+         CM reload happens once, not four times.
+
+    Bug Class #46 analysis: ``async_press`` is a runtime user action, NOT
+    on the setup path — the standard CM options-save reload is the same
+    one a config-form save triggers.
+
+    Entity: button.ura_hvac_coordinator_reset_presence_timers
+    Device: URA: HVAC Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:timer-refresh"
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .const import VERSION
+        self.hass = hass
+        self._entry = entry
+        self._attr_unique_id = f"{DOMAIN}_hvac_reset_presence_timers"
+        self._attr_name = "51 · Reset Presence Timers"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "hvac_coordinator")},
+            name="URA: HVAC Coordinator",
+            manufacturer="Universal Room Automation",
+            model="HVAC Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+
+    def _get_hvac(self):
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        return manager.coordinators.get("hvac")
+
+    async def async_press(self) -> None:
+        from .domain_coordinators.hvac_const import (
+            CONF_HVAC_VACANCY_GRACE_MINUTES,
+            DEFAULT_VACANCY_GRACE_MINUTES,
+            CONF_HVAC_VACANCY_GRACE_CONSTRAINED,
+            DEFAULT_VACANCY_GRACE_CONSTRAINED,
+            CONF_HVAC_MAX_OCCUPANCY_HOURS,
+            DEFAULT_MAX_OCCUPANCY_HOURS,
+            CONF_HVAC_ZONE_ENTRY_DWELL,
+            DEFAULT_ZONE_ENTRY_DWELL_MINUTES,
+        )
+        defaults = {
+            CONF_HVAC_VACANCY_GRACE_MINUTES: DEFAULT_VACANCY_GRACE_MINUTES,
+            CONF_HVAC_VACANCY_GRACE_CONSTRAINED: DEFAULT_VACANCY_GRACE_CONSTRAINED,
+            CONF_HVAC_MAX_OCCUPANCY_HOURS: DEFAULT_MAX_OCCUPANCY_HOURS,
+            CONF_HVAC_ZONE_ENTRY_DWELL: DEFAULT_ZONE_ENTRY_DWELL_MINUTES,
+        }
+        # Live-attr push so the next HVAC decision cycle picks defaults
+        # up immediately; the writeback below persists them across the
+        # ensuing CM reload.
+        hvac = self._get_hvac()
+        if hvac is not None:
+            hvac._vacancy_grace = DEFAULT_VACANCY_GRACE_MINUTES
+            hvac._vacancy_grace_constrained = DEFAULT_VACANCY_GRACE_CONSTRAINED
+            hvac._max_occupancy_hours = DEFAULT_MAX_OCCUPANCY_HOURS
+            hvac._zone_entry_dwell = DEFAULT_ZONE_ENTRY_DWELL_MINUTES
+        # Single options-save → single reload, not four cascading ones.
+        self.hass.config_entries.async_update_entry(
+            self._entry,
+            options={**self._entry.options, **defaults},
+        )
+        _LOGGER.info("Presence timers reset to defaults")
 
 
 # ============================================================================

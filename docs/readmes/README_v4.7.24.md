@@ -114,16 +114,30 @@ dead-code removals.
 
 ## Live Validation (Review D)
 
-- After restart, each room logs `Event-driven mode — N Tier 1 sensors via
-  substrate signal (… motion / … mmwave / … occupancy)` with counts matching
-  the curated CONF lists (not the old registry-sweep counts).
-- `binary_sensor.<room>_occupied` and `_room_provenance` continue to update;
-  zone occupancy (`any_zone_raw_occupied`) and the `_zone_provenance_breakdown`
-  diagnostic still populate.
-- Trigger a curated sensor edge and confirm the room coordinator refreshes
-  promptly (substrate Tier-1 path live, B-C1 fix holding).
-- Save options once and confirm the room tier STILL reacts to a subsequent
-  sensor edge (the B-C1 clobber scenario).
+**Validated 2026-06-05** — HACS v4.7.24 downloaded, `ha_check_config` valid, HA
+restarted. Results recorded against the prospective criteria:
+
+| Criterion | Result |
+|---|---|
+| Substrate instantiated + feeding per-kind state (not the fail-open all-False default) | **PASS** — `binary_sensor.master_bedroom_occupied` (occupied) reports `substrate_kinds = {motion:false, mmwave:true, occupancy:true}`. Real per-kind reads, not the default. |
+| Per-room discrimination (substrate not stuck / global) | **PASS** — `binary_sensor.exercise_room_occupied` (empty) reports `substrate_kinds` all-false alongside the occupied master read. Two rooms, opposite states, same tick. |
+| Room occupancy correct + updating post-boot | **PASS** — master bedroom `on`, `current_persons` populated, `last_reported` advancing after boot. |
+| No substrate / B-C1 / dispatcher errors | **PASS** — error-log scan since boot shows zero substrate / `UnboundLocalError` / dispatcher errors. Only pre-existing, boot-only transients: "DB write worker not running" (census/energy snapshots ~1 min into boot, before the write worker starts) and boot-storm websocket saturation to the iOS app. Both cleared after settle. |
+| House-state persistence across restart | **As-expected** — boots `away` (state machine still does not persist across restart; known, decided-dropped). |
+
+Notes:
+- The `Event-driven mode — N Tier 1 sensors via substrate signal` setup line is
+  INFO level and HA's default logger is WARNING, so it does not reach journald.
+  The live `substrate_kinds` entity attribute is the authoritative signal and
+  was used instead.
+- The B-C1 clobber-survival (options-save between setup and dispatch) is proven
+  in-suite by `test_room_substrate_integration.py::test_room_handler_survives_signal_listener_clobber`
+  rather than by an intrusive live options-save on the running house. The live
+  reads confirm substrate edges are reaching the room entity.
+- HA's event loop was saturated by the cold-boot away-actuation storm for the
+  first few minutes (MCP calls timed out until it settled — the documented
+  boot-storm behavior; v4.7.21 settle gates mitigate but it still takes a few
+  minutes to clear).
 
 ---
 

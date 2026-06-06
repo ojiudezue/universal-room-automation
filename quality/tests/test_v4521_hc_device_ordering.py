@@ -120,7 +120,9 @@ SWITCH_HC_CLASSES: dict[str, int] = {
     "HVACPreArrivalSwitch": 35,
     "HVACFanControlSwitch": 40,
     "HVACSolarCoverSwitch": 45,
-    "HVACZoneSweepSwitch": 50,
+    # Switch moved from 50 → 46 to cluster with switch 45; presence-timer
+    # Numbers occupy the contiguous 47-50 block.
+    "HVACZoneSweepSwitch": 46,
 }
 
 
@@ -128,7 +130,10 @@ SWITCH_HC_CLASSES: dict[str, int] = {
 # The factory-emitted classes are checked separately by scanning the
 # factory call-sites (where the `name=` kwarg lives).
 NUMBER_HC_CLASSES: dict[str, int] = {
-    "ZoneEntryDwellNumber": 48,
+    "ZoneEntryDwellNumber": 47,
+    "VacancyGraceMinutesNumber": 48,
+    "VacancyGraceConstrainedNumber": 49,
+    "MaxOccupancyHoursNumber": 50,
 }
 
 
@@ -158,6 +163,7 @@ NUMBER_HC_FACTORY_PREFIXES: dict[str, int] = {
 # prefixing is exercised via a unit-style call below.
 BUTTON_HC_CLASSES: dict[str, int] = {
     "HVACACRampDiagnosticDumpButton": 90,
+    "ResetPresenceTimersButton": 51,
 }
 
 
@@ -467,8 +473,12 @@ CLUSTER_GROUPS: dict[str, list[tuple[str, int]]] = {
         ("HVACPreArrivalSwitch", 35),
         ("HVACFanControlSwitch", 40),
         ("HVACSolarCoverSwitch", 45),
-        ("ZoneEntryDwellNumber", 48),
-        ("HVACZoneSweepSwitch", 50),
+        ("HVACZoneSweepSwitch", 46),
+        ("ZoneEntryDwellNumber", 47),
+        ("VacancyGraceMinutesNumber", 48),
+        ("VacancyGraceConstrainedNumber", 49),
+        ("MaxOccupancyHoursNumber", 50),
+        ("ResetPresenceTimersButton", 51),
         ("cover_close_threshold", 60),
         ("cover_close_temp", 61),
         ("cover_open_temp", 62),

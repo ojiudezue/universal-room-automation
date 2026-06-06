@@ -1,6 +1,6 @@
 # PLANNING — Fan-noise Mode-2 mitigation: room-tier BLE-gated fan-pause + clean recheck
 
-**Status:** Draft (planning). No version pre-stamped — assigned at deploy time per operator convention.
+**Status:** ✅ **Phase 1 SHIPPED as v4.7.22 — LIVE + validated 2026-06-05** (PR #362). See `docs/readmes/README_v4.7.22.md` and memory `project_v4_7_22_fan_recheck_mode2_live`. The optional Phase 2 (P2) v4.7.20 hold-strip remains *pending operator decision* and was NOT shipped. Retained as historical record — re-scope only the unbuilt P2 from it, not P1.
 
 **Revision note (this rewrite):** the prior draft of this doc bundled a v4.7.20 hold-strip
 into the headline. Per operator update 2026-06-05, the strip is no longer in scope of the

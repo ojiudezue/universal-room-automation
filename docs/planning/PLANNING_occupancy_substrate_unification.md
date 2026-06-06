@@ -1,7 +1,10 @@
 # PLANNING — Occupancy substrate unification (shared raw per-room per-kind primitive across the room + zone tiers)
 
-**Status:** Draft (planning). No version pre-stamped — assigned at deploy time per
-operator convention.
+**Status:** ✅ **SHIPPED as v4.7.24 — LIVE + validated 2026-06-05** (PR #364). See
+`docs/readmes/README_v4.7.24.md` for the post-restart validation table and
+`docs/reviews/code-review/substrate_review_B_lifecycle.md` /
+`substrate_review_C_boundaries.md` for the Tier 2-DB findings (B-C1 CRITICAL →
+Bug Class #50). Retained as historical record only — do not re-scope from it.
 
 **Companion plan:** `docs/planning/PLANNING_fan_noise_mode2_ble_pause_recheck.md` (Plan A —
 the Mode-2 BLE-gated fan pause + recheck, **LIVE as of v4.7.22**). This substrate plan

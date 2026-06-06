@@ -1,9 +1,10 @@
 """Number platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.7.24
+# Universal Room Automation vv4.7.25
 # Build: 2026-01-02
 # File: number.py
 #
+from __future__ import annotations
 
 import logging
 
@@ -41,6 +42,13 @@ async def async_setup_entry(
     if entry.data.get(CONF_ENTRY_TYPE) == ENTRY_TYPE_COORDINATOR_MANAGER:
         entities = [
             ZoneEntryDwellNumber(hass, entry),
+            # Presence-timer cluster — entry.options is the SOLE source of
+            # truth (no RestoreEntity). Live-attr push happens BEFORE the
+            # writeback so the next HVAC decision cycle picks up the new
+            # value immediately; writeback persists across restart/reload.
+            VacancyGraceMinutesNumber(hass, entry),
+            VacancyGraceConstrainedNumber(hass, entry),
+            MaxOccupancyHoursNumber(hass, entry),
             # v4.2.10: Off-peak drain target numbers
             OffPeakDrainNumber(hass, entry, "excellent", 10, 5, 50),
             OffPeakDrainNumber(hass, entry, "good", 15, 5, 60),
@@ -291,7 +299,10 @@ class ZoneEntryDwellNumber(NumberEntity):
     _attr_native_max_value = 15
     _attr_native_step = 1
     _attr_native_unit_of_measurement = UnitOfTime.MINUTES
-    _attr_mode = NumberMode.SLIDER
+    # Operator decision: BOX (not slider). All four presence-timer Numbers
+    # in the 47-50 cluster are precise minute/hour values; BOX is easier to
+    # land on than a slider on a tablet.
+    _attr_mode = NumberMode.BOX
     _attr_entity_category = EntityCategory.CONFIG
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
@@ -304,7 +315,7 @@ class ZoneEntryDwellNumber(NumberEntity):
         self.hass = hass
         self._entry = entry
         self._attr_unique_id = f"{DOMAIN}_hvac_zone_entry_dwell"
-        self._attr_name = "48 · Zone Entry Dwell"
+        self._attr_name = "47 · Zone Entry Dwell (minutes)"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, "hvac_coordinator")},
             name="URA: HVAC Coordinator",
@@ -314,7 +325,9 @@ class ZoneEntryDwellNumber(NumberEntity):
             via_device=(DOMAIN, "coordinator_manager"),
         )
         config = {**entry.data, **entry.options}
-        self._value = config.get(CONF_HVAC_ZONE_ENTRY_DWELL, DEFAULT_ZONE_ENTRY_DWELL_MINUTES)
+        self._value = int(config.get(
+            CONF_HVAC_ZONE_ENTRY_DWELL, DEFAULT_ZONE_ENTRY_DWELL_MINUTES,
+        ))
 
     def _get_hvac(self):
         """Get the HVAC coordinator instance."""
@@ -334,13 +347,287 @@ class ZoneEntryDwellNumber(NumberEntity):
         return self._get_hvac() is not None
 
     async def async_set_native_value(self, value: float) -> None:
-        """Set new dwell value — takes effect on next HVAC decision cycle."""
+        """Set new dwell value — takes effect on next HVAC decision cycle.
+
+        Persistence pattern (Bug Class #32 fix): entry.options is the SOLE
+        source of truth. Live-attr push happens BEFORE writeback so the
+        decision-cycle reader picks up the value on the very next tick;
+        the writeback persists it across restarts and reloads.
+
+        Reload-window note (review B-M1): the writeback below triggers an
+        untracked CM reload. If a prior save's reload is mid-flight, the
+        live-attr push here may write into a soon-to-be-discarded hvac
+        instance — harmless: the rebuilt coordinator re-seeds the same attr
+        from entry.options (__init__.py CM setup), so the value converges.
+        """
+        from .domain_coordinators.hvac_const import CONF_HVAC_ZONE_ENTRY_DWELL
         self._value = int(value)
         hvac = self._get_hvac()
         if hvac is not None:
             hvac._zone_entry_dwell = int(value)
+        self.hass.config_entries.async_update_entry(
+            self._entry,
+            options={**self._entry.options, CONF_HVAC_ZONE_ENTRY_DWELL: int(value)},
+        )
         self.async_write_ha_state()
         _LOGGER.info("Zone entry dwell set to %d minutes", int(value))
+
+
+class VacancyGraceMinutesNumber(NumberEntity):
+    """Configurable Zone Vacancy Delay (minutes) on HVAC Coordinator device.
+
+    Minutes a zone must stay empty before HVAC backs off to Away preset.
+
+    Entity: number.ura_hvac_coordinator_vacancy_grace
+    Device: URA: HVAC Coordinator
+
+    entry.options is the SOLE source of truth (no RestoreEntity).
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:timer-sand"
+    _attr_native_min_value = 0
+    _attr_native_max_value = 60
+    _attr_native_step = 1
+    _attr_native_unit_of_measurement = UnitOfTime.MINUTES
+    _attr_mode = NumberMode.BOX
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .domain_coordinators.hvac_const import (
+            CONF_HVAC_VACANCY_GRACE_MINUTES,
+            DEFAULT_VACANCY_GRACE_MINUTES,
+        )
+        self.hass = hass
+        self._entry = entry
+        self._attr_unique_id = f"{DOMAIN}_hvac_vacancy_grace_minutes"
+        self._attr_name = "48 · Zone Vacancy Delay (minutes)"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "hvac_coordinator")},
+            name="URA: HVAC Coordinator",
+            manufacturer="Universal Room Automation",
+            model="HVAC Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+        config = {**entry.data, **entry.options}
+        self._value = int(config.get(
+            CONF_HVAC_VACANCY_GRACE_MINUTES, DEFAULT_VACANCY_GRACE_MINUTES,
+        ))
+
+    def _get_hvac(self):
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        return manager.coordinators.get("hvac")
+
+    @property
+    def native_value(self) -> float:
+        return self._value
+
+    @property
+    def available(self) -> bool:
+        return self._get_hvac() is not None
+
+    async def async_set_native_value(self, value: float) -> None:
+        from .domain_coordinators.hvac_const import (
+            CONF_HVAC_VACANCY_GRACE_MINUTES,
+            CONF_HVAC_VACANCY_GRACE_CONSTRAINED,
+            DEFAULT_VACANCY_GRACE_CONSTRAINED,
+        )
+        new_value = int(value)
+        self._value = new_value
+        hvac = self._get_hvac()
+        if hvac is not None:
+            hvac._vacancy_grace = new_value
+        # Invariant (review HIGH-1): energy-saving delay must stay <= normal.
+        # If lowering the normal delay below the persisted energy-saving
+        # delay, clamp the latter down in the SAME writeback so the pair is
+        # never left inverted.
+        options = {**self._entry.options, CONF_HVAC_VACANCY_GRACE_MINUTES: new_value}
+        config = {**self._entry.data, **self._entry.options}
+        constrained = int(config.get(
+            CONF_HVAC_VACANCY_GRACE_CONSTRAINED, DEFAULT_VACANCY_GRACE_CONSTRAINED,
+        ))
+        if constrained > new_value:
+            options[CONF_HVAC_VACANCY_GRACE_CONSTRAINED] = new_value
+            if hvac is not None:
+                hvac._vacancy_grace_constrained = new_value
+            _LOGGER.info(
+                "Energy-saving zone vacancy delay clamped from %d to %d "
+                "minutes to stay <= new normal delay",
+                constrained, new_value,
+            )
+        self.hass.config_entries.async_update_entry(self._entry, options=options)
+        self.async_write_ha_state()
+        _LOGGER.info("Zone vacancy delay set to %d minutes", new_value)
+
+
+class VacancyGraceConstrainedNumber(NumberEntity):
+    """Energy-saving Zone Vacancy Delay (minutes) on HVAC Coordinator device.
+
+    Shorter delay used while the house is in an energy-coast/shed regime.
+    Must be <= the normal Zone Vacancy Delay.
+
+    Entity: number.ura_hvac_coordinator_vacancy_grace_constrained
+    Device: URA: HVAC Coordinator
+
+    entry.options is the SOLE source of truth (no RestoreEntity).
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:timer-sand"
+    _attr_native_min_value = 0
+    _attr_native_max_value = 60
+    _attr_native_step = 1
+    _attr_native_unit_of_measurement = UnitOfTime.MINUTES
+    _attr_mode = NumberMode.BOX
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .domain_coordinators.hvac_const import (
+            CONF_HVAC_VACANCY_GRACE_CONSTRAINED,
+            DEFAULT_VACANCY_GRACE_CONSTRAINED,
+        )
+        self.hass = hass
+        self._entry = entry
+        self._attr_unique_id = f"{DOMAIN}_hvac_vacancy_grace_constrained"
+        self._attr_name = "49 · Zone Vacancy Delay · Energy-Saving (minutes)"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "hvac_coordinator")},
+            name="URA: HVAC Coordinator",
+            manufacturer="Universal Room Automation",
+            model="HVAC Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+        config = {**entry.data, **entry.options}
+        self._value = int(config.get(
+            CONF_HVAC_VACANCY_GRACE_CONSTRAINED, DEFAULT_VACANCY_GRACE_CONSTRAINED,
+        ))
+
+    def _get_hvac(self):
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        return manager.coordinators.get("hvac")
+
+    @property
+    def native_value(self) -> float:
+        return self._value
+
+    @property
+    def available(self) -> bool:
+        return self._get_hvac() is not None
+
+    async def async_set_native_value(self, value: float) -> None:
+        from .domain_coordinators.hvac_const import (
+            CONF_HVAC_VACANCY_GRACE_CONSTRAINED,
+            CONF_HVAC_VACANCY_GRACE_MINUTES,
+            DEFAULT_VACANCY_GRACE_MINUTES,
+        )
+        # Invariant (review HIGH-1): energy-saving delay must be <= normal
+        # delay, else the HVAC energy_constrained branch (hvac.py) waits
+        # LONGER to back off during the very regime it should throttle. The
+        # config-flow form enforces this, but a direct number.set_value can't
+        # — clamp here so the entity path can't violate it.
+        config = {**self._entry.data, **self._entry.options}
+        normal = int(config.get(
+            CONF_HVAC_VACANCY_GRACE_MINUTES, DEFAULT_VACANCY_GRACE_MINUTES,
+        ))
+        new_value = min(int(value), normal)
+        if new_value != int(value):
+            _LOGGER.info(
+                "Energy-saving zone vacancy delay clamped from %d to %d "
+                "minutes (must be <= normal delay of %d)",
+                int(value), new_value, normal,
+            )
+        self._value = new_value
+        hvac = self._get_hvac()
+        if hvac is not None:
+            hvac._vacancy_grace_constrained = new_value
+        self.hass.config_entries.async_update_entry(
+            self._entry,
+            options={**self._entry.options, CONF_HVAC_VACANCY_GRACE_CONSTRAINED: new_value},
+        )
+        self.async_write_ha_state()
+        _LOGGER.info(
+            "Zone vacancy delay (energy-saving) set to %d minutes", new_value,
+        )
+
+
+class MaxOccupancyHoursNumber(NumberEntity):
+    """Max Zone Occupied Time (hours) on HVAC Coordinator device.
+
+    If a zone reads continuously occupied this long, HVAC stops trusting
+    the presence signal as stuck.
+
+    Entity: number.ura_hvac_coordinator_max_occupancy_hours
+    Device: URA: HVAC Coordinator
+
+    entry.options is the SOLE source of truth (no RestoreEntity).
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:timer-alert-outline"
+    _attr_native_min_value = 1
+    _attr_native_max_value = 24
+    _attr_native_step = 1
+    _attr_native_unit_of_measurement = UnitOfTime.HOURS
+    _attr_mode = NumberMode.BOX
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        from homeassistant.helpers.device_registry import DeviceInfo
+        from .domain_coordinators.hvac_const import (
+            CONF_HVAC_MAX_OCCUPANCY_HOURS,
+            DEFAULT_MAX_OCCUPANCY_HOURS,
+        )
+        self.hass = hass
+        self._entry = entry
+        self._attr_unique_id = f"{DOMAIN}_hvac_max_occupancy_hours"
+        self._attr_name = "50 · Max Zone Occupied Time (hours)"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "hvac_coordinator")},
+            name="URA: HVAC Coordinator",
+            manufacturer="Universal Room Automation",
+            model="HVAC Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+        config = {**entry.data, **entry.options}
+        self._value = int(config.get(
+            CONF_HVAC_MAX_OCCUPANCY_HOURS, DEFAULT_MAX_OCCUPANCY_HOURS,
+        ))
+
+    def _get_hvac(self):
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        return manager.coordinators.get("hvac")
+
+    @property
+    def native_value(self) -> float:
+        return self._value
+
+    @property
+    def available(self) -> bool:
+        return self._get_hvac() is not None
+
+    async def async_set_native_value(self, value: float) -> None:
+        from .domain_coordinators.hvac_const import CONF_HVAC_MAX_OCCUPANCY_HOURS
+        self._value = int(value)
+        hvac = self._get_hvac()
+        if hvac is not None:
+            hvac._max_occupancy_hours = int(value)
+        self.hass.config_entries.async_update_entry(
+            self._entry,
+            options={**self._entry.options, CONF_HVAC_MAX_OCCUPANCY_HOURS: int(value)},
+        )
+        self.async_write_ha_state()
+        _LOGGER.info("Max zone occupied time set to %d hours", int(value))
 
 
 class OffPeakDrainNumber(NumberEntity, RestoreEntity):

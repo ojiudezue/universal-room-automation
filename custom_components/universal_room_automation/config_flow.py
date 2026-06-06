@@ -3923,6 +3923,13 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             DEFAULT_PRE_ARRIVAL_SOURCES,
             CONF_HVAC_ZONE_ENTRY_DWELL,
             DEFAULT_ZONE_ENTRY_DWELL_MINUTES,
+            # Presence-timer cluster — collapsed "presence_timing" section
+            CONF_HVAC_VACANCY_GRACE_MINUTES,
+            DEFAULT_VACANCY_GRACE_MINUTES,
+            CONF_HVAC_VACANCY_GRACE_CONSTRAINED,
+            DEFAULT_VACANCY_GRACE_CONSTRAINED,
+            CONF_HVAC_MAX_OCCUPANCY_HOURS,
+            DEFAULT_MAX_OCCUPANCY_HOURS,
             # v4.5.9.2: occupancy-aware cover-close threshold
             CONF_HVAC_OCCUPIED_COVER_CLOSE_DELTA,
             DEFAULT_HVAC_OCCUPIED_COVER_CLOSE_DELTA,
@@ -3950,12 +3957,22 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             COVER_HYSTERESIS_MIN_GAP,
         )
 
+        # Import HA section helper for the collapsed "presence_timing" block.
+        from homeassistant.data_entry_flow import section
+
         # v4.5.10: validation — Cover Open Temp must be at least
         # COVER_HYSTERESIS_MIN_GAP (3°F) below Cover Close Temp to
         # prevent solar-gain flapping. Reject the form save with an
         # error rather than silently accepting bad config.
         errors: dict[str, str] = {}
         if user_input is not None:
+            # Flatten the collapsed "presence_timing" section BEFORE any
+            # validation reads from user_input. Mirrors the fan_recheck
+            # flatten pattern at config_flow.py:2893-2898.
+            advanced = user_input.pop("presence_timing", None)
+            if isinstance(advanced, dict):
+                user_input = {**user_input, **advanced}
+
             close_temp = float(user_input.get(
                 CONF_HVAC_COVER_CLOSE_TEMP, DEFAULT_HVAC_COVER_CLOSE_TEMP,
             ))
@@ -3964,7 +3981,22 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             ))
             if close_temp - open_temp < COVER_HYSTERESIS_MIN_GAP:
                 errors["base"] = "cover_temp_hysteresis_too_small"
-            else:
+
+            # Cross-field validation: energy-saving vacancy delay must not
+            # exceed the normal vacancy delay (operator-coined constraint).
+            if not errors:
+                grace = int(user_input.get(
+                    CONF_HVAC_VACANCY_GRACE_MINUTES,
+                    DEFAULT_VACANCY_GRACE_MINUTES,
+                ))
+                grace_constrained = int(user_input.get(
+                    CONF_HVAC_VACANCY_GRACE_CONSTRAINED,
+                    DEFAULT_VACANCY_GRACE_CONSTRAINED,
+                ))
+                if grace_constrained > grace:
+                    errors["base"] = "vacancy_grace_constrained_exceeds_normal"
+
+            if not errors:
                 return self.async_create_entry(
                     title="",
                     data={**self._config_entry.options, **user_input},
@@ -4215,16 +4247,69 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     mode=selector.SelectSelectorMode.LIST,
                 )
             ),
-            # v4.2.2: Zone entry dwell
-            vol.Optional(
-                CONF_HVAC_ZONE_ENTRY_DWELL,
-                default=self._get_current(CONF_HVAC_ZONE_ENTRY_DWELL, DEFAULT_ZONE_ENTRY_DWELL_MINUTES),
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=0, max=15, step=1,
-                    unit_of_measurement="min",
-                    mode=selector.NumberSelectorMode.SLIDER,
-                )
+            # Presence-timer cluster — collapsed "Advanced — presence
+            # timing (rarely change)" section. Holds the 4 presence-timer
+            # knobs (vacancy delay, energy-saving vacancy delay, zone entry
+            # dwell, max occupied time). Section contents are flattened
+            # back to top-level entry.options on save (see flatten block
+            # at the top of this step). Cross-field validation enforces
+            # energy-saving vacancy delay <= normal vacancy delay.
+            vol.Optional("presence_timing"): section(
+                vol.Schema({
+                    vol.Optional(
+                        CONF_HVAC_VACANCY_GRACE_MINUTES,
+                        default=self._get_current(
+                            CONF_HVAC_VACANCY_GRACE_MINUTES,
+                            DEFAULT_VACANCY_GRACE_MINUTES,
+                        ),
+                    ): selector.NumberSelector(
+                        selector.NumberSelectorConfig(
+                            min=0, max=60, step=1,
+                            unit_of_measurement="min",
+                            mode=selector.NumberSelectorMode.BOX,
+                        )
+                    ),
+                    vol.Optional(
+                        CONF_HVAC_VACANCY_GRACE_CONSTRAINED,
+                        default=self._get_current(
+                            CONF_HVAC_VACANCY_GRACE_CONSTRAINED,
+                            DEFAULT_VACANCY_GRACE_CONSTRAINED,
+                        ),
+                    ): selector.NumberSelector(
+                        selector.NumberSelectorConfig(
+                            min=0, max=60, step=1,
+                            unit_of_measurement="min",
+                            mode=selector.NumberSelectorMode.BOX,
+                        )
+                    ),
+                    vol.Optional(
+                        CONF_HVAC_ZONE_ENTRY_DWELL,
+                        default=self._get_current(
+                            CONF_HVAC_ZONE_ENTRY_DWELL,
+                            DEFAULT_ZONE_ENTRY_DWELL_MINUTES,
+                        ),
+                    ): selector.NumberSelector(
+                        selector.NumberSelectorConfig(
+                            min=0, max=15, step=1,
+                            unit_of_measurement="min",
+                            mode=selector.NumberSelectorMode.BOX,
+                        )
+                    ),
+                    vol.Optional(
+                        CONF_HVAC_MAX_OCCUPANCY_HOURS,
+                        default=self._get_current(
+                            CONF_HVAC_MAX_OCCUPANCY_HOURS,
+                            DEFAULT_MAX_OCCUPANCY_HOURS,
+                        ),
+                    ): selector.NumberSelector(
+                        selector.NumberSelectorConfig(
+                            min=1, max=24, step=1,
+                            unit_of_measurement="h",
+                            mode=selector.NumberSelectorMode.BOX,
+                        )
+                    ),
+                }),
+                {"collapsed": True},
             ),
             # v4.6.3 D10: Anomaly sensitivity
             vol.Optional(
