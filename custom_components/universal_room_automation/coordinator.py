@@ -1,6 +1,6 @@
 """Data coordinator for Universal Room Automation."""
 #
-# Universal Room Automation vv4.7.23
+# Universal Room Automation vv4.7.24
 # Build: 2026-01-02
 # File: coordinator.py
 # v3.2.8: Support for active state change listeners in aggregation sensors
@@ -121,6 +121,7 @@ from .domain_coordinators.signals import (
     SIGNAL_ENERGY_CONSTRAINT,
     SIGNAL_SAFETY_HAZARD,
     SIGNAL_SECURITY_EVENT,
+    SIGNAL_SUBSTRATE_KIND_CHANGED,
 )
 from .domain_coordinators.energy_billing import _get_effective_rate_kwh
 from .automation import RoomAutomation
@@ -259,6 +260,16 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
 
         # v3.12.0: M2 signal listener unsub handles
         self._unsub_signal_listeners: list = []
+
+        # Occupancy substrate unification cycle (B-C1 fix-up): dedicated
+        # unsub list for SIGNAL_SUBSTRATE_KIND_CHANGED subscription. MUST
+        # NOT share storage with _unsub_signal_listeners, because
+        # _update_signal_subscriptions() clears that list wholesale every
+        # time options-flow saves (and also at first_refresh setup), which
+        # would silently unsubscribe the substrate handler and break the
+        # D3 actuation-critical path. Cleared only on first_refresh (stale
+        # listener purge) and on unload (see __init__.py).
+        self._unsub_substrate_listeners: list = []
 
         # v3.12.0: M3 AI rule conflict tracking
         self._conflict_detected: bool = False
@@ -867,6 +878,11 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         for unsub in self._unsub_signal_listeners:
             unsub()
         self._unsub_signal_listeners.clear()
+        # B-C1 fix-up: tear down stale substrate-listener subscriptions
+        # symmetrically with _unsub_state_listeners / _unsub_signal_listeners.
+        for unsub in self._unsub_substrate_listeners:
+            unsub()
+        self._unsub_substrate_listeners.clear()
         # v4.0.7: Cancel any pending trailing-edge refresh from rate limiter
         if self._trailing_refresh_unsub is not None:
             self._trailing_refresh_unsub()
@@ -907,76 +923,151 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
             room_name, len(tier1_sensors), tier1_sensors, tier2_count,
         )
 
-        # Set up event listener for Tier 1 sensors only
+        # Set up event listener for Tier 1 sensors only.
+        #
+        # Occupancy substrate unification cycle (D3): the room tier's
+        # Tier-1 listener is moved from the prior
+        # `async_track_state_change_event(tier1_sensors, ...)` over to a
+        # subscription on `SIGNAL_SUBSTRATE_KIND_CHANGED` for the
+        # configured room. The substrate (owned by PresenceCoordinator)
+        # is now the single canonical state-change subscription set for
+        # CONF-listed motion/mmwave/occupancy entities across both
+        # tiers — so the room tier listens to per-kind edges from the
+        # substrate instead of subscribing directly. Substrate sits
+        # BENEATH both tiers; this is NOT a deprecation of the room
+        # tier, and the room tier's smoothing/timeout/failsafe/camera/
+        # BLE-override behavior in `_async_update_data` is UNCHANGED.
+        #
+        # Lux remains a direct state-change subscription — it is Tier-1
+        # for room-tier latency budgeting but is NOT a presence sensor,
+        # so it is not part of the substrate's CONF-list-driven
+        # discovery surface.
         if tier1_sensors:
             # Pre-build set for O(1) lookup in hot callback path
             occupancy_sensor_set = set(motion_sensors + mmwave_sensors + occupancy_sensors)
 
-            @callback
-            def _tier1_state_changed(event):
-                """Handle Tier 1 sensor state changes with rate limiting.
-
-                Note: _debounce_refresh_callback and the 30s poll timer call
-                async_refresh() directly — they bypass this rate limiter by design.
-                """
-                entity_id = event.data.get("entity_id", "")
-                new_state = event.data.get("new_state")
-                old_state = event.data.get("old_state")
-                new_val = new_state.state if new_state else "None"
-                old_val = old_state.state if old_state else "None"
-
-                # RESILIENCE-002: Log motion/occupancy sensor transitions
-                if entity_id in occupancy_sensor_set:
-                    _LOGGER.info(
-                        "Room %s: Sensor %s changed %s -> %s",
-                        room_name, entity_id, old_val, new_val,
-                    )
-
-                # Rate limiter with trailing edge: prevents rapid-fire motion
-                # sensors from queueing multiple concurrent refreshes, while
-                # ensuring the LAST event in a burst is always processed.
+            # ---- D3 inline-rate-limited refresh trigger ----
+            # The body below preserves the prior `_tier1_state_changed`
+            # semantics EXACTLY — 2s rate limiter + trailing-edge
+            # refresh + immediate `async_refresh()` on the leading edge
+            # (preserves the B-HIGH-1 / Review B, 2026-06-03 decision
+            # NOT to route through `async_request_refresh()` because URA
+            # does not override the DataUpdateCoordinator default 10s
+            # debouncer at `super().__init__` (coordinator.py:285-290),
+            # which would stack a 10s quiet period on top of the 2s
+            # rate limiter and lift Tier-1 occupant-confirmation latency
+            # to ~10s in burst conditions).
+            def _trigger_rate_limited_refresh() -> None:
                 now_mono = time.monotonic()
                 if now_mono - self._last_event_refresh < 2.0:
-                    # Schedule trailing-edge refresh so final state is captured
                     if self._trailing_refresh_unsub is None:
                         remaining = 2.0 - (now_mono - self._last_event_refresh) + 0.05
                         self._trailing_refresh_unsub = async_call_later(
                             self.hass, remaining, self._trailing_refresh_callback,
                         )
                     return
-
-                # Cancel any pending trailing refresh — we're doing a full one now
                 if self._trailing_refresh_unsub is not None:
                     self._trailing_refresh_unsub()
                     self._trailing_refresh_unsub = None
                 self._last_event_refresh = now_mono
-                # setup/unload symmetry: tracked via the room entry so
-                # the refresh is cancelled on entry unload. KEEP
-                # `async_refresh()` (immediate) here — B-HIGH-1
-                # (Review B, 2026-06-03) reverted the swap to
-                # `async_request_refresh()` because URA does NOT
-                # override the DataUpdateCoordinator default debouncer
-                # (cooldown=10s, immediate=True) at `__init__`
-                # (coordinator.py:276), so routing through it would
-                # stack a 10s quiet period on top of the 2s rate
-                # limiter at :914-922 — Tier-1 occupant-confirmation
-                # latency could rise to ~10s in burst conditions.
                 self.entry.async_create_background_task(
                     self.hass, self.async_refresh(),
                     "ura_tier1_refresh",
                 )
 
-            self._unsub_state_listeners.append(
-                async_track_state_change_event(
-                    self.hass, tier1_sensors, _tier1_state_changed,
+            # ---- Substrate signal handler (D3 actuation-critical path) ----
+            @callback
+            def _on_substrate_kind_changed(
+                payload_room_name: str,
+                payload_kind: str,
+                payload_new_state: bool,
+            ) -> None:
+                """Handle SIGNAL_SUBSTRATE_KIND_CHANGED for this room.
+
+                Substrate dispatches per-kind edges for EVERY configured
+                room; filter on `payload_room_name` to react only to our
+                own room. The rate limiter + immediate-refresh decision
+                inside `_trigger_rate_limited_refresh()` preserves the
+                pre-cycle Tier-1 reaction latency at parity.
+                """
+                if payload_room_name != room_name:
+                    return
+                _LOGGER.info(
+                    "Room %s: substrate kind=%s edge -> %s",
+                    room_name, payload_kind, payload_new_state,
+                )
+                _trigger_rate_limited_refresh()
+
+            # B-C1 fix-up: append to dedicated substrate-listener list,
+            # NOT _unsub_signal_listeners. _update_signal_subscriptions()
+            # (called immediately below at first_refresh AND on every
+            # options-flow save) clears _unsub_signal_listeners wholesale
+            # and only rebuilds the M2 trigger/AI-rule signal set — so
+            # routing the substrate sub through it would silently kill
+            # the room tier's substrate edges every options save.
+            self._unsub_substrate_listeners.append(
+                async_dispatcher_connect(
+                    self.hass,
+                    SIGNAL_SUBSTRATE_KIND_CHANGED,
+                    _on_substrate_kind_changed,
                 )
             )
 
-            _LOGGER.info(
-                "Room %s: Event-driven mode — %d Tier 1 sensors (immediate), "
-                "%d Tier 2 sensors (30s poll)",
-                room_name, len(tier1_sensors), tier2_count,
+            # ---- Lux direct state-change listener (preserved) ----
+            # Lux is Tier-1 for latency but lives outside the substrate's
+            # CONF presence-sensor lists, so it keeps its own state-change
+            # subscription. Reuses the same rate-limited refresh trigger.
+            lux_entity = self._get_config(CONF_ILLUMINANCE_SENSOR)
+            if lux_entity:
+                @callback
+                def _on_lux_state_changed(event):
+                    """State-change callback for the Tier-1 lux sensor."""
+                    new_state = event.data.get("new_state")
+                    old_state = event.data.get("old_state")
+                    new_val = new_state.state if new_state else "None"
+                    old_val = old_state.state if old_state else "None"
+                    _LOGGER.debug(
+                        "Room %s: lux %s changed %s -> %s",
+                        room_name, lux_entity, old_val, new_val,
+                    )
+                    _trigger_rate_limited_refresh()
+
+                self._unsub_state_listeners.append(
+                    async_track_state_change_event(
+                        self.hass, [lux_entity], _on_lux_state_changed,
+                    )
+                )
+
+            # B-H2 fix-up: the count of substrate-routed entities is
+            # motion + mmwave + occupancy only. Lux is Tier-1 for
+            # latency budgeting but lives outside the substrate's
+            # CONF surface — it keeps its own direct state-change
+            # listener (registered below). Report lux separately so
+            # post-deploy audits comparing the substrate's
+            # "subscribed to N Tier-1 entities" log against this line
+            # match exactly.
+            substrate_routed_count = (
+                len(motion_sensors)
+                + len(mmwave_sensors)
+                + len(occupancy_sensors)
             )
+            lux_suffix = (
+                " + 1 lux (direct state-change)"
+                if self._get_config(CONF_ILLUMINANCE_SENSOR)
+                else ""
+            )
+            _LOGGER.info(
+                "Room %s: Event-driven mode — %d substrate-driven Tier-1 "
+                "sensors (%d motion / %d mmwave / %d occupancy)%s, "
+                "%d Tier 2 sensors (30s poll)",
+                room_name, substrate_routed_count,
+                len(motion_sensors), len(mmwave_sensors),
+                len(occupancy_sensors), lux_suffix, tier2_count,
+            )
+            # Silence unused-name warnings for the occupancy_sensor_set
+            # (kept for diagnostic parity with the pre-substrate body if
+            # a future hotfix needs it).
+            _ = occupancy_sensor_set
         else:
             _LOGGER.info(
                 "Room %s: No motion/occupancy sensors — using 30s polling. "

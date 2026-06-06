@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv4.7.23
+# Universal Room Automation vv4.7.24
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -3164,6 +3164,13 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             for unsub in signal_listeners:
                 unsub()
             signal_listeners.clear()
+            # B-C1 fix-up: substrate signal subscription lives on its own
+            # list (NOT _unsub_signal_listeners) so _update_signal_subscriptions
+            # cannot clobber it. Tear it down here symmetrically.
+            substrate_listeners = getattr(coordinator, "_unsub_substrate_listeners", [])
+            for unsub in substrate_listeners:
+                unsub()
+            substrate_listeners.clear()
             debounce_unsub = getattr(coordinator, "_debounce_refresh_unsub", None)
             if debounce_unsub is not None:
                 debounce_unsub()

@@ -67,7 +67,10 @@ from .signals import (
     SIGNAL_PERSON_ARRIVING,
     SIGNAL_PRESENCE_ENTITIES_UPDATE,
 )
-from homeassistant.helpers.dispatcher import async_dispatcher_send
+from homeassistant.helpers.dispatcher import (
+    async_dispatcher_connect,
+    async_dispatcher_send,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -273,7 +276,19 @@ def _classify_entity_kind(
         )
 
     # Step 2 — substring fallback matching the discovery filter at :1460.
+    # Occupancy substrate unification cycle: this fallback is RETAINED
+    # for non-CONF-listed sensors (defensive — should not fire for a
+    # properly-configured room post-substrate). WARN-log when it does
+    # fire to surface configuration gaps, per planning doc D2.
     eid = entity_id.lower()
+    _LOGGER.warning(
+        "Substrate-cycle: _classify_entity_kind substring fallback fired "
+        "for %s in room '%s' — entity is NOT in CONF_MOTION_SENSORS / "
+        "CONF_MMWAVE_SENSORS / CONF_OCCUPANCY_SENSORS for that room. "
+        "Add it to the appropriate CONF list to remove the substring-"
+        "classification path.",
+        entity_id, room_name,
+    )
     if "mmwave" in eid or "presence" in eid:
         return "mmwave"
     if "motion" in eid:
@@ -1224,6 +1239,18 @@ class PresenceCoordinator(BaseCoordinator):
         # (avoids a circular if presence_fan_recheck ever needs PC types).
         self._fan_recheck_manager: Optional[Any] = None
 
+        # Occupancy substrate unification cycle: shared per-room, per-kind
+        # raw-signal layer beneath the room + zone tiers. Owned by this
+        # PresenceCoordinator instance; built in async_setup() before
+        # _discover_room_sensors fires. The zone tier subscribes to
+        # SIGNAL_SUBSTRATE_KIND_CHANGED instead of state-change events on
+        # the entity-registry area-sweep set. See
+        # docs/planning/PLANNING_occupancy_substrate_unification.md.
+        self._substrate: Optional[Any] = None
+        # Substrate signal subscription unsub (dispatcher channel). Captured
+        # so async_teardown can clean it up — Bug Class #38.
+        self._substrate_signal_unsub: Optional[Any] = None
+
     @property
     def inference_engine(self) -> StateInferenceEngine:
         """Return the state inference engine."""
@@ -1675,6 +1702,19 @@ class PresenceCoordinator(BaseCoordinator):
             return
         self._boot_settle_done = True
         self._boot_settle_release_reason = reason
+        # Occupancy substrate unification cycle (D6): release the substrate's
+        # dispatch-suppression gate at the same moment the presence
+        # coordinator's own gate releases. Emits ONE synthetic
+        # SIGNAL_SUBSTRATE_KIND_CHANGED per (room, kind) slot whose seeded
+        # state is True (False slots emit nothing — consumers default False).
+        try:
+            if self._substrate is not None:
+                self._substrate.release_boot_settle()
+        except Exception:  # noqa: BLE001 — defensive
+            _LOGGER.debug(
+                "OccupancySubstrate: release_boot_settle raised (non-fatal)",
+                exc_info=True,
+            )
         if reason == "timeout":
             _LOGGER.warning(
                 "Boot-settle: released via TIMEOUT after %ss (no real input "
@@ -1846,7 +1886,56 @@ class PresenceCoordinator(BaseCoordinator):
             # Discover zones and create trackers
             self._discover_zones()
 
-            # Discover and subscribe to room occupancy sensors (Tier 1)
+            # Occupancy substrate unification cycle (D1 + D2):
+            # Build the substrate BEFORE the zone-tier Tier-1 discovery
+            # call so the substrate's CONF-list-driven discovery is the
+            # single source of truth for which entities are subscribed.
+            # The zone tier no longer area-sweeps — it subscribes to
+            # SIGNAL_SUBSTRATE_KIND_CHANGED and routes per-kind edges
+            # into ``tracker.update_room_occupancy`` with the same call
+            # shape the prior state-change callback used.
+            from .occupancy_substrate import OccupancySubstrate  # noqa: PLC0415
+            self._substrate = OccupancySubstrate(self.hass)
+            # Mirror the boot-settle gate state: if HA is already RUNNING
+            # (options-flow reload, not cold boot) the gate is born
+            # released, so the substrate must also dispatch immediately.
+            if self._boot_settle_done:
+                # release_boot_settle() is idempotent and emits synthetic
+                # True-slot signals AFTER discovery; do it after setup
+                # below so the seed has already populated ``_raw_state``.
+                pass
+            await self._substrate.async_setup()
+            # If the coordinator's own boot-settle gate has already
+            # released (reload path), release the substrate's gate now
+            # too so live edges dispatch immediately.
+            if self._boot_settle_done:
+                try:
+                    self._substrate.release_boot_settle()
+                except Exception:  # noqa: BLE001 — defensive
+                    _LOGGER.debug(
+                        "OccupancySubstrate: reload-path release raised",
+                        exc_info=True,
+                    )
+            # Zone-tier subscription (D2): replace the prior state-change
+            # listener path with a substrate signal subscription.
+            # B-H1 fix-up: async_dispatcher_connect imported at module top
+            # (alongside async_dispatcher_send) to avoid Bug Class #34
+            # function-local shadow-binding hazard.
+            from .signals import (  # noqa: PLC0415
+                SIGNAL_SUBSTRATE_KIND_CHANGED,
+            )
+            self._substrate_signal_unsub = async_dispatcher_connect(
+                self.hass,
+                SIGNAL_SUBSTRATE_KIND_CHANGED,
+                self._on_substrate_kind_changed,
+            )
+            self._unsub_listeners.append(self._substrate_signal_unsub)
+
+            # Discover and subscribe to room occupancy sensors (Tier 1).
+            # Post-substrate this is a thin compatibility shim — the actual
+            # state-change subscription lives in the substrate. We keep the
+            # call so the legacy `register_entity` hooks still fire for any
+            # consumer reading `tracker._entity_to_room`.
             self._discover_room_sensors()
 
             # Discover and subscribe to zone cameras (Tier 2)
@@ -1867,7 +1956,8 @@ class PresenceCoordinator(BaseCoordinator):
             self._subscribe_geofence()
 
             # Subscribe to census updates
-            from homeassistant.helpers.dispatcher import async_dispatcher_connect
+            # B-H1 fix-up: async_dispatcher_connect now imported at
+            # module top — no function-local import needed.
             self._unsub_listeners.append(
                 async_dispatcher_connect(
                     self.hass,
@@ -2197,10 +2287,39 @@ class PresenceCoordinator(BaseCoordinator):
     # ------------------------------------------------------------------
 
     def _discover_room_sensors(self) -> None:
-        """Discover room occupancy sensors using entity/device registry area_id.
+        """Register CONF-listed Tier-1 entities with zone trackers.
 
-        v3.6.0.11: Also checks device area_id when entity area_id is null.
-        Many Zigbee/MQTT sensors have area_id on the device, not the entity.
+        Occupancy substrate unification cycle (D2). The prior area-sweep
+        body (entity-registry walk by name + area_id) is DELETED — it was
+        the source of the Jaya/Exercise sensor-set divergence between the
+        room tier (CONF-driven) and the zone tier (area-sweep). The
+        ``OccupancySubstrate`` (built earlier in ``async_setup``) is now
+        the canonical state-change subscription set, sourced exclusively
+        from the operator's curated ``CONF_MOTION_SENSORS`` /
+        ``CONF_MMWAVE_SENSORS`` / ``CONF_OCCUPANCY_SENSORS`` lists.
+
+        Substrate sits BENEATH the room + zone tiers — it is NOT a new
+        tier and does not replace either of them. Both tiers continue to
+        apply their own legitimate temporal smoothing on top of the
+        substrate's raw view.
+
+        This method now performs only:
+
+          * Cache invalidation (entity_kind_cache, adjacency cache) so
+            re-discovery callers still see fresh state.
+          * Per-tracker ``register_entity`` calls for every CONF-listed
+            entity in that tracker's rooms, so ``tracker._entity_to_room``
+            mappings remain populated for downstream consumers (e.g.
+            ``_handle_occupancy_change`` callers that haven't yet been
+            migrated, diagnostic dumps).
+          * Seed the per-kind ``_room_provenance`` from the substrate's
+            ``_raw_state`` snapshot — preserves the v4.7.18.1 B-HIGH-1
+            invariant that the first ``_run_inference("startup")`` tick
+            observes accurate provenance even before state-change events
+            have fired.
+
+        It does NOT register state-change listeners — those are owned by
+        the substrate's single canonical subscription set.
         """
         # M1 fix-up: invalidate the (entity_id, room_name) -> kind cache
         # on every re-discovery so a config-flow update that rewires
@@ -2210,175 +2329,131 @@ class PresenceCoordinator(BaseCoordinator):
         # CONF_ADJACENT_ROOMS list — invalidate the adjacency cache
         # so the next gate call rebuilds from the current entries.
         self._invalidate_adjacency_cache()
+
+        # Resolve the substrate snapshot once for seeding below.
+        substrate = self._substrate
+        if substrate is None:
+            _LOGGER.debug(
+                "Substrate unification: _discover_room_sensors called "
+                "before substrate setup — skipping (no listeners to "
+                "register; substrate owns state-change subscriptions)"
+            )
+            return
+
+        # Walk every ROOM entry's CONF lists and register entities into
+        # the matching zone tracker via the existing register_entity API.
+        # This keeps ``tracker._entity_to_room`` populated so any consumer
+        # that still walks it (e.g. live diagnostics) finds the same set
+        # the substrate is subscribed to.
         try:
-            from homeassistant.helpers import entity_registry as er
-            from homeassistant.helpers import device_registry as dr
-            ent_reg = er.async_get(self.hass)
-            dev_reg = dr.async_get(self.hass)
-        except Exception:
-            _LOGGER.warning("Cannot access entity/device registry — room sensor discovery skipped")
-            return
-
-        entity_ids: Set[str] = set()
-        occupancy_keywords = ("occupancy", "motion", "presence", "mmwave")
-
-        for _zone_name, tracker in self._zone_trackers.items():
-            for room_name in tracker.room_names:
-                area_id = self._room_area_ids.get(room_name)
-                if not area_id:
-                    _LOGGER.debug(
-                        "Room '%s' has no area_id configured — trying name-based fallback",
-                        room_name,
-                    )
-                    self._discover_room_sensors_by_name(
-                        tracker, room_name, entity_ids,
-                    )
-                    continue
-
-                # Find binary_sensor entities assigned to this area
-                # Check both entity area_id and device area_id (fallback)
-                for entity in ent_reg.entities.values():
-                    if entity.domain != "binary_sensor":
-                        continue
-                    if not any(kw in entity.entity_id for kw in occupancy_keywords):
-                        continue
-
-                    # Resolve effective area: entity → device fallback
-                    effective_area = entity.area_id
-                    if not effective_area and entity.device_id:
-                        dev_entry = dev_reg.async_get(entity.device_id)
-                        if dev_entry:
-                            effective_area = dev_entry.area_id
-
-                    if effective_area == area_id:
-                        entity_ids.add(entity.entity_id)
-                        tracker.register_entity(entity.entity_id, room_name)
-                        _LOGGER.debug(
-                            "Zone %s: room %s (area %s) → occupancy sensor %s",
-                            _zone_name, room_name, area_id, entity.entity_id,
-                        )
-
-        if entity_ids:
-            # H2 fix-up: tear down the prior occupancy-listener
-            # subscription if one was already registered (defense-in-
-            # depth against a future re-discovery caller). Without
-            # this, a second invocation would stack a duplicate
-            # listener and `_handle_occupancy_change` would fire twice
-            # per state change, double-mutating `_room_provenance`.
-            if self._occupancy_listener_unsub is not None:
-                try:
-                    self._occupancy_listener_unsub()
-                except Exception:  # noqa: BLE001 — defensive
-                    _LOGGER.debug(
-                        "Prior occupancy listener unsub raised (non-fatal)",
-                        exc_info=True,
-                    )
-                try:
-                    self._unsub_listeners.remove(self._occupancy_listener_unsub)
-                except ValueError:
-                    pass
-                self._occupancy_listener_unsub = None
-            occ_unsub = async_track_state_change_event(
-                self.hass,
-                list(entity_ids),
-                self._handle_occupancy_change,
-            )
-            self._occupancy_listener_unsub = occ_unsub
-            self._unsub_listeners.append(occ_unsub)
-            _LOGGER.info(
-                "Subscribed to %d room occupancy entities across %d zones",
-                len(entity_ids), len(self._zone_trackers),
-            )
-
-            # v4.7.18.1 fix-up B-HIGH-1: seed tracker._room_occupied from the
-            # current sensor states discovered above. Without this seed, the
-            # first _run_inference("startup") tick observes an empty
-            # _room_occupied dict (state-change events have not yet fired),
-            # so tracker.raw_occupied returns False even when mmwave is ON.
-            # Mirrors the existing census seed at presence.py:1228-1259 and
-            # uses the SAME predicate as _handle_occupancy_change (state == "on";
-            # unavailable/unknown → False) so seed and live updates agree.
-            for entity_id in entity_ids:
-                try:
-                    state = self.hass.states.get(entity_id)
-                except Exception:  # pragma: no cover - defensive
-                    state = None
-                if state is None:
-                    continue
-                if state.state in _UNAVAILABLE_STATES:
-                    continue
-                occupied = state.state == "on"
-                # B-LOW-1 review fix-up: seed OFF rooms too (do NOT
-                # short-circuit on `not occupied`). The False-write path
-                # in update_room_occupancy creates an empty provenance
-                # dict for the room key, which stabilizes
-                # `set(_room_provenance.keys()) == set(_room_occupied.keys())`
-                # (Invariant 4 in _audit_provenance_invariants) across
-                # all discovered rooms — not just ones that fired at
-                # least once. _has_sensors is already True by this point
-                # via register_entity (presence.py:627), so flipping
-                # False at seed has no observable effect on _derived_mode.
-                for _zone_name, tracker in self._zone_trackers.items():
-                    room_name = tracker._entity_to_room.get(entity_id)
-                    if room_name:
-                        # Provenance-split cycle (D2): classify per-kind
-                        # at seed time using the SAME cached classifier
-                        # the live callback uses below. Seed-vs-live
-                        # divergence is the v4.7.18.1 review finding
-                        # B-HIGH-1 (not QUALITY_CONTEXT.md Bug Class #1);
-                        # both paths MUST route through
-                        # `_classify_entity_kind_cached` (single cache
-                        # slot per (entity, room)) for byte-equal
-                        # classification.
-                        kind = self._classify_entity_kind_cached(
-                            entity_id, room_name,
-                        )
-                        tracker.update_room_occupancy(
-                            room_name, occupied, kind=kind,
-                        )
-                        break
-
-    def _discover_room_sensors_by_name(
-        self,
-        tracker: ZonePresenceTracker,
-        room_name: str,
-        entity_ids: Set[str],
-    ) -> None:
-        """Fallback: discover occupancy sensors by name matching.
-
-        Only used when a room has no area_id configured. Less reliable
-        than area_id-based discovery — a room named "den" could match
-        "garden_motion", so we require BOTH the room name AND an occupancy
-        keyword in the entity_id.
-        """
-        room_lower = room_name.lower().replace(" ", "_")
-        occupancy_keywords = ("occupancy", "motion", "presence", "mmwave")
-
-        # Avoid matching short room names that are substrings of unrelated entities
-        if len(room_lower) < 3:
+            entries = self.hass.config_entries.async_entries(DOMAIN)
+        except Exception:  # noqa: BLE001 — defensive: registry mid-reload
             _LOGGER.warning(
-                "Room name '%s' is too short for name-based sensor matching — skipping",
-                room_name,
+                "Cannot enumerate config entries — Tier-1 register_entity "
+                "pass skipped",
+                exc_info=True,
             )
-            return
+            entries = []
 
-        for state in self.hass.states.async_all():
-            entity_id = state.entity_id
-            if not entity_id.startswith("binary_sensor."):
+        registered_count = 0
+        seeded_count = 0
+        for entry in entries:
+            try:
+                merged = {**(entry.data or {}), **(entry.options or {})}
+            except Exception:  # noqa: BLE001
+                continue
+            if merged.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ROOM:
+                continue
+            room_name = merged.get(CONF_ROOM_NAME)
+            if not room_name:
                 continue
 
-            # Require BOTH room name and occupancy keyword
-            entity_suffix = entity_id[len("binary_sensor."):]
-            if (
-                room_lower in entity_suffix
-                and any(kw in entity_suffix for kw in occupancy_keywords)
+            # Find the tracker that owns this room.
+            tracker: Optional[ZonePresenceTracker] = None
+            zone_name = self._room_to_zone.get(room_name)
+            if zone_name is not None:
+                tracker = self._zone_trackers.get(zone_name)
+            if tracker is None:
+                # Cold-start fallback — the cache may not be primed yet
+                # if discover_zones order changes in the future. Walk.
+                for _zone_name, _t in self._zone_trackers.items():
+                    if room_name in _t.room_names:
+                        tracker = _t
+                        zone_name = _zone_name
+                        break
+            if tracker is None:
+                continue
+
+            # Collect CONF entities for this room across all three kinds.
+            for conf_key in (
+                CONF_MOTION_SENSORS,
+                CONF_MMWAVE_SENSORS,
+                CONF_OCCUPANCY_SENSORS,
             ):
-                entity_ids.add(entity_id)
-                tracker.register_entity(entity_id, room_name)
-                _LOGGER.debug(
-                    "Zone %s: room %s → occupancy sensor %s (name-based fallback)",
-                    tracker.zone_name, room_name, entity_id,
-                )
+                for entity_id in (merged.get(conf_key, []) or []):
+                    if not entity_id:
+                        continue
+                    tracker.register_entity(entity_id, room_name)
+                    registered_count += 1
+
+            # Seed the tracker's per-kind provenance from the substrate's
+            # current raw view (v4.7.18.1 B-HIGH-1 seed invariant).
+            try:
+                kinds = substrate.get_room_kinds(room_name)
+            except Exception:  # noqa: BLE001 — defensive
+                kinds = {}
+            any_true = False
+            for kind, value in kinds.items():
+                if value:
+                    any_true = True
+                    tracker.update_room_occupancy(
+                        room_name, True, kind=kind,
+                    )
+                    seeded_count += 1
+            if not any_true:
+                # B-LOW-1 fix-up parity: ensure the room key exists in
+                # ``_room_provenance`` even when no kind is currently
+                # firing, so set(_room_provenance.keys()) ==
+                # set(_room_occupied.keys()) (Invariant 4).
+                tracker.update_room_occupancy(room_name, False)
+
+        _LOGGER.info(
+            "Substrate-driven Tier-1 registration: %d (entity, room) "
+            "register_entity calls, %d True-kind seed write(s) across "
+            "%d trackers",
+            registered_count, seeded_count, len(self._zone_trackers),
+        )
+
+    @callback
+    def _on_substrate_kind_changed(
+        self,
+        room_name: str,
+        kind: str,
+        new_state: bool,
+    ) -> None:
+        """Substrate signal handler — fan out into the zone tier.
+
+        Occupancy substrate unification cycle (D2). Replaces the prior
+        state-change-event subscription on the area-sweep entity set.
+        The substrate guarantees ``room_name`` matches the operator's
+        ``CONF_ROOM_NAME`` and ``kind`` ∈ TIER1_KINDS — so the call
+        shape ``tracker.update_room_occupancy(room, new_state, kind=kind)``
+        is identical to the prior live-path call and ``_room_provenance``
+        writes are unchanged.
+        """
+        tracker = self.tracker_for_room(room_name)
+        if tracker is None:
+            _LOGGER.debug(
+                "Substrate edge for unknown room '%s' (kind=%s, new=%s) "
+                "— no tracker; ignored",
+                room_name, kind, new_state,
+            )
+            return
+        tracker.update_room_occupancy(room_name, new_state, kind=kind)
+        # Trigger an inference cycle the same way the prior
+        # `_handle_occupancy_change` did — preserves zone-tier reaction
+        # cadence on a per-kind edge.
+        self.hass.async_create_task(self._run_inference("occupancy_change"))
 
     # ------------------------------------------------------------------
     # Tier 2: Zone Camera Sensors (via CameraIntegrationManager)
@@ -3146,10 +3221,10 @@ class PresenceCoordinator(BaseCoordinator):
                     entity_id,
                 )
             else:
-                from homeassistant.helpers.dispatcher import (
-                    async_dispatcher_send as _dispatcher_send,
-                )
-                _dispatcher_send(
+                # B-H1 fix-up: async_dispatcher_send is imported at module
+                # top — use it directly. Eliminates the Bug Class #34
+                # latent function-local import.
+                async_dispatcher_send(
                     self.hass,
                     SIGNAL_PERSON_ARRIVING,
                     {"person_entity": entity_id, "source": "geofence"},
@@ -3252,22 +3327,14 @@ class PresenceCoordinator(BaseCoordinator):
                 matched = True
                 break
 
-        if not matched:
-            # Fallback: name-based matching for entities discovered by name
-            for _zone_name, tracker in self._zone_trackers.items():
-                for room_name in tracker.room_names:
-                    room_lower = room_name.lower().replace(" ", "_")
-                    if room_lower in entity_id:
-                        kind = self._classify_entity_kind_cached(
-                            entity_id, room_name,
-                        )
-                        tracker.update_room_occupancy(
-                            room_name, occupied, kind=kind,
-                        )
-                        matched = True
-                        break
-                if matched:
-                    break
+        # Occupancy substrate unification cycle: the prior name-based
+        # fallback-matching block (previously at presence.py:3255-3270)
+        # was DELETED here. With `_discover_room_sensors_by_name`
+        # removed and the substrate sourcing entities exclusively from
+        # CONF lists, no entity can reach this callback without a
+        # registered ``_entity_to_room`` mapping. Retaining the fallback
+        # would only reintroduce the substring-classification divergence
+        # the substrate cycle exists to remove.
 
         self.hass.async_create_task(self._run_inference("occupancy_change"))
 
@@ -5242,6 +5309,22 @@ class PresenceCoordinator(BaseCoordinator):
                     exc_info=True,
                 )
             self._fan_recheck_manager = None
+
+        # Occupancy substrate unification cycle: tear down substrate
+        # listeners + local subscribers before _cancel_listeners runs so
+        # the substrate's own state-change subscriptions are released
+        # cleanly (Bug Class #38). The substrate's signal subscription
+        # itself lives in self._unsub_listeners and is unsubscribed by
+        # _cancel_listeners below.
+        if self._substrate is not None:
+            try:
+                await self._substrate.async_teardown()
+            except Exception:  # noqa: BLE001 — defensive teardown
+                _LOGGER.debug(
+                    "OccupancySubstrate teardown raised (non-fatal)",
+                    exc_info=True,
+                )
+            self._substrate = None
 
         self._cancel_listeners()
 

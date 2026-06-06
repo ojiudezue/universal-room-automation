@@ -126,6 +126,19 @@ SIGNAL_FAN_RECHECK_STARTED: Final = "ura_fan_recheck_started"
 # Payload: ``{"room": str, "outcome": "vacated" | "occupied_confirmed"}``.
 SIGNAL_FAN_RECHECK_FINISHED: Final = "ura_fan_recheck_finished"
 
+# Occupancy substrate unification cycle: per-room, per-kind raw-signal edge.
+# Dispatched by ``OccupancySubstrate`` on every False<->True edge in the
+# per-kind raw view of a configured ROOM entry, sourced exclusively from the
+# operator's curated ``CONF_MOTION_SENSORS`` / ``CONF_MMWAVE_SENSORS`` /
+# ``CONF_OCCUPANCY_SENSORS`` lists (NO area-sweep, NO substring heuristic).
+# Payload positional args: ``(room_name: str, kind: str, new_state: bool)``
+# where ``kind`` ∈ ``TIER1_KINDS`` ("motion", "mmwave", "occupancy"). The
+# substrate sits BENEATH the room + zone tiers as a unified raw-signal
+# input layer — it is NOT a new tier and does NOT supersede either of the
+# existing room or zone tiers; both tiers continue to apply their own
+# legitimate temporal smoothing on top of this common substrate.
+SIGNAL_SUBSTRATE_KIND_CHANGED: Final = "ura_substrate_kind_changed"
+
 
 # ============================================================================
 # Shared data classes for inter-coordinator communication

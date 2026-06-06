@@ -4,9 +4,10 @@
 operator convention.
 
 **Companion plan:** `docs/planning/PLANNING_fan_noise_mode2_ble_pause_recheck.md` (Plan A —
-the Mode-2 BLE-gated fan pause + recheck that the operator wants to ship FIRST). This
-substrate plan is the natural cleanup that lands NEXT and absorbs the cross-check shape
-Plan A relies on.
+the Mode-2 BLE-gated fan pause + recheck, **LIVE as of v4.7.22**). This substrate plan
+is the durable cleanup that lands NEXT and retroactively absorbs the cross-check shape
+Plan A relies on (Plan A is already shipped against the room-tier flat-OR; the substrate
+preserves that read path unchanged while making the cross-check tractable).
 
 **Tier vocabulary discipline (locked).** URA is a layered lattice: **ROOM tier**
 (`coordinator.py` / `RoomCoordinator` / per-room config entry), **ZONE tier**
@@ -32,10 +33,10 @@ Live divergence observed 2026-06-05 between room-tier `RoomCoordinator` and zone
 
 1. **Discovery divergence.** Room tier uses the operator's CURATED CONF lists
    (`CONF_MOTION_SENSORS`, `CONF_MMWAVE_SENSORS`, `CONF_OCCUPANCY_SENSORS` —
-   `coordinator.py:1248-1250`). Zone tier does an entity-registry **area-sweep** every
+   `coordinator.py:1257-1259`). Zone tier does an entity-registry **area-sweep** every
    `binary_sensor` whose `entity_id` contains one of `("occupancy", "motion", "presence",
    "mmwave")` AND whose effective area_id (entity area_id, fallback to device area_id)
-   matches the room (`presence.py:2168-2308`). Concrete cases:
+   matches the room (`presence.py:2199-2339`). Concrete cases:
    - **Jaya room.** Zone area-sweep registers 4 presence binary_sensors
      (`jaya_3_presence` ESP, `jaya_bedroom_bedroom_4_sensor_presence` ESP,
      `mmwave_zigbee_jayabedroom_presence` zigbee — fan-sensitive,
@@ -86,12 +87,12 @@ Triggers:
    (`presence.py:852-977` — `any_zone_occupied: bool` parameter) consumes a zone-derived
    bool composed from `tracker.raw_occupied` at the PresenceCoordinator caller (the
    actual composition site is `any_zone_raw_occupied = any(t.raw_occupied for t in
-   self._zone_trackers.values())` at `presence.py:3996-3998`, used by the v4.7.18.1
+   self._zone_trackers.values())` at `presence.py:4027-4032`, used by the v4.7.18.1
    wake-timer fix). The substrate cycle MUST preserve `raw_occupied` freshness; both
    citations matter — the engine signature is the consumer surface, the
-   `:3996-3998` composition is the freshness-critical compute path.
+   `:4027-4032` composition is the freshness-critical compute path.
 3. **Removal of a discovery code path (the area-sweep) with downstream consumers.**
-   `_discover_room_sensors` + `_discover_room_sensors_by_name` (`presence.py:2168-2351`)
+   `_discover_room_sensors` + `_discover_room_sensors_by_name` (`presence.py:2199-2382`)
    go away (or change to a CONF-driven shape). Anything reading
    `tracker._entity_to_room` (set at `:2224, :2346`) is affected.
 4. **Operator-elevated.** Same justification as Plan A — this is the substrate underneath
@@ -116,14 +117,14 @@ Triggers:
   zone tier's `raw_occupied` semantics (the v4.7.18.1 wake-timer dependency) survive?
   Listener teardown on coordinator unload (Bug Class #38). Single subscription per
   configured sensor across both tiers (today the ROOM tier subscribes via the inline
-  `_tier1_state_changed` callback registered in `RoomCoordinator.async_setup` —
-  `coordinator.py:901-944` — and the ZONE tier subscribes via
-  `_discover_room_sensors` `:2250-2256`; combined number of listeners may DROP after
-  dedup, which is a behavior change worth documenting). Reviewer B specifically traces
-  through the `coordinator.py async_setup` listener-registration code (the doc does NOT
-  promise the room-tier listener is in a method called `_setup_state_listeners` — it is
-  not; the registration is inline). No `async_dispatcher_send` function-local import
-  (Bug Class #34, v4.7.20.1 recurrence).
+  `_tier1_state_changed` callback registered in `RoomCoordinator.async_setup` — callback
+  defined at `coordinator.py:915-967`, registered via `async_track_state_change_event` at
+  `:969-973` — and the ZONE tier subscribes via `_discover_room_sensors` `:2250-2256`;
+  combined number of listeners may DROP after dedup, which is a behavior change worth
+  documenting). Reviewer B specifically traces through the `coordinator.py async_setup`
+  listener-registration code (the doc does NOT promise the room-tier listener is in a
+  method called `_setup_state_listeners` — it is not; the registration is inline). No
+  `async_dispatcher_send` function-local import (Bug Class #34, v4.7.20.1 recurrence).
 - **Reviewer C — Boundary cleanliness + test fixture authority + consumer migration
   audit.** Where does the substrate physically live (shared helper module vs method on
   the room coordinator that the zone subscribes to)? Are there consumers in
@@ -151,16 +152,16 @@ right sensors but wrong timing/teardown (B), right data but wrong downstream wir
 |---|---|---|---|
 | Curated config lists `CONF_MOTION_SENSORS / CONF_MMWAVE_SENSORS / CONF_OCCUPANCY_SENSORS` | **REUSED — promoted to single source of truth.** `const.py:311-313`. (Note: `CONF_MMWAVE_SENSORS = "presence_sensors"` — the storage key value doesn't match the const name; the substrate cycle keeps the key value unchanged so existing config entries remain readable.) | The substrate's identity layer. The zone tier stops trusting the entity-registry area-sweep and consumes these lists directly. |
 | Room-tier `RoomCoordinator._async_update_data` | **REUSED — input changes, semantics unchanged.** `coordinator.py:1241-1610`. | Still reads `motion_sensors / mmwave_sensors / occupancy_sensors` via `self._get_config(CONF_*, [])`. The substrate publishes per-kind raw bools that the room tier can ALSO subscribe to OR continue to compute itself. Recommendation: leave the room tier's flat-OR computation in place (the substrate is the input source-of-truth, but the room tier's smoothing pipeline is independent). |
-| Room-tier state-listener registration (inline `_tier1_state_changed` callback in `async_setup`) | **REUSED / MODIFIED.** Verified at `coordinator.py:901-944` — registration is INLINE inside `async_setup`, NOT in a method called `_setup_state_listeners` (which does not exist on `UniversalRoomCoordinator`). | Today the room tier and zone tier subscribe to potentially-different sets of binary_sensors. After the substrate change, the substrate publishes one canonical subscription set per room; both tiers consume from the substrate (no duplicate listeners). Reviewer B audits this carefully — the listener-count drop is a behavior change. |
+| Room-tier state-listener registration (inline `_tier1_state_changed` callback in `async_setup`) | **REUSED / MODIFIED.** Verified at `coordinator.py:915-967` (callback) + `:969-973` (`async_track_state_change_event` registration) — INLINE inside `async_setup`, NOT in a method called `_setup_state_listeners` (which does not exist on `UniversalRoomCoordinator`). | Today the room tier and zone tier subscribe to potentially-different sets of binary_sensors. After the substrate change, the substrate publishes one canonical subscription set per room; both tiers consume from the substrate (no duplicate listeners). Reviewer B audits this carefully — the listener-count drop is a behavior change. |
 | Room-tier `STATE_OCCUPANCY_SOURCE` resolution | **REUSED — strict subset of substrate.** `coordinator.py:1408-1444, 1510, 1539, 1586, 1876, 1882`. | Today's flat-OR collapses to ONE winner (motion / mmwave / occupancy_sensor / timeout / camera / ble / failsafe / grace_hold / override / none). Post-substrate, the underlying raw per-kind bools are exposed (so a consumer that wants "all kinds firing right now" can read them) BUT the room tier's `STATE_OCCUPANCY_SOURCE` field stays unchanged for backward compat. The substrate exposes the wider view through a NEW attribute (D2). |
-| Zone-tier `_discover_room_sensors` (area-sweep) | **DELETED (full replacement — NO fallback).** `presence.py:2168-2308`. | The area-sweep is the source of the Jaya/Exercise divergence. Replaced with CONF-driven discovery that reads the same lists the room tier reads. The area-sweep is NOT retained as a fallback — that would reintroduce the divergence it causes. Rooms with no CONF lists register zero Tier-1 sensors (made visible via the D5 INFO log + planning-time CONF-coverage audit), exactly as if the sweep found nothing. |
-| Zone-tier `_discover_room_sensors_by_name` (name fallback) | **DELETED (full replacement — NO fallback).** `presence.py:2310-2351`. | A workaround for rooms with no area_id. Post-substrate, a room with no CONF lists is simply a no-Tier-1 room (D5) — it falls through to camera/BLE composition. No silent name-classifier fallback survives. See D5. |
+| Zone-tier `_discover_room_sensors` (area-sweep) | **DELETED (full replacement — NO fallback).** `presence.py:2199-2339` (def at `:2199`; seed loop at `:2261-2339`). | The area-sweep is the source of the Jaya/Exercise divergence. Replaced with CONF-driven discovery that reads the same lists the room tier reads. The area-sweep is NOT retained as a fallback — that would reintroduce the divergence it causes. Rooms with no CONF lists register zero Tier-1 sensors (made visible via the D5 INFO log + planning-time CONF-coverage audit), exactly as if the sweep found nothing. |
+| Zone-tier `_discover_room_sensors_by_name` (name fallback) | **DELETED (full replacement — NO fallback).** `presence.py:2341-2382`. | A workaround for rooms with no area_id. Post-substrate, a room with no CONF lists is simply a no-Tier-1 room (D5) — it falls through to camera/BLE composition. No silent name-classifier fallback survives. See D5. |
 | Zone-tier `_classify_entity_kind` substring heuristic | **REPLACED for CONF-listed sensors.** `presence.py:226-281` (CONF-list lookup branch at `:241-273`; substring fallback at `:275-281`). | The CONF-list lookup branch already returns the canonical kind from the CONF list slot — this is the substrate's classification. The substring fallback is retained ONLY for non-CONF sensors (defensive — should never fire for properly-configured rooms post-substrate). Logged at WARN if substring fallback ever fires post-substrate to surface configuration gaps. |
-| Zone-tier `_classify_entity_kind_cached` wrapper | **REUSED — cache scope adjusted.** `presence.py:1232-1255`. | Cache key (entity_id, room_name). Substrate change does not alter cache shape; cache invalidation on `_discover_room_sensors` re-entry (`presence.py:2177`) still fires. |
+| Zone-tier `_classify_entity_kind_cached` wrapper | **REUSED — cache scope adjusted.** `presence.py:1237-1268`. | Cache key (entity_id, room_name). Substrate change does not alter cache shape; cache invalidation on `_discover_room_sensors` re-entry (`presence.py:2177`) still fires. |
 | Zone-tier `_handle_occupancy_change` listener callback | **REUSED — feeds substrate.** | The callback writes to the substrate instead of writing directly to `_room_provenance`. Substrate fan-out to the per-tier views. |
 | Zone-tier `_room_provenance` dict | **REUSED — source of writes changes.** `presence.py:419` (declaration; per-room dicts populated lazily). | Stays as the zone tier's view of per-kind state. Now POPULATED from the substrate rather than from a divergent listener set. Shape unchanged → `provenance_for` (`presence.py:535-561`) and derived `_room_occupied` (`presence.py:474-533`) consumers are unaffected. |
 | Zone-tier derived `_room_occupied` property | **REUSED — semantics unchanged.** `presence.py:474-533`. | Still derives from `_room_provenance`. The v4.7.20 hold extension lives here today; substrate cycle is orthogonal to whether that hold is kept (Plan A § P2). |
-| Zone-tier `raw_occupied` property | **REUSED — semantics unchanged.** `presence.py:563-570`. | v4.7.18.1 wake-timer dependency. Reviewer B verifies post-substrate raw_occupied freshness is at least as fast as today (substrate is INSTANTANEOUS per-kind, so raw_occupied freshness is unchanged or improved). The freshness-critical caller is the `any_zone_raw_occupied` compute at `presence.py:3996-3998`. |
+| Zone-tier `raw_occupied` property | **REUSED — semantics unchanged.** `presence.py:563-570`. | v4.7.18.1 wake-timer dependency. Reviewer B verifies post-substrate raw_occupied freshness is at least as fast as today (substrate is INSTANTANEOUS per-kind, so raw_occupied freshness is unchanged or improved). The freshness-critical caller is the `any_zone_raw_occupied` compute at `presence.py:4027-4032`. |
 | `_audit_provenance_invariants` | **REUSED — semantics unchanged.** `presence.py:284-386`. | Operates on `_room_provenance` shape, which doesn't change. Verified the four invariants still hold post-substrate. |
 | `_compute_fan_interference_rooms` zone-tier diagnostic | **REUSED — reads per-kind provenance.** `presence.py:2539-2698`. | Unchanged. Post-substrate, the diagnostic is MORE reliable because per-kind data agrees with the CONF list operator chose. |
 | D5 sensor attrs on `OccupiedBinarySensor` | **REUSED — `provenance_for` consumers.** `binary_sensor.py:405-501`. | Unchanged shape; data quality improves. (Prior draft said `:410-510`; the attr block actually starts at `:405` and the exception fallback ends at `:501`.) |
@@ -205,11 +206,11 @@ right sensors but wrong timing/teardown (B), right data but wrong downstream wir
 
 | File | Lines surveyed | What was confirmed |
 |---|---|---|
-| `coordinator.py` | `:1241-1610` (full `_async_update_data` path), `:1248-1250` (CONF list reads), `:1289-1309` (stuck-sensor detector — reads CONF list), `:1311-1330` (motion/mmwave/occupancy flat-OR), `:844-944` (`async_setup` listener registration — inline `_tier1_state_changed` at `:901-944`, NOT in a `_setup_state_listeners` method) | The room tier's logic IS already CONF-list-driven. Substrate makes the underlying listener set canonical without changing the room tier's smoothing. |
-| `presence.py` | `:226-281` (`_classify_entity_kind` — CONF-list branch at `:241-273`, substring fallback at `:275-281`), `:412-561` (provenance + derived view, `_room_provenance` declared at `:419`, `_room_occupied` property at `:474-533`, `provenance_for` at `:535-561`), `:563-570` (`raw_occupied` property), `:1232-1255` (cache wrapper), `:2168-2308` (`_discover_room_sensors` area-sweep — seed loop at `:2262-2308`), `:2310-2351` (name fallback), `:1995-2017` (adjacency cache), `:2539-2698` (fan-interference diagnostic), `:3500-3561` (guest-room subscribes to room-tier sensor), `:3996-3998` (`any_zone_raw_occupied` composition — v4.7.18.1 wake-timer freshness path), `:852-977` (`StateInferenceEngine.infer` signature — `any_zone_occupied: bool` parameter, the consumer surface) | Zone tier is the source of divergence. CONF-list classification is already implemented in `_classify_entity_kind` (`:241-273`) — substrate cycle just makes that the EXCLUSIVE source path and removes the area-sweep + substring discovery. |
+| `coordinator.py` | `:1241-1610` (full `_async_update_data` path), `:1257-1259` (CONF list reads), `:1289-1309` (stuck-sensor detector — reads CONF list), `:1311-1330` (motion/mmwave/occupancy flat-OR), `:844-973` (`async_setup` listener registration — inline `_tier1_state_changed` callback at `:915-967`, `async_track_state_change_event` registration at `:969-973`, NOT in a `_setup_state_listeners` method) | The room tier's logic IS already CONF-list-driven. Substrate makes the underlying listener set canonical without changing the room tier's smoothing. |
+| `presence.py` | `:226-281` (`_classify_entity_kind` — CONF-list branch at `:241-273`, substring fallback at `:275-281`), `:412-561` (provenance + derived view, `_room_provenance` declared at `:419`, `_room_occupied` property at `:474-533`, `provenance_for` at `:535-561`), `:563-570` (`raw_occupied` property), `:1237-1268` (cache wrapper), `:2199-2339` (`_discover_room_sensors` area-sweep — def at `:2199`; seed loop at `:2261-2339`), `:2341-2382` (name fallback), `:1995-2017` (adjacency cache), `:2539-2698` (fan-interference diagnostic), `:3500-3561` (guest-room subscribes to room-tier sensor), `:4027-4032` (`any_zone_raw_occupied` composition — v4.7.18.1 wake-timer freshness path), `:852-977` (`StateInferenceEngine.infer` signature — `any_zone_occupied: bool` parameter, the consumer surface) | Zone tier is the source of divergence. CONF-list classification is already implemented in `_classify_entity_kind` (`:241-273`) — substrate cycle just makes that the EXCLUSIVE source path and removes the area-sweep + substring discovery. |
 | `const.py` | `:208-637` (STATE_* + CONF_*) | Surface and the CONF list key names. |
 | `binary_sensor.py` | `:405-501` (OccupiedBinarySensor attr block, including `provenance_for` consumer at `:434-435`; exception fallback at `:492-500`) | D5 surface unchanged. |
-| `hvac_zones.py` | `:537-552` | HVAC reads room tier — substrate invisible to HVAC. |
+| `domain_coordinators/hvac_zones.py` | `:537-552`, `:146-148` | HVAC reads room tier — substrate invisible to HVAC. |
 | `domain_coordinators/signals.py` | (path verified) | The canonical signals module is here; there is no top-level `signals.py`. New `SIGNAL_SUBSTRATE_KIND_CHANGED` lands in this file. |
 
 ---
@@ -329,12 +330,12 @@ class OccupancySubstrate:
   pattern).
 - **Verify (listener-count drop is testable):** build-time computation produces an
   EXPECTED listener-count delta N per (room, tier) — counted by enumerating today's
-  pre-substrate subscription sites: room-tier inline `_tier1_state_changed`
-  (`coordinator.py:901-944`) over `tier1_sensors`, and zone-tier `_discover_room_sensors`
-  subscription at `presence.py:2250-2256` over the area-sweep set. Test asserts
-  post-substrate combined listener count = expected dedup'd set (sized at build using a
-  one-off audit script committed alongside the cycle). Acceptance is a numeric equality,
-  not a "≥ some N" inequality.
+  pre-substrate subscription sites: room-tier inline `_tier1_state_changed` callback at
+  `coordinator.py:915-967` (registered at `:969-973`) over `tier1_sensors`, and zone-tier
+  `_discover_room_sensors` subscription at `presence.py:2250-2256` over the area-sweep
+  set. Test asserts post-substrate combined listener count = expected dedup'd set (sized
+  at build using a one-off audit script committed alongside the cycle). Acceptance is a
+  numeric equality, not a "≥ some N" inequality.
 - **Sensor:** new diagnostic attribute `substrate_kinds` on `binary_sensor.<room>_occupied`
   showing the current per-kind raw view at the last tick. Lazy attr (read on access).
 - **Test:** `quality/tests/test_substrate_discovery.py` — for synthetic CONF lists,
@@ -356,7 +357,7 @@ class OccupancySubstrate:
 MODIFY `presence.py`:
 
 1. **Remove the area-sweep + name-fallback discovery** (`_discover_room_sensors` body at
-   `:2168-2308` and `_discover_room_sensors_by_name` at `:2310-2351`). REPLACE with a
+   `:2199-2339` and `_discover_room_sensors_by_name` at `:2341-2382`). REPLACE with a
    thin subscription to the substrate's `SIGNAL_SUBSTRATE_KIND_CHANGED`.
 2. **`_handle_occupancy_change` rewires.** Today it reads state-change events directly.
    Replace with a substrate subscription handler that calls
@@ -396,7 +397,7 @@ MODIFY `presence.py`:
 
 ## D3 — Room-tier integration (IN-CYCLE — full unification)
 
-The room tier ALREADY consumes the CONF lists directly via `coordinator.py:1248-1250`.
+The room tier ALREADY consumes the CONF lists directly via `coordinator.py:1257-1259`.
 Substrate cycle does NOT change room-tier *semantics* — it changes where the room tier
 gets its subscription set.
 
@@ -416,11 +417,13 @@ low-risk, so the review wave must target the risks below.
 
 - **Actuation-path immediate-refresh listener rewire.** D3's real change is moving the
   room tier's Tier-1 listener from the inline `_tier1_state_changed` callback
-  (`coordinator.py:907`, registered via `async_track_state_change_event` at `:960-964`)
-  onto the substrate signal. This is the **actuation-critical** path. Preserve the
-  `async_refresh()`-vs-`async_request_refresh()` choice at `coordinator.py:944-958`: URA
-  does NOT override the 10s default debouncer at `:276`, so a wrong rewire either adds
-  actuation lag or reintroduces a debounce storm. Reviewer B owns this trace end-to-end.
+  (`coordinator.py:915-967`, registered via `async_track_state_change_event` at
+  `:969-973`) onto the substrate signal. This is the **actuation-critical** path.
+  Preserve the `async_refresh()`-vs-`async_request_refresh()` choice at
+  `coordinator.py:954-967`: URA does NOT override the 10s default debouncer (no
+  `request_refresh_debouncer` kwarg passed to `super().__init__` at `coordinator.py:285-290`),
+  so a wrong rewire either adds actuation lag or reintroduces a debounce storm.
+  Reviewer B owns this trace end-to-end.
 - **Preserve the 2s rate-limiter + trailing-edge refresh** semantics currently in
   `_tier1_state_changed` (`:930-943`). The substrate subscription must not drop the
   trailing-edge refresh or the room tier can miss the settle of a burst.
@@ -454,15 +457,17 @@ Per the Tier 2-DB framing, every consumer of the affected surfaces is audited.
 |---|---|---|---|
 | HVAC zone aggregator | `coordinator.data["occupied"]` (room tier) | unchanged | unchanged (room tier smoothing preserved) |
 | HVAC defer gate | `check_zone_occupancy_confidence` (enumerates room coords) | unchanged | unchanged |
-| House-state inference | `StateInferenceEngine.infer(any_zone_occupied=...)` (`presence.py:852-977` signature) ← composition at `presence.py:3996-3998` (`any_zone_raw_occupied = any(t.raw_occupied for t in self._zone_trackers.values())`) ← `tracker.raw_occupied` (`:563-570`) ← `_derived_mode` ← `_room_occupied` (`:474-533`) ← `_room_provenance` | unchanged | unchanged (substrate feeds `_room_provenance`; downstream composition identical) |
+| House-state inference | `StateInferenceEngine.infer(any_zone_occupied=...)` (`presence.py:852-977` signature) ← composition at `presence.py:4027-4032` (`any_zone_raw_occupied = any(t.raw_occupied for t in self._zone_trackers.values())`) ← `tracker.raw_occupied` (`:563-570`) ← `_derived_mode` ← `_room_occupied` (`:474-533`) ← `_room_provenance` | unchanged | unchanged (substrate feeds `_room_provenance`; downstream composition identical) |
 | Guest-room detector | subscribes to `binary_sensor.<room>_occupied` | unchanged | unchanged |
 | D5 OccupiedBinarySensor attrs | `tracker.provenance_for(room)` | unchanged shape | data quality improves (kinds reflect operator config) |
 | `_compute_fan_interference_rooms` zone diagnostic | `_room_provenance`, `_fan_on_rooms` | unchanged shape | data quality improves |
 | `_audit_provenance_invariants` | `_room_provenance` | unchanged invariants | invariants preserved |
 | Plan A trigger condition | room-tier `STATE_OCCUPANCY_SOURCE == "mmwave"` | works today | works identically post-substrate; precondition can OPTIONALLY tighten to per-kind raw view (post-substrate path) |
 | Plan A acceptance D2.7 cross-check | "does zone-tier per-kind picture corroborate room-tier verdict?" | unreliable today (divergence) | reliable post-substrate (kinds agree by construction) |
+| FanRecheckManager (v4.7.22, LIVE) — `_is_eligible` + `_on_pause_window_done` | `room_coord.recent_occupancy_sources()` (`coordinator.py:2266`), `room_coord.data["occupancy_source"]` (`presence_fan_recheck.py:494`), `data["occupied"]` / `data["presence_detected"]` | works today | unchanged — substrate feeds `STATE_OCCUPANCY_SOURCE` via the same room-tier flat-OR; the ring + dict reads are untouched. `recent_occupancy_sources()` rebuild-from-substrate is a FUTURE refactor (Seam absorb-point 1), explicitly NOT in this cycle. |
 | Plan A BLE-ladder + Tier-1/2/0 drop-authorization gate (D1.5) | `person_coord.get_ble_tier`, `get_persons_in_room`, adjacency cache | unchanged | unchanged — substrate carries NO BLE data; this consumer column lives entirely outside the substrate's signal class |
 | Quality test `test_presence_provenance_split.py` | invariants | unchanged | unchanged |
+| `sensor.py::_zone_provenance_breakdown` (added 2026-06-05 — C-MEDIUM-1 fix-up) | `tracker._room_provenance.items()` (`sensor.py:3977-4000`) | aggregates per-room per-kind kind-counts for the zone diagnostic | unchanged shape — `_room_provenance` is still populated by `tracker.update_room_occupancy` from `_on_substrate_kind_changed` (`presence.py:2448`); **data quality improves** — slot kinds now match operator CONF list intent (no more substring-classifier noise). Verified `_room_provenance` writers still active post-migration. |
 
 For ANY consumer not on this list, Reviewer C grep-audits during review.
 
@@ -473,6 +478,11 @@ For ANY consumer not on this list, Reviewer C grep-audits during review.
 - **Test:** `quality/tests/test_substrate_backcompat.py` — for each consumer, drive a
   synthetic substrate state-change and assert the consumer's output matches
   pre-substrate.
+- **Test (FanRecheck cross-check):** `test_substrate_backcompat.py` includes a case
+  driving a substrate-mediated `STATE_OCCUPANCY_SOURCE` transition and asserting
+  `recent_occupancy_sources()` + the FanRecheck eligibility read (`_is_eligible` /
+  `_on_pause_window_done` consumption of `occupancy_source` / `occupied` /
+  `presence_detected`) see IDENTICAL values pre- and post-substrate.
 
 ---
 
@@ -516,7 +526,7 @@ during the boot storm may be noisy. Mitigation:
 
 - Substrate suppresses signal dispatch during the boot window
   (`_boot_settle_done == False` — read from the PresenceCoordinator that owns the
-  substrate; declared at `presence.py:1191`, gated at `:1669, :1722, :3814, :4587`),
+  substrate; declared at `presence.py:1191`, gated at `:1674, :1676, :1727, :3845, :4618`),
   but still updates `_raw_state` so the FIRST post-boot tick reads correctly.
 - At settle (transition `_boot_settle_done False → True`), the substrate emits ONE
   synthetic `SIGNAL_SUBSTRATE_KIND_CHANGED` per (room, kind) slot whose seeded state is
@@ -531,7 +541,7 @@ the two invariants hold:
    snapshot, not a per-state-change stream. Verified by the test below.
 2. **At settle:** ONLY True slots emit. False slots default-False in consumers, so a
    settle that finds the house already empty produces ZERO dispatches — strictly less
-   noise than today's `_discover_room_sensors` seed loop at `presence.py:2262-2308`,
+   noise than today's `_discover_room_sensors` seed loop at `presence.py:2261-2339`,
    which writes False to every room/kind unconditionally.
 
 The substrate does NOT actuate, so even if a signal escapes during boot, the worst
@@ -563,7 +573,7 @@ involved HVAC writes triggered by zone-tier composition).
 | `const.py` | No change. CONF list names unchanged. |
 | `domain_coordinators/signals.py` | ADD `SIGNAL_SUBSTRATE_KIND_CHANGED`. (Path is `domain_coordinators/signals.py`; there is no top-level `signals.py` in this repo.) |
 | `domain_coordinators/occupancy_substrate.py` | NEW (~200 LoC). Substrate class, discovery, listeners, seed, re-discovery, publish. |
-| `domain_coordinators/presence.py` | REMOVE area-sweep body in `_discover_room_sensors` (`:2168-2308`); REPLACE with substrate subscription. REMOVE `_discover_room_sensors_by_name` (`:2310-2351`). REWIRE `_handle_occupancy_change` to consume substrate signals **AND delete its name-based fallback-matching block at `:3224-3239`** (it only fired for name-discovered entities; with `_discover_room_sensors_by_name` gone, nothing reaches it — leaving it is dead code. Reviewer C audit point). `_classify_entity_kind` substring fallback retained, WARN-logged if it fires for CONF-listed sensors. |
+| `domain_coordinators/presence.py` | REMOVE area-sweep body in `_discover_room_sensors` (`:2199-2339`); REPLACE with substrate subscription. REMOVE `_discover_room_sensors_by_name` (`:2341-2382`). REWIRE `_handle_occupancy_change` to consume substrate signals **AND delete its name-based fallback-matching block at `:3255-3270`** (it only fired for name-discovered entities; with `_discover_room_sensors_by_name` gone, nothing reaches it — leaving it is dead code. Reviewer C audit point). `_classify_entity_kind` substring fallback retained, WARN-logged if it fires for CONF-listed sensors. |
 | `domain_coordinators/__init__.py` | EXPORT `OccupancySubstrate`. |
 | `__init__.py` | Wire substrate instantiation on PresenceCoordinator setup; teardown on unload. |
 | `binary_sensor.py` | ADD `substrate_kinds` lazy attr on `OccupiedBinarySensor` (extends the existing attr block at `:405-501`). |
@@ -604,7 +614,7 @@ NOTE: no DB schema change. No new CONFs. No new entities besides the diagnostic 
    while the zone tier moves to the substrate is a half-migration that ships the exact
    duplication the substrate removes, and we are over-fragmenting single intents across
    too many deferrals. The added risk is concentrated in the room-tier actuation-path
-   listener rewire (the `async_refresh()`/debouncer subtlety at `coordinator.py:944-958`),
+   listener rewire (the `async_refresh()`/debouncer subtlety at `coordinator.py:954-967`),
    which the review wave targets explicitly — see D3's risk list.
 4. **Substrate boot-storm signal suppression vs naïve dispatch.** Recommendation: suppress
    during boot, emit synthetic seed signals at settle for True-slots only (D6).
@@ -631,13 +641,13 @@ reader is unaffected because the dict shape is preserved. Verified per-surface:
 
 - `StateInferenceEngine.infer()` (`:852-861`) consumes scalars (`census_count`,
   `any_zone_occupied: bool`, …) — never per-room sensors. Invisible to the substrate.
-- `any_zone_occupied` (`:3984-3987`) / `any_zone_raw_occupied` (`:3996-3998`) compose from
+- `any_zone_occupied` (`:3984-3987`) / `any_zone_raw_occupied` (`:4027-4032`) compose from
   `_derived_mode` → `_room_occupied` → `_room_provenance`; substrate feeds that chain
   synchronously, so freshness (incl. the v4.7.18.1 wake-timer invariant) is at least as
   good.
 - `_room_occupied` (`:474-533`), `provenance_for` (`:535-561`), `raw_occupied` (`:563-570`)
   all read `_room_provenance` shapes — readers untouched.
-- `_classify_entity_kind_cached` (`:1232-1255`), fan-interference diagnostic (`:2539-2698`,
+- `_classify_entity_kind_cached` (`:1237-1268`), fan-interference diagnostic (`:2539-2698`,
   reads `_room_provenance` at `:2629` — data quality improves for free, fixes the Jaya
   masking case), guest-room detector (`:3500-3561`, subscribes to the room-tier
   `binary_sensor.<room>_occupied`, not raw sensors), adjacency cache (`:1995-2039`, reads
@@ -646,7 +656,7 @@ reader is unaffected because the dict shape is preserved. Verified per-surface:
   `:3023`, `person.*` geofence `:3079`) are different signal classes — no overlap.
 
 **The one fixup (folded into D5 caller list):** `_handle_occupancy_change` has a
-name-based fallback-matching block at `:3224-3239` that only fired for name-discovered
+name-based fallback-matching block at `:3255-3270` that only fired for name-discovered
 entities. With `_discover_room_sensors_by_name` deleted, nothing reaches it → it becomes
 dead code and must be deleted in the same commit. Reviewer C audit point.
 
@@ -659,10 +669,11 @@ zone-tier "area sweep" only. Grep of `hvac*.py` for `ent_reg`/`area_registry`/
 `async_entries_for_area`/`_discover_room`/`*_sensors` CONF keys returned **zero matches**:
 HVAC owns no independent presence-sensor discovery path. It consumes Room-tier occupancy
 as a pure downstream reader — `ZoneManager.update_room_conditions()`
-(`hvac_zones.py:456-552`) reads `coordinator.data["occupied"]` (`:546`); everything else
-keys off `zone.any_room_occupied` (`hvac_zones.py:146-148`). The substrate rewrites the
-*input* to that `occupied` bool, never the contract, so HVAC sees the unified truth with
-no code change. **No HVAC work in or after this cycle.**
+(`domain_coordinators/hvac_zones.py:456-552`) reads `coordinator.data["occupied"]`
+(`:546`); everything else keys off `zone.any_room_occupied`
+(`domain_coordinators/hvac_zones.py:146-148`). The substrate rewrites the *input* to that
+`occupied` bool, never the contract, so HVAC sees the unified truth with no code change.
+**No HVAC work in or after this cycle.**
 
 ---
 
@@ -676,8 +687,8 @@ land and soak:
 - **Duplication the substrate exposes:** (1) two listener sets over the same CONF entities
   (room tier `_tier1_state_changed` + zone tier `:2250-2256`) — D3 already collapses this;
   (2) two classifiers (room-tier slot-membership + zone-tier `_classify_entity_kind`
-  `:241-273`); (3) two startup seed loops reading `hass.states` (zone `:2270-2308` + room
-  tier); (4) the name-based fallback concept duplicated between `:3224-3239` and
+  `:241-273`); (3) two startup seed loops reading `hass.states` (zone `:2261-2339` + room
+  tier); (4) the name-based fallback concept duplicated between `:3255-3270` and
   `_discover_room_sensors_by_name`.
 - **F1 — Lift `_room_provenance` onto the substrate (~80 LoC).** `ZonePresenceTracker._room_occupied`
   becomes a thin view over `substrate.get_room_kinds(room)` OR-ed with the fan-hold.
@@ -685,7 +696,7 @@ land and soak:
   fan-hold invariant must still compose at the zone tier.
 - **F2 — Fold `_classify_entity_kind` (`:226-281`) into a substrate method (~30 LoC).**
   The substring-fallback free-function collapses into `OccupancySubstrate._classify`; the
-  `_classify_entity_kind_cached` cache (`:1232-1255`) becomes vestigial since the substrate
+  `_classify_entity_kind_cached` cache (`:1237-1268`) becomes vestigial since the substrate
   produces pre-classified triples at discovery.
 - **F3 — Single seed path via `SIGNAL_SUBSTRATE_READY` (~150 LoC, boot-ordering sensitive).**
   Room tier awaits the substrate's seed event before its first refresh, removing its own
@@ -695,14 +706,20 @@ land and soak:
 
 ## Seam-with-Plan-A (CRITICAL — read with companion doc open)
 
-Plan A ships FIRST per operator preference. The substrate is the durable cleanup that
-lands next. Plan A's recent amendments — (a) the BLE tier-gated drop-authorization rule
-(only Tier-1 rooms let BLE-absence authorize a drop; Tier-2/0 are "trust sensors only"
-with BLE veto-only) and (b) the adjacency tier-flip (a phone in an adjacent room weakly
-authorizes in Tier-1 but is an unconditional veto in Tier-2) — are **about the BLE
-signal class, not the Tier-1 sensor signal class.** The substrate carries the latter
-only. So both amendments are orthogonal to the substrate by construction, and the seam
-list below holds unchanged.
+**Plan A is LIVE as of v4.7.22.** This section describes RETROACTIVE cleanup of
+already-shipped Plan A code, not co-landing work with an unshipped sibling. The substrate
+cycle preserves Plan A's read surface unchanged (Plan A's reads are flat-OR/ring-based,
+fed by `STATE_OCCUPANCY_SOURCE`, which the substrate preserves untouched); the absorb /
+refactor list below is FUTURE-tense cleanup that can land any time after the substrate
+ships, not a hard dependency of this cycle.
+
+Plan A's recent amendments — (a) the BLE tier-gated drop-authorization rule (only Tier-1
+rooms let BLE-absence authorize a drop; Tier-2/0 are "trust sensors only" with BLE
+veto-only) and (b) the adjacency tier-flip (a phone in an adjacent room weakly authorizes
+in Tier-1 but is an unconditional veto in Tier-2) — are **about the BLE signal class, not
+the Tier-1 sensor signal class.** The substrate carries the latter only. So both
+amendments are orthogonal to the substrate by construction, and the seam list below holds
+unchanged.
 
 Specific seams:
 
@@ -741,7 +758,8 @@ Specific seams:
    time" — strictly stronger than today's diagnostic-correlation acceptance.
 
 **Plan-A code the substrate cycle later absorbs/refactors (verbatim — both docs quote
-this list):**
+this list; all items are RETROACTIVE cleanup of shipped v4.7.22 code, not co-landing
+work):**
 
 1. `RoomCoordinator._recent_occupancy_sources` deque — RETAINED but optionally rebuilt
    from substrate per-kind data.
@@ -754,35 +772,40 @@ this list):**
    pause precedence matrix, BLE-tier drop-authorization gate, and adjacency tier-flip
    all stay verbatim.
 
-**Did the planner consider substrate-first?** Yes. Justification for Plan-A-first:
+**Did the planner consider substrate-first?** Yes. Justification for Plan-A-first
+(already played out — Plan A shipped as v4.7.22 and live-validated 2026-06-05; substrate
+is the next cycle in sequence):
 
-- Live energy waste is observable today (Exercise Room AC + fan running in an empty room).
-  Substrate-first delays Plan A by one full cycle for no Mode-2 win.
-- Plan A does not DEPEND on substrate. The room-tier flat-OR precedence at
+- Live energy waste was observable when Plan A was scoped (Exercise Room AC + fan running
+  in an empty room). Substrate-first would have delayed Plan A by one full cycle for no
+  Mode-2 win.
+- Plan A did not DEPEND on substrate. The room-tier flat-OR precedence at
   `coordinator.py:1416-1420` correctly resolves `STATE_OCCUPANCY_SOURCE = "mmwave"` for
-  the Mode-2 trigger. Plan A's precondition is correct today.
-- Substrate is the durable cleanup; Plan A is the live fix. Operator preference (Plan A
-  first, substrate "right after if the sequence works") matches the engineering reality.
+  the Mode-2 trigger. Plan A's precondition was correct at ship time and remains correct
+  today.
+- Substrate is the durable cleanup; Plan A was the live fix. Operator preference (Plan A
+  first, substrate "right after if the sequence works") matched the engineering reality
+  and the sequence DID work — see `project_v4_7_22_fan_recheck_mode2_live.md`.
 
-**Recommended sequence:** Plan A → live-validate Mode-2 fix → Plan B (substrate) →
-optionally Plan A § P2 (strip v4.7.20 hold) any time after Plan A (the hold strip is
-orthogonal to substrate). If Plan A live-validation surfaces noise that the substrate
-would fix (e.g., the area-sweep is picking up a fan-sensitive sensor that's confusing
-Plan A's mmwave-history precondition in a specific room), flip the order and ship
-substrate first. This is unlikely — the failure mode would be a clearly identifiable
-extra-sensor-in-zone-tier divergence visible in the substrate_kinds attr — but the
-flip is cheap if needed.
+**Recommended sequence (HISTORICAL — the Plan-A→Plan-B sequence has already played out
+through Plan A's live-validation on 2026-06-05):** Plan A → live-validate Mode-2 fix
+(DONE, v4.7.22) → Plan B (substrate, THIS CYCLE) → optionally Plan A § P2 (strip v4.7.20
+hold) any time after substrate (the hold strip is orthogonal to substrate). If Plan A
+live-validation had surfaced noise that the substrate would fix (e.g., the area-sweep
+picking up a fan-sensitive sensor that confused Plan A's mmwave-history precondition in a
+specific room), the order would have flipped — substrate first. That contingency did not
+fire (v4.7.22 live-validation clean), so the original sequence holds.
 
 ---
 
 ## Cross-references
 
-- `docs/planning/PLANNING_fan_noise_mode2_ble_pause_recheck.md` — companion plan (ships first)
+- `docs/planning/PLANNING_fan_noise_mode2_ble_pause_recheck.md` — companion plan (Plan A, LIVE v4.7.22)
 - `docs/planning/PLANNING_presence_provenance_split_and_fan_diagnostic.md` — v4.7.19 ship; substrate sits beneath
 - `docs/planning/AUDIT_occupancy_substrate_consumer_ripple.md` — NEW per-consumer ripple audit
 - `docs/Coordinator/PRESENCE_COORDINATOR.md` — invariant honored (substrate is pure state)
 - `docs/Coordinator/COORDINATOR_ARCHITECTURE.md` — updated to document the substrate layer
 - `docs/Coordinator/HVAC_COORDINATOR_DESIGN.md` — HVAC unchanged (reads room tier)
-- Memory: `project_v4_7_19_live.md`, `project_v4_7_18_1_sleep_wake_deadlock.md`, `project_v4_7_20_fan_noise_layer1_live.md`, `project_fan_noise_mmwave_mitigation_backlog.md`
+- Memory: `project_v4_7_22_fan_recheck_mode2_live.md`, `project_v4_7_19_live.md`, `project_v4_7_18_1_sleep_wake_deadlock.md`, `project_v4_7_20_fan_noise_layer1_live.md`, `project_fan_noise_mmwave_mitigation_backlog.md`
 - `docs/BACKLOG.md` Fan-noise entry (substrate is the operator-note-b "context-wide split")
 - `docs/TECH_DEBT.md` "Presence — Tier 1 ORs mmWave + PIR" entry (CLOSED by this cycle's discovery/classification unification)
