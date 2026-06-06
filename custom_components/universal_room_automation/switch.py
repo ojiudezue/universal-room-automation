@@ -2333,7 +2333,7 @@ class HVACZoneSweepSwitch(SwitchEntity, RestoreEntity):
         self._attr_unique_id = f"{DOMAIN}_hvac_zone_sweep"
         # v4.5.10: friendlier label. Underlying CONF + entity_id stay the
         # same to preserve dashboards.
-        self._attr_name = "50 · Vacancy Auto-Off"
+        self._attr_name = "46 · Vacancy Auto-Off"
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, "hvac_coordinator")},
             name="URA: HVAC Coordinator",
