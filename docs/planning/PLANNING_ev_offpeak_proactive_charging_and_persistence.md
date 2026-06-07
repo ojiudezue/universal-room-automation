@@ -100,9 +100,9 @@ WS1 closes gaps so WS2's new intent-state (proactive off-peak hold) survives a r
 **Where:**
 - Save: extend `_save_evse_state` (`energy.py:906-929`) to also write `ev_force_charge_until`. Reuse the existing 15-min cadence + teardown call site — no new timer (Bug Class #19/#42 — no untracked fire-and-forget tasks).
 - Restore: extend `_restore_evse_state` (`energy.py:858-904`) to also read `ev_force_charge_until` and call `self._ev.set_force_charge_override(parsed_until)` if the value is in the future. Position the call AFTER the existing pause-set restores so observation-mode bookkeeping (which restore_evse_state already does) is intact.
-- Switch RestoreEntity path at `switch.py:802-854` STAYS as a fast-path for entity-attribute round-trip. On any conflict between Switch-attribute and KV, the KV value wins (KV is canonical). The reason for keeping the Switch path: it survives a DB write failure during the prior shutdown.
+- Switch RestoreEntity path at `switch.py:802-854` STAYS as the fresher fast-path for entity-attribute round-trip (~15s attribute flush vs the 15-min KV cadence). **F8 review correction (2026-06-07):** the Switch path runs last and overwrites unconditionally — and the switch attribute is fresher than the KV — so in practice the Switch RestoreEntity value wins when present. The KV is the durable fallback for when the switch attribute is missing/unserializable or the entity load order broke. Both pointing at the same source of truth means the WS2 behavior change is durable on day one. (Prior wording said "KV is canonical, wins on conflict"; that was aspirational, not what the runtime does. The runtime ordering is unchanged — this is a doc-only correction to match observed behavior.)
 
-**Why not just rely on Switch RestoreEntity:** the Switch path uses `datetime.fromisoformat()` (Bug Class #13/#21 — naive datetime risk), depends on entity attribute serialization which has historically had quirks, and bypasses the centralized save cadence. KV is the canonical save; Switch is the fast-path. Both pointing at the same source of truth means the WS2 behavior change is durable on day one.
+**Why not just rely on Switch RestoreEntity:** the Switch path uses `datetime.fromisoformat()` (Bug Class #13/#21 — naive datetime risk), depends on entity attribute serialization which has historically had quirks, and bypasses the centralized save cadence. KV is the durable fallback; Switch is the fresher fast-path. Both pointing at the same source of truth means the WS2 behavior change is durable on day one.
 
 **Bug classes honored:**
 - **#10** — cross-restart loss closed.
@@ -420,6 +420,16 @@ Items planned and explicitly NOT shipped in this cycle:
 4. **Number entity for the staleness guard hours (D1.4) — DEFERRED.** Hardcoded 10h is fine for the operator's deployment. If a future incident shows the threshold is wrong, expose as a Number entity. Track in TECH_DEBT.md only if the cycle reveals friction.
 
 5. **Cleanup method + nightly schedule for stale `evse_state` rows — DEFERRED.** Bug Class #27 (orphaned cleanup method) says every INSERT table needs a cleanup. `evse_state` uses `INSERT OR REPLACE` keyed on `evse_id`, so rows do not grow per restart — only stale-by-time for removed EVSEs. The `_prune_removed_evses` path already covers config-removal. Stale-by-time pruning is not urgent. Add a `cleanup_evse_state` DAO and wire to nightly maintenance in a future hygiene cycle.
+
+### 9a. Review fix-up release notes (Tier 2-DB review-D pass)
+
+The following observable behaviors changed in the review fix-up pass — the eventual `README_v<version>.md` MUST mention each so future operators don't re-investigate:
+
+- **F3:** `_paused_by_grid_cap` and `_paused_by_battery_drain` restores are now routed through `restore_energy_state_with_age` (10h staleness gate) instead of the prior unbounded read. These sets are re-derived from live inputs every decision tick, so the gate is defense-in-depth. After a >10h cold-restart, both sets boot empty until the first tick re-derives them; this matches the pre-cycle behavior for cold restarts and tightens warm restarts.
+- **F1:** When the force-charge admin window auto-expires (via `determine_actions` or `_is_force_charge_active`), the canonical KV key `ev_force_charge_until` is now overwritten with an empty string `""` instead of being left at the stale future-ISO value. Restore honors the empty-string sentinel via the existing `if fc_iso:` truthiness guard.
+- **F8 / D1.1 wording:** D1.1 wording corrected — **Switch RestoreEntity is the fresher fast-path (~15s vs 15-min KV) and wins when present**; KV is the durable fallback when the switch attribute is absent/corrupt. Runtime ordering is unchanged from the original build (this is a doc-and-code-comment correction, not a behavior change).
+- **B-MED-1:** New EV-charging-status sensor token `offpeak_proactive_on` (human: "off-peak proactive turn-on") replaces the prior `charging` / `idle` fall-through when URA's intent is the off-peak proactive ensure-on path. Dashboards/templates reading `sensor.ura_energy_coordinator_ev_charging_status` should treat the new token as a "URA wants this charging" signal.
+- **B-LOW-1(a):** The energy-coordinator `next_decision_boundary.expected_action` text now mentions proactive EV turn-on on the off-peak transition.
 
 ---
 

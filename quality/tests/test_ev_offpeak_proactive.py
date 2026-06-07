@@ -108,7 +108,7 @@ def _parse_datetime(s):
     if not s:
         return None
     try:
-        return datetime.fromisoformat(s)
+        return datetime.fromisoformat(s)  # noqa: test-only helper, production uses dt_util.parse_datetime
     except (ValueError, TypeError):
         return None
 
@@ -1025,3 +1025,163 @@ class TestD3EVStatusSurface:
         assert set(value) == {"garage_a", "garage_b"}
         # JSON serialization round-trips cleanly
         json.dumps(value)
+
+
+# ===========================================================================
+# Review fix-up tests (Tier 2-DB fix-up pass)
+# ===========================================================================
+
+
+class TestReviewFixupClassifierProactiveBranch:
+    """B-MED-1 fix-up: `_classify_evse` exposes URA's off-peak proactive
+    turn-on intent via a dedicated status token, instead of hiding behind
+    a generic "charging" / "idle" fallback.
+    """
+
+    def test_proactive_hold_alone_classifies_as_offpeak_proactive_on(self):
+        h = _EVHarness(garage_a_on=True, garage_a_power=0.0)
+        h.ev._proactive_offpeak_holds.add("garage_a")
+        status = h.ev.get_status()
+        assert status["garage_a"]["energy_status"] == "offpeak_proactive_on"
+        assert (
+            status["pause_reason_human"]["garage_a"]
+            == "off-peak proactive turn-on"
+        )
+
+    def test_excess_solar_wins_over_proactive_hold_on_dual_membership(self):
+        """Dual membership (excess_solar_active + proactive_offpeak_holds)
+        resolves to the excess_solar human reason — preserves the
+        operator-preferred precedence at the read site (B-LOW-3 comment).
+        """
+        h = _EVHarness(garage_a_on=True, garage_a_power=3000.0)
+        h.ev._excess_solar_active.add("garage_a")
+        h.ev._proactive_offpeak_holds.add("garage_a")
+        status = h.ev.get_status()
+        assert status["garage_a"]["energy_status"] == "excess_solar"
+        assert (
+            status["pause_reason_human"]["garage_a"]
+            == "excess solar (charging)"
+        )
+
+    def test_guards_win_over_proactive_hold(self):
+        """B-MED-1: carry-over guards (e.g. fill-priority) outrank the
+        proactive hold in the classifier.
+        """
+        h = _EVHarness(garage_a_on=False)
+        h.ev._proactive_offpeak_holds.add("garage_a")
+        h.ev._paused_by_fill_priority.add("garage_a")
+        status = h.ev.get_status()
+        assert (
+            status["garage_a"]["energy_status"] == "fill_priority_paused"
+        )
+
+
+class TestReviewFixupUnknownTouPeriodNoop:
+    """B-LOW-2 fix-up: unknown / empty `tou_period` values must be a safe
+    no-op (no proactive turn-on, no pause action). The legacy bare-`else`
+    would have triggered proactive turn-on for any unexpected period.
+    """
+
+    def test_empty_string_period_is_noop(self):
+        h = _EVHarness(garage_a_on=False)
+        actions = h.ev.determine_actions("")
+        assert not any(
+            a["service"] in ("switch.turn_on", "switch.turn_off")
+            for a in actions
+        )
+        assert "garage_a" not in h.ev._proactive_offpeak_holds
+
+    def test_unknown_period_string_is_noop(self):
+        h = _EVHarness(garage_a_on=False)
+        actions = h.ev.determine_actions("super_off_peak")
+        assert not any(
+            a["service"] in ("switch.turn_on", "switch.turn_off")
+            for a in actions
+        )
+        assert "garage_a" not in h.ev._proactive_offpeak_holds
+
+
+class TestReviewFixupForceChargeKVClearedOnExpiry:
+    """F1 fix-up: when the force-charge admin window auto-expires (so
+    `_force_charge_until` returns to None), `_save_evse_state` writes an
+    empty string `""` to the canonical KV instead of leaving the stale
+    future-ISO value on the row. The restore side's `if fc_iso:` guard
+    treats "" as falsy → no override applied (empty-string sentinel
+    contract).
+    """
+
+    @pytest.mark.asyncio
+    async def test_save_writes_empty_string_when_force_charge_is_none(
+        self, tmp_path,
+    ):
+        db = _make_db(str(tmp_path))
+        await _init_db_with_worker(db)
+        try:
+            h = _EVHarness()
+            _install_db_into_hass(h.hass, db)
+            holder = _bind_persistence_methods(h.hass, h.ev)
+
+            # Baseline — no force-charge window
+            assert h.ev._force_charge_until is None
+            await holder._save_evse_state()
+            await _drain_writes(db)
+
+            value = await db.restore_energy_state_with_age(
+                "ev_force_charge_until", max_age_hours=10.0,
+            )
+            assert value == ""
+        finally:
+            await _shutdown(db)
+
+    @pytest.mark.asyncio
+    async def test_save_overwrites_stale_iso_with_empty_string_on_expiry(
+        self, tmp_path,
+    ):
+        """Simulates the expiry path: a prior tick wrote a future-ISO; the
+        next save (with `_force_charge_until = None`) must overwrite it
+        with the empty-string sentinel, not leave the stale row.
+        """
+        db = _make_db(str(tmp_path))
+        await _init_db_with_worker(db)
+        try:
+            h = _EVHarness()
+            _install_db_into_hass(h.hass, db)
+            holder = _bind_persistence_methods(h.hass, h.ev)
+
+            # Tick 1: set + save the override
+            until = _now() + timedelta(minutes=30)
+            h.ev.set_force_charge_override(until)
+            await holder._save_evse_state()
+            await _drain_writes(db)
+
+            # Tick 2: simulate auto-expiry — `_force_charge_until` is None
+            h.ev._force_charge_until = None
+            await holder._save_evse_state()
+            await _drain_writes(db)
+
+            value = await db.restore_energy_state_with_age(
+                "ev_force_charge_until", max_age_hours=10.0,
+            )
+            assert value == ""
+        finally:
+            await _shutdown(db)
+
+    @pytest.mark.asyncio
+    async def test_restore_treats_empty_string_as_no_override(self, tmp_path):
+        db = _make_db(str(tmp_path))
+        await _init_db_with_worker(db)
+        try:
+            h = _EVHarness()
+            _install_db_into_hass(h.hass, db)
+            holder = _bind_persistence_methods(h.hass, h.ev)
+
+            # Seed KV row as empty string (the sentinel for "no override").
+            await db.save_energy_state("ev_force_charge_until", "")
+            await _drain_writes(db)
+
+            # Restore should NOT apply any override.
+            assert h.ev._force_charge_until is None
+            await holder._restore_evse_state()
+            assert h.ev._force_charge_until is None
+        finally:
+            await _shutdown(db)

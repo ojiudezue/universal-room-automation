@@ -457,6 +457,12 @@ class EVChargerController:
             state = self._get_evse_state(evse_id)
 
             if tou_period in ("peak", "mid_peak"):
+                # B-MED-2 fix-up: clear stale proactive-hold bookkeeping FIRST,
+                # before any `continue` short-circuit, so the hold-set can't
+                # leak when excess_solar or force_charge wins the iteration.
+                # Safe because no peak-period path wants the EVSE in the
+                # hold set — the set is off-peak-intent only.
+                self._proactive_offpeak_holds.discard(evse_id)
                 # Skip if excess solar is actively charging this EVSE
                 if evse_id in self._excess_solar_active:
                     continue
@@ -479,11 +485,7 @@ class EVChargerController:
                     })
                     self._paused_by_us.add(evse_id)
                     _LOGGER.info("EV: pausing %s (%s TOU)", evse_id, tou_period)
-                # v<next> WS2 D2.2: clear stale proactive-hold bookkeeping on
-                # transition out of off-peak so the next off-peak entry starts
-                # from a clean set (no stale references to disconnected EVSEs).
-                self._proactive_offpeak_holds.discard(evse_id)
-            else:
+            elif tou_period == "off_peak":
                 # v<next> WS2 D2.1: off-peak ensure-on with guard precedence.
                 #
                 # Replaces the legacy resume-only rule (which only un-paused
@@ -526,7 +528,11 @@ class EVChargerController:
                 # 2b: force-charge already authorizes turn-on via its own
                 # path (D3). Skip the proactive-on claim so the hold-set
                 # cleanly reflects only TOU-driven holds.
+                # B-LOW-4 fix-up: also clear any prior-tick hold (mirrors
+                # the 2a carry-over-guard cleanup) so a stale hold doesn't
+                # survive the force-charge window.
                 if force_charge_active:
+                    self._proactive_offpeak_holds.discard(evse_id)
                     continue
 
                 # 2c: ensure-on. Re-issue turn_on idempotently each tick
@@ -546,8 +552,22 @@ class EVChargerController:
                 # 2d: claim the hold; drop legacy TOU bookkeeping (matches
                 # the v4.7.x semantics where _paused_by_us tracks "we paused
                 # it", and an off-peak proactive-on is the inverse intent).
+                # B-LOW-3 fix-up: dual membership with `_excess_solar_active`
+                # is intentional — both can be true off-peak. `_classify_evse`
+                # resolves the human reason: excess_solar wins ("excess solar
+                # (charging)") over proactive-on ("off-peak proactive
+                # turn-on"); see precedence ordering in `_classify_evse`.
                 self._proactive_offpeak_holds.add(evse_id)
                 self._paused_by_us.discard(evse_id)
+            else:
+                # B-LOW-2 fix-up: unknown/empty TOU period — explicit safe
+                # no-op (do not proactively turn-on or pause). The legacy
+                # bare-`else` would have triggered proactive turn-on for
+                # any unexpected period string. The supported values are
+                # enforced by `EnergyTOUEngine._VALID_PERIODS` in
+                # `energy_tou.py:37` ({"peak", "mid_peak", "off_peak"}),
+                # so reaching this branch means upstream contract drift.
+                continue
 
         return actions
 
@@ -1433,6 +1453,17 @@ class EVChargerController:
                 return ("paused", "TOU peak/mid-peak pause")
             if evse_id in self._excess_solar_active:
                 return ("excess_solar", "excess solar (charging)")
+            # B-MED-1 fix-up: surface URA's off-peak proactive turn-on intent
+            # so the EV charging-status sensor doesn't hide it behind
+            # "charging"/"idle". Positioned AFTER excess_solar so the
+            # human reason resolves to "excess solar (charging)" on dual
+            # membership (excess_solar_active + proactive_offpeak_holds),
+            # which is the operator-preferred precedence. Outranks the
+            # bare charging/idle fallbacks so the sensor reflects URA's
+            # ensure-on claim (operator decision 1 — documented widened
+            # `_ev_tou_enabled` semantics at the read side).
+            if evse_id in self._proactive_offpeak_holds:
+                return ("offpeak_proactive_on", "off-peak proactive turn-on")
             if ent.get("charging"):
                 return ("charging", "charging")
             if ent.get("is_on"):

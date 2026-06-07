@@ -6657,7 +6657,15 @@ class EnergyBatteryStrategySensor(AggregationEntity, SensorEntity):
             minutes_until = round(hours_until * 60)
             # Expected action on transition
             if next_period == "off_peak":
-                expected_action = "battery will drain toward reserve target"
+                # B-LOW-1(a) fix-up: off-peak transition now also drives
+                # proactive EV turn-on (WS2 widened semantics) unless a
+                # battery-protection guard fires (drain / fill-priority /
+                # grid-cap / arbitrage) or admin force-charge is active.
+                expected_action = (
+                    "battery will drain toward reserve target; "
+                    "EVs will turn ON proactively unless a "
+                    "battery-protection guard is active."
+                )
             elif next_period in ("peak", "mid_peak"):
                 expected_action = "EV TOU pause will engage; battery holds"
             else:

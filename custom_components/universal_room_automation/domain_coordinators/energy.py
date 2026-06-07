@@ -892,6 +892,11 @@ class EnergyCoordinator(BaseCoordinator):
             # Restore grid cap + battery drain state from key-value store.
             # v<next> WS1: all KV reads now route through the age-aware DAO
             # so a stale row from yesterday can't seed today's intent.
+            # F3 (review): grid_cap/drain sets are re-derived from live
+            # inputs every tick (`determine_actions` / `_update_battery_drain`
+            # / grid-cap evaluation), so the 10h staleness gate here is
+            # defense-in-depth (safe — fresh inputs overwrite within one
+            # decision cycle even if staleness gating let a stale row leak).
             import json as _json
             grid_cap_json = await db.restore_energy_state_with_age(
                 "evse_grid_cap_paused", max_age_hours=STALE_MAX_AGE_HOURS,
@@ -949,9 +954,16 @@ class EnergyCoordinator(BaseCoordinator):
                 except (ValueError, TypeError):
                     pass
             # v<next> WS1 D1.1: Restore force-charge expiry from canonical KV.
-            # KV wins over Switch-RestoreEntity attribute path on conflict.
+            # F8 (review): Switch RestoreEntity (`switch.py:802-854`) is the
+            # fresher fast-path (~15s attribute flush) and wins when present;
+            # this KV is the durable fallback for when the switch attribute
+            # is missing/unserializable. Restore ordering does NOT change at
+            # runtime; the doc-vs-code mismatch was in the planning text.
             # MUST use dt_util.parse_datetime (Bug Class #13/#21) — not
             # datetime.fromisoformat which would mis-handle naive timestamps.
+            # F1 (review): empty-string sentinel contract — `_save_evse_state`
+            # writes "" when the window auto-expires; the `if fc_iso:`
+            # truthiness guard below treats "" as falsy (no override applied).
             fc_iso = await db.restore_energy_state_with_age(
                 "ev_force_charge_until", max_age_hours=STALE_MAX_AGE_HOURS,
             )
@@ -1057,6 +1069,21 @@ class EnergyCoordinator(BaseCoordinator):
                 await db.save_energy_state(
                     "ev_force_charge_until",
                     fc_until.isoformat(),
+                )
+            else:
+                # F1 fix-up: when the window auto-expires (energy_pool.py
+                # determine_actions ~L450, _is_force_charge_active ~L583),
+                # `_force_charge_until` is set back to None. Without this
+                # else-branch the stale future-ISO row would linger in
+                # `energy_state` and the only thing keeping it from being
+                # honored on restore is the `parsed > dt_util.utcnow()`
+                # future-check (fragile). Empty-string sentinel contract:
+                # the restore side's `if fc_iso:` truthiness guard treats
+                # "" as falsy → no override applied. Verified at
+                # `_restore_evse_state` `if fc_iso:` above.
+                await db.save_energy_state(
+                    "ev_force_charge_until",
+                    "",
                 )
         except Exception as e:
             _LOGGER.warning("Could not save EVSE state to DB: %s", e)
@@ -3890,7 +3917,22 @@ class EnergyCoordinator(BaseCoordinator):
 
     @property
     def ev_tou_enabled(self) -> bool:
-        """Whether EV TOU pause/resume management is active."""
+        """Whether EV TOU management is active (bidirectional, widened semantics).
+
+        v<next> WS2: this flag now gates BOTH directions of TOU-driven EVSE
+        behavior:
+        - ON (default): URA pauses the EVSE during peak/mid_peak periods AND
+          ensures the EVSE is ON during off_peak (proactive turn-on), unless a
+          carry-over guard fires (battery drain / fill-priority / grid-cap /
+          arbitrage) or the admin force-charge override is active.
+        - OFF: URA disables BOTH directions — no TOU pause during peak, AND
+          no proactive turn-on during off_peak. Manual switch control is
+          unconstrained by TOU intent.
+
+        Legacy phrasing ("pause/resume") referred to a resume-only off-peak
+        branch that only un-paused URA's own pauses; that semantic was
+        widened in WS2 to ensure-on (operator decision 1).
+        """
         return self._ev_tou_enabled
 
     @ev_tou_enabled.setter
