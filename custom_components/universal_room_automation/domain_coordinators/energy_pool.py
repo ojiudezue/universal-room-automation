@@ -213,6 +213,17 @@ class EVChargerController:
         # Only settable via EVSEForceChargeButton; never from HA UI directly.
         self._force_charge_until: datetime | None = None
 
+        # v<next> WS2 D1.3: proactive off-peak hold set.
+        # When the off-peak branch of determine_actions decides to ensure-on
+        # an EVSE, the EVSE ID is added here. This is intent-state: it does
+        # NOT re-derive on restart (unlike grid_cap / drain which re-evaluate
+        # from their inputs every tick), so it MUST be persisted (D1.3 KV
+        # save in `_save_evse_state`, restore in `_restore_evse_state`).
+        # The set is pruned in `_prune_removed_evses` alongside the other
+        # six tracking sets, and discarded on transition out of off-peak
+        # (peak branch + excess-solar peak-clear).
+        self._proactive_offpeak_holds: set[str] = set()
+
         # v4.7.6 D1: Hybrid manual-override detection state.
         # _pause_dispatch_ts[evse_id] = monotonic() at the moment URA dispatched
         # switch.turn_off. _observed_off_since_pause[evse_id] flips False → True
@@ -381,6 +392,8 @@ class EVChargerController:
             self._paused_by_battery_drain,
             self._paused_by_arbitrage,
             self._paused_by_fill_priority,
+            # v<next> WS2 D1.3: prune proactive off-peak holds for removed EVSEs.
+            self._proactive_offpeak_holds,
         ):
             for evse_id in list(tracking_set):
                 if evse_id not in known:
@@ -466,27 +479,75 @@ class EVChargerController:
                     })
                     self._paused_by_us.add(evse_id)
                     _LOGGER.info("EV: pausing %s (%s TOU)", evse_id, tou_period)
+                # v<next> WS2 D2.2: clear stale proactive-hold bookkeeping on
+                # transition out of off-peak so the next off-peak entry starts
+                # from a clean set (no stale references to disconnected EVSEs).
+                self._proactive_offpeak_holds.discard(evse_id)
             else:
-                # Resume on off-peak (only if we paused it)
-                if evse_id in self._paused_by_us:
-                    # v4.0.18: Grid cap takes priority — don't resume if grid capped
-                    if evse_id in self._paused_by_grid_cap:
-                        self._paused_by_us.discard(evse_id)
-                        _LOGGER.info("EV: clearing TOU pause for %s (grid cap active)", evse_id)
-                        continue
-                    # v4.2.17: Battery drain takes priority — don't resume if draining
-                    if evse_id in self._paused_by_battery_drain:
-                        self._paused_by_us.discard(evse_id)
-                        _LOGGER.info("EV: clearing TOU pause for %s (battery drain active)", evse_id)
-                        continue
-                    if not state["is_on"]:
-                        actions.append({
-                            "service": "switch.turn_on",
-                            "target": switch_entity,
-                            "data": {},
-                        })
-                        _LOGGER.info("EV: resuming %s (off-peak)", evse_id)
+                # v<next> WS2 D2.1: off-peak ensure-on with guard precedence.
+                #
+                # Replaces the legacy resume-only rule (which only un-paused
+                # URA's own _paused_by_us entries) with an *ensure-on with
+                # precedence pre-check*. Why: a fresh plug-in overnight, or
+                # the post-sunset hand-off from excess-solar, both leave the
+                # EVSE in NO pause-set — and the legacy branch silently
+                # no-op'd, so the car never charged by morning.
+                #
+                # Carry-over guards always win — battery protections must
+                # not be pre-empted by TOU intent. If a guard fires NEWLY
+                # this tick (so we turn ON here, then it fires AFTER us and
+                # turns OFF), the user sees a single-tick on→off flap. This
+                # is acceptable; the analogous excess-solar path
+                # (`determine_excess_solar_actions` + downstream guards)
+                # already permits the same flap shape today. Documenting
+                # this here so a future reviewer doesn't mistake it for a
+                # bug — actual no-flap protection on this tick comes from
+                # the prior-tick carry-over check below.
+                #
+                # Force-charge is its own escape hatch (D2.3): when active
+                # we skip the proactive-on claim so `_proactive_offpeak_holds`
+                # doesn't gain membership for a charge that was authorized
+                # for a different reason.
+
+                # 2a: carry-over guards (battery protections) win — don't
+                # pre-empt the downstream rules; drop legacy _paused_by_us
+                # bookkeeping and clear any stale proactive-hold claim so
+                # the guard rule keeps the EVSE off.
+                if (
+                    evse_id in self._paused_by_battery_drain
+                    or evse_id in self._paused_by_fill_priority
+                    or evse_id in self._paused_by_grid_cap
+                    or evse_id in self._paused_by_arbitrage
+                ):
                     self._paused_by_us.discard(evse_id)
+                    self._proactive_offpeak_holds.discard(evse_id)
+                    continue
+
+                # 2b: force-charge already authorizes turn-on via its own
+                # path (D3). Skip the proactive-on claim so the hold-set
+                # cleanly reflects only TOU-driven holds.
+                if force_charge_active:
+                    continue
+
+                # 2c: ensure-on. Re-issue turn_on idempotently each tick
+                # (Bug Class #43 — intent-state, not a "we already did
+                # this" short-circuit). If the user manually disables the
+                # switch mid-off-peak, the next tick re-enforces.
+                if not state["is_on"]:
+                    actions.append({
+                        "service": "switch.turn_on",
+                        "target": switch_entity,
+                        "data": {},
+                    })
+                    _LOGGER.info(
+                        "EV: proactive off-peak turn-on for %s", evse_id
+                    )
+
+                # 2d: claim the hold; drop legacy TOU bookkeeping (matches
+                # the v4.7.x semantics where _paused_by_us tracks "we paused
+                # it", and an off-peak proactive-on is the inverse intent).
+                self._proactive_offpeak_holds.add(evse_id)
+                self._paused_by_us.discard(evse_id)
 
         return actions
 
@@ -564,6 +625,10 @@ class EVChargerController:
                         })
                         _LOGGER.info("Excess solar: turning off %s (peak period)", evse_id)
                 self._excess_solar_active.discard(evse_id)
+                # v<next> WS2 D2.2: also clear any proactive off-peak hold
+                # claim — excess-solar peak-clear is a transition out of
+                # off-peak intent.
+                self._proactive_offpeak_holds.discard(evse_id)
             return actions
 
         conditions_met = (
@@ -1279,6 +1344,11 @@ class EVChargerController:
                 if fill_priority_target_soc is not None else None
             ),
             "fill_priority_solar_ok": bool(self._fill_priority_solar_ok),
+            # v<next> WS2 D3: proactive off-peak hold set — surfaces which
+            # EVSEs URA is currently keeping on during off-peak. MUST be a
+            # JSON-serializable list (HA serializes attrs to JSON over the
+            # WebSocket; a `set` would raise TypeError).
+            "proactive_offpeak_holds": list(self._proactive_offpeak_holds),
         }
 
         # v4.7.6 D4.3: cooldowns — surface _battery_drain_cooldown with

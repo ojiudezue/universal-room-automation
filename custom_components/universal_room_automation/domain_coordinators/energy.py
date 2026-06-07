@@ -856,12 +856,28 @@ class EnergyCoordinator(BaseCoordinator):
             _LOGGER.warning("Could not save peak import history to DB: %s", e)
 
     async def _restore_evse_state(self) -> None:
-        """Restore EVSE paused/excess-solar state from DB after restart."""
+        """Restore EVSE paused/excess-solar state from DB after restart.
+
+        v<next> WS1 D1.1-D1.4:
+        - Adds 10h staleness guard on both `evse_state` rows and the KV reads
+          (rows older than 10h are skipped — Bug Class #10 bounded).
+        - Restores three new KV keys: `ev_force_charge_until` (canonical
+          force-charge expiry, parsed via `dt_util.parse_datetime` — Bug
+          Class #13/#21), `evse_fill_priority_paused`, `evse_arbitrage_paused`,
+          and the new `evse_proactive_offpeak_holds` intent-state set.
+        - Switch RestoreEntity path (`switch.py:802-854`) remains a fast-path
+          for entity-attribute round-trip; on conflict the KV value wins
+          (KV is canonical) — runs AFTER the existing pause-set restores so
+          observation-mode bookkeeping isn't disturbed.
+        """
+        from homeassistant.util import dt as dt_util
         db = self.hass.data.get("universal_room_automation", {}).get("database")
         if db is None:
             return
         try:
-            states = await db.restore_evse_state()
+            # 10h staleness guard — bounds restored intent vs a multi-day outage
+            STALE_MAX_AGE_HOURS = 10.0
+            states = await db.restore_evse_state(max_age_hours=STALE_MAX_AGE_HOURS)
             valid_evse_ids = set(self._ev._evse.keys())
             for evse_id, state in states.items():
                 if evse_id not in valid_evse_ids:
@@ -873,9 +889,13 @@ class EnergyCoordinator(BaseCoordinator):
                     self._ev._paused_by_us.add(evse_id)
                 if state.get("excess_solar_active"):
                     self._ev._excess_solar_active.add(evse_id)
-            # Restore grid cap + battery drain state from key-value store
+            # Restore grid cap + battery drain state from key-value store.
+            # v<next> WS1: all KV reads now route through the age-aware DAO
+            # so a stale row from yesterday can't seed today's intent.
             import json as _json
-            grid_cap_json = await db.restore_energy_state("evse_grid_cap_paused")
+            grid_cap_json = await db.restore_energy_state_with_age(
+                "evse_grid_cap_paused", max_age_hours=STALE_MAX_AGE_HOURS,
+            )
             if grid_cap_json:
                 try:
                     for eid in _json.loads(grid_cap_json):
@@ -884,7 +904,9 @@ class EnergyCoordinator(BaseCoordinator):
                 except (ValueError, TypeError):
                     pass
             # v4.2.17: Restore battery drain state
-            drain_json = await db.restore_energy_state("evse_battery_drain_paused")
+            drain_json = await db.restore_energy_state_with_age(
+                "evse_battery_drain_paused", max_age_hours=STALE_MAX_AGE_HOURS,
+            )
             if drain_json:
                 try:
                     for eid in _json.loads(drain_json):
@@ -892,19 +914,103 @@ class EnergyCoordinator(BaseCoordinator):
                             self._ev._paused_by_battery_drain.add(eid)
                 except (ValueError, TypeError):
                     pass
-            if states:
+            # v<next> WS1 D1.2: Restore fill-priority pause set
+            fp_json = await db.restore_energy_state_with_age(
+                "evse_fill_priority_paused", max_age_hours=STALE_MAX_AGE_HOURS,
+            )
+            if fp_json:
+                try:
+                    for eid in _json.loads(fp_json):
+                        if eid in valid_evse_ids:
+                            self._ev._paused_by_fill_priority.add(eid)
+                except (ValueError, TypeError):
+                    pass
+            # v<next> WS1 D1.3b (operator decision 4): Restore arbitrage pause
+            # set for symmetry with the other guard sets.
+            arb_json = await db.restore_energy_state_with_age(
+                "evse_arbitrage_paused", max_age_hours=STALE_MAX_AGE_HOURS,
+            )
+            if arb_json:
+                try:
+                    for eid in _json.loads(arb_json):
+                        if eid in valid_evse_ids:
+                            self._ev._paused_by_arbitrage.add(eid)
+                except (ValueError, TypeError):
+                    pass
+            # v<next> WS1 D1.3: Restore proactive off-peak hold intent-state
+            holds_json = await db.restore_energy_state_with_age(
+                "evse_proactive_offpeak_holds", max_age_hours=STALE_MAX_AGE_HOURS,
+            )
+            if holds_json:
+                try:
+                    for eid in _json.loads(holds_json):
+                        if eid in valid_evse_ids:
+                            self._ev._proactive_offpeak_holds.add(eid)
+                except (ValueError, TypeError):
+                    pass
+            # v<next> WS1 D1.1: Restore force-charge expiry from canonical KV.
+            # KV wins over Switch-RestoreEntity attribute path on conflict.
+            # MUST use dt_util.parse_datetime (Bug Class #13/#21) — not
+            # datetime.fromisoformat which would mis-handle naive timestamps.
+            fc_iso = await db.restore_energy_state_with_age(
+                "ev_force_charge_until", max_age_hours=STALE_MAX_AGE_HOURS,
+            )
+            if fc_iso:
+                try:
+                    parsed = dt_util.parse_datetime(fc_iso)
+                    if parsed is not None:
+                        # Ensure tz-aware before compare (defensive)
+                        if parsed.tzinfo is None:
+                            parsed = parsed.replace(tzinfo=dt_util.UTC)
+                        if parsed > dt_util.utcnow():
+                            self._ev.set_force_charge_override(parsed)
+                except (ValueError, TypeError):
+                    _LOGGER.warning(
+                        "Could not parse ev_force_charge_until=%r — skipping",
+                        fc_iso,
+                    )
+            if (
+                states
+                or self._ev._paused_by_grid_cap
+                or self._ev._paused_by_battery_drain
+                or self._ev._paused_by_fill_priority
+                or self._ev._paused_by_arbitrage
+                or self._ev._proactive_offpeak_holds
+                or self._ev._force_charge_until is not None
+            ):
                 _LOGGER.info(
-                    "Restored EVSE state: paused=%s, excess_solar=%s, grid_cap=%s, battery_drain=%s",
+                    "Restored EVSE state: paused=%s, excess_solar=%s, "
+                    "grid_cap=%s, battery_drain=%s, fill_priority=%s, "
+                    "arbitrage=%s, proactive_offpeak_holds=%s, "
+                    "force_charge_until=%s",
                     list(self._ev._paused_by_us),
                     list(self._ev._excess_solar_active),
                     list(self._ev._paused_by_grid_cap),
                     list(self._ev._paused_by_battery_drain),
+                    list(self._ev._paused_by_fill_priority),
+                    list(self._ev._paused_by_arbitrage),
+                    list(self._ev._proactive_offpeak_holds),
+                    self._ev._force_charge_until.isoformat()
+                    if self._ev._force_charge_until else None,
                 )
         except Exception as e:
             _LOGGER.warning("Could not restore EVSE state from DB: %s", e)
 
     async def _save_evse_state(self) -> None:
-        """Persist EVSE state to DB for restart recovery."""
+        """Persist EVSE state to DB for restart recovery.
+
+        v<next> WS1: extends the existing 15-min save cadence (no new timer —
+        Bug Class #19/#42) with four additional KV writes:
+        - `ev_force_charge_until` — canonical durable force-charge expiry
+          (Switch RestoreEntity path remains as fast-path; KV wins on conflict).
+          Saved as tz-aware ISO string via `dt_util.now().isoformat()` (Bug
+          Class #21 — never naive).
+        - `evse_fill_priority_paused` — mirrors the existing grid_cap / drain
+          KV pattern.
+        - `evse_arbitrage_paused` — for parity with the other guard sets
+          (operator decision 4).
+        - `evse_proactive_offpeak_holds` — new WS2 intent-state.
+        """
         db = self.hass.data.get("universal_room_automation", {}).get("database")
         if db is None:
             return
@@ -925,6 +1031,33 @@ class EnergyCoordinator(BaseCoordinator):
                 "evse_battery_drain_paused",
                 _json.dumps(list(self._ev._paused_by_battery_drain)),
             )
+            # v<next> WS1 D1.2: fill-priority pause set
+            await db.save_energy_state(
+                "evse_fill_priority_paused",
+                _json.dumps(list(self._ev._paused_by_fill_priority)),
+            )
+            # v<next> WS1 D1.3b (operator decision 4): arbitrage pause set
+            await db.save_energy_state(
+                "evse_arbitrage_paused",
+                _json.dumps(list(self._ev._paused_by_arbitrage)),
+            )
+            # v<next> WS1 D1.3: proactive off-peak hold intent-state
+            await db.save_energy_state(
+                "evse_proactive_offpeak_holds",
+                _json.dumps(list(self._ev._proactive_offpeak_holds)),
+            )
+            # v<next> WS1 D1.1: force-charge expiry (canonical durable copy).
+            # tz-aware ISO; on restore goes through dt_util.parse_datetime.
+            fc_until = self._ev._force_charge_until
+            if fc_until is not None:
+                # Ensure tz-aware (defensive; setter only accepts UTC-aware)
+                if fc_until.tzinfo is None:
+                    from homeassistant.util import dt as dt_util
+                    fc_until = fc_until.replace(tzinfo=dt_util.UTC)
+                await db.save_energy_state(
+                    "ev_force_charge_until",
+                    fc_until.isoformat(),
+                )
         except Exception as e:
             _LOGGER.warning("Could not save EVSE state to DB: %s", e)
 
