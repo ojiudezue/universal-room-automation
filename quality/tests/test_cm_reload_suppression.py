@@ -140,6 +140,11 @@ def _load_init_listener_helpers():
         "_seed_cm_last_applied_options",
         "_apply_in_place",
         "_async_update_listener",
+        # Part 2 — dispatch tables (read inside _apply_in_place).
+        "_HVAC_TUNABLE_DISPATCH",
+        "_EC_SETTER_DISPATCH",
+        "_OFFPEAK_DRAIN_QUALITY",
+        "_NO_LIVE_ATTR_KEYS",
     }
     body = []
     for node in tree.body:
@@ -147,6 +152,12 @@ def _load_init_listener_helpers():
             target = getattr(node.target, "id", None)
             if target in keep:
                 body.append(node)
+        elif isinstance(node, ast.Assign):
+            # Plain assignments (e.g. `_HVAC_TUNABLE_DISPATCH = {...}`).
+            for t in node.targets:
+                if isinstance(t, ast.Name) and t.id in keep:
+                    body.append(node)
+                    break
         elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
             if node.name in keep:
                 body.append(node)
@@ -161,6 +172,41 @@ def _load_init_listener_helpers():
         "_CONF_HVAC_MAX_OCCUPANCY_HOURS": "hvac_max_occupancy_hours",
         "_CONF_HVAC_ZONE_ENTRY_DWELL": "hvac_zone_entry_dwell",
         "_CONF_DYNAMIC_PRESET_DWELL_MINUTES": "dynamic_preset_dwell_minutes",
+        # Part 2 — HVAC tunable factory (14 keys)
+        "_CONF_HVAC_OCCUPIED_COVER_CLOSE_DELTA":  "hvac_occupied_cover_close_delta",
+        "_CONF_HVAC_COVER_CLOSE_TEMP":            "hvac_cover_close_temp",
+        "_CONF_HVAC_COVER_OPEN_TEMP":             "hvac_cover_open_temp",
+        "_CONF_HVAC_COVER_OVERRIDE_HOURS":        "hvac_cover_override_hours",
+        "_CONF_HVAC_SOLAR_BANK_FLOOR":            "hvac_solar_bank_floor",
+        "_CONF_HVAC_FAN_ACTIVATION_DELTA":        "hvac_fan_activation_delta",
+        "_CONF_HVAC_FAN_HYSTERESIS":              "hvac_fan_hysteresis",
+        "_CONF_HVAC_AC_NUDGE_SIZE":               "hvac_ac_nudge_size",
+        "_CONF_HVAC_AC_NUDGE_DURATION":           "hvac_ac_nudge_duration",
+        "_CONF_HVAC_AC_NUDGE_EVAL_DELAY":         "hvac_ac_nudge_eval_delay",
+        "_CONF_HVAC_AC_SUSTAINED_SAMPLES":        "hvac_ac_sustained_samples",
+        "_CONF_HVAC_AC_DETECTION_TIME_GATE":      "hvac_ac_detection_time_gate",
+        "_CONF_HVAC_AC_HARD_RESET_DAILY_LIMIT":   "hvac_ac_hard_reset_daily_limit",
+        "_CONF_HVAC_AC_HARD_RESET_MIN_INTERVAL":  "hvac_ac_hard_reset_min_interval",
+        # Part 2 — EC family
+        "_CONF_ENERGY_OFFPEAK_DRAIN_EXCELLENT":   "energy_offpeak_drain_excellent",
+        "_CONF_ENERGY_OFFPEAK_DRAIN_GOOD":        "energy_offpeak_drain_good",
+        "_CONF_ENERGY_OFFPEAK_DRAIN_MODERATE":    "energy_offpeak_drain_moderate",
+        "_CONF_ENERGY_OFFPEAK_DRAIN_POOR":        "energy_offpeak_drain_poor",
+        "_CONF_ENERGY_PEAK_BUFFER_TARGET":        "energy_peak_buffer_target",
+        "_CONF_ENERGY_ARBITRAGE_CHARGE_LEAD_TIME_MIN": "energy_arbitrage_charge_lead_time_min",
+        "_CONF_ENERGY_EV_BATTERY_DRAIN_SOC":      "energy_ev_battery_drain_soc",
+        "_CONF_ENERGY_FILL_PRIORITY_SOC":         "energy_fill_priority_soc",
+        "_CONF_ENERGY_EXCESS_SOLAR_SOC":          "energy_excess_solar_soc",
+        # Part 2 — DPM hysteresis + egress + fan-interference hold + Routine + Bayesian
+        "_CONF_DYNAMIC_PRESET_HYSTERESIS_F":      "dynamic_preset_hysteresis_f",
+        "_CONF_HVAC_EGRESS_THRESHOLD_MIN":        "hvac_egress_threshold_min",
+        "_CONF_HVAC_EGRESS_RESUME_DELAY_MIN":     "hvac_egress_resume_delay_min",
+        "_CONF_FAN_INTERFERENCE_HOLD_S":          "fan_interference_hold_s",
+        "_CONF_ROUTINE_EVENT_COOLDOWN_DAYS":      "routine_event_cooldown_days",
+        "_CONF_ROUTINE_EVENT_MIN_SEVERITY":       "routine_event_min_severity",
+        "_CONF_ROUTINE_REGIME_BASELINE_WINDOW_DAYS": "routine_regime_baseline_window_days",
+        "_CONF_ROUTINE_REGIME_RECENT_WINDOW_DAYS": "routine_regime_recent_window_days",
+        "_CONF_BAYESIAN_CELL_STALENESS_DAYS":     "bayesian_cell_staleness_days",
         # Typing — frozenset[str] subscript requires Python 3.9+; ok.
     }
     # Wrap kept nodes in a Module and compile.

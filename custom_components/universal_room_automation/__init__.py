@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv4.7.26
+# Universal Room Automation vv4.7.27
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -3559,17 +3559,152 @@ from .domain_coordinators.hvac_const import (
     CONF_HVAC_VACANCY_GRACE_CONSTRAINED as _CONF_HVAC_VACANCY_GRACE_CONSTRAINED,
     CONF_HVAC_MAX_OCCUPANCY_HOURS as _CONF_HVAC_MAX_OCCUPANCY_HOURS,
     CONF_HVAC_ZONE_ENTRY_DWELL as _CONF_HVAC_ZONE_ENTRY_DWELL,
+    # Part 2 — HVAC tunable factory (60-66 + 70-76 cluster, 14 keys)
+    CONF_HVAC_OCCUPIED_COVER_CLOSE_DELTA as _CONF_HVAC_OCCUPIED_COVER_CLOSE_DELTA,
+    CONF_HVAC_COVER_CLOSE_TEMP as _CONF_HVAC_COVER_CLOSE_TEMP,
+    CONF_HVAC_COVER_OPEN_TEMP as _CONF_HVAC_COVER_OPEN_TEMP,
+    CONF_HVAC_COVER_OVERRIDE_HOURS as _CONF_HVAC_COVER_OVERRIDE_HOURS,
+    CONF_HVAC_SOLAR_BANK_FLOOR as _CONF_HVAC_SOLAR_BANK_FLOOR,
+    CONF_HVAC_FAN_ACTIVATION_DELTA as _CONF_HVAC_FAN_ACTIVATION_DELTA,
+    CONF_HVAC_FAN_HYSTERESIS as _CONF_HVAC_FAN_HYSTERESIS,
+    CONF_HVAC_AC_NUDGE_SIZE as _CONF_HVAC_AC_NUDGE_SIZE,
+    CONF_HVAC_AC_NUDGE_DURATION as _CONF_HVAC_AC_NUDGE_DURATION,
+    CONF_HVAC_AC_NUDGE_EVAL_DELAY as _CONF_HVAC_AC_NUDGE_EVAL_DELAY,
+    CONF_HVAC_AC_SUSTAINED_SAMPLES as _CONF_HVAC_AC_SUSTAINED_SAMPLES,
+    CONF_HVAC_AC_DETECTION_TIME_GATE as _CONF_HVAC_AC_DETECTION_TIME_GATE,
+    CONF_HVAC_AC_HARD_RESET_DAILY_LIMIT as _CONF_HVAC_AC_HARD_RESET_DAILY_LIMIT,
+    CONF_HVAC_AC_HARD_RESET_MIN_INTERVAL as _CONF_HVAC_AC_HARD_RESET_MIN_INTERVAL,
+    # Part 2 — DPM hysteresis (D5) and egress thresholds (D5)
+    CONF_HVAC_EGRESS_THRESHOLD_MIN as _CONF_HVAC_EGRESS_THRESHOLD_MIN,
+    CONF_HVAC_EGRESS_RESUME_DELAY_MIN as _CONF_HVAC_EGRESS_RESUME_DELAY_MIN,
 )
 from .domain_coordinators.energy_const import (
     CONF_DYNAMIC_PRESET_DWELL_MINUTES as _CONF_DYNAMIC_PRESET_DWELL_MINUTES,
+    # Part 2 — DPM hysteresis (D5)
+    CONF_DYNAMIC_PRESET_HYSTERESIS_F as _CONF_DYNAMIC_PRESET_HYSTERESIS_F,
+    # Part 2 — EC Number family (D1)
+    CONF_ENERGY_OFFPEAK_DRAIN_EXCELLENT as _CONF_ENERGY_OFFPEAK_DRAIN_EXCELLENT,
+    CONF_ENERGY_OFFPEAK_DRAIN_GOOD as _CONF_ENERGY_OFFPEAK_DRAIN_GOOD,
+    CONF_ENERGY_OFFPEAK_DRAIN_MODERATE as _CONF_ENERGY_OFFPEAK_DRAIN_MODERATE,
+    CONF_ENERGY_OFFPEAK_DRAIN_POOR as _CONF_ENERGY_OFFPEAK_DRAIN_POOR,
+    CONF_ENERGY_PEAK_BUFFER_TARGET as _CONF_ENERGY_PEAK_BUFFER_TARGET,
+    CONF_ENERGY_ARBITRAGE_CHARGE_LEAD_TIME_MIN as _CONF_ENERGY_ARBITRAGE_CHARGE_LEAD_TIME_MIN,
+    CONF_ENERGY_EV_BATTERY_DRAIN_SOC as _CONF_ENERGY_EV_BATTERY_DRAIN_SOC,
+    CONF_ENERGY_FILL_PRIORITY_SOC as _CONF_ENERGY_FILL_PRIORITY_SOC,
+    CONF_ENERGY_EXCESS_SOLAR_SOC as _CONF_ENERGY_EXCESS_SOLAR_SOC,
+)
+from .const import (
+    # Part 2 — Bayesian + fan-interference + routine family
+    CONF_BAYESIAN_CELL_STALENESS_DAYS as _CONF_BAYESIAN_CELL_STALENESS_DAYS,
+    CONF_FAN_INTERFERENCE_HOLD_S as _CONF_FAN_INTERFERENCE_HOLD_S,
+    CONF_ROUTINE_EVENT_COOLDOWN_DAYS as _CONF_ROUTINE_EVENT_COOLDOWN_DAYS,
+    CONF_ROUTINE_EVENT_MIN_SEVERITY as _CONF_ROUTINE_EVENT_MIN_SEVERITY,
+    CONF_ROUTINE_REGIME_BASELINE_WINDOW_DAYS as _CONF_ROUTINE_REGIME_BASELINE_WINDOW_DAYS,
+    CONF_ROUTINE_REGIME_RECENT_WINDOW_DAYS as _CONF_ROUTINE_REGIME_RECENT_WINDOW_DAYS,
 )
 
+# The 14 HVAC tunable factory CONFs share an identical dispatch pattern:
+# look up `hvac.<sub_controller_attr>` then `setattr(sub, runtime_field, cast(value))`.
+# This table is the single source of truth for both the allowlist membership
+# and the `_apply_in_place` dispatch — keeping the two in lockstep.
+#
+# All 5 watch-list keys (ac_nudge_duration, ac_nudge_eval_delay,
+# ac_detection_time_gate, ac_hard_reset_min_interval, cover_override_duration)
+# were verified to consume their runtime_field INLINE at call sites
+# (hvac_override.py:1061/1359/1495/1779-1784, hvac_covers.py:653), NOT via
+# a stashed timedelta cache. A plain setattr is sufficient.
+_HVAC_TUNABLE_DISPATCH: dict[str, tuple[str, str, type]] = {
+    _CONF_HVAC_OCCUPIED_COVER_CLOSE_DELTA:  ("_cover_controller",   "_occupied_close_delta",      float),
+    _CONF_HVAC_COVER_CLOSE_TEMP:            ("_cover_controller",   "_cover_close_temp",          float),
+    _CONF_HVAC_COVER_OPEN_TEMP:             ("_cover_controller",   "_cover_open_temp",           float),
+    _CONF_HVAC_COVER_OVERRIDE_HOURS:        ("_cover_controller",   "_cover_override_hours",      float),
+    _CONF_HVAC_SOLAR_BANK_FLOOR:            ("_predictor",          "_solar_bank_floor",          float),
+    _CONF_HVAC_FAN_ACTIVATION_DELTA:        ("_fan_controller",     "_activation_delta",          float),
+    _CONF_HVAC_FAN_HYSTERESIS:              ("_fan_controller",     "_deactivation_delta",        float),
+    _CONF_HVAC_AC_NUDGE_SIZE:               ("_override_arrester",  "_nudge_size_f",              float),
+    _CONF_HVAC_AC_NUDGE_DURATION:           ("_override_arrester",  "_nudge_duration_min",        int),
+    _CONF_HVAC_AC_NUDGE_EVAL_DELAY:         ("_override_arrester",  "_nudge_eval_delay_s",        int),
+    _CONF_HVAC_AC_SUSTAINED_SAMPLES:        ("_override_arrester",  "_sustained_samples",         int),
+    _CONF_HVAC_AC_DETECTION_TIME_GATE:      ("_override_arrester",  "_detection_time_gate_min",   int),
+    _CONF_HVAC_AC_HARD_RESET_DAILY_LIMIT:   ("_override_arrester",  "_hard_reset_daily_limit",    int),
+    _CONF_HVAC_AC_HARD_RESET_MIN_INTERVAL:  ("_override_arrester",  "_hard_reset_min_interval_min", int),
+}
+
+# Energy Coordinator setter-based dispatch (calls a coordinator method, NOT
+# a direct attr write — the setters carry side-effects like
+# _check_threshold_ladder() that a raw setattr would skip).
+_EC_SETTER_DISPATCH: dict[str, tuple[str, type]] = {
+    _CONF_ENERGY_PEAK_BUFFER_TARGET:               ("set_peak_buffer_target",         int),
+    _CONF_ENERGY_ARBITRAGE_CHARGE_LEAD_TIME_MIN:   ("set_arbitrage_charge_lead_time", int),
+    _CONF_ENERGY_EV_BATTERY_DRAIN_SOC:             ("set_ev_battery_drain_soc",       int),
+    _CONF_ENERGY_FILL_PRIORITY_SOC:                ("set_fill_priority_soc",          int),
+    _CONF_ENERGY_EXCESS_SOLAR_SOC:                 ("set_excess_solar_soc",           int),
+}
+
+# Off-peak drain takes (quality, value) — special-cased below.
+_OFFPEAK_DRAIN_QUALITY: dict[str, str] = {
+    _CONF_ENERGY_OFFPEAK_DRAIN_EXCELLENT: "excellent",
+    _CONF_ENERGY_OFFPEAK_DRAIN_GOOD:      "good",
+    _CONF_ENERGY_OFFPEAK_DRAIN_MODERATE:  "moderate",
+    _CONF_ENERGY_OFFPEAK_DRAIN_POOR:      "poor",
+}
+
+# Keys where no live-attr push is needed; the listener just advances the
+# snapshot (mirrors the v4.7.26 DPM-dwell pattern). Per-sub-family:
+#   - DPM dwell + DPM hysteresis: consumer re-reads `entry.options` each
+#     evaluation tick via `_get_cm_options()`.
+#   - Routine event family (event_cooldown_days, event_min_severity):
+#     consumer (notification_manager.py:2358-2379) reads live entity-state,
+#     falling back to `cm_opts.get(CONF_…)` from entry.options.
+#   - Routine regime family (regime_baseline/recent_window_days):
+#     consumer (regime_detector.py:104-133, `_window_days`) reads live
+#     entity-state, falling back to HARDCODED 56/14 academic-default seeds
+#     (NOT `cm_opts.get(...)`).
+#   - Bayesian cell staleness: consumer reads live entity-state.
+# In all cases the Number setter's `async_write_ha_state()` refreshes the
+# entity state, and the Number setter is the sole write path (verified:
+# no config/options-flow path writes these keys), so the entity-state
+# read sees fresh values without a live-attr push.
+_NO_LIVE_ATTR_KEYS: frozenset[str] = frozenset({
+    _CONF_DYNAMIC_PRESET_DWELL_MINUTES,
+    _CONF_DYNAMIC_PRESET_HYSTERESIS_F,
+    _CONF_ROUTINE_EVENT_COOLDOWN_DAYS,
+    _CONF_ROUTINE_EVENT_MIN_SEVERITY,
+    _CONF_ROUTINE_REGIME_BASELINE_WINDOW_DAYS,
+    _CONF_ROUTINE_REGIME_RECENT_WINDOW_DAYS,
+    _CONF_BAYESIAN_CELL_STALENESS_DAYS,
+})
+
 OPTIONS_RELOAD_SUPPRESS_KEYS: frozenset[str] = frozenset({
+    # v4.7.26 (Cycle 1) — HVAC presence timers + DPM dwell
     _CONF_HVAC_VACANCY_GRACE_MINUTES,
     _CONF_HVAC_VACANCY_GRACE_CONSTRAINED,
     _CONF_HVAC_MAX_OCCUPANCY_HOURS,
     _CONF_HVAC_ZONE_ENTRY_DWELL,
     _CONF_DYNAMIC_PRESET_DWELL_MINUTES,
+    # Part 2 D1 — EC Number family + Bayesian
+    _CONF_ENERGY_OFFPEAK_DRAIN_EXCELLENT,
+    _CONF_ENERGY_OFFPEAK_DRAIN_GOOD,
+    _CONF_ENERGY_OFFPEAK_DRAIN_MODERATE,
+    _CONF_ENERGY_OFFPEAK_DRAIN_POOR,
+    _CONF_ENERGY_PEAK_BUFFER_TARGET,
+    _CONF_ENERGY_ARBITRAGE_CHARGE_LEAD_TIME_MIN,
+    _CONF_ENERGY_EV_BATTERY_DRAIN_SOC,
+    _CONF_ENERGY_FILL_PRIORITY_SOC,
+    _CONF_ENERGY_EXCESS_SOLAR_SOC,
+    _CONF_BAYESIAN_CELL_STALENESS_DAYS,
+    # Part 2 D2 — Routine family
+    _CONF_ROUTINE_EVENT_COOLDOWN_DAYS,
+    _CONF_ROUTINE_EVENT_MIN_SEVERITY,
+    _CONF_ROUTINE_REGIME_BASELINE_WINDOW_DAYS,
+    _CONF_ROUTINE_REGIME_RECENT_WINDOW_DAYS,
+    # Part 2 D3 — HVAC tunable factory (14 keys)
+    *_HVAC_TUNABLE_DISPATCH.keys(),
+    # Part 2 D5 — DPM hysteresis + egress + fan-interference hold
+    _CONF_DYNAMIC_PRESET_HYSTERESIS_F,
+    _CONF_HVAC_EGRESS_THRESHOLD_MIN,
+    _CONF_HVAC_EGRESS_RESUME_DELAY_MIN,
+    _CONF_FAN_INTERFERENCE_HOLD_S,
 })
 
 
@@ -3623,16 +3758,29 @@ def _apply_in_place(
     applied: set[str] = set()
     manager = hass.data.get(DOMAIN, {}).get("coordinator_manager")
     hvac = manager.coordinators.get("hvac") if manager is not None else None
+    energy = manager.coordinators.get("energy") if manager is not None else None
+    presence = manager.coordinators.get("presence") if manager is not None else None
 
     # A-MED-1: if HVAC coordinator is None but allowlisted HVAC-owned keys
     # are in changed_keys, emit ONE INFO. The DPM dwell key is NOT
     # HVAC-owned — it's handled by energy.py re-read each tick, so it
-    # should NOT trigger this log.
+    # should NOT trigger this log. Part 2: the EC family + Routine family +
+    # Bayesian + DPM hysteresis all also legitimately apply with hvac=None
+    # (their consumers are EC / Routine / lookup-based).
     _hvac_owned_keys = {
         _CONF_HVAC_VACANCY_GRACE_MINUTES,
         _CONF_HVAC_VACANCY_GRACE_CONSTRAINED,
         _CONF_HVAC_MAX_OCCUPANCY_HOURS,
         _CONF_HVAC_ZONE_ENTRY_DWELL,
+        # Part 2 D3 — HVAC tunable factory (14 keys)
+        *_HVAC_TUNABLE_DISPATCH.keys(),
+        # Part 2 D5 — egress thresholds (HVAC-owned via egress_manager)
+        _CONF_HVAC_EGRESS_THRESHOLD_MIN,
+        _CONF_HVAC_EGRESS_RESUME_DELAY_MIN,
+    }
+    _ec_owned_keys = {
+        *_OFFPEAK_DRAIN_QUALITY.keys(),
+        *_EC_SETTER_DISPATCH.keys(),
     }
 
     if hvac is None:
@@ -3643,11 +3791,14 @@ def _apply_in_place(
                 "entry.options and will be picked up on next HVAC setup",
                 sorted(changed_keys & _hvac_owned_keys),
             )
-        # DPM dwell legitimately has no HVAC push — treat as applied so
-        # the listener's snapshot advances for it (energy.py re-reads).
-        if _CONF_DYNAMIC_PRESET_DWELL_MINUTES in changed_keys:
-            applied.add(_CONF_DYNAMIC_PRESET_DWELL_MINUTES)
-        return applied
+        # Keys whose consumer re-reads entry.options each tick: mark as
+        # applied so the listener snapshot advances (the option write
+        # already persisted — no further action needed).
+        for k in changed_keys & _NO_LIVE_ATTR_KEYS:
+            applied.add(k)
+        # EC-owned and fan-interference (presence-owned) keys are NOT
+        # HVAC-owned: try to apply them below even if hvac is None.
+        # Fall through to the EC + presence + no-live-attr branches.
 
     # HIGH-1: per-key try/except so one bad value cannot suppress its
     # siblings. B-MED-2: widened to AttributeError (coordinator may be
@@ -3709,10 +3860,147 @@ def _apply_in_place(
                 err,
             )
 
-    # B-HIGH-1 (Review B): defensive clamp. Re-enforce the v4.7.25
-    # A-HIGH-1 invariant in case an out-of-band write bypassed the
-    # Number-setter's clamp (external `async_update_entry`, future
-    # service/YAML path).
+    # ----- Part 2 D3: HVAC tunable factory (14 keys) -----
+    # Each key dispatches via setattr against a sub-controller attr; the
+    # 5 watch-list keys consume their runtime_field inline at the call
+    # site (no stashed timedelta cache), so a plain setattr is sufficient.
+    # The cast (int vs float) comes from the dispatch table, which is the
+    # single source of truth shared with `_HVACTunableNumber`.
+    for key, (sub_attr, runtime_field, cast_fn) in _HVAC_TUNABLE_DISPATCH.items():
+        if key not in changed_keys:
+            continue
+        if hvac is None:
+            continue  # already logged above; key not added to applied
+        try:
+            sub = getattr(hvac, sub_attr, None)
+            if sub is None:
+                _LOGGER.info(
+                    "CM in-place apply: HVAC sub-controller %s not available "
+                    "for key=%s; value will be picked up on next setup",
+                    sub_attr, key,
+                )
+                continue
+            setattr(sub, runtime_field, cast_fn(new_options[key]))
+            applied.add(key)
+        except (AttributeError, KeyError, ValueError, TypeError) as err:
+            _LOGGER.warning(
+                "CM in-place apply: HVAC tunable push failed for "
+                "key=%s value=%r: %s",
+                key, new_options.get(key), err,
+            )
+
+    # ----- Part 2 D5: HVAC egress thresholds -----
+    # `egress_manager` is a @property (hvac.py:295) backed by
+    # `self._egress_manager`, which can be None mid-teardown. Mirror the
+    # HVAC-tunable loop's `if sub is None: continue` guard so we don't
+    # AttributeError on `None.set_threshold_min(...)` during teardown races.
+    if _CONF_HVAC_EGRESS_THRESHOLD_MIN in changed_keys and hvac is not None:
+        try:
+            egress_mgr = hvac.egress_manager
+            if egress_mgr is None:
+                _LOGGER.info(
+                    "CM in-place apply: egress_manager not available for "
+                    "key=%s; value will be picked up on next setup",
+                    _CONF_HVAC_EGRESS_THRESHOLD_MIN,
+                )
+            else:
+                egress_mgr.set_threshold_min(
+                    int(new_options[_CONF_HVAC_EGRESS_THRESHOLD_MIN]),
+                )
+                applied.add(_CONF_HVAC_EGRESS_THRESHOLD_MIN)
+        except (AttributeError, KeyError, ValueError, TypeError) as err:
+            _LOGGER.warning(
+                "CM in-place apply: egress threshold push failed: %s", err,
+            )
+    if _CONF_HVAC_EGRESS_RESUME_DELAY_MIN in changed_keys and hvac is not None:
+        try:
+            egress_mgr = hvac.egress_manager
+            if egress_mgr is None:
+                _LOGGER.info(
+                    "CM in-place apply: egress_manager not available for "
+                    "key=%s; value will be picked up on next setup",
+                    _CONF_HVAC_EGRESS_RESUME_DELAY_MIN,
+                )
+            else:
+                egress_mgr.set_resume_delay_min(
+                    int(new_options[_CONF_HVAC_EGRESS_RESUME_DELAY_MIN]),
+                )
+                applied.add(_CONF_HVAC_EGRESS_RESUME_DELAY_MIN)
+        except (AttributeError, KeyError, ValueError, TypeError) as err:
+            _LOGGER.warning(
+                "CM in-place apply: egress resume-delay push failed: %s", err,
+            )
+
+    # ----- Part 2 D1: EC Number family -----
+    # OffPeakDrain takes (quality, value) — must use the EC setter (NOT a
+    # direct attr write — the setter calls _check_threshold_ladder()).
+    for key, quality in _OFFPEAK_DRAIN_QUALITY.items():
+        if key not in changed_keys:
+            continue
+        if energy is None:
+            _LOGGER.info(
+                "CM in-place apply: Energy coordinator not available for "
+                "key=%s; persisted in entry.options for next EC setup", key,
+            )
+            continue
+        try:
+            energy.set_offpeak_drain(quality, int(new_options[key]))
+            applied.add(key)
+        except (AttributeError, KeyError, ValueError, TypeError) as err:
+            _LOGGER.warning(
+                "CM in-place apply: OffPeakDrain push failed key=%s "
+                "value=%r: %s", key, new_options.get(key), err,
+            )
+    # Other EC keys dispatch via their setter method on the EC instance
+    # (setters carry side-effects: clamps, threshold-ladder check, log).
+    for key, (setter_name, cast_fn) in _EC_SETTER_DISPATCH.items():
+        if key not in changed_keys:
+            continue
+        if energy is None:
+            _LOGGER.info(
+                "CM in-place apply: Energy coordinator not available for "
+                "key=%s; persisted in entry.options for next EC setup", key,
+            )
+            continue
+        try:
+            setter = getattr(energy, setter_name, None)
+            if setter is None:
+                _LOGGER.warning(
+                    "CM in-place apply: EC setter %s missing for key=%s",
+                    setter_name, key,
+                )
+                continue
+            setter(cast_fn(new_options[key]))
+            applied.add(key)
+        except (AttributeError, KeyError, ValueError, TypeError) as err:
+            _LOGGER.warning(
+                "CM in-place apply: EC setter %s failed key=%s value=%r: %s",
+                setter_name, key, new_options.get(key), err,
+            )
+
+    # ----- Part 2 D5: Fan-interference hold (presence coordinator) -----
+    if _CONF_FAN_INTERFERENCE_HOLD_S in changed_keys:
+        if presence is None:
+            _LOGGER.info(
+                "CM in-place apply: Presence coordinator not available for "
+                "fan_interference_hold_s; persisted in entry.options",
+            )
+        else:
+            try:
+                presence.set_fan_interference_hold_s(
+                    int(new_options[_CONF_FAN_INTERFERENCE_HOLD_S]),
+                )
+                applied.add(_CONF_FAN_INTERFERENCE_HOLD_S)
+            except (AttributeError, KeyError, ValueError, TypeError) as err:
+                _LOGGER.warning(
+                    "CM in-place apply: fan_interference_hold_s push failed: %s",
+                    err,
+                )
+
+    # ----- B-HIGH-1: defensive clamp for vacancy-grace pair -----
+    # Re-enforce the v4.7.25 A-HIGH-1 invariant in case an out-of-band
+    # write bypassed the Number-setter's clamp (external
+    # `async_update_entry`, future service/YAML path).
     try:
         if hvac._vacancy_grace_constrained > hvac._vacancy_grace:
             _LOGGER.warning(
@@ -3725,10 +4013,13 @@ def _apply_in_place(
     except AttributeError:
         pass
 
-    # DPM dwell: no live-attr push needed (see docstring above) but mark
-    # as applied so the listener advances the snapshot for it.
-    if _CONF_DYNAMIC_PRESET_DWELL_MINUTES in changed_keys:
-        applied.add(_CONF_DYNAMIC_PRESET_DWELL_MINUTES)
+    # ----- Keys whose consumer re-reads entry.options each tick -----
+    # No live-attr push needed (option write already persisted by the
+    # caller before this function fires). DPM dwell + DPM hysteresis read
+    # via energy.py `_get_cm_options()`; Routine family + Bayesian read
+    # via entity-state lookup with `cm_opts.get(...)` fallback.
+    for k in changed_keys & _NO_LIVE_ATTR_KEYS:
+        applied.add(k)
 
     return applied
 

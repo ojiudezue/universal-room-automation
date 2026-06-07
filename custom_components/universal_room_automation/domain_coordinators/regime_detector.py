@@ -104,12 +104,15 @@ class RegimeDetector:
     def _window_days(self) -> tuple[int, int]:
         """Return (baseline_days, recent_days), respecting D6 tunables.
 
-        v4.6.2 review fix B#3 follow-on: The D6 Number entities
+        Part 2 retrofit (post-v4.7.26): The D6 Number entities
         (`RoutineRegimeBaselineWindowNumber`, `RoutineRegimeRecentWindowNumber`)
-        use the URA Mirror Pattern (RestoreEntity-backed `_value`, no write
-        back to entry.options). Reading entry.options would only see the
-        install-time seed, making the slider dead config. Read the live HA
-        entity state instead.
+        DROPPED RestoreEntity and now persist via entry.options as the
+        sole source of truth. This consumer continues to read live HA
+        entity state — which is correct under either backing store — so
+        no change was needed here when the persistence model flipped.
+        Falls back to hardcoded 56 / 14 academic-default seeds if the
+        entity state is missing/unavailable (e.g. during boot before the
+        Number platform has fully wired its entities).
 
         Fallback order:
           1. number.ura_coordinator_manager_routine_regime_baseline_window_days

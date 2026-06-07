@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv4.7.26
+# Universal Room Automation vv4.7.27
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v4.7.26"
+VERSION: Final = "v4.7.27"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -1429,6 +1429,13 @@ CONF_ROUTINE_EVENT_MIN_SEVERITY: Final = "routine_event_min_severity"
 # D6: Advanced tunables for D4 JS-divergence algorithm
 CONF_ROUTINE_REGIME_BASELINE_WINDOW_DAYS: Final = "routine_regime_baseline_window_days"
 CONF_ROUTINE_REGIME_RECENT_WINDOW_DAYS: Final = "routine_regime_recent_window_days"
+
+# v4.6.2 D3: PersonLikelyNextRoomSensor cell-staleness window (days).
+# Promoted to const.py in Part 2 fix-up B-LOW-3 so __init__.py and
+# number.py share a single named Final (the string value is the
+# persisted options key + drives entity unique_id — must remain
+# byte-identical).
+CONF_BAYESIAN_CELL_STALENESS_DAYS: Final = "bayesian_cell_staleness_days"
 
 CONF_HVAC_ON_HAZARD_STOP_FANS: Final = "hvac_on_hazard_stop_fans"
 CONF_HVAC_ON_HAZARD_EMERGENCY_HEAT: Final = "hvac_on_hazard_emergency_heat"

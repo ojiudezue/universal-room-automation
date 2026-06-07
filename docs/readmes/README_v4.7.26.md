@@ -112,20 +112,33 @@ Full report: `docs/reviews/code-review/cm_reload_suppression_tier2db.md`.
 
 ---
 
-## Live Validation (Review D) — prospective criteria
+## Live Validation (Review D) — Validated 2026-06-06
 
-To be recorded back into this README after HACS download + HA restart.
+HACS v4.7.26 downloaded, `ha_check_config` valid, HA restarted. Results recorded
+against the prospective criteria, using live entity `last_changed` attributes and the
+home-assistant.log as the authoritative signals.
 
-| Criterion | Expected |
+| Criterion | Result |
 |---|---|
-| HACS shows installed_version 4.7.26 after download + restart | PASS |
-| Editing ONE allowlisted timer Number does NOT re-stamp the other three (distinct `last_changed`) | The four Numbers' `last_changed` diverge — proves reload suppressed |
-| Edited value reaches the live HVAC attr | next HVAC decision cycle uses the new value; read-back of the Number matches |
-| Log shows the suppression INFO, not a reload, for an allowlisted edit | `CM options changed … in-place apply, suppressing reload` present; no CM reload burst |
-| A mixed/non-allowlisted CM options change still reloads | fall-through INFO with changed_keys + reload occurs |
-| Persistence across restart (Bug Class #32 unchanged) | post-restart Numbers come up at persisted option values |
-| A-MED-1 combined error | submitting an HVAC-settings form that violates BOTH cover-temp and vacancy-grace shows the combined message |
-| No errors attributable to the cycle | error-log scan since boot for `number.py` / `universal_room_automation` (ERROR) returns zero cycle-attributable lines |
+| HACS shows installed_version 4.7.26 after download + restart | **PASS** — pending_update cleared after `ha_hacs_download`; integration came up `loaded` post-restart with all CM entities present. |
+| Editing ONE allowlisted timer Number does NOT re-stamp the other three (distinct `last_changed`) | **PASS (the robustness bar)** — set `number.…_48_zone_vacancy_delay_minutes` 10→12; re-read of all four: **only 48 moved** to `2026-06-07T01:16:45.212Z`, while `47`/`49`/`50` all kept their boot-seed `2026-06-07T01:14:29.215Z` (distinct, unchanged). Pre-fix, editing one re-stamped all four with identical `last_changed` to the ms. Reload suppressed. |
+| Edited value reaches the live HVAC attr | **PASS (path) / in-suite (next-cycle propagation)** — the suppression INFO confirms `_apply_in_place` ran (it pushes `hvac._vacancy_grace`); the Number read-back matched the set value (`verified_state` 12, then 11, then restored 10). Full next-decision-cycle attr propagation is covered in-suite (the live attr is an internal Python field, not separately exposed). |
+| Log shows the suppression INFO, not a reload, for an allowlisted edit | **PASS** — at URA logger=INFO, a single allowlisted edit emitted: `CM options changed for 'URA: Coordinator Manager' (01KJEC3FYPYAGBQKZWC94CR8GR) — in-place apply, suppressing reload (changed_keys=['hvac_vacancy_grace_minutes'])`. No CM reload burst followed (the three sibling Numbers did not re-stamp). URA logger restored to WARNING after. |
+| A mixed/non-allowlisted CM options change still reloads | **In-suite covered (not live-triggered)** — the fall-through reload rebuilds all coordinators and would re-induce the cold-boot away-actuation storm; triggering it live for a covered branch was not worth the disruption. 31 unit tests exercise the mixed/non-allowlisted → full-reload + snapshot-reseed path. |
+| Persistence across restart (Bug Class #32 unchanged) | **PASS** — post-restart all four Numbers came up at their persisted **non-default** option values (47=3, 48=10, 49=5, 50=4; defaults are 3/15/5/8), seeded from `entry.options` on CM setup. The 10→12→11→10 edits each survived their in-place apply (read-back matched), proving writeback durability without a reload. |
+| A-MED-1 combined error | **In-suite covered (not live-driven)** — surfacing the combined `cover_and_vacancy_combined` error requires driving the options flow with both cross-fields violated; this config-flow UX path is covered in-suite, not exercised through the live MCP options flow. |
+| No errors attributable to the cycle | **PASS** — ERROR-level scan since boot for `universal_room_automation` returned only 3 lines, all at 20:09:3x (boot window): `database.py` "DB write worker not running — call start_write_worker() first" (compliance/environmental/energy). Pre-existing boot-ordering transient in `database.py`, fired once at boot, not from this cycle's files (`__init__.py` listener / `number.py` / `config_flow.py`). Zero errors from the update-listener or `_apply_in_place`. |
+
+Notes:
+- The suppression INFO is `_LOGGER.info`; URA's logger sits at WARNING in normal
+  operation, so the line is below threshold by default — it was captured by briefly
+  raising URA to INFO, then restored. The authoritative proof of suppression is the
+  behavioral `last_changed` divergence, which holds regardless of log level.
+- The operator's pre-validation timer settings were preserved: 48 was restored to its
+  boot value (10) after the test edits.
+- Boot-storm: as on prior cycles, MCP calls timed out for the first few minutes
+  post-restart while the event loop drained the cold-boot away-actuation storm;
+  validation ran after it settled (~01:14Z onward).
 
 ---
 
