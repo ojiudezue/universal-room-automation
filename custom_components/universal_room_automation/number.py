@@ -20,6 +20,7 @@ from .const import (
     DOMAIN,
     CONF_ENTRY_TYPE,
     ENTRY_TYPE_COORDINATOR_MANAGER,
+    CONF_BAYESIAN_CELL_STALENESS_DAYS,
     COMFORT_TEMP_MIN,
     COMFORT_TEMP_MAX,
     COMFORT_HUMIDITY_MAX,
@@ -630,12 +631,19 @@ class MaxOccupancyHoursNumber(NumberEntity):
         _LOGGER.info("Max zone occupied time set to %d hours", int(value))
 
 
-class OffPeakDrainNumber(NumberEntity, RestoreEntity):
+class OffPeakDrainNumber(NumberEntity):
     """Configurable off-peak battery drain target on Energy Coordinator device.
 
     SOC% to drain to overnight based on tomorrow's solar forecast quality.
     v4.2.10: Exposes config-flow-only values as runtime-adjustable numbers.
-    RestoreEntity persists slider changes across restarts.
+
+    Part 2 (post-v4.7.26): entry.options is the SOLE source of truth (no
+    RestoreEntity). The setter calls `energy.set_offpeak_drain(quality, value)`
+    BEFORE `async_update_entry`, then writes state. Restart re-seeds via
+    `__init__`'s `{**entry.data, **entry.options}` read. The CM reload
+    listener's allowlist suppresses full-CM-reload on these CONF keys; the
+    `apply_in_place` dispatch branch invokes the same setter so form-path
+    edits land identically to entity-path edits.
     """
 
     _attr_has_entity_name = True
@@ -695,29 +703,61 @@ class OffPeakDrainNumber(NumberEntity, RestoreEntity):
         return self._get_energy() is not None
 
     async def async_added_to_hass(self) -> None:
-        """Restore last slider value on startup."""
+        """Push the seeded value into the live coordinator if reachable.
+
+        No RestoreEntity. The constructor already seeded `self._value` from
+        `{**entry.data, **entry.options}`; this pass mirrors the seed into
+        the EC setter so the coordinator is in sync at first availability.
+        """
         await super().async_added_to_hass()
-        last_state = await self.async_get_last_state()
-        if last_state is not None and last_state.state not in ("unknown", "unavailable"):
+        energy = self._get_energy()
+        if energy is not None:
             try:
-                restored = int(float(last_state.state))
-                self._value = restored
-                energy = self._get_energy()
-                if energy is not None:
-                    energy.set_offpeak_drain(self._quality, restored)
-            except (ValueError, TypeError):
-                pass
+                energy.set_offpeak_drain(self._quality, int(self._value))
+            except Exception:  # noqa: BLE001 — coord may be mid-init
+                _LOGGER.debug(
+                    "OffPeakDrain seed-push deferred (%s)", self._quality,
+                )
 
     async def async_set_native_value(self, value: float) -> None:
         self._value = int(value)
+        # Live-attr push via EC setter BEFORE async_update_entry so the
+        # next decision cycle picks up the new value even if the listener
+        # is still in flight. Setter calls _check_threshold_ladder() too.
         energy = self._get_energy()
         if energy is not None:
             energy.set_offpeak_drain(self._quality, int(value))
+        # Persist into entry.options (sole source of truth for restart-
+        # restore + reload-suppression diff).
+        try:
+            from .domain_coordinators.energy_const import (
+                CONF_ENERGY_OFFPEAK_DRAIN_EXCELLENT,
+                CONF_ENERGY_OFFPEAK_DRAIN_GOOD,
+                CONF_ENERGY_OFFPEAK_DRAIN_MODERATE,
+                CONF_ENERGY_OFFPEAK_DRAIN_POOR,
+            )
+            conf_map = {
+                "excellent": CONF_ENERGY_OFFPEAK_DRAIN_EXCELLENT,
+                "good": CONF_ENERGY_OFFPEAK_DRAIN_GOOD,
+                "moderate": CONF_ENERGY_OFFPEAK_DRAIN_MODERATE,
+                "poor": CONF_ENERGY_OFFPEAK_DRAIN_POOR,
+            }
+            conf_key = conf_map.get(self._quality)
+            if conf_key is not None:
+                self.hass.config_entries.async_update_entry(
+                    self._entry,
+                    options={**self._entry.options, conf_key: int(value)},
+                )
+        except Exception:  # noqa: BLE001 — best-effort persist
+            _LOGGER.debug(
+                "OffPeakDrain options-writeback failed (%s)", self._quality,
+                exc_info=True,
+            )
         self.async_write_ha_state()
         _LOGGER.info("Off-peak drain %s set to %d%%", self._quality, int(value))
 
 
-class PeakBufferTargetNumber(NumberEntity, RestoreEntity):
+class PeakBufferTargetNumber(NumberEntity):
     """Configurable peak buffer target on Energy Coordinator device.
 
     v4.5.0 D2: replaces the v4.3.0 ArbitrageSOCNumber(role="target") slider.
@@ -727,11 +767,11 @@ class PeakBufferTargetNumber(NumberEntity, RestoreEntity):
     forecast-class only (no SOC trigger).
 
     Render mode stays SLIDER (consistent with existing % SOC sliders).
-    Mirrors OffPeakDrainNumber's RestoreEntity-based pattern post-v4.3.2:
-    - entry.options = initial seed only, read once in __init__
-    - RestoreEntity = canonical runtime store
-    - async_set_native_value updates self._value + coord setter +
-      async_write_ha_state(). NO async_update_entry writeback.
+
+    Part 2 (post-v4.7.26): entry.options is the SOLE source of truth (no
+    RestoreEntity). The setter calls `energy.set_peak_buffer_target(value)`
+    BEFORE `async_update_entry`, then writes state. Restart re-seeds via
+    `__init__`'s `{**entry.data, **entry.options}` read.
     """
 
     _attr_has_entity_name = True
@@ -796,24 +836,13 @@ class PeakBufferTargetNumber(NumberEntity, RestoreEntity):
         return True
 
     async def async_added_to_hass(self) -> None:
-        """Restore last slider value; push into coordinator with deferred retry.
+        """Push the seeded value into EC; deferred-retry on cross-entry race.
 
-        Mirrors `OffPeakDrainNumber` post-v4.3.2: always trust RestoreEntity,
-        never re-read entry.options here (snap-back regression guard from
-        v4.3.0 H6 fixed in v4.3.2). v4.3.0 C3 retry-on-signal handles the
-        cross-entry init race when EC isn't yet registered.
+        No RestoreEntity. Constructor seeded `self._value` from
+        `{**entry.data, **entry.options}`. v4.3.0 C3 retry-on-signal handles
+        the cross-entry init race when EC isn't yet registered at first add.
         """
         await super().async_added_to_hass()
-
-        last_state = await self.async_get_last_state()
-        if (
-            last_state is not None
-            and last_state.state not in ("unknown", "unavailable")
-        ):
-            try:
-                self._value = int(float(last_state.state))
-            except (ValueError, TypeError):
-                pass
 
         if not self._push_to_coordinator():
             from homeassistant.helpers.dispatcher import async_dispatcher_connect
@@ -837,12 +866,29 @@ class PeakBufferTargetNumber(NumberEntity, RestoreEntity):
 
     async def async_set_native_value(self, value: float) -> None:
         self._value = int(value)
+        # Live-attr push BEFORE async_update_entry (setter also runs
+        # _check_threshold_ladder).
         self._push_to_coordinator()
+        try:
+            from .domain_coordinators.energy_const import (
+                CONF_ENERGY_PEAK_BUFFER_TARGET,
+            )
+            self.hass.config_entries.async_update_entry(
+                self._entry,
+                options={
+                    **self._entry.options,
+                    CONF_ENERGY_PEAK_BUFFER_TARGET: int(value),
+                },
+            )
+        except Exception:  # noqa: BLE001 — best-effort persist
+            _LOGGER.debug(
+                "PeakBufferTarget options-writeback failed", exc_info=True,
+            )
         self.async_write_ha_state()
         _LOGGER.info("Peak buffer target set to %d%%", int(value))
 
 
-class ArbitrageChargeLeadTimeNumber(NumberEntity, RestoreEntity):
+class ArbitrageChargeLeadTimeNumber(NumberEntity):
     """Configurable arbitrage charge lead time on Energy Coordinator device.
 
     v4.5.0 D2. Minutes before the next high-rate transition that the
@@ -856,9 +902,9 @@ class ArbitrageChargeLeadTimeNumber(NumberEntity, RestoreEntity):
     peak_buffer_target=80% ≈ 84 min at 20 kW × 0.9 RTE; 120 gives ~36 min
     margin against Enphase stalls / breaker hiccups. Hard maximum 720 min.
 
-    Mirrors `OffPeakDrainNumber` lifecycle exactly (RestoreEntity-based;
-    NO async_update_entry writeback — see memory feedback_ura_mirror_pattern.md
-    for the v4.3.2 fix shape this follows).
+    Part 2 (post-v4.7.26): entry.options is the SOLE source of truth (no
+    RestoreEntity). Setter calls `energy.set_arbitrage_charge_lead_time`
+    BEFORE async_update_entry. Restart re-seeds via `__init__` config read.
     """
 
     _attr_has_entity_name = True
@@ -925,18 +971,8 @@ class ArbitrageChargeLeadTimeNumber(NumberEntity, RestoreEntity):
         return True
 
     async def async_added_to_hass(self) -> None:
-        """Restore + push (mirror OffPeakDrainNumber pattern)."""
+        """Push seeded value to EC; deferred-retry on cross-entry race."""
         await super().async_added_to_hass()
-
-        last_state = await self.async_get_last_state()
-        if (
-            last_state is not None
-            and last_state.state not in ("unknown", "unavailable")
-        ):
-            try:
-                self._value = int(float(last_state.state))
-            except (ValueError, TypeError):
-                pass
 
         if not self._push_to_coordinator():
             from homeassistant.helpers.dispatcher import async_dispatcher_connect
@@ -960,12 +996,29 @@ class ArbitrageChargeLeadTimeNumber(NumberEntity, RestoreEntity):
 
     async def async_set_native_value(self, value: float) -> None:
         self._value = int(value)
+        # Live-attr push (setter clamps + logs).
         self._push_to_coordinator()
+        try:
+            from .domain_coordinators.energy_const import (
+                CONF_ENERGY_ARBITRAGE_CHARGE_LEAD_TIME_MIN,
+            )
+            self.hass.config_entries.async_update_entry(
+                self._entry,
+                options={
+                    **self._entry.options,
+                    CONF_ENERGY_ARBITRAGE_CHARGE_LEAD_TIME_MIN: int(value),
+                },
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "ArbitrageChargeLeadTime options-writeback failed",
+                exc_info=True,
+            )
         self.async_write_ha_state()
         _LOGGER.info("Arbitrage charge lead time set to %d min", int(value))
 
 
-class EVBatteryDrainSOCNumber(NumberEntity, RestoreEntity):
+class EVBatteryDrainSOCNumber(NumberEntity):
     """Configurable EV battery-drain pause SOC threshold on EC device (v4.3.3).
 
     Exposes the previously config-flow-only `energy_ev_battery_drain_soc` value
@@ -973,10 +1026,9 @@ class EVBatteryDrainSOCNumber(NumberEntity, RestoreEntity):
     house battery is discharging > 100W AND SOC < this threshold, the EVSE is
     paused (see `EVChargerController.determine_battery_drain_actions`).
 
-    Slider is the canonical runtime store (mirrors v4.3.2 fix to
-    ArbitrageSOCNumber). Config-flow value is the initial seed for first-ever
-    startup only; subsequent slider drags persist via RestoreEntity across
-    restarts and entry reloads.
+    Part 2 (post-v4.7.26): entry.options is the SOLE source of truth (no
+    RestoreEntity). Setter calls `energy.set_ev_battery_drain_soc(value)`
+    BEFORE async_update_entry. Restart re-seeds via `__init__` config read.
     """
 
     _attr_has_entity_name = True
@@ -1035,31 +1087,13 @@ class EVBatteryDrainSOCNumber(NumberEntity, RestoreEntity):
         return True
 
     async def async_added_to_hass(self) -> None:
-        """Restore last slider value; push into coordinator (with deferred
-        retry to handle the cross-entry init race per v4.3.0 C3 + v4.3.2 fix).
-        Always trusts RestoreEntity (post-v4.3.2 pattern — no config_explicit
-        branch, which caused the snap-back regression).
-        """
+        """Push seeded value to EC; deferred-retry on cross-entry race."""
         await super().async_added_to_hass()
-
-        last_state = await self.async_get_last_state()
-        if (
-            last_state is not None
-            and last_state.state not in ("unknown", "unavailable")
-        ):
-            try:
-                self._value = int(float(last_state.state))
-            except (ValueError, TypeError):
-                pass
 
         if not self._push_to_coordinator():
             from homeassistant.helpers.dispatcher import async_dispatcher_connect
             from .domain_coordinators.signals import SIGNAL_ENERGY_ENTITIES_UPDATE
-            # v4.7.6 fix-up B-M7: guard against double-unsub. The original
-            # pattern called `unsub_holder[0]()` on signal-fire AND registered
-            # the same callable via `async_on_remove`, which fires it again
-            # on entity removal → HA raises on the second unsub. Wrap the
-            # unsub in a one-shot guard so both paths are safe.
+            # v4.7.6 fix-up B-M7: double-unsub guard.
             unsub_holder: list = []
             unsubbed = [False]
 
@@ -1088,11 +1122,26 @@ class EVBatteryDrainSOCNumber(NumberEntity, RestoreEntity):
     async def async_set_native_value(self, value: float) -> None:
         self._value = int(value)
         self._push_to_coordinator()
+        try:
+            from .domain_coordinators.energy_const import (
+                CONF_ENERGY_EV_BATTERY_DRAIN_SOC,
+            )
+            self.hass.config_entries.async_update_entry(
+                self._entry,
+                options={
+                    **self._entry.options,
+                    CONF_ENERGY_EV_BATTERY_DRAIN_SOC: int(value),
+                },
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "EVBatteryDrainSOC options-writeback failed", exc_info=True,
+            )
         self.async_write_ha_state()
         _LOGGER.info("EV battery drain SOC threshold set to %d%%", int(value))
 
 
-class FillPrioritySOCNumber(NumberEntity, RestoreEntity):
+class FillPrioritySOCNumber(NumberEntity):
     """Configurable EV fill-priority pause SOC threshold on EC device (v4.7.6 D3.2).
 
     When the home battery SOC < this AND remaining solar forecast >= the
@@ -1104,8 +1153,9 @@ class FillPrioritySOCNumber(NumberEntity, RestoreEntity):
     (default 80–95) lets EVs charge on the normal TOU schedule without
     solar-aware interference.
 
-    Mirrors the EVBatteryDrainSOCNumber lifecycle pattern (RestoreEntity is
-    canonical runtime store; entry.options seed read once at init).
+    Part 2 (post-v4.7.26): entry.options is the SOLE source of truth (no
+    RestoreEntity). Setter calls `energy.set_fill_priority_soc(value)`
+    BEFORE async_update_entry.
     """
 
     _attr_has_entity_name = True
@@ -1162,23 +1212,11 @@ class FillPrioritySOCNumber(NumberEntity, RestoreEntity):
         return True
 
     async def async_added_to_hass(self) -> None:
-        """Restore last value; deferred-retry push (mirror EV battery drain pattern)."""
+        """Push seeded value to EC; deferred-retry on cross-entry race."""
         await super().async_added_to_hass()
-        last_state = await self.async_get_last_state()
-        if (
-            last_state is not None
-            and last_state.state not in ("unknown", "unavailable")
-        ):
-            try:
-                self._value = int(float(last_state.state))
-            except (ValueError, TypeError):
-                pass
         if not self._push_to_coordinator():
             from homeassistant.helpers.dispatcher import async_dispatcher_connect
             from .domain_coordinators.signals import SIGNAL_ENERGY_ENTITIES_UPDATE
-            # v4.7.6 fix-up B-M7: see EVBatteryDrainSOCNumber for the same
-            # double-unsub guard. Wrap the dispatcher unsub in a one-shot
-            # so signal-fire and entity-removal don't both call it.
             unsub_holder: list = []
             unsubbed = [False]
 
@@ -1204,11 +1242,26 @@ class FillPrioritySOCNumber(NumberEntity, RestoreEntity):
     async def async_set_native_value(self, value: float) -> None:
         self._value = int(value)
         self._push_to_coordinator()
+        try:
+            from .domain_coordinators.energy_const import (
+                CONF_ENERGY_FILL_PRIORITY_SOC,
+            )
+            self.hass.config_entries.async_update_entry(
+                self._entry,
+                options={
+                    **self._entry.options,
+                    CONF_ENERGY_FILL_PRIORITY_SOC: int(value),
+                },
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "FillPrioritySOC options-writeback failed", exc_info=True,
+            )
         self.async_write_ha_state()
         _LOGGER.info("Fill priority SOC threshold set to %d%%", int(value))
 
 
-class ExcessSolarSOCNumber(NumberEntity, RestoreEntity):
+class ExcessSolarSOCNumber(NumberEntity):
     """Configurable excess-solar EV turn-ON SOC threshold on EC device (v4.7.6.1 D1).
 
     When the home battery SOC >= this AND solar surplus is available, URA
@@ -1217,9 +1270,13 @@ class ExcessSolarSOCNumber(NumberEntity, RestoreEntity):
     (default 80) — together the pair forms an asymmetric dead band: pause
     EV until SOC reaches 80, resume EV when SOC reaches 95.
 
-    Mirrors FillPrioritySOCNumber line-for-line including the v4.7.6 fix-up
-    B-M7 _safe_unsub double-unsub guard. RestoreEntity is canonical runtime
-    store; entry.options seed read once at init.
+    Part 2 (post-v4.7.26): entry.options is the SOLE source of truth (no
+    RestoreEntity). Setter calls `energy.set_excess_solar_soc(value)` BEFORE
+    async_update_entry. The natural ordering invariant
+    `fill_priority_soc < excess_solar_soc` (pause-until below, resume-at
+    above) is NOT enforced today in either entity-setter or config_flow;
+    this retrofit preserves that posture pending an operator-decision
+    cycle (see Part 2 planning doc / D7 backlog).
     """
 
     _attr_has_entity_name = True
@@ -1276,23 +1333,11 @@ class ExcessSolarSOCNumber(NumberEntity, RestoreEntity):
         return True
 
     async def async_added_to_hass(self) -> None:
-        """Restore last value; deferred-retry push (mirror FillPriority pattern)."""
+        """Push seeded value to EC; deferred-retry on cross-entry race."""
         await super().async_added_to_hass()
-        last_state = await self.async_get_last_state()
-        if (
-            last_state is not None
-            and last_state.state not in ("unknown", "unavailable")
-        ):
-            try:
-                self._value = int(float(last_state.state))
-            except (ValueError, TypeError):
-                pass
         if not self._push_to_coordinator():
             from homeassistant.helpers.dispatcher import async_dispatcher_connect
             from .domain_coordinators.signals import SIGNAL_ENERGY_ENTITIES_UPDATE
-            # v4.7.6 fix-up B-M7: see EVBatteryDrainSOCNumber for the same
-            # double-unsub guard. Wrap the dispatcher unsub in a one-shot
-            # so signal-fire and entity-removal don't both call it.
             unsub_holder: list = []
             unsubbed = [False]
 
@@ -1318,6 +1363,21 @@ class ExcessSolarSOCNumber(NumberEntity, RestoreEntity):
     async def async_set_native_value(self, value: float) -> None:
         self._value = int(value)
         self._push_to_coordinator()
+        try:
+            from .domain_coordinators.energy_const import (
+                CONF_ENERGY_EXCESS_SOLAR_SOC,
+            )
+            self.hass.config_entries.async_update_entry(
+                self._entry,
+                options={
+                    **self._entry.options,
+                    CONF_ENERGY_EXCESS_SOLAR_SOC: int(value),
+                },
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "ExcessSolarSOC options-writeback failed", exc_info=True,
+            )
         self.async_write_ha_state()
         _LOGGER.info("EV excess-solar SOC threshold set to %d%%", int(value))
 
@@ -1327,7 +1387,7 @@ class ExcessSolarSOCNumber(NumberEntity, RestoreEntity):
 # ===========================================================================
 
 
-class BayesianCellStalenessNumber(NumberEntity, RestoreEntity):
+class BayesianCellStalenessNumber(NumberEntity):
     """Days of inactivity after which a Bayesian cell is considered stale.
 
     v4.6.2 D3: PersonLikelyNextRoomSensor checks this before the frequency
@@ -1340,8 +1400,10 @@ class BayesianCellStalenessNumber(NumberEntity, RestoreEntity):
     being so long it suppresses the detector during genuine routine changes.
     Range 7-90 covers one-week to three-month transitions.
 
-    RestoreEntity is the canonical runtime store per feedback_ura_mirror_pattern.
-    entry.options value is the install-time seed only.
+    Part 2 (post-v4.7.26): entry.options is the SOLE source of truth (no
+    RestoreEntity). The PersonLikelyNextRoomSensor consumer reads this
+    value via entity-state lookup; the option write keeps that aligned
+    via the listener's reload-suppression apply path.
     """
 
     _attr_has_entity_name = True
@@ -1368,7 +1430,7 @@ class BayesianCellStalenessNumber(NumberEntity, RestoreEntity):
             sw_version=VERSION,
         )
         config = {**entry.data, **entry.options}
-        self._value = int(config.get("bayesian_cell_staleness_days", 14))
+        self._value = int(config.get(CONF_BAYESIAN_CELL_STALENESS_DAYS, 14))
 
     @property
     def native_value(self) -> float:
@@ -1378,19 +1440,21 @@ class BayesianCellStalenessNumber(NumberEntity, RestoreEntity):
     def available(self) -> bool:
         return True
 
-    async def async_added_to_hass(self) -> None:
-        """Restore last value on startup."""
-        await super().async_added_to_hass()
-        last_state = await self.async_get_last_state()
-        if last_state is not None and last_state.state not in ("unknown", "unavailable"):
-            try:
-                self._value = int(float(last_state.state))
-            except (ValueError, TypeError):
-                pass
-
     async def async_set_native_value(self, value: float) -> None:
-        """Persist new staleness window."""
+        """Persist new staleness window via entry.options."""
         self._value = int(value)
+        try:
+            self.hass.config_entries.async_update_entry(
+                self._entry,
+                options={
+                    **self._entry.options,
+                    CONF_BAYESIAN_CELL_STALENESS_DAYS: int(value),
+                },
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "BayesianCellStaleness options-writeback failed", exc_info=True,
+            )
         self.async_write_ha_state()
         _LOGGER.info("Bayesian cell staleness window set to %d days", int(value))
 
@@ -1398,20 +1462,32 @@ class BayesianCellStalenessNumber(NumberEntity, RestoreEntity):
 # ===========================================================================
 # v4.6.2 D6 — Routine notification + algorithm tunable Number entities
 # ===========================================================================
-# Four Number entities on the Coordinator Manager device. All use
-# RestoreEntity as the runtime store (feedback_ura_mirror_pattern: entry.options
-# is the install-time seed, not the live source of truth).
+# Four Number entities on the Coordinator Manager device.
+#
+# Part 2 (post-v4.7.26): entry.options is the SOLE source of truth (no
+# RestoreEntity). Consumers (NotificationManager, RegimeDetector) read
+# these values via entity-state lookup AND from `cm_opts.get(CONF_…)`
+# fallbacks (notification_manager.py:2358-2379, regime_detector.py:122-127),
+# so the setter's option write is sufficient — no live-attr push is needed.
+# The CM reload-suppression apply path marks Routine CONFs as "applied"
+# (analogous to DPM dwell) so the snapshot advances without a full reload.
+#
 # Two advanced window tunables are entity_registry_enabled_default=False so
 # they don't clutter the device page but are accessible when needed.
 
 
-class _RoutineNumberBase(NumberEntity, RestoreEntity):
+class _RoutineNumberBase(NumberEntity):
     """Shared base for D6 routine Number entities.
 
     Subclasses declare class-level _attr_* values and provide:
       _conf_key   — key in entry.options / const.py CONF_*
       _default    — fallback if no entry option and no restored state
       _log_label  — human-readable name for _LOGGER.info
+
+    Part 2 doctrine: entry.options is the SOLE source of truth (no
+    RestoreEntity). The setter persists via async_update_entry; the CM
+    reload-suppression apply path advances the snapshot for these keys
+    without triggering a full reload.
     """
 
     _attr_has_entity_name = True
@@ -1443,21 +1519,22 @@ class _RoutineNumberBase(NumberEntity, RestoreEntity):
     def available(self) -> bool:
         return True
 
-    async def async_added_to_hass(self) -> None:
-        """Restore last value on startup (RestoreEntity mirror pattern)."""
-        await super().async_added_to_hass()
-        last_state = await self.async_get_last_state()
-        if (
-            last_state is not None
-            and last_state.state not in ("unknown", "unavailable")
-        ):
-            try:
-                self._value = int(float(last_state.state))
-            except (ValueError, TypeError):
-                pass
-
     async def async_set_native_value(self, value: float) -> None:
+        """Persist new value via entry.options (options = sole source of truth)."""
         self._value = int(value)
+        try:
+            self.hass.config_entries.async_update_entry(
+                self._entry,
+                options={
+                    **self._entry.options,
+                    self._conf_key: int(value),
+                },
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "Routine Number options-writeback failed (%s)", self._conf_key,
+                exc_info=True,
+            )
         self.async_write_ha_state()
         _LOGGER.info("%s set to %d", self._log_label, int(value))
 
@@ -1624,14 +1701,26 @@ def _hvac_tunable_number_factory(
 
     The class:
       - Lives on the URA: HVAC Coordinator device
-      - Reads form-seed value from entry on first install
-      - RestoreEntity-backed (slider survives restart)
+      - Reads value from CM entry on first install AND on restart
+      - entry.options is the SOLE source of truth (no RestoreEntity)
       - Pushes value into sub-controller's runtime field on every change
+        BEFORE async_update_entry, then writes state
       - Pushes again on coord-ready signal (handles cross-coordinator init race)
+
+    Part 2 (post-v4.7.26): RestoreEntity is RETIRED for these 14 factory
+    outputs. Each CONF_HVAC_* key is in the CM `OPTIONS_RELOAD_SUPPRESS_KEYS`
+    allowlist; the listener's `_apply_in_place` dispatches each key to the
+    matching `setattr(sub_controller, runtime_field, cast(value))`, so
+    form-path edits land identically to entity-path edits with no full
+    CM reload. The 5 watch-list keys (ac_nudge_duration, ac_nudge_eval_delay,
+    ac_detection_time_gate, ac_hard_reset_min_interval, cover_override_duration)
+    are consumed inline at their call sites (no stashed timedelta cache),
+    so a simple setattr is sufficient — verified against hvac_override.py
+    + hvac_covers.py.
     """
     cast = int if integer else float
 
-    class _HVACTunableNumber(NumberEntity, RestoreEntity):
+    class _HVACTunableNumber(NumberEntity):
         _attr_has_entity_name = True
         _attr_icon = icon
         _attr_native_min_value = min_value
@@ -1700,34 +1789,37 @@ def _hvac_tunable_number_factory(
                 return False
 
         async def async_added_to_hass(self) -> None:
+            """Push seeded value into sub-controller; deferred-retry on race.
+
+            No RestoreEntity. Constructor seeded `self._value` from the CM
+            entry's `{**entry.data, **entry.options}` — that's the SOLE
+            source of truth. If the sub-controller isn't ready at add time
+            (cross-coordinator init race), retry on SIGNAL_HVAC_ENTITIES_UPDATE.
+            """
             await super().async_added_to_hass()
-            last_state = await self.async_get_last_state()
-            if (
-                last_state is not None
-                and last_state.state not in ("unknown", "unavailable")
-            ):
-                try:
-                    self._value = cast(float(last_state.state))
-                except (ValueError, TypeError):
-                    pass
             if not self._push_to_controller():
-                # Sub-controller not ready yet — listen for HVAC-ready signal.
-                # v4.5.10.1: import from hvac_const (where this signal lives)
-                # not signals.py. The original v4.5.10 code raised ImportError
-                # because the module-level SIGNAL_HVAC_ENTITIES_UPDATE doesn't
-                # exist in signals.py — only HVAC-only signals live in
-                # hvac_const. Source-grep tests verified the import statement
-                # was present but didn't verify the symbol resolved.
                 from homeassistant.helpers.dispatcher import async_dispatcher_connect
                 from .domain_coordinators.hvac_const import (
                     SIGNAL_HVAC_ENTITIES_UPDATE,
                 )
+                # Mirrors the EC sibling pattern (v4.7.6 fix-up B-M7):
+                # one-shot unsub guard so the dispatcher-side and
+                # async_on_remove-side don't both fire unsub on the same
+                # callable (second call raises in HA).
                 unsub_holder: list = []
+                unsubbed = [False]
+
+                def _safe_unsub() -> None:
+                    if unsubbed[0]:
+                        return
+                    if unsub_holder:
+                        unsubbed[0] = True
+                        unsub_holder[0]()
 
                 @callback
                 def _on_hvac_tick(*_a, **_kw):
-                    if self._push_to_controller() and unsub_holder:
-                        unsub_holder[0]()
+                    if self._push_to_controller() and unsub_holder and not unsubbed[0]:
+                        _safe_unsub()
 
                 unsub_holder.append(
                     async_dispatcher_connect(
@@ -1736,11 +1828,29 @@ def _hvac_tunable_number_factory(
                         _on_hvac_tick,
                     )
                 )
-                self.async_on_remove(unsub_holder[0])
+                self.async_on_remove(_safe_unsub)
 
         async def async_set_native_value(self, value: float) -> None:
             self._value = cast(value)
+            # Live-attr push BEFORE async_update_entry so the next HVAC
+            # decision cycle sees the new value immediately.
             self._push_to_controller()
+            try:
+                # Persist into CM entry.options — sole source of truth.
+                cm_entry = self._find_cm_entry()
+                if cm_entry is not None:
+                    self.hass.config_entries.async_update_entry(
+                        cm_entry,
+                        options={
+                            **cm_entry.options,
+                            conf_key: cast(value),
+                        },
+                    )
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "HVAC tunable %s options-writeback failed", suffix,
+                    exc_info=True,
+                )
             self.async_write_ha_state()
             _LOGGER.info("HVAC tunable %s set to %s", suffix, self._value)
 
@@ -2185,7 +2295,7 @@ class DynamicPresetDwellMinutesNumber(NumberEntity):
         _LOGGER.info("Dynamic preset dwell set to %.0f minutes", value)
 
 
-class DynamicPresetHysteresisFNumber(NumberEntity, RestoreEntity):
+class DynamicPresetHysteresisFNumber(NumberEntity):
     """Runtime-tunable hysteresis buffer for Dynamic Preset bucket boundaries.
 
     Default 2.0, range 0.5-5.0, step 0.5, unit "°F".
@@ -2195,6 +2305,13 @@ class DynamicPresetHysteresisFNumber(NumberEntity, RestoreEntity):
     v4.7.1 Cycle B: B4.
     v4.7.3 D4: DeviceInfo.identifiers changed to hvac_coordinator; unique_id
     preserved for entity_id stability.
+
+    Part 2 (post-v4.7.26): entry.options is the SOLE source of truth (no
+    RestoreEntity). DPM evaluate-and-emit reads `entry.options` fresh on
+    every tick via `_get_cm_options()` (energy.py:2850), so no explicit
+    live-attr push is needed. The setter persists via async_update_entry;
+    the CM reload-suppression apply path marks the key as applied
+    (analogous to DPM dwell).
     """
 
     _attr_has_entity_name = True
@@ -2238,15 +2355,6 @@ class DynamicPresetHysteresisFNumber(NumberEntity, RestoreEntity):
     def native_value(self) -> float:
         return self._value
 
-    async def async_added_to_hass(self) -> None:
-        await super().async_added_to_hass()
-        last_state = await self.async_get_last_state()
-        if last_state is not None and last_state.state not in ("unknown", "unavailable"):
-            try:
-                self._value = float(last_state.state)
-            except (ValueError, TypeError):
-                pass
-
     async def async_set_native_value(self, value: float) -> None:
         self._value = float(value)
         # v4.7.1 fix-up HIGH A2/B2/C2: Push to CM entry.options so the
@@ -2278,8 +2386,16 @@ class DynamicPresetHysteresisFNumber(NumberEntity, RestoreEntity):
 # =============================================================================
 
 
-class HVACEgressPauseThresholdNumber(NumberEntity, RestoreEntity):
-    """Minutes window open before egress pause fires (v4.7.8 D2)."""
+class HVACEgressPauseThresholdNumber(NumberEntity):
+    """Minutes window open before egress pause fires (v4.7.8 D2).
+
+    Part 2 (post-v4.7.26): entry.options is the SOLE source of truth (no
+    RestoreEntity). Setter calls `hvac.egress_manager.set_threshold_min`
+    (which clamps internally) BEFORE async_update_entry. No cross-field
+    constraint with the resume-delay sibling is enforced today in entity
+    or config_flow paths; this retrofit preserves that posture (Part 2
+    O4 — pending operator decision).
+    """
 
     _attr_has_entity_name = True
     _attr_icon = "mdi:timer-sand"
@@ -2333,21 +2449,11 @@ class HVACEgressPauseThresholdNumber(NumberEntity, RestoreEntity):
         return True
 
     async def async_added_to_hass(self) -> None:
-        """Restore last value; deferred-retry push via SIGNAL_HVAC_COORDINATOR_READY."""
+        """Push seeded value; deferred-retry on SIGNAL_HVAC_COORDINATOR_READY."""
         await super().async_added_to_hass()
-        last_state = await self.async_get_last_state()
-        if (
-            last_state is not None
-            and last_state.state not in ("unknown", "unavailable")
-        ):
-            try:
-                self._value = int(float(last_state.state))
-            except (ValueError, TypeError):
-                pass
         if not self._push_to_coordinator():
             from homeassistant.helpers.dispatcher import async_dispatcher_connect
             from .domain_coordinators.signals import SIGNAL_HVAC_COORDINATOR_READY
-            # v4.7.6 fix-up B-M7: double-unsub guard.
             unsub_holder: list = []
             unsubbed = [False]
 
@@ -2373,12 +2479,33 @@ class HVACEgressPauseThresholdNumber(NumberEntity, RestoreEntity):
     async def async_set_native_value(self, value: float) -> None:
         self._value = int(value)
         self._push_to_coordinator()
+        try:
+            from .domain_coordinators.hvac_const import (
+                CONF_HVAC_EGRESS_THRESHOLD_MIN,
+            )
+            self.hass.config_entries.async_update_entry(
+                self._entry,
+                options={
+                    **self._entry.options,
+                    CONF_HVAC_EGRESS_THRESHOLD_MIN: int(value),
+                },
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "HVACEgressPauseThreshold options-writeback failed",
+                exc_info=True,
+            )
         self.async_write_ha_state()
         _LOGGER.info("Egress pause threshold set to %d min", int(value))
 
 
-class HVACEgressResumeDelayNumber(NumberEntity, RestoreEntity):
-    """Minutes all egress windows must be closed before resume (v4.7.8 D2)."""
+class HVACEgressResumeDelayNumber(NumberEntity):
+    """Minutes all egress windows must be closed before resume (v4.7.8 D2).
+
+    Part 2 (post-v4.7.26): entry.options is the SOLE source of truth (no
+    RestoreEntity). See HVACEgressPauseThresholdNumber for the cross-field
+    constraint posture (none enforced today).
+    """
 
     _attr_has_entity_name = True
     _attr_icon = "mdi:timer-outline"
@@ -2432,17 +2559,8 @@ class HVACEgressResumeDelayNumber(NumberEntity, RestoreEntity):
         return True
 
     async def async_added_to_hass(self) -> None:
-        """Restore last value; deferred-retry push via SIGNAL_HVAC_COORDINATOR_READY."""
+        """Push seeded value; deferred-retry on SIGNAL_HVAC_COORDINATOR_READY."""
         await super().async_added_to_hass()
-        last_state = await self.async_get_last_state()
-        if (
-            last_state is not None
-            and last_state.state not in ("unknown", "unavailable")
-        ):
-            try:
-                self._value = int(float(last_state.state))
-            except (ValueError, TypeError):
-                pass
         if not self._push_to_coordinator():
             from homeassistant.helpers.dispatcher import async_dispatcher_connect
             from .domain_coordinators.signals import SIGNAL_HVAC_COORDINATOR_READY
@@ -2471,11 +2589,27 @@ class HVACEgressResumeDelayNumber(NumberEntity, RestoreEntity):
     async def async_set_native_value(self, value: float) -> None:
         self._value = int(value)
         self._push_to_coordinator()
+        try:
+            from .domain_coordinators.hvac_const import (
+                CONF_HVAC_EGRESS_RESUME_DELAY_MIN,
+            )
+            self.hass.config_entries.async_update_entry(
+                self._entry,
+                options={
+                    **self._entry.options,
+                    CONF_HVAC_EGRESS_RESUME_DELAY_MIN: int(value),
+                },
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "HVACEgressResumeDelay options-writeback failed",
+                exc_info=True,
+            )
         self.async_write_ha_state()
         _LOGGER.info("Egress resume delay set to %d min", int(value))
 
 
-class FanInterferenceHoldNumber(NumberEntity, RestoreEntity):
+class FanInterferenceHoldNumber(NumberEntity):
     """Layer-1 fan-interference hold duration in seconds (D1).
 
     Lives on the Presence Coordinator device. Operator-tunable slider
@@ -2483,6 +2617,13 @@ class FanInterferenceHoldNumber(NumberEntity, RestoreEntity):
     via ``set_fan_interference_hold_s``. Default 300s mirrors the
     camera-tier timeout (``_CAMERA_OCCUPANCY_TIMEOUT_SECONDS`` at
     presence.py:71). Range 60-1800.
+
+    Part 2 (post-v4.7.26): entry.options is the SOLE source of truth (no
+    RestoreEntity). The setter pushes to the presence coordinator via
+    `set_fan_interference_hold_s` and mirrors the value into the CM
+    entry's options (existing B-H1 mirror behavior is preserved).
+    Consumed as a simple int seconds value at use sites — no derived
+    cache to invalidate.
     """
 
     _attr_has_entity_name = True
@@ -2544,22 +2685,15 @@ class FanInterferenceHoldNumber(NumberEntity, RestoreEntity):
         return True
 
     async def async_added_to_hass(self) -> None:
-        """Restore last value; best-effort push (no ready signal exists)."""
+        """Best-effort push of the seeded value (no ready signal exists).
+
+        No RestoreEntity. Constructor seeded `self._value` from
+        `{**entry.data, **entry.options}` — sole source of truth. If the
+        presence coordinator is not yet registered (early-boot), the
+        presence coordinator's __init__ also seeds the default, so the
+        gate always has a sensible value to use in the meantime.
+        """
         await super().async_added_to_hass()
-        last_state = await self.async_get_last_state()
-        if (
-            last_state is not None
-            and last_state.state not in ("unknown", "unavailable")
-        ):
-            try:
-                self._value = int(float(last_state.state))
-            except (ValueError, TypeError):
-                pass
-        # Best-effort push. If the presence coordinator is not yet
-        # registered (early-boot), the value is still held locally and
-        # the next operator interaction will push it. The presence
-        # coordinator's __init__ also seeds the default, so the gate
-        # always has a sensible value to use in the meantime.
         self._push_to_coordinator()
 
     async def async_set_native_value(self, value: float) -> None:

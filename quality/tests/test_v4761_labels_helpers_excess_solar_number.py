@@ -53,18 +53,28 @@ def _read(p: str) -> str:
 
 class TestD1ExcessSolarSOCNumberClass:
     def test_excess_solar_soc_number_class_exists(self):
+        """Post-Part-2: ExcessSolarSOCNumber inherits NumberEntity ONLY.
+        v4.3.2 mirror-pattern RestoreEntity doctrine is retired; the
+        setter persists via async_update_entry (entry.options is the
+        sole source of truth)."""
         src = _read(_NUMBER)
         assert "class ExcessSolarSOCNumber" in src, (
             "D1: ExcessSolarSOCNumber class must be defined in number.py"
         )
-        assert "RestoreEntity" in src
-        # Mirrors FillPriority — must inherit NumberEntity + RestoreEntity.
+        # Mirrors FillPriority — Part 2 retrofitted both to drop RestoreEntity.
         idx = src.find("class ExcessSolarSOCNumber")
         end = src.find("\nclass ", idx + 1)
         if end < 0:
             end = len(src)
         slice_ = src[idx:end]
-        assert "NumberEntity, RestoreEntity" in slice_
+        assert "class ExcessSolarSOCNumber(NumberEntity):" in slice_, (
+            "Part 2: ExcessSolarSOCNumber must inherit NumberEntity only"
+        )
+        # Class-signature check (docstring may still mention RestoreEntity
+        # by name to describe the retired doctrine).
+        assert "class ExcessSolarSOCNumber(NumberEntity, RestoreEntity)" not in slice_, (
+            "Part 2: ExcessSolarSOCNumber must NOT inherit RestoreEntity"
+        )
 
     def test_excess_solar_soc_unique_id_stable(self):
         src = _read(_NUMBER)
@@ -185,22 +195,38 @@ class TestD1SafeUnsubGuard:
 
 
 class TestD1RestoreEntityRoundTrip:
-    """RestoreEntity is canonical runtime store; entry.options seed only."""
+    """Post-Part-2: entry.options is the SOLE source of truth (no RestoreEntity).
+
+    The v4.3.2 "RestoreEntity is canonical runtime store" doctrine is
+    explicitly retired by Part 2 (see
+    PLANNING_part2_ec_hc_options_writeback_retrofit.md). The setter now
+    persists via async_update_entry, the CM reload-suppression listener
+    pushes the live attr in place for option-only writes, and restart
+    re-seeds from entry.options.
+    """
 
     def test_excess_solar_soc_uses_restore_entity(self):
+        """Renamed-semantic check: ExcessSolarSOCNumber must NOT use
+        RestoreEntity any more. The setter writes through async_update_entry
+        which IS the persistence path post-Part-2."""
         src = _read(_NUMBER)
         idx = src.find("class ExcessSolarSOCNumber")
         end = src.find("\nclass ", idx + 1)
         slice_ = src[idx:end] if end > 0 else src[idx:]
-        assert "async def async_added_to_hass" in slice_
-        assert "await self.async_get_last_state()" in slice_, (
-            "D1: ExcessSolarSOCNumber must restore last value via "
-            "async_get_last_state (RestoreEntity round-trip)"
+        # New contract: setter calls async_update_entry (persistence path).
+        assert "async_update_entry" in slice_, (
+            "Part 2: ExcessSolarSOCNumber.async_set_native_value must "
+            "call async_update_entry (options = sole source of truth)"
+        )
+        # And the class must NOT inherit RestoreEntity.
+        head = src[idx:idx + 200]
+        assert "RestoreEntity" not in head, (
+            "Part 2: ExcessSolarSOCNumber must NOT inherit RestoreEntity"
         )
 
     def test_excess_solar_soc_seeds_from_entry_options(self):
         """Confirms the entry.options[CONF_ENERGY_EXCESS_SOLAR_SOC] seed
-        path exists for first-install."""
+        path exists for first-install AND on restart re-seed."""
         src = _read(_NUMBER)
         idx = src.find("class ExcessSolarSOCNumber")
         end = src.find("\nclass ", idx + 1)

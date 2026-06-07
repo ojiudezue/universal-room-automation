@@ -91,7 +91,9 @@ class TestD4HysteresisEntityOnHvacDevice:
     def test_hysteresis_device_identifiers_hvac_coordinator(self, number_src):
         idx = number_src.find("class DynamicPresetHysteresisFNumber(")
         assert idx > 0, "DynamicPresetHysteresisFNumber must exist in number.py"
-        body = number_src[idx:idx + 1500]
+        # Widened slice: Part-2 retrofit added a longer Part-2 docstring
+        # that pushed DeviceInfo.identifiers past the old 1500-char window.
+        body = number_src[idx:idx + 3000]
         assert '"hvac_coordinator"' in body or "'hvac_coordinator'" in body, (
             "D4: DynamicPresetHysteresisFNumber.DeviceInfo.identifiers must use 'hvac_coordinator'"
         )

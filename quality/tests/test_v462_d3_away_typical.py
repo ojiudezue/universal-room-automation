@@ -172,25 +172,36 @@ def test_staleness_number_range_7_to_90():
 def test_staleness_number_registered_in_cm_setup():
     """BayesianCellStalenessNumber must be in the CM entity list.
 
-    v4.7.6.1: window widened from 2000 to 2500 chars because D1 added
-    ExcessSolarSOCNumber + 3-line comment, pushing later entities past the
-    previous window. The CM `entities = [` list now spans ~1900 chars; the
-    window must comfortably contain it.
+    Window widened progressively as later cycles add classes / longer
+    docstrings ahead of the entity list. Part 2 added Part-2 doctrine
+    docstrings to several EC classes, pushing the list further down.
+    Use a generous window so this test isn't fragile to follow-up cycles.
     """
     src = _number_src()
     idx = src.find("ENTRY_TYPE_COORDINATOR_MANAGER")
     assert idx >= 0
-    block = src[idx:idx + 2500]
+    block = src[idx:idx + 5000]
     assert "BayesianCellStalenessNumber" in block, (
         "BayesianCellStalenessNumber must be instantiated in CM async_setup_entry block"
     )
 
 
 def test_staleness_number_is_restore_entity():
+    """Post-Part-2 retrofit: BayesianCellStalenessNumber NO LONGER inherits
+    from RestoreEntity (v4.3.2 mirror-pattern doctrine retired). entry.options
+    is the sole source of truth; the setter persists via async_update_entry.
+    See PLANNING_part2_ec_hc_options_writeback_retrofit.md for rationale.
+    """
     src = _number_src()
     idx = src.find("class BayesianCellStalenessNumber(")
     assert idx >= 0
-    block = src[idx:idx + 200]
-    assert "RestoreEntity" in block, (
-        "BayesianCellStalenessNumber must extend RestoreEntity (mirror pattern)"
+    block = src[idx:idx + 300]
+    assert "RestoreEntity" not in block, (
+        "Part 2 retrofit: BayesianCellStalenessNumber must NOT inherit "
+        "RestoreEntity (doctrine retired; options = sole source of truth)"
+    )
+    # The setter must persist via async_update_entry (new persistence path).
+    full_class = src[idx:idx + 3000]
+    assert "async_update_entry" in full_class, (
+        "Part 2: BayesianCellStaleness setter must call async_update_entry"
     )

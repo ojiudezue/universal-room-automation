@@ -1430,6 +1430,13 @@ CONF_ROUTINE_EVENT_MIN_SEVERITY: Final = "routine_event_min_severity"
 CONF_ROUTINE_REGIME_BASELINE_WINDOW_DAYS: Final = "routine_regime_baseline_window_days"
 CONF_ROUTINE_REGIME_RECENT_WINDOW_DAYS: Final = "routine_regime_recent_window_days"
 
+# v4.6.2 D3: PersonLikelyNextRoomSensor cell-staleness window (days).
+# Promoted to const.py in Part 2 fix-up B-LOW-3 so __init__.py and
+# number.py share a single named Final (the string value is the
+# persisted options key + drives entity unique_id — must remain
+# byte-identical).
+CONF_BAYESIAN_CELL_STALENESS_DAYS: Final = "bayesian_cell_staleness_days"
+
 CONF_HVAC_ON_HAZARD_STOP_FANS: Final = "hvac_on_hazard_stop_fans"
 CONF_HVAC_ON_HAZARD_EMERGENCY_HEAT: Final = "hvac_on_hazard_emergency_heat"
 CONF_SECURITY_ON_HAZARD_UNLOCK_EGRESS: Final = "security_on_hazard_unlock_egress"
