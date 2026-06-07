@@ -3965,6 +3965,11 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         # prevent solar-gain flapping. Reject the form save with an
         # error rather than silently accepting bad config.
         errors: dict[str, str] = {}
+        # D5 (A-MED-1 fix): accumulate cross-field violations so both
+        # surface in a single submit. Single-violation paths reuse the
+        # existing per-violation key (byte-identical to pre-D5 behavior);
+        # two-violation path uses the combined key.
+        error_keys: list[str] = []
         if user_input is not None:
             # Flatten the collapsed "presence_timing" section BEFORE any
             # validation reads from user_input. Mirrors the fan_recheck
@@ -3980,23 +3985,33 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 CONF_HVAC_COVER_OPEN_TEMP, DEFAULT_HVAC_COVER_OPEN_TEMP,
             ))
             if close_temp - open_temp < COVER_HYSTERESIS_MIN_GAP:
-                errors["base"] = "cover_temp_hysteresis_too_small"
+                error_keys.append("cover_temp_hysteresis_too_small")
 
             # Cross-field validation: energy-saving vacancy delay must not
             # exceed the normal vacancy delay (operator-coined constraint).
-            if not errors:
-                grace = int(user_input.get(
-                    CONF_HVAC_VACANCY_GRACE_MINUTES,
-                    DEFAULT_VACANCY_GRACE_MINUTES,
-                ))
-                grace_constrained = int(user_input.get(
-                    CONF_HVAC_VACANCY_GRACE_CONSTRAINED,
-                    DEFAULT_VACANCY_GRACE_CONSTRAINED,
-                ))
-                if grace_constrained > grace:
-                    errors["base"] = "vacancy_grace_constrained_exceeds_normal"
+            # D5: no longer gated behind `if not errors:` — both checks
+            # always run so a submit with BOTH violations surfaces both.
+            grace = int(user_input.get(
+                CONF_HVAC_VACANCY_GRACE_MINUTES,
+                DEFAULT_VACANCY_GRACE_MINUTES,
+            ))
+            grace_constrained = int(user_input.get(
+                CONF_HVAC_VACANCY_GRACE_CONSTRAINED,
+                DEFAULT_VACANCY_GRACE_CONSTRAINED,
+            ))
+            if grace_constrained > grace:
+                error_keys.append("vacancy_grace_constrained_exceeds_normal")
 
-            if not errors:
+            if error_keys:
+                # Two-failure case: dedicated combined message names BOTH
+                # violations clearly. Single-failure case: reuse the
+                # existing individual key so its translation is reused
+                # (byte-identical to pre-D5 single-violation behavior).
+                if len(error_keys) >= 2:
+                    errors["base"] = "cover_and_vacancy_combined"
+                else:
+                    errors["base"] = error_keys[0]
+            else:
                 return self.async_create_entry(
                     title="",
                     data={**self._config_entry.options, **user_input},
