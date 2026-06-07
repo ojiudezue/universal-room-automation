@@ -111,9 +111,19 @@ class TestHVACTunableNumberFactory:
         assert "def _hvac_tunable_number_factory(" in number_src
 
     def test_factory_class_inherits_correctly(self, number_src):
+        """Post-Part-2: the inner `_HVACTunableNumber` class now inherits
+        from NumberEntity ONLY (no RestoreEntity). The v4.3.2 mirror-pattern
+        doctrine is retired; entry.options is the sole source of truth and
+        the CM reload-suppression listener handles in-place apply via the
+        `_HVAC_TUNABLE_DISPATCH` table in __init__.py.
+        """
         idx = number_src.find("def _hvac_tunable_number_factory(")
         body = number_src[idx:idx + 5000]
-        assert "class _HVACTunableNumber(NumberEntity, RestoreEntity)" in body
+        assert "class _HVACTunableNumber(NumberEntity)" in body
+        # And NO RestoreEntity in the inner class signature.
+        assert "class _HVACTunableNumber(NumberEntity, RestoreEntity)" not in body, (
+            "Part 2 retrofit: _HVACTunableNumber must NOT inherit RestoreEntity"
+        )
 
     def test_factory_pushes_to_sub_controller(self, number_src):
         idx = number_src.find("def _hvac_tunable_number_factory(")
