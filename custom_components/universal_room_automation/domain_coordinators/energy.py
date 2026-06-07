@@ -1938,7 +1938,17 @@ class EnergyCoordinator(BaseCoordinator):
             state = self.hass.states.get(eid)
             if state is not None and state.state not in ("unknown", "unavailable"):
                 try:
-                    cap = float(state.state) / 1000.0  # Wh → kWh
+                    raw = float(state.state)
+                    # Unit-consistency: Enphase Encharge reports capacity in
+                    # Wh, but check uom rather than hardcoding the divisor so
+                    # a kWh-reporting firmware/integration doesn't collapse
+                    # capacity to ~0.04 kWh and silently flip to the static
+                    # fallback (mirrors the _read_power_w kW/W guard).
+                    uom = state.attributes.get("unit_of_measurement", "")
+                    if uom in ("kWh", "kwh"):
+                        cap = raw
+                    else:
+                        cap = raw / 1000.0  # Wh → kWh
                     self._cached_battery_capacity_kwh = cap
                     return cap
                 except (ValueError, TypeError):
@@ -4547,7 +4557,16 @@ class EnergyCoordinator(BaseCoordinator):
 
     @property
     def net_consumption_kw(self) -> float | None:
-        """Net consumption (positive=importing, negative=exporting) from Envoy (kW)."""
+        """Net consumption (positive=importing, negative=exporting).
+
+        Unit-consistency note: despite the ``_kw`` suffix this returns the
+        RAW Envoy entity state, which may be W or kW depending on firmware
+        (same historical trap as ``total_consumption_kw``). It is NOT a
+        true-kW value. For unit-correct kW use ``net_power_w`` (always W)
+        and divide by 1000 at the boundary — which the net-consumption
+        display sensor now does. Kept as-is to avoid breaking any external
+        reader; do not introduce new callers.
+        """
         return self._battery.net_power
 
     @property

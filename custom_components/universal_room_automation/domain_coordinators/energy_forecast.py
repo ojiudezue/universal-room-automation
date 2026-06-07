@@ -370,10 +370,21 @@ class DailyEnergyPredictor:
         return remaining_kwh if any_data else None
 
     def _get_battery_capacity_kwh(self) -> float:
-        """Get battery capacity in kWh from Envoy, fallback to default."""
-        capacity_wh = self._get_float(self._battery_capacity_entity)
-        if capacity_wh is not None and capacity_wh > 0:
-            return capacity_wh / 1000.0
+        """Get battery capacity in kWh from Envoy, fallback to default.
+
+        Unit-consistency: Enphase Encharge reports capacity in Wh, but check
+        the entity's uom rather than hardcoding the /1000 so a kWh-reporting
+        firmware doesn't collapse capacity to ~0.04 kWh and silently use the
+        fallback (mirrors the energy.py reader + the _read_power_w guard).
+        """
+        raw = self._get_float(self._battery_capacity_entity)
+        if raw is not None and raw > 0:
+            uom = ""
+            if self._battery_capacity_entity is not None:
+                state = self.hass.states.get(self._battery_capacity_entity)
+                if state is not None:
+                    uom = state.attributes.get("unit_of_measurement", "")
+            return raw if uom in ("kWh", "kwh") else raw / 1000.0
         return BATTERY_TOTAL_CAPACITY_KWH_FALLBACK
 
     def _estimate_battery_full_time(self, now: datetime) -> None:
