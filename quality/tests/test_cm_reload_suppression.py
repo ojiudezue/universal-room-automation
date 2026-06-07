@@ -310,11 +310,15 @@ def test_d3_apply_in_place_updates_all_four_hvac_live_attrs(listener_ns):
         "hvac_max_occupancy_hours": 8,
         "hvac_zone_entry_dwell": 3,
     }
-    listener_ns["_apply_in_place"](hass, _FakeEntry("cm1", new), set(new.keys()), new)
+    applied = listener_ns["_apply_in_place"](
+        hass, _FakeEntry("cm1", new), set(new.keys()), new,
+    )
     assert hvac._vacancy_grace == 25
     assert hvac._vacancy_grace_constrained == 12
     assert hvac._max_occupancy_hours == 8
     assert hvac._zone_entry_dwell == 3
+    # HIGH-1: _apply_in_place returns set[str] of cleanly-applied keys.
+    assert applied == set(new.keys())
 
 
 def test_d3_apply_in_place_safe_when_coordinator_missing(listener_ns):
@@ -322,9 +326,11 @@ def test_d3_apply_in_place_safe_when_coordinator_missing(listener_ns):
     hass = _FakeHass(hvac=None, with_manager=True)  # manager exists, hvac=None
     new = {"hvac_vacancy_grace_minutes": 25}
     # Should NOT raise.
-    listener_ns["_apply_in_place"](
+    applied = listener_ns["_apply_in_place"](
         hass, _FakeEntry("cm1", new), {"hvac_vacancy_grace_minutes"}, new,
     )
+    # No HVAC -> nothing applied (the key is HVAC-owned).
+    assert applied == set()
 
 
 def test_d3_apply_in_place_safe_when_manager_missing(listener_ns):
@@ -332,9 +338,110 @@ def test_d3_apply_in_place_safe_when_manager_missing(listener_ns):
     hass = _FakeHass(with_manager=False)
     hass.data["universal_room_automation"] = {}
     new = {"hvac_vacancy_grace_minutes": 25}
-    listener_ns["_apply_in_place"](
+    applied = listener_ns["_apply_in_place"](
         hass, _FakeEntry("cm1", new), {"hvac_vacancy_grace_minutes"}, new,
     )
+    assert applied == set()
+
+
+def test_d3_apply_in_place_dpm_dwell_treated_as_applied_when_hvac_missing(listener_ns):
+    """A-MED-1: when HVAC coordinator is None, DPM dwell key must still be
+    reported as applied (energy.py re-reads it each tick from entry.options),
+    so the listener's snapshot advances for it."""
+    hass = _FakeHass(hvac=None, with_manager=True)
+    new = {"dynamic_preset_dwell_minutes": 30}
+    applied = listener_ns["_apply_in_place"](
+        hass, _FakeEntry("cm1", new), {"dynamic_preset_dwell_minutes"}, new,
+    )
+    assert applied == {"dynamic_preset_dwell_minutes"}
+
+
+def test_d3_apply_in_place_partial_apply_one_bad_value(listener_ns):
+    """HIGH-1: a malformed value for ONE key must NOT prevent the other
+    three from applying. The returned `applied` set must exclude the
+    failed key."""
+    hvac = _FakeHvac()
+    hass = _FakeHass(hvac=hvac)
+    new = {
+        "hvac_vacancy_grace_minutes": "not_an_int",  # malformed - should fail
+        "hvac_vacancy_grace_constrained": 12,
+        "hvac_max_occupancy_hours": 8,
+        "hvac_zone_entry_dwell": 3,
+    }
+    applied = listener_ns["_apply_in_place"](
+        hass, _FakeEntry("cm1", new), set(new.keys()), new,
+    )
+    # The three sibling keys must have been applied even though the first
+    # one raised. Pre-HIGH-1, the shared try/except swallowed all three.
+    assert hvac._vacancy_grace_constrained == 12
+    assert hvac._max_occupancy_hours == 8
+    assert hvac._zone_entry_dwell == 3
+    # Original attr untouched on the failed key.
+    assert hvac._vacancy_grace == 20  # FakeHvac default
+    # `applied` excludes the failed key.
+    assert "hvac_vacancy_grace_minutes" not in applied
+    assert applied == {
+        "hvac_vacancy_grace_constrained",
+        "hvac_max_occupancy_hours",
+        "hvac_zone_entry_dwell",
+    }
+
+
+def test_d3_apply_in_place_defensive_clamp_when_constrained_exceeds_normal(listener_ns):
+    """B-HIGH-1 (Review B): if an out-of-band write would leave
+    _vacancy_grace_constrained > _vacancy_grace, apply_in_place must
+    defensively clamp the constrained value down to the normal value."""
+    hvac = _FakeHvac()
+    hass = _FakeHass(hvac=hvac)
+    # Simulate an out-of-band write that bypassed the Number-setter clamp:
+    # write a new normal=10 with constrained=30 (invalid).
+    new = {
+        "hvac_vacancy_grace_minutes": 10,
+        "hvac_vacancy_grace_constrained": 30,
+    }
+    listener_ns["_apply_in_place"](
+        hass, _FakeEntry("cm1", new), set(new.keys()), new,
+    )
+    # After per-key writes, the defensive clamp should kick in.
+    assert hvac._vacancy_grace == 10
+    assert hvac._vacancy_grace_constrained == 10  # clamped down
+
+
+def test_d1_snapshot_cleared_on_unload(listener_ns):
+    """D1: on CM entry unload, the entry_id must be removed from the
+    per-entry last-applied-options snapshot dict, so a future setup
+    re-seeds cleanly. Drives the actual unload helper pattern by
+    simulating the unload pop, which lives at the top of the CM unload
+    branch in async_unload_entry (B-MED-1 ordering)."""
+    hass = _FakeHass(hvac=_FakeHvac())
+    entry = _FakeEntry("cm1", {"hvac_vacancy_grace_minutes": 20})
+    listener_ns["_seed_cm_last_applied_options"](hass, entry)
+    snaps = hass.data["universal_room_automation"]["cm_last_applied_options"]
+    assert "cm1" in snaps
+    # Simulate the CM unload pop (the real path in async_unload_entry
+    # runs `snapshots.pop(entry.entry_id, None)` before
+    # async_unload_platforms — B-MED-1 fix-up).
+    snaps.pop(entry.entry_id, None)
+    assert "cm1" not in snaps
+
+
+def test_d1_snapshot_reseeded_after_reload(listener_ns):
+    """D1: calling _seed_cm_last_applied_options again with changed
+    entry.options REPLACES the snapshot dict for that entry_id with the
+    new dict (simulating the post-reload setup re-seed)."""
+    hass = _FakeHass(hvac=_FakeHvac())
+    entry = _FakeEntry("cm1", {"hvac_vacancy_grace_minutes": 20})
+    listener_ns["_seed_cm_last_applied_options"](hass, entry)
+    snaps = hass.data["universal_room_automation"]["cm_last_applied_options"]
+    assert snaps["cm1"] == {"hvac_vacancy_grace_minutes": 20}
+    # Simulate post-reload setup: entry.options now has a new value.
+    entry.options = {"hvac_vacancy_grace_minutes": 25, "presence_enabled": True}
+    listener_ns["_seed_cm_last_applied_options"](hass, entry)
+    # Snapshot REPLACED with the new dict (not merged).
+    assert snaps["cm1"] == {
+        "hvac_vacancy_grace_minutes": 25,
+        "presence_enabled": True,
+    }
 
 
 def test_d3_clamp_invariant_holds_after_in_place_apply(listener_ns):
@@ -509,9 +616,17 @@ def test_d5_save_path_runs_both_validations_unconditionally():
 
 def test_d5_save_path_uses_combined_key_when_two_violations():
     """Source-level check: combined-key branch must exist and depend on
-    `len(error_keys) >= 2`."""
+    BOTH specific violation keys being present (A-MED-2 fix). The earlier
+    `len(error_keys) >= 2` gate would mis-fire if a future third unrelated
+    error key was appended to the accumulator — the combined message
+    names two specific violations and must only fire when BOTH are
+    actually triggered."""
     assert "cover_and_vacancy_combined" in CONFIG_FLOW_SRC
-    assert "len(error_keys) >= 2" in CONFIG_FLOW_SRC
+    # A-MED-2: gate must check for BOTH specific keys, not just count.
+    assert "have_cover" in CONFIG_FLOW_SRC
+    assert "have_vacancy" in CONFIG_FLOW_SRC
+    assert "cover_temp_hysteresis_too_small" in CONFIG_FLOW_SRC
+    assert "vacancy_grace_constrained_exceeds_normal" in CONFIG_FLOW_SRC
 
 
 def test_d5_strings_json_has_combined_key():
@@ -538,14 +653,34 @@ def test_d5_en_translations_has_combined_key():
 def test_d5_strings_and_translations_combined_key_in_lockstep():
     """The combined key must appear in BOTH files (lockstep — translations
     file is loaded by HA, strings file is the source for `script
-    extract-strings`)."""
+    extract-strings`).
+
+    C2 (Review C) tightening: the cross-field error texts must be
+    BYTE-EQUAL across strings.json and translations/en.json — any drift
+    means one file shipped without the other, which is exactly the bug
+    the lockstep test is supposed to catch."""
     s_section = STRINGS.get("options", {}).get("error", {})
     e_section = EN_TRANSLATIONS.get("options", {}).get("error", {})
     assert "cover_and_vacancy_combined" in s_section
     assert "cover_and_vacancy_combined" in e_section
-    # The text doesn't need to match byte-for-byte across the two files,
-    # but both should reference both violations so an operator sees both.
-    for text in (s_section["cover_and_vacancy_combined"], e_section["cover_and_vacancy_combined"]):
+    # C2: BYTE-EQUAL text across the two files for the three
+    # cross-field error keys.
+    for key in (
+        "cover_and_vacancy_combined",
+        "cover_temp_hysteresis_too_small",
+        "vacancy_grace_constrained_exceeds_normal",
+    ):
+        assert s_section[key] == e_section[key], (
+            f"D5/C2: {key} text drift between strings.json and "
+            f"translations/en.json — both files must ship together "
+            f"with byte-equal text"
+        )
+    # Combined message must explicitly reference BOTH the cover and
+    # vacancy violations so operators see both.
+    for text in (
+        s_section["cover_and_vacancy_combined"],
+        e_section["cover_and_vacancy_combined"],
+    ):
         assert "Cover" in text and "Vacancy" in text
 
 

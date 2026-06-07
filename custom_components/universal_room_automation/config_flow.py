@@ -4003,13 +4003,24 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 error_keys.append("vacancy_grace_constrained_exceeds_normal")
 
             if error_keys:
-                # Two-failure case: dedicated combined message names BOTH
-                # violations clearly. Single-failure case: reuse the
-                # existing individual key so its translation is reused
-                # (byte-identical to pre-D5 single-violation behavior).
-                if len(error_keys) >= 2:
+                # A-MED-2 (Review A): the combined message names BOTH the
+                # cover-hysteresis and vacancy-grace violations, so it MUST
+                # only fire when BOTH specific keys are present. The prior
+                # `len(error_keys) >= 2` gate would mis-fire if a future
+                # third unrelated key was appended (combined message
+                # would be shown even though one of its two named
+                # violations wasn't actually triggered).
+                have_cover = "cover_temp_hysteresis_too_small" in error_keys
+                have_vacancy = "vacancy_grace_constrained_exceeds_normal" in error_keys
+                if have_cover and have_vacancy:
+                    # Two-violation case: dedicated combined message names
+                    # BOTH violations clearly.
                     errors["base"] = "cover_and_vacancy_combined"
                 else:
+                    # Single-violation case (or future-third-key case):
+                    # reuse the per-violation key so its translation is
+                    # reused (byte-identical to pre-D5 single-violation
+                    # behavior).
                     errors["base"] = error_keys[0]
             else:
                 return self.async_create_entry(
