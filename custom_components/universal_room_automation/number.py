@@ -2112,19 +2112,18 @@ def _discover_ac_zones(hass: HomeAssistant) -> list[dict]:
 # ============================================================================
 
 
-class DynamicPresetDwellMinutesNumber(NumberEntity, RestoreEntity):
+class DynamicPresetDwellMinutesNumber(NumberEntity):
     """Runtime-tunable dwell window for Dynamic Preset bucket transitions.
 
     Default 60, range 15-240, step 5, unit "min".
     Entity: number.ura_energy_coordinator_dynamic_preset_dwell_minutes
     Device: URA: HVAC Coordinator (migrated from EC in v4.7.3 D4)
 
-    v4.3.2 mirror pattern: entry.options = initial seed only; RestoreEntity
-    is the canonical runtime store. No async_update_entry writeback.
-
-    v4.7.1 Cycle B: B4.
-    v4.7.3 D4: DeviceInfo.identifiers changed to hvac_coordinator; unique_id
-    preserved for entity_id stability.
+    entry.options is the SOLE source of truth (no RestoreEntity). Writes
+    go through `async_update_entry`; restart re-seeds via the constructor's
+    `{**entry.data, **entry.options}` read. DPM evaluate-and-emit reads
+    `entry.options` fresh every tick via `_get_cm_options()` (energy.py:2850),
+    so no explicit live-attr push is needed.
     """
 
     _attr_has_entity_name = True
@@ -2168,20 +2167,12 @@ class DynamicPresetDwellMinutesNumber(NumberEntity, RestoreEntity):
     def native_value(self) -> float:
         return self._value
 
-    async def async_added_to_hass(self) -> None:
-        await super().async_added_to_hass()
-        last_state = await self.async_get_last_state()
-        if last_state is not None and last_state.state not in ("unknown", "unavailable"):
-            try:
-                self._value = float(last_state.state)
-            except (ValueError, TypeError):
-                pass
-
     async def async_set_native_value(self, value: float) -> None:
         self._value = float(value)
-        # v4.7.1 fix-up HIGH A2/B2/C2: Push to CM entry.options so the
-        # bound method _get_cm_options() picks up the new value on the next
-        # evaluate_and_emit call (Bug Class #32 fix).
+        # Push to CM entry.options so the Energy coordinator's bound method
+        # _get_cm_options() picks up the new value on the next
+        # evaluate_and_emit call (no explicit live-attr poke needed —
+        # see class docstring).
         try:
             from .domain_coordinators.energy_const import CONF_DYNAMIC_PRESET_DWELL_MINUTES
             self.hass.config_entries.async_update_entry(

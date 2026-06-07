@@ -1663,7 +1663,8 @@
       "envoy_derived_missing": "One or more critical Envoy-derived entities are missing. Check that the Enphase integration is fully set up for this Envoy serial.",
       "cover_temp_hysteresis_too_small": "Cover Open Temp must be at least 3°F below Cover Close Temp to prevent solar-gain flapping. Adjust either value and try again.",
       "baseline_preset_invalid_deadband": "Each season/preset row's Cool High must be at least 3°F above its Heat Low. Adjust the values and try again.",
-      "vacancy_grace_constrained_exceeds_normal": "Energy-Saving Zone Vacancy Delay must be less than or equal to the normal Zone Vacancy Delay."
+      "vacancy_grace_constrained_exceeds_normal": "Energy-Saving Zone Vacancy Delay must be less than or equal to the normal Zone Vacancy Delay.",
+      "cover_and_vacancy_combined": "Two settings need fixing: Cover Open Temp must be at least 3°F below Cover Close Temp, AND Energy-Saving Zone Vacancy Delay must be ≤ the normal Zone Vacancy Delay."
     },
     "abort": {
       "no_zones_configured": "No zones have been configured yet. Add a zone from the integration setup first.",
