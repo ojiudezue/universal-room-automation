@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv4.7.25
+# Universal Room Automation vv4.7.26
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -2740,6 +2740,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 exc_info=True,
             )
 
+        # Seed the last-applied-options snapshot BEFORE registering the update
+        # listener so the listener always observes a populated snapshot. A race
+        # between seeding and registration is impossible: both run synchronously
+        # on the single-threaded asyncio loop with no await between them. If a
+        # future path ever fires the listener with an empty snapshot, the diff
+        # degrades to "all keys look new" -> suppress branch if all-new keys are
+        # allowlisted, otherwise reload. Either outcome is safe.
+        _seed_cm_last_applied_options(hass, entry)
         entry.async_on_unload(entry.add_update_listener(_async_update_listener))
         _LOGGER.info("Coordinator Manager entry setup complete")
         return True
@@ -3101,6 +3109,14 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # v3.6.0: Handle Coordinator Manager entry unload
     if entry_type == ENTRY_TYPE_COORDINATOR_MANAGER:
         cm_platforms = list(INTEGRATION_PLATFORMS) + [Platform.NUMBER]
+        # B-MED-1 (Review B): clear the CM last-applied-options snapshot
+        # BEFORE async_unload_platforms so a listener fire during platform
+        # teardown can't diff against a half-torn-down state. The pop is
+        # defensive (.get + is not None) — if the snapshot dict was never
+        # created (degenerate setup), this is a no-op.
+        snapshots = hass.data.get(DOMAIN, {}).get("cm_last_applied_options")
+        if snapshots is not None:
+            snapshots.pop(entry.entry_id, None)
         unload_ok = await hass.config_entries.async_unload_platforms(entry, cm_platforms)
         return unload_ok
 
@@ -3518,15 +3534,278 @@ async def _async_register_notification_services(hass: HomeAssistant) -> None:
 # Replaced by lazy derivation in _build_dynamic_preset_schema (config_flow.py).
 
 
+# =============================================================================
+# CM Option-Writeback Reload Suppression
+# =============================================================================
+#
+# Runtime-tunable CM-entry option keys: editing one of these from a Number
+# entity OR from the OptionsFlow form should NOT trigger a full Coordinator
+# Manager reload (which rebuilds presence/HVAC/energy/safety/diagnostics/
+# house_state/signals coordinators). Instead the listener pokes the live
+# coordinator attribute in place. Persistence still goes through
+# `async_update_entry`; restart re-seeds the value from `entry.options`
+# via the CM constructor (`cm_config = {**cm_entry.data, **cm_entry.options}`).
+#
+# Listener decision (CM entry only):
+#   - changed_keys ⊆ OPTIONS_RELOAD_SUPPRESS_KEYS  → apply_in_place, no reload
+#   - empty changed_keys                            → no-op
+#   - mixed or non-allowlisted changed_keys         → full reload (legacy)
+#
+# ROOM and ZONE_MANAGER entries are UNCHANGED (full reload as today).
+# =============================================================================
+
+from .domain_coordinators.hvac_const import (
+    CONF_HVAC_VACANCY_GRACE_MINUTES as _CONF_HVAC_VACANCY_GRACE_MINUTES,
+    CONF_HVAC_VACANCY_GRACE_CONSTRAINED as _CONF_HVAC_VACANCY_GRACE_CONSTRAINED,
+    CONF_HVAC_MAX_OCCUPANCY_HOURS as _CONF_HVAC_MAX_OCCUPANCY_HOURS,
+    CONF_HVAC_ZONE_ENTRY_DWELL as _CONF_HVAC_ZONE_ENTRY_DWELL,
+)
+from .domain_coordinators.energy_const import (
+    CONF_DYNAMIC_PRESET_DWELL_MINUTES as _CONF_DYNAMIC_PRESET_DWELL_MINUTES,
+)
+
+OPTIONS_RELOAD_SUPPRESS_KEYS: frozenset[str] = frozenset({
+    _CONF_HVAC_VACANCY_GRACE_MINUTES,
+    _CONF_HVAC_VACANCY_GRACE_CONSTRAINED,
+    _CONF_HVAC_MAX_OCCUPANCY_HOURS,
+    _CONF_HVAC_ZONE_ENTRY_DWELL,
+    _CONF_DYNAMIC_PRESET_DWELL_MINUTES,
+})
+
+
+def _seed_cm_last_applied_options(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Seed/refresh the per-CM-entry last-applied-options snapshot.
+
+    Called at the END of CM setup (so subsequent listener fires can diff)
+    AND at the end of every in-place apply (so the next edit diffs against
+    the post-apply state, not the pre-apply state).
+    """
+    snapshots = hass.data.setdefault(DOMAIN, {}).setdefault(
+        "cm_last_applied_options", {},
+    )
+    snapshots[entry.entry_id] = dict(entry.options)
+
+
+def _apply_in_place(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    changed_keys: set[str],
+    new_options: dict,
+) -> set[str]:
+    """Push allowlisted option changes to live coordinator attrs in place.
+
+    Idempotent and tolerant of missing coordinators (CM may be mid-teardown
+    or HVAC/energy may have failed to construct). Each branch early-returns
+    if the target coordinator is None.
+
+    DPM dwell (CONF_DYNAMIC_PRESET_DWELL_MINUTES) does NOT need an explicit
+    live-attr poke: the Energy coordinator's DPM evaluate-and-emit reads
+    `entry.options` fresh on every tick via `_get_cm_options()` (verified at
+    `domain_coordinators/energy.py:2850-2865`). By the time this function
+    runs, `async_update_entry` has already updated `entry.options`, so the
+    next evaluate_and_emit tick picks up the new dwell automatically. DPM
+    dwell is reported as "applied" by this function so the listener's
+    snapshot advances normally for it.
+
+    Returns the set of `changed_keys` whose live-attr write (or no-op for
+    DPM dwell) completed cleanly. The LISTENER owns the snapshot-merge
+    decision based on this return value: keys NOT in the returned set keep
+    their OLD snapshot value so the next diff retries them. Per-key
+    try/except (HIGH-1 fix) guarantees that one malformed value cannot
+    silently suppress its three siblings.
+
+    Defensive clamp (B-HIGH-1): after the per-key writes, this function
+    re-enforces the v4.7.25 A-HIGH-1 invariant
+    `_vacancy_grace_constrained <= _vacancy_grace` in case an out-of-band
+    write (external `async_update_entry`, future service/YAML path)
+    bypassed the Number-setter clamp.
+    """
+    applied: set[str] = set()
+    manager = hass.data.get(DOMAIN, {}).get("coordinator_manager")
+    hvac = manager.coordinators.get("hvac") if manager is not None else None
+
+    # A-MED-1: if HVAC coordinator is None but allowlisted HVAC-owned keys
+    # are in changed_keys, emit ONE INFO. The DPM dwell key is NOT
+    # HVAC-owned — it's handled by energy.py re-read each tick, so it
+    # should NOT trigger this log.
+    _hvac_owned_keys = {
+        _CONF_HVAC_VACANCY_GRACE_MINUTES,
+        _CONF_HVAC_VACANCY_GRACE_CONSTRAINED,
+        _CONF_HVAC_MAX_OCCUPANCY_HOURS,
+        _CONF_HVAC_ZONE_ENTRY_DWELL,
+    }
+
+    if hvac is None:
+        if changed_keys & _hvac_owned_keys:
+            _LOGGER.info(
+                "CM in-place apply: HVAC coordinator not available "
+                "(likely mid-reload); values for %s are persisted in "
+                "entry.options and will be picked up on next HVAC setup",
+                sorted(changed_keys & _hvac_owned_keys),
+            )
+        # DPM dwell legitimately has no HVAC push — treat as applied so
+        # the listener's snapshot advances for it (energy.py re-reads).
+        if _CONF_DYNAMIC_PRESET_DWELL_MINUTES in changed_keys:
+            applied.add(_CONF_DYNAMIC_PRESET_DWELL_MINUTES)
+        return applied
+
+    # HIGH-1: per-key try/except so one bad value cannot suppress its
+    # siblings. B-MED-2: widened to AttributeError (coordinator may be
+    # mid-teardown with attrs nulled).
+    if _CONF_HVAC_VACANCY_GRACE_MINUTES in changed_keys:
+        try:
+            hvac._vacancy_grace = int(
+                new_options[_CONF_HVAC_VACANCY_GRACE_MINUTES],
+            )
+            applied.add(_CONF_HVAC_VACANCY_GRACE_MINUTES)
+        except (AttributeError, KeyError, ValueError, TypeError) as err:
+            _LOGGER.warning(
+                "CM in-place apply: HVAC live-attr push failed for "
+                "key=%s value=%r: %s",
+                _CONF_HVAC_VACANCY_GRACE_MINUTES,
+                new_options.get(_CONF_HVAC_VACANCY_GRACE_MINUTES),
+                err,
+            )
+    if _CONF_HVAC_VACANCY_GRACE_CONSTRAINED in changed_keys:
+        try:
+            hvac._vacancy_grace_constrained = int(
+                new_options[_CONF_HVAC_VACANCY_GRACE_CONSTRAINED],
+            )
+            applied.add(_CONF_HVAC_VACANCY_GRACE_CONSTRAINED)
+        except (AttributeError, KeyError, ValueError, TypeError) as err:
+            _LOGGER.warning(
+                "CM in-place apply: HVAC live-attr push failed for "
+                "key=%s value=%r: %s",
+                _CONF_HVAC_VACANCY_GRACE_CONSTRAINED,
+                new_options.get(_CONF_HVAC_VACANCY_GRACE_CONSTRAINED),
+                err,
+            )
+    if _CONF_HVAC_MAX_OCCUPANCY_HOURS in changed_keys:
+        try:
+            hvac._max_occupancy_hours = int(
+                new_options[_CONF_HVAC_MAX_OCCUPANCY_HOURS],
+            )
+            applied.add(_CONF_HVAC_MAX_OCCUPANCY_HOURS)
+        except (AttributeError, KeyError, ValueError, TypeError) as err:
+            _LOGGER.warning(
+                "CM in-place apply: HVAC live-attr push failed for "
+                "key=%s value=%r: %s",
+                _CONF_HVAC_MAX_OCCUPANCY_HOURS,
+                new_options.get(_CONF_HVAC_MAX_OCCUPANCY_HOURS),
+                err,
+            )
+    if _CONF_HVAC_ZONE_ENTRY_DWELL in changed_keys:
+        try:
+            hvac._zone_entry_dwell = int(
+                new_options[_CONF_HVAC_ZONE_ENTRY_DWELL],
+            )
+            applied.add(_CONF_HVAC_ZONE_ENTRY_DWELL)
+        except (AttributeError, KeyError, ValueError, TypeError) as err:
+            _LOGGER.warning(
+                "CM in-place apply: HVAC live-attr push failed for "
+                "key=%s value=%r: %s",
+                _CONF_HVAC_ZONE_ENTRY_DWELL,
+                new_options.get(_CONF_HVAC_ZONE_ENTRY_DWELL),
+                err,
+            )
+
+    # B-HIGH-1 (Review B): defensive clamp. Re-enforce the v4.7.25
+    # A-HIGH-1 invariant in case an out-of-band write bypassed the
+    # Number-setter's clamp (external `async_update_entry`, future
+    # service/YAML path).
+    try:
+        if hvac._vacancy_grace_constrained > hvac._vacancy_grace:
+            _LOGGER.warning(
+                "CM in-place apply: clamping _vacancy_grace_constrained=%s "
+                "to _vacancy_grace=%s (out-of-band write bypassed setter "
+                "clamp)",
+                hvac._vacancy_grace_constrained, hvac._vacancy_grace,
+            )
+            hvac._vacancy_grace_constrained = hvac._vacancy_grace
+    except AttributeError:
+        pass
+
+    # DPM dwell: no live-attr push needed (see docstring above) but mark
+    # as applied so the listener advances the snapshot for it.
+    if _CONF_DYNAMIC_PRESET_DWELL_MINUTES in changed_keys:
+        applied.add(_CONF_DYNAMIC_PRESET_DWELL_MINUTES)
+
+    return applied
+
+
 async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Handle options update — reload the entry.
+    """Handle options update — apply in place for allowlisted CM keys, else reload.
 
     v4.0.5: Fire reload as a background task instead of awaiting it.
     The old `await async_reload()` ran in the OptionsFlow HTTP request context.
     With 93+ entities per room, the unload/setup cycle exceeded the frontend's
     ~30s timeout — aiohttp cancelled the task mid-reload, leaving the entry
     half-unloaded and the coordinator unable to pick up new config.
+
+    CM reload suppression (this cycle): when the CM entry's options write
+    only changes keys in `OPTIONS_RELOAD_SUPPRESS_KEYS`, push to live
+    coordinator attrs instead of reloading. Persistence is unchanged
+    (already done by `async_update_entry`). ROOM and ZONE_MANAGER entries
+    are unchanged from the legacy reload-everything behavior.
     """
+    entry_type = entry.data.get(CONF_ENTRY_TYPE)
+
+    if entry_type == ENTRY_TYPE_COORDINATOR_MANAGER:
+        snapshots = hass.data.setdefault(DOMAIN, {}).setdefault(
+            "cm_last_applied_options", {},
+        )
+        old = snapshots.get(entry.entry_id, {})
+        new = dict(entry.options)
+        changed_keys = {
+            k for k in (old.keys() | new.keys())
+            if old.get(k) != new.get(k)
+        }
+        if not changed_keys:
+            # Defensive no-op (HA core already short-circuits identical writes
+            # at the `async_update_entry` layer; this guard handles paths that
+            # bypass that short-circuit, e.g. external snapshot drift).
+            return
+        if changed_keys.issubset(OPTIONS_RELOAD_SUPPRESS_KEYS):
+            _LOGGER.info(
+                "CM options changed for '%s' (%s) — in-place apply, "
+                "suppressing reload (changed_keys=%s)",
+                entry.title, entry.entry_id, sorted(changed_keys),
+            )
+            applied = _apply_in_place(hass, entry, changed_keys, new)
+            # C3 (Review C) — snapshot ownership lives in the listener so
+            # future callers of `_apply_in_place` can't forget it. Handle
+            # partial-apply correctly: for any changed key that did NOT
+            # apply cleanly, KEEP the OLD value in the snapshot so the
+            # next listener fire re-diffs and re-attempts; if there was no
+            # OLD value for it, drop it from the snapshot. Keys that
+            # applied cleanly take their NEW value (persisted truth).
+            snapshot = dict(new)
+            for k in (changed_keys - applied):
+                if k in old:
+                    snapshot[k] = old[k]
+                else:
+                    snapshot.pop(k, None)
+            snapshots[entry.entry_id] = snapshot
+            return
+        # Mixed or non-allowlisted change → fall through to reload.
+        # B-LOW-3: enrich the CM fall-through log so a live tail can
+        # distinguish it from the generic ROOM/ZONE_MANAGER reload log
+        # below. The generic log line still fires below for parity with
+        # the legacy ROOM/ZONE path.
+        _LOGGER.info(
+            "CM options changed for '%s' (%s) — mixed/non-allowlisted "
+            "keys present, falling through to reload (changed_keys=%s)",
+            entry.title, entry.entry_id, sorted(changed_keys),
+        )
+        # B-HIGH-2 (Review B): reseed the snapshot to the post-write
+        # options BEFORE scheduling the reload so a second in-flight
+        # write during the reload diffs against a clean baseline. Use
+        # `setdefault` defensively in case `hass.data[DOMAIN]` was
+        # cleared between the suppress-branch entry and here.
+        hass.data.setdefault(DOMAIN, {}).setdefault(
+            "cm_last_applied_options", {},
+        )[entry.entry_id] = dict(entry.options)
+
     _LOGGER.info("Options changed for '%s' (%s), scheduling reload", entry.title, entry.entry_id)
     # B-CRIT-1 (Review B, 2026-06-03): MUST be an UNTRACKED task. A
     # tracked task registered via `entry.async_create_background_task`

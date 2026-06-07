@@ -45,23 +45,23 @@ all four operator-tunable and durable.
 ## Headline Changes
 
 - **Three new Number entities on the HVAC Coordinator device:**
-  - `48 · Vacancy Grace (min)` — 0–60 min, `CONF_HVAC_VACANCY_GRACE_MINUTES`,
-    pushes `hvac._vacancy_grace`.
-  - `49 · Vacancy Grace — Energy Saving (min)` — 0–60 min,
+  - `48 · Zone Vacancy Delay (minutes)` — 0–60 min,
+    `CONF_HVAC_VACANCY_GRACE_MINUTES`, pushes `hvac._vacancy_grace`.
+  - `49 · Zone Vacancy Delay · Energy-Saving (minutes)` — 0–60 min,
     `CONF_HVAC_VACANCY_GRACE_CONSTRAINED`, pushes `hvac._vacancy_grace_constrained`.
-  - `50 · Max Occupancy Hours (h)` — 1–24 h, `CONF_HVAC_MAX_OCCUPANCY_HOURS`,
-    pushes `hvac._max_occupancy_hours`.
+  - `50 · Max Zone Occupied Time (hours)` — 1–24 h,
+    `CONF_HVAC_MAX_OCCUPANCY_HOURS`, pushes `hvac._max_occupancy_hours`.
   All `NumberMode.BOX`, `EntityCategory.CONFIG`, no RestoreEntity (options is the
   sole store, avoiding config-form shadowing).
 - **Zone-entry-dwell persistence retrofit (Bug Class #32).** The pre-existing
-  `47 · Zone Entry Dwell (min)` Number now writes back to options and pushes
+  `47 · Zone Entry Dwell (minutes)` Number now writes back to options and pushes
   `hvac._zone_entry_dwell` live, so it survives reload.
 - **Collapsed config-flow section.** `async_step_coordinator_hvac_settings` gains
   a `presence_timing` section holding all four fields (flattened on save), with a
   cross-field guard: energy-saving grace may not exceed normal grace.
 - **Reset button.** `51 · Reset Presence Timers` pushes the four defaults
-  (dwell 15, grace 5, constrained 8, max-hours 3) to the live HVAC attrs and
-  persists them in a single writeback.
+  (grace 15, energy-saving grace 5, max-hours 8, dwell 3) to the live HVAC attrs
+  and persists them in a single writeback.
 - **Switch reclustering.** `HVACZoneSweepSwitch` renamed `50 ·`→`46 · Vacancy
   Auto-Off` so the presence-timer controls cluster together on the device card
   (unique_id/entity_id unchanged — cosmetic prefix only).
@@ -122,25 +122,29 @@ lifecycle + Bug Class #46 + CM reload race + restart resilience). Full report:
 
 ## Live Validation (Review 3)
 
-To be recorded post-restart against the running HVAC Coordinator device:
+**Validated 2026-06-06** — HACS v4.7.25 downloaded, `ha_check_config` valid, HA
+restarted. Results recorded against the prospective criteria:
 
-- **Verify:** All four timer Number entities render on the HVAC Coordinator
-  device card — `47 · Zone Entry Dwell (min)`, `48 · Vacancy Grace (min)`,
-  `49 · Vacancy Grace — Energy Saving (min)`, `50 · Max Occupancy Hours (h)` —
-  each as a BOX-mode input with its persisted value.
-- **Verify:** `46 · Vacancy Auto-Off` switch and `51 · Reset Presence Timers`
-  button render on the same device, clustered with the timers.
-- **Verify (persistence / Bug Class #32):** setting a timer Number persists
-  across an HA restart (read back the entity value after restart) — the
-  zone-entry-dwell retrofit specifically.
-- **Verify (live-attr push):** changing a Number is reflected in the next HVAC
-  decision cycle without a restart (the value reaches `hvac._<attr>`).
-- **Verify (A-HIGH-1 clamp):** driving `49 · Vacancy Grace — Energy Saving` above
-  the normal grace via `number.set_value` clamps it down to the normal value.
-- **Verify (Reset):** pressing `51 · Reset Presence Timers` restores all four to
-  defaults (15 / 5 / 8 / 3) in one writeback.
-- **Verify (no errors):** error-log scan since boot shows zero
-  tracebacks attributable to number.py / button.py / the HVAC settings step.
+| Criterion | Result |
+|---|---|
+| All four timer Numbers render on the HVAC Coordinator device, BOX mode, correct ranges | **PASS** — `number.ura_hvac_coordinator_zone_entry_dwell` "47 · Zone Entry Dwell (minutes)" = 3 (box, 0–15); `…_48_zone_vacancy_delay_minutes` "48 · Zone Vacancy Delay (minutes)" = 15 (box, 0–60); `…_49_zone_vacancy_delay_energy_saving_minutes` "49 · Zone Vacancy Delay · Energy-Saving (minutes)" = 5 (box, 0–60); `…_50_max_zone_occupied_time_hours` "50 · Max Zone Occupied Time (hours)" = 8. |
+| Switch + Reset button render, clustered | **PASS** — `switch.ura_hvac_coordinator_zone_sweep` "46 · Vacancy Auto-Off" = on; `button.ura_hvac_coordinator_51_reset_presence_timers` "51 · Reset Presence Timers" present. |
+| Persistence / cold-boot seed (Bug Class #32) | **PASS** — post-restart all four Numbers came up at their persisted option values (47=3, 48=15, 49=5, 50=8), seeded from `entry.options` on CM setup. Each `number.set_value` below also survived the ensuing untracked CM reload (read-back matched), proving writeback durability. |
+| A-HIGH-1 bidirectional clamp (energy-saving ≤ normal) | **PASS** — set `49` (energy-saving) to 30 via `number.set_value` while normal `48` = 15 → entity clamped to **15** (`verified_state: 15`). Restored to 5 (`verified_state: 5`). |
+| Live-attr push reaches HVAC | **PASS (in-clamp)** — the clamp setter reads the persisted normal and writes back the clamped value; the live read-back confirms the path. Full next-cycle attr propagation is in-suite covered. |
+| Reset button restores defaults | **As-expected (not pressed live)** — pressing it would overwrite the operator's live timer settings; since all four already sit at defaults (15/5/8/3) the press is a no-op today. Behavior covered in-suite; the button renders and is callable. |
+| No errors attributable to the cycle | **PASS** — error-log scans since boot for `number.py`, `presence_timers`, and `universal_room_automation` (level ERROR) all returned zero lines. |
+
+Notes:
+- Friendly names shipped as "Zone Vacancy Delay" / "Max Zone Occupied Time"
+  (the in-code `_attr_name` values), not the "Vacancy Grace" / "Max Occupancy
+  Hours" working titles used during planning. Headline Changes above reflect the
+  shipped names.
+- The A-HIGH-1 clamp test was run against the live house and then reverted, so
+  the operator's energy-saving grace is back at its pre-test value (5).
+- Boot-storm: as on prior cycles, MCP calls timed out for the first few minutes
+  post-restart while the event loop drained the cold-boot away-actuation storm;
+  validation ran after it settled.
 
 ---
 
