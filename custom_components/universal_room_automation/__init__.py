@@ -3595,15 +3595,13 @@ from .domain_coordinators.energy_const import (
 )
 from .const import (
     # Part 2 — Bayesian + fan-interference + routine family
+    CONF_BAYESIAN_CELL_STALENESS_DAYS as _CONF_BAYESIAN_CELL_STALENESS_DAYS,
     CONF_FAN_INTERFERENCE_HOLD_S as _CONF_FAN_INTERFERENCE_HOLD_S,
     CONF_ROUTINE_EVENT_COOLDOWN_DAYS as _CONF_ROUTINE_EVENT_COOLDOWN_DAYS,
     CONF_ROUTINE_EVENT_MIN_SEVERITY as _CONF_ROUTINE_EVENT_MIN_SEVERITY,
     CONF_ROUTINE_REGIME_BASELINE_WINDOW_DAYS as _CONF_ROUTINE_REGIME_BASELINE_WINDOW_DAYS,
     CONF_ROUTINE_REGIME_RECENT_WINDOW_DAYS as _CONF_ROUTINE_REGIME_RECENT_WINDOW_DAYS,
 )
-
-# Bayesian cell staleness uses a bare-string CONF (no Final constant yet).
-_CONF_BAYESIAN_CELL_STALENESS_DAYS = "bayesian_cell_staleness_days"
 
 # The 14 HVAC tunable factory CONFs share an identical dispatch pattern:
 # look up `hvac.<sub_controller_attr>` then `setattr(sub, runtime_field, cast(value))`.
@@ -3651,11 +3649,22 @@ _OFFPEAK_DRAIN_QUALITY: dict[str, str] = {
     _CONF_ENERGY_OFFPEAK_DRAIN_POOR:      "poor",
 }
 
-# Keys where the consumer re-reads `entry.options` each evaluation tick
-# (DPM dwell + DPM hysteresis via `_get_cm_options()`, Routine family via
-# entity-state lookup with `cm_opts.get(...)` fallback, Bayesian cell
-# staleness via entity-state). No live-attr push needed; the listener
-# just advances the snapshot. Mirrors the v4.7.26 DPM-dwell pattern.
+# Keys where no live-attr push is needed; the listener just advances the
+# snapshot (mirrors the v4.7.26 DPM-dwell pattern). Per-sub-family:
+#   - DPM dwell + DPM hysteresis: consumer re-reads `entry.options` each
+#     evaluation tick via `_get_cm_options()`.
+#   - Routine event family (event_cooldown_days, event_min_severity):
+#     consumer (notification_manager.py:2358-2379) reads live entity-state,
+#     falling back to `cm_opts.get(CONF_…)` from entry.options.
+#   - Routine regime family (regime_baseline/recent_window_days):
+#     consumer (regime_detector.py:104-133, `_window_days`) reads live
+#     entity-state, falling back to HARDCODED 56/14 academic-default seeds
+#     (NOT `cm_opts.get(...)`).
+#   - Bayesian cell staleness: consumer reads live entity-state.
+# In all cases the Number setter's `async_write_ha_state()` refreshes the
+# entity state, and the Number setter is the sole write path (verified:
+# no config/options-flow path writes these keys), so the entity-state
+# read sees fresh values without a live-attr push.
 _NO_LIVE_ATTR_KEYS: frozenset[str] = frozenset({
     _CONF_DYNAMIC_PRESET_DWELL_MINUTES,
     _CONF_DYNAMIC_PRESET_HYSTERESIS_F,
@@ -3881,22 +3890,42 @@ def _apply_in_place(
             )
 
     # ----- Part 2 D5: HVAC egress thresholds -----
+    # `egress_manager` is a @property (hvac.py:295) backed by
+    # `self._egress_manager`, which can be None mid-teardown. Mirror the
+    # HVAC-tunable loop's `if sub is None: continue` guard so we don't
+    # AttributeError on `None.set_threshold_min(...)` during teardown races.
     if _CONF_HVAC_EGRESS_THRESHOLD_MIN in changed_keys and hvac is not None:
         try:
-            hvac.egress_manager.set_threshold_min(
-                int(new_options[_CONF_HVAC_EGRESS_THRESHOLD_MIN]),
-            )
-            applied.add(_CONF_HVAC_EGRESS_THRESHOLD_MIN)
+            egress_mgr = hvac.egress_manager
+            if egress_mgr is None:
+                _LOGGER.info(
+                    "CM in-place apply: egress_manager not available for "
+                    "key=%s; value will be picked up on next setup",
+                    _CONF_HVAC_EGRESS_THRESHOLD_MIN,
+                )
+            else:
+                egress_mgr.set_threshold_min(
+                    int(new_options[_CONF_HVAC_EGRESS_THRESHOLD_MIN]),
+                )
+                applied.add(_CONF_HVAC_EGRESS_THRESHOLD_MIN)
         except (AttributeError, KeyError, ValueError, TypeError) as err:
             _LOGGER.warning(
                 "CM in-place apply: egress threshold push failed: %s", err,
             )
     if _CONF_HVAC_EGRESS_RESUME_DELAY_MIN in changed_keys and hvac is not None:
         try:
-            hvac.egress_manager.set_resume_delay_min(
-                int(new_options[_CONF_HVAC_EGRESS_RESUME_DELAY_MIN]),
-            )
-            applied.add(_CONF_HVAC_EGRESS_RESUME_DELAY_MIN)
+            egress_mgr = hvac.egress_manager
+            if egress_mgr is None:
+                _LOGGER.info(
+                    "CM in-place apply: egress_manager not available for "
+                    "key=%s; value will be picked up on next setup",
+                    _CONF_HVAC_EGRESS_RESUME_DELAY_MIN,
+                )
+            else:
+                egress_mgr.set_resume_delay_min(
+                    int(new_options[_CONF_HVAC_EGRESS_RESUME_DELAY_MIN]),
+                )
+                applied.add(_CONF_HVAC_EGRESS_RESUME_DELAY_MIN)
         except (AttributeError, KeyError, ValueError, TypeError) as err:
             _LOGGER.warning(
                 "CM in-place apply: egress resume-delay push failed: %s", err,

@@ -154,7 +154,6 @@ def _load_init_dispatch_namespace() -> dict:
         "_EC_SETTER_DISPATCH",
         "_OFFPEAK_DRAIN_QUALITY",
         "_NO_LIVE_ATTR_KEYS",
-        "_CONF_BAYESIAN_CELL_STALENESS_DAYS",
     }
     keep_funcs = {
         "_seed_cm_last_applied_options",
@@ -217,6 +216,7 @@ def _load_init_dispatch_namespace() -> dict:
         "_CONF_ROUTINE_EVENT_MIN_SEVERITY":       "routine_event_min_severity",
         "_CONF_ROUTINE_REGIME_BASELINE_WINDOW_DAYS": "routine_regime_baseline_window_days",
         "_CONF_ROUTINE_REGIME_RECENT_WINDOW_DAYS": "routine_regime_recent_window_days",
+        "_CONF_BAYESIAN_CELL_STALENESS_DAYS":     "bayesian_cell_staleness_days",
     }
     mod = ast.Module(body=body, type_ignores=[])
     code = compile(mod, str(PKG / "__init__.py"), "exec")
@@ -530,7 +530,7 @@ def test_d3_hvac_tunable_dispatch_table_covers_all_14_factory_outputs():
 
 
 def test_d3_hvac_tunable_dispatch_cast_correct_int_vs_float():
-    """The 7 integer tunables must cast to int; the other 7 must cast to
+    """The 6 integer tunables must cast to int; the other 8 must cast to
     float. Mirrors the factory's `integer=` parameter."""
     ns = _load_init_dispatch_namespace()
     int_keys = {

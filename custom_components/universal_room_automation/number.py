@@ -20,6 +20,7 @@ from .const import (
     DOMAIN,
     CONF_ENTRY_TYPE,
     ENTRY_TYPE_COORDINATOR_MANAGER,
+    CONF_BAYESIAN_CELL_STALENESS_DAYS,
     COMFORT_TEMP_MIN,
     COMFORT_TEMP_MAX,
     COMFORT_HUMIDITY_MAX,
@@ -1429,7 +1430,7 @@ class BayesianCellStalenessNumber(NumberEntity):
             sw_version=VERSION,
         )
         config = {**entry.data, **entry.options}
-        self._value = int(config.get("bayesian_cell_staleness_days", 14))
+        self._value = int(config.get(CONF_BAYESIAN_CELL_STALENESS_DAYS, 14))
 
     @property
     def native_value(self) -> float:
@@ -1447,7 +1448,7 @@ class BayesianCellStalenessNumber(NumberEntity):
                 self._entry,
                 options={
                     **self._entry.options,
-                    "bayesian_cell_staleness_days": int(value),
+                    CONF_BAYESIAN_CELL_STALENESS_DAYS: int(value),
                 },
             )
         except Exception:  # noqa: BLE001
@@ -1801,12 +1802,24 @@ def _hvac_tunable_number_factory(
                 from .domain_coordinators.hvac_const import (
                     SIGNAL_HVAC_ENTITIES_UPDATE,
                 )
+                # Mirrors the EC sibling pattern (v4.7.6 fix-up B-M7):
+                # one-shot unsub guard so the dispatcher-side and
+                # async_on_remove-side don't both fire unsub on the same
+                # callable (second call raises in HA).
                 unsub_holder: list = []
+                unsubbed = [False]
+
+                def _safe_unsub() -> None:
+                    if unsubbed[0]:
+                        return
+                    if unsub_holder:
+                        unsubbed[0] = True
+                        unsub_holder[0]()
 
                 @callback
                 def _on_hvac_tick(*_a, **_kw):
-                    if self._push_to_controller() and unsub_holder:
-                        unsub_holder[0]()
+                    if self._push_to_controller() and unsub_holder and not unsubbed[0]:
+                        _safe_unsub()
 
                 unsub_holder.append(
                     async_dispatcher_connect(
@@ -1815,7 +1828,7 @@ def _hvac_tunable_number_factory(
                         _on_hvac_tick,
                     )
                 )
-                self.async_on_remove(unsub_holder[0])
+                self.async_on_remove(_safe_unsub)
 
         async def async_set_native_value(self, value: float) -> None:
             self._value = cast(value)
