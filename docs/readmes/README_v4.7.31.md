@@ -40,14 +40,19 @@ hvac_override.py) already passes a zone_id.
   extraction didn't include the new helper → NameError → false). Now passes.
 - **Suite:** baseline-diff vs `pre-review-v4.7.31` = zero new failures.
 
-### Live Validation (prospective — write back post-restart)
-- **Live:** after restart, the "zone not registered in zone_manager.zones" WARN
-  stops appearing for the 3 thermostat'd zones (Entertainment/Master Suite→zone_1,
-  Upstairs→zone_2, Back Hallway→zone_3).
-- **Live:** within ~24h, an INFO indicating the sleep or non-sleep person-fallback
-  engaged on Entertainment/Master Suite or Upstairs (the demographic it protects).
-- **Live:** the back_hallway `counter.back_hallway_garage_entries` now loads (this
-  restart picks up the package counter that had no reload target in v4.7.30's fix).
+### Live Validation — Validated 2026-06-08 (post v4.7.31 restart)
+
+| # | Criterion | Result | Evidence |
+|---|---|---|---|
+| 1 | v4.7.31 loaded | ✅ PASS | `update.universal_room_automation_update` `installed_version=v4.7.31`. |
+| 2 | zone-not-registered WARN stops | ✅ PASS | Log search "zone not registered" → **0 lines** post-boot (pre-fix it fired for Entertainment + Back Hallway on the v4.7.30 boot). The resolver now finds the 3 thermostat'd zones. |
+| 3 | back_hallway counter loads | ✅ PASS | `counter.back_hallway_garage_entries=0` now exists (had no reload target in v4.7.30; this restart picked it up). `input_select.back_hallway_occupancy_state=vacant` also present. |
+| 4 | back_hallway template fixes held | ✅ PASS | No back_hallway template errors after the fix (last is `10:06:04` pre-fix); none post-restart. |
+| 5 | Zero URA errors post-boot | ✅ PASS | error_log level=ERROR search "universal_room_automation" → 0 lines. |
+| 6 | Fallback positively engages | ⏳ TRIP-WIRE | A sleep/non-sleep fallback "engaged" event requires a room with motionless occupants in a gated house_state — observable opportunistically over ~24h, NOT a scheduled watch (no-soak policy). Mechanism proven by `test_zone_name_resolution.py` (9) + context-wide review.
+
+**Cycle status:** immediate criteria (1–5) PASS. The positive fallback-engagement
+(6) is a trip-wire, not a chore. Cycle closed at live-validation.
 
 ## Notes / deferred (from review)
 - **LOW-1:** resolver iterates all zones per `is_on` read — trivial at 3 zones; add a

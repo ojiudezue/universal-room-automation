@@ -3847,6 +3847,7 @@ class EnergyCoordinator(BaseCoordinator):
                 rows = await cursor.fetchall()
                 circuit_baselines: dict[str, MetricBaseline] = {}
                 unmatched = 0
+                stale_unmapped: list[str] = []
                 for row in rows:
                     baseline = MetricBaseline(
                         metric_name=row["metric_name"],
@@ -3878,20 +3879,72 @@ class EnergyCoordinator(BaseCoordinator):
                                 matched = True
                                 break
                         if not matched:
-                            unmatched += 1
-                            _LOGGER.warning(
-                                "Circuit baseline '%s' has no matching circuit "
-                                "(may have been renamed)", row["scope"],
-                            )
+                            # v4.7.32 SPAN prune: an unmatched "Unmapped Tab%"
+                            # baseline is stale. SPAN's Circuit Name Sync renames a
+                            # tab the instant it is assigned a circuit, so a real
+                            # circuit is NEVER named "Unmapped Tab N" — an unmatched
+                            # one means the tab was since named (the named circuit
+                            # relearns under its real name) or the tab is empty.
+                            # Delete-and-relearn. Genuinely renamed REAL circuits
+                            # (non-"Unmapped Tab") are kept + warned for operator
+                            # awareness (no auto-delete of potentially-valuable data).
+                            if str(row["scope"]).startswith("Unmapped Tab"):
+                                stale_unmapped.append(row["scope"])
+                            else:
+                                unmatched += 1
+                                _LOGGER.warning(
+                                    "Circuit baseline '%s' has no matching circuit "
+                                    "(may have been renamed)", row["scope"],
+                                )
                 if circuit_baselines:
                     self._circuits.restore_baselines(circuit_baselines)
+                if stale_unmapped:
+                    # Reversible prune: copy each row to a backup table BEFORE
+                    # deleting, so a bad prune can be undone with (use OR IGNORE so
+                    # a scope that has since relearned is NOT clobbered — Review B1):
+                    #   INSERT OR IGNORE INTO metric_baselines
+                    #     (coordinator_id,metric_name,scope,mean,variance,
+                    #      sample_count,last_updated)
+                    #   SELECT coordinator_id,metric_name,scope,mean,variance,
+                    #      sample_count,last_updated
+                    #   FROM metric_baselines_pruned_backup;
+                    from datetime import datetime as _dt, timezone as _tz
+                    _pruned_at = _dt.now(_tz.utc).isoformat()
+                    await conn.execute(
+                        "CREATE TABLE IF NOT EXISTS metric_baselines_pruned_backup ("
+                        "coordinator_id TEXT, metric_name TEXT, scope TEXT, "
+                        "mean REAL, variance REAL, sample_count INTEGER, "
+                        "last_updated TEXT, pruned_at TEXT)"
+                    )
+                    for _sc in stale_unmapped:
+                        await conn.execute(
+                            "INSERT INTO metric_baselines_pruned_backup "
+                            "SELECT coordinator_id, metric_name, scope, mean, "
+                            "variance, sample_count, last_updated, ? "
+                            "FROM metric_baselines WHERE coordinator_id='energy' "
+                            "AND metric_name='circuit_power' AND scope = ?",
+                            (_pruned_at, _sc),
+                        )
+                        await conn.execute(
+                            "DELETE FROM metric_baselines "
+                            "WHERE coordinator_id='energy' "
+                            "AND metric_name='circuit_power' AND scope = ?",
+                            (_sc,),
+                        )
+                    await conn.commit()
+                    _LOGGER.info(
+                        "SPAN: pruned %d orphaned 'Unmapped Tab' circuit baselines "
+                        "(backed up to metric_baselines_pruned_backup; reversible). "
+                        "Affected scopes will relearn under current names.",
+                        len(stale_unmapped),
+                    )
                 if unmatched:
                     _LOGGER.warning(
                         "%d circuit baselines could not be matched", unmatched,
                     )
                 _LOGGER.info(
                     "Restored %d energy baselines (peak_import: %d samples)",
-                    len(rows) - unmatched,
+                    len(rows) - unmatched - len(stale_unmapped),
                     self._peak_import_baseline.sample_count,
                 )
         except Exception as e:

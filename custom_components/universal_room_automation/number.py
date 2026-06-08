@@ -1,6 +1,6 @@
 """Number platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.7.31
+# Universal Room Automation vv4.7.32
 # Build: 2026-01-02
 # File: number.py
 #

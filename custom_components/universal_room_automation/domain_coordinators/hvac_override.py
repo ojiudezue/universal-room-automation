@@ -835,6 +835,19 @@ class OverrideArrester:
             _on_compromise_fire,
         )
 
+    def _supports_heat_cool(self, climate_entity: str) -> bool:
+        """True if the climate entity advertises heat_cool in its hvac_modes.
+
+        v4.7.32: the operator runs zones in ranges/presets (heat_cool). Override
+        revert and AC-reset restore re-assert heat_cool whenever the mode has
+        drifted (off OR single-mode like cool/heat) — but only on thermostats
+        that actually support it, so a genuinely heat-only / cool-only unit is
+        never forced into an unsupported mode.
+        """
+        st = self.hass.states.get(climate_entity)
+        modes = (st.attributes.get("hvac_modes") or []) if st else []
+        return "heat_cool" in modes
+
     async def _revert_override(
         self, zone: ZoneState, original_preset: str,
     ) -> None:
@@ -856,8 +869,13 @@ class OverrideArrester:
         self._suppressed_entities.add(zone.climate_entity)
 
         try:
-            # Ensure thermostat is in an active mode before setting preset
-            if zone.hvac_mode == "off":
+            # v4.7.32: re-assert heat_cool whenever the mode has drifted from it
+            # (off OR a single mode like cool/heat) — not just "off". The operator
+            # runs zones in ranges/presets; a stuck single-mode defeats that. Only
+            # force it on thermostats that support heat_cool.
+            if zone.hvac_mode != "heat_cool" and self._supports_heat_cool(
+                zone.climate_entity
+            ):
                 await self.hass.services.async_call(
                     "climate",
                     "set_hvac_mode",
@@ -868,8 +886,8 @@ class OverrideArrester:
                     blocking=False,
                 )
                 _LOGGER.info(
-                    "Override revert: restored %s to heat_cool (was off)",
-                    zone.zone_name,
+                    "Override revert: restored %s to heat_cool (was %s)",
+                    zone.zone_name, zone.hvac_mode,
                 )
 
             await self.hass.services.async_call(
@@ -1082,6 +1100,13 @@ class OverrideArrester:
         original_mode = zone.hvac_mode
         original_action = zone.hvac_action
         zone_id = zone.zone_id
+        # v4.7.32 (Review C MED-1): the restore now targets heat_cool when the
+        # thermostat supports it (see _restore_after_reset). Report that in the
+        # alert so the NM message doesn't claim it's restoring the pre-reset mode.
+        restore_target = (
+            "heat_cool" if self._supports_heat_cool(zone.climate_entity)
+            else original_mode
+        )
 
         # Turn off
         try:
@@ -1115,7 +1140,7 @@ class OverrideArrester:
             message=(
                 f"Stuck {original_action} cycle detected — "
                 f"cycling off for {AC_RESET_OFF_DURATION_SECONDS}s then restoring "
-                f"{original_mode}. Reset #{zone.ac_reset_count_today}/{AC_RESET_MAX_PER_DAY} today."
+                f"{restore_target}. Reset #{zone.ac_reset_count_today}/{AC_RESET_MAX_PER_DAY} today."
             ),
             severity="high",
         )
@@ -1131,7 +1156,14 @@ class OverrideArrester:
         zone_id = zone.zone_id
         zone_name = zone.zone_name
         climate_entity = zone.climate_entity
-        target_mode = original_mode
+        # v4.7.32: restore to heat_cool (ranges/presets), not the pre-reset mode —
+        # a zone that was in a single mode (cool/heat) before the reset would
+        # otherwise come back single-mode and never reset ("nudges don't reset the
+        # mode"). Guard on supported modes so a heat-only/cool-only unit keeps its
+        # mode (falls back to the original).
+        target_mode = (
+            "heat_cool" if self._supports_heat_cool(climate_entity) else original_mode
+        )
 
         self._reset_timers.pop(zone_id, None)
 
@@ -1169,10 +1201,15 @@ class OverrideArrester:
             state = self.hass.states.get(climate_entity)
             actual_mode = state.state if state else "unknown"
 
-            if actual_mode == "off" and attempt <= 2:
+            # v4.7.32 (Review A-F3): verify the zone actually reached the INTENDED
+            # mode (target_mode = heat_cool when supported), not merely "not off".
+            # A thermostat that advertises heat_cool but silently downgrades to
+            # cool/heat would otherwise pass verification falsely.
+            if actual_mode != target_mode and attempt <= 2:
                 _LOGGER.warning(
-                    "HVAC AC Reset: Zone %s still off after restore (attempt %d/2) — retrying",
-                    zone_name, attempt,
+                    "HVAC AC Reset: Zone %s did not reach %s (still %s) after "
+                    "restore (attempt %d/2) — retrying",
+                    zone_name, target_mode, actual_mode, attempt,
                 )
                 try:
                     await self.hass.services.async_call(
@@ -1192,20 +1229,20 @@ class OverrideArrester:
                 # Schedule next verification
                 next_task = self.hass.async_create_task(_verify_restore(attempt + 1))
                 self._verify_tasks[zone_id] = next_task
-            elif actual_mode == "off":
+            elif actual_mode != target_mode:
                 _LOGGER.error(
-                    "HVAC AC Reset: Zone %s FAILED to restore after 2 retries "
-                    "— manual intervention needed",
-                    zone_name,
+                    "HVAC AC Reset: Zone %s FAILED to restore to %s (still %s) "
+                    "after 2 retries — manual intervention needed",
+                    zone_name, target_mode, actual_mode,
                 )
                 self._verify_tasks.pop(zone_id, None)
                 # Send NM critical alert for failed restore
                 await self._send_nm_alert(
                     title=f"AC Reset FAILED: {zone_name}",
                     message=(
-                        f"AC reset failed to restore Zone {zone_name} — "
-                        f"thermostat stuck on OFF after 2 retries. "
-                        f"Manual intervention needed."
+                        f"AC reset failed to restore Zone {zone_name} to "
+                        f"{target_mode} — thermostat stuck on {actual_mode} after "
+                        f"2 retries. Manual intervention needed."
                     ),
                     severity="critical",
                 )
