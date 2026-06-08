@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.7.29
+# Universal Room Automation vv4.7.30
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -4198,19 +4198,22 @@ class PresenceComplianceSensor(AggregationEntity, SensorEntity):
 
     @property
     def native_value(self) -> float:
-        """Return the compliance rate."""
+        """Return the cached compliance rate (refreshed in async_update)."""
+        return getattr(self, "_compliance_value", 100.0)
+
+    async def async_update(self) -> None:
+        """Refresh the compliance rate from the tracker (async DB read)."""
         manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
         if manager is None:
-            return 100.0
+            return
         presence = manager.coordinators.get("presence")
         if presence is None or presence.compliance_tracker is None:
-            return 100.0
-        # Get compliance rate from tracker if available
+            return
         try:
-            rate = presence.compliance_tracker.get_compliance_rate("presence")
-            return round(rate * 100, 1) if rate is not None else 100.0
+            rate = await presence.compliance_tracker.get_compliance_rate("presence")
+            self._compliance_value = round(rate * 100, 1) if rate is not None else 100.0
         except (AttributeError, TypeError):
-            return 100.0
+            self._compliance_value = 100.0
 
 
 # ============================================================================
@@ -4787,18 +4790,22 @@ class SafetyComplianceSensor(AggregationEntity, SensorEntity):
 
     @property
     def native_value(self) -> float:
-        """Return the compliance rate."""
+        """Return the cached compliance rate (refreshed in async_update)."""
+        return getattr(self, "_compliance_value", 100.0)
+
+    async def async_update(self) -> None:
+        """Refresh the compliance rate from the tracker (async DB read)."""
         manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
         if manager is None:
-            return 100.0
+            return
         safety = manager.coordinators.get("safety")
         if safety is None or safety.compliance_tracker is None:
-            return 100.0
+            return
         try:
-            rate = safety.compliance_tracker.get_compliance_rate("safety")
-            return round(rate * 100, 1) if rate is not None else 100.0
+            rate = await safety.compliance_tracker.get_compliance_rate("safety")
+            self._compliance_value = round(rate * 100, 1) if rate is not None else 100.0
         except (AttributeError, TypeError):
-            return 100.0
+            self._compliance_value = 100.0
 
 
 # ============================================================================

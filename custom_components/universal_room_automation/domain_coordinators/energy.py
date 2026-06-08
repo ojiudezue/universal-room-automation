@@ -3060,6 +3060,21 @@ class EnergyCoordinator(BaseCoordinator):
         forecast_high = self._cached_forecast_high
         forecast_low = self._cached_forecast_low
 
+        # HVAC post-peak coast release — mirror of the v4.7.29 battery fix.
+        # Summer mid_peak is a bracketed period (pre-peak / peak / post-peak).
+        # Coasting is correct PRE-peak (let temp drift to save before the
+        # expensive peak) but wasteful POST-peak: off_peak is imminent (cheap
+        # cooling) and the battery is discharging (v4.7.29), so release to normal
+        # and let comfort recover. Shoulder/winter mid_peak IS the top rate
+        # (no peak is ever ahead), so they must keep coasting — hence the
+        # season gate. Short-circuits on non-mid_peak so the hour-walk only
+        # runs when relevant.
+        summer_post_peak_midpeak = (
+            tou_period == "mid_peak"
+            and self._tou.get_season() == "summer"
+            and not self._tou.peak_ahead_before_offpeak()
+        )
+
         # Determine constraint mode (priority order: shed > coast > pre_cool > pre_heat > normal)
         if (
             tou_period == "peak"
@@ -3074,7 +3089,11 @@ class EnergyCoordinator(BaseCoordinator):
             self._hvac_constraint_mode = "coast"
             self._hvac_constraint_offset = self._constraint_coast_offset
             reason = "peak TOU period"
-        elif tou_period == "mid_peak" and solar_class in ("poor", "very_poor"):
+        elif (
+            tou_period == "mid_peak"
+            and solar_class in ("poor", "very_poor")
+            and not summer_post_peak_midpeak
+        ):
             self._hvac_constraint_mode = "coast"
             self._hvac_constraint_offset = self._constraint_coast_offset - 1.0
             reason = "mid-peak poor solar"

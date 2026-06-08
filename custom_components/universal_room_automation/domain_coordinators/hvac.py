@@ -1438,6 +1438,20 @@ class HVACCoordinator(BaseCoordinator):
                     zone.runtime_seconds_this_window = 0.0
                     zone.window_start = None
                     zone.runtime_exceeded = False
+            # v4.7.30 (Review B-MED-1): also clear counters when RELEASING to
+            # normal from a constrained mode. Otherwise a zone that hit
+            # runtime_exceeded during coast/shed stays flagged until its duty
+            # window naturally expires (up to one DUTY_CYCLE_WINDOW), and the
+            # actuation paths that read runtime_exceeded (e.g. the away-preset
+            # force at the occupancy/preset stage) keep the zone restricted —
+            # defeating the HVAC post-peak coast RELEASE this version adds.
+            # Clearing on return to normal is always safe: normal applies no
+            # duty limit (_accumulate_zone_runtime `continue`s in normal).
+            elif _MODE_RANK.get(old_mode, 0) > 0 and _MODE_RANK.get(constraint.mode, 0) == 0:
+                for zone in self._zone_manager.zones.values():
+                    zone.runtime_seconds_this_window = 0.0
+                    zone.window_start = None
+                    zone.runtime_exceeded = False
 
     # ------------------------------------------------------------------
     # v3.22.0 D2: Safety hazard signal handler
