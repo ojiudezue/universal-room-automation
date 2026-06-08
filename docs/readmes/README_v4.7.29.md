@@ -41,17 +41,25 @@ failures, py_compile clean.
 
 ---
 
-## Live Validation — prospective (Review D, time-windowed)
+## Live Validation — Validated 2026-06-08 (partial; fix-window deferred)
 
-The fix's signal is confined to the **summer post-peak mid_peak window, 20:00–21:00 CDT**:
-- **Live:** during 20:00–21:00 CDT, `sensor.envoy_482543015950_current_battery_discharge` > 0
-  (battery discharges) and grid net import drops toward 0; `sensor.ura_energy_coordinator_battery_strategy`
-  `reason` contains "post-peak … discharging".
-- **Live (regression guard):** during 14:00–16:00 CDT (pre-peak), the battery still holds
-  (reason "holding charge for … peak", reserve_level ≈ SOC).
-- **Live:** no URA ERROR attributable to the new helper within an hour of restart.
-- **Watch (deferred MED):** if an EVSE is charging during 20:00–21:00, confirm
-  `_apply_evse_battery_hold` does not silently re-pin the battery (reason↔action divergence).
+Validated post-restart with v4.7.29 active (`update.universal_room_automation_update`
+installed_version = `v4.7.29`). At validation time TOU had rolled to **off_peak**, and tonight's
+post-peak mid_peak window (20:00–21:00 CDT) ran pre-deploy — so the fix-specific signal first
+manifests **tomorrow's** post-peak window.
+
+| # | Criterion | Result | Observed evidence |
+|---|-----------|--------|-------------------|
+| 1 | v4.7.29 active | **PASS** | update entity installed_version = v4.7.29 |
+| 2 | No URA ERROR logs this boot | **PASS** | system ERROR log filtered to `universal_room` = empty |
+| 3 | New helper never raises (H2) | **PASS** | error_log search "peak_ahead_before_offpeak" = 0 |
+| 4 | Battery used, not pinned | **PASS (off_peak)** | off_peak: `battery_power −10.32 kW` (discharging), reason "Off-peak drain — SOC 57% > target 20%", reserve dropped to 20%, grid net ≈ 0 — healthy off_peak path post-fix |
+| 5 | Post-peak mid_peak discharge (the fix) | **DEFERRED-to-window** | TOU now off_peak; tonight's 20:00–21:00 window ran pre-deploy. First genuine manifestation = tomorrow 20:00–21:00 CDT. Monitored via shipwatch `## Acceptance` H1 + a targeted recorder check. |
+| 6 | Pre-peak hold regression guard (14:00–16:00) | **DEFERRED-to-window** | Same — observable tomorrow afternoon. Covered in-suite (17 tests). |
+| 7 | `_apply_evse_battery_hold` re-pin watch (deferred MED) | **PENDING** | Watch during tomorrow's post-peak window if an EVSE is charging. |
+
+Mechanism is proven in-suite (17 tests incl. pre/post-peak, boundary hours, None-engine,
+season/midnight); criteria 5/6 await the wall-clock window. No code path is unproven.
 
 ## Acceptance
 
