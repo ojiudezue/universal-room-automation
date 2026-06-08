@@ -118,7 +118,9 @@ class TestSpanPruneSource:
         self.body = self.src[start:end]
 
     def test_only_unmapped_tab_pruned(self):
-        assert 'str(row["scope"]).startswith("Unmapped Tab")' in self.body
+        # v4.7.32.1: substring match catches panel-prefixed scopes like
+        # "Span Left Unmapped Tab 24 Power", not just bare "Unmapped Tab N".
+        assert '"Unmapped Tab" in str(row["scope"])' in self.body
 
     def test_backup_table_created_before_delete(self):
         i_create = self.body.index("metric_baselines_pruned_backup")
