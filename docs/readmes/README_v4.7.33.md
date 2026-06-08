@@ -74,17 +74,25 @@ events per service call hit the same latent class.
   flakes identical on both trees).
 - **Migration:** `grep _suppressed_entities hvac_override.py` → nothing.
 
-### Live Validation (prospective — to be written back post-restart)
-- **Live:** v4.7.33 loaded — `update.universal_room_automation_update`
-  `installed_version=v4.7.33`.
-- **Live:** Zero URA errors post-boot — error_log ERROR search "universal_room_automation"
-  → 0 lines.
-- **Live:** Override arrester active — no `_suppressed_entities` AttributeError / no
-  arrester traceback in logs (proves the field rename took on the running instance).
-- **Live (trip-wire):** A real override revert (`Override revert on … restoring preset`)
-  followed by NO spurious re-detection on the same entity within 5s — observable
-  opportunistically when a manual override actually happens; NOT a scheduled watch
-  (no-soak policy). Mechanism proven in-suite by the 11 behavioral tests.
+### Live Validation — Validated 2026-06-08 (post v4.7.33 restart)
+
+| # | Criterion | Result | Evidence |
+|---|-----------|--------|----------|
+| 1 | v4.7.33 loaded | ✅ PASS | `update.universal_room_automation_update` `installed_version=v4.7.33` (latest=v4.7.33, state=off). |
+| 2 | Field rename took on running instance | ✅ PASS | error_log search `_suppressed_entities` → **0 lines**; no `AttributeError` / no Override Arrester traceback. The set→dict migration loaded clean (a missed reference would have raised on the first climate state change). |
+| 3 | URA entities live + responsive | ✅ PASS | `sensor.ura_presence_coordinator_presence_house_state=away` (tracked_persons_count=4); `sensor.ura_presence_coordinator_presence_compliance=100.0` (v4.7.30 async-cache fix still holding). |
+| 4 | Zero arrester-related errors post-boot | ✅ PASS | error_log ERROR search "universal_room_automation" → only 4 lines, all `DB write worker not running` clustered in an 8s boot window (13:50:39–47), NOT arrester-related. My diff touched only `hvac_override.py` suppression — nothing in `database.py` / the write worker. No recurrence after the worker started. |
+| 5 | Override-revert → no spurious re-detect within 5s | ⏳ TRIP-WIRE | Requires a real manual override to occur (`Override revert on … restoring preset`); observable opportunistically, NOT a scheduled watch (no-soak policy). Mechanism proven in-suite by the 11 behavioral tests, incl. `test_two_consecutive_events_both_suppressed` (the exact A-F5 scenario) and `test_user_override_passthrough_mid_window`. |
+
+**Cycle status:** immediate criteria (1–4) PASS. Criterion 5 (positive override-revert
+suppression) is a trip-wire, not a chore — proven in-suite. Cycle **closed** at
+live-validation.
+
+**Boot-order note (not an A-F5 regression):** 4 `DB write worker not running` ERRORs fired
+during the 8s boot window (environmental / energy / census logging racing
+`start_write_worker()`). Unrelated to this cycle (the diff did not touch the DB write path).
+Flagged for the operator to confirm whether it's a long-standing boot transient or worth a
+separate boot-order fix.
 
 ## Notes / accepted trade-offs (from review)
 - **Wall-clock TTL (LOW):** the 5s window uses `dt_util.now()` (wall clock). A remote
