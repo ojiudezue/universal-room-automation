@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.7.27
+# Universal Room Automation vv4.7.28
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -6632,13 +6632,15 @@ class EnergyBatteryStrategySensor(AggregationEntity, SensorEntity):
         except (AttributeError, TypeError, ValueError):
             pass
         try:
-            # net_power > 0 means importing from grid (W)
-            net_power_w = float(
-                self.hass.states.get(
-                    energy._battery._get_entity("net_power", "")
-                ).state
-            )
-            if net_power_w > 0:
+            # Unit-correctness: read the uom-normalized net_power_w property
+            # (positive=importing, always W across W/kW Envoy firmware — the
+            # v4.5.0 sweep), NOT the raw net_power entity. Reading the raw
+            # entity and assuming W made $/h 1000x too low on kW-reporting
+            # firmware. net_power_w returns None when the entity is missing.
+            net_power_w = energy._battery.net_power_w
+            if net_power_w is None:
+                grid_cost_per_hour = None
+            elif net_power_w > 0:
                 grid_cost_per_hour = round(
                     (net_power_w / 1000.0) * current_rate, 2
                 )
@@ -6657,7 +6659,15 @@ class EnergyBatteryStrategySensor(AggregationEntity, SensorEntity):
             minutes_until = round(hours_until * 60)
             # Expected action on transition
             if next_period == "off_peak":
-                expected_action = "battery will drain toward reserve target"
+                # B-LOW-1(a) fix-up: off-peak transition now also drives
+                # proactive EV turn-on (WS2 widened semantics) unless a
+                # battery-protection guard fires (drain / fill-priority /
+                # grid-cap / arbitrage) or admin force-charge is active.
+                expected_action = (
+                    "battery will drain toward reserve target; "
+                    "EVs will turn ON proactively unless a "
+                    "battery-protection guard is active."
+                )
             elif next_period in ("peak", "mid_peak"):
                 expected_action = "EV TOU pause will engage; battery holds"
             else:
@@ -8608,7 +8618,13 @@ class EnergyTotalConsumptionSensor(AggregationEntity, SensorEntity):
         energy = manager.coordinators.get("energy")
         if energy is None:
             return None
-        return energy.total_consumption_kw
+        # Unit-correctness: this sensor declares kW, so derive true kW from
+        # the uom-normalized total_consumption_w property (always W) — NOT
+        # the historically mis-named total_consumption_kw, which returns the
+        # raw entity state (W or kW depending on firmware) and would display
+        # a 1000x-too-large number on W-reporting Envoys.
+        consumption_w = energy.total_consumption_w
+        return consumption_w / 1000.0 if consumption_w is not None else None
 
 
 class EnergyNetConsumptionSensor(AggregationEntity, SensorEntity):
@@ -8639,7 +8655,13 @@ class EnergyNetConsumptionSensor(AggregationEntity, SensorEntity):
         energy = manager.coordinators.get("energy")
         if energy is None:
             return None
-        return energy.net_consumption_kw
+        # Unit-correctness: this sensor declares kW, so derive true kW from
+        # the uom-normalized net_power_w property (positive=importing, always
+        # W) — NOT net_consumption_kw, which returns the raw battery.net_power
+        # entity (W or kW depending on firmware) and would mislabel by 1000x
+        # on W-reporting Envoys.
+        net_w = energy._battery.net_power_w
+        return net_w / 1000.0 if net_w is not None else None
 
 
 class EnergyEVChargeRateASensor(AggregationEntity, SensorEntity):

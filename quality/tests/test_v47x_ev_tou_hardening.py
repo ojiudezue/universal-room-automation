@@ -289,11 +289,41 @@ class TestD1StrictEVTOURepause:
         assert any(a["service"] == "switch.turn_on" for a in actions)
         assert "garage_a" not in h.ev._paused_by_us
 
-    def test_ev_tou_no_action_during_off_peak_not_paused(self):
-        """EVSE in off-peak and not paused by us → no action."""
+    def test_ev_tou_off_peak_ensures_on_when_off(self):
+        """EVSE OFF during off-peak with no guards → URA dispatches turn_on.
+
+        v<next> D2.1 (EV off-peak proactive charging cycle): the off-peak
+        branch is no longer a resume-only rule. It is an *ensure-on with
+        guard precedence* — a fresh plug-in or post-sunset hand-off lands
+        in NO pause set, and the new branch turns it on. This replaces the
+        legacy `test_ev_tou_no_action_during_off_peak_not_paused` which
+        documented the resume-only contract that was the root cause of
+        the "car never charged by morning" incident.
+
+        See `docs/planning/PLANNING_ev_offpeak_proactive_charging_and_persistence.md`
+        § 5 D2.1 for the contract change.
+        """
+        h = _EVSEHarness(garage_a_on=False)
+        actions = h.ev.determine_actions("off_peak")
+        assert any(
+            a["service"] == "switch.turn_on" and a["target"] == "switch.garage_a"
+            for a in actions
+        )
+        assert "garage_a" in h.ev._proactive_offpeak_holds
+
+    def test_ev_tou_off_peak_idempotent_when_already_on(self):
+        """EVSE already ON during off-peak with no guards → no turn_on dispatch,
+        but hold-set claim is still made (intent-state)."""
         h = _EVSEHarness(garage_a_on=True)
         actions = h.ev.determine_actions("off_peak")
-        assert not any(a["service"] == "switch.turn_on" for a in actions)
+        # No turn_on for garage_a (already on); state["is_on"] guard at
+        # energy_pool.py:536 short-circuits the dispatch.
+        assert not any(
+            a["service"] == "switch.turn_on" and a["target"] == "switch.garage_a"
+            for a in actions
+        )
+        # ... but the hold-set claim is still made (D2.1 step 2d).
+        assert "garage_a" in h.ev._proactive_offpeak_holds
 
 
 # ===========================================================================
@@ -872,15 +902,33 @@ class TestD1D3Integration:
         # Override should be cleared
         assert h.ev._force_charge_until is None
 
-    def test_override_does_not_affect_off_peak_resume(self):
-        """Force-charge override has no effect during off-peak (override only skips pause)."""
+    def test_override_skips_proactive_on_during_off_peak(self):
+        """Force-charge override during off-peak: D2.3 short-circuits the
+        proactive-on claim so the hold-set doesn't gain membership for a
+        charge authorized for a different reason.
+
+        v<next> D2.3 (EV off-peak proactive charging cycle): replaces the
+        legacy `test_override_does_not_affect_off_peak_resume` which
+        documented the legacy resume-only contract (force-charge had no
+        effect on the resume-of-_paused_by_us code path). Under D2.1's
+        ensure-on rule, the force-charge branch instead `continue`s past
+        the proactive turn-on. The force-charge button is its own escape
+        hatch — it authorizes the charge directly, not via the TOU
+        proactive-hold path.
+        """
         h = _EVSEHarness(garage_a_on=False)
         h.ev._paused_by_us.add("garage_a")
-        h.ev.set_force_charge_override(_FIXED_NOW + timedelta(minutes=30))
+        # Far-future expiry so force_charge_active is True regardless of which
+        # test file's homeassistant.util.dt mock wins global collection order
+        # (Bug Class #44). determine_actions reads dt_util.utcnow() at call
+        # time, so a _FIXED_NOW-relative window is contamination-prone in the
+        # full suite; the far-future idiom matches test_d3_force_charge_skips_pause.
+        h.ev.set_force_charge_override(datetime(2099, 1, 1, tzinfo=timezone.utc))
 
         actions = h.ev.determine_actions("off_peak")
-        # Should still resume (off-peak resume logic unchanged)
-        assert any(a["service"] == "switch.turn_on" for a in actions)
+        # D2.3: proactive-on claim short-circuited under force-charge
+        assert not any(a["service"] == "switch.turn_on" for a in actions)
+        assert "garage_a" not in h.ev._proactive_offpeak_holds
 
 
 # ===========================================================================

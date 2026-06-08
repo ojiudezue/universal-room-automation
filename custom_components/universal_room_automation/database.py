@@ -1,7 +1,7 @@
 """Database for Universal Room Automation."""
 from __future__ import annotations
 #
-# Universal Room Automation vv4.7.27
+# Universal Room Automation vv4.7.28
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors
@@ -3679,21 +3679,63 @@ class UniversalRoomDatabase:
         except Exception as e:
             _LOGGER.error("Error saving EVSE state for %s: %s", evse_id, e)
 
-    async def restore_evse_state(self) -> dict[str, dict[str, bool]]:
-        """Restore EVSE states from DB. Returns {evse_id: {paused, excess_solar}}."""
+    async def restore_evse_state(
+        self,
+        max_age_hours: float | None = 10.0,
+    ) -> dict[str, dict[str, bool]]:
+        """Restore EVSE states from DB. Returns {evse_id: {paused, excess_solar}}.
+
+        v<next>: Adds `max_age_hours` staleness guard. Rows whose `updated_at`
+        is older than the cutoff are skipped at read time (no DELETE — Bug
+        Class #25). Default 10h covers a normal overnight outage but rejects
+        a multi-day power outage where stale pause-intent should not steer
+        today's decisions. Pass `None` to disable the filter entirely (for
+        callers that want raw rows). `updated_at` is parsed via
+        `dt_util.parse_datetime` (NOT `datetime.fromisoformat` — Bug Class
+        #13/#21). Rows with missing / unparseable `updated_at` are skipped
+        gracefully with INFO log.
+        """
         try:
             async with self._db_read() as db:
                 cursor = await db.execute(
-                    "SELECT evse_id, paused_by_energy, excess_solar_active FROM evse_state"
+                    "SELECT evse_id, paused_by_energy, excess_solar_active, "
+                    "updated_at FROM evse_state"
                 )
                 rows = await cursor.fetchall()
-                return {
-                    row[0]: {
-                        "paused_by_energy": bool(row[1]),
-                        "excess_solar_active": bool(row[2]),
+                if max_age_hours is None:
+                    return {
+                        row[0]: {
+                            "paused_by_energy": bool(row[1]),
+                            "excess_solar_active": bool(row[2]),
+                        }
+                        for row in rows
                     }
-                    for row in rows
-                }
+                cutoff = dt_util.utcnow() - timedelta(hours=float(max_age_hours))
+                result: dict[str, dict[str, bool]] = {}
+                for row in rows:
+                    evse_id, paused, excess, updated_at = row[0], row[1], row[2], row[3]
+                    parsed = dt_util.parse_datetime(updated_at) if updated_at else None
+                    if parsed is None:
+                        _LOGGER.info(
+                            "EVSE state row %s has missing/unparseable updated_at "
+                            "(%r) — skipping restore",
+                            evse_id, updated_at,
+                        )
+                        continue
+                    # Guarantee tz-aware comparison
+                    if parsed.tzinfo is None:
+                        parsed = parsed.replace(tzinfo=dt_util.UTC)
+                    if parsed < cutoff:
+                        _LOGGER.info(
+                            "EVSE state row %s older than %sh — skipping restore",
+                            evse_id, max_age_hours,
+                        )
+                        continue
+                    result[evse_id] = {
+                        "paused_by_energy": bool(paused),
+                        "excess_solar_active": bool(excess),
+                    }
+                return result
         except Exception as e:
             _LOGGER.error("Error restoring EVSE state: %s", e)
             return {}
@@ -3993,6 +4035,58 @@ class UniversalRoomDatabase:
                 return row[0] if row else None
         except Exception as e:
             _LOGGER.error("Error restoring energy state key '%s': %s", key, e)
+            return None
+
+    async def restore_energy_state_with_age(
+        self,
+        key: str,
+        max_age_hours: float | None = 10.0,
+    ) -> str | None:
+        """Restore an energy_state value, gated by `updated_at` staleness.
+
+        Sibling of `restore_energy_state`. Returns the stored value string,
+        or None if the row is missing, older than `max_age_hours`, or has an
+        unparseable `updated_at`. Existing callers that pass no `max_age_hours`
+        use the default 10h envelope (see `restore_evse_state` for rationale).
+        Pass `None` to disable the filter.
+
+        Honors Bug Class #13/#21: `updated_at` is parsed via
+        `dt_util.parse_datetime` (NOT `datetime.fromisoformat`).
+        """
+        try:
+            async with self._db_read() as db:
+                cursor = await db.execute(
+                    "SELECT value, updated_at FROM energy_state WHERE key = ?",
+                    (key,),
+                )
+                row = await cursor.fetchone()
+                if row is None:
+                    return None
+                value, updated_at = row[0], row[1]
+                if max_age_hours is None:
+                    return value
+                parsed = dt_util.parse_datetime(updated_at) if updated_at else None
+                if parsed is None:
+                    _LOGGER.info(
+                        "energy_state key %s has missing/unparseable updated_at "
+                        "(%r) — skipping restore",
+                        key, updated_at,
+                    )
+                    return None
+                if parsed.tzinfo is None:
+                    parsed = parsed.replace(tzinfo=dt_util.UTC)
+                cutoff = dt_util.utcnow() - timedelta(hours=float(max_age_hours))
+                if parsed < cutoff:
+                    _LOGGER.info(
+                        "energy_state key %s older than %sh — skipping restore",
+                        key, max_age_hours,
+                    )
+                    return None
+                return value
+        except Exception as e:
+            _LOGGER.error(
+                "Error restoring energy state key '%s' with age: %s", key, e
+            )
             return None
 
     async def get_consumption_history(self, days: int = 60) -> list[dict]:

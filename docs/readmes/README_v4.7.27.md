@@ -94,21 +94,36 @@ baseline-diff vs `pre-review-part2-ec-hc` shows no new failures.
 
 ---
 
-## Live Validation (prospective — to be confirmed post-restart)
+## Live Validation — Validated 2026-06-07
 
-- **Live:** Edit ONE HVAC-tunable Number (e.g. AC nudge size) via the UI. Confirm an INFO
-  log `CM in-place apply` naming only that key, and NO CM coordinator re-setup
-  (sibling Numbers keep their boot `last_changed`). No full reload.
-- **Live:** Edit ONE Energy Coordinator Number (e.g. fill-priority SOC). Confirm the EC
-  setter side-effect ran (in-place apply INFO names the key; value reflected on the live
-  coordinator attr) and no reload.
-- **Live:** Edit ONE off-peak drain knob. Confirm `set_offpeak_drain(quality, value)`
-  applied in place, no reload.
-- **Live:** Edit ONE `_NO_LIVE_ATTR_KEYS` knob (e.g. regime baseline window). Confirm the
-  listener advances the snapshot, the entity state refreshes, and the consumer
-  (`regime_detector._window_days`) reads the new value — no reload.
-- **Live:** Edit a NON-allowlisted CM key (or a mix). Confirm a full `async_reload` still
-  fires (regression guard).
-- **Live:** Restart HA. Confirm all 37 Numbers restore their last-set values from
-  `entry.options` (no revert to seed), proving RestoreEntity removal is safe.
-- **Live:** No URA ERROR logs attributable to this cycle within an hour of restart.
+Run against the restarted live house (HACS-installed v4.7.27 active;
+`update.universal_room_automation_update` installed_version = `v4.7.27`). One
+representative key was exercised per dispatch family; the no-reload invariant was
+proven by **sibling `last_changed`**: a full CM reload re-creates every Number and
+re-stamps all siblings, so a sibling holding its boot timestamp through an edit
+proves no reload occurred. (URA's file logger sits at WARNING, so the INFO
+`in-place apply, suppressing reload` line is not in `home-assistant.log`; the
+sibling-timestamp invariant is the authoritative live signal and is strictly
+stronger than the log line.)
+
+| # | Criterion | Result | Observed evidence |
+|---|-----------|--------|-------------------|
+| 1 | HVAC-tunable edit → in-place, no reload | **PASS** | `number.ura_hvac_coordinator_ac_nudge_size` 1.5→2.0: target re-stamped `last_changed` 14:31:49Z; sibling `…_ac_nudge_duration` held boot `14:30:13.574907Z` (no re-setup). |
+| 2 | Energy-Coordinator setter edit → no reload | **PASS** | `number.ura_energy_coordinator_resume_ev_at_battery_soc` (excess_solar_soc) 95→90 applied; EC-family witness `…_off_peak_drain_good` held boot `14:30:13.573711Z`. |
+| 3 | Off-peak drain edit → no reload | **PASS** | `number.ura_energy_coordinator_off_peak_drain_excellent` 10→12 applied; same EC-family witness held its boot timestamp. |
+| 4 | `_NO_LIVE_ATTR_KEYS` edit → snapshot advance + consumer reads new value | **PASS** | `number.ura_coordinator_manager_regime_baseline_window_days` 56→49: entity state refreshed to 49 (`async_write_ha_state`); `regime_detector._window_days` reads live entity-state (hardcoded 56/14 fallback) so the consumer sees 49. Global HVAC witness held boot timestamp → no reload. |
+| 5 | Non-allowlisted CM key → full `async_reload` still fires (regression guard) | **PASS (in-suite + inherited)** | Not triggerable via `number.set_value` — every runtime Number is now allowlisted, so a non-allowlisted change requires the options/config flow. Asserted by cycle tests (mixed/non-allowlisted → fall-through reload); the reload path is unchanged legacy behavior that was live-validated in v4.7.26 (Cycle 1). |
+| 6 | Restart → Numbers restore last-set values from `entry.options` (no revert to seed) — RestoreEntity removal safe | **PASS** | After a clean restart, all four edited keys came back at their SET values, none reverted to seed: nudge_size 2.0 (seed 1.5), resume-EV 90 (seed 95), off-peak-excellent 12 (seed 10), regime-baseline 49 (seed 56). 4 representative keys spanning all 4 families; the 37 share one `{**entry.data, **entry.options}` re-seed in each Number `__init__`. |
+| 7 | No URA ERROR logs attributable to this cycle within an hour of restart | **PASS** | Only 2 URA ERRORs in the window, both the pre-existing census-snapshot/DB-write-worker startup race (`Failed to log census snapshot: DB write worker not running`), identical pair at boot, no recurrence. Unrelated to options-writeback (this cycle touches neither census nor the DB worker). Zero in-place-apply / restore / reload errors. |
+
+**Boot transient seen and dismissed:** the 2 census-snapshot ERRORs are a known
+startup-ordering race (census snapshot fires before `start_write_worker()`),
+pre-existing and orthogonal to this cycle.
+
+**Proven in-suite rather than live (criterion 5):** the non-allowlisted →
+full-reload fall-through can't be reached through a Number entity now that all 37
+runtime keys are allowlisted; it is covered by the cycle tests and was live-proven
+in v4.7.26.
+
+Test tunables were returned to their pre-validation values (1.5 / 95 / 10 / 56)
+after the run, so the live house is unchanged by this validation.
