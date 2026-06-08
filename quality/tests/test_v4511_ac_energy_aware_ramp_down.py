@@ -551,7 +551,11 @@ class TestSoftNudge:
         the OverrideArrester doesn't misclassify it as a user override."""
         idx = hvac_override_src.find("async def _perform_soft_nudge(")
         body = hvac_override_src[idx:idx + 4000]
-        suppress_pos = body.find("self._suppressed_entities.add")
+        # v4.7.33 A-F5: suppression now goes through `self.suppress(...)`
+        # (TTL-window) instead of the prior `self._suppressed_entities.add(...)`
+        # set membership. The ordering invariant (suppress BEFORE the service
+        # call) is what this test guards — call-site form is incidental.
+        suppress_pos = body.find("self.suppress(zone.climate_entity)")
         service_pos = body.find('services.async_call(')
         assert suppress_pos > 0
         assert suppress_pos < service_pos, (

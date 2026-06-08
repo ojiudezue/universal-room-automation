@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 from homeassistant.components.recorder import get_instance as recorder_get_instance
@@ -70,6 +70,14 @@ from .hvac_zones import ZoneManager, ZoneState
 
 _LOGGER = logging.getLogger(__name__)
 
+# v4.7.33 A-F5: TTL window for suppressing override detection on URA-initiated
+# climate writes. Previous mechanism was a `set` popped on the first state
+# event, which silently broke when a single URA action emitted multiple
+# events (e.g. _revert_override firing set_hvac_mode + set_preset_mode under
+# one suppress()). The TTL window covers all settle events from a single
+# logical write and self-clears so we don't grow unbounded.
+SUPPRESS_TTL_SECONDS = 5
+
 
 class OverrideArrester:
     """Detects and responds to manual thermostat overrides.
@@ -120,8 +128,13 @@ class OverrideArrester:
         self._energy_offset: float = 0.0
         self._energy_coast: bool = False
 
-        # Suppression: entity_ids to ignore overrides on (during URA-initiated changes)
-        self._suppressed_entities: set[str] = set()
+        # Suppression: entity_id -> wall-clock expiry for ignoring overrides
+        # during URA-initiated changes. v4.7.33 A-F5: replaced the prior
+        # `set[str]` (popped on first state event) with a TTL window so a
+        # single URA action that produces multiple settle events (e.g.
+        # set_hvac_mode + set_preset_mode in _revert_override) stays
+        # suppressed across all of them. Window self-clears on TTL expiry.
+        self._suppressed_until: dict[str, datetime] = {}
 
         # v3.18.x review fix: Track verify/retry tasks for AC reset restore
         self._verify_tasks: dict[str, asyncio.Task] = {}
@@ -484,12 +497,23 @@ class OverrideArrester:
         self._energy_coast = coast
 
     def suppress(self, entity_id: str) -> None:
-        """Suppress override detection for an entity (URA-initiated change)."""
-        self._suppressed_entities.add(entity_id)
+        """Suppress override detection for an entity (URA-initiated change).
+
+        v4.7.33 A-F5: opens a TTL window (`SUPPRESS_TTL_SECONDS`) rather
+        than adding to a set that gets popped on the first state event.
+        Covers multi-event settles from a single URA service call.
+        """
+        self._suppressed_until[entity_id] = (
+            dt_util.now() + timedelta(seconds=SUPPRESS_TTL_SECONDS)
+        )
 
     def unsuppress(self, entity_id: str) -> None:
-        """Re-enable override detection for an entity."""
-        self._suppressed_entities.discard(entity_id)
+        """Re-enable override detection for an entity immediately.
+
+        Used on error paths where the caller knows the URA-initiated write
+        did not happen (or failed) and the TTL window must close now.
+        """
+        self._suppressed_until.pop(entity_id, None)
 
     @property
     def enabled(self) -> bool:
@@ -566,6 +590,10 @@ class OverrideArrester:
             self._compromise_timers.clear()
             self._override_active.clear()
             self._compromise_active.clear()
+            # A-F5 review HIGH FIX 2 — lifecycle: clear suppression on
+            # disable so a stale TTL window doesn't survive an arrester
+            # disable (which would silently swallow events for ≤5s).
+            self._suppressed_until.clear()
         _LOGGER.info("Override Arrester %s", "enabled" if value else "disabled (passive mode)")
 
     @callback
@@ -578,10 +606,38 @@ class OverrideArrester:
         if new_state is None or old_state is None:
             return
 
-        # Skip if suppressed (URA-initiated temperature change)
-        if entity_id in self._suppressed_entities:
-            self._suppressed_entities.discard(entity_id)
-            return
+        # Skip if suppressed (URA-initiated temperature change).
+        # v4.7.33 A-F5: TTL window — covers multi-event settles from a
+        # single URA service call (e.g. set_hvac_mode + set_preset_mode in
+        # _revert_override). Do NOT pop a still-valid entry; expired
+        # entries are cleaned up here to bound dict growth.
+        until = self._suppressed_until.get(entity_id)
+        if until is not None:
+            if dt_util.now() < until:
+                # A-F5 review HIGH FIX 1 — mid-window manual passthrough.
+                # A transition INTO "manual" can only be user-driven: URA
+                # never writes preset_mode=manual. Let it through even
+                # mid-window so a genuine user override landing inside the
+                # 5s settle window is still caught (regression of the
+                # arrester's core job otherwise). All other in-window
+                # events are our own settle events — stay suppressed.
+                # _revert_override emits (1) set_hvac_mode (preset
+                # unchanged, never a fresh non-manual->manual transition)
+                # and (2) set_preset_mode to a NON-manual original_preset,
+                # so neither matches and both remain suppressed.
+                new_preset_mid = new_state.attributes.get("preset_mode", "")
+                old_preset_mid = old_state.attributes.get("preset_mode", "")
+                if not (
+                    new_preset_mid == "manual"
+                    and old_preset_mid != "manual"
+                ):
+                    return
+                # Genuine user override mid-window: drop suppression and
+                # fall through to normal override detection below.
+                self._suppressed_until.pop(entity_id, None)
+            else:
+                # Expired — clean up so the dict doesn't accumulate stale keys
+                self._suppressed_until.pop(entity_id, None)
 
         # Find which zone this entity belongs to
         zone = self._find_zone_by_entity(entity_id)
@@ -865,8 +921,9 @@ class OverrideArrester:
             zone.zone_name, original_preset,
         )
 
-        # Suppress arrester for our own revert
-        self._suppressed_entities.add(zone.climate_entity)
+        # Suppress arrester for our own revert (TTL window covers both
+        # set_hvac_mode and set_preset_mode settle events — A-F5).
+        self.suppress(zone.climate_entity)
 
         try:
             # v4.7.32: re-assert heat_cool whenever the mode has drifted from it
@@ -1406,7 +1463,7 @@ class OverrideArrester:
             )
 
         # Suppress override detection during URA-initiated change (R11)
-        self._suppressed_entities.add(zone.climate_entity)
+        self.suppress(zone.climate_entity)
 
         try:
             await self.hass.services.async_call(
@@ -1484,7 +1541,7 @@ class OverrideArrester:
 
         # Risk R11: re-suppress before our own write so an in-flight user
         # override doesn't get mis-classified.
-        self._suppressed_entities.add(zone.climate_entity)
+        self.suppress(zone.climate_entity)
 
         try:
             await self.hass.services.async_call(
@@ -1935,7 +1992,7 @@ class OverrideArrester:
             original_target = state.get("in_flight_nudge_original_target")
 
         if original_target is not None:
-            self._suppressed_entities.add(zone.climate_entity)
+            self.suppress(zone.climate_entity)
             try:
                 await self.hass.services.async_call(
                     "climate",
@@ -2155,7 +2212,7 @@ class OverrideArrester:
 
             if elapsed_s >= duration_s:
                 # Expired — restore now
-                self._suppressed_entities.add(zone.climate_entity)
+                self.suppress(zone.climate_entity)
                 try:
                     await self.hass.services.async_call(
                         "climate", "set_temperature",
