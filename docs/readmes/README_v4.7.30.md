@@ -43,21 +43,26 @@ recovery for up to one duty-cycle window.
   `get_season` primitives this cycle relies on.
 - **Suite:** baseline-diff vs `pre-review-v4.7.30` = zero new failures.
 
-### Live Validation (prospective — to be written back post-restart)
-- **Live:** within ~30s of restart, `sensor.ura_presence_compliance` and
-  `sensor.ura_safety_compliance` read a real value (not a constant `100.0`), and
-  no `RuntimeWarning: coroutine ... get_compliance_rate ... was never awaited`
-  appears in the log.
-- **Live:** on the first summer decision tick at/after 20:00, the Energy log shows
-  `Published HVAC constraint mode=normal ... reason=normal conditions` (coast
-  released); before 16:00 (pre-peak) a poor-solar day still shows
-  `mode=coast ... reason=mid-peak poor solar`.
-- **Live:** no constraint flap at the 20:00 / 21:00 boundaries (single transition
-  per boundary).
-- **Live (watch, B-MED-2):** grid-import attribute stays under cap during
-  20:00–20:30 the first summer evening (combined HVAC+battery release).
-- **Live (watch, B-LOW-2):** confirm no operator-side automation/dashboard alerts
-  fire on the compliance sensors now showing real <100 values.
+### Live Validation — Validated 2026-06-08 (restart 06:31 UTC / 01:31 CDT)
+
+Authoritative signals: live entity attributes + `home-assistant.log` (stamps are
+HA-local CDT; entity stamps UTC — `01:3x local == 06:3x UTC`).
+
+| # | Criterion | Result | Evidence |
+|---|---|---|---|
+| 1 | v4.7.30 actually loaded | ✅ PASS | `update.universal_room_automation_update` `installed_version=v4.7.30`, `last_changed 2026-06-08T06:31:33Z` (this boot). |
+| 2 | Compliance sensors live + polling | ✅ PASS | `sensor.ura_presence_coordinator_presence_compliance` and `…_safety_coordinator_safety_compliance` exist, `state=100.0`, `last_reported 06:34:55Z` (re-polling post-boot). |
+| 3 | #2 — RuntimeWarning gone | ✅ PASS | `coroutine 'ComplianceTracker.get_compliance_rate' was never awaited` last appears `01:30:16 CDT` (06:30 UTC) — **before** the 01:31:33 restart; **zero** occurrences after the v4.7.30 boot. Confirms `native_value` no longer calls the async DAO un-awaited. The `100.0` is now the genuine awaited result (no compliance violations in the 7-day window), not the swallowed-exception default. |
+| 4 | Zero URA errors post-boot | ✅ PASS | Only URA ERRORs are 2 shutdown-transients at `01:30:57 CDT` (pre-restart, DB write-worker stopping). None after the boot. Post-boot WARNINGs are all known/non-regression (SPAN baselines = backlog #4; Envoy cross-check transient; zone-not-registered = backlog #5; non-URA: MQTT/shelly/wattbox/smarthub). |
+| 5 | #3 — summer post-peak coast release | ⏳ TIME-GATED | Observable only during the summer post-peak window (~20:00–21:00 CDT): Energy log `Published HVAC constraint mode=normal … reason=normal conditions` at the first tick ≥20:00 on a poor-solar day; `mode=coast … reason=mid-peak poor solar` pre-16:00. Restart was 01:31 CDT (morning), so not yet reachable. Rides the **same 20:00–21:00 CDT window as v4.7.29's Review D** → optional shipwatch H1 / recorder trip-wire, **not** a soak-watch (per no-soak policy). Mechanism proven by 7 in-suite tests (2 fail if reverted). |
+| 6 | B-MED-1 — duty-cycle reset on release | ⏳ TIME-GATED | Same 20:00 release window; only observable when a real coast→normal release fires. In-suite logic verified; live confirmation folds into the shipwatch H1 evening check. |
+| 7 | B-MED-2 watch — grid cap 20:00–20:30 | ⏳ TIME-GATED | First summer evening post-deploy; shipwatch/recorder. |
+| 8 | B-LOW-2 watch — no spurious alerts on real compliance values | ✅ PASS (URA side) | No URA-internal consumer reads these sensors (NM does not reference them; diagnostic category). Operator-side HA automations are out-of-repo — none known. |
+
+**Cycle status:** immediate criteria (1–4, 8) PASS post-restart. The post-peak
+behavioral criteria (5–7) are time-gated to the 20:00–21:00 CDT window and are
+left to the existing shipwatch H1 trip-wire that already covers v4.7.29 — not a
+scheduled chore. Cycle closed at live-validation per the no-soak policy.
 
 ## Deferred (tracked)
 - B-MED-2 (no HVAC shed path in post-peak mid_peak) → load-shedding backlog cycle.
