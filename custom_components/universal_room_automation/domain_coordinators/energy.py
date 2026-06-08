@@ -3888,7 +3888,11 @@ class EnergyCoordinator(BaseCoordinator):
                             # Delete-and-relearn. Genuinely renamed REAL circuits
                             # (non-"Unmapped Tab") are kept + warned for operator
                             # awareness (no auto-delete of potentially-valuable data).
-                            if str(row["scope"]).startswith("Unmapped Tab"):
+                            # v4.7.32.1: substring (not startswith) — live scopes are
+                            # "Span Left/Right Unmapped Tab N Power" (panel-prefixed),
+                            # and older ones are bare "Unmapped Tab N Power". A real
+                            # user-named circuit never contains "Unmapped Tab".
+                            if "Unmapped Tab" in str(row["scope"]):
                                 stale_unmapped.append(row["scope"])
                             else:
                                 unmatched += 1
