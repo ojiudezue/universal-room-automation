@@ -25,7 +25,24 @@ user-named circuit never contains "Unmapped Tab".
 ## Acceptance
 - **In-suite:** `test_v4732_heat_cool_and_span_prune.py` (12) — guard assertion
   updated to the substring form. Suite baseline = zero new failures.
-- **Live (write back post-restart):** boot log `SPAN: pruned 11 orphaned
-  'Unmapped Tab' circuit baselines`; "N could not be matched" drops to only the
-  genuine non-Unmapped renames (≈3); `metric_baselines_pruned_backup` now holds
-  all 15; no fresh URA errors.
+
+### Live Validation — Validated 2026-06-08 (fresh live-DB reads, read-only SSH)
+
+| # | Criterion | Result | Evidence |
+|---|---|---|---|
+| 1 | v4.7.32.1 loaded | ✅ PASS | `installed_version=v4.7.32.1` (this boot). |
+| 2 | All "Unmapped Tab" baselines pruned | ✅ PASS | Live DB: `0` remaining `circuit_power` baselines with scope LIKE `%Unmapped%` (was 15 across v4.7.32+.1). |
+| 3 | Reversibility — all 15 backed up | ✅ PASS | `metric_baselines_pruned_backup` holds **15** rows: the 4 bare `Unmapped Tab N Power` (pruned in v4.7.32) + the 11 `Span Left/Right Unmapped Tab N Power` (pruned in v4.7.32.1). Restorable via `INSERT OR IGNORE`. Plus the pre-deploy dump `~/ura-db-backups/metric_baselines_pre_v4.7.32.sql`. |
+| 4 | Real renames kept, not pruned | ✅ PASS | This boot warned only `3 circuit baselines could not be matched` — `Battery Power`, `Span Left Subpanel Power`, `Span Left Unknown Power` (genuine non-"Unmapped Tab" renames; correctly preserved for operator review). Warning count fell 18 → 3. |
+| 5 | No new URA errors | ✅ PASS | Only URA ERRORs are pre-existing `DB write worker not running` boot-transition transients (last 11:13, before the v4.7.32.1 boot); the prune uses its own connection. |
+
+**Note:** the 3 kept renames (`Battery Power`, `Span Left Subpanel Power`,
+`Span Left Unknown Power`) are real-circuit baselines orphaned by renames — they
+relearn under current names, or could be remapped later. Out of scope for the
+auto-prune (which only touches "Unmapped Tab").
+
+### Part A (heat_cool) — TRIP-WIRE
+The heat_cool mode-correction (override revert + AC-reset restore) is exercised
+only when a reset/revert actually fires (a stuck-AC or manual override) — observed
+opportunistically, not a scheduled watch (no-soak). Mechanism proven by 12 in-suite
+tests + Tier 2-DB review; the reset NM alert now reads "restoring heat_cool".
