@@ -1029,8 +1029,22 @@ class BatteryStrategy:
         # - Shoulder/Winter: mid-peak IS the highest-rate period (no peak exists).
         #   Discharge battery to cover load; solar exports at $0.086/kWh.
         if tou_period == "mid_peak":
-            if season == "summer":
-                # Summer mid-peak: hold charge for upcoming peak
+            # Summer mid_peak is a *bracketed* period: pre-peak window (14-16)
+            # then peak (16-20) then post-peak window (20-21). Holding for
+            # peak is correct PRE-peak but wastes grid POST-peak (off_peak
+            # at 21:00, tomorrow's solar refills). Gate the hold on a real-
+            # time, season/midnight-safe lookahead. If no peak is ahead before
+            # the next off_peak hour, fall through to the shoulder/winter
+            # discharge branch below — same code path, no duplicated logic.
+            # When no TOU engine is wired (legacy / non-arbitrage harnesses),
+            # preserve the prior summer-always-hold behavior — we cannot
+            # discriminate pre/post-peak without the engine.
+            summer_peak_ahead = season == "summer" and (
+                self._tou is None
+                or self._tou.peak_ahead_before_offpeak(now)
+            )
+            if season == "summer" and summer_peak_ahead:
+                # Summer mid-peak, peak still ahead: hold charge for upcoming peak
                 hold_reserve = int(soc) if soc is not None else 100
                 return self._result(
                     BATTERY_MODE_SELF_CONSUMPTION,
@@ -1039,18 +1053,37 @@ class BatteryStrategy:
                     reserve_level=hold_reserve,
                     season=season,
                 )
-            # Shoulder/Winter mid-peak: discharge — this is the best rate window
+            # Shoulder/Winter mid-peak: discharge — this is the best rate window.
+            # Summer post-peak mid_peak ALSO reaches here (no peak ahead before
+            # off_peak) and shares the same discharge logic with a distinct reason.
+            summer_post_peak = season == "summer" and not summer_peak_ahead
             if soc is not None and soc > self.reserve_soc:
+                if summer_post_peak:
+                    reason = (
+                        "Mid-peak (summer, post-peak) — discharging, off_peak imminent"
+                    )
+                else:
+                    reason = (
+                        f"Mid-peak ({season}) — discharging, best rate window"
+                    )
                 return self._result(
                     BATTERY_MODE_SELF_CONSUMPTION,
-                    f"Mid-peak ({season}) — discharging, best rate window",
+                    reason,
                     current_mode,
                     reserve_level=self.reserve_soc,
                     season=season,
                 )
+            if summer_post_peak:
+                reason = (
+                    f"Mid-peak (summer, post-peak) but SOC low ({soc}%) — minimal discharge"
+                )
+            else:
+                reason = (
+                    f"Mid-peak ({season}) but SOC low ({soc}%) — minimal discharge"
+                )
             return self._result(
                 BATTERY_MODE_SELF_CONSUMPTION,
-                f"Mid-peak ({season}) but SOC low ({soc}%) — minimal discharge",
+                reason,
                 current_mode,
                 reserve_level=max(int(soc or 0) - 5, self.reserve_soc),
                 season=season,

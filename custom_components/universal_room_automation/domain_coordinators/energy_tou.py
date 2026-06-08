@@ -223,8 +223,18 @@ class TOURateEngine:
                     "transition_hour": t_hour,
                 }
 
-        # Wrap to next day's first different period
-        for t_hour, t_period in transitions:
+        # Wrap to next day's first different period.
+        # Use the NEXT day's season table — a season-boundary day (e.g. Sep 30
+        # → Oct 1, summer → shoulder) otherwise returns hours from today's
+        # table, which is wrong for the post-midnight period. Intra-day path
+        # above is unchanged.
+        next_day_season = self.get_season(now + timedelta(days=1))
+        next_day_transitions: list[tuple[int, str]] = []
+        for period_name, period_data in self._rates[next_day_season]["periods"].items():
+            for start, _end in period_data["hours"]:
+                next_day_transitions.append((start, period_name))
+        next_day_transitions.sort()
+        for t_hour, t_period in next_day_transitions:
             if t_period != current_period:
                 return {
                     "next_period": t_period,
@@ -233,6 +243,46 @@ class TOURateEngine:
                 }
 
         return {"next_period": "off_peak", "hours_until": 24, "transition_hour": 0}
+
+    def peak_ahead_before_offpeak(
+        self,
+        now: datetime | None = None,
+        lookahead_hours: int = 24,
+    ) -> bool:
+        """Return True if a peak hour occurs before the next off_peak hour.
+
+        Intent: called from a mid_peak tick to answer "is a real peak still
+        ahead of me before off_peak resumes?" — used by BatteryStrategy to
+        decide hold-vs-discharge during summer mid_peak, which is a *bracketed*
+        period (pre-peak window then peak then post-peak window). Holding is
+        correct PRE-peak; discharging is correct POST-peak.
+
+        Walks forward at hour granularity starting from the top of the next
+        hour, calling ``get_current_period(dt)`` each step. This is inherently
+        season/month/midnight-safe because ``get_current_period`` derives both
+        season (from ``dt.month``) and period (from ``dt.hour``) on every call.
+
+        Returns True on the first hour whose period is ``"peak"``; returns
+        False on the first hour whose period is ``"off_peak"``; keeps walking
+        through ``"mid_peak"``. Returns False if neither is encountered within
+        ``lookahead_hours``.
+
+        Complements ``get_next_high_rate_transition``, which can return the
+        currently in-progress high-rate period and therefore cannot answer
+        this question from inside a mid_peak hour.
+        """
+        if now is None:
+            now = dt_util.now()
+        cursor = now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+        end = cursor + timedelta(hours=int(lookahead_hours) - 1)
+        while cursor <= end:
+            period = self.get_current_period(cursor)
+            if period == "peak":
+                return True
+            if period == "off_peak":
+                return False
+            cursor += timedelta(hours=1)
+        return False
 
     def check_period_transition(self, now: datetime | None = None) -> str | None:
         """Check if TOU period has changed since last check.

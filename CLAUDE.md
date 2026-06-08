@@ -110,6 +110,14 @@ Classify the change, then follow the matching review tier.
 
 The operator may explicitly elevate any cycle to Tier 2-DB review even when the listed triggers don't fire. Standard justification: trust-hierarchy ripple changes — situations where a small surgical fix risks regressions across multiple coordinators (presence ↔ HVAC ↔ compliance ↔ safety). When elevated, the three-reviewer protocol applies with the same framing-disjoint requirement. Document the elevation in the planning doc's tier-classification section so reviewers understand why the higher bar applies.
 
+**Standing policy (operator-coined 2026-06-08): use the Tier 2-DB review protocol — 3 framing-disjoint reviews — for ALL regression-prone work, regardless of whether the DB triggers fire.** The "DB" in the name is historical; what the protocol actually buys is three disjoint framings so blind spots can't converge. Default to elevating, not to the 2-review tier, whenever a change is regression-prone. Regression-prone includes (non-exhaustive):
+- **Trust-hierarchy / cross-coordinator ripple** — battery ↔ grid ↔ cost ↔ EVSE, presence ↔ HVAC ↔ compliance ↔ safety.
+- **Strategy / decision-logic changes** affecting cost, comfort, or safety (e.g. battery TOU strategy, HVAC presets, load shedding).
+- **Changes to a shared primitive** consumed by multiple coordinators (e.g. the TOU engine, signal bus, house-state machine).
+- **Fixes to long-standing logic** that other code has come to depend on (reconciliation risk), or any change where "a small surgical fix" could silently break a sibling path.
+
+Still pick the review *framings* to fit the change (the canonical A=data-integrity / B=migration / C=surfaces axes are for DB cycles; a strategy fix might use A=correctness+edge-cases / B=cross-coordinator+precedence+no-flap / C=test-authority+day/cycle-boundary). The invariant is **three disjoint framings + live validation + README write-back**, not the specific axis names. Non-regression-prone work (pure docs, isolated additive sensors, hotfixes with no ripple) may still use Tier 1 / Tier 2.
+
 ### Pre-Review: Tag the Baseline
 Before applying ANY review fixes, tag the current state so you can diff back if fixes introduce regressions:
 ```bash
