@@ -83,20 +83,31 @@ pre-existing flakiness/import errors, unchanged).
 
 ---
 
-## Live Validation — prospective (to be recorded post-restart, Review D)
+## Live Validation — Validated 2026-06-08 (Review D)
 
-- **Live:** EV status sensor exposes a `proactive_offpeak_holds` attribute
-  (JSON list; `[]` when no EVSE is held). Confirm entity_id + attribute present.
-- **Live:** during an off_peak period, an EVSE that is off and not guard-held is
-  turned ON proactively; `_classify_evse` reports `offpeak_proactive_on`
-  ("off-peak proactive turn-on") for it. (Off-peak window required to observe.)
-- **Live:** guard precedence holds — an EVSE under battery-drain / fill-priority /
-  grid-cap / arbitrage is NOT proactively turned on (no on→off flap).
-- **Live:** after a clean restart, the persisted guard sets + `_force_charge_until`
-  restore from KV; a >10h-stale row is ignored (read-time filter).
-- **Live (unit):** `sensor.ura_energy_*` consumption sensors declared kW report
-  plausible kW (single-digit/teens), not ~1000x; grid cost-per-hour is sane.
-- **Live:** no URA ERROR logs attributable to this cycle within an hour of restart.
+Run against the restarted live house (HACS-installed v4.7.28 active:
+`update.universal_room_automation_update` installed_version = `v4.7.28`). TOU
+period at validation time was **mid_peak**, so the off-peak ensure-on *turn-on*
+could not be observed live — but the full intent-surface, persistence, and
+correct mid-peak pausing were all confirmed.
 
-_Note: Envoy (energy source) confirmed live and feeding data immediately before
-this deploy (production/consumption flowing; `energy_envoy_available=on`)._
+| # | Criterion | Result | Observed evidence |
+|---|-----------|--------|-------------------|
+| 1 | D3 `proactive_offpeak_holds` attribute present | **PASS** | `sensor.ura_energy_coordinator_ev_charging_status` exposes `proactive_offpeak_holds: []` (empty — correct, TOU=mid_peak). |
+| 2 | `paused_by_arbitrage` persisted guard set surfaced (decision 4 parity) | **PASS** | Same sensor exposes `paused_by_arbitrage: []` alongside the other four guard sets — the new persisted set round-trips. |
+| 3 | Force-charge persistence restored cleanly (empty-sentinel → None) | **PASS** | `force_charge_until_iso: null` after restart — no stale future-ISO honored; F1 empty-string sentinel handling correct. |
+| 4 | Correct mid-peak behavior (TOU pause, no spurious proactive-on) | **PASS** | `garage_a` `energy_status: paused`, `pause_reason_human: "TOU peak/mid-peak pause"`; `proactive_offpeak_holds` empty — no off-peak claim fired during mid_peak. |
+| 5 | Off-peak ensure-on *turn-on* + `offpeak_proactive_on` classifier | **DEFERRED (not in window)** | TOU=mid_peak at validation. Mechanism proven in-suite (32 cycle tests incl. classifier token + guard precedence); attribute surface live. Will manifest at the next off_peak window. |
+| 6 | Unit fix — kW-declared consumption sensors report true kW | **PASS** | `sensor.ura_energy_coordinator_total_consumption` = 8.074 kW = Envoy `current_power_consumption` 8.074; `…_net_consumption` = 7.363 = Envoy net 7.363 (1:1, plausible kW, not 1000×-off). |
+| 7 | No URA ERROR logs attributable to this cycle within an hour of restart | **PASS** | System ERROR log filtered to `universal_room` = empty this boot. |
+
+**Deferred-to-window (criterion 5):** the proactive off-peak turn-on only fires
+during an `off_peak` TOU period; validation ran during `mid_peak`. The classifier
+token (`offpeak_proactive_on`), guard precedence, and hold-set lifecycle are
+covered by the 32 cycle tests and the live attribute surface is confirmed
+present. No code path is unproven — only the live wall-clock observation awaits
+the next off-peak window.
+
+**Envoy context:** the energy source recovered before this deploy and was feeding
+data within ~1 min of this restart (`sensor.envoy_482543015950_current_power_consumption`
+≈ 8 kW live); the boot-storm Envoy lag seen earlier in the day did not recur.

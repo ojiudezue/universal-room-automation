@@ -4,7 +4,7 @@
 **Last Updated:** May 10, 2026 (v4.5.11.3 cycle aftermath)
 **Current Production:** v4.5.11.3
 **Status:** Active quality standards
-**Bug Classes:** 46 documented (7 original + 13 from Jan–Mar 2026 + 2 from v3.20–v3.22 hardening + 1 from v4.1.1 lambda scope + 1 from v4.2.5 closure escape + 3 from v4.2.8–v4.2.11 DB performance + 1 from v4.2.24 sync update_listener + 1 from v4.2.9 maintenance budgeting + 2 from v4.5.11.x AC ramp-down cycle + 1 from v4.6.15 lambda+async_create_task + 1 from v4.7.x EV TOU bookkeeping short-circuit + 1 from v4.7.4 async_update_entry re-entrancy)
+**Bug Classes:** 51 documented (7 original + 13 from Jan–Mar 2026 + 2 from v3.20–v3.22 hardening + 1 from v4.1.1 lambda scope + 1 from v4.2.5 closure escape + 3 from v4.2.8–v4.2.11 DB performance + 1 from v4.2.24 sync update_listener + 1 from v4.2.9 maintenance budgeting + 2 from v4.5.11.x AC ramp-down cycle + 1 from v4.6.15 lambda+async_create_task + 1 from v4.7.x EV TOU bookkeeping short-circuit + 1 from v4.7.4 async_update_entry re-entrancy + 1 from day-boundary-blind TOU decision)
 
 **Quality bar — read every cycle:** Two independent staff-engineer-level code reviews using software engineering best practices. The bug-class catalog below is a regression-prevention reference, NOT the review framework. See `CLAUDE.md` § Review Protocol for the canonical statement.
 
@@ -2039,6 +2039,60 @@ between substrate setup and a substrate dispatch.
 new long-lived subscription is appended to a list, check whether ANY
 routine clears that list on a recurring trigger. If so, it needs its own
 list. Filed 2026-06-05 alongside the occupancy-substrate fix-up.
+
+---
+
+### Bug Class #51 — Day-Boundary-Blind TOU Decision ⚠️
+
+**Symptom.** A charging or load decision branches on the *current* TOU
+period and acts on an adjacent-or-upcoming-period assumption ("hold for
+upcoming peak", "drain before off_peak", "pre-charge before mid_peak")
+without a real-time, midnight-crossing, season-aware lookahead. The
+decision fires identically for both halves of a *bracketed* period
+(pre/post-peak), because the branch only knows it's "in mid_peak" — not
+whether the peak it's bracing for is ahead or behind it. Boundary cases
+add a second failure mode: at the last day of a season, "look at today's
+schedule" yields wrong answers for the post-midnight hour.
+
+**Exemplar — summer mid_peak hold (this cycle).** The summer schedule is
+`off_peak (0,14) + mid_peak (14,16) + peak (16,20) + mid_peak (20,21) +
+off_peak (21,24)`. The pre-fix battery strategy unconditionally HELD the
+battery during summer mid_peak "for the upcoming peak". Correct PRE-peak
+(14-16) — wasteful POST-peak (20-21) where off_peak is one hour away and
+tomorrow's solar will refill. The branch had no way to ask "is a real
+peak still ahead before off_peak resumes?" so it fired the same code
+path either way.
+
+**Common shape.**
+- A bracketed schedule (pre-X / X / post-X) where the bracket periods
+  are the same TOU name.
+- A decision that says "in period Y → assume X is upcoming" without
+  asking the schedule whether X is actually upcoming from THIS hour.
+- A schedule that crosses midnight and/or a season boundary, so naive
+  "scan today's table" wrap-around silently uses the wrong table.
+
+**Fix pattern.**
+1. Add a real-time forward-walking helper on the rate engine that asks
+   the question the decision actually needs (e.g.
+   `peak_ahead_before_offpeak`), walks hour-by-hour, and is inherently
+   season/midnight-safe because it re-derives season+period from the
+   datetime on every step.
+2. Make `get_next_transition`-style wrap helpers consult the NEXT day's
+   season table, not today's, when they cross midnight.
+3. Gate the decision on the new helper; preserve legacy fallback when
+   no engine is wired (non-arbitrage harnesses cannot discriminate).
+4. Test pre- AND post-bracket cases as DISTINCT tests — a single
+   "during mid_peak" test will fire the same branch as production and
+   miss the bug. Add exact-boundary-hour tests derived from the
+   schedule, not literals (Bug Class #44 fixture authority).
+
+**Detection.** Search for branches like `if period == "mid_peak":` or
+`if current_period in ("peak", "mid_peak"):` followed by a hold/drain
+decision that does NOT call a forward-walking helper. The corresponding
+`peak_ahead_before_offpeak` / `get_next_high_rate_transition` calls
+should be visible in the branch. Filed 2026-06-07 alongside the
+summer mid_peak gate fix. First instance: summer mid_peak hold
+(`energy_battery.py:~1031`).
 
 ---
 
