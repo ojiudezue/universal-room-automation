@@ -14,6 +14,7 @@ hours) per Bug Class #44 fixture authority.
 
 from __future__ import annotations
 
+import calendar
 import pytest
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock
@@ -159,6 +160,22 @@ def _summer_month() -> int:
     return PEC_TOU_RATES["summer"]["months"][0]  # June
 
 
+def _shoulder_month() -> int:
+    return PEC_TOU_RATES["shoulder"]["months"][0]
+
+
+def _winter_month() -> int:
+    return PEC_TOU_RATES["winter"]["months"][0]
+
+
+def _last_summer_month() -> int:
+    return PEC_TOU_RATES["summer"]["months"][-1]
+
+
+def _last_day_of(year: int, month: int) -> int:
+    return calendar.monthrange(year, month)[1]
+
+
 def _first_hour_in(period_hours: list[tuple[int, int]]) -> int:
     """First hour-of-day where the period begins, deterministic."""
     return min(start for start, _end in period_hours)
@@ -204,13 +221,13 @@ class TestPeakAheadBeforeOffpeak:
     def test_shoulder_midpeak_returns_false_no_peak_in_schedule(self):
         # Shoulder has no "peak" period — should always be False from mid_peak.
         shoulder_mid = self.shoulder["mid_peak"][0]
-        now = datetime(2026, 4, 15, shoulder_mid[0], 30)  # April
+        now = datetime(2026, _shoulder_month(), 15, shoulder_mid[0], 30)
         assert self.engine.get_current_period(now) == "mid_peak"
         assert self.engine.peak_ahead_before_offpeak(now=now) is False
 
     def test_winter_midpeak_returns_false_no_peak_in_schedule(self):
         winter_mid = self.winter["mid_peak"][0]  # (5, 9)
-        now = datetime(2026, 1, 15, winter_mid[0], 30)
+        now = datetime(2026, _winter_month(), 15, winter_mid[0], 30)
         assert self.engine.get_current_period(now) == "mid_peak"
         assert self.engine.peak_ahead_before_offpeak(now=now) is False
 
@@ -225,15 +242,17 @@ class TestPeakAheadBeforeOffpeak:
         assert self.engine.peak_ahead_before_offpeak(now=now) is False
 
     def test_season_boundary_day_sane(self):
-        # Sep 30 23:30 — last summer day → tomorrow is shoulder (no peak).
+        # Last summer day at 23:30 → tomorrow is shoulder (no peak).
         # The walk crosses both midnight AND a season boundary. Result must
         # not crash and must return a sane bool. Shoulder has no peak, so
         # off_peak hits first → False.
-        now = datetime(2026, 9, 30, 23, 30)
+        last_summer_month = _last_summer_month()
+        last_day = _last_day_of(2026, last_summer_month)
+        now = datetime(2026, last_summer_month, last_day, 23, 30)
         assert self.engine.get_current_period(now) == "off_peak"
         result = self.engine.peak_ahead_before_offpeak(now=now, lookahead_hours=24)
         assert isinstance(result, bool)
-        # In the next 24h, hour 0 (Oct 1) is shoulder off_peak → returns False.
+        # In the next 24h, hour 0 (next day) is shoulder off_peak → returns False.
         assert result is False
 
 
@@ -248,11 +267,16 @@ _SOLAR = "sensor.test_envoy_solar_production"
 _NET = "sensor.test_envoy_net_power"
 
 
-def _make_strategy(soc: float = 80.0) -> BatteryStrategy:
-    """Build a BatteryStrategy wired to a TOU engine (required for D2 gate)."""
+def _make_strategy(soc: float = 80.0, with_tou_engine: bool = True) -> BatteryStrategy:
+    """Build a BatteryStrategy.
+
+    By default wires a TOU engine (required for the D2 gate). Pass
+    ``with_tou_engine=False`` to exercise the legacy/non-arbitrage fallback
+    branch where the strategy cannot discriminate pre/post-peak.
+    """
     hass = MockHass()
     hass.set_state(_BATT_SOC, str(soc))
-    hass.set_state(_STORAGE := DEFAULT_STORAGE_MODE_ENTITY, "self_consumption")
+    hass.set_state(DEFAULT_STORAGE_MODE_ENTITY, "self_consumption")
     hass.set_state(_SOLAR, "5000.0")
     hass.set_state(_NET, "-500", attributes={"unit_of_measurement": "W"})
     hass.set_state(_BATT_POWER, "-200")
@@ -277,7 +301,7 @@ def _make_strategy(soc: float = 80.0) -> BatteryStrategy:
         custom_solar_thresholds={
             "excellent": 100.0, "good": 80.0, "moderate": 50.0, "poor": 30.0,
         },
-        tou_engine=TOURateEngine(),
+        tou_engine=TOURateEngine() if with_tou_engine else None,
     )
 
 
@@ -311,6 +335,88 @@ class TestSummerMidPeakGate:
         assert len(actions) == 1
         assert actions[0]["data"]["value"] == DEFAULT_RESERVE_SOC
 
+    def test_summer_no_tou_engine_legacy_fallback_holds(self):
+        # Legacy harness — no TOU engine wired. The summer mid_peak branch
+        # MUST preserve the prior "always hold for peak" behavior because
+        # there's no engine to discriminate pre/post-peak.
+        # 20:30 (post-peak in real time) still gets a HOLD — the entire
+        # point of the fallback. Reason wording is the pre-fix "holding
+        # charge for peak" string.
+        strategy = _make_strategy(soc=80, with_tou_engine=False)
+        now = datetime(2026, _summer_month(), 15, 20, 30)
+        result = strategy.determine_mode("mid_peak", "summer", now=now)
+        assert result["mode"] == BATTERY_MODE_SELF_CONSUMPTION
+        assert "holding charge for peak" in result["reason"]
+        actions = _reserve_actions(result)
+        assert len(actions) == 1
+        # Hold reserve equals current SOC (preserve full battery).
+        assert actions[0]["data"]["value"] == 80
+
+    def test_summer_post_peak_soc_at_reserve_minimal_discharge(self):
+        # SOC sitting exactly at reserve — `soc > reserve_soc` is False, so
+        # the post-peak branch falls through to the low-SOC minimal-discharge
+        # arm. Reason must include both "summer, post-peak" and "minimal
+        # discharge" markers; reserve_level uses max(soc-5, reserve_soc)
+        # which clamps to reserve_soc.
+        strategy = _make_strategy(soc=DEFAULT_RESERVE_SOC)
+        now = datetime(2026, _summer_month(), 15, 20, 30)
+        result = strategy.determine_mode("mid_peak", "summer", now=now)
+        assert result["mode"] == BATTERY_MODE_SELF_CONSUMPTION
+        assert "summer, post-peak" in result["reason"]
+        assert "minimal discharge" in result["reason"]
+        actions = _reserve_actions(result)
+        assert len(actions) == 1
+        assert actions[0]["data"]["value"] == DEFAULT_RESERVE_SOC
+
+
+class TestPeakAheadBoundaryHours:
+    """Pin behavior at exact summer schedule boundary hours.
+
+    All hours are derived from PEC_TOU_RATES — never literals — so a future
+    schedule edit is forced through these assertions.
+    """
+
+    def setup_method(self):
+        self.engine = TOURateEngine()
+        self.summer = _periods_for_season("summer")
+        # Schedule sanity: (14,16) pre-peak mid_peak, (16,20) peak,
+        # (20,21) post-peak mid_peak, (21,24) off_peak.
+        self.pre_mid_start = self.summer["mid_peak"][0][0]   # 14
+        self.peak_start = self.summer["peak"][0][0]           # 16
+        self.post_mid_start = self.summer["mid_peak"][1][0]   # 20
+        # off_peak has two ranges in summer: (0,14) and (21,24). Pick the
+        # one that starts after peak.
+        self.offpeak_after_peak_start = next(
+            start for start, _end in self.summer["off_peak"] if start >= self.post_mid_start
+        )  # 21
+
+    def test_pre_mid_peak_start_hour_true(self):
+        # 14:00 sharp — first hour of pre-peak mid_peak. Peak is ahead.
+        now = datetime(2026, _summer_month(), 15, self.pre_mid_start, 0)
+        assert self.engine.get_current_period(now) == "mid_peak"
+        assert self.engine.peak_ahead_before_offpeak(now=now) is True
+
+    def test_peak_start_hour_true(self):
+        # 16:00 sharp — peak starts. The walk starts at NEXT top-of-hour
+        # (17:00) which is still peak → True.
+        now = datetime(2026, _summer_month(), 15, self.peak_start, 0)
+        assert self.engine.get_current_period(now) == "peak"
+        assert self.engine.peak_ahead_before_offpeak(now=now) is True
+
+    def test_post_peak_mid_start_hour_false(self):
+        # 20:00 sharp — first post-peak mid_peak hour. The walk starts at
+        # 21:00 (off_peak) → False.
+        now = datetime(2026, _summer_month(), 15, self.post_mid_start, 0)
+        assert self.engine.get_current_period(now) == "mid_peak"
+        assert self.engine.peak_ahead_before_offpeak(now=now) is False
+
+    def test_offpeak_after_peak_start_hour_false(self):
+        # 21:00 sharp — off_peak resumes. The walk starts at 22:00 (still
+        # off_peak) → False.
+        now = datetime(2026, _summer_month(), 15, self.offpeak_after_peak_start, 0)
+        assert self.engine.get_current_period(now) == "off_peak"
+        assert self.engine.peak_ahead_before_offpeak(now=now) is False
+
 
 # ---------------------------------------------------------------------------
 # D3: get_next_transition season-wrap
@@ -323,18 +429,20 @@ class TestGetNextTransitionSeasonWrap:
         self.engine = TOURateEngine()
 
     def test_season_boundary_returns_next_day_season(self):
-        # Sep 30 22:00 — last summer day. Currently off_peak (>=21:00).
-        # Wrap should use Oct 1's season (shoulder) for the first transition.
-        now = datetime(2026, 9, 30, 22, 0)
+        # Last summer day at 22:00 — currently off_peak (>=21:00).
+        # Wrap should use the NEXT day's season (shoulder) for the first
+        # transition.
+        last_summer_month = _last_summer_month()
+        last_day = _last_day_of(2026, last_summer_month)
+        now = datetime(2026, last_summer_month, last_day, 22, 0)
         assert self.engine.get_season(now) == "summer"
         assert self.engine.get_current_period(now) == "off_peak"
         result = self.engine.get_next_transition(now)
-        # Shoulder's first non-off_peak transition is mid_peak at hour 17.
-        # The summer table would have produced mid_peak at hour 14 — distinct.
+        # Shoulder's first non-off_peak transition is mid_peak.
+        # The summer table would have produced mid_peak at a distinct hour.
         shoulder_periods = _periods_for_season("shoulder")
-        shoulder_first_mid = _first_hour_in(shoulder_periods["mid_peak"])  # 17
+        shoulder_first_mid = _first_hour_in(shoulder_periods["mid_peak"])
         assert result["transition_hour"] == shoulder_first_mid
-        # hours_until = (24 - 22) + 17 = 19
         assert result["hours_until"] == (24 - 22) + shoulder_first_mid
         assert result["next_period"] == "mid_peak"
 

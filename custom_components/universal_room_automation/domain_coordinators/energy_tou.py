@@ -267,9 +267,15 @@ class TOURateEngine:
         through ``"mid_peak"``. Returns False if neither is encountered within
         ``lookahead_hours``.
 
-        Complements ``get_next_high_rate_transition``, which can return the
-        currently in-progress high-rate period and therefore cannot answer
-        this question from inside a mid_peak hour.
+        Callers are expected to already know the current period (the walk
+        excludes ``now``'s own hour by design — it starts at the top of the
+        NEXT hour). Invoking this from outside a mid_peak hour is a no-op
+        with a meaningful but caller-specific interpretation.
+
+        ``get_next_high_rate_transition`` cannot be reused for this
+        question: it requires a transition INTO high-rate (prev hour ==
+        off_peak), so calling it from inside a mid_peak hour returns None
+        (there is no prior off_peak hour to transition from).
         """
         if now is None:
             now = dt_util.now()

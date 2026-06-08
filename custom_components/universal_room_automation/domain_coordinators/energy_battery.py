@@ -1043,7 +1043,7 @@ class BatteryStrategy:
                 self._tou is None
                 or self._tou.peak_ahead_before_offpeak(now)
             )
-            if season == "summer" and summer_peak_ahead:
+            if summer_peak_ahead:
                 # Summer mid-peak, peak still ahead: hold charge for upcoming peak
                 hold_reserve = int(soc) if soc is not None else 100
                 return self._result(
