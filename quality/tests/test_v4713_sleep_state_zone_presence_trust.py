@@ -202,20 +202,26 @@ def _invoke_fallback(fake_self) -> bool:
     src = _read(AGGREGATION_PY)
     tree = ast.parse(src)
     helper_node = None
+    resolver_node = None
     for node in ast.walk(tree):
-        if (
-            isinstance(node, ast.FunctionDef)
-            and node.name == "_sleep_person_fallback_occupied"
-        ):
-            helper_node = node
-            break
+        if isinstance(node, ast.FunctionDef):
+            if node.name == "_sleep_person_fallback_occupied":
+                helper_node = node
+            elif node.name == "_resolve_hvac_zone":
+                # v4.7.31: the helper now resolves HVAC zones by name via this
+                # module-level function — extract it too so the exec'd helper
+                # can call it (Bug Class #44 fixture authority: drive real code).
+                resolver_node = node
     assert helper_node is not None
+    assert resolver_node is not None, "_resolve_hvac_zone not found in aggregation.py"
 
-    # Build a minimal module containing only DOMAIN + _LOGGER + the helper.
+    # Build a minimal module: DOMAIN + _LOGGER + the resolver + the helper.
     module_src = (
         "import logging\n"
         f"DOMAIN = 'universal_room_automation'\n"
         "_LOGGER = logging.getLogger('test')\n"
+        + ast.unparse(resolver_node)
+        + "\n"
         + ast.unparse(helper_node)
         + "\n"
     )

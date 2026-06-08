@@ -2877,6 +2877,39 @@ class EnergyAnomalyBinarySensor(AggregationEntity, BinarySensorEntity):
 # ZONE SENSORS (10 per zone)
 # ============================================================================
 
+def _resolve_hvac_zone(zone_manager, zone_key):
+    """Resolve an HVAC ZoneState by URA zone NAME (what aggregators carry).
+
+    `ZoneManager.zones` is keyed by `zone_id` ("zone_1", "zone_2", …) derived
+    from the thermostat entity, NOT by the zone name. Zone aggregators address
+    zones by name (`self.zone`, a Zone-Manager `zones` dict key). A bare
+    `zones.get(self.zone)` therefore never matches a real HVAC zone (Bug Class
+    #53), which silently disabled the v4.7.13/v4.7.15 motionless-occupant
+    fallback for every thermostat'd zone.
+
+    Resolve by:
+      1. direct zone_id key (cheap, also covers any future id-keyed caller), then
+      2. exact zone_name match, then
+      3. membership in a merged name ("Entertainment + Master Suite" → matches
+         "Entertainment" or "Master Suite"). The merge separator is fixed at
+         " + " in ZoneManager.async_discover_zones.
+
+    Returns the ZoneState or None (None = genuinely no HVAC zone for this name,
+    e.g. an aggregator zone with no thermostat).
+    """
+    zones = zone_manager.zones
+    direct = zones.get(zone_key)
+    if direct is not None:
+        return direct
+    for zs in zones.values():
+        name = getattr(zs, "zone_name", "") or ""
+        if name == zone_key:
+            return zs
+        if " + " in name and zone_key in [part.strip() for part in name.split(" + ")]:
+            return zs
+    return None
+
+
 class ZoneSensorBase(AggregationEntity):
     """Base class for zone sensors.
     
@@ -3282,7 +3315,7 @@ class ZoneAnyoneBinarySensor(ZoneSensorBase, BinarySensorEntity):
                 )
                 return False
 
-            zone = hvac._zone_manager.zones.get(self.zone)
+            zone = _resolve_hvac_zone(hvac._zone_manager, self.zone)
             if zone is None:
                 self._warn_sleep_fallback_unavailable(
                     "zone not registered in zone_manager.zones",
@@ -3417,7 +3450,7 @@ class ZoneAnyoneBinarySensor(ZoneSensorBase, BinarySensorEntity):
                 )
                 return False
 
-            zone = hvac._zone_manager.zones.get(self.zone)
+            zone = _resolve_hvac_zone(hvac._zone_manager, self.zone)
             if zone is None:
                 self._warn_sleep_fallback_unavailable(
                     "zone not registered in zone_manager.zones", scope="nonsleep",
