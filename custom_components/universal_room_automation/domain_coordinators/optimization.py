@@ -88,6 +88,13 @@ from ..const import (
     OPTIMIZER_DIMENSION_OVERRIDE_FREQUENCY,
     OPTIMIZER_DIMENSION_STATE_MACHINE_ACCURACY,
     OPTIMIZER_DIMENSION_SECURITY_POSTURE,
+    # v5.3.0 Phase 4 — Prediction-Validation pillar.
+    OPTIMIZER_DIMENSION_PREDICTION_ACCURACY,
+    OPTIMIZER_PREDICTION_ACCURACY_TOP1_FLOOR_PCT,
+    OPTIMIZER_PREDICTION_ACCURACY_BRIER_CEILING,
+    OPTIMIZER_PREDICTION_ACCURACY_MIN_SAMPLES,
+    OPTIMIZER_PREDICTION_ACCURACY_DATA_QUALITY_FLOOR_PCT,
+    OPTIMIZER_PREDICTION_ACCURACY_WINDOW_DAYS,
     OPTIMIZER_DIGEST_RETENTION_DAYS,
     OPTIMIZER_DIGEST_TOP_N,
     OPTIMIZER_NOTIFY_DEDUP_CYCLES,
@@ -157,6 +164,8 @@ class OptimizationDimension(str, Enum):
     # v4.7.36 Phase 3 — house-level
     STATE_MACHINE_ACCURACY = OPTIMIZER_DIMENSION_STATE_MACHINE_ACCURACY
     SECURITY_POSTURE = OPTIMIZER_DIMENSION_SECURITY_POSTURE
+    # v5.3.0 Phase 4 — Prediction-Validation pillar (house-level advisory).
+    PREDICTION_ACCURACY = OPTIMIZER_DIMENSION_PREDICTION_ACCURACY
 
     def __str__(self) -> str:  # noqa: D401
         return self.value
@@ -687,10 +696,23 @@ class OptimizationCoordinator(BaseCoordinator):
             ("state_machine_accuracy",
              self._evaluate_state_machine_accuracy_dimension),
             ("security_posture", self._evaluate_security_posture_dimension),
+            # v5.3.0 Phase 4 — Prediction-Validation pillar. House-level
+            # READ-ONLY reader of existing Bayesian accuracy surfaces; emits
+            # advisory (proposed_action=None) findings that flow through the
+            # SAME shared batched persist path (no new DB write channel).
+            ("prediction_accuracy",
+             self._evaluate_prediction_accuracy_dimension),
         )
         for name, fn in evaluators:
             try:
-                findings.extend(fn() or [])
+                # v5.3.0 Phase 4 — evaluators may be sync or async (the
+                # Prediction-Accuracy reader awaits a DB-backed predictor
+                # method). Detect coroutine returns and await them so all
+                # other Phase-1/3 evaluators keep their sync contract.
+                result = fn()
+                if asyncio.iscoroutine(result):
+                    result = await result
+                findings.extend(result or [])
             except Exception as exc:  # noqa: BLE001 — never let one dim kill the cycle
                 _LOGGER.warning(
                     "Optimizer evaluator '%s' raised; skipping this dim "
@@ -1600,6 +1622,315 @@ class OptimizationCoordinator(BaseCoordinator):
                 "locks_unlocked": unlocked,
                 "house_state": house_state,
             },
+            dedup_key=dedup_key,
+        ))
+        return findings
+
+    # ------------------------------------------------------------------
+    # v5.3.0 Phase 4 — Prediction-Validation pillar (READ-ONLY).
+    # ------------------------------------------------------------------
+
+    def _get_bayesian_predictor(self):
+        """Return the shared BayesianPredictor instance, or None.
+
+        Substrate: ``hass.data[DOMAIN]["bayesian_predictor"]`` — wired in
+        ``__init__.py:1199`` after CM setup; consumed by the next-room +
+        bayesian-accuracy sensors (e.g. sensor.py:10994).
+        """
+        try:
+            return self.hass.data.get(DOMAIN, {}).get("bayesian_predictor")
+        except Exception:  # noqa: BLE001
+            return None
+
+    async def _read_next_room_accuracy(
+        self, days: int,
+    ) -> dict | None:
+        """Read aggregate next-room top-1 hit-rate + Brier over the window.
+
+        Mirrors HouseNextRoomAccuracySensor (sensor.py:11278) but reads the
+        same ``prediction_results`` table directly via the shared
+        ``UniversalRoomDatabase`` so we do NOT depend on the sensor entity
+        being loaded (avoid circular entity reads). Read-only: a single
+        SELECT, no writes.
+
+        Returns ``{top1_hit_rate, brier_score, total_predictions}`` or None
+        when the DB is unavailable / table empty.
+        """
+        try:
+            database = self.hass.data.get(DOMAIN, {}).get("database")
+            if database is None:
+                return None
+            cutoff = (
+                dt_util.utcnow() - timedelta(days=days)
+            ).strftime("%Y-%m-%d %H:%M:%S")
+            import json as _json
+            try:
+                import aiosqlite as _aiosqlite
+            except Exception:  # noqa: BLE001 — tests stub aiosqlite
+                _aiosqlite = None
+            async with database._db_read() as db:
+                if _aiosqlite is not None:
+                    try:
+                        db.row_factory = _aiosqlite.Row
+                    except Exception:  # noqa: BLE001
+                        pass
+                cursor = await db.execute(
+                    """SELECT predicted_value, actual_value, error_value
+                       FROM prediction_results
+                       WHERE prediction_type = 'next_room'
+                         AND prediction_timestamp >= ?""",
+                    (cutoff,),
+                )
+                rows = await cursor.fetchall()
+        except Exception as exc:  # noqa: BLE001
+            _LOGGER.debug(
+                "prediction_accuracy: next-room read failed (%s); "
+                "treating as no data", exc,
+            )
+            return None
+        if not rows:
+            return {
+                "top1_hit_rate": None,
+                "brier_score": None,
+                "total_predictions": 0,
+            }
+        total = 0
+        hits = 0
+        brier_sum = 0.0
+        brier_n = 0
+        for r in rows:
+            total += 1
+            # Row may be aiosqlite.Row (mapping) or a plain tuple under
+            # the test stub — handle both.
+            try:
+                pv = r["predicted_value"]
+                av = r["actual_value"]
+                ev = r["error_value"]
+            except (TypeError, KeyError, IndexError):
+                try:
+                    pv, av, ev = r[0], r[1], r[2]
+                except Exception:  # noqa: BLE001
+                    continue
+            try:
+                pred = _json.loads(pv) if isinstance(pv, str) else (pv or {})
+                top = pred.get("top") if isinstance(pred, dict) else None
+            except (TypeError, ValueError):
+                top = None
+            if top is not None and top == av:
+                hits += 1
+            if ev is not None:
+                try:
+                    brier_sum += float(ev)
+                    brier_n += 1
+                except (TypeError, ValueError):
+                    pass
+        return {
+            "top1_hit_rate": (
+                round(hits / total * 100, 1) if total else None
+            ),
+            "brier_score": (
+                round(brier_sum / brier_n, 4) if brier_n else None
+            ),
+            "total_predictions": total,
+        }
+
+    async def _evaluate_prediction_accuracy_dimension(
+        self,
+    ) -> list[OptimizationFinding]:
+        """House: READ-ONLY accuracy reader; flag DEGRADED prediction quality.
+
+        Phase 4 of the Optimization Coordinator. Strictly reads existing
+        Bayesian accuracy surfaces — no new learner, no reimplemented math:
+
+        - ``BayesianPredictor.get_accuracy_stats(days)`` —
+          bayesian_predictor.py:901. Returns brier_score / hit_rate /
+          total_predictions for the ``bayesian_occupancy`` surface. May be
+          empty/None (provisional surface per audit) — handled gracefully.
+        - ``BayesianPredictor.is_learning_suppressed`` —
+          bayesian_predictor.py:783. When True, do NOT flag drift
+          (guest-mode suppression intentionally pauses learning).
+        - ``BayesianPredictor.quality_report`` — bayesian_predictor.py:763.
+          ``DataQualityReport.passed / total_rows`` is the data-quality %.
+        - ``prediction_results`` table (read directly via the shared DB) —
+          mirrors HouseNextRoomAccuracySensor (sensor.py:11278) for the
+          next-room top1/Brier aggregate.
+
+        Findings are HOUSE-level only (not per-room) — the accuracy data
+        is house/person-level by construction; emitting per-room here
+        would inflate the cycle's row count for no signal.
+
+        Confidence is discounted by data volume + a learning-suppressed
+        guard, so under-learned or paused-learner cells produce at most
+        low-confidence advisories — never a drift alarm.
+
+        # DailyEnergyPredictor deferred: there is no clean in-process
+        # accuracy surface for it today (the energy_forecast coordinator
+        # tracks point forecasts but does NOT expose hit-rate / Brier of
+        # the kind this dimension reads). Re-evaluate when an accuracy
+        # ring is added there. Do NOT fabricate one here.
+        """
+        findings: list[OptimizationFinding] = []
+        now = dt_util.utcnow()
+        predictor = self._get_bayesian_predictor()
+        # When the predictor isn't initialized, there is nothing to read.
+        # Stay silent — no fabrication.
+        if predictor is None:
+            return findings
+
+        # Suppressed-learning gate. Guest mode (or any explicit suppression)
+        # intentionally pauses belief updates; flagging "accuracy drift"
+        # there would be a false alarm.
+        suppressed = False
+        try:
+            suppressed = bool(predictor.is_learning_suppressed)
+        except Exception:  # noqa: BLE001
+            suppressed = False
+        if suppressed:
+            return findings
+
+        # --- Surface 1: next-room top-1 hit-rate + Brier (the SAFE,
+        # primary substrate per the audit). House-aggregate readout
+        # mirrors HouseNextRoomAccuracySensor.
+        next_room: dict | None = None
+        try:
+            next_room = await self._read_next_room_accuracy(
+                days=OPTIMIZER_PREDICTION_ACCURACY_WINDOW_DAYS,
+            )
+        except Exception as exc:  # noqa: BLE001
+            _LOGGER.debug(
+                "prediction_accuracy: next-room surface unavailable (%s)",
+                exc,
+            )
+
+        # --- Surface 2: BayesianPredictor.get_accuracy_stats — the
+        # PROVISIONAL bayesian-occupancy surface per the audit. Treat
+        # as possibly-empty (None/0 predictions); never flag drift off
+        # missing data.
+        occ_stats: dict | None = None
+        try:
+            occ_stats = await predictor.get_accuracy_stats(
+                days=OPTIMIZER_PREDICTION_ACCURACY_WINDOW_DAYS,
+            ) or None
+        except Exception as exc:  # noqa: BLE001
+            _LOGGER.debug(
+                "prediction_accuracy: get_accuracy_stats failed (%s)", exc,
+            )
+
+        # --- Surface 3: DataQualityReport via predictor.quality_report.
+        data_quality_pct: float | None = None
+        try:
+            report = predictor.quality_report
+            if report is not None and getattr(report, "total_rows", 0):
+                data_quality_pct = round(
+                    report.passed / report.total_rows * 100.0, 1
+                )
+        except Exception:  # noqa: BLE001
+            data_quality_pct = None
+
+        issues: list[str] = []
+        payload: dict[str, Any] = {}
+
+        # Determine total sample volume for confidence/staleness gating.
+        # The bigger of (next-room total, occupancy total) is what backs
+        # the dimension's confidence below.
+        next_total = int(
+            (next_room or {}).get("total_predictions") or 0
+        )
+        occ_total = int(
+            (occ_stats or {}).get("total_predictions") or 0
+        )
+        max_total = max(next_total, occ_total)
+
+        # Under-learned gate: if NEITHER surface has hit the min-sample
+        # threshold, treat the prediction system as still warming up —
+        # do NOT emit a degradation finding. (The audit flagged this
+        # exact false-alarm risk during the boot warm-up window.)
+        under_learned = max_total < OPTIMIZER_PREDICTION_ACCURACY_MIN_SAMPLES
+
+        # Next-room top1 hit-rate degradation.
+        nr_top1 = (
+            (next_room or {}).get("top1_hit_rate") if next_room else None
+        )
+        if (
+            not under_learned
+            and next_total >= OPTIMIZER_PREDICTION_ACCURACY_MIN_SAMPLES
+            and nr_top1 is not None
+            and nr_top1 < OPTIMIZER_PREDICTION_ACCURACY_TOP1_FLOOR_PCT
+        ):
+            issues.append(
+                f"next-room top-1 hit-rate "
+                f"{nr_top1:.1f}% < floor "
+                f"{OPTIMIZER_PREDICTION_ACCURACY_TOP1_FLOOR_PCT:.1f}%"
+            )
+            payload["next_room_top1_hit_rate"] = nr_top1
+            payload["next_room_total_predictions"] = next_total
+
+        # Bayesian-occupancy Brier degradation (provisional surface).
+        occ_brier = (
+            (occ_stats or {}).get("brier_score") if occ_stats else None
+        )
+        if (
+            not under_learned
+            and occ_total >= OPTIMIZER_PREDICTION_ACCURACY_MIN_SAMPLES
+            and occ_brier is not None
+            and occ_brier > OPTIMIZER_PREDICTION_ACCURACY_BRIER_CEILING
+        ):
+            issues.append(
+                f"bayesian-occupancy Brier {occ_brier:.3f} > ceiling "
+                f"{OPTIMIZER_PREDICTION_ACCURACY_BRIER_CEILING:.3f}"
+            )
+            payload["bayesian_occupancy_brier"] = occ_brier
+            payload["bayesian_occupancy_total_predictions"] = occ_total
+
+        # Data-quality degradation (independent of sample volume — the
+        # quality report is computed at initialize() time).
+        if (
+            data_quality_pct is not None
+            and data_quality_pct
+            < OPTIMIZER_PREDICTION_ACCURACY_DATA_QUALITY_FLOOR_PCT
+        ):
+            issues.append(
+                f"data_quality_pct {data_quality_pct:.1f}% < floor "
+                f"{OPTIMIZER_PREDICTION_ACCURACY_DATA_QUALITY_FLOOR_PCT:.1f}%"
+            )
+            payload["data_quality_pct"] = data_quality_pct
+
+        if not issues:
+            return findings
+
+        # Confidence derived from sample volume: hit min-samples = 0.6;
+        # 4x min-samples = 0.85 (cap). Discount further when we're
+        # leaning on the provisional occupancy surface only.
+        if max_total >= OPTIMIZER_PREDICTION_ACCURACY_MIN_SAMPLES * 4:
+            confidence = 0.85
+        elif max_total >= OPTIMIZER_PREDICTION_ACCURACY_MIN_SAMPLES * 2:
+            confidence = 0.75
+        elif max_total >= OPTIMIZER_PREDICTION_ACCURACY_MIN_SAMPLES:
+            confidence = 0.6
+        else:
+            # Only the data-quality issue fired (volume-independent). The
+            # signal IS real but we have low evidence about prediction
+            # behavior itself — keep the advisory low-confidence.
+            confidence = 0.5
+
+        dedup_key = ("prediction_accuracy", "house")
+        if dedup_key in self._cycle_dedup:
+            return findings
+        self._cycle_dedup.add(dedup_key)
+        findings.append(OptimizationFinding(
+            timestamp=now.isoformat(),
+            level="house",
+            target_id="house",
+            dimension=OptimizationDimension.PREDICTION_ACCURACY,
+            severity="low",
+            confidence=confidence,
+            score=0.0,
+            description=(
+                "Prediction quality degraded: " + "; ".join(issues)
+            ),
+            # Phase 4 is READ-ONLY: advisory finding, no proposed action.
+            proposed_action=None,
+            payload=payload,
             dedup_key=dedup_key,
         ))
         return findings

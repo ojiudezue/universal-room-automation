@@ -1588,6 +1588,30 @@ OPTIMIZER_DIMENSION_OVERRIDE_FREQUENCY: Final = "override_frequency"
 # House-level
 OPTIMIZER_DIMENSION_STATE_MACHINE_ACCURACY: Final = "state_machine_accuracy"
 OPTIMIZER_DIMENSION_SECURITY_POSTURE: Final = "security_posture"
+# v5.3.0 Phase 4 — Prediction-Validation pillar. READ-ONLY reader of existing
+# Bayesian accuracy surfaces (bayesian_predictor.get_accuracy_stats + the
+# next-room prediction_results table that the *_next_room_accuracy sensors
+# already aggregate). Cell-staleness + low-volume discount confidence so the
+# dimension stays advisory until the predictor has actually learned.
+OPTIMIZER_DIMENSION_PREDICTION_ACCURACY: Final = "prediction_accuracy"
+
+# v5.3.0 Phase 4 thresholds. Module constants only (no per-room CONF — the
+# accuracy surface is house/person-level, not per-room).
+# Top-1 next-room hit-rate floor (percent). Below this is "degraded".
+OPTIMIZER_PREDICTION_ACCURACY_TOP1_FLOOR_PCT: Final = 35.0
+# Brier-score ceiling for the bayesian-occupancy surface. Above this is
+# "degraded" (Brier is lower=better; 0 perfect, 0.25 is the no-skill baseline
+# for binary outcomes, so 0.30 represents materially worse-than-uninformed).
+OPTIMIZER_PREDICTION_ACCURACY_BRIER_CEILING: Final = 0.30
+# Minimum sample size before drift is flagged. Below this we treat the cell
+# as under-learned and do NOT emit a degradation finding (avoids false drift
+# alarms during the warm-up window the audit called out).
+OPTIMIZER_PREDICTION_ACCURACY_MIN_SAMPLES: Final = 50
+# Data-quality percentage (passed/total_rows from the BayesianPredictor's
+# DataQualityReport) below which we flag a low-severity advisory.
+OPTIMIZER_PREDICTION_ACCURACY_DATA_QUALITY_FLOOR_PCT: Final = 80.0
+# Rolling window (days) for the next-room accuracy read.
+OPTIMIZER_PREDICTION_ACCURACY_WINDOW_DAYS: Final = 7
 
 # v4.7.36 Phase 3 — daily digest defaults.
 # Retention: drop digest rows older than 90 days (keeps ~3 months of

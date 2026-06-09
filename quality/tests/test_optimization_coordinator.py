@@ -3764,3 +3764,120 @@ async def test_optimizer_findings_cap_truncates_pathological_cycle():
     assert meta_count == 1, (
         f"expected META sentinel preserved, got {meta_count}"
     )
+
+
+# ---------------------------------------------------------------------------
+# Phase 4 (v5.3.0): Prediction-Accuracy dimension (read-only reader)
+# ---------------------------------------------------------------------------
+
+
+def _fake_predictor(*, suppressed=False, quality=(950, 1000), occ=None):
+    """A predictor stub exposing only the surfaces Phase 4 reads."""
+    pred = MagicMock()
+    pred.is_learning_suppressed = suppressed
+    pred.get_accuracy_stats = AsyncMock(return_value=occ or {})
+    if quality is not None:
+        report = MagicMock()
+        report.passed, report.total_rows = quality
+        pred.quality_report = report
+    else:
+        pred.quality_report = None
+    return pred
+
+
+def _make_pred_coord(predictor, next_room):
+    from custom_components.universal_room_automation.domain_coordinators.optimization import (
+        OptimizationCoordinator,
+    )
+    hass, _ = _make_hass()
+    coord = OptimizationCoordinator(hass)
+    coord._get_bayesian_predictor = lambda: predictor
+    coord._read_next_room_accuracy = AsyncMock(return_value=next_room)
+    return coord
+
+
+@pytest.mark.asyncio
+async def test_optimizer_prediction_accuracy_flags_degraded():
+    """Top-1 hit-rate below floor with ample samples → one house finding."""
+    from custom_components.universal_room_automation.domain_coordinators.optimization import (
+        OptimizationDimension,
+    )
+    coord = _make_pred_coord(
+        _fake_predictor(),
+        {"top1_hit_rate": 18.0, "total_predictions": 120},
+    )
+    findings = await coord._evaluate_prediction_accuracy_dimension()
+    pa = [f for f in findings
+          if f.dimension == OptimizationDimension.PREDICTION_ACCURACY]
+    assert len(pa) == 1
+    assert pa[0].level == "house"
+    assert pa[0].proposed_action is None  # advisory-only (read-only dim)
+
+
+@pytest.mark.asyncio
+async def test_optimizer_prediction_accuracy_no_flag_when_healthy():
+    """Good hit-rate + good data quality → no finding."""
+    from custom_components.universal_room_automation.domain_coordinators.optimization import (
+        OptimizationDimension,
+    )
+    coord = _make_pred_coord(
+        _fake_predictor(),
+        {"top1_hit_rate": 72.0, "total_predictions": 120},
+    )
+    findings = await coord._evaluate_prediction_accuracy_dimension()
+    assert [f for f in findings
+            if f.dimension == OptimizationDimension.PREDICTION_ACCURACY] == []
+
+
+@pytest.mark.asyncio
+async def test_optimizer_prediction_accuracy_skips_under_learned():
+    """Terrible hit-rate but < min-samples → warming up, NO false drift alarm."""
+    from custom_components.universal_room_automation.domain_coordinators.optimization import (
+        OptimizationDimension,
+    )
+    coord = _make_pred_coord(
+        _fake_predictor(),
+        {"top1_hit_rate": 5.0, "total_predictions": 10},  # 10 < 50 min-samples
+    )
+    findings = await coord._evaluate_prediction_accuracy_dimension()
+    assert [f for f in findings
+            if f.dimension == OptimizationDimension.PREDICTION_ACCURACY] == []
+
+
+@pytest.mark.asyncio
+async def test_optimizer_prediction_accuracy_skips_when_learning_suppressed():
+    """Guest-mode learning suppression → never flag drift."""
+    from custom_components.universal_room_automation.domain_coordinators.optimization import (
+        OptimizationDimension,
+    )
+    coord = _make_pred_coord(
+        _fake_predictor(suppressed=True),
+        {"top1_hit_rate": 5.0, "total_predictions": 500},  # would flag if not suppressed
+    )
+    findings = await coord._evaluate_prediction_accuracy_dimension()
+    assert [f for f in findings
+            if f.dimension == OptimizationDimension.PREDICTION_ACCURACY] == []
+
+
+@pytest.mark.asyncio
+async def test_optimizer_prediction_accuracy_no_predictor_silent():
+    """No predictor instance → silent, no crash (no fabrication)."""
+    coord = _make_pred_coord(None, {"top1_hit_rate": 5.0, "total_predictions": 500})
+    findings = await coord._evaluate_prediction_accuracy_dimension()
+    assert findings == []
+
+
+@pytest.mark.asyncio
+async def test_optimizer_prediction_accuracy_handles_missing_occupancy_brier():
+    """Provisional occupancy surface empty (no brier) → no crash, no false flag."""
+    from custom_components.universal_room_automation.domain_coordinators.optimization import (
+        OptimizationDimension,
+    )
+    # next-room healthy, occupancy stats empty, data quality healthy.
+    coord = _make_pred_coord(
+        _fake_predictor(occ={}),
+        {"top1_hit_rate": 72.0, "total_predictions": 120},
+    )
+    findings = await coord._evaluate_prediction_accuracy_dimension()
+    assert [f for f in findings
+            if f.dimension == OptimizationDimension.PREDICTION_ACCURACY] == []
