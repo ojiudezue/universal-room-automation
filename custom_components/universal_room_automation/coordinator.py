@@ -124,6 +124,7 @@ from .domain_coordinators.signals import (
     SIGNAL_SUBSTRATE_KIND_CHANGED,
 )
 from .domain_coordinators.energy_billing import _get_effective_rate_kwh
+from .domain_coordinators._units import energy_state_to_kwh
 from .automation import RoomAutomation
 
 _LOGGER = logging.getLogger(__name__)
@@ -233,6 +234,14 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         self._energy_baselines_today: dict[str, float] = {}
         self._energy_baselines_needs_reset: set[str] = set()
         self._energy_baselines_loaded: bool = False
+        # Energy unit normalization cycle (Bug Class #30 on the energy device class):
+        # one-shot reset gate, set after the version sentinel has been observed
+        # so we only attempt the schema-version migration once per process boot.
+        self._energy_baselines_schema_checked: bool = False
+        # D4: dead-energy-sensor observability — rate-limited WARNING.
+        # Keyed by room_id (entry_id); value = monotonic timestamp of last log.
+        self._energy_sensors_dead_last_warn: float | None = None
+        self._energy_sensors_dead: bool = False
         self._energy_baseline_today = 0.0  # Legacy — kept for weekly/monthly tracking
         self._energy_baseline_week = 0.0
         self._energy_baseline_month = 0.0
@@ -1833,6 +1842,51 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                             len(persisted),
                         )
 
+            # D1 schema-version migration (Bug Class #30 fix on energy class).
+            # Once per process boot, check the version sentinel and reset all
+            # baselines if the persisted version pre-dates the new
+            # unit-normalization read path. Without this, a Wh-stored baseline
+            # minus a kWh-normalized current_value would go hugely negative
+            # and silently be max(0,·)-clipped to 0 forever.
+            if not self._energy_baselines_schema_checked:
+                self._energy_baselines_schema_checked = True
+                _db_for_migration = self.hass.data.get(DOMAIN, {}).get("database")
+                if _db_for_migration is not None:
+                    try:
+                        from .const import ENERGY_BASELINE_SCHEMA_VERSION
+                        persisted_version = await (
+                            _db_for_migration.get_energy_baseline_schema_version()
+                        )
+                        if persisted_version < ENERGY_BASELINE_SCHEMA_VERSION:
+                            deleted = await (
+                                _db_for_migration.reset_all_room_energy_baselines()
+                            )
+                            await (
+                                _db_for_migration.set_energy_baseline_schema_version(
+                                    ENERGY_BASELINE_SCHEMA_VERSION
+                                )
+                            )
+                            # Also clear in-memory baselines loaded above so the
+                            # next read establishes a fresh baseline from the
+                            # normalized current_value (else we'd carry the
+                            # stale-unit value through the cycle).
+                            self._energy_baselines_today.clear()
+                            self._energy_baselines_needs_reset.clear()
+                            _LOGGER.info(
+                                "Room %s: energy baseline schema migrated "
+                                "(%d → %d); %d legacy row(s) reset to "
+                                "force kWh-normalized re-establishment",
+                                self._get_config(CONF_ROOM_NAME, "?"),
+                                persisted_version,
+                                ENERGY_BASELINE_SCHEMA_VERSION,
+                                deleted,
+                            )
+                    except Exception as err:
+                        _LOGGER.warning(
+                            "Energy baseline schema migration check failed: %s",
+                            err,
+                        )
+
             db = self.hass.data.get(DOMAIN, {}).get("database")  # may be None during early startup
 
             # Sanity cap: if a single update reports a delta larger than this,
@@ -1843,6 +1897,12 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
             # circuits (40-50 kWh/day × 5–10 days). Tier 1 review HIGH #3.
             SANE_MAX_DELTA_KWH = 500.0
 
+            # D4: per-cycle dead-sensor accounting. If all configured energy
+            # sensors are unavailable this cycle we set STATE_ENERGY_TODAY=None
+            # (not 0.0) so downstream `if energy:` consumers cleanly skip
+            # the room instead of treating dead-as-zero.
+            dead_count = 0
+
             for sensor_id in energy_sensors:
                 state = self.hass.states.get(sensor_id)
                 sensor_available = (
@@ -1851,6 +1911,7 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                 )
 
                 if not sensor_available:
+                    dead_count += 1
                     # If midnight rolled over while this sensor was offline,
                     # mark the baseline as stale. Next available read will
                     # set baseline = current_value (cleanly capturing the
@@ -1872,9 +1933,13 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
                                 )
                     continue  # No delta contribution while unavailable
 
-                try:
-                    current_value = float(state.state)
-                except (ValueError, TypeError):
+                # D1 (Bug Class #30): normalize energy reading to kWh based
+                # on the source entity's unit_of_measurement. A Wh-reporting
+                # sensor pre-fix inflated STATE_ENERGY_TODAY 1000× and poisoned
+                # cost/coverage cascades. Returns None on unparseable / dead /
+                # unrecognized-uom; treat as not-contributing for this cycle.
+                current_value = energy_state_to_kwh(state)
+                if current_value is None:
                     continue
 
                 first_seen = sensor_id not in self._energy_baselines_today
@@ -1909,11 +1974,18 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
 
                 # Sanity guard: implausibly large deltas indicate baseline drift.
                 # Reset baseline to current value, contribute 0 this cycle, log.
-                if raw_delta > SANE_MAX_DELTA_KWH:
+                # D1: also catches NEGATIVE drift (raw_delta < -SANE_MAX_DELTA_KWH).
+                # A negative drift here means baseline-unit and current-unit
+                # disagree (Bug Class #30) — e.g. legacy Wh baseline minus a
+                # newly-normalized kWh current would yield a huge negative.
+                # Without this branch the max(0, raw_delta) clamp at end of
+                # loop silently zeros the room until midnight.
+                if abs(raw_delta) > SANE_MAX_DELTA_KWH:
                     _LOGGER.warning(
                         "Room %s: sensor %s implausible delta %.1f kWh (baseline=%.1f, "
                         "current=%.1f) — resetting baseline. Likely cause: stale baseline "
-                        "from before integration restart, or sensor entity_id reuse.",
+                        "from before integration restart, sensor entity_id reuse, or "
+                        "unit-of-measurement mismatch between baseline and current read.",
                         self._get_config(CONF_ROOM_NAME, "?"),
                         sensor_id, raw_delta, baseline, current_value,
                     )
@@ -1938,7 +2010,32 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
             if midnight_reset:
                 self._last_energy_reset = now
 
-            data[STATE_ENERGY_TODAY] = total_delta
+            # D4: dead-energy-sensor observability. If EVERY configured sensor
+            # was unavailable this cycle, return None so downstream truthiness
+            # checks skip the room. Log WARNING rate-limited at most once
+            # per hour per room (Bug Class #26 spirit). Surface state for the
+            # `energy_sensors_dead` attribute on EnergyTodaySensor.
+            all_dead = dead_count == len(energy_sensors) and len(energy_sensors) > 0
+            self._energy_sensors_dead = all_dead
+            if all_dead:
+                _now_mono = time.monotonic()
+                if (
+                    self._energy_sensors_dead_last_warn is None
+                    or (_now_mono - self._energy_sensors_dead_last_warn) >= 3600.0
+                ):
+                    self._energy_sensors_dead_last_warn = _now_mono
+                    _LOGGER.warning(
+                        "Room %s: all %d configured energy sensor(s) unavailable "
+                        "this cycle — STATE_ENERGY_TODAY held as None. "
+                        "(Likely SPAN circuit rename or sensor entity_id reuse.) "
+                        "Sensors: %s",
+                        self._get_config(CONF_ROOM_NAME, "?"),
+                        len(energy_sensors),
+                        list(energy_sensors),
+                    )
+                data[STATE_ENERGY_TODAY] = None
+            else:
+                data[STATE_ENERGY_TODAY] = total_delta
         else:
             # Integrate power over time (for rooms without direct energy sensor)
             if self._last_power_reading is not None and self._last_energy_calc_time is not None:

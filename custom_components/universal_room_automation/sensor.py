@@ -704,6 +704,23 @@ class EnergyTodaySensor(UniversalRoomEntity, SensorEntity):
 
         return current
 
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Expose dead-energy-sensor observability flag.
+
+        D4: ``energy_sensors_dead`` is True when ALL of this room's
+        configured energy sensors were unavailable on the most recent
+        coordinator cycle. STATE_ENERGY_TODAY itself is held as None in
+        that case (coordinator-side), which flows safely through
+        ``if energy:`` checks downstream. The attribute makes the failure
+        mode dashboard-visible without log mining.
+        """
+        return {
+            "energy_sensors_dead": bool(
+                getattr(self.coordinator, "_energy_sensors_dead", False)
+            ),
+        }
+
 
 class EnergyCostTodaySensor(UniversalRoomEntity, SensorEntity):
     """Energy cost today sensor."""

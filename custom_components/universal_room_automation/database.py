@@ -4309,6 +4309,101 @@ class UniversalRoomDatabase:
             )
             return {}
 
+    async def get_energy_baseline_schema_version(self) -> int:
+        """Return the schema-version sentinel stored in room_energy_baselines.
+
+        Returns 0 (treat as pre-versioned legacy) if no sentinel row exists.
+        D1 migration: when the returned value is < ENERGY_BASELINE_SCHEMA_VERSION,
+        the coordinator resets all rows once on first boot, then writes the
+        current version via set_energy_baseline_schema_version().
+        """
+        from .const import (
+            ENERGY_BASELINE_VERSION_ROOM_ID,
+            ENERGY_BASELINE_VERSION_SENSOR_ID,
+        )
+        try:
+            async with self._db_read() as db:
+                cursor = await db.execute(
+                    """SELECT baseline_value FROM room_energy_baselines
+                       WHERE room_id = ? AND sensor_id = ?""",
+                    (
+                        ENERGY_BASELINE_VERSION_ROOM_ID,
+                        ENERGY_BASELINE_VERSION_SENSOR_ID,
+                    ),
+                )
+                row = await cursor.fetchone()
+                if row is None:
+                    return 0
+                try:
+                    return int(row[0])
+                except (TypeError, ValueError):
+                    return 0
+        except Exception as err:
+            _LOGGER.warning(
+                "Failed to read energy_baseline schema version: %s", err,
+            )
+            return 0
+
+    async def set_energy_baseline_schema_version(self, version: int) -> None:
+        """Write the schema-version sentinel into room_energy_baselines.
+
+        Uses the existing INSERT-OR-REPLACE path so no new schema or write
+        queue is introduced (post write-flood incident discipline).
+        """
+        from .const import (
+            ENERGY_BASELINE_VERSION_ROOM_ID,
+            ENERGY_BASELINE_VERSION_SENSOR_ID,
+        )
+        try:
+            async with self._db() as db:
+                await db.execute(
+                    """INSERT OR REPLACE INTO room_energy_baselines
+                    (room_id, sensor_id, baseline_value, baseline_set_at, needs_reset)
+                    VALUES (?, ?, ?, ?, ?)""",
+                    (
+                        ENERGY_BASELINE_VERSION_ROOM_ID,
+                        ENERGY_BASELINE_VERSION_SENSOR_ID,
+                        float(version),
+                        dt_util.utcnow().isoformat(),
+                        0,
+                    ),
+                )
+                await db.commit()
+        except Exception as err:
+            _LOGGER.warning(
+                "Failed to write energy_baseline schema version: %s", err,
+            )
+
+    async def reset_all_room_energy_baselines(self) -> int:
+        """Delete every row in room_energy_baselines EXCEPT the schema-version
+        sentinel. Returns count deleted. Called exactly once on first boot
+        of code that introduces a new ENERGY_BASELINE_SCHEMA_VERSION.
+
+        Cost is bounded by row count (one row per (room, sensor)) and runs
+        outside the write-queue hot path (called from coordinator first-refresh).
+        """
+        from .const import (
+            ENERGY_BASELINE_VERSION_ROOM_ID,
+            ENERGY_BASELINE_VERSION_SENSOR_ID,
+        )
+        try:
+            async with self._db() as db:
+                cursor = await db.execute(
+                    """DELETE FROM room_energy_baselines
+                       WHERE NOT (room_id = ? AND sensor_id = ?)""",
+                    (
+                        ENERGY_BASELINE_VERSION_ROOM_ID,
+                        ENERGY_BASELINE_VERSION_SENSOR_ID,
+                    ),
+                )
+                await db.commit()
+                return cursor.rowcount or 0
+        except Exception as err:
+            _LOGGER.warning(
+                "reset_all_room_energy_baselines failed: %s", err,
+            )
+            return 0
+
     async def cleanup_room_energy_baselines(self, retention_days: int = 90) -> int:
         """Remove stale baselines older than retention_days. Batched per
         bug-class #25 (LIMIT 1000 per pass) and budgeted by nightly
