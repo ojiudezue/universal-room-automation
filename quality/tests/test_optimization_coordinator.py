@@ -1762,9 +1762,12 @@ async def test_optimizer_l1_synthetic_proposed_action_is_inert():
 
 
 def _llm_make_response(findings_rows, reasoning="ok"):
-    """Wrap a list of finding-row dicts into the structured-output shape
-    that mirrors `ai_task.generate_data` return values."""
-    return {"data": {"findings": findings_rows, "reasoning": reasoning}}
+    """Wrap finding-row dicts into the production structured-output shape:
+    a `findings_json` STRING (JSON array) + reasoning. Mirrors the v5.2.1
+    OPTIMIZER_LLM_STRUCTURE (the `object` selector was replaced after the
+    Anthropic backend rejected its free-form schema)."""
+    return {"data": {"findings_json": json.dumps(findings_rows),
+                     "reasoning": reasoning}}
 
 
 def _llm_finding_row(
@@ -2021,6 +2024,35 @@ async def test_optimizer_llm_malformed_output_rejected():
         f"only 2 good rows expected, got {len(parsed)}"
     )
     assert {p.description for p in parsed} == {"ok", "ok2"}
+
+
+@pytest.mark.asyncio
+async def test_optimizer_llm_findings_json_string_parsed():
+    """v5.2.1: production returns `findings_json` as a STRING (JSON array);
+    `_extract_findings_list` json.loads it. A non-JSON string yields no rows
+    without crashing. Backward-compat: a `findings` list still works."""
+    from custom_components.universal_room_automation.domain_coordinators.optimization import (
+        OptimizationCoordinator,
+    )
+    from custom_components.universal_room_automation.domain_coordinators.optimization_llm import (
+        OptimizationLLMTier,
+    )
+    hass, _ = _make_hass()
+    coord = OptimizationCoordinator(hass)
+    tier = OptimizationLLMTier(hass, coord)
+
+    # JSON-array string (the live Anthropic-accepted shape).
+    good = {"data": {"findings_json": json.dumps([_llm_finding_row()]),
+                     "reasoning": "ok"}}
+    assert len(tier._parse_findings(good)) == 1
+
+    # Malformed JSON string → graceful empty, no crash.
+    bad = {"data": {"findings_json": "{not valid json", "reasoning": "ok"}}
+    assert tier._parse_findings(bad) == []
+
+    # Backward-compat: a plain `findings` list still parses.
+    legacy = {"data": {"findings": [_llm_finding_row()], "reasoning": "ok"}}
+    assert len(tier._parse_findings(legacy)) == 1
 
 
 @pytest.mark.asyncio
