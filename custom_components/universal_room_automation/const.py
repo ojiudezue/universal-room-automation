@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv5.2.0
+# Universal Room Automation vv5.2.1
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v5.2.0"
+VERSION: Final = "v5.2.1"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -1707,11 +1707,20 @@ OPTIMIZER_LLM_TASK_NAME: Final = "ura_optimizer_findings"
 # selector-based shape used by AI_RULE_PARSING (config_flow.py:1602).
 # `findings` is a list of objects; each object follows the dataclass
 # fields below. `reasoning` is a single short paragraph.
+# v5.2.1: the `object` selector generated a free-form schema
+# (`additionalProperties: true`) that Anthropic's structured-output API
+# rejects with a 400 ("For 'object' type, 'additionalProperties: true' is
+# not supported"). Verified live against ai_task.claude_ai_task: a `text`
+# field holding a JSON-array STRING is accepted and is provider-portable
+# (no per-backend object-schema quirks). The list is parsed by
+# `_extract_findings_list` via json.loads.
 OPTIMIZER_LLM_STRUCTURE: Final = {
-    "findings": {
-        "selector": {"object": {"multiple": True}},
+    "findings_json": {
+        "selector": {"text": {"multiline": True}},
         "description": (
-            "List of optimization findings. Each finding MUST have: "
+            "A JSON array (as a string) of optimization findings. Output "
+            "ONLY valid JSON — a list of objects, or \"[]\" when nothing is "
+            "worth flagging. Each object MUST have: "
             "dimension (string — e.g. comfort, sensor_health, meta), "
             "severity (string — critical|high|medium|low), "
             "confidence (number 0.0-1.0), "

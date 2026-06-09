@@ -866,17 +866,27 @@ class OptimizationLLMTier:
         """
         if not isinstance(raw, dict):
             return None
-        if isinstance(raw.get("data"), dict):
-            findings = raw["data"].get("findings")
-            if isinstance(findings, list):
-                return findings
-            # Strict precedence: nested-data takes priority and a
-            # missing/bad nested key does NOT silently roll over to a
-            # flat key.
-            return None
-        findings = raw.get("findings")
+        # v5.2.1: the structured output is a `findings_json` STRING (a JSON
+        # array) — see OPTIMIZER_LLM_STRUCTURE. Parse it here. Still tolerate
+        # a pre-v5.2.1 `findings` list (some backends may already coerce).
+        container = raw["data"] if isinstance(raw.get("data"), dict) else raw
+        fjson = container.get("findings_json")
+        if isinstance(fjson, str):
+            try:
+                parsed = json.loads(fjson)
+            except (ValueError, TypeError):
+                _LOGGER.warning(
+                    "LLM findings_json was not valid JSON — skipping cycle",
+                )
+                return None
+            return parsed if isinstance(parsed, list) else None
+        findings = container.get("findings")
         if isinstance(findings, list):
             return findings
+        # If the response nested under `data`, strict precedence: do NOT roll
+        # over to a flat key (mirrors the config_flow AI rule-parser).
+        if isinstance(raw.get("data"), dict):
+            return None
         return None
 
     def _parse_findings(self, raw: dict | None) -> list:
