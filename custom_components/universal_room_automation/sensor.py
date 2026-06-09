@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.2.2
+# Universal Room Automation vv5.3.0
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -504,9 +504,10 @@ async def async_setup_entry(
     ])
 
     # === v4.0.0-B1: BAYESIAN OCCUPANCY PREDICTION (Diagnostic) ===
+    # v5.2.3: Removed BayesianWeekdayMorningProbSensor +
+    # BayesianWeekendEveningProbSensor (hardcoded single-time-bin probes
+    # superseded by *_bayesian_occupancy_forecast / *_bayesian_occupancy_pattern).
     entities.extend([
-        BayesianWeekdayMorningProbSensor(coordinator),
-        BayesianWeekendEveningProbSensor(coordinator),
         BayesianOccupancyPatternSensor(coordinator),
     ])
 
@@ -10753,113 +10754,6 @@ class URALastActivitySensor(AggregationEntity, SensorEntity):
 # ============================================================================
 # v4.0.0-B1: Bayesian Predictor Sensors (per-room, diagnostic)
 # ============================================================================
-
-
-class BayesianWeekdayMorningProbSensor(UniversalRoomEntity, SensorEntity):
-    """Bayesian weekday morning occupancy probability for this room.
-
-    Shows P(room occupied | time_bin=MORNING, day_type=weekday).
-    Diagnostic, disabled by default.
-    """
-
-    _attr_icon = "mdi:chart-bell-curve-cumulative"
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
-    _attr_entity_registry_enabled_default = False
-    _attr_native_unit_of_measurement = PERCENTAGE
-
-    def __init__(self, coordinator: UniversalRoomCoordinator) -> None:
-        """Initialize."""
-        super().__init__(
-            coordinator, "bayesian_weekday_morning_prob",
-            "Bayesian Weekday Morning Prob",
-        )
-
-    @property
-    def native_value(self) -> float | None:
-        """Return occupancy probability percentage."""
-        predictor = self.hass.data.get(DOMAIN, {}).get("bayesian_predictor")
-        if predictor is None:
-            return None
-        room_name = self.coordinator.entry.data.get("room_name", "")
-        prob = predictor.predict_room_occupancy(room_name, 1, 0)
-        if prob is None:
-            return None
-        return round(prob * 100, 1)
-
-    @property
-    def extra_state_attributes(self) -> dict[str, Any]:
-        """Return prediction details."""
-        predictor = self.hass.data.get(DOMAIN, {}).get("bayesian_predictor")
-        if predictor is None:
-            return {}
-        room_name = self.coordinator.entry.data.get("room_name", "")
-        attrs: dict[str, Any] = {
-            "time_bin": "Morning (06-09)",
-            "day_type": "Weekday",
-            "room": room_name,
-        }
-        # Get per-person breakdown
-        for person_id in predictor.known_persons:
-            pred = predictor.predict_room(person_id, 1, 0)
-            if pred:
-                attrs[f"person_{person_id}_top"] = pred.get("top_room", "")
-                attrs[f"person_{person_id}_status"] = pred.get(
-                    "learning_status", ""
-                )
-        return attrs
-
-
-class BayesianWeekendEveningProbSensor(UniversalRoomEntity, SensorEntity):
-    """Bayesian weekend evening occupancy probability for this room.
-
-    Shows P(room occupied | time_bin=EVENING, day_type=weekend).
-    Diagnostic, disabled by default.
-    """
-
-    _attr_icon = "mdi:chart-bell-curve-cumulative"
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
-    _attr_entity_registry_enabled_default = False
-    _attr_native_unit_of_measurement = PERCENTAGE
-
-    def __init__(self, coordinator: UniversalRoomCoordinator) -> None:
-        """Initialize."""
-        super().__init__(
-            coordinator, "bayesian_weekend_evening_prob",
-            "Bayesian Weekend Evening Prob",
-        )
-
-    @property
-    def native_value(self) -> float | None:
-        """Return occupancy probability percentage."""
-        predictor = self.hass.data.get(DOMAIN, {}).get("bayesian_predictor")
-        if predictor is None:
-            return None
-        room_name = self.coordinator.entry.data.get("room_name", "")
-        prob = predictor.predict_room_occupancy(room_name, 4, 1)
-        if prob is None:
-            return None
-        return round(prob * 100, 1)
-
-    @property
-    def extra_state_attributes(self) -> dict[str, Any]:
-        """Return prediction details."""
-        predictor = self.hass.data.get(DOMAIN, {}).get("bayesian_predictor")
-        if predictor is None:
-            return {}
-        room_name = self.coordinator.entry.data.get("room_name", "")
-        attrs: dict[str, Any] = {
-            "time_bin": "Evening (17-21)",
-            "day_type": "Weekend",
-            "room": room_name,
-        }
-        for person_id in predictor.known_persons:
-            pred = predictor.predict_room(person_id, 4, 1)
-            if pred:
-                attrs[f"person_{person_id}_top"] = pred.get("top_room", "")
-                attrs[f"person_{person_id}_status"] = pred.get(
-                    "learning_status", ""
-                )
-        return attrs
 
 
 class BayesianOccupancyPatternSensor(UniversalRoomEntity, SensorEntity):

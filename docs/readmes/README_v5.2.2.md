@@ -27,6 +27,15 @@ The cycle persisted findings **one at a time** (`optimization.py` per-finding lo
 - **Verify:** core URA writes (environmental data / census) no longer time out.
 - **Verify:** optimizer status `healthy`, `mode=shadow`; no `optimization`/`optimization_llm` errors.
 
-| Criterion | Observed | Source |
+### Validated 2026-06-09 (post-restart, ~17 min soak incl. post-settle persisting cycles)
+
+| Criterion | Result | Observed evidence |
 |---|---|---|
-| (TBD post-deploy) | | |
+| PRIMARY: no write-queue saturation | **PASS** | `did not process request within 35s` last seen 12:28 (pre-rollback); `held connection >120s` last seen 12:08 (pre-rollback). **Zero of either since the v5.2.2 boot**, after the optimizer ran past its 3-cycle settle gate and persisted real cycles. |
+| Optimizer functional, persisting | **PASS** | `last_evaluation` advancing (20:10:22); findings sensor shows `cycle_ok` (batched persist working); status sensor live. |
+| L1 Shadow / inert | **PASS** | `mode=shadow`, `effective_level=shadow`. |
+| URA core healthy | **PASS** | `house_state` live (away→arriving); HA core healthy. |
+| Boot "DB write worker not running" (transient) | as-expected | 4 occurrences at 15:01 boot window — the known benign pre-worker-start class (A-F5), NOT the saturation incident. |
+| Status vs findings count display mismatch | follow-up | status `open_findings_count=5`/`house_score=55` vs findings sensor current `cycle_ok`/0 — window-vs-latest-cycle cosmetic mismatch, not a flood. Polish item. |
+
+**Verdict: remediation validated live. The optimizer is stable and testable on v5.2.2.**
