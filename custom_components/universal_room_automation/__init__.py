@@ -2126,6 +2126,27 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 else:
                     _LOGGER.info("Notification Manager disabled via config")
 
+                # v4.7.34 Phase 1 D1: register OptimizationCoordinator AFTER
+                # HVAC + NM exist so the broker can locate the override
+                # arrester and NM can route severity-high findings. The
+                # optimizer is priority=5 (lowest, runs last in batches).
+                try:
+                    from .domain_coordinators.optimization import (
+                        OptimizationCoordinator,
+                    )
+                    optimization = OptimizationCoordinator(hass)
+                    coordinator_manager.register_coordinator(optimization)
+                    _LOGGER.info(
+                        "Optimization Coordinator registered (priority=%d)",
+                        optimization.priority,
+                    )
+                except Exception:
+                    _LOGGER.warning(
+                        "Optimization Coordinator registration failed "
+                        "(non-fatal — feature degrades to no-op)",
+                        exc_info=True,
+                    )
+
                 # B1 fix: assign coordinator_manager to hass.data BEFORE
                 # async_start() so that SIGNAL_ENERGY_COORDINATOR_READY
                 # subscribers (e.g. EC sub-switches in _handle_ec_ready) can

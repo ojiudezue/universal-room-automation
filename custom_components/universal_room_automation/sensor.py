@@ -387,6 +387,13 @@ async def async_setup_entry(
         # per-person aggregate sensors. Single registration site avoids
         # unique_id collisions on restart.
 
+        # v4.7.34 Phase 1 D7: Optimization Coordinator sensors.
+        coordinator_sensors.extend([
+            OptimizerStatusSensor(hass, entry),
+            OptimizerFindingsSensor(hass, entry),
+            OptimizerRoomHealthSensor(hass, entry),
+        ])
+
         async_add_entities(coordinator_sensors)
         return
 
@@ -402,6 +409,11 @@ async def async_setup_entry(
         TemperatureSensor(coordinator),
         HumiditySensor(coordinator),
         IlluminanceSensor(coordinator),
+        # v4.7.34 Phase 1 D7: per-room optimization health sensor.
+        # Registers with placeholder state so Bug Class #5 (block setup
+        # on first eval) does not fire; populates on the first
+        # OptimizationCoordinator cycle.
+        RoomOptimizationHealthSensor(coordinator),
     ]
     
     # === OCCUPANCY (Always Visible) ===
@@ -13567,3 +13579,291 @@ class RoomFanRecheckLastOutcomeSensor(UniversalRoomEntity, SensorEntity):
                 "fan_recheck_last_attempt_iso",
             ),
         }
+
+
+# ============================================================================
+# v4.7.34 Phase 1 D7: Optimization Coordinator sensors
+# ============================================================================
+#
+# Pattern (Bug Class #50 + #5 safe):
+# - Subscribe in async_added_to_hass to SIGNAL_OPTIMIZER_FINDING_EMITTED.
+# - Store the unsub on `self._signal_unsubs` (and via async_on_remove so
+#   HA tears it down on remove). Periodic rebuilds do NOT clear this list.
+# - Initial state = "(initializing)" — first cycle populates real values.
+
+
+def _optimizer_device_info():
+    """Return the URA: Optimization Coordinator device_info."""
+    from homeassistant.helpers.device_registry import DeviceInfo
+    return DeviceInfo(
+        identifiers={(DOMAIN, "optimization_coordinator")},
+        name="URA: Optimization Coordinator",
+        manufacturer="Universal Room Automation",
+        model="Optimization Coordinator",
+        sw_version="v4.7.33",
+        via_device=(DOMAIN, "coordinator_manager"),
+    )
+
+
+class _OptimizerCMSensorBase(SensorEntity):
+    """Base for CM-device-resident optimizer sensors."""
+
+    _attr_has_entity_name = True
+    _attr_should_poll = False
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        self.hass = hass
+        self.entry = entry
+        self._attr_device_info = _optimizer_device_info()
+        self._signal_unsubs: list = []
+
+    def _get_coord(self):
+        """Return the OptimizationCoordinator if present."""
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        try:
+            return manager.coordinators.get("optimization")
+        except Exception:
+            return None
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to finding-emitted signal — Bug Class #50 safe."""
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_OPTIMIZER_FINDING_EMITTED
+
+        @callback
+        def _on_finding(_payload=None):
+            self.async_write_ha_state()
+
+        unsub = async_dispatcher_connect(
+            self.hass, SIGNAL_OPTIMIZER_FINDING_EMITTED, _on_finding,
+        )
+        self._signal_unsubs.append(unsub)
+        # async_on_remove ensures HA tears it down on entity remove;
+        # storing on self._signal_unsubs makes the rebuild-safe property
+        # explicit (Bug Class #50). Both safety nets present.
+        self.async_on_remove(unsub)
+
+    async def async_will_remove_from_hass(self) -> None:
+        for u in list(self._signal_unsubs):
+            try:
+                u()
+            except Exception:
+                pass
+        self._signal_unsubs.clear()
+        await super().async_will_remove_from_hass()
+
+
+class OptimizerStatusSensor(_OptimizerCMSensorBase):
+    """sensor.ura_optimizer_status — overall health gauge.
+
+    State ∈ {healthy, degraded, critical, paused}.
+    """
+
+    _attr_icon = "mdi:tune-vertical"
+
+    def __init__(self, hass, entry):
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_optimizer_status"
+        self._attr_name = "Optimizer Status"
+        # Bug Class #5: register with placeholder, first cycle populates.
+        self._attr_native_value = "initializing"
+
+    @property
+    def native_value(self) -> str:
+        coord = self._get_coord()
+        if coord is None:
+            return "initializing"
+        try:
+            return coord.status
+        except Exception:
+            return "initializing"
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        coord = self._get_coord()
+        if coord is None:
+            return {"mode": "shadow"}
+        from .const import (
+            DEFAULT_OPTIMIZER_AUTONOMY_LEVEL,
+            CONF_OPTIMIZER_AUTONOMY_LEVEL,
+        )
+        try:
+            cfg = coord._read_cm_config()
+        except Exception:
+            cfg = {}
+        return {
+            "autonomy_level": cfg.get(
+                CONF_OPTIMIZER_AUTONOMY_LEVEL, DEFAULT_OPTIMIZER_AUTONOMY_LEVEL,
+            ),
+            "effective_level": getattr(coord, "effective_level",
+                                       DEFAULT_OPTIMIZER_AUTONOMY_LEVEL),
+            "mode": getattr(coord, "effective_level",
+                            DEFAULT_OPTIMIZER_AUTONOMY_LEVEL),
+            "house_score": coord._house_score,
+            "open_findings_count": coord._open_findings_count,
+            "last_evaluation": coord._last_evaluation_iso,
+            "rate_cap_window_count": coord._rate_cap_window_count(),
+            "quiet_hours_active": coord._is_quiet_hours_active(),
+        }
+
+
+class OptimizerFindingsSensor(_OptimizerCMSensorBase):
+    """sensor.ura_optimizer_findings — latest finding description + recent list."""
+
+    _attr_icon = "mdi:format-list-bulleted"
+
+    def __init__(self, hass, entry):
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_optimizer_findings"
+        self._attr_name = "Optimizer Findings"
+        self._attr_native_value = "initializing"
+
+    @property
+    def native_value(self) -> str:
+        coord = self._get_coord()
+        if coord is None or not coord._last_findings:
+            return "initializing"
+        # Latest finding description (last in list).
+        return coord._last_findings[-1].description[:255]
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        coord = self._get_coord()
+        if coord is None:
+            return {"findings": [], "by_severity": {}, "by_level": {}}
+        # Most-recent 20 findings.
+        recent = coord._last_findings[-20:]
+        findings_list = [
+            {
+                "timestamp": f.timestamp,
+                "level": f.level,
+                "target_id": f.target_id,
+                "dimension": str(f.dimension),
+                "severity": f.severity,
+                "description": f.description,
+                "applied_outcome": f.applied_outcome,
+            }
+            for f in recent
+        ]
+        summary = coord.get_open_findings_summary()
+        return {
+            "findings": findings_list,
+            "by_severity": summary["by_severity"],
+            "by_level": summary["by_level"],
+        }
+
+
+class OptimizerRoomHealthSensor(_OptimizerCMSensorBase):
+    """sensor.ura_optimizer_room_health — worst room score + rooms map."""
+
+    _attr_icon = "mdi:home-search"
+
+    def __init__(self, hass, entry):
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_optimizer_room_health"
+        self._attr_name = "Optimizer Room Health"
+        self._attr_native_value = None
+
+    @property
+    def native_value(self):
+        coord = self._get_coord()
+        if coord is None or not coord._room_scores:
+            return None
+        return min(coord._room_scores.values())
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        coord = self._get_coord()
+        if coord is None:
+            return {"rooms": {}}
+        return {"rooms": dict(coord._room_scores)}
+
+
+class RoomOptimizationHealthSensor(UniversalRoomEntity, SensorEntity):
+    """sensor.{room}_optimization_health — per-room health gauge.
+
+    Lives on the Room device. Subscribes to
+    SIGNAL_OPTIMIZER_FINDING_EMITTED to refresh on every new finding.
+    Bug Class #50 + #5 safe — placeholder state until first cycle.
+    """
+
+    _attr_icon = "mdi:home-heart"
+    _attr_should_poll = False
+
+    def __init__(self, coordinator: UniversalRoomCoordinator) -> None:
+        super().__init__(coordinator, "optimization_health",
+                         "Optimization Health")
+        self._signal_unsubs: list = []
+        self._attr_native_value = None
+
+    def _get_optimizer(self):
+        manager = self.coordinator.hass.data.get(DOMAIN, {}).get(
+            "coordinator_manager"
+        )
+        if manager is None:
+            return None
+        try:
+            return manager.coordinators.get("optimization")
+        except Exception:
+            return None
+
+    def _room_name(self) -> str:
+        try:
+            return self.coordinator.entry.data.get("room_name", "")
+        except Exception:
+            return ""
+
+    @property
+    def native_value(self):
+        opt = self._get_optimizer()
+        if opt is None:
+            return None
+        room = self._room_name()
+        if not room:
+            return None
+        try:
+            return opt.get_room_score(room)
+        except Exception:
+            return None
+
+    @property
+    def extra_state_attributes(self) -> dict:
+        opt = self._get_optimizer()
+        if opt is None:
+            return {"degraded_dimensions": []}
+        room = self._room_name()
+        degraded = []
+        for f in opt._last_findings:
+            if f.level == "room" and f.target_id == room:
+                if str(f.dimension) not in degraded:
+                    degraded.append(str(f.dimension))
+        return {"degraded_dimensions": degraded}
+
+    async def async_added_to_hass(self) -> None:
+        await super().async_added_to_hass()
+        from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        from .domain_coordinators.signals import SIGNAL_OPTIMIZER_FINDING_EMITTED
+
+        @callback
+        def _on_finding(_payload=None):
+            self.async_write_ha_state()
+
+        unsub = async_dispatcher_connect(
+            self.coordinator.hass,
+            SIGNAL_OPTIMIZER_FINDING_EMITTED,
+            _on_finding,
+        )
+        self._signal_unsubs.append(unsub)
+        self.async_on_remove(unsub)
+
+    async def async_will_remove_from_hass(self) -> None:
+        for u in list(self._signal_unsubs):
+            try:
+                u()
+            except Exception:
+                pass
+        self._signal_unsubs.clear()
+        await super().async_will_remove_from_hass()

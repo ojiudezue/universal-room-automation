@@ -21,6 +21,12 @@ from .const import (
     CONF_ENTRY_TYPE,
     ENTRY_TYPE_COORDINATOR_MANAGER,
     CONF_BAYESIAN_CELL_STALENESS_DAYS,
+    # D6 (Phase 1 Optimizer): per-room comfort slider option keys.
+    # Seed-from-options + options write-back closes the v1 plan
+    # Appendix-A orphan (entities existed RAM-only; now persistent).
+    CONF_COMFORT_TEMP_MIN,
+    CONF_COMFORT_TEMP_MAX,
+    CONF_COMFORT_HUMIDITY_MAX,
     COMFORT_TEMP_MIN,
     COMFORT_TEMP_MAX,
     COMFORT_HUMIDITY_MAX,
@@ -188,7 +194,19 @@ class ComfortTempMinNumber(UniversalRoomEntity, NumberEntity):
     def __init__(self, coordinator: UniversalRoomCoordinator) -> None:
         """Initialize the number entity."""
         super().__init__(coordinator, "comfort_temp_min", "Comfort Temperature Min")
-        self._value = COMFORT_TEMP_MIN
+        # D6: seed-from-options. Precedence — entry.options → entry.data
+        # → module constant fallback. Options write-back IS the
+        # persistence (Bug Class #46 sole-source pattern); no
+        # RestoreEntity needed.
+        entry = coordinator.entry
+        opts = getattr(entry, "options", {}) or {}
+        data = getattr(entry, "data", {}) or {}
+        if CONF_COMFORT_TEMP_MIN in opts and opts[CONF_COMFORT_TEMP_MIN] is not None:
+            self._value = float(opts[CONF_COMFORT_TEMP_MIN])
+        elif CONF_COMFORT_TEMP_MIN in data and data[CONF_COMFORT_TEMP_MIN] is not None:
+            self._value = float(data[CONF_COMFORT_TEMP_MIN])
+        else:
+            self._value = COMFORT_TEMP_MIN
 
     @property
     def native_value(self) -> float:
@@ -203,6 +221,19 @@ class ComfortTempMinNumber(UniversalRoomEntity, NumberEntity):
     async def async_set_native_value(self, value: float) -> None:
         """Set new minimum comfort temperature."""
         self._value = value
+        # D6: write back to entry.options (sole-source-of-truth pattern,
+        # Bug Class #46). Survives restart without RestoreEntity.
+        entry = self.coordinator.entry
+        try:
+            options = {**(entry.options or {}), CONF_COMFORT_TEMP_MIN: value}
+            self.coordinator.hass.config_entries.async_update_entry(
+                entry, options=options,
+            )
+        except Exception as exc:  # noqa: BLE001 — never crash UI write
+            _LOGGER.debug(
+                "Comfort temp min options write-back failed: %s", exc,
+                exc_info=True,
+            )
         self.async_write_ha_state()
         _LOGGER.info(
             "Comfort temp min set to %.1f°F for room: %s",
@@ -224,7 +255,16 @@ class ComfortTempMaxNumber(UniversalRoomEntity, NumberEntity):
     def __init__(self, coordinator: UniversalRoomCoordinator) -> None:
         """Initialize the number entity."""
         super().__init__(coordinator, "comfort_temp_max", "Comfort Temperature Max")
-        self._value = COMFORT_TEMP_MAX
+        # D6: seed-from-options.
+        entry = coordinator.entry
+        opts = getattr(entry, "options", {}) or {}
+        data = getattr(entry, "data", {}) or {}
+        if CONF_COMFORT_TEMP_MAX in opts and opts[CONF_COMFORT_TEMP_MAX] is not None:
+            self._value = float(opts[CONF_COMFORT_TEMP_MAX])
+        elif CONF_COMFORT_TEMP_MAX in data and data[CONF_COMFORT_TEMP_MAX] is not None:
+            self._value = float(data[CONF_COMFORT_TEMP_MAX])
+        else:
+            self._value = COMFORT_TEMP_MAX
 
     @property
     def native_value(self) -> float:
@@ -239,6 +279,18 @@ class ComfortTempMaxNumber(UniversalRoomEntity, NumberEntity):
     async def async_set_native_value(self, value: float) -> None:
         """Set new maximum comfort temperature."""
         self._value = value
+        # D6: write-back to entry.options.
+        entry = self.coordinator.entry
+        try:
+            options = {**(entry.options or {}), CONF_COMFORT_TEMP_MAX: value}
+            self.coordinator.hass.config_entries.async_update_entry(
+                entry, options=options,
+            )
+        except Exception as exc:  # noqa: BLE001
+            _LOGGER.debug(
+                "Comfort temp max options write-back failed: %s", exc,
+                exc_info=True,
+            )
         self.async_write_ha_state()
         _LOGGER.info(
             "Comfort temp max set to %.1f°F for room: %s",
@@ -260,7 +312,16 @@ class ComfortHumidityMaxNumber(UniversalRoomEntity, NumberEntity):
     def __init__(self, coordinator: UniversalRoomCoordinator) -> None:
         """Initialize the number entity."""
         super().__init__(coordinator, "comfort_humidity_max", "Comfort Humidity Max")
-        self._value = COMFORT_HUMIDITY_MAX
+        # D6: seed-from-options.
+        entry = coordinator.entry
+        opts = getattr(entry, "options", {}) or {}
+        data = getattr(entry, "data", {}) or {}
+        if CONF_COMFORT_HUMIDITY_MAX in opts and opts[CONF_COMFORT_HUMIDITY_MAX] is not None:
+            self._value = float(opts[CONF_COMFORT_HUMIDITY_MAX])
+        elif CONF_COMFORT_HUMIDITY_MAX in data and data[CONF_COMFORT_HUMIDITY_MAX] is not None:
+            self._value = float(data[CONF_COMFORT_HUMIDITY_MAX])
+        else:
+            self._value = COMFORT_HUMIDITY_MAX
 
     @property
     def native_value(self) -> float:
@@ -275,6 +336,18 @@ class ComfortHumidityMaxNumber(UniversalRoomEntity, NumberEntity):
     async def async_set_native_value(self, value: float) -> None:
         """Set new maximum comfort humidity."""
         self._value = value
+        # D6: write-back to entry.options.
+        entry = self.coordinator.entry
+        try:
+            options = {**(entry.options or {}), CONF_COMFORT_HUMIDITY_MAX: value}
+            self.coordinator.hass.config_entries.async_update_entry(
+                entry, options=options,
+            )
+        except Exception as exc:  # noqa: BLE001
+            _LOGGER.debug(
+                "Comfort humidity max options write-back failed: %s", exc,
+                exc_info=True,
+            )
         self.async_write_ha_state()
         _LOGGER.info(
             "Comfort humidity max set to %.0f%% for room: %s",

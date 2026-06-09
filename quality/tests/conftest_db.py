@@ -45,6 +45,8 @@ _REQUIRED_TABLES = {
     "ura_activity_log",
     "notification_log",
     "house_state_log",  # v4.6.5.1 P4 — count DAO behavioral test
+    # v4.7.34 Phase 1 D4 — Optimization Coordinator findings table.
+    "optimization_findings",
 }
 
 

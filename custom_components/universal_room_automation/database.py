@@ -718,6 +718,41 @@ class UniversalRoomDatabase:
                 ]):
                     failed_tables.append("anomaly_log")
 
+                # -- Optimization findings (Phase 1 — Optimization Coord) ----
+                # Mirrors the anomaly_log shape so reviewers + analytics
+                # tooling can read it the same way. Single-path writer is
+                # ``log_finding`` below; pruner is ``prune_optimization_findings``.
+                if not await self._create_table_safe(db, "optimization_findings", [
+                    """CREATE TABLE IF NOT EXISTS optimization_findings (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        timestamp TEXT NOT NULL,
+                        level TEXT NOT NULL,
+                        target_id TEXT,
+                        dimension TEXT NOT NULL,
+                        severity TEXT NOT NULL,
+                        confidence REAL,
+                        score REAL,
+                        description TEXT NOT NULL,
+                        proposed_action_json TEXT,
+                        action_class TEXT,
+                        applied_action_id TEXT,
+                        applied_outcome TEXT,
+                        predicted_effect_json TEXT,
+                        observed_effect_json TEXT,
+                        payload_json TEXT,
+                        created_by TEXT NOT NULL
+                    )""",
+                    """CREATE INDEX IF NOT EXISTS idx_optfindings_timestamp
+                    ON optimization_findings(timestamp DESC)""",
+                    """CREATE INDEX IF NOT EXISTS idx_optfindings_level_target
+                    ON optimization_findings(level, target_id)""",
+                    """CREATE INDEX IF NOT EXISTS idx_optfindings_dimension_severity
+                    ON optimization_findings(dimension, severity)""",
+                    """CREATE INDEX IF NOT EXISTS idx_optfindings_outcome
+                    ON optimization_findings(applied_outcome)""",
+                ]):
+                    failed_tables.append("optimization_findings")
+
                 # -- Metric baselines ----------------------------------------
                 if not await self._create_table_safe(db, "metric_baselines", [
                     """CREATE TABLE IF NOT EXISTS metric_baselines (
@@ -4583,6 +4618,162 @@ class UniversalRoomDatabase:
         if total_deleted > 0:
             _LOGGER.info("Pruned %d activity log entries", total_deleted)
         return total_deleted
+
+    # ====================================================================
+    # Optimization findings (Phase 1 — Optimization Coordinator)
+    # ====================================================================
+
+    async def log_finding(self, finding) -> int | None:
+        """Single-path writer for OptimizationFinding rows.
+
+        Accepts a structurally-duck-typed OptimizationFinding (the dataclass
+        lives in ``domain_coordinators.optimization`` to avoid a circular
+        import). Returns the new ``id`` on success, ``None`` on failure.
+        Modeled on ``save_anomaly_event`` (single-path writer, NULL-able
+        metric columns, payload extras as JSON).
+        """
+        import json as _json
+
+        try:
+            payload_json = (
+                _json.dumps(finding.payload, default=str)
+                if getattr(finding, "payload", None) is not None
+                else None
+            )
+            proposed_action_json = (
+                _json.dumps(finding.proposed_action, default=str)
+                if getattr(finding, "proposed_action", None) is not None
+                else None
+            )
+            predicted_effect_json = (
+                _json.dumps(finding.predicted_effect, default=str)
+                if getattr(finding, "predicted_effect", None) is not None
+                else None
+            )
+            observed_effect_json = (
+                _json.dumps(finding.observed_effect, default=str)
+                if getattr(finding, "observed_effect", None) is not None
+                else None
+            )
+        except (TypeError, ValueError) as enc_err:
+            _LOGGER.warning("log_finding: payload JSON encode failed: %s", enc_err)
+            payload_json = proposed_action_json = None
+            predicted_effect_json = observed_effect_json = None
+
+        try:
+            async with self._db() as db:
+                cursor = await db.execute(
+                    """INSERT INTO optimization_findings
+                       (timestamp, level, target_id, dimension, severity,
+                        confidence, score, description, proposed_action_json,
+                        action_class, applied_action_id, applied_outcome,
+                        predicted_effect_json, observed_effect_json,
+                        payload_json, created_by)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        finding.timestamp,
+                        finding.level,
+                        finding.target_id,
+                        str(finding.dimension),
+                        finding.severity,
+                        finding.confidence,
+                        finding.score,
+                        finding.description,
+                        proposed_action_json,
+                        finding.action_class,
+                        finding.applied_action_id,
+                        finding.applied_outcome,
+                        predicted_effect_json,
+                        observed_effect_json,
+                        payload_json,
+                        finding.created_by,
+                    ),
+                )
+                await db.commit()
+                row_id = cursor.lastrowid
+                return int(row_id) if row_id is not None else None
+        except Exception as e:
+            _LOGGER.warning("log_finding: insert failed: %s", e)
+            return None
+
+    async def prune_optimization_findings(
+        self, batch_size: int = 1000,
+    ) -> int:
+        """Prune optimization findings past retention window.
+
+        30 days for severity=critical, 14 days for high, 7 days for
+        medium/low. Same batched-DELETE shape as ``prune_activity_log`` to
+        dodge Bug Class #25 (write-queue stalls on large deletes).
+        """
+        now = dt_util.utcnow()
+        crit_cutoff = (now - timedelta(days=30)).isoformat()
+        high_cutoff = (now - timedelta(days=14)).isoformat()
+        low_cutoff = (now - timedelta(days=7)).isoformat()
+        total_deleted = 0
+        # SAFETY: where clauses are hardcoded literals — never from user input
+        for cutoff, where in [
+            (crit_cutoff, "severity = 'critical' AND timestamp < ?"),
+            (high_cutoff, "severity = 'high' AND timestamp < ?"),
+            (low_cutoff, "severity IN ('medium', 'low') AND timestamp < ?"),
+        ]:
+            _batch_count = 0
+            while True:
+                _batch_count += 1
+                if _batch_count > 500:
+                    _LOGGER.warning(
+                        "optimization_findings prune hit max batch limit"
+                    )
+                    break
+                try:
+                    async with self._db() as db:
+                        cursor = await db.execute(
+                            f"DELETE FROM optimization_findings WHERE rowid IN ("
+                            f"SELECT rowid FROM optimization_findings WHERE {where} LIMIT ?)",
+                            (cutoff, batch_size),
+                        )
+                        await db.commit()
+                        deleted = cursor.rowcount
+                        total_deleted += deleted
+                except Exception as e:
+                    _LOGGER.error(
+                        "Error pruning optimization_findings: %s", e
+                    )
+                    break
+                if deleted < batch_size:
+                    break
+                await asyncio.sleep(0.1)
+        if total_deleted > 0:
+            _LOGGER.info(
+                "Pruned %d optimization_findings entries", total_deleted
+            )
+        return total_deleted
+
+    async def get_recent_optimization_findings(
+        self, limit: int = 20,
+    ) -> list[dict]:
+        """Read recent optimization findings (most recent first)."""
+        try:
+            async with self._db_read() as db:
+                db.row_factory = aiosqlite.Row
+                cursor = await db.execute(
+                    """SELECT id, timestamp, level, target_id, dimension,
+                              severity, confidence, score, description,
+                              proposed_action_json, action_class,
+                              applied_action_id, applied_outcome,
+                              predicted_effect_json, observed_effect_json,
+                              payload_json, created_by
+                       FROM optimization_findings
+                       ORDER BY timestamp DESC
+                       LIMIT ?""",
+                    (limit,),
+                )
+                rows = await cursor.fetchall()
+                return [dict(r) for r in rows]
+        except Exception as e:
+            _LOGGER.warning(
+                "get_recent_optimization_findings failed: %s", e,
+            )
+            return []
 
     async def get_recent_activities(self, limit: int = 10) -> list[dict]:
         """Get most recent activity log entries."""

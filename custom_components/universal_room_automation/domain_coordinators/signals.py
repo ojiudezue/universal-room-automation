@@ -140,6 +140,25 @@ SIGNAL_FAN_RECHECK_FINISHED: Final = "ura_fan_recheck_finished"
 SIGNAL_SUBSTRATE_KIND_CHANGED: Final = "ura_substrate_kind_changed"
 
 
+# Optimization Coordinator (Phase 1, v4.7.34 candidate).
+# SIGNAL_OPTIMIZER_INTENT — fired by OptimizerIntentBroker BEFORE an L2+
+#   actuation (and as a `shadow_dry_run` at L1). Payload: dict with keys
+#   ``action_id`` (UUID str), ``target_entity``, ``service``,
+#   ``service_data``, ``source_dimension``, ``proposed_at_iso``,
+#   ``veto_window_s``, ``action_class`` (``reversible_device`` |
+#   ``config_write``), ``effective_level``.
+# SIGNAL_OPTIMIZER_INTENT_VETO — sibling coordinators dispatch this with
+#   payload ``{action_id, vetoed_by, reason}`` to veto an L2/L3 intent
+#   inside the veto window.
+# SIGNAL_OPTIMIZER_FINDING_EMITTED — fired after every finding is written
+#   to ``optimization_findings``. Optimizer sensors subscribe at
+#   ``async_added_to_hass`` and store the unsub on ``self._unsub_*`` to
+#   avoid Bug Class #50.
+SIGNAL_OPTIMIZER_INTENT: Final = "ura_optimizer_intent"
+SIGNAL_OPTIMIZER_INTENT_VETO: Final = "ura_optimizer_intent_veto"
+SIGNAL_OPTIMIZER_FINDING_EMITTED: Final = "ura_optimizer_finding_emitted"
+
+
 # ============================================================================
 # Shared data classes for inter-coordinator communication
 # ============================================================================

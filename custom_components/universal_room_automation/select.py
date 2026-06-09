@@ -53,6 +53,9 @@ async def async_setup_entry(
             PresenceHouseStateOverrideSelect(hass, entry),
             # v4.6.2 D6: routine notification mode select
             RoutineNotificationModeSelect(hass, entry),
+            # v4.7.34 Phase 1 D7: Optimizer autonomy level (6 options).
+            # Lives on the Optimization Coordinator device.
+            OptimizerAutonomyLevelSelect(hass, entry),
         ]
         async_add_entities(entities)
         return
@@ -387,3 +390,89 @@ class RoutineNotificationModeSelect(SelectEntity):
         self.hass.config_entries.async_update_entry(self._entry, options=new_options)
         self.async_write_ha_state()
         _LOGGER.info("Routine change notification mode set to: %s", option)
+
+
+# ============================================================================
+# v4.7.34 Phase 1 D7: OptimizerAutonomyLevelSelect
+# ============================================================================
+
+
+class OptimizerAutonomyLevelSelect(SelectEntity):
+    """Six-rung autonomy ladder selector.
+
+    Options (lowest → highest):
+        advisory | shadow | reversible_device | propose_config |
+        immediate_config | unbounded
+
+    Default = ``shadow`` (Phase 1 ship default — L1 dry-run with NO real
+    actuation). Persistence is via entry.options write-back (single source
+    of truth, Bug Class #46-safe).
+
+    Entity: select.ura_optimizer_autonomy_level
+    Device: URA: Optimization Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:tune-vertical"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        from homeassistant.helpers.entity import EntityCategory
+        from .const import (
+            CONF_OPTIMIZER_AUTONOMY_LEVEL,
+            DEFAULT_OPTIMIZER_AUTONOMY_LEVEL,
+            OPTIMIZER_AUTONOMY_LEVELS,
+        )
+        self.hass = hass
+        self._entry = entry
+        self._conf_key = CONF_OPTIMIZER_AUTONOMY_LEVEL
+        self._default = DEFAULT_OPTIMIZER_AUTONOMY_LEVEL
+        self._attr_options = list(OPTIMIZER_AUTONOMY_LEVELS)
+        self._attr_entity_category = EntityCategory.CONFIG
+        self._attr_unique_id = f"{DOMAIN}_optimizer_autonomy_level"
+        self._attr_name = "Autonomy Level"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "optimization_coordinator")},
+            name="URA: Optimization Coordinator",
+            manufacturer="Universal Room Automation",
+            model="Optimization Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+        # Seed from options first, then data, then default.
+        opts = entry.options or {}
+        data = entry.data or {}
+        if self._conf_key in opts and opts[self._conf_key] in OPTIMIZER_AUTONOMY_LEVELS:
+            self._attr_current_option = opts[self._conf_key]
+        elif self._conf_key in data and data[self._conf_key] in OPTIMIZER_AUTONOMY_LEVELS:
+            self._attr_current_option = data[self._conf_key]
+        else:
+            self._attr_current_option = self._default
+
+    @property
+    def current_option(self) -> str:
+        return self._attr_current_option
+
+    @property
+    def available(self) -> bool:
+        return True
+
+    async def async_select_option(self, option: str) -> None:
+        if option not in self._attr_options:
+            _LOGGER.warning(
+                "OptimizerAutonomyLevelSelect: unknown option %s", option,
+            )
+            return
+        self._attr_current_option = option
+        try:
+            options = {**(self._entry.options or {}), self._conf_key: option}
+            self.hass.config_entries.async_update_entry(
+                self._entry, options=options,
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "Optimizer autonomy level options write-back failed",
+                exc_info=True,
+            )
+        _LOGGER.info("Optimizer autonomy level set to %s", option)
+        self.async_write_ha_state()

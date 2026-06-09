@@ -2387,6 +2387,8 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     "coordinator_music_following",
                     "coordinator_notifications",
                     "signal_responses",
+                    # v4.7.34 Phase 1 D7: Optimization Coordinator options section
+                    "coordinator_optimization",
                 ],
             )
         elif entry_type == ENTRY_TYPE_ZONE:
@@ -5581,6 +5583,101 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
 
         return self.async_show_form(
             step_id="signal_responses",
+            data_schema=data_schema,
+        )
+
+    # =========================================================================
+    # v4.7.34 Phase 1 D7: Optimization Coordinator options section
+    # =========================================================================
+
+    async def async_step_coordinator_optimization(self, user_input=None):
+        """Configure the URA Optimization Coordinator (autonomy matrix + caps).
+
+        Six CONF_* keys (parsimony: ALL live on the CM entry; zero new
+        per-room CONF surface). See planning doc D2 for the matrix gate
+        priority order.
+        """
+        from .const import (
+            CONF_OPTIMIZER_AUTONOMY_LEVEL,
+            CONF_OPTIMIZER_KILL_SWITCH,
+            CONF_OPTIMIZER_CONFIDENCE_GATE,
+            CONF_OPTIMIZER_RATE_CAP_PER_HOUR,
+            CONF_OPTIMIZER_QUIET_HOURS_SOURCE,
+            DEFAULT_OPTIMIZER_AUTONOMY_LEVEL,
+            DEFAULT_OPTIMIZER_KILL_SWITCH,
+            DEFAULT_OPTIMIZER_CONFIDENCE_GATE,
+            DEFAULT_OPTIMIZER_RATE_CAP_PER_HOUR,
+            DEFAULT_OPTIMIZER_QUIET_HOURS_SOURCE,
+            OPTIMIZER_AUTONOMY_LEVELS,
+            OPTIMIZER_QUIET_HOURS_SOURCES,
+        )
+
+        if user_input is not None:
+            return self.async_create_entry(
+                title="",
+                data={**self._config_entry.options, **user_input},
+            )
+
+        data_schema = vol.Schema({
+            vol.Optional(
+                CONF_OPTIMIZER_AUTONOMY_LEVEL,
+                default=self._get_current(
+                    CONF_OPTIMIZER_AUTONOMY_LEVEL,
+                    DEFAULT_OPTIMIZER_AUTONOMY_LEVEL,
+                ),
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=list(OPTIMIZER_AUTONOMY_LEVELS),
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                )
+            ),
+            vol.Optional(
+                CONF_OPTIMIZER_KILL_SWITCH,
+                default=self._get_current(
+                    CONF_OPTIMIZER_KILL_SWITCH,
+                    DEFAULT_OPTIMIZER_KILL_SWITCH,
+                ),
+            ): selector.BooleanSelector(),
+            vol.Optional(
+                CONF_OPTIMIZER_CONFIDENCE_GATE,
+                default=self._get_current(
+                    CONF_OPTIMIZER_CONFIDENCE_GATE,
+                    DEFAULT_OPTIMIZER_CONFIDENCE_GATE,
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0.0, max=1.0, step=0.05,
+                    mode=selector.NumberSelectorMode.SLIDER,
+                )
+            ),
+            vol.Optional(
+                CONF_OPTIMIZER_RATE_CAP_PER_HOUR,
+                default=self._get_current(
+                    CONF_OPTIMIZER_RATE_CAP_PER_HOUR,
+                    DEFAULT_OPTIMIZER_RATE_CAP_PER_HOUR,
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0, max=200, step=1,
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
+            vol.Optional(
+                CONF_OPTIMIZER_QUIET_HOURS_SOURCE,
+                default=self._get_current(
+                    CONF_OPTIMIZER_QUIET_HOURS_SOURCE,
+                    DEFAULT_OPTIMIZER_QUIET_HOURS_SOURCE,
+                ),
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=list(OPTIMIZER_QUIET_HOURS_SOURCES),
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                )
+            ),
+        })
+
+        return self.async_show_form(
+            step_id="coordinator_optimization",
             data_schema=data_schema,
         )
 
