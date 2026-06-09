@@ -3630,6 +3630,13 @@ from .const import (
     CONF_OPTIMIZER_CONFIDENCE_GATE as _CONF_OPTIMIZER_CONFIDENCE_GATE,
     CONF_OPTIMIZER_RATE_CAP_PER_HOUR as _CONF_OPTIMIZER_RATE_CAP_PER_HOUR,
     CONF_OPTIMIZER_QUIET_HOURS_SOURCE as _CONF_OPTIMIZER_QUIET_HOURS_SOURCE,
+    # v4.7.35 Phase 2 — LLM Tier-2 CM-options keys (C-CRIT-1).
+    CONF_OPTIMIZER_LLM_TASK_ENTITY as _CONF_OPTIMIZER_LLM_TASK_ENTITY,
+    CONF_OPTIMIZER_LLM_TRIAGE_ENTITY as _CONF_OPTIMIZER_LLM_TRIAGE_ENTITY,
+    CONF_OPTIMIZER_LLM_SYSTEM_PROMPT as _CONF_OPTIMIZER_LLM_SYSTEM_PROMPT,
+    CONF_OPTIMIZER_LLM_MAX_INVOCATIONS_PER_24H as _CONF_OPTIMIZER_LLM_MAX_INVOCATIONS_PER_24H,
+    # v4.7.35 fix-up (B-B2) — safety/security deny-list CM-options key.
+    CONF_OPTIMIZER_SAFETY_DENY_ENTITIES as _CONF_OPTIMIZER_SAFETY_DENY_ENTITIES,
     CONF_COMFORT_TEMP_MIN as _CONF_COMFORT_TEMP_MIN,
     CONF_COMFORT_TEMP_MAX as _CONF_COMFORT_TEMP_MAX,
     CONF_COMFORT_HUMIDITY_MAX as _CONF_COMFORT_HUMIDITY_MAX,
@@ -3715,6 +3722,16 @@ _NO_LIVE_ATTR_KEYS: frozenset[str] = frozenset({
     _CONF_OPTIMIZER_CONFIDENCE_GATE,
     _CONF_OPTIMIZER_RATE_CAP_PER_HOUR,
     _CONF_OPTIMIZER_QUIET_HOURS_SOURCE,
+    # v4.7.35 Phase 2 — LLM tier keys. OptimizationLLMTier reads CM
+    # options fresh on every cycle (`_read_cm_config`) — no live-attr
+    # push needed; flow through `_apply_in_place` as a no-op.
+    _CONF_OPTIMIZER_LLM_TASK_ENTITY,
+    _CONF_OPTIMIZER_LLM_TRIAGE_ENTITY,
+    _CONF_OPTIMIZER_LLM_SYSTEM_PROMPT,
+    _CONF_OPTIMIZER_LLM_MAX_INVOCATIONS_PER_24H,
+    # v4.7.35 fix-up (B-B2) — deny-list read fresh on every chokepoint
+    # invocation; no live-attr push needed.
+    _CONF_OPTIMIZER_SAFETY_DENY_ENTITIES,
 })
 
 OPTIONS_RELOAD_SUPPRESS_KEYS: frozenset[str] = frozenset({
@@ -3757,6 +3774,17 @@ OPTIONS_RELOAD_SUPPRESS_KEYS: frozenset[str] = frozenset({
     _CONF_OPTIMIZER_CONFIDENCE_GATE,
     _CONF_OPTIMIZER_RATE_CAP_PER_HOUR,
     _CONF_OPTIMIZER_QUIET_HOURS_SOURCE,
+    # v4.7.35 Phase 2 — LLM tier keys. Editing the LLM provider,
+    # triage backend, prompt, or 24h cap must NOT trigger a full
+    # CM reload — the OptimizationLLMTier re-reads entry.options on
+    # every cycle. (See `_NO_LIVE_ATTR_KEYS` above.)
+    _CONF_OPTIMIZER_LLM_TASK_ENTITY,
+    _CONF_OPTIMIZER_LLM_TRIAGE_ENTITY,
+    _CONF_OPTIMIZER_LLM_SYSTEM_PROMPT,
+    _CONF_OPTIMIZER_LLM_MAX_INVOCATIONS_PER_24H,
+    # v4.7.35 fix-up (B-B2) — deny-list edits are options-only; no full
+    # reload (chokepoint reads CM options fresh on every action).
+    _CONF_OPTIMIZER_SAFETY_DENY_ENTITIES,
 })
 
 
