@@ -1553,6 +1553,34 @@ CONF_COMFORT_HUMIDITY_MAX: Final = "comfort_humidity_max"
 OPTIMIZER_DIMENSION_SENSOR_HEALTH: Final = "sensor_health"
 OPTIMIZER_DIMENSION_COMFORT: Final = "comfort"
 OPTIMIZER_DIMENSION_META: Final = "meta"
+# v4.7.36 Phase 3 — additional dimensions.
+# Room-level
+OPTIMIZER_DIMENSION_OCCUPANCY_ACCURACY: Final = "occupancy_accuracy"
+OPTIMIZER_DIMENSION_AUTOMATION_RESPONSIVENESS: Final = "automation_responsiveness"
+OPTIMIZER_DIMENSION_CONFIG_BEHAVIOR: Final = "config_behavior"
+OPTIMIZER_DIMENSION_ENERGY_EFFICIENCY: Final = "energy_efficiency"
+# Zone-level
+OPTIMIZER_DIMENSION_SETPOINT_COMPLIANCE: Final = "setpoint_compliance"
+OPTIMIZER_DIMENSION_VACANCY_MANAGEMENT: Final = "vacancy_management"
+OPTIMIZER_DIMENSION_OVERRIDE_FREQUENCY: Final = "override_frequency"
+# House-level
+OPTIMIZER_DIMENSION_STATE_MACHINE_ACCURACY: Final = "state_machine_accuracy"
+OPTIMIZER_DIMENSION_SECURITY_POSTURE: Final = "security_posture"
+
+# v4.7.36 Phase 3 — daily digest defaults.
+# Retention: drop digest rows older than 90 days (keeps ~3 months of
+# historical roll-ups for trend review, never grows unbounded).
+OPTIMIZER_DIGEST_RETENTION_DAYS: Final = 90
+# Top-N findings to include in the digest summary.
+OPTIMIZER_DIGEST_TOP_N: Final = 5
+# v4.7.36 fix-up (A2): suppress re-notify for the same finding dedup_key for
+# this many consecutive 5-min cycles. 12 cycles ≈ 1h — long enough that an
+# unchanged "away+unlocked" / "20+ overrides" advisory doesn't re-page every
+# cycle, short enough that a re-emergence after resolution still alerts.
+OPTIMIZER_NOTIFY_DEDUP_CYCLES: Final = 12
+# v4.7.36 fix-up (A6): occupancy-accuracy disagreement must persist this many
+# seconds before firing (motion-on/occupancy-off is transient at sensor wake).
+OPTIMIZER_OCCUPANCY_ACCURACY_GATE_SECONDS: Final = 120
 
 # 5-min cycle (matches SCAN_INTERVAL_ENERGY cadence — runs last per
 # priority=5).

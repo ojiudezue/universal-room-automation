@@ -753,6 +753,33 @@ class UniversalRoomDatabase:
                 ]):
                     failed_tables.append("optimization_findings")
 
+                # -- Optimization daily digest (Phase 3 — v4.7.36) -----------
+                # One row per (date, generated_at) — the optimizer writes
+                # one row per digest fire (morning/evening). Mirrors the
+                # ``optimization_findings`` shape; pruned by
+                # ``prune_optimization_daily_digest`` (90-day retention).
+                # v4.7.36 fix-up B2: UNIQUE(date) so morning+evening digest
+                # writes for the SAME date upsert into the same row instead
+                # of appending duplicates. Multi-person notifications fire N
+                # times per day; without UNIQUE the table would grow by N
+                # rows/day with identical payloads.
+                if not await self._create_table_safe(db, "optimization_daily_digest", [
+                    """CREATE TABLE IF NOT EXISTS optimization_daily_digest (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        date TEXT NOT NULL UNIQUE,
+                        generated_at TEXT NOT NULL,
+                        findings_count INTEGER NOT NULL,
+                        by_severity_json TEXT,
+                        by_dimension_json TEXT,
+                        summary_json TEXT
+                    )""",
+                    """CREATE INDEX IF NOT EXISTS idx_optdigest_date
+                    ON optimization_daily_digest(date DESC)""",
+                    """CREATE INDEX IF NOT EXISTS idx_optdigest_generated
+                    ON optimization_daily_digest(generated_at DESC)""",
+                ]):
+                    failed_tables.append("optimization_daily_digest")
+
                 # -- Metric baselines ----------------------------------------
                 if not await self._create_table_safe(db, "metric_baselines", [
                     """CREATE TABLE IF NOT EXISTS metric_baselines (
@@ -4797,6 +4824,151 @@ class UniversalRoomDatabase:
                 "get_recent_optimization_findings failed: %s", e,
             )
             return []
+
+    # ====================================================================
+    # v4.7.36 Phase 3 — Optimization daily digest DAOs.
+    # ====================================================================
+
+    async def log_daily_digest(
+        self,
+        date: str,
+        generated_at: str,
+        findings_count: int,
+        by_severity: dict,
+        by_dimension: dict,
+        summary: dict,
+    ) -> int | None:
+        """Single-path writer for an optimizer daily-digest row.
+
+        Mirrors the ``log_finding`` shape: defensive None-rejection on the
+        required columns, JSON-encoded payload columns, returns the row id
+        on success or None on failure.
+        """
+        import json as _json
+        if date is None or generated_at is None:
+            _LOGGER.warning(
+                "log_daily_digest: date/generated_at None; rejecting row "
+                "(date=%s, generated_at=%s)",
+                date, generated_at,
+            )
+            return None
+        try:
+            by_severity_json = (
+                _json.dumps(by_severity, default=str)
+                if by_severity is not None else None
+            )
+            by_dimension_json = (
+                _json.dumps(by_dimension, default=str)
+                if by_dimension is not None else None
+            )
+            summary_json = (
+                _json.dumps(summary, default=str)
+                if summary is not None else None
+            )
+        except (TypeError, ValueError) as enc_err:
+            _LOGGER.warning(
+                "log_daily_digest: payload JSON encode failed: %s", enc_err,
+            )
+            by_severity_json = by_dimension_json = summary_json = None
+        try:
+            async with self._db() as db:
+                # B2 fix-up: upsert on ``date``. Morning + evening fires for
+                # the same calendar day land in the same row (latest fire
+                # wins on generated_at + payload columns).
+                cursor = await db.execute(
+                    """INSERT INTO optimization_daily_digest
+                       (date, generated_at, findings_count,
+                        by_severity_json, by_dimension_json, summary_json)
+                       VALUES (?, ?, ?, ?, ?, ?)
+                       ON CONFLICT(date) DO UPDATE SET
+                           generated_at = excluded.generated_at,
+                           findings_count = excluded.findings_count,
+                           by_severity_json = excluded.by_severity_json,
+                           by_dimension_json = excluded.by_dimension_json,
+                           summary_json = excluded.summary_json""",
+                    (
+                        date, generated_at, int(findings_count),
+                        by_severity_json, by_dimension_json, summary_json,
+                    ),
+                )
+                await db.commit()
+                row_id = cursor.lastrowid
+                return int(row_id) if row_id is not None else None
+        except Exception as e:
+            _LOGGER.warning("log_daily_digest: insert failed: %s", e)
+            return None
+
+    async def get_recent_daily_digests(
+        self, limit: int = 14,
+    ) -> list[dict]:
+        """Read recent digest rows (most recent first)."""
+        try:
+            async with self._db_read() as db:
+                db.row_factory = aiosqlite.Row
+                cursor = await db.execute(
+                    """SELECT id, date, generated_at, findings_count,
+                              by_severity_json, by_dimension_json,
+                              summary_json
+                       FROM optimization_daily_digest
+                       ORDER BY generated_at DESC
+                       LIMIT ?""",
+                    (limit,),
+                )
+                rows = await cursor.fetchall()
+                return [dict(r) for r in rows]
+        except Exception as e:
+            _LOGGER.warning(
+                "get_recent_daily_digests failed: %s", e,
+            )
+            return []
+
+    async def prune_optimization_daily_digest(
+        self, batch_size: int = 500,
+    ) -> int:
+        """Prune digest rows older than the retention window (90 days).
+
+        Same batched-DELETE shape as ``prune_optimization_findings`` so a
+        large backlog can't stall the write queue (Bug Class #25).
+        """
+        # Local import — module-level retention const may be edited via
+        # const.py; reading lazily keeps the DAO test-friendly.
+        from .const import OPTIMIZER_DIGEST_RETENTION_DAYS
+        cutoff = (
+            dt_util.utcnow() - timedelta(days=OPTIMIZER_DIGEST_RETENTION_DAYS)
+        ).isoformat()
+        total_deleted = 0
+        _batch_count = 0
+        while True:
+            _batch_count += 1
+            if _batch_count > 500:
+                _LOGGER.warning(
+                    "optimization_daily_digest prune hit max batch limit",
+                )
+                break
+            try:
+                async with self._db() as db:
+                    cursor = await db.execute(
+                        "DELETE FROM optimization_daily_digest WHERE rowid IN ("
+                        "SELECT rowid FROM optimization_daily_digest "
+                        "WHERE generated_at < ? LIMIT ?)",
+                        (cutoff, batch_size),
+                    )
+                    await db.commit()
+                    deleted = cursor.rowcount
+                    total_deleted += deleted
+            except Exception as e:
+                _LOGGER.error(
+                    "Error pruning optimization_daily_digest: %s", e,
+                )
+                break
+            if deleted < batch_size:
+                break
+            await asyncio.sleep(0.1)
+        if total_deleted > 0:
+            _LOGGER.info(
+                "Pruned %d optimization_daily_digest entries", total_deleted,
+            )
+        return total_deleted
 
     async def get_recent_activities(self, limit: int = 10) -> list[dict]:
         """Get most recent activity log entries."""

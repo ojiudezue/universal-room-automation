@@ -47,6 +47,8 @@ _REQUIRED_TABLES = {
     "house_state_log",  # v4.6.5.1 P4 — count DAO behavioral test
     # v4.7.34 Phase 1 D4 — Optimization Coordinator findings table.
     "optimization_findings",
+    # v4.7.36 Phase 3 — Optimization daily digest table.
+    "optimization_daily_digest",
 }
 
 
