@@ -758,10 +758,15 @@ class UniversalRoomDatabase:
                 # one row per digest fire (morning/evening). Mirrors the
                 # ``optimization_findings`` shape; pruned by
                 # ``prune_optimization_daily_digest`` (90-day retention).
+                # v4.7.36 fix-up B2: UNIQUE(date) so morning+evening digest
+                # writes for the SAME date upsert into the same row instead
+                # of appending duplicates. Multi-person notifications fire N
+                # times per day; without UNIQUE the table would grow by N
+                # rows/day with identical payloads.
                 if not await self._create_table_safe(db, "optimization_daily_digest", [
                     """CREATE TABLE IF NOT EXISTS optimization_daily_digest (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
-                        date TEXT NOT NULL,
+                        date TEXT NOT NULL UNIQUE,
                         generated_at TEXT NOT NULL,
                         findings_count INTEGER NOT NULL,
                         by_severity_json TEXT,
@@ -4867,11 +4872,20 @@ class UniversalRoomDatabase:
             by_severity_json = by_dimension_json = summary_json = None
         try:
             async with self._db() as db:
+                # B2 fix-up: upsert on ``date``. Morning + evening fires for
+                # the same calendar day land in the same row (latest fire
+                # wins on generated_at + payload columns).
                 cursor = await db.execute(
                     """INSERT INTO optimization_daily_digest
                        (date, generated_at, findings_count,
                         by_severity_json, by_dimension_json, summary_json)
-                       VALUES (?, ?, ?, ?, ?, ?)""",
+                       VALUES (?, ?, ?, ?, ?, ?)
+                       ON CONFLICT(date) DO UPDATE SET
+                           generated_at = excluded.generated_at,
+                           findings_count = excluded.findings_count,
+                           by_severity_json = excluded.by_severity_json,
+                           by_dimension_json = excluded.by_dimension_json,
+                           summary_json = excluded.summary_json""",
                     (
                         date, generated_at, int(findings_count),
                         by_severity_json, by_dimension_json, summary_json,

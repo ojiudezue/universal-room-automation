@@ -90,6 +90,8 @@ from ..const import (
     OPTIMIZER_DIMENSION_SECURITY_POSTURE,
     OPTIMIZER_DIGEST_RETENTION_DAYS,
     OPTIMIZER_DIGEST_TOP_N,
+    OPTIMIZER_NOTIFY_DEDUP_CYCLES,
+    OPTIMIZER_OCCUPANCY_ACCURACY_GATE_SECONDS,
     OPTIMIZER_LEVEL_ADVISORY,
     OPTIMIZER_LEVEL_IMMEDIATE_CONFIG,
     OPTIMIZER_LEVEL_PROPOSE_CONFIG,
@@ -298,27 +300,24 @@ class OptimizerIntentBroker:
     def _get_hvac_coordinator(self):
         """Resolve the HVAC coordinator via the coordinator manager.
 
-        A-CRIT-1 fix-up: ``hass.data[DOMAIN]["hvac_coordinator"]`` is NOT a
-        slot the integration ever populates (only the OptimizerKillSwitch's
-        legacy code path probed it). HVAC is registered via
-        ``CoordinatorManager.register_coordinator(hvac)`` and lives in
-        ``manager.coordinators["hvac"]``. The CM itself is stored at
-        ``hass.data[DOMAIN]["coordinator_manager"]`` (``__init__.py:2159``).
-        Also tolerate the legacy slot for backward compat with tests that
-        seed it directly.
+        A4 fix-up: CM is authoritative. The legacy
+        ``hass.data[DOMAIN]["hvac_coordinator"]`` slot is gated behind the
+        ``_optimizer_test_mode`` flag so production cannot read a stale
+        injection that would win over the CM-managed coordinator. Tests
+        that need the legacy injection set the flag explicitly.
         """
         try:
             domain_data = self.hass.data.get(DOMAIN, {}) or {}
-            # Test-facing back-compat: honour an explicit hvac_coordinator
-            # slot if one is mounted (existing tests inject this).
-            hvac = domain_data.get("hvac_coordinator")
-            if hvac is not None:
-                return hvac
             cm = domain_data.get("coordinator_manager")
-            if cm is None:
-                return None
-            coords = getattr(cm, "coordinators", None) or {}
-            return coords.get("hvac")
+            if cm is not None:
+                coords = getattr(cm, "coordinators", None) or {}
+                hvac = coords.get("hvac")
+                if hvac is not None:
+                    return hvac
+            # Test-only back-compat: opt-in via the explicit test flag.
+            if domain_data.get("_optimizer_test_mode"):
+                return domain_data.get("hvac_coordinator")
+            return None
         except Exception:  # noqa: BLE001 — never crash dispatch
             return None
 
@@ -494,6 +493,10 @@ class OptimizationCoordinator(BaseCoordinator):
         self._comfort_out_since: dict[tuple, datetime] = {}
         # Per-room sustained-sensor-stuck tracking.
         self._sensor_stuck_since: dict[tuple, datetime] = {}
+        # A6 fix-up: per-room sustained occupancy/motion disagreement tracking.
+        # Disagreement must persist >= OPTIMIZER_OCCUPANCY_ACCURACY_GATE_SECONDS
+        # before emitting (motion-on/occupancy-off is transient at wake).
+        self._occ_accuracy_disagreement_since: dict[str, datetime] = {}
         # Phase 3 — per-zone scoreboard (populated post-cycle).
         self._zone_scores: dict[str, float] = {}
 
@@ -581,6 +584,14 @@ class OptimizationCoordinator(BaseCoordinator):
         _LOGGER.info("Coordinator optimization started (priority=%d, cycle=%ds)",
                      self.priority,
                      int(SCAN_INTERVAL_OPTIMIZATION.total_seconds()))
+        # A5 fix-up: once-per-startup record of which Phase 3 dimensions are
+        # deferred stubs (substrate not cleanly available). Helps the operator
+        # tell "rule ran, no issues" from "rule isn't really online yet"
+        # without spamming each 5-min cycle.
+        _LOGGER.debug(
+            "Optimizer: deferred-stub dimensions (return [] until Phase 3.x): "
+            "automation_responsiveness, energy_efficiency, setpoint_compliance"
+        )
 
     async def evaluate(
         self,
@@ -615,24 +626,46 @@ class OptimizationCoordinator(BaseCoordinator):
         """Public test entry point — run one optimizer cycle.
 
         Returns the list of findings emitted this cycle (for tests).
+
+        A1 fix-up: each evaluator runs inside its own try/except so one
+        buggy dimension can't blackhole the cycle's META sentinel or any
+        later dimension. Failures log a WARNING with the evaluator name and
+        cycle proceeds; the META sentinel ALWAYS emits so Review-D's
+        sentinels-only diagnostic stays trustworthy.
         """
         self._cycle_dedup.clear()
         findings: list[OptimizationFinding] = []
-        # Phase 1 dimensions.
-        findings.extend(self._evaluate_sensor_health_dimension())
-        findings.extend(self._evaluate_comfort_dimension())
-        # Phase 3 — room-level.
-        findings.extend(self._evaluate_occupancy_accuracy_dimension())
-        findings.extend(self._evaluate_automation_responsiveness_dimension())
-        findings.extend(self._evaluate_config_behavior_dimension())
-        findings.extend(self._evaluate_energy_efficiency_dimension())
-        # Phase 3 — zone-level.
-        findings.extend(self._evaluate_setpoint_compliance_dimension())
-        findings.extend(self._evaluate_vacancy_management_dimension())
-        findings.extend(self._evaluate_override_frequency_dimension())
-        # Phase 3 — house-level.
-        findings.extend(self._evaluate_state_machine_accuracy_dimension())
-        findings.extend(self._evaluate_security_posture_dimension())
+        # Each entry: (name-for-logging, callable-returning-list)
+        evaluators: tuple[tuple[str, Any], ...] = (
+            # Phase 1 dimensions.
+            ("sensor_health", self._evaluate_sensor_health_dimension),
+            ("comfort", self._evaluate_comfort_dimension),
+            # Phase 3 — room-level.
+            ("occupancy_accuracy", self._evaluate_occupancy_accuracy_dimension),
+            ("automation_responsiveness",
+             self._evaluate_automation_responsiveness_dimension),
+            ("config_behavior", self._evaluate_config_behavior_dimension),
+            ("energy_efficiency", self._evaluate_energy_efficiency_dimension),
+            # Phase 3 — zone-level.
+            ("setpoint_compliance",
+             self._evaluate_setpoint_compliance_dimension),
+            ("vacancy_management",
+             self._evaluate_vacancy_management_dimension),
+            ("override_frequency",
+             self._evaluate_override_frequency_dimension),
+            # Phase 3 — house-level.
+            ("state_machine_accuracy",
+             self._evaluate_state_machine_accuracy_dimension),
+            ("security_posture", self._evaluate_security_posture_dimension),
+        )
+        for name, fn in evaluators:
+            try:
+                findings.extend(fn() or [])
+            except Exception as exc:  # noqa: BLE001 — never let one dim kill the cycle
+                _LOGGER.warning(
+                    "Optimizer evaluator '%s' raised; skipping this dim "
+                    "(cycle continues): %s", name, exc, exc_info=True,
+                )
 
         # D5 sentinel — emit one `meta` finding per cycle so silent-failure
         # (no rule ever fires) is distinguishable from "rule ran, no
@@ -771,22 +804,22 @@ class OptimizationCoordinator(BaseCoordinator):
     def _get_hvac_coordinator(self):
         """Resolve the HVAC coordinator via the coordinator manager.
 
-        A-CRIT-1 fix-up: ``hass.data[DOMAIN]["hvac_coordinator"]`` is NOT a
-        slot the integration populates. The CoordinatorManager is at
-        ``hass.data[DOMAIN]["coordinator_manager"]`` (__init__.py:2159)
-        and HVAC lives in ``manager.coordinators["hvac"]``. The legacy
-        slot is consulted first for test-injection back-compat.
+        A4 fix-up: CM is authoritative. The legacy
+        ``hass.data[DOMAIN]["hvac_coordinator"]`` slot is gated behind the
+        ``_optimizer_test_mode`` flag so production cannot read a stale
+        injection that would win over the CM-managed coordinator.
         """
         try:
             domain_data = self.hass.data.get(DOMAIN, {}) or {}
-            hvac = domain_data.get("hvac_coordinator")
-            if hvac is not None:
-                return hvac
             cm = domain_data.get("coordinator_manager")
-            if cm is None:
-                return None
-            coords = getattr(cm, "coordinators", None) or {}
-            return coords.get("hvac")
+            if cm is not None:
+                coords = getattr(cm, "coordinators", None) or {}
+                hvac = coords.get("hvac")
+                if hvac is not None:
+                    return hvac
+            if domain_data.get("_optimizer_test_mode"):
+                return domain_data.get("hvac_coordinator")
+            return None
         except Exception:  # noqa: BLE001
             return None
 
@@ -1115,6 +1148,22 @@ class OptimizationCoordinator(BaseCoordinator):
                     occ_on = True
                     break
             if occ_on:
+                # Disagreement cleared — drop the sustained-since stamp.
+                self._occ_accuracy_disagreement_since.pop(room, None)
+                continue
+            # A6 fix-up: motion-on/occupancy-off is transient at sensor wake.
+            # Require the disagreement to persist for at least
+            # OPTIMIZER_OCCUPANCY_ACCURACY_GATE_SECONDS before emitting.
+            since = self._occ_accuracy_disagreement_since.get(room)
+            if since is None:
+                self._occ_accuracy_disagreement_since[room] = now
+                continue
+            try:
+                if (now - since).total_seconds() < (
+                    OPTIMIZER_OCCUPANCY_ACCURACY_GATE_SECONDS
+                ):
+                    continue
+            except Exception:  # noqa: BLE001
                 continue
             dedup_key = ("occupancy_accuracy", room)
             if dedup_key in self._cycle_dedup:
@@ -1270,11 +1319,17 @@ class OptimizationCoordinator(BaseCoordinator):
             if not sweep_enabled or cont_since is None or sweep_done:
                 continue
             try:
-                # Normalize TZ for comparison (both should be UTC).
+                # A3 fix-up: normalize TZ for comparison. A naive
+                # ``continuous_occupied_since`` is from HA's local clock —
+                # promote it via ``as_local`` → ``as_utc`` instead of
+                # mislabelling a naive value as UTC (which would shift the
+                # hours-since computation by the local UTC offset).
                 cs = cont_since
-                if cs.tzinfo is None and now.tzinfo is not None:
-                    cs = cs.replace(tzinfo=now.tzinfo)
-                elif cs.tzinfo is not None and now.tzinfo is None:
+                if cs.tzinfo is None:
+                    cs = dt_util.as_utc(dt_util.as_local(cs))
+                if now.tzinfo is None:
+                    # Defensive: dt_util.utcnow() is aware; only strip when
+                    # both sides are naive to keep arithmetic well-defined.
                     cs = cs.replace(tzinfo=None)
                 hours = (now - cs).total_seconds() / 3600.0
             except Exception:  # noqa: BLE001
@@ -2322,6 +2377,38 @@ class OptimizationCoordinator(BaseCoordinator):
         nm = self.hass.data.get(DOMAIN, {}).get("notification_manager")
         if nm is None:
             return
+        # A2 fix-up: cross-cycle dedup so an unchanged high finding
+        # (e.g. away+unlocked SECURITY_POSTURE / sustained OVERRIDE_FREQUENCY)
+        # doesn't page every 5-min cycle. Suppress re-notify for the same
+        # dedup_key for OPTIMIZER_NOTIFY_DEDUP_CYCLES (~12 cycles ≈ 1h).
+        try:
+            dkey = finding.dedup_key
+        except Exception:  # noqa: BLE001
+            dkey = None
+        if dkey is not None:
+            if not hasattr(self, "_notify_dedup_state"):
+                # (cycles_remaining_int) keyed by stringified dedup_key.
+                self._notify_dedup_state: dict[str, int] = {}
+            # Decrement existing TTLs each call so the dict drains naturally.
+            stale: list[str] = []
+            for k in list(self._notify_dedup_state.keys()):
+                self._notify_dedup_state[k] -= 1
+                if self._notify_dedup_state[k] <= 0:
+                    stale.append(k)
+            for k in stale:
+                self._notify_dedup_state.pop(k, None)
+            dkey_str = str(dkey)
+            if dkey_str in self._notify_dedup_state:
+                _LOGGER.debug(
+                    "Optimizer: suppressed re-notify for dedup_key=%s "
+                    "(cycles_remaining=%d)",
+                    dkey_str, self._notify_dedup_state[dkey_str],
+                )
+                return
+            # Mark this dedup_key as suppressed for the next N cycles.
+            self._notify_dedup_state[dkey_str] = (
+                OPTIMIZER_NOTIFY_DEDUP_CYCLES
+            )
         sev_map = {"critical": Severity.CRITICAL, "high": Severity.HIGH}
         try:
             await nm.async_notify(
@@ -2331,7 +2418,28 @@ class OptimizationCoordinator(BaseCoordinator):
                 message=finding.description,
                 hazard_type=None,
                 location=finding.target_id or "house",
+                # A2: pass a stable identity so NM can dedup downstream too.
+                event_class=(
+                    f"optimizer.{finding.dimension}"
+                    if finding.dimension is not None else "optimizer"
+                ),
+                dedup_key=(str(finding.dedup_key)
+                           if finding.dedup_key is not None else None),
             )
+        except TypeError:
+            # NM signature may not accept the new kwargs in tests/older
+            # builds; retry without them so the notification still fires.
+            try:
+                await nm.async_notify(
+                    coordinator_id="optimization",
+                    severity=sev_map[finding.severity],
+                    title=f"URA Optimizer — {finding.dimension}",
+                    message=finding.description,
+                    hazard_type=None,
+                    location=finding.target_id or "house",
+                )
+            except Exception as exc:  # noqa: BLE001
+                _LOGGER.debug("NM notify failed: %s", exc, exc_info=True)
         except Exception as exc:  # noqa: BLE001
             _LOGGER.debug("NM notify failed: %s", exc, exc_info=True)
 
@@ -2479,8 +2587,12 @@ class OptimizationCoordinator(BaseCoordinator):
                 "description": f.description,
             })
         now = dt_util.utcnow()
+        # B4 fix-up: ``date`` is the user-facing day of coverage — use the
+        # local calendar date, not the UTC date (which rolls late-evening
+        # local time into the NEXT day). ``generated_at`` stays UTC ISO
+        # for stable global ordering.
         return {
-            "date": now.date().isoformat(),
+            "date": dt_util.now().date().isoformat(),
             "generated_at": now.isoformat(),
             "findings_count": len(real),
             "by_severity": by_sev,
@@ -2492,20 +2604,44 @@ class OptimizationCoordinator(BaseCoordinator):
     async def persist_daily_digest(
         self, findings: list[OptimizationFinding] | None = None,
     ) -> int | None:
-        """Build + persist a digest row. Returns the new id or None."""
+        """Build + persist a digest row. Returns the new id or None.
+
+        B2 fix-up: NM fires the digest hook once per person per day, so a
+        2-person house would persist 2 identical rows. Two layers of dedup:
+
+        1. In-memory ``_last_persisted_digest_date`` short-circuits the
+           DB round-trip on the 2nd+ fire of the same calendar day.
+        2. The DB-level UNIQUE(date) + ON CONFLICT DO UPDATE in
+           ``log_daily_digest`` is the durable safety net (covers cross-
+           restart and timing races).
+        """
         database = self.hass.data.get(DOMAIN, {}).get("database")
         if database is None or not hasattr(database, "log_daily_digest"):
             return None
         payload = self.build_daily_digest_payload(findings=findings)
+        today = payload["date"]
+        last = getattr(self, "_last_persisted_digest_date", None)
+        if last == today:
+            _LOGGER.debug(
+                "Optimizer: digest already persisted for %s; skipping "
+                "duplicate write (in-memory once-per-day guard)", today,
+            )
+            return None
         try:
-            return await database.log_daily_digest(
-                date=payload["date"],
+            row_id = await database.log_daily_digest(
+                date=today,
                 generated_at=payload["generated_at"],
                 findings_count=payload["findings_count"],
                 by_severity=payload["by_severity"],
                 by_dimension=payload["by_dimension"],
                 summary=payload,
             )
+            # Only mark as persisted on a successful write; a None return
+            # means the DAO rejected the row (e.g. None date) and we want
+            # the next call to retry.
+            if row_id is not None:
+                self._last_persisted_digest_date = today
+            return row_id
         except Exception as exc:  # noqa: BLE001
             _LOGGER.warning("persist_daily_digest failed: %s", exc)
             return None

@@ -1573,6 +1573,14 @@ OPTIMIZER_DIMENSION_SECURITY_POSTURE: Final = "security_posture"
 OPTIMIZER_DIGEST_RETENTION_DAYS: Final = 90
 # Top-N findings to include in the digest summary.
 OPTIMIZER_DIGEST_TOP_N: Final = 5
+# v4.7.36 fix-up (A2): suppress re-notify for the same finding dedup_key for
+# this many consecutive 5-min cycles. 12 cycles ≈ 1h — long enough that an
+# unchanged "away+unlocked" / "20+ overrides" advisory doesn't re-page every
+# cycle, short enough that a re-emergence after resolution still alerts.
+OPTIMIZER_NOTIFY_DEDUP_CYCLES: Final = 12
+# v4.7.36 fix-up (A6): occupancy-accuracy disagreement must persist this many
+# seconds before firing (motion-on/occupancy-off is transient at sensor wake).
+OPTIMIZER_OCCUPANCY_ACCURACY_GATE_SECONDS: Final = 120
 
 # 5-min cycle (matches SCAN_INTERVAL_ENERGY cadence — runs last per
 # priority=5).

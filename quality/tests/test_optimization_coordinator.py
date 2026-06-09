@@ -593,6 +593,8 @@ async def test_optimizer_handshake_suppresses_hvac():
     hvac = MagicMock()
     hvac.override_arrester = arrester
     hass.data["universal_room_automation"]["hvac_coordinator"] = hvac
+    # A4 fix-up: legacy slot is gated behind the explicit test flag.
+    hass.data["universal_room_automation"]["_optimizer_test_mode"] = True
 
     coord = OptimizationCoordinator(hass)
     f = OptimizationFinding(
@@ -2634,6 +2636,11 @@ async def test_rule_engine_occupancy_accuracy_provenance_disagreement():
     hass.states.set("binary_sensor.kitchen_motion", "on")
     hass.states.set("binary_sensor.kitchen_occ", "off")
     coord = OptimizationCoordinator(hass)
+    # A6 fix-up: disagreement requires a sustained gate (>= 120s) — seed the
+    # since-stamp in the past so the gate passes on the first evaluation.
+    coord._occ_accuracy_disagreement_since["kitchen"] = (
+        _opt_now() - timedelta(seconds=300)
+    )
     findings = coord._evaluate_occupancy_accuracy_dimension()
     matching = [f for f in findings
                 if f.dimension == OptimizationDimension.OCCUPANCY_ACCURACY]
@@ -2730,6 +2737,8 @@ async def test_rule_engine_vacancy_management_stuck_occupancy():
 
     hass, _ = _make_hass()
     hass.data["universal_room_automation"]["hvac_coordinator"] = _FakeHVAC()
+    # A4 fix-up: legacy slot is gated behind the explicit test flag.
+    hass.data["universal_room_automation"]["_optimizer_test_mode"] = True
     coord = OptimizationCoordinator(hass)
     findings = coord._evaluate_vacancy_management_dimension()
     matching = [f for f in findings
@@ -2761,6 +2770,8 @@ async def test_rule_engine_vacancy_management_recent_no_finding():
 
     hass, _ = _make_hass()
     hass.data["universal_room_automation"]["hvac_coordinator"] = _FakeHVAC()
+    # A4 fix-up: legacy slot is gated behind the explicit test flag.
+    hass.data["universal_room_automation"]["_optimizer_test_mode"] = True
     coord = OptimizationCoordinator(hass)
     findings = coord._evaluate_vacancy_management_dimension()
     assert [f for f in findings
@@ -2787,6 +2798,8 @@ async def test_rule_engine_override_frequency_fires_at_threshold():
 
     hass, _ = _make_hass()
     hass.data["universal_room_automation"]["hvac_coordinator"] = _FakeHVAC()
+    # A4 fix-up: legacy slot is gated behind the explicit test flag.
+    hass.data["universal_room_automation"]["_optimizer_test_mode"] = True
     coord = OptimizationCoordinator(hass)
     findings = coord._evaluate_override_frequency_dimension()
     matching = [f for f in findings
@@ -2927,33 +2940,112 @@ async def test_deferred_dimensions_return_empty():
 
 @pytest.mark.asyncio
 async def test_optimization_daily_digest_dao_roundtrip(real_schema_db):
-    """log_daily_digest writes a row that reads back via SELECT."""
+    """log_daily_digest writes a row that reads back via the production
+    SELECT shape ``get_recent_daily_digests`` uses.
+
+    C1 fix-up (Bug Class #44): drives the REAL ``log_daily_digest`` DAO by
+    extracting the production INSERT SQL out of database.py source and
+    executing it against ``real_schema_db`` — no hand-copied INSERT.
+    """
+    import inspect
+    import re
     import json as _json
+    from custom_components.universal_room_automation import database as _db_mod
+
+    src = inspect.getsource(_db_mod.UniversalRoomDatabase.log_daily_digest)
+    # Pull the INSERT...VALUES clause out of the production source. The
+    # ``ON CONFLICT`` upsert is sqlite syntax accepted by stdlib sqlite3
+    # in the in-memory fixture, so the whole statement runs unchanged.
+    m = re.search(
+        r'"""(INSERT INTO optimization_daily_digest.*?)"""',
+        src, re.DOTALL,
+    )
+    assert m, "production log_daily_digest INSERT SQL not found"
+    production_sql = m.group(1)
+
     conn = real_schema_db
+    by_sev = {"critical": 0, "high": 1, "medium": 2, "low": 0}
+    by_dim = {"comfort": 2, "security_posture": 1}
+    summary = {"top": [{"description": "x"}]}
     conn.execute(
-        """INSERT INTO optimization_daily_digest
-           (date, generated_at, findings_count,
-            by_severity_json, by_dimension_json, summary_json)
-           VALUES (?, ?, ?, ?, ?, ?)""",
+        production_sql,
         (
             "2026-06-09",
             "2026-06-09T08:00:00",
             3,
-            _json.dumps({"critical": 0, "high": 1, "medium": 2, "low": 0}),
-            _json.dumps({"comfort": 2, "security_posture": 1}),
-            _json.dumps({"top": [{"description": "x"}]}),
+            _json.dumps(by_sev),
+            _json.dumps(by_dim),
+            _json.dumps(summary),
         ),
     )
     conn.commit()
+    # Mirror the production SELECT shape from ``get_recent_daily_digests``
+    # (database.py:4887) — same column order so a downstream consumer
+    # would parse this row identically.
     rows = conn.execute(
-        "SELECT date, findings_count, by_severity_json FROM "
-        "optimization_daily_digest ORDER BY id DESC LIMIT 1"
+        """SELECT id, date, generated_at, findings_count,
+                  by_severity_json, by_dimension_json, summary_json
+           FROM optimization_daily_digest
+           ORDER BY generated_at DESC
+           LIMIT 1"""
     ).fetchall()
     assert len(rows) == 1
     row = rows[0]
     assert row["date"] == "2026-06-09"
     assert row["findings_count"] == 3
-    assert "high" in row["by_severity_json"]
+    assert _json.loads(row["by_severity_json"])["high"] == 1
+    assert _json.loads(row["by_dimension_json"])["comfort"] == 2
+
+
+@pytest.mark.asyncio
+async def test_optimization_daily_digest_upsert_dedups_on_date(real_schema_db):
+    """B2 fix-up: UNIQUE(date) + ON CONFLICT DO UPDATE — two writes for the
+    same date result in ONE row, not two (morning + evening fires update
+    the same row instead of appending duplicates)."""
+    import inspect
+    import re
+    import json as _json
+    from custom_components.universal_room_automation import database as _db_mod
+
+    src = inspect.getsource(_db_mod.UniversalRoomDatabase.log_daily_digest)
+    m = re.search(
+        r'"""(INSERT INTO optimization_daily_digest.*?)"""',
+        src, re.DOTALL,
+    )
+    assert m, "production log_daily_digest INSERT SQL not found"
+    production_sql = m.group(1)
+    assert "ON CONFLICT" in production_sql.upper(), (
+        "production INSERT must include upsert clause"
+    )
+
+    conn = real_schema_db
+    # Morning fire.
+    conn.execute(
+        production_sql,
+        ("2026-06-09", "2026-06-09T08:00:00", 2,
+         _json.dumps({"high": 1, "medium": 1, "critical": 0, "low": 0}),
+         _json.dumps({"comfort": 2}),
+         _json.dumps({"top": []})),
+    )
+    # Evening fire — same date, different generated_at + payload.
+    conn.execute(
+        production_sql,
+        ("2026-06-09", "2026-06-09T20:00:00", 5,
+         _json.dumps({"high": 2, "medium": 3, "critical": 0, "low": 0}),
+         _json.dumps({"comfort": 4, "security_posture": 1}),
+         _json.dumps({"top": [{"description": "y"}]})),
+    )
+    conn.commit()
+    rows = conn.execute(
+        "SELECT date, generated_at, findings_count FROM "
+        "optimization_daily_digest WHERE date = ?",
+        ("2026-06-09",),
+    ).fetchall()
+    assert len(rows) == 1, (
+        f"expected upsert to keep one row per date, got {len(rows)}"
+    )
+    assert rows[0]["generated_at"] == "2026-06-09T20:00:00"
+    assert rows[0]["findings_count"] == 5
 
 
 @pytest.mark.asyncio
@@ -2993,7 +3085,12 @@ async def test_optimization_daily_digest_log_dao_via_production():
 
 @pytest.mark.asyncio
 async def test_optimization_daily_digest_log_dao_rejects_none_date():
-    """Defensive: log_daily_digest with None date returns None."""
+    """Defensive: log_daily_digest with None date returns None.
+
+    C3 fix-up: also assert the sister case (None ``generated_at``) — the
+    production guard rejects BOTH None inputs and tests should cover both
+    so a regression that drops one branch is caught.
+    """
     from custom_components.universal_room_automation import database as _db_mod
     inst = _db_mod.UniversalRoomDatabase.__new__(_db_mod.UniversalRoomDatabase)
     result = await inst.log_daily_digest(
@@ -3005,32 +3102,72 @@ async def test_optimization_daily_digest_log_dao_rejects_none_date():
         summary={},
     )
     assert result is None
+    # Sister assertion — None generated_at must also reject.
+    result2 = await inst.log_daily_digest(
+        date="2026-06-09",
+        generated_at=None,
+        findings_count=0,
+        by_severity={},
+        by_dimension={},
+        summary={},
+    )
+    assert result2 is None
 
 
 @pytest.mark.asyncio
 async def test_optimization_daily_digest_prune(real_schema_db):
-    """prune_optimization_daily_digest deletes rows older than retention."""
+    """C2 fix-up (Bug Class #44): drive the REAL
+    ``prune_optimization_daily_digest`` DAO end-to-end by stubbing
+    ``self._db()`` to delegate to the in-memory ``real_schema_db``
+    sqlite3 connection. This exercises the production batched-DELETE
+    behaviour — not a hand-rolled DELETE.
+    """
     from datetime import datetime, timedelta
+    from custom_components.universal_room_automation import database as _db_mod
+
     conn = real_schema_db
+    # Seed via the same production INSERT shape the upsert path uses.
     old_ts = (datetime.utcnow() - timedelta(days=120)).isoformat()
     new_ts = (datetime.utcnow() - timedelta(days=2)).isoformat()
-    for ts in (old_ts, new_ts):
-        conn.execute(
-            """INSERT INTO optimization_daily_digest
-               (date, generated_at, findings_count,
-                by_severity_json, by_dimension_json, summary_json)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            (ts[:10], ts, 1, "{}", "{}", "{}"),
-        )
+    # NB: date is the dedup key now; give each row a distinct date.
+    seed_sql = (
+        "INSERT INTO optimization_daily_digest "
+        "(date, generated_at, findings_count, "
+        " by_severity_json, by_dimension_json, summary_json) "
+        "VALUES (?, ?, ?, ?, ?, ?)"
+    )
+    conn.execute(seed_sql, (old_ts[:10], old_ts, 1, "{}", "{}", "{}"))
+    conn.execute(seed_sql, (new_ts[:10], new_ts, 1, "{}", "{}", "{}"))
     conn.commit()
-    # Smoke-emulate the DELETE WHERE generated_at < cutoff path.
-    cutoff = (datetime.utcnow() - timedelta(days=90)).isoformat()
-    n_deleted = conn.execute(
-        "DELETE FROM optimization_daily_digest WHERE generated_at < ?",
-        (cutoff,),
-    ).rowcount
-    conn.commit()
-    assert n_deleted == 1
+
+    # Bridge: the production DAO is async and awaits db.execute / db.commit.
+    # Wrap the stdlib sqlite3 connection so the same DAO drives it.
+    class _AsyncBridge:
+        def __init__(self, real_conn):
+            self._c = real_conn
+            self._last_cursor = None
+
+        async def execute(self, sql, params=()):
+            self._last_cursor = self._c.execute(sql, params)
+            return self._last_cursor
+
+        async def commit(self):
+            self._c.commit()
+
+    bridge = _AsyncBridge(conn)
+
+    class _FakeCtx:
+        async def __aenter__(self_inner):
+            return bridge
+        async def __aexit__(self_inner, *args):
+            return None
+
+    inst = _db_mod.UniversalRoomDatabase.__new__(_db_mod.UniversalRoomDatabase)
+    inst._db = lambda: _FakeCtx()
+
+    deleted = await inst.prune_optimization_daily_digest(batch_size=500)
+    assert deleted == 1, f"expected 1 pruned row, got {deleted}"
+
     remaining = conn.execute(
         "SELECT generated_at FROM optimization_daily_digest"
     ).fetchall()
@@ -3139,9 +3276,18 @@ async def test_zone_scoreboard_populated_when_zone_finding_fires():
 
 @pytest.mark.asyncio
 async def test_optimizer_room_health_attrs_include_phase3_dimensions():
-    """RoomOptimizationHealthSensor degraded_dimensions surface new dims."""
+    """C2-test fix-up (Bug Class #44): drive the REAL
+    ``RoomOptimizationHealthSensor.extra_state_attributes`` property
+    instead of hand-rolling the derivation in the test. Instantiates the
+    sensor via ``__new__`` and stubs the two collaborators it reads —
+    ``_get_optimizer`` (CM-managed coord lookup) and ``_room_name`` (entry
+    data read) — so the production property runs end-to-end.
+    """
     from custom_components.universal_room_automation.domain_coordinators.optimization import (
         OptimizationCoordinator, OptimizationFinding, OptimizationDimension,
+    )
+    from custom_components.universal_room_automation.sensor import (
+        RoomOptimizationHealthSensor,
     )
     hass, _ = _make_hass()
     coord = OptimizationCoordinator(hass)
@@ -3160,12 +3306,26 @@ async def test_optimizer_room_health_attrs_include_phase3_dimensions():
             severity="medium", confidence=0.95, score=0.0,
             description="kitchen comfort config bug",
         ),
+        # Non-matching finding (different room) must NOT appear.
+        OptimizationFinding(
+            timestamp=_opt_now().isoformat(),
+            level="room", target_id="bathroom",
+            dimension=OptimizationDimension.SENSOR_HEALTH,
+            severity="high", confidence=0.9, score=0.0,
+            description="bathroom temp stuck",
+        ),
     ]
-    # Derive degraded_dimensions the same way the sensor does (one-line).
-    degraded = []
-    for f in coord._last_findings:
-        if f.level == "room" and f.target_id == "kitchen":
-            if str(f.dimension) not in degraded:
-                degraded.append(str(f.dimension))
+    # Instantiate the real sensor via __new__ (CoordinatorEntity __init__
+    # requires a full UniversalRoomCoordinator which carries an HA entity
+    # registry coupling we don't need here). Then stub the two
+    # collaborators the production property reads.
+    sensor = RoomOptimizationHealthSensor.__new__(RoomOptimizationHealthSensor)
+    sensor._get_optimizer = lambda: coord
+    sensor._room_name = lambda: "kitchen"
+
+    attrs = sensor.extra_state_attributes
+    degraded = attrs["degraded_dimensions"]
     assert "occupancy_accuracy" in degraded
     assert "config_behavior" in degraded
+    # Cross-room finding (bathroom sensor_health) must NOT leak in.
+    assert "sensor_health" not in degraded

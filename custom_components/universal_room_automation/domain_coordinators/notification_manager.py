@@ -2113,21 +2113,27 @@ class NotificationManager:
             opt = coords.get("optimization")
             if opt is None:
                 return ""
-            # Persist the digest row best-effort. Errors are swallowed by
-            # ``persist_daily_digest``; we still render the section either way.
+            # B1 fix-up: schedule via ``hass.async_create_task`` so HA holds a
+            # strong reference (no GC mid-flight) and surfaces exceptions.
+            # Bare ``asyncio.create_task`` is Bug Class #19 (untracked task).
             try:
-                # Fire-and-forget — NM is already inside an async context.
-                import asyncio as _asyncio
-                _asyncio.create_task(opt.persist_daily_digest())
+                self.hass.async_create_task(
+                    opt.persist_daily_digest(),
+                    name="ura_optimizer_persist_daily_digest",
+                )
             except Exception:  # noqa: BLE001
-                _LOGGER.debug(
+                # B5 fix-up: a render bug shouldn't silently strip the
+                # optimizer section forever at DEBUG level — escalate to
+                # WARNING so it's visible in HA logs.
+                _LOGGER.warning(
                     "optimizer.persist_daily_digest schedule failed",
                     exc_info=True,
                 )
             section = opt.format_digest_section()
             return section or ""
         except Exception:  # noqa: BLE001
-            _LOGGER.debug(
+            # B6 fix-up: escalate render-section failure to WARNING.
+            _LOGGER.warning(
                 "optimizer digest section build failed", exc_info=True,
             )
             return ""
