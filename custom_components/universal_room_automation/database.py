@@ -4746,6 +4746,122 @@ class UniversalRoomDatabase:
             _LOGGER.warning("log_finding: insert failed: %s", e)
             return None
 
+    async def log_findings_batch(self, findings: list) -> int:
+        """Batched single-transaction writer for OptimizationFinding rows.
+
+        v5.2.2 post-mortem fix for DB write-queue saturation: the cycle
+        used to call ``log_finding`` (one ``_db()`` acquisition each) in
+        a loop over N findings, which dumped N items into the single
+        write queue back-to-back and starved core URA writes during the
+        boot storm (35+ Sensor-Health findings/cycle).
+
+        This DAO does ONE write-queue round-trip regardless of the
+        finding count: a single ``self._db()`` acquisition, all rows
+        ``executemany``'d in one transaction. Per-row None-guards mirror
+        ``log_finding`` so a single bad row does NOT fail the batch —
+        it's skipped with a warning, good rows still commit.
+
+        Returns the count of rows actually written (0 if the batch was
+        empty or every row was rejected by the None-guards / encode
+        failed).
+        """
+        import json as _json
+
+        if not findings:
+            return 0
+
+        # Pre-encode + guard rows first. Build the tuple list outside the
+        # write-queue critical section so JSON encoding latency is not
+        # held against the worker.
+        rows: list[tuple] = []
+        for finding in findings:
+            # Mirror log_finding's None-guards: never persist NULL dim/sev.
+            _dim = getattr(finding, "dimension", None)
+            if _dim is None:
+                _LOGGER.warning(
+                    "log_findings_batch: skipping row with dimension=None "
+                    "(target_id=%s, description=%s)",
+                    getattr(finding, "target_id", None),
+                    getattr(finding, "description", None),
+                )
+                continue
+            _sev = getattr(finding, "severity", None)
+            if _sev is None:
+                _LOGGER.warning(
+                    "log_findings_batch: skipping row with severity=None "
+                    "(target_id=%s, dimension=%s)",
+                    getattr(finding, "target_id", None),
+                    _dim,
+                )
+                continue
+            try:
+                payload_json = (
+                    _json.dumps(finding.payload, default=str)
+                    if getattr(finding, "payload", None) is not None
+                    else None
+                )
+                proposed_action_json = (
+                    _json.dumps(finding.proposed_action, default=str)
+                    if getattr(finding, "proposed_action", None) is not None
+                    else None
+                )
+                predicted_effect_json = (
+                    _json.dumps(finding.predicted_effect, default=str)
+                    if getattr(finding, "predicted_effect", None) is not None
+                    else None
+                )
+                observed_effect_json = (
+                    _json.dumps(finding.observed_effect, default=str)
+                    if getattr(finding, "observed_effect", None) is not None
+                    else None
+                )
+            except (TypeError, ValueError) as enc_err:
+                _LOGGER.warning(
+                    "log_findings_batch: payload JSON encode failed for "
+                    "target_id=%s — skipping row: %s",
+                    getattr(finding, "target_id", None), enc_err,
+                )
+                continue
+            rows.append((
+                finding.timestamp,
+                finding.level,
+                finding.target_id,
+                str(finding.dimension),
+                finding.severity,
+                finding.confidence,
+                finding.score,
+                finding.description,
+                proposed_action_json,
+                finding.action_class,
+                finding.applied_action_id,
+                finding.applied_outcome,
+                predicted_effect_json,
+                observed_effect_json,
+                payload_json,
+                finding.created_by,
+            ))
+
+        if not rows:
+            return 0
+
+        try:
+            async with self._db() as db:
+                await db.executemany(
+                    """INSERT INTO optimization_findings
+                       (timestamp, level, target_id, dimension, severity,
+                        confidence, score, description, proposed_action_json,
+                        action_class, applied_action_id, applied_outcome,
+                        predicted_effect_json, observed_effect_json,
+                        payload_json, created_by)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    rows,
+                )
+                await db.commit()
+                return len(rows)
+        except Exception as e:
+            _LOGGER.warning("log_findings_batch: insert failed: %s", e)
+            return 0
+
     async def prune_optimization_findings(
         self, batch_size: int = 1000,
     ) -> int:

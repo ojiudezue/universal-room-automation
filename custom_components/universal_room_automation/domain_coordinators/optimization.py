@@ -99,6 +99,10 @@ from ..const import (
     OPTIMIZER_LEVEL_REVERSIBLE_DEVICE,
     OPTIMIZER_LEVEL_SHADOW,
     OPTIMIZER_LEVEL_UNBOUNDED,
+    # v5.2.2 — post-mortem write-queue saturation guardrails.
+    OPTIMIZER_MAX_FINDINGS_PER_CYCLE,
+    OPTIMIZER_BOOT_SETTLE_CYCLES,
+    OPTIMIZER_BOOT_STORM_ROOM_FRACTION,
     OPTIMIZER_OUTCOME_ADVISORY_ONLY,
     OPTIMIZER_OUTCOME_APPLIED,
     OPTIMIZER_OUTCOME_BELOW_GATE,
@@ -503,6 +507,14 @@ class OptimizationCoordinator(BaseCoordinator):
         # Cycle handle.
         self._cycle_unsub = None
 
+        # v5.2.2 — boot-settle counter. The first
+        # ``OPTIMIZER_BOOT_SETTLE_CYCLES`` cycles after coordinator start
+        # SKIP persistence + signal dispatch (META sentinel still emits)
+        # so the cold-boot unavailable-sensor sweep can't flood the
+        # write queue. Real-time integration tests can monkey-patch
+        # this to 0 if they need first-cycle persistence.
+        self._cycles_since_start: int = 0
+
         # Phase 2 — LLM Tier-2 wrapper. Lazily constructed so importing
         # the optimizer module doesn't trigger the LLM import chain when
         # only Phase-1 is being used.
@@ -685,28 +697,67 @@ class OptimizationCoordinator(BaseCoordinator):
             )
         )
 
-        # Score + persist + (optionally) dispatch each finding.
+        # v5.2.2 — bound per-cycle cost. If a pathological dimension
+        # emits more rows than the sane cap, truncate (highest-severity
+        # first) before persistence so the write queue can't be flooded.
+        findings = self._cap_findings(findings)
+
+        # Score + (optionally) gate-and-apply each finding. Persistence
+        # + signal dispatch are batched to ONE write + ONE signal per
+        # cycle (v5.2.2 post-mortem fix for DB write-queue saturation).
         self._update_scoreboard(findings)
 
+        # Boot-storm gate: during the first few cycles or while the
+        # house's configured sensors are mostly `unavailable` (cold-boot
+        # signature), SKIP persistence + dispatch to keep the write
+        # queue free for core URA writes. The META sentinel is still
+        # persisted so Review-D's "did the cycle run" diagnostic stays
+        # truthful.
+        skip_persist, skip_reason = self._should_skip_for_boot_storm(findings)
+        self._cycles_since_start += 1
+
         for finding in findings:
-            await self._persist_finding(finding)
+            # CPU-only at L1 Shadow (no DB write inside _consider_apply);
+            # outcome is recorded on the finding object and captured by
+            # the batched write below.
             await self._consider_apply(finding)
-            self._dispatch_finding_signal(finding)
             await self._notify_if_severe(finding)
 
-        # Phase 2 — LLM Tier-2 pass. Runs AFTER Tier-1 so the LLM sees
-        # the just-emitted Tier-1 findings in its corpus. The tier
-        # internally enforces: configured-entity guard, delta gate,
-        # daily premium cap, optional cheap-triage routing. Every LLM
-        # finding flows through the SAME ``_consider_apply`` chokepoint
-        # (no bypass path).
-        llm_findings = await self._maybe_run_llm_tier(findings)
-        for finding in llm_findings:
-            await self._persist_finding(finding)
-            # `_consider_apply` already ran inside the LLM tier; only
-            # persist + dispatch the signal + notify here.
-            self._dispatch_finding_signal(finding)
-            await self._notify_if_severe(finding)
+        if skip_persist:
+            _LOGGER.info(
+                "Optimizer cycle: persistence skipped — %s "
+                "(findings=%d held back; META sentinel will still persist)",
+                skip_reason, len(findings),
+            )
+            # Still persist the META sentinel(s) so the cycle's
+            # liveness signal lands in the table.
+            meta_only = [f for f in findings
+                         if f.dimension == OptimizationDimension.META]
+            await self._persist_findings_batch(meta_only)
+            llm_findings: list[OptimizationFinding] = []
+        else:
+            await self._persist_findings_batch(findings)
+            # Phase 2 — LLM Tier-2 pass. Runs AFTER Tier-1 so the LLM
+            # sees the just-emitted Tier-1 findings in its corpus. The
+            # tier internally enforces: configured-entity guard, delta
+            # gate, daily premium cap, optional cheap-triage routing.
+            # Every LLM finding flows through the SAME ``_consider_apply``
+            # chokepoint (no bypass path).
+            llm_findings = await self._maybe_run_llm_tier(findings)
+            llm_findings = self._cap_findings(llm_findings)
+            for finding in llm_findings:
+                # `_consider_apply` already ran inside the LLM tier;
+                # only notify here. Persistence batched below.
+                await self._notify_if_severe(finding)
+            await self._persist_findings_batch(llm_findings)
+
+        # ONE signal dispatch per cycle (replaces the per-finding
+        # SIGNAL_OPTIMIZER_FINDING_EMITTED fan-out that triggered
+        # websocket backpressure in the v5.2.1 incident). The ~35
+        # per-room / optimizer sensors that subscribe re-read coordinator
+        # state on any payload (they ignore payload contents — verified
+        # at sensor.py:13637, 13858), so a single fire is sufficient.
+        self._dispatch_findings_updated_signal()
 
         all_findings = list(findings) + list(llm_findings)
         self._last_findings = all_findings
@@ -2346,6 +2397,13 @@ class OptimizationCoordinator(BaseCoordinator):
     # ------------------------------------------------------------------
 
     async def _persist_finding(self, finding: OptimizationFinding) -> None:
+        """Legacy per-finding persist — kept for back-compat callers.
+
+        v5.2.2: the cycle path no longer calls this. The cycle uses
+        ``_persist_findings_batch`` to bound per-cycle DB writes to 1
+        per tier (post-mortem fix for the write-queue saturation
+        incident). New callers should prefer the batch variant.
+        """
         database = self.hass.data.get(DOMAIN, {}).get("database")
         if database is None:
             return
@@ -2354,7 +2412,43 @@ class OptimizationCoordinator(BaseCoordinator):
         except Exception as exc:  # noqa: BLE001
             _LOGGER.debug("log_finding failed: %s", exc, exc_info=True)
 
+    async def _persist_findings_batch(
+        self, findings: list[OptimizationFinding],
+    ) -> None:
+        """v5.2.2 — single-write-queue-roundtrip persist for the cycle.
+
+        Wraps ``database.log_findings_batch`` with the same defensive
+        try/except shape as ``_persist_finding``. An empty list is a
+        no-op (no DB acquisition). One ``_db()`` round-trip regardless
+        of finding count — this is the core fix for the v5.2.1 write
+        queue saturation that took the live house down.
+        """
+        if not findings:
+            return
+        database = self.hass.data.get(DOMAIN, {}).get("database")
+        if database is None:
+            return
+        try:
+            written = await database.log_findings_batch(findings)
+            if written:
+                _LOGGER.debug(
+                    "Optimizer: batched %d findings into one DB write",
+                    written,
+                )
+        except Exception as exc:  # noqa: BLE001
+            _LOGGER.debug("log_findings_batch failed: %s", exc, exc_info=True)
+
     def _dispatch_finding_signal(self, finding: OptimizationFinding) -> None:
+        """Legacy per-finding signal dispatch — kept for back-compat.
+
+        v5.2.2: the cycle path no longer calls this. Per-finding
+        dispatch caused websocket "4096 pending messages" backpressure
+        when Sensor-Health emitted 35+ rows during the boot storm.
+        The cycle now fires ``_dispatch_findings_updated_signal`` ONCE
+        after persistence — the per-room / optimizer sensors all
+        re-read coordinator state, ignoring payload (sensor.py:13637,
+        13858). New callers should prefer the once-per-cycle variant.
+        """
         try:
             async_dispatcher_send(
                 self.hass,
@@ -2370,6 +2464,126 @@ class OptimizationCoordinator(BaseCoordinator):
             )
         except Exception:  # noqa: BLE001
             _LOGGER.debug("finding signal dispatch failed", exc_info=True)
+
+    def _dispatch_findings_updated_signal(self) -> None:
+        """v5.2.2 — ONE per-cycle dispatch after persistence completes.
+
+        The signal name is preserved so existing
+        SIGNAL_OPTIMIZER_FINDING_EMITTED subscriptions in sensor.py
+        still fire. Payload is a tiny "cycle complete" marker — all
+        sensor subscribers (sensor.py:13637, 13858) discard the
+        payload and re-read coordinator state via
+        ``async_write_ha_state()``, so one fire refreshes them all.
+        """
+        try:
+            async_dispatcher_send(
+                self.hass,
+                SIGNAL_OPTIMIZER_FINDING_EMITTED,
+                {"cycle_complete": True,
+                 "timestamp": dt_util.utcnow().isoformat()},
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "findings-updated signal dispatch failed", exc_info=True,
+            )
+
+    def _cap_findings(
+        self, findings: list[OptimizationFinding],
+    ) -> list[OptimizationFinding]:
+        """v5.2.2 — belt-and-suspenders cap on per-cycle findings.
+
+        Defends against a pathological dimension flooding the write
+        queue. When the list exceeds ``OPTIMIZER_MAX_FINDINGS_PER_CYCLE``,
+        keep the highest-severity rows and truncate the rest with a
+        WARNING. The META sentinel is always preserved so the cycle's
+        liveness diagnostic stays trustworthy.
+        """
+        if len(findings) <= OPTIMIZER_MAX_FINDINGS_PER_CYCLE:
+            return findings
+        sev_rank = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+        # Preserve META rows separately — they bypass the cap.
+        meta = [f for f in findings
+                if f.dimension == OptimizationDimension.META]
+        non_meta = [f for f in findings
+                    if f.dimension != OptimizationDimension.META]
+        non_meta.sort(key=lambda f: sev_rank.get(str(f.severity), 99))
+        # Reserve space for the META rows so the total stays under the cap.
+        keep = OPTIMIZER_MAX_FINDINGS_PER_CYCLE - len(meta)
+        if keep < 0:
+            keep = 0
+        capped = non_meta[:keep] + meta
+        _LOGGER.warning(
+            "Optimizer cycle produced %d findings (cap=%d) — truncated "
+            "to %d highest-severity rows + %d META; %d rows dropped to "
+            "protect the DB write queue",
+            len(findings), OPTIMIZER_MAX_FINDINGS_PER_CYCLE,
+            len(capped) - len(meta), len(meta),
+            len(non_meta) - keep,
+        )
+        return capped
+
+    def _should_skip_for_boot_storm(
+        self, findings: list[OptimizationFinding],
+    ) -> tuple[bool, str]:
+        """v5.2.2 — boot-storm settle gate.
+
+        Returns ``(skip, reason)``. When True, the cycle persists ONLY
+        the META sentinel and skips signal dispatch — protecting the
+        DB write queue from the cold-boot unavailable-sensor sweep
+        that triggered the v5.2.1 incident.
+
+        Triggers:
+        1. ``self._cycles_since_start < OPTIMIZER_BOOT_SETTLE_CYCLES``
+           (uptime grace — first N cycles).
+        2. The fraction of rooms with at least one currently
+           ``unavailable`` / ``unknown`` configured sensor exceeds
+           ``OPTIMIZER_BOOT_STORM_ROOM_FRACTION`` (boot-storm
+           signature).
+        """
+        if self._cycles_since_start < OPTIMIZER_BOOT_SETTLE_CYCLES:
+            return (True, f"uptime_grace "
+                    f"(cycle {self._cycles_since_start + 1}/"
+                    f"{OPTIMIZER_BOOT_SETTLE_CYCLES})")
+        try:
+            total_rooms = 0
+            rooms_with_unavailable = 0
+            for entry in self._iter_room_entries():
+                total_rooms += 1
+                merged = {**(entry.data or {}), **(entry.options or {})}
+                tracked: list[str] = []
+                for key in (CONF_TEMPERATURE_SENSOR, CONF_HUMIDITY_SENSOR,
+                            CONF_OCCUPANCY_SENSORS, CONF_MOTION_SENSORS,
+                            CONF_MMWAVE_SENSORS):
+                    val = merged.get(key)
+                    if isinstance(val, list):
+                        tracked.extend([v for v in val if isinstance(v, str)])
+                    elif isinstance(val, str) and val:
+                        tracked.append(val)
+                room_has_unavail = False
+                for eid in tracked:
+                    st = self._state_value(eid)
+                    state_str = "" if st is None else str(st.state).lower()
+                    if st is None or state_str in ("unavailable", "unknown"):
+                        room_has_unavail = True
+                        break
+                if room_has_unavail:
+                    rooms_with_unavailable += 1
+            if total_rooms > 0:
+                frac = rooms_with_unavailable / total_rooms
+                if frac > OPTIMIZER_BOOT_STORM_ROOM_FRACTION:
+                    return (True, (
+                        f"boot_storm_signature "
+                        f"({rooms_with_unavailable}/{total_rooms} rooms "
+                        f"have unavailable sensors, "
+                        f"frac={frac:.2f} > "
+                        f"{OPTIMIZER_BOOT_STORM_ROOM_FRACTION:.2f})"
+                    ))
+        except Exception as exc:  # noqa: BLE001
+            _LOGGER.debug(
+                "boot-storm gate check failed; proceeding with cycle: %s",
+                exc, exc_info=True,
+            )
+        return (False, "")
 
     async def _notify_if_severe(self, finding: OptimizationFinding) -> None:
         if finding.severity not in ("critical", "high"):

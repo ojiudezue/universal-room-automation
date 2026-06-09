@@ -1518,6 +1518,27 @@ DEFAULT_OPTIMIZER_KILL_SWITCH: Final = False
 DEFAULT_OPTIMIZER_CONFIDENCE_GATE: Final = 0.7
 DEFAULT_OPTIMIZER_RATE_CAP_PER_HOUR: Final = 12
 
+# v5.2.2 — Post-mortem hardening for the v5.2.1 DB write-queue saturation
+# incident. The cycle now batches persistence (1 DB write per tier) and
+# fires the sensor-refresh signal ONCE per cycle. These constants bound
+# pathological cycle costs and defend against the boot-storm
+# Sensor-Health flood that triggered the outage.
+#
+# Sane upper bound for findings per cycle. Anything larger gets truncated
+# (highest-severity-first) with a WARNING — protects the write queue
+# regardless of dimension count.
+OPTIMIZER_MAX_FINDINGS_PER_CYCLE: Final = 100
+# Skip the first N cycles after coordinator start so the cold-boot
+# unavailable-sensor sweep can't dump a Sensor-Health flood into the
+# write queue. ~1 cycle (5 min) is enough for slow cloud devices to
+# settle.
+OPTIMIZER_BOOT_SETTLE_CYCLES: Final = 1
+# Defense in depth: if MORE than this fraction of rooms have any
+# configured sensor currently `unavailable` / `unknown`, treat the cycle
+# as a boot-storm and SKIP persistence/dispatch entirely (only the META
+# sentinel persists). 0.5 = "half the house is unavailable".
+OPTIMIZER_BOOT_STORM_ROOM_FRACTION: Final = 0.5
+
 OPTIMIZER_QUIET_HOURS_SOURCE_REUSE_NM: Final = "reuse_nm"
 OPTIMIZER_QUIET_HOURS_SOURCE_NONE: Final = "none"
 DEFAULT_OPTIMIZER_QUIET_HOURS_SOURCE: Final = OPTIMIZER_QUIET_HOURS_SOURCE_REUSE_NM
