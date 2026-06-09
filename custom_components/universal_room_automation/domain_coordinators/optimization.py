@@ -189,10 +189,18 @@ class OptimizerIntentBroker:
     against a real signal stream, but no service call is ever dispatched.
     """
 
+    # A-HIGH-2/A-HIGH-3: pending veto eviction policy. Each entry is
+    # ``action_id → (deadline_utc, vetoed_by)``. Stale entries are evicted
+    # whenever a new veto arrives or a veto is awaited.
+    _VETO_TTL_SECONDS = 300  # 5 min
+    _VETO_MAX_PENDING = 256
+
     def __init__(self, hass: HomeAssistant) -> None:
         """Initialize the broker."""
         self.hass = hass
-        self._pending_vetoes: dict[str, str] = {}
+        # A-HIGH-2: store (received_at, vetoed_by) per action_id so we can
+        # age out entries that never got reaped (no _apply_action ran).
+        self._pending_vetoes: dict[str, tuple[datetime, str]] = {}
         self._veto_unsub = None
 
     def async_start(self) -> None:
@@ -219,29 +227,93 @@ class OptimizerIntentBroker:
         ``self._unsub_listeners`` (Bug Class #50 guardrail)."""
         return self._veto_unsub
 
+    def _evict_stale_vetoes(self) -> None:
+        """A-HIGH-2: drop pending vetoes older than the TTL so a never-reaped
+        veto doesn't sit in the dict forever (memory leak)."""
+        now = dt_util.utcnow()
+        cutoff = now - timedelta(seconds=self._VETO_TTL_SECONDS)
+        stale = [
+            aid for aid, (ts, _by) in self._pending_vetoes.items()
+            if ts < cutoff
+        ]
+        for aid in stale:
+            self._pending_vetoes.pop(aid, None)
+        # Hard cap as a belt-and-suspenders bound.
+        if len(self._pending_vetoes) > self._VETO_MAX_PENDING:
+            # Drop oldest until under cap.
+            items = sorted(
+                self._pending_vetoes.items(), key=lambda kv: kv[1][0]
+            )
+            overflow = len(items) - self._VETO_MAX_PENDING
+            for aid, _ in items[:overflow]:
+                self._pending_vetoes.pop(aid, None)
+
     def _on_veto(self, payload: dict) -> None:
         action_id = payload.get("action_id") if isinstance(payload, dict) else None
         if not action_id:
             return
-        self._pending_vetoes[action_id] = (
+        vetoed_by = (
             payload.get("vetoed_by", "unknown")
             if isinstance(payload, dict)
             else "unknown"
         )
+        self._pending_vetoes[action_id] = (dt_util.utcnow(), vetoed_by)
+        # Opportunistically evict stale entries on each new veto arrival.
+        self._evict_stale_vetoes()
+
+    def discard_pending(self, action_id: str) -> None:
+        """A-HIGH-3: explicitly forget a queued veto once an action ran.
+
+        Callers invoke this on the successful-actuation path so a late
+        veto for the *same* action_id can't influence a *future* action.
+        """
+        self._pending_vetoes.pop(action_id, None)
+
+    def _get_hvac_coordinator(self):
+        """Resolve the HVAC coordinator via the coordinator manager.
+
+        A-CRIT-1 fix-up: ``hass.data[DOMAIN]["hvac_coordinator"]`` is NOT a
+        slot the integration ever populates (only the OptimizerKillSwitch's
+        legacy code path probed it). HVAC is registered via
+        ``CoordinatorManager.register_coordinator(hvac)`` and lives in
+        ``manager.coordinators["hvac"]``. The CM itself is stored at
+        ``hass.data[DOMAIN]["coordinator_manager"]`` (``__init__.py:2159``).
+        Also tolerate the legacy slot for backward compat with tests that
+        seed it directly.
+        """
+        try:
+            domain_data = self.hass.data.get(DOMAIN, {}) or {}
+            # Test-facing back-compat: honour an explicit hvac_coordinator
+            # slot if one is mounted (existing tests inject this).
+            hvac = domain_data.get("hvac_coordinator")
+            if hvac is not None:
+                return hvac
+            cm = domain_data.get("coordinator_manager")
+            if cm is None:
+                return None
+            coords = getattr(cm, "coordinators", None) or {}
+            return coords.get("hvac")
+        except Exception:  # noqa: BLE001 — never crash dispatch
+            return None
 
     def _get_arrester(self):
         """Return the HVAC OverrideArrester if present, else None."""
         try:
-            hvac = self.hass.data.get(DOMAIN, {}).get("hvac_coordinator")
+            hvac = self._get_hvac_coordinator()
             if hvac is None:
                 return None
             return getattr(hvac, "override_arrester", None)
         except Exception:  # noqa: BLE001 — never crash dispatch
             return None
 
-    def _maybe_suppress(self, target_entity: str) -> bool:
+    def suppress_climate(self, target_entity: str) -> bool:
         """Open the TTL handshake window for a climate target; safe no-op
-        for non-climate entities or when no arrester is present."""
+        for non-climate entities or when no arrester is present.
+
+        Renamed from ``_maybe_suppress`` per C-MED — broker is a public
+        collaborator; the coordinator and tests call this directly. The
+        old private name is kept as an alias for back-compat (test seam).
+        """
         if not target_entity or not target_entity.startswith("climate."):
             return False
         arrester = self._get_arrester()
@@ -257,9 +329,12 @@ class OptimizerIntentBroker:
             )
             return False
 
-    def _maybe_unsuppress(self, target_entity: str) -> None:
+    def unsuppress_climate(self, target_entity: str) -> None:
         """Close the TTL window — used on error paths so a failed write
-        doesn't sit suppressed for the rest of the TTL."""
+        doesn't sit suppressed for the rest of the TTL.
+
+        Renamed from ``_maybe_unsuppress`` per C-MED.
+        """
         if not target_entity or not target_entity.startswith("climate."):
             return
         arrester = self._get_arrester()
@@ -273,6 +348,10 @@ class OptimizerIntentBroker:
                 exc_info=True,
             )
 
+    # Back-compat aliases — tests may have patched these names.
+    _maybe_suppress = suppress_climate
+    _maybe_unsuppress = unsuppress_climate
+
     def fire_intent(
         self,
         action_id: str,
@@ -283,8 +362,14 @@ class OptimizerIntentBroker:
         veto_window_s: int,
         action_class: str,
         effective_level: str,
-    ) -> None:
-        """Dispatch SIGNAL_OPTIMIZER_INTENT with the full payload."""
+    ) -> bool:
+        """Dispatch SIGNAL_OPTIMIZER_INTENT with the full payload.
+
+        A-HIGH-1: returns True on a clean dispatch, False if the dispatch
+        raised. Callers MUST treat False as "intent broker is broken — do
+        not actuate" — siblings never saw the intent and can't veto, so a
+        silent fallback to ``services.async_call`` would skip the handshake.
+        """
         payload = {
             "action_id": action_id,
             "target_entity": target_entity,
@@ -298,9 +383,14 @@ class OptimizerIntentBroker:
         }
         try:
             async_dispatcher_send(self.hass, SIGNAL_OPTIMIZER_INTENT, payload)
+            return True
         except Exception:  # noqa: BLE001
-            _LOGGER.debug("SIGNAL_OPTIMIZER_INTENT dispatch failed",
-                          exc_info=True)
+            _LOGGER.warning(
+                "SIGNAL_OPTIMIZER_INTENT dispatch failed — siblings did not "
+                "see this intent, skipping actuation",
+                exc_info=True,
+            )
+            return False
 
     async def await_veto(
         self, action_id: str, veto_window_s: int,
@@ -309,15 +399,30 @@ class OptimizerIntentBroker:
 
         Returns the ``vetoed_by`` string if vetoed, else None.
         """
+        # Opportunistic eviction so a long-running optimizer doesn't grow
+        # the pending dict unboundedly.
+        self._evict_stale_vetoes()
+
+        def _take(aid: str) -> str | None:
+            tup = self._pending_vetoes.pop(aid, None)
+            if tup is None:
+                return None
+            # Tuple shape: (received_at, vetoed_by). Accept legacy raw
+            # str entries defensively (existing tests inject the dict
+            # directly with a plain string value).
+            if isinstance(tup, tuple) and len(tup) == 2:
+                return str(tup[1])
+            return str(tup)
+
         if veto_window_s <= 0:
-            return self._pending_vetoes.pop(action_id, None)
+            return _take(action_id)
         # Poll at small intervals so siblings can veto inside the window.
         deadline = dt_util.utcnow() + timedelta(seconds=veto_window_s)
         while dt_util.utcnow() < deadline:
             if action_id in self._pending_vetoes:
-                return self._pending_vetoes.pop(action_id)
+                return _take(action_id)
             await asyncio.sleep(0.1)
-        return self._pending_vetoes.pop(action_id, None)
+        return _take(action_id)
 
 
 # ============================================================================
@@ -378,6 +483,58 @@ class OptimizationCoordinator(BaseCoordinator):
         # list (BaseCoordinator clears this on teardown only).
         if self.broker.veto_unsub is not None:
             self._unsub_listeners.append(self.broker.veto_unsub)
+
+        # H2 fix-up: seed rate-cap history from the DB so a restart can't
+        # bypass the per-hour cap. Count rows applied within the last
+        # rolling hour and pre-fill the deque with proxy timestamps so the
+        # post-restart cycle sees the same "you already spent X actions
+        # this hour" as the pre-restart cycle would have. Best-effort —
+        # falls back to a cold deque if the DB isn't ready.
+        try:
+            db = self.hass.data.get(DOMAIN, {}).get("database")
+            if db is not None and hasattr(db, "get_recent_optimization_findings"):
+                rows = await db.get_recent_optimization_findings(limit=200)
+                cutoff = dt_util.utcnow() - timedelta(hours=1)
+                seeded = 0
+                for r in rows or []:
+                    outcome = r.get("applied_outcome") if isinstance(r, dict) else None
+                    if outcome != "applied":
+                        continue
+                    ts_raw = r.get("timestamp") if isinstance(r, dict) else None
+                    if not ts_raw:
+                        continue
+                    try:
+                        # Stored ISO timestamps may or may not carry tz; be
+                        # forgiving — fall back to "now" so the cap is
+                        # over-conservative rather than under-counted.
+                        ts = datetime.fromisoformat(str(ts_raw))
+                    except (TypeError, ValueError):
+                        ts = dt_util.utcnow()
+                    # Strip tz if our utcnow is naive so the deque eviction
+                    # comparison doesn't blow up (mixed naive/aware).
+                    if cutoff.tzinfo is None and ts.tzinfo is not None:
+                        ts = ts.replace(tzinfo=None)
+                    elif cutoff.tzinfo is not None and ts.tzinfo is None:
+                        ts = ts.replace(tzinfo=cutoff.tzinfo)
+                    if ts >= cutoff:
+                        self._action_dispatch_history.append(ts)
+                        seeded += 1
+                if seeded:
+                    _LOGGER.info(
+                        "Optimizer: seeded rate-cap window with %d "
+                        "applied-action rows from the last hour",
+                        seeded,
+                    )
+                else:
+                    _LOGGER.info(
+                        "Optimizer: rate-cap deque cold-started "
+                        "(no applied rows in last hour)",
+                    )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "Optimizer: rate-cap seed from DB failed (non-fatal)",
+                exc_info=True,
+            )
 
         # 5-min cycle (matches plan D1). Scheduled via HA's tracker so the
         # unsub goes on the BaseCoordinator listener list.
@@ -524,6 +681,61 @@ class OptimizationCoordinator(BaseCoordinator):
             return st
         except Exception:  # noqa: BLE001
             return None
+
+    # ------------------------------------------------------------------
+    # HVAC sibling lookups (A-CRIT-1 / A-CRIT-2)
+    # ------------------------------------------------------------------
+
+    def _get_hvac_coordinator(self):
+        """Resolve the HVAC coordinator via the coordinator manager.
+
+        A-CRIT-1 fix-up: ``hass.data[DOMAIN]["hvac_coordinator"]`` is NOT a
+        slot the integration populates. The CoordinatorManager is at
+        ``hass.data[DOMAIN]["coordinator_manager"]`` (__init__.py:2159)
+        and HVAC lives in ``manager.coordinators["hvac"]``. The legacy
+        slot is consulted first for test-injection back-compat.
+        """
+        try:
+            domain_data = self.hass.data.get(DOMAIN, {}) or {}
+            hvac = domain_data.get("hvac_coordinator")
+            if hvac is not None:
+                return hvac
+            cm = domain_data.get("coordinator_manager")
+            if cm is None:
+                return None
+            coords = getattr(cm, "coordinators", None) or {}
+            return coords.get("hvac")
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _get_egress_manager(self):
+        """Return the HVAC EgressManager if present, else None (A-CRIT-2)."""
+        try:
+            hvac = self._get_hvac_coordinator()
+            if hvac is None:
+                return None
+            return getattr(hvac, "egress_manager", None)
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _zone_id_for_climate_entity(self, climate_entity: str) -> str | None:
+        """Best-effort: walk HVAC ZoneManager to find the zone owning this
+        climate entity, so A-CRIT-2 can ask the EgressManager if it's paused."""
+        if not climate_entity:
+            return None
+        try:
+            hvac = self._get_hvac_coordinator()
+            if hvac is None:
+                return None
+            zm = getattr(hvac, "zone_manager", None)
+            if zm is None:
+                return None
+            for zone_id, zone in (getattr(zm, "zones", {}) or {}).items():
+                if getattr(zone, "climate_entity", None) == climate_entity:
+                    return zone_id
+        except Exception:  # noqa: BLE001
+            return None
+        return None
 
     def _is_room_occupied(self, entry) -> bool:
         """Best-effort: any configured occupancy/motion/mmwave sensor is `on`."""
@@ -729,11 +941,23 @@ class OptimizationCoordinator(BaseCoordinator):
         return None
 
     def _is_quiet_hours_active(self) -> bool:
-        """Read NM's `is quiet now?` predicate. REUSES NM's single source of truth."""
+        """Read NM's `is quiet now?` predicate. REUSES NM's single source of truth.
+
+        M1 fix-up: prefer the public ``is_quiet_hours_active()`` shim
+        when it's been explicitly defined on the NM CLASS (so MagicMock
+        auto-attribute synthesis can't mask a test's `_is_quiet_hours`
+        configuration). Fall back to the legacy private method otherwise.
+        """
         try:
             nm = self.hass.data.get(DOMAIN, {}).get("notification_manager")
             if nm is None:
                 return False
+            # Only use the public shim when the class genuinely defines
+            # it. ``vars(type(nm))`` and walking ``__mro__`` ignores
+            # MagicMock's __getattr__ shim.
+            for klass in type(nm).__mro__:
+                if "is_quiet_hours_active" in vars(klass):
+                    return bool(nm.is_quiet_hours_active())
             return bool(nm._is_quiet_hours())
         except Exception:  # noqa: BLE001
             return False
@@ -745,9 +969,19 @@ class OptimizationCoordinator(BaseCoordinator):
             self._action_dispatch_history.popleft()
         return len(self._action_dispatch_history)
 
-    @property
-    def effective_level(self) -> str:
-        """Compute effective level (post-kill-switch, post-quiet, post-rate-cap)."""
+    def _resolve_effective_level(self) -> tuple[str, str | None]:
+        """Return (effective_level, clamp_reason) — H3/M3 fix-up.
+
+        ``clamp_reason`` is one of:
+          - ``"kill_switch"``: kill switch engaged
+          - ``"rate_capped"``: per-hour cap exceeded
+          - ``"quiet_hours"``: quiet-hours active and source=reuse_nm
+          - ``None``: configured level applies unchanged
+
+        The chokepoint inspects ``clamp_reason`` to emit the right
+        outcome (RATE_CAPPED / QUIET_CLAMPED / KILL_SWITCH) on shadowed
+        actions, instead of the generic ``OPTIMIZER_OUTCOME_SHADOW``.
+        """
         config = self._read_cm_config()
         configured = config.get(
             CONF_OPTIMIZER_AUTONOMY_LEVEL, DEFAULT_OPTIMIZER_AUTONOMY_LEVEL,
@@ -759,7 +993,9 @@ class OptimizationCoordinator(BaseCoordinator):
         if bool(config.get(
             CONF_OPTIMIZER_KILL_SWITCH, DEFAULT_OPTIMIZER_KILL_SWITCH,
         )):
-            return OPTIMIZER_LEVEL_ADVISORY
+            return OPTIMIZER_LEVEL_ADVISORY, "kill_switch"
+
+        clamp_reason: str | None = None
 
         # Quiet hours — clamp to min(configured, L1).
         qh_source = config.get(
@@ -768,7 +1004,10 @@ class OptimizationCoordinator(BaseCoordinator):
         )
         if (qh_source == OPTIMIZER_QUIET_HOURS_SOURCE_REUSE_NM
                 and self._is_quiet_hours_active()):
-            configured = self._min_level(configured, OPTIMIZER_LEVEL_SHADOW)
+            new_level = self._min_level(configured, OPTIMIZER_LEVEL_SHADOW)
+            if new_level != configured:
+                clamp_reason = "quiet_hours"
+            configured = new_level
 
         # Rate cap — when cap hit, clamp L2+ to L1.
         cap = int(config.get(
@@ -776,9 +1015,22 @@ class OptimizationCoordinator(BaseCoordinator):
             DEFAULT_OPTIMIZER_RATE_CAP_PER_HOUR,
         ))
         if self._rate_cap_window_count() >= cap:
-            configured = self._min_level(configured, OPTIMIZER_LEVEL_SHADOW)
+            new_level = self._min_level(configured, OPTIMIZER_LEVEL_SHADOW)
+            if new_level != configured:
+                # Rate-cap clamp is the more "louder" reason — it indicates
+                # the optimizer is throttling itself, which is operationally
+                # noisier than quiet-hours. Prefer it over quiet_hours when
+                # both fire on the same level.
+                clamp_reason = "rate_capped"
+            configured = new_level
 
-        return configured
+        return configured, clamp_reason
+
+    @property
+    def effective_level(self) -> str:
+        """Compute effective level (post-kill-switch, post-quiet, post-rate-cap)."""
+        level, _reason = self._resolve_effective_level()
+        return level
 
     @staticmethod
     def _min_level(a: str, b: str) -> str:
@@ -793,7 +1045,13 @@ class OptimizationCoordinator(BaseCoordinator):
         return OPTIMIZER_LEVEL_RANK.get(level, 0) >= OPTIMIZER_LEVEL_RANK.get(threshold, 0)
 
     def _per_dimension_cap(self, dimension: str) -> str | None:
-        """Read the per-dimension cap dict from CM options; return None for `no cap`."""
+        """Read the per-dimension cap dict from CM options.
+
+        B-C1: this dict is a CEILING, never a floor — a per-dimension
+        entry can only LOWER the effective rung for that dimension below
+        the configured CM-wide level; it can never raise it.
+        Returns None when no cap is configured for the dimension.
+        """
         config = self._read_cm_config()
         dim_map = config.get(CONF_OPTIMIZER_DIMENSION_AUTONOMY) or {}
         if not isinstance(dim_map, dict):
@@ -815,25 +1073,72 @@ class OptimizationCoordinator(BaseCoordinator):
 
     def _clamp_numeric_to_band(
         self, target_entity: str, proposed_value: float,
-    ) -> float:
-        """L3+ ±20% clamp around the current value (or proposed if no current)."""
+    ) -> tuple[float, str | None]:
+        """L3+ ±20% clamp around the current value.
+
+        H5 fix-up: returns ``(clamped_value, reject_reason)``. A non-None
+        reason means the caller MUST NOT dispatch — the proposed value can
+        not be safely clamped against the current state.
+
+        Reject conditions:
+          - current value is None / entity unavailable / unknown
+            → ``current_value_unavailable``
+          - current value is exactly 0.0 (clamp band would collapse to a
+            single point, silently forcing the proposed to 0)
+            → ``cannot_clamp_zero``
+
+        Otherwise the proposed value is clamped to ``[current ± 20%]`` and
+        further intersected with the target entity's reported ``min`` /
+        ``max`` attributes when present.
+        """
         st = self._state_value(target_entity)
         current = None
-        if st is not None:
-            try:
-                current = float(st.state)
-            except (TypeError, ValueError):
-                current = None
-        if current is None:
-            return proposed_value
+        attrs: dict = {}
+        if st is None:
+            return proposed_value, "current_value_unavailable"
+        try:
+            state_str = str(st.state).lower()
+        except Exception:  # noqa: BLE001
+            state_str = ""
+        if state_str in ("unavailable", "unknown", "none", ""):
+            return proposed_value, "current_value_unavailable"
+        try:
+            current = float(st.state)
+        except (TypeError, ValueError):
+            return proposed_value, "current_value_unavailable"
+        try:
+            attrs = dict(getattr(st, "attributes", {}) or {})
+        except Exception:  # noqa: BLE001
+            attrs = {}
+
+        if current == 0.0:
+            return proposed_value, "cannot_clamp_zero"
+
         band = abs(current) * OPTIMIZER_CONFIG_CLAMP_FRACTION
         lo = current - band
         hi = current + band
+
+        # Intersect with the entity's reported min/max bounds when present.
+        ent_min = attrs.get("min")
+        ent_max = attrs.get("max")
+        try:
+            if ent_min is not None:
+                lo = max(lo, float(ent_min))
+            if ent_max is not None:
+                hi = min(hi, float(ent_max))
+        except (TypeError, ValueError):
+            pass
+
+        # If the intersection is empty/inverted, the entity's bounds
+        # disallow ANY change from current — reject.
+        if hi < lo:
+            return proposed_value, "entity_bounds_exclude_band"
+
         if proposed_value < lo:
-            return lo
+            return lo, None
         if proposed_value > hi:
-            return hi
-        return proposed_value
+            return hi, None
+        return proposed_value, None
 
     # ------------------------------------------------------------------
     # Single chokepoint
@@ -865,12 +1170,18 @@ class OptimizationCoordinator(BaseCoordinator):
 
         domain = service.split(".", 1)[0] if "." in service else ""
 
-        # Compute effective level (post-clamp).
-        level = self.effective_level
+        # Compute effective level + clamp reason (post-kill, post-quiet,
+        # post-rate-cap). H3/M3: track WHY the level was clamped so the
+        # outcome row reflects rate_capped / quiet_hours instead of a
+        # generic shadow row.
+        level, clamp_reason = self._resolve_effective_level()
         # Per-dimension cap further reduces it.
         per_dim_cap = self._per_dimension_cap(str(finding.dimension))
         if per_dim_cap is not None:
-            level = self._min_level(level, per_dim_cap)
+            new_level = self._min_level(level, per_dim_cap)
+            if new_level != level and clamp_reason is None:
+                clamp_reason = "per_dimension_cap"
+            level = new_level
 
         # Kill switch already clamps `effective_level` to advisory.
         cm_config = self._read_cm_config()
@@ -939,23 +1250,46 @@ class OptimizationCoordinator(BaseCoordinator):
                     veto_window_s=0, action_class=action_class,
                     effective_level=level,
                 )
-                finding.applied_outcome = OPTIMIZER_OUTCOME_SHADOW
+                # H3/M3: if the level was clamped (rate-cap or quiet
+                # hours), record the precise outcome so the DB column
+                # distinguishes "configured at L1" from "L2+ clamped".
+                if clamp_reason == "rate_capped":
+                    finding.applied_outcome = OPTIMIZER_OUTCOME_RATE_CAPPED
+                    outcome_str = OPTIMIZER_OUTCOME_RATE_CAPPED
+                    activity_action = "clamped"
+                    activity_reason = "rate_capped"
+                elif clamp_reason == "quiet_hours":
+                    finding.applied_outcome = OPTIMIZER_OUTCOME_QUIET_CLAMPED
+                    outcome_str = OPTIMIZER_OUTCOME_QUIET_CLAMPED
+                    activity_action = "clamped"
+                    activity_reason = "quiet_hours"
+                else:
+                    finding.applied_outcome = OPTIMIZER_OUTCOME_SHADOW
+                    outcome_str = OPTIMIZER_OUTCOME_SHADOW
+                    activity_action = "shadow_dry_run"
+                    activity_reason = None
                 finding.predicted_effect = {
                     "service": service,
                     "service_data": service_data,
                     "note": "shadow_dry_run — no dispatch",
+                    "clamp_reason": clamp_reason,
                 }
+                _details = {
+                    "action_id": action_id, "level": level,
+                    "target_entity": target_entity,
+                    "service": service,
+                    "predicted_effect": finding.predicted_effect,
+                    "dimension": str(finding.dimension),
+                }
+                if activity_reason is not None:
+                    _details["reason"] = activity_reason
                 await self._log_activity(
-                    action="shadow_dry_run", importance="info",
+                    action=activity_action, importance="info",
                     description=finding.description,
-                    details={"action_id": action_id, "level": level,
-                             "target_entity": target_entity,
-                             "service": service,
-                             "predicted_effect": finding.predicted_effect,
-                             "dimension": str(finding.dimension)},
+                    details=_details,
                     finding=finding,
                 )
-                return OPTIMIZER_OUTCOME_SHADOW
+                return outcome_str
             # L2+ device dispatch path.
             return await self._dispatch_device_action(
                 finding, action_id, target_entity, service, service_data,
@@ -1012,17 +1346,59 @@ class OptimizationCoordinator(BaseCoordinator):
         level: str,
     ) -> str:
         """L2+ device dispatch — fires intent, awaits veto (L3 only), calls service."""
+        # A-CRIT-2: never dispatch a climate action into an egress-paused
+        # zone — that defeats the EgressManager's pause and could leave
+        # heating/cooling running with a window open.
+        if target_entity and target_entity.startswith("climate."):
+            em = self._get_egress_manager()
+            if em is not None:
+                zone_id = self._zone_id_for_climate_entity(target_entity)
+                try:
+                    if zone_id and em.is_paused(zone_id):
+                        finding.applied_outcome = OPTIMIZER_OUTCOME_DISALLOWED
+                        await self._log_activity(
+                            action="clamped", importance="notable",
+                            description=(
+                                f"egress-paused: {target_entity} (zone={zone_id})"
+                            ),
+                            details={
+                                "action_id": action_id, "level": level,
+                                "reason": "egress_paused",
+                                "target_entity": target_entity,
+                                "zone_id": zone_id,
+                            },
+                            finding=finding,
+                        )
+                        return OPTIMIZER_OUTCOME_DISALLOWED
+                except Exception:  # noqa: BLE001 — never crash dispatch
+                    _LOGGER.debug(
+                        "egress_manager.is_paused raised", exc_info=True,
+                    )
+
         veto_window = 0
         if level == OPTIMIZER_LEVEL_PROPOSE_CONFIG:
             from ..const import OPTIMIZER_VETO_WINDOW_SECONDS_L3
             veto_window = OPTIMIZER_VETO_WINDOW_SECONDS_L3
 
-        self.broker.fire_intent(
+        # A-HIGH-1: if the intent never reached siblings, do NOT proceed.
+        intent_ok = self.broker.fire_intent(
             action_id, target_entity, service, service_data,
             source_dimension=str(finding.dimension),
             veto_window_s=veto_window, action_class="reversible_device",
             effective_level=level,
         )
+        if not intent_ok:
+            finding.applied_outcome = OPTIMIZER_OUTCOME_FAILED
+            await self._log_activity(
+                action="clamped", importance="notable",
+                description=f"intent dispatch failed: {service}",
+                details={"action_id": action_id, "level": level,
+                         "reason": "intent_dispatch_failure",
+                         "target_entity": target_entity, "service": service},
+                finding=finding,
+            )
+            return OPTIMIZER_OUTCOME_FAILED
+
         await self._log_activity(
             action="proposed", importance="notable",
             description=finding.description,
@@ -1045,8 +1421,28 @@ class OptimizationCoordinator(BaseCoordinator):
                 )
                 return OPTIMIZER_OUTCOME_VETOED
 
+        # B-C3: kill switch may have been engaged DURING the up-to-30s veto
+        # window. Re-read LIVE state (never the snapshot) and abort if so.
+        cm_config_live = self._read_cm_config()
+        if bool(cm_config_live.get(
+            CONF_OPTIMIZER_KILL_SWITCH, DEFAULT_OPTIMIZER_KILL_SWITCH,
+        )):
+            finding.applied_outcome = OPTIMIZER_OUTCOME_KILL_SWITCH
+            await self._log_activity(
+                action="clamped", importance="notable",
+                description=(
+                    f"kill_switch engaged during veto window: "
+                    f"{finding.description}"
+                ),
+                details={"action_id": action_id, "level": level,
+                         "reason": OPTIMIZER_OUTCOME_KILL_SWITCH,
+                         "target_entity": target_entity, "service": service},
+                finding=finding,
+            )
+            return OPTIMIZER_OUTCOME_KILL_SWITCH
+
         # Open HVAC TTL window (no-op for non-climate).
-        self.broker._maybe_suppress(target_entity)
+        self.broker.suppress_climate(target_entity)
         domain = service.split(".", 1)[0]
         action_name = service.split(".", 1)[1] if "." in service else ""
         try:
@@ -1058,6 +1454,9 @@ class OptimizationCoordinator(BaseCoordinator):
             )
             finding.applied_outcome = OPTIMIZER_OUTCOME_APPLIED
             self._action_dispatch_history.append(dt_util.utcnow())
+            # A-HIGH-3: action ran; forget any queued veto for THIS id so
+            # a late-arriving veto can't bleed into a future action.
+            self.broker.discard_pending(action_id)
             await self._log_activity(
                 action="actuated", importance="notable",
                 description=finding.description,
@@ -1067,7 +1466,7 @@ class OptimizationCoordinator(BaseCoordinator):
             )
             return OPTIMIZER_OUTCOME_APPLIED
         except Exception as exc:  # noqa: BLE001
-            self.broker._maybe_unsuppress(target_entity)
+            self.broker.unsuppress_climate(target_entity)
             finding.applied_outcome = OPTIMIZER_OUTCOME_FAILED
             _LOGGER.warning("Optimizer dispatch failed %s: %s", service, exc)
             await self._log_activity(
@@ -1089,13 +1488,30 @@ class OptimizationCoordinator(BaseCoordinator):
         level: str,
     ) -> str:
         """L3+ config-write dispatch — ±20% clamp + veto window for L3."""
-        # ±20% numeric clamp.
+        # H5: clamp helper now reports a reject reason for None/zero/unknown.
         clamped_data = dict(service_data)
         clamped = False
         if "value" in clamped_data:
             try:
                 proposed = float(clamped_data["value"])
-                new_value = self._clamp_numeric_to_band(target_entity, proposed)
+                new_value, reason = self._clamp_numeric_to_band(
+                    target_entity, proposed,
+                )
+                if reason is not None:
+                    finding.applied_outcome = OPTIMIZER_OUTCOME_FAILED
+                    await self._log_activity(
+                        action="clamped", importance="notable",
+                        description=(
+                            f"config_write clamp rejected ({reason}): "
+                            f"{target_entity}"
+                        ),
+                        details={"action_id": action_id, "level": level,
+                                 "reason": reason,
+                                 "target_entity": target_entity,
+                                 "proposed": proposed},
+                        finding=finding,
+                    )
+                    return OPTIMIZER_OUTCOME_FAILED
                 if new_value != proposed:
                     clamped = True
                 clamped_data["value"] = new_value
@@ -1107,12 +1523,24 @@ class OptimizationCoordinator(BaseCoordinator):
             from ..const import OPTIMIZER_VETO_WINDOW_SECONDS_L3
             veto_window = OPTIMIZER_VETO_WINDOW_SECONDS_L3
 
-        self.broker.fire_intent(
+        intent_ok = self.broker.fire_intent(
             action_id, target_entity, service, clamped_data,
             source_dimension=str(finding.dimension),
             veto_window_s=veto_window, action_class="config_write",
             effective_level=level,
         )
+        if not intent_ok:
+            finding.applied_outcome = OPTIMIZER_OUTCOME_FAILED
+            await self._log_activity(
+                action="clamped", importance="notable",
+                description=f"intent dispatch failed: {service}",
+                details={"action_id": action_id, "level": level,
+                         "reason": "intent_dispatch_failure",
+                         "target_entity": target_entity, "service": service},
+                finding=finding,
+            )
+            return OPTIMIZER_OUTCOME_FAILED
+
         await self._log_activity(
             action="proposed", importance="notable",
             description=finding.description,
@@ -1136,6 +1564,25 @@ class OptimizationCoordinator(BaseCoordinator):
                 )
                 return OPTIMIZER_OUTCOME_VETOED
 
+        # B-C3: re-check live kill switch after veto wait.
+        cm_config_live = self._read_cm_config()
+        if bool(cm_config_live.get(
+            CONF_OPTIMIZER_KILL_SWITCH, DEFAULT_OPTIMIZER_KILL_SWITCH,
+        )):
+            finding.applied_outcome = OPTIMIZER_OUTCOME_KILL_SWITCH
+            await self._log_activity(
+                action="clamped", importance="notable",
+                description=(
+                    f"kill_switch engaged during veto window: "
+                    f"{finding.description}"
+                ),
+                details={"action_id": action_id, "level": level,
+                         "reason": OPTIMIZER_OUTCOME_KILL_SWITCH,
+                         "target_entity": target_entity, "service": service},
+                finding=finding,
+            )
+            return OPTIMIZER_OUTCOME_KILL_SWITCH
+
         domain = service.split(".", 1)[0]
         action_name = service.split(".", 1)[1] if "." in service else ""
         try:
@@ -1147,6 +1594,7 @@ class OptimizationCoordinator(BaseCoordinator):
             )
             finding.applied_outcome = OPTIMIZER_OUTCOME_APPLIED
             self._action_dispatch_history.append(dt_util.utcnow())
+            self.broker.discard_pending(action_id)
             await self._log_activity(
                 action="actuated", importance="notable",
                 description=finding.description,
@@ -1168,34 +1616,57 @@ class OptimizationCoordinator(BaseCoordinator):
             return OPTIMIZER_OUTCOME_FAILED
 
     async def _consider_apply(self, finding: OptimizationFinding) -> None:
-        """If a finding carries a proposed_action, run it through the gate."""
-        # Phase 1 dimensions emit advisory-only findings (no proposed
-        # action). The path is wired so Phase 2 LLM-proposed actions
-        # automatically flow through the same chokepoint.
+        """Apply gating uniformly, then dispatch if a proposed_action exists.
+
+        H1 fix-up: the confidence gate now runs BEFORE the proposed_action
+        branch so a below-gate finding is marked
+        ``OPTIMIZER_OUTCOME_BELOW_GATE`` regardless of whether it carries
+        a proposed action. Phase-1 dimensions emit only advisory rows; the
+        path is wired so Phase-2 LLM-proposed actions flow through the
+        same chokepoint without bypassing the gate.
+        """
+        # META sentinel rows are always advisory and never gated.
+        if finding.dimension == OptimizationDimension.META:
+            finding.applied_outcome = OPTIMIZER_OUTCOME_ADVISORY_ONLY
+            return
+
+        # H1: confidence gate first — applies to all non-META findings.
+        gate = self._confidence_gate()
+        try:
+            conf = float(finding.confidence)
+        except (TypeError, ValueError):
+            conf = 0.0
+        if conf < gate:
+            finding.applied_outcome = OPTIMIZER_OUTCOME_BELOW_GATE
+            await self._log_activity(
+                action="clamped", importance="info",
+                description=finding.description,
+                details={
+                    "reason": OPTIMIZER_OUTCOME_BELOW_GATE,
+                    "confidence": conf, "gate": gate,
+                    "dimension": str(finding.dimension),
+                },
+                finding=finding,
+            )
+            return
+
         if not finding.proposed_action:
-            # Still mark applied_outcome=advisory_only for sentinel/meta
-            # rows so the DB column isn't NULL on a known-clean cycle.
-            if finding.dimension == OptimizationDimension.META:
-                finding.applied_outcome = OPTIMIZER_OUTCOME_ADVISORY_ONLY
+            level = self.effective_level
+            if level == OPTIMIZER_LEVEL_SHADOW:
+                finding.applied_outcome = OPTIMIZER_OUTCOME_SHADOW
+                finding.predicted_effect = {
+                    "note": "shadow_dry_run — no proposed action emitted",
+                }
+                await self._log_activity(
+                    action="shadow_dry_run", importance="info",
+                    description=finding.description,
+                    details={"level": level,
+                             "dimension": str(finding.dimension),
+                             "predicted_effect": finding.predicted_effect},
+                    finding=finding,
+                )
             else:
-                # Compute effective level for visibility; advisory_only
-                # respects shadow at L1 default.
-                level = self.effective_level
-                if level == OPTIMIZER_LEVEL_SHADOW:
-                    finding.applied_outcome = OPTIMIZER_OUTCOME_SHADOW
-                    finding.predicted_effect = {
-                        "note": "shadow_dry_run — no proposed action emitted",
-                    }
-                    await self._log_activity(
-                        action="shadow_dry_run", importance="info",
-                        description=finding.description,
-                        details={"level": level,
-                                 "dimension": str(finding.dimension),
-                                 "predicted_effect": finding.predicted_effect},
-                        finding=finding,
-                    )
-                else:
-                    finding.applied_outcome = OPTIMIZER_OUTCOME_ADVISORY_ONLY
+                finding.applied_outcome = OPTIMIZER_OUTCOME_ADVISORY_ONLY
             return
         await self._apply_action(finding, finding.proposed_action)
 

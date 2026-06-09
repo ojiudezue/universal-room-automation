@@ -4634,6 +4634,29 @@ class UniversalRoomDatabase:
         """
         import json as _json
 
+        # C-MED-1: never write the literal string "None" as the dimension —
+        # that pollutes the analytics index. Reject the row with a warning
+        # so the caller can be fixed; use an explicit ``unknown`` sentinel
+        # if a None somehow leaks through severity too.
+        _dim = getattr(finding, "dimension", None)
+        if _dim is None:
+            _LOGGER.warning(
+                "log_finding: finding.dimension is None; rejecting row "
+                "(target_id=%s, description=%s)",
+                getattr(finding, "target_id", None),
+                getattr(finding, "description", None),
+            )
+            return None
+        _sev = getattr(finding, "severity", None)
+        if _sev is None:
+            _LOGGER.warning(
+                "log_finding: finding.severity is None; rejecting row "
+                "(target_id=%s, dimension=%s)",
+                getattr(finding, "target_id", None),
+                _dim,
+            )
+            return None
+
         try:
             payload_json = (
                 _json.dumps(finding.payload, default=str)

@@ -207,6 +207,19 @@ def _load_init_listener_helpers():
         "_CONF_ROUTINE_REGIME_BASELINE_WINDOW_DAYS": "routine_regime_baseline_window_days",
         "_CONF_ROUTINE_REGIME_RECENT_WINDOW_DAYS": "routine_regime_recent_window_days",
         "_CONF_BAYESIAN_CELL_STALENESS_DAYS":     "bayesian_cell_staleness_days",
+        # v4.7.34 — Optimization Coordinator (C-CRIT-1) + ROOM-level comfort
+        # sliders (C-HIGH-3). Mirror const.py string values.
+        "_CONF_OPTIMIZER_AUTONOMY_LEVEL":         "optimizer_autonomy_level",
+        "_CONF_OPTIMIZER_KILL_SWITCH":            "optimizer_kill_switch",
+        "_CONF_OPTIMIZER_DIMENSION_AUTONOMY":     "optimizer_dimension_autonomy",
+        "_CONF_OPTIMIZER_CONFIDENCE_GATE":        "optimizer_confidence_gate",
+        "_CONF_OPTIMIZER_RATE_CAP_PER_HOUR":      "optimizer_rate_cap_per_hour",
+        "_CONF_OPTIMIZER_QUIET_HOURS_SOURCE":     "optimizer_quiet_hours_source",
+        "_CONF_COMFORT_TEMP_MIN":                 "comfort_temp_min",
+        "_CONF_COMFORT_TEMP_MAX":                 "comfort_temp_max",
+        "_CONF_COMFORT_HUMIDITY_MAX":             "comfort_humidity_max",
+        # ENTRY_TYPE_ROOM (C-HIGH-3 path in _async_update_listener).
+        "ENTRY_TYPE_ROOM":                        "room",
         # Typing — frozenset[str] subscript requires Python 3.9+; ok.
     }
     # Wrap kept nodes in a Module and compile.

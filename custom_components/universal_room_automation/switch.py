@@ -3742,9 +3742,21 @@ class OptimizerKillSwitch(SwitchEntity, RestoreEntity):
 
     def _close_suppression_ttls(self) -> None:
         """When tripping the kill switch, close any open HVAC suppression
-        TTLs so a half-applied URA write doesn't sit suppressed."""
+        TTLs so a half-applied URA write doesn't sit suppressed.
+
+        Sibling-fix of A-CRIT-1: ``hass.data[DOMAIN]["hvac_coordinator"]``
+        is not a slot the integration populates. Resolve via the
+        CoordinatorManager (``coordinators["hvac"]``) with a back-compat
+        fallback to the legacy slot for tests that mount it directly.
+        """
         try:
-            hvac = self.hass.data.get(DOMAIN, {}).get("hvac_coordinator")
+            domain_data = self.hass.data.get(DOMAIN, {}) or {}
+            hvac = domain_data.get("hvac_coordinator")
+            if hvac is None:
+                cm = domain_data.get("coordinator_manager")
+                if cm is not None:
+                    coords = getattr(cm, "coordinators", None) or {}
+                    hvac = coords.get("hvac")
             if hvac is None:
                 return
             arrester = getattr(hvac, "override_arrester", None)
@@ -3780,17 +3792,32 @@ class OptimizerKillSwitch(SwitchEntity, RestoreEntity):
         self.async_write_ha_state()
 
     async def async_added_to_hass(self) -> None:
-        """Restore kill state on startup (belt-and-suspenders).
+        """Restore kill state on startup — FAIL CLOSED on split-brain.
 
-        Options write-back IS the primary persistence; RestoreEntity is a
-        fallback for the brief window before options are loaded.
+        B-C2 fix-up: the kill switch is a safety primitive and MUST
+        never fail open. If EITHER persistence channel (entry.options
+        OR RestoreEntity last_state) reports `engaged`, we engage. The
+        plan D2 line 248 mandates RestoreEntity, so we keep it.
+
+        Concretely: if options=False but last_state=on (e.g. options was
+        cleared by a manual edit while the entity restore won), we stay
+        engaged AND re-write options=True so the two persistence
+        channels reconverge.
         """
         await super().async_added_to_hass()
-        # If options didn't seed us (e.g. brand-new install), fall back to
-        # the persisted entity state.
         opts = self._entry.options or {}
-        if self._conf_key not in opts:
-            last = await self.async_get_last_state()
-            if last is not None and last.state == "on":
-                self._attr_is_on = True
+        opts_says_on = bool(opts.get(self._conf_key)) if self._conf_key in opts else None
+        last = await self.async_get_last_state()
+        last_says_on = last is not None and last.state == "on"
+        # Engage if EITHER source says engaged.
+        if opts_says_on is True or last_says_on:
+            self._attr_is_on = True
+            if opts_says_on is not True:
+                # Reconverge options to match the engaged state.
                 self._write_options(True)
+            self.async_write_ha_state()
+            return
+        # If neither source said engaged, leave the constructor's seed
+        # (default released) and write the state out so the entity isn't
+        # stuck in "unknown" until the first user interaction.
+        self.async_write_ha_state()
