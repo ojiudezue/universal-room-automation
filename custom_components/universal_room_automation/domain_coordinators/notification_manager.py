@@ -1871,6 +1871,16 @@ class NotificationManager:
     # Quiet hours
     # =========================================================================
 
+    def is_quiet_hours_active(self) -> bool:
+        """Public quiet-hours predicate — sibling coordinators (e.g. the
+        OptimizationCoordinator) reuse NM's single source of truth.
+
+        Renamed from the private ``_is_quiet_hours`` so cross-coordinator
+        callers don't poke at a private method. The private name is kept as
+        a back-compat alias for in-NM callers.
+        """
+        return self._is_quiet_hours()
+
     def _is_quiet_hours(self) -> bool:
         """Check if we're currently in quiet hours."""
         use_house_state = self._config.get(CONF_NM_QUIET_USE_HOUSE_STATE, True)

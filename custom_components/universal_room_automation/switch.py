@@ -1,6 +1,6 @@
 """Switch platform for Universal Room Automation."""
 #
-# Universal Room Automation vv4.7.33
+# Universal Room Automation vv5.0.0
 # Build: 2026-01-02
 # File: switch.py
 #
@@ -226,6 +226,10 @@ async def async_setup_entry(
             SafetyObservationModeSwitch(hass, entry),
             SecurityObservationModeSwitch(hass, entry),
             PresenceObservationModeSwitch(hass, entry),
+            # v4.7.34 Phase 1 D7: Optimization Coordinator kill switch
+            # (restart-persistent via entry.options write-back AND
+            # RestoreEntity; modeled on EnergyObservationModeSwitch:396).
+            OptimizerKillSwitch(hass, entry),
         ])
         return
 
@@ -3655,4 +3659,165 @@ class RoomFanRecheckL2AllowedSwitch(
     async def async_turn_off(self, **kwargs) -> None:
         self._attr_is_on = False
         self._mirror_options(False)
+        self.async_write_ha_state()
+
+
+# ============================================================================
+# v4.7.34 Phase 1 D7: OptimizerKillSwitch
+# ============================================================================
+#
+# Restart-persistent kill switch for the Optimization Coordinator. When ON,
+# the coordinator's effective autonomy clamps synchronously to L0 (advisory)
+# regardless of stored config, in-flight intents are cancelled, and HVAC
+# suppression TTLs are explicitly closed via OverrideArrester.unsuppress().
+#
+# Persistence: belt-and-suspenders (per plan D2) — entry.options write-back
+# AND RestoreEntity. Modeled on EnergyObservationModeSwitch at switch.py:396.
+
+
+class OptimizerKillSwitch(SwitchEntity, RestoreEntity):
+    """Kill switch for the URA Optimization Coordinator.
+
+    When ON: clamp effective rung to L0 advisory immediately and persist
+    state across HA restart.
+
+    Entity: switch.ura_optimizer_kill_switch
+    Device: URA: Optimization Coordinator
+    """
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:hand-back-right-off"
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        """Initialize."""
+        from .const import (
+            CONF_OPTIMIZER_KILL_SWITCH,
+            DEFAULT_OPTIMIZER_KILL_SWITCH,
+        )
+        self.hass = hass
+        self._entry = entry
+        self._conf_key = CONF_OPTIMIZER_KILL_SWITCH
+        self._default = DEFAULT_OPTIMIZER_KILL_SWITCH
+        self._attr_unique_id = f"{DOMAIN}_optimizer_kill_switch"
+        self._attr_name = "Optimizer Kill Switch"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, "optimization_coordinator")},
+            name="URA: Optimization Coordinator",
+            manufacturer="Universal Room Automation",
+            model="Optimization Coordinator",
+            sw_version=VERSION,
+            via_device=(DOMAIN, "coordinator_manager"),
+        )
+        # Seed from options first (single source of truth), fall back to
+        # data, then default — same as the Comfort sliders' D6 pattern.
+        opts = entry.options or {}
+        data = entry.data or {}
+        if self._conf_key in opts and opts[self._conf_key] is not None:
+            self._attr_is_on = bool(opts[self._conf_key])
+        elif self._conf_key in data and data[self._conf_key] is not None:
+            self._attr_is_on = bool(data[self._conf_key])
+        else:
+            self._attr_is_on = bool(self._default)
+
+    @property
+    def is_on(self) -> bool:
+        return bool(self._attr_is_on)
+
+    @property
+    def available(self) -> bool:
+        return True
+
+    def _write_options(self, value: bool) -> None:
+        try:
+            options = {**(self._entry.options or {}), self._conf_key: bool(value)}
+            self.hass.config_entries.async_update_entry(
+                self._entry, options=options,
+            )
+        except Exception:  # noqa: BLE001 — never crash UI
+            _LOGGER.debug(
+                "Optimizer kill switch options write-back failed",
+                exc_info=True,
+            )
+
+    def _close_suppression_ttls(self) -> None:
+        """When tripping the kill switch, close any open HVAC suppression
+        TTLs so a half-applied URA write doesn't sit suppressed.
+
+        Sibling-fix of A-CRIT-1: ``hass.data[DOMAIN]["hvac_coordinator"]``
+        is not a slot the integration populates. Resolve via the
+        CoordinatorManager (``coordinators["hvac"]``) with a back-compat
+        fallback to the legacy slot for tests that mount it directly.
+        """
+        try:
+            domain_data = self.hass.data.get(DOMAIN, {}) or {}
+            hvac = domain_data.get("hvac_coordinator")
+            if hvac is None:
+                cm = domain_data.get("coordinator_manager")
+                if cm is not None:
+                    coords = getattr(cm, "coordinators", None) or {}
+                    hvac = coords.get("hvac")
+            if hvac is None:
+                return
+            arrester = getattr(hvac, "override_arrester", None)
+            if arrester is None:
+                return
+            # _suppressed_until is a dict[entity_id, expiry] (hvac_override.py:137)
+            for eid in list(getattr(arrester, "_suppressed_until", {}).keys()):
+                try:
+                    arrester.unsuppress(eid)
+                except Exception:  # noqa: BLE001
+                    pass
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "Closing suppression TTLs on kill switch failed",
+                exc_info=True,
+            )
+
+    async def async_turn_on(self, **kwargs) -> None:
+        """Engage the kill switch. Persist + close suppression TTLs."""
+        self._attr_is_on = True
+        self._write_options(True)
+        self._close_suppression_ttls()
+        _LOGGER.info(
+            "Optimizer kill switch ENGAGED, autonomy clamped to advisory",
+        )
+        self.async_write_ha_state()
+
+    async def async_turn_off(self, **kwargs) -> None:
+        """Release the kill switch. Restores configured autonomy level."""
+        self._attr_is_on = False
+        self._write_options(False)
+        _LOGGER.info("Optimizer kill switch RELEASED")
+        self.async_write_ha_state()
+
+    async def async_added_to_hass(self) -> None:
+        """Restore kill state on startup — FAIL CLOSED on split-brain.
+
+        B-C2 fix-up: the kill switch is a safety primitive and MUST
+        never fail open. If EITHER persistence channel (entry.options
+        OR RestoreEntity last_state) reports `engaged`, we engage. The
+        plan D2 line 248 mandates RestoreEntity, so we keep it.
+
+        Concretely: if options=False but last_state=on (e.g. options was
+        cleared by a manual edit while the entity restore won), we stay
+        engaged AND re-write options=True so the two persistence
+        channels reconverge.
+        """
+        await super().async_added_to_hass()
+        opts = self._entry.options or {}
+        opts_says_on = bool(opts.get(self._conf_key)) if self._conf_key in opts else None
+        last = await self.async_get_last_state()
+        last_says_on = last is not None and last.state == "on"
+        # Engage if EITHER source says engaged.
+        if opts_says_on is True or last_says_on:
+            self._attr_is_on = True
+            if opts_says_on is not True:
+                # Reconverge options to match the engaged state.
+                self._write_options(True)
+            self.async_write_ha_state()
+            return
+        # If neither source said engaged, leave the constructor's seed
+        # (default released) and write the state out so the entity isn't
+        # stuck in "unknown" until the first user interaction.
         self.async_write_ha_state()

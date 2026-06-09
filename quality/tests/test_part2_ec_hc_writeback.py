@@ -97,6 +97,15 @@ EXPECTED_SUPPRESS_KEYS: set[str] = {
     _extract_conf(HVAC_CONST_SRC, "CONF_HVAC_EGRESS_THRESHOLD_MIN"),
     _extract_conf(HVAC_CONST_SRC, "CONF_HVAC_EGRESS_RESUME_DELAY_MIN"),
     _extract_conf(CONST_SRC, "CONF_FAN_INTERFERENCE_HOLD_S"),
+    # v4.7.34 — Optimization Coordinator (C-CRIT-1). Six CM-level keys
+    # whose changes must NOT tear down the CM entry; the coordinator
+    # reads entry.options fresh every cycle.
+    _extract_conf(CONST_SRC, "CONF_OPTIMIZER_AUTONOMY_LEVEL"),
+    _extract_conf(CONST_SRC, "CONF_OPTIMIZER_KILL_SWITCH"),
+    _extract_conf(CONST_SRC, "CONF_OPTIMIZER_DIMENSION_AUTONOMY"),
+    _extract_conf(CONST_SRC, "CONF_OPTIMIZER_CONFIDENCE_GATE"),
+    _extract_conf(CONST_SRC, "CONF_OPTIMIZER_RATE_CAP_PER_HOUR"),
+    _extract_conf(CONST_SRC, "CONF_OPTIMIZER_QUIET_HOURS_SOURCE"),
 }
 
 
@@ -133,9 +142,9 @@ def test_options_reload_suppress_keys_membership_exact():
 
 def test_options_reload_suppress_keys_count_matches_part2_scope():
     """Headline number: Cycle 1's 5 + 10 EC/Bayesian + 4 Routine +
-    14 HVAC tunables + 4 D5 = 37 keys."""
+    14 HVAC tunables + 4 D5 + 6 v4.7.34 Optimizer = 43 keys."""
     ns = _load_init_dispatch_namespace()
-    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 37
+    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 43
 
 
 # ---------------------------------------------------------------------------
@@ -217,6 +226,18 @@ def _load_init_dispatch_namespace() -> dict:
         "_CONF_ROUTINE_REGIME_BASELINE_WINDOW_DAYS": "routine_regime_baseline_window_days",
         "_CONF_ROUTINE_REGIME_RECENT_WINDOW_DAYS": "routine_regime_recent_window_days",
         "_CONF_BAYESIAN_CELL_STALENESS_DAYS":     "bayesian_cell_staleness_days",
+        # v4.7.34 — Optimization Coordinator (C-CRIT-1) + ROOM-level
+        # comfort sliders (C-HIGH-3). Mirror const.py string values.
+        "_CONF_OPTIMIZER_AUTONOMY_LEVEL":         "optimizer_autonomy_level",
+        "_CONF_OPTIMIZER_KILL_SWITCH":            "optimizer_kill_switch",
+        "_CONF_OPTIMIZER_DIMENSION_AUTONOMY":     "optimizer_dimension_autonomy",
+        "_CONF_OPTIMIZER_CONFIDENCE_GATE":        "optimizer_confidence_gate",
+        "_CONF_OPTIMIZER_RATE_CAP_PER_HOUR":      "optimizer_rate_cap_per_hour",
+        "_CONF_OPTIMIZER_QUIET_HOURS_SOURCE":     "optimizer_quiet_hours_source",
+        "_CONF_COMFORT_TEMP_MIN":                 "comfort_temp_min",
+        "_CONF_COMFORT_TEMP_MAX":                 "comfort_temp_max",
+        "_CONF_COMFORT_HUMIDITY_MAX":             "comfort_humidity_max",
+        "ENTRY_TYPE_ROOM":                        "room",
     }
     mod = ast.Module(body=body, type_ignores=[])
     code = compile(mod, str(PKG / "__init__.py"), "exec")

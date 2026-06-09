@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv4.7.33
+# Universal Room Automation vv5.0.0
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -2126,6 +2126,27 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 else:
                     _LOGGER.info("Notification Manager disabled via config")
 
+                # v4.7.34 Phase 1 D1: register OptimizationCoordinator AFTER
+                # HVAC + NM exist so the broker can locate the override
+                # arrester and NM can route severity-high findings. The
+                # optimizer is priority=5 (lowest, runs last in batches).
+                try:
+                    from .domain_coordinators.optimization import (
+                        OptimizationCoordinator,
+                    )
+                    optimization = OptimizationCoordinator(hass)
+                    coordinator_manager.register_coordinator(optimization)
+                    _LOGGER.info(
+                        "Optimization Coordinator registered (priority=%d)",
+                        optimization.priority,
+                    )
+                except Exception:
+                    _LOGGER.warning(
+                        "Optimization Coordinator registration failed "
+                        "(non-fatal — feature degrades to no-op)",
+                        exc_info=True,
+                    )
+
                 # B1 fix: assign coordinator_manager to hass.data BEFORE
                 # async_start() so that SIGNAL_ENERGY_COORDINATOR_READY
                 # subscribers (e.g. EC sub-switches in _handle_ec_ready) can
@@ -3601,6 +3622,17 @@ from .const import (
     CONF_ROUTINE_EVENT_MIN_SEVERITY as _CONF_ROUTINE_EVENT_MIN_SEVERITY,
     CONF_ROUTINE_REGIME_BASELINE_WINDOW_DAYS as _CONF_ROUTINE_REGIME_BASELINE_WINDOW_DAYS,
     CONF_ROUTINE_REGIME_RECENT_WINDOW_DAYS as _CONF_ROUTINE_REGIME_RECENT_WINDOW_DAYS,
+    # v4.7.34 — Optimization Coordinator CM-level keys (C-CRIT-1 reload
+    # suppression) and ROOM-level comfort sliders (C-HIGH-3).
+    CONF_OPTIMIZER_AUTONOMY_LEVEL as _CONF_OPTIMIZER_AUTONOMY_LEVEL,
+    CONF_OPTIMIZER_KILL_SWITCH as _CONF_OPTIMIZER_KILL_SWITCH,
+    CONF_OPTIMIZER_DIMENSION_AUTONOMY as _CONF_OPTIMIZER_DIMENSION_AUTONOMY,
+    CONF_OPTIMIZER_CONFIDENCE_GATE as _CONF_OPTIMIZER_CONFIDENCE_GATE,
+    CONF_OPTIMIZER_RATE_CAP_PER_HOUR as _CONF_OPTIMIZER_RATE_CAP_PER_HOUR,
+    CONF_OPTIMIZER_QUIET_HOURS_SOURCE as _CONF_OPTIMIZER_QUIET_HOURS_SOURCE,
+    CONF_COMFORT_TEMP_MIN as _CONF_COMFORT_TEMP_MIN,
+    CONF_COMFORT_TEMP_MAX as _CONF_COMFORT_TEMP_MAX,
+    CONF_COMFORT_HUMIDITY_MAX as _CONF_COMFORT_HUMIDITY_MAX,
 )
 
 # The 14 HVAC tunable factory CONFs share an identical dispatch pattern:
@@ -3673,6 +3705,16 @@ _NO_LIVE_ATTR_KEYS: frozenset[str] = frozenset({
     _CONF_ROUTINE_REGIME_BASELINE_WINDOW_DAYS,
     _CONF_ROUTINE_REGIME_RECENT_WINDOW_DAYS,
     _CONF_BAYESIAN_CELL_STALENESS_DAYS,
+    # v4.7.34 — Optimization Coordinator (C-CRIT-1): the coordinator
+    # reads `entry.options` fresh on every cycle, so no live-attr push
+    # is needed.  These keys flow through `_apply_in_place` purely as a
+    # no-op so the snapshot advances normally.
+    _CONF_OPTIMIZER_AUTONOMY_LEVEL,
+    _CONF_OPTIMIZER_KILL_SWITCH,
+    _CONF_OPTIMIZER_DIMENSION_AUTONOMY,
+    _CONF_OPTIMIZER_CONFIDENCE_GATE,
+    _CONF_OPTIMIZER_RATE_CAP_PER_HOUR,
+    _CONF_OPTIMIZER_QUIET_HOURS_SOURCE,
 })
 
 OPTIONS_RELOAD_SUPPRESS_KEYS: frozenset[str] = frozenset({
@@ -3705,6 +3747,16 @@ OPTIONS_RELOAD_SUPPRESS_KEYS: frozenset[str] = frozenset({
     _CONF_HVAC_EGRESS_THRESHOLD_MIN,
     _CONF_HVAC_EGRESS_RESUME_DELAY_MIN,
     _CONF_FAN_INTERFERENCE_HOLD_S,
+    # v4.7.34 — Optimization Coordinator CM-level keys (C-CRIT-1).
+    # OptimizationCoordinator reads entry.options fresh every cycle via
+    # `_read_cm_config()`, so no live-attr push is needed — these belong
+    # in `_NO_LIVE_ATTR_KEYS` below.
+    _CONF_OPTIMIZER_AUTONOMY_LEVEL,
+    _CONF_OPTIMIZER_KILL_SWITCH,
+    _CONF_OPTIMIZER_DIMENSION_AUTONOMY,
+    _CONF_OPTIMIZER_CONFIDENCE_GATE,
+    _CONF_OPTIMIZER_RATE_CAP_PER_HOUR,
+    _CONF_OPTIMIZER_QUIET_HOURS_SOURCE,
 })
 
 
@@ -4040,6 +4092,43 @@ async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> Non
     are unchanged from the legacy reload-everything behavior.
     """
     entry_type = entry.data.get(CONF_ENTRY_TYPE)
+
+    # C-HIGH-3 fix-up (v4.7.34): ROOM-entry comfort-slider writes used to
+    # trigger a full ROOM reload (~90 entities) on every slider drag.
+    # The OptimizationCoordinator reads `comfort_temp_min/max` and
+    # `comfort_humidity_max` fresh on every cycle via
+    # ``_read_per_room_comfort()``; the Number entity's `_value` is the
+    # only other consumer, and it lives in the same process and was
+    # already mutated by the setter that triggered this listener. So a
+    # ROOM-entry write that ONLY changed comfort-slider keys is a pure
+    # persistence operation — no reload required.
+    _ROOM_SUPPRESS_KEYS: frozenset[str] = frozenset({
+        _CONF_COMFORT_TEMP_MIN,
+        _CONF_COMFORT_TEMP_MAX,
+        _CONF_COMFORT_HUMIDITY_MAX,
+    })
+
+    if entry_type == ENTRY_TYPE_ROOM:
+        snapshots = hass.data.setdefault(DOMAIN, {}).setdefault(
+            "room_last_applied_options", {},
+        )
+        old = snapshots.get(entry.entry_id, {})
+        new = dict(entry.options)
+        changed_keys = {
+            k for k in (old.keys() | new.keys())
+            if old.get(k) != new.get(k)
+        }
+        if changed_keys and changed_keys.issubset(_ROOM_SUPPRESS_KEYS):
+            _LOGGER.info(
+                "ROOM options changed for '%s' (%s) — comfort slider "
+                "write, suppressing reload (changed_keys=%s)",
+                entry.title, entry.entry_id, sorted(changed_keys),
+            )
+            snapshots[entry.entry_id] = dict(new)
+            return
+        # Mixed / unknown change → reseed snapshot so future slider-only
+        # writes diff against current state, then fall through to reload.
+        snapshots[entry.entry_id] = dict(new)
 
     if entry_type == ENTRY_TYPE_COORDINATOR_MANAGER:
         snapshots = hass.data.setdefault(DOMAIN, {}).setdefault(

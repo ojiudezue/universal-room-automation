@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv4.7.33
+# Universal Room Automation vv5.0.0
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v4.7.33"
+VERSION: Final = "v5.0.0"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -1461,3 +1461,113 @@ BOOT_SETTLE_TIMEOUT_SECONDS: Final = 60
 # compute. Currently 1 — present so a future cycle can raise the bar without
 # a magic number proliferating through presence.py.
 BOOT_SETTLE_MIN_INPUTS: Final = 1
+
+
+# ============================================================================
+# OPTIMIZATION COORDINATOR (Phase 1 — v4.7.34 candidate)
+# ============================================================================
+#
+# Six-rung autonomy ladder (operator-final 2026-06-08). Ship default = L1
+# (Shadow / dry-run): logs the action it WOULD take + the predicted effect,
+# scored against actual outcomes, ZERO real actuation until the operator
+# dials L2+.
+#
+# L0 advisory          → notify only, no action proposed for dispatch
+# L1 shadow            → emit intent + predicted effect, NO dispatch (DEFAULT)
+# L2 reversible_device → allowlisted device actuation; NO config writes
+# L3 propose_config    → config writes, veto window ≥30s, ±20% numeric clamp
+# L4 immediate_config  → config writes, no veto window, ±20% numeric clamp
+# L5 unbounded         → kill-switch only; no allowlist, no clamp, no veto
+
+OPTIMIZER_LEVEL_ADVISORY: Final = "advisory"
+OPTIMIZER_LEVEL_SHADOW: Final = "shadow"
+OPTIMIZER_LEVEL_REVERSIBLE_DEVICE: Final = "reversible_device"
+OPTIMIZER_LEVEL_PROPOSE_CONFIG: Final = "propose_config"
+OPTIMIZER_LEVEL_IMMEDIATE_CONFIG: Final = "immediate_config"
+OPTIMIZER_LEVEL_UNBOUNDED: Final = "unbounded"
+
+OPTIMIZER_AUTONOMY_LEVELS: Final = [
+    OPTIMIZER_LEVEL_ADVISORY,
+    OPTIMIZER_LEVEL_SHADOW,
+    OPTIMIZER_LEVEL_REVERSIBLE_DEVICE,
+    OPTIMIZER_LEVEL_PROPOSE_CONFIG,
+    OPTIMIZER_LEVEL_IMMEDIATE_CONFIG,
+    OPTIMIZER_LEVEL_UNBOUNDED,
+]
+
+# Numeric ordering for clamps / `min(...)` comparisons.
+OPTIMIZER_LEVEL_RANK: Final = {
+    OPTIMIZER_LEVEL_ADVISORY: 0,
+    OPTIMIZER_LEVEL_SHADOW: 1,
+    OPTIMIZER_LEVEL_REVERSIBLE_DEVICE: 2,
+    OPTIMIZER_LEVEL_PROPOSE_CONFIG: 3,
+    OPTIMIZER_LEVEL_IMMEDIATE_CONFIG: 4,
+    OPTIMIZER_LEVEL_UNBOUNDED: 5,
+}
+
+# Matrix gate CONF_* keys (CM-entry options).
+CONF_OPTIMIZER_AUTONOMY_LEVEL: Final = "optimizer_autonomy_level"
+CONF_OPTIMIZER_KILL_SWITCH: Final = "optimizer_kill_switch"
+CONF_OPTIMIZER_DIMENSION_AUTONOMY: Final = "optimizer_dimension_autonomy"
+CONF_OPTIMIZER_CONFIDENCE_GATE: Final = "optimizer_confidence_gate"
+CONF_OPTIMIZER_RATE_CAP_PER_HOUR: Final = "optimizer_rate_cap_per_hour"
+CONF_OPTIMIZER_QUIET_HOURS_SOURCE: Final = "optimizer_quiet_hours_source"
+
+DEFAULT_OPTIMIZER_AUTONOMY_LEVEL: Final = OPTIMIZER_LEVEL_SHADOW
+DEFAULT_OPTIMIZER_KILL_SWITCH: Final = False
+DEFAULT_OPTIMIZER_CONFIDENCE_GATE: Final = 0.7
+DEFAULT_OPTIMIZER_RATE_CAP_PER_HOUR: Final = 12
+
+OPTIMIZER_QUIET_HOURS_SOURCE_REUSE_NM: Final = "reuse_nm"
+OPTIMIZER_QUIET_HOURS_SOURCE_NONE: Final = "none"
+DEFAULT_OPTIMIZER_QUIET_HOURS_SOURCE: Final = OPTIMIZER_QUIET_HOURS_SOURCE_REUSE_NM
+OPTIMIZER_QUIET_HOURS_SOURCES: Final = [
+    OPTIMIZER_QUIET_HOURS_SOURCE_REUSE_NM,
+    OPTIMIZER_QUIET_HOURS_SOURCE_NONE,
+]
+
+# L2 reversible device-actuation allowlist (single dispatch chokepoint).
+# `number` / `select` are config-write domains and require L3+.
+OPTIMIZER_ALLOWED_DOMAINS_DEVICE: Final = frozenset(
+    {"light", "switch", "fan", "cover", "climate"}
+)
+# L3+ config-write allowlist (numeric / enum tweaks).
+OPTIMIZER_ALLOWED_DOMAINS_CONFIG: Final = frozenset({"number", "select"})
+
+# L3+ numeric clamp (±20% of current value).
+OPTIMIZER_CONFIG_CLAMP_FRACTION: Final = 0.20
+# Default veto-window seconds at L3 (propose-config); L2 / L4 use 0.
+OPTIMIZER_VETO_WINDOW_SECONDS_L3: Final = 30
+
+# Comfort-slider per-room option keys (D6 — closes v1 plan Appendix A
+# orphan: existing entities at number.py:178-280 gain entry.options
+# write-back + seed-from-options). These live on the per-room entry,
+# not the CM entry.
+CONF_COMFORT_TEMP_MIN: Final = "comfort_temp_min"
+CONF_COMFORT_TEMP_MAX: Final = "comfort_temp_max"
+CONF_COMFORT_HUMIDITY_MAX: Final = "comfort_humidity_max"
+
+# Optimizer dimension StrEnum-equivalent values (kept as plain str-finals
+# for back-compat; OptimizationCoordinator wraps them in a local
+# StrEnum). `meta` is the per-cycle "cycle_ok" sentinel.
+OPTIMIZER_DIMENSION_SENSOR_HEALTH: Final = "sensor_health"
+OPTIMIZER_DIMENSION_COMFORT: Final = "comfort"
+OPTIMIZER_DIMENSION_META: Final = "meta"
+
+# 5-min cycle (matches SCAN_INTERVAL_ENERGY cadence — runs last per
+# priority=5).
+SCAN_INTERVAL_OPTIMIZATION: Final = timedelta(minutes=5)
+DEFAULT_OPTIMIZER_PRIORITY: Final = 5
+
+# Applied-outcome enum values for `optimization_findings.applied_outcome`.
+OPTIMIZER_OUTCOME_APPLIED: Final = "applied"
+OPTIMIZER_OUTCOME_VETOED: Final = "vetoed"
+OPTIMIZER_OUTCOME_FAILED: Final = "failed"
+OPTIMIZER_OUTCOME_ADVISORY_ONLY: Final = "advisory_only"
+OPTIMIZER_OUTCOME_SHADOW: Final = "shadow_dry_run"
+OPTIMIZER_OUTCOME_RATE_CAPPED: Final = "rate_capped"
+OPTIMIZER_OUTCOME_QUIET_CLAMPED: Final = "quiet_hours_clamped"
+OPTIMIZER_OUTCOME_BELOW_GATE: Final = "below_confidence_gate"
+OPTIMIZER_OUTCOME_DISALLOWED: Final = "config_write_requires_L3"
+OPTIMIZER_OUTCOME_DOMAIN_BLOCKED: Final = "domain_not_allowlisted"
+OPTIMIZER_OUTCOME_KILL_SWITCH: Final = "kill_switch_engaged"
