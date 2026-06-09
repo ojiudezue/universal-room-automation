@@ -3634,7 +3634,9 @@ from .const import (
     CONF_OPTIMIZER_LLM_TASK_ENTITY as _CONF_OPTIMIZER_LLM_TASK_ENTITY,
     CONF_OPTIMIZER_LLM_TRIAGE_ENTITY as _CONF_OPTIMIZER_LLM_TRIAGE_ENTITY,
     CONF_OPTIMIZER_LLM_SYSTEM_PROMPT as _CONF_OPTIMIZER_LLM_SYSTEM_PROMPT,
-    CONF_OPTIMIZER_LLM_MAX_INVOCATIONS_PER_DAY as _CONF_OPTIMIZER_LLM_MAX_INVOCATIONS_PER_DAY,
+    CONF_OPTIMIZER_LLM_MAX_INVOCATIONS_PER_24H as _CONF_OPTIMIZER_LLM_MAX_INVOCATIONS_PER_24H,
+    # v4.7.35 fix-up (B-B2) — safety/security deny-list CM-options key.
+    CONF_OPTIMIZER_SAFETY_DENY_ENTITIES as _CONF_OPTIMIZER_SAFETY_DENY_ENTITIES,
     CONF_COMFORT_TEMP_MIN as _CONF_COMFORT_TEMP_MIN,
     CONF_COMFORT_TEMP_MAX as _CONF_COMFORT_TEMP_MAX,
     CONF_COMFORT_HUMIDITY_MAX as _CONF_COMFORT_HUMIDITY_MAX,
@@ -3726,7 +3728,10 @@ _NO_LIVE_ATTR_KEYS: frozenset[str] = frozenset({
     _CONF_OPTIMIZER_LLM_TASK_ENTITY,
     _CONF_OPTIMIZER_LLM_TRIAGE_ENTITY,
     _CONF_OPTIMIZER_LLM_SYSTEM_PROMPT,
-    _CONF_OPTIMIZER_LLM_MAX_INVOCATIONS_PER_DAY,
+    _CONF_OPTIMIZER_LLM_MAX_INVOCATIONS_PER_24H,
+    # v4.7.35 fix-up (B-B2) — deny-list read fresh on every chokepoint
+    # invocation; no live-attr push needed.
+    _CONF_OPTIMIZER_SAFETY_DENY_ENTITIES,
 })
 
 OPTIONS_RELOAD_SUPPRESS_KEYS: frozenset[str] = frozenset({
@@ -3770,13 +3775,16 @@ OPTIONS_RELOAD_SUPPRESS_KEYS: frozenset[str] = frozenset({
     _CONF_OPTIMIZER_RATE_CAP_PER_HOUR,
     _CONF_OPTIMIZER_QUIET_HOURS_SOURCE,
     # v4.7.35 Phase 2 — LLM tier keys. Editing the LLM provider,
-    # triage backend, prompt, or daily cap must NOT trigger a full
+    # triage backend, prompt, or 24h cap must NOT trigger a full
     # CM reload — the OptimizationLLMTier re-reads entry.options on
     # every cycle. (See `_NO_LIVE_ATTR_KEYS` above.)
     _CONF_OPTIMIZER_LLM_TASK_ENTITY,
     _CONF_OPTIMIZER_LLM_TRIAGE_ENTITY,
     _CONF_OPTIMIZER_LLM_SYSTEM_PROMPT,
-    _CONF_OPTIMIZER_LLM_MAX_INVOCATIONS_PER_DAY,
+    _CONF_OPTIMIZER_LLM_MAX_INVOCATIONS_PER_24H,
+    # v4.7.35 fix-up (B-B2) — deny-list edits are options-only; no full
+    # reload (chokepoint reads CM options fresh on every action).
+    _CONF_OPTIMIZER_SAFETY_DENY_ENTITIES,
 })
 
 

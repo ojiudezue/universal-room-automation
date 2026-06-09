@@ -1588,24 +1588,89 @@ CONF_OPTIMIZER_LLM_TASK_ENTITY: Final = "optimizer_llm_task_entity"
 # When configured AND distinct from the primary, the optimizer runs a
 # cheap triage pass first; only when triage flags "worth deep analysis"
 # does the primary (paid) backend get called.
+# v4.7.35 fix-up (A-HIGH-1 / C-LOW-2): default is empty string — triage
+# OFF until the operator opts in. Otherwise the prior default (Claude)
+# defeated the routing and uncapped a paid backend.
 CONF_OPTIMIZER_LLM_TRIAGE_ENTITY: Final = "optimizer_llm_triage_entity"
 # The editable system prompt (multiline). Stored on the CM entry.options
 # because HA caps `text` entity STATE at 255 chars. Resolution at call
 # time: live edited prompt (entry.options) → in-code const default.
 CONF_OPTIMIZER_LLM_SYSTEM_PROMPT: Final = "optimizer_llm_system_prompt"
-# Hard daily cap on PREMIUM (primary) backend calls. The triage/local
-# backend may run uncapped — caps are per-backend.
-CONF_OPTIMIZER_LLM_MAX_INVOCATIONS_PER_DAY: Final = (
-    "optimizer_llm_max_invocations_per_day"
+# Hard rolling-24h cap on PREMIUM (primary) backend calls. The
+# triage/local backend may run uncapped — caps are per-backend. This is
+# a ROLLING WINDOW, not a calendar-day cap (see ``_under_daily_cap``).
+# v4.7.35 fix-up (A-CRIT-2): renamed from ``..._PER_DAY`` to make the
+# rolling semantics explicit; single install, key was never deployed.
+CONF_OPTIMIZER_LLM_MAX_INVOCATIONS_PER_24H: Final = (
+    "optimizer_llm_max_invocations_per_24h"
 )
+# v4.7.35 fix-up (B-B2): operator-configurable deny-list of entity_ids
+# the optimizer must NEVER actuate against — applies to ALL findings
+# (Tier-1 + Tier-2 LLM). Lives on CM options as a list of strings.
+# Coordinator-enumerated safety/security entities are a future
+# extension; today the operator seeds the list explicitly.
+CONF_OPTIMIZER_SAFETY_DENY_ENTITIES: Final = "optimizer_safety_deny_entities"
 
 DEFAULT_OPTIMIZER_LLM_TASK_ENTITY: Final = "ai_task.claude_ai_task"
-DEFAULT_OPTIMIZER_LLM_MAX_INVOCATIONS_PER_DAY: Final = 24
+DEFAULT_OPTIMIZER_LLM_MAX_INVOCATIONS_PER_24H: Final = 24
+# A-HIGH-1: triage defaults to empty string so the operator has to
+# explicitly opt into a (presumed cheap/local) triage backend.
+DEFAULT_OPTIMIZER_LLM_TRIAGE_ENTITY: Final = ""
+# B-B2: empty by default; operator seeds the list with any entity_ids
+# that must never be actuated by the optimizer.
+DEFAULT_OPTIMIZER_SAFETY_DENY_ENTITIES: Final[list[str]] = []
+# C-LOW-2: known-local triage backend prefix; a triage entity matching
+# this prefix is presumed zero-cost (no uncapped-backend warning).
+OPTIMIZER_LLM_TRIAGE_LOCAL_PREFIX: Final = "ai_task.ollama_"
 
 # Token cap for the assembled context corpus (pre-LLM compression).
-# Conservative char→token heuristic: ~4 chars/token → 8000 tokens ≈ 32KB.
+# Conservative char→token heuristic: ~3 chars/token → 8000 tokens ≈ 24KB.
+# v4.7.35 fix-up (A-MED-4 / C-MED-1): tightened from 4 to 3 to match the
+# plan's "<8KB corpus" intent more closely (24KB hard cap, not 32KB).
 OPTIMIZER_LLM_CONTEXT_MAX_TOKENS: Final = 8000
-OPTIMIZER_LLM_CONTEXT_CHARS_PER_TOKEN: Final = 4
+OPTIMIZER_LLM_CONTEXT_CHARS_PER_TOKEN: Final = 3
+# v4.7.35 fix-up (A-MED-4): cap the resolved system prompt length so a
+# runaway live override can't blow up the prompt body.
+OPTIMIZER_LLM_SYSTEM_PROMPT_MAX_CHARS: Final = 16 * 1024
+# v4.7.35 fix-up (A-LOW-2): hard timeout on the ai_task service call so
+# a hung backend can't park the 5-min optimizer cycle.
+OPTIMIZER_LLM_AI_TASK_TIMEOUT_S: Final = 45
+# v4.7.35 fix-up (B-B4): soft-clamp LLM-supplied confidence so an
+# operator who pins the confidence gate at 1.0 keeps a "no autonomous
+# LLM action" failsafe — the LLM can't self-certify past a high gate.
+OPTIMIZER_LLM_CONFIDENCE_CLAMP_MAX: Final = 0.85
+# v4.7.35 fix-up (B-B4): cap LLM-emitted critical/high findings per
+# cycle to prevent NM spam (excess findings get downgraded).
+OPTIMIZER_LLM_MAX_CRITICAL_PER_CYCLE: Final = 3
+OPTIMIZER_LLM_MAX_HIGH_PER_CYCLE: Final = 3
+# v4.7.35 fix-up (A-HIGH-3): allowlist for LLM-proposed
+# ``service_data`` keys. Mirrors the HA-standard keys disciplined by
+# the AI rule-parser (config_flow.py:1610-1611) plus the safe numeric
+# config-write knobs the optimizer can adjust. Unknown keys are
+# dropped (with an INFO log) before dispatch.
+OPTIMIZER_LLM_SERVICE_DATA_ALLOWED_KEYS: Final = frozenset({
+    # Light / switch / fan
+    "brightness_pct",
+    "color_temp_kelvin",
+    "transition",
+    "rgb_color",
+    "hs_color",
+    "effect",
+    # Climate
+    "temperature",
+    "target_temp_high",
+    "target_temp_low",
+    "hvac_mode",
+    "fan_mode",
+    "preset_mode",
+    "humidity",
+    # Cover
+    "position",
+    "tilt_position",
+    # Config write (number / select)
+    "value",
+    "option",
+})
 
 # AI Task name surfaced in HA's ai_task service call.
 OPTIMIZER_LLM_TASK_NAME: Final = "ura_optimizer_findings"

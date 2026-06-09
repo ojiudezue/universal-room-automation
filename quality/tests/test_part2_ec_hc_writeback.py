@@ -110,7 +110,9 @@ EXPECTED_SUPPRESS_KEYS: set[str] = {
     _extract_conf(CONST_SRC, "CONF_OPTIMIZER_LLM_TASK_ENTITY"),
     _extract_conf(CONST_SRC, "CONF_OPTIMIZER_LLM_TRIAGE_ENTITY"),
     _extract_conf(CONST_SRC, "CONF_OPTIMIZER_LLM_SYSTEM_PROMPT"),
-    _extract_conf(CONST_SRC, "CONF_OPTIMIZER_LLM_MAX_INVOCATIONS_PER_DAY"),
+    _extract_conf(CONST_SRC, "CONF_OPTIMIZER_LLM_MAX_INVOCATIONS_PER_24H"),
+    # v4.7.35 fix-up (B-B2) — safety/security deny-list.
+    _extract_conf(CONST_SRC, "CONF_OPTIMIZER_SAFETY_DENY_ENTITIES"),
 }
 
 
@@ -147,9 +149,10 @@ def test_options_reload_suppress_keys_membership_exact():
 
 def test_options_reload_suppress_keys_count_matches_part2_scope():
     """Headline number: Cycle 1's 5 + 10 EC/Bayesian + 4 Routine +
-    14 HVAC tunables + 4 D5 + 6 v4.7.34 Optimizer + 4 v4.7.35 LLM = 47 keys."""
+    14 HVAC tunables + 4 D5 + 6 v4.7.34 Optimizer + 4 v4.7.35 LLM +
+    1 v4.7.35 fix-up (safety deny-list) = 48 keys."""
     ns = _load_init_dispatch_namespace()
-    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 47
+    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 48
 
 
 # ---------------------------------------------------------------------------
@@ -243,7 +246,8 @@ def _load_init_dispatch_namespace() -> dict:
         "_CONF_OPTIMIZER_LLM_TASK_ENTITY":        "optimizer_llm_task_entity",
         "_CONF_OPTIMIZER_LLM_TRIAGE_ENTITY":      "optimizer_llm_triage_entity",
         "_CONF_OPTIMIZER_LLM_SYSTEM_PROMPT":      "optimizer_llm_system_prompt",
-        "_CONF_OPTIMIZER_LLM_MAX_INVOCATIONS_PER_DAY": "optimizer_llm_max_invocations_per_day",
+        "_CONF_OPTIMIZER_LLM_MAX_INVOCATIONS_PER_24H": "optimizer_llm_max_invocations_per_24h",
+        "_CONF_OPTIMIZER_SAFETY_DENY_ENTITIES":   "optimizer_safety_deny_entities",
         "_CONF_COMFORT_TEMP_MIN":                 "comfort_temp_min",
         "_CONF_COMFORT_TEMP_MAX":                 "comfort_temp_max",
         "_CONF_COMFORT_HUMIDITY_MAX":             "comfort_humidity_max",

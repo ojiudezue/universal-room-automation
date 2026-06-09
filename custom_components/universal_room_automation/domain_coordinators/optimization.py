@@ -52,6 +52,8 @@ from ..const import (
     CONF_OPTIMIZER_KILL_SWITCH,
     CONF_OPTIMIZER_QUIET_HOURS_SOURCE,
     CONF_OPTIMIZER_RATE_CAP_PER_HOUR,
+    # v4.7.35 fix-up (B-B2) — safety/security deny-list CM-options key.
+    CONF_OPTIMIZER_SAFETY_DENY_ENTITIES,
     CONF_OCCUPANCY_SENSORS,
     CONF_MOTION_SENSORS,
     CONF_MMWAVE_SENSORS,
@@ -1181,6 +1183,63 @@ class OptimizationCoordinator(BaseCoordinator):
             return hi, None
         return proposed_value, None
 
+    async def _check_safety_denylist(
+        self,
+        finding: OptimizationFinding,
+        action_id: str,
+        level: str,
+        target_entity: str,
+        service: str,
+        cm_config: dict,
+    ) -> str | None:
+        """B-B2 fix-up: refuse to actuate any entity in the safety
+        deny-list. Returns the outcome string when blocked, else None.
+
+        Applies to ALL findings (Tier-1 + Tier-2 LLM); Tier-2 LLM is the
+        primary concern but a deterministic rule-bug could also propose
+        a forbidden entity, so the guard is unconditional.
+
+        Source of truth: CM-options key
+        ``CONF_OPTIMIZER_SAFETY_DENY_ENTITIES`` (a list of entity_ids).
+        Coordinator-enumerated safety/security entities are a planned
+        extension (see Phase-3 backlog) — today the operator seeds the
+        list explicitly.
+        """
+        if not target_entity:
+            return None
+        deny_raw = cm_config.get(CONF_OPTIMIZER_SAFETY_DENY_ENTITIES) or []
+        if isinstance(deny_raw, str):
+            deny_list = [deny_raw]
+        elif isinstance(deny_raw, (list, tuple, set)):
+            deny_list = [str(x) for x in deny_raw if isinstance(x, str)]
+        else:
+            deny_list = []
+        if target_entity in deny_list:
+            finding.applied_outcome = OPTIMIZER_OUTCOME_DISALLOWED
+            await self._log_activity(
+                action="clamped", importance="notable",
+                description=(
+                    f"safety_denylist: {target_entity} blocked from "
+                    f"actuation ({service})"
+                ),
+                details={
+                    "action_id": action_id, "level": level,
+                    "reason": "safety_denylist",
+                    "target_entity": target_entity,
+                    "service": service,
+                    "created_by": getattr(finding, "created_by", "tier1"),
+                },
+                finding=finding,
+            )
+            _LOGGER.info(
+                "Optimizer: safety_denylist blocked %s (service=%s, "
+                "created_by=%s)",
+                target_entity, service,
+                getattr(finding, "created_by", "tier1"),
+            )
+            return OPTIMIZER_OUTCOME_DISALLOWED
+        return None
+
     # ------------------------------------------------------------------
     # Single chokepoint
     # ------------------------------------------------------------------
@@ -1282,6 +1341,12 @@ class OptimizationCoordinator(BaseCoordinator):
                     finding=finding,
                 )
                 return OPTIMIZER_OUTCOME_DOMAIN_BLOCKED
+            # B-B2 fix-up: safety / security deny-list check.
+            deny_outcome = await self._check_safety_denylist(
+                finding, action_id, level, target_entity, service, cm_config,
+            )
+            if deny_outcome is not None:
+                return deny_outcome
             # L2 entry requirement.
             if not self._level_at_least(level, OPTIMIZER_LEVEL_REVERSIBLE_DEVICE):
                 # We are at L1 shadow — emit intent dry-run + log.
@@ -1348,6 +1413,13 @@ class OptimizationCoordinator(BaseCoordinator):
                     finding=finding,
                 )
                 return OPTIMIZER_OUTCOME_DOMAIN_BLOCKED
+            # B-B2 fix-up: safety / security deny-list check (applies to
+            # config-write writes as much as device actuation).
+            deny_outcome = await self._check_safety_denylist(
+                finding, action_id, level, target_entity, service, cm_config,
+            )
+            if deny_outcome is not None:
+                return deny_outcome
             # CRITICAL: L2 must REJECT config writes with explicit reason.
             if not self._level_at_least(level, OPTIMIZER_LEVEL_PROPOSE_CONFIG):
                 outcome = OPTIMIZER_OUTCOME_DISALLOWED

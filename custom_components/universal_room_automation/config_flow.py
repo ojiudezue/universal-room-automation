@@ -5607,14 +5607,17 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             CONF_OPTIMIZER_LLM_TASK_ENTITY,
             CONF_OPTIMIZER_LLM_TRIAGE_ENTITY,
             CONF_OPTIMIZER_LLM_SYSTEM_PROMPT,
-            CONF_OPTIMIZER_LLM_MAX_INVOCATIONS_PER_DAY,
+            CONF_OPTIMIZER_LLM_MAX_INVOCATIONS_PER_24H,
+            CONF_OPTIMIZER_SAFETY_DENY_ENTITIES,
             DEFAULT_OPTIMIZER_AUTONOMY_LEVEL,
             DEFAULT_OPTIMIZER_KILL_SWITCH,
             DEFAULT_OPTIMIZER_CONFIDENCE_GATE,
             DEFAULT_OPTIMIZER_RATE_CAP_PER_HOUR,
             DEFAULT_OPTIMIZER_QUIET_HOURS_SOURCE,
             DEFAULT_OPTIMIZER_LLM_TASK_ENTITY,
-            DEFAULT_OPTIMIZER_LLM_MAX_INVOCATIONS_PER_DAY,
+            DEFAULT_OPTIMIZER_LLM_TRIAGE_ENTITY,
+            DEFAULT_OPTIMIZER_LLM_MAX_INVOCATIONS_PER_24H,
+            DEFAULT_OPTIMIZER_SAFETY_DENY_ENTITIES,
             OPTIMIZER_AUTONOMY_LEVELS,
             OPTIMIZER_QUIET_HOURS_SOURCES,
         )
@@ -5701,11 +5704,13 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 CONF_OPTIMIZER_LLM_TRIAGE_ENTITY,
                 default=self._get_current(
                     CONF_OPTIMIZER_LLM_TRIAGE_ENTITY,
-                    DEFAULT_OPTIMIZER_LLM_TASK_ENTITY,
+                    DEFAULT_OPTIMIZER_LLM_TRIAGE_ENTITY,
                 ),
             ): selector.SelectSelector(
                 selector.SelectSelectorConfig(
-                    options=self._discover_ai_task_entities(),
+                    # A-HIGH-1 fix-up: empty string explicitly available
+                    # so the operator can disable triage routing.
+                    options=[""] + self._discover_ai_task_entities(),
                     mode=selector.SelectSelectorMode.DROPDOWN,
                     custom_value=True,
                 )
@@ -5719,15 +5724,32 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 selector.TextSelectorConfig(multiline=True)
             ),
             vol.Optional(
-                CONF_OPTIMIZER_LLM_MAX_INVOCATIONS_PER_DAY,
+                CONF_OPTIMIZER_LLM_MAX_INVOCATIONS_PER_24H,
                 default=self._get_current(
-                    CONF_OPTIMIZER_LLM_MAX_INVOCATIONS_PER_DAY,
-                    DEFAULT_OPTIMIZER_LLM_MAX_INVOCATIONS_PER_DAY,
+                    CONF_OPTIMIZER_LLM_MAX_INVOCATIONS_PER_24H,
+                    DEFAULT_OPTIMIZER_LLM_MAX_INVOCATIONS_PER_24H,
                 ),
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(
                     min=0, max=500, step=1,
                     mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
+            # B-B2 fix-up: safety / security deny-list. Comma-or-list
+            # entry; chokepoint refuses to actuate any entity in this
+            # list (Tier-1 + Tier-2 LLM both).
+            vol.Optional(
+                CONF_OPTIMIZER_SAFETY_DENY_ENTITIES,
+                default=self._get_current(
+                    CONF_OPTIMIZER_SAFETY_DENY_ENTITIES,
+                    list(DEFAULT_OPTIMIZER_SAFETY_DENY_ENTITIES),
+                ),
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=[],
+                    multiple=True,
+                    custom_value=True,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
                 )
             ),
         })
