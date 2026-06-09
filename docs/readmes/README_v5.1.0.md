@@ -1,4 +1,6 @@
-# URA v4.7.35 — Optimization Coordinator Phase 2 (LLM Tier-2, provider-agnostic)
+# URA v5.1.0 — Optimization Coordinator Phase 2 (LLM Tier-2, provider-agnostic)
+
+> **Major-line stage 2.** Released as **v5.1.0** (build-cycle name `v4.7.35`). Builds on v5.0.0 (Phase 1); dimension expansion follows as v5.2.0.
 
 **Release date:** 2026-06-09
 **Tier:** Tier 2-DB (three framing-disjoint reviews + live validation; payload-shape DB trigger: `created_by=tier2_llm` provenance lane)
@@ -6,7 +8,7 @@
 
 **Planning doc:** `docs/planning/PLANNING_OPTIMIZATION_COORDINATOR_v2_agentic.md` (Phase 2)
 **Review doc:** `docs/reviews/code-review/v4.7.35_optimization_coordinator_phase2_llm.md`
-**Depends on:** v4.7.34 (Phase 1). Recommend deploying + live-validating v4.7.34 first.
+**Depends on:** v5.0.0 (Phase 1), validated live 2026-06-09.
 
 ---
 
