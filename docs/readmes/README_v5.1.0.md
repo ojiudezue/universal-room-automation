@@ -46,6 +46,12 @@ No CRITICAL bypass. Fixed in-cycle: premium cap now restart-safe (DB-seeded); LL
 - **Verify (anti-hallucination):** if the LLM ever names an off-snapshot entity, it's rejected (INFO log), not dispatched.
 - **Verify:** zero URA ERROR logs attributable to `optimization_llm` post-boot.
 
-| Criterion | Observed | Source |
+### Validated 2026-06-09 (post-restart, immediate criteria)
+
+| Criterion | Result | Observed evidence |
 |---|---|---|
-| (TBD post-deploy) | | |
+| Version stamped live | **PASS** | `update.universal_room_automation_update.installed_version = v5.1.0` (PR #376) |
+| LLM tier loads, no errors | **PASS** | error_log search `optimization` = empty post-boot; no `optimization_llm`/`ai_task` tracebacks |
+| Still L1 Shadow | **PASS** | optimizer status `mode = shadow` |
+| Coordinator healthy after first cycle | **DEFERRED** | status read `initializing` at validation (fresh boot, first 5-min cycle pending) — confirm `healthy` next check |
+| LLM inertness / provider-switch / anti-hallucination | **DEFERRED** | require a configured `ai_task` entity + a finding-set delta to exercise; covered in-suite; not yet driven live at L1 |

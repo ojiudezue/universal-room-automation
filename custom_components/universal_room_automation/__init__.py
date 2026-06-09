@@ -1,6 +1,6 @@
 """Universal Room Automation integration."""
 #
-# Universal Room Automation vv5.1.0
+# Universal Room Automation vv5.2.0
 # Build: 2026-01-05
 # File: __init__.py
 # FIX v3.3.2: Added ENTRY_TYPE_ZONE handling so zone OptionsFlow becomes accessible
@@ -864,6 +864,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                             # zone count but deleted rooms / orphaned
                             # transitions need a sweep to age out.
                             ("egress_state", "prune_stale_egress_state", {"cutoff_days": 7}),
+                            # v4.7.36 fix-up B3: wire Phase 1 + Phase 3
+                            # optimizer prunes into the nightly cadence so
+                            # findings/digest rows don't grow unbounded.
+                            ("optimization_findings", "prune_optimization_findings", {}),
+                            ("optimization_daily_digest", "prune_optimization_daily_digest", {}),
                         ]
 
                         async def _nightly_db_maintenance(_now):
@@ -969,6 +974,10 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 # path so the deferred-startup branch also schedules the
                 # egress_state prune.
                 ("egress_state", "prune_stale_egress_state", {"cutoff_days": 7}),
+                # v4.7.36 fix-up B3: mirror primary path so deferred-startup
+                # branch also schedules the optimizer prunes.
+                ("optimization_findings", "prune_optimization_findings", {}),
+                ("optimization_daily_digest", "prune_optimization_daily_digest", {}),
             ]
 
             async def _nightly_maintenance_deferred(_now):

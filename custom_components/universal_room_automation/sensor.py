@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.1.0
+# Universal Room Automation vv5.2.0
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -13778,8 +13778,15 @@ class OptimizerRoomHealthSensor(_OptimizerCMSensorBase):
     def extra_state_attributes(self) -> dict:
         coord = self._get_coord()
         if coord is None:
-            return {"rooms": {}}
-        return {"rooms": dict(coord._room_scores)}
+            return {"rooms": {}, "zones": {}}
+        # v4.7.36 fix-up C-sensor: ``_zone_scores`` is populated when a
+        # zone-level dimension fires (override_frequency, vacancy_management,
+        # setpoint_compliance) but had no surface — expose it alongside
+        # ``rooms`` so the operator can see zone-level health too.
+        return {
+            "rooms": dict(coord._room_scores),
+            "zones": dict(getattr(coord, "_zone_scores", {}) or {}),
+        }
 
 
 class RoomOptimizationHealthSensor(UniversalRoomEntity, SensorEntity):
