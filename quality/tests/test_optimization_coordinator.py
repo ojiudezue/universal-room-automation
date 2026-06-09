@@ -3365,3 +3365,402 @@ async def test_optimizer_room_health_attrs_include_phase3_dimensions():
     assert "config_behavior" in degraded
     # Cross-room finding (bathroom sensor_health) must NOT leak in.
     assert "sensor_health" not in degraded
+
+
+# ---------------------------------------------------------------------------
+# v5.2.2 post-mortem — DB write-queue saturation fix.
+#
+# These tests pin the invariant that took the live house down on 2026-06-09:
+# during a boot storm the optimizer flooded the single shared DB write queue
+# with one INSERT per Sensor-Health finding (35+ rooms × per-cycle) AND
+# dispatched the per-room sensor signal once per finding (websocket "4096
+# pending messages" backpressure). The fix bounds per-cycle cost to ≤2 DB
+# writes (tier1 batch + llm batch) + ≤1 signal dispatch + a boot-storm
+# settle gate that skips persistence while the house is still settling.
+# ---------------------------------------------------------------------------
+
+
+def _many_rooms_with_unavailable_temp_sensors(n: int) -> list[dict]:
+    """Build N room configs each with one temperature_sensor.
+
+    Used by the boot-storm tests to simulate the real-world Sensor-Health
+    flood (35+ rooms with sensors stuck `unavailable` after a cold boot).
+    """
+    return [
+        {
+            "room_name": f"room_{i}",
+            "data": {
+                "room_name": f"room_{i}",
+                "temperature_sensor": f"sensor.room_{i}_temp",
+            },
+            "options": {},
+        }
+        for i in range(n)
+    ]
+
+
+@pytest.mark.asyncio
+async def test_optimizer_cycle_one_db_write_under_boot_storm():
+    """v5.2.2 regression test — the cycle does ≤2 DB writes + ≤1 signal.
+
+    Pre-fix: 35 rooms × (sensor-health finding) → 35 per-row log_finding()
+    calls and 35 SIGNAL_OPTIMIZER_FINDING_EMITTED dispatches per cycle,
+    starving the DB write queue and saturating websocket backpressure.
+
+    Post-fix: the cycle batches persistence (1 DB round-trip per tier)
+    and fires ONE signal per cycle regardless of finding count. This
+    test FAILS against the v5.2.1 per-finding loop and PASSES after the
+    fix. Drives the REAL ``run_cycle`` (not a mocked stub).
+    """
+    from custom_components.universal_room_automation.domain_coordinators.optimization import (
+        OptimizationCoordinator,
+    )
+
+    # 35 rooms with `unavailable` temperature sensors — the exact shape
+    # that triggered the v5.2.1 outage. We need rooms_with_unavailable /
+    # total_rooms <= OPTIMIZER_BOOT_STORM_ROOM_FRACTION (0.5) so the
+    # boot-storm gate does NOT skip persistence — we want the cycle to
+    # ACTUALLY persist so we can prove it does ONE write, not N.
+    # Solution: 35 unavailable rooms + 40 healthy rooms → frac=0.467.
+    rooms_bad = _many_rooms_with_unavailable_temp_sensors(35)
+    rooms_good = [
+        {
+            "room_name": f"good_{i}",
+            "data": {
+                "room_name": f"good_{i}",
+                "temperature_sensor": f"sensor.good_{i}_temp",
+            },
+            "options": {},
+        }
+        for i in range(40)
+    ]
+    hass, _ = _make_hass(rooms=rooms_bad + rooms_good)
+
+    # Mark the 35 bad sensors `unavailable`; healthy ones report a number.
+    for i in range(35):
+        hass.states.set(f"sensor.room_{i}_temp", "unavailable")
+    for i in range(40):
+        hass.states.set(f"sensor.good_{i}_temp", "72.0")
+
+    coord = OptimizationCoordinator(hass)
+
+    # Skip the uptime-grace gate — we want the boot-storm-fraction gate
+    # to be the ONLY gate in play (and here it's below threshold).
+    coord._cycles_since_start = 999
+
+    # Pre-arm the >60s "stuck" timestamp so the sensor-health rule fires
+    # for all 35 bad sensors on this cycle.
+    from homeassistant.util import dt as dt_util
+    backdate = dt_util.utcnow() - timedelta(seconds=120)
+    for i in range(35):
+        coord._sensor_stuck_since[(
+            "sensor_health", f"room_{i}", f"sensor.room_{i}_temp",
+        )] = backdate
+
+    # Track BOTH the per-row and batched DAO call counts.
+    database = hass.data["universal_room_automation"]["database"]
+    database.log_finding = AsyncMock(return_value=42)
+    database.log_findings_batch = AsyncMock(return_value=35)
+
+    # Count dispatch invocations. The production code imports
+    # async_dispatcher_send at module level; patch in the optimization
+    # module's namespace.
+    with patch(
+        "custom_components.universal_room_automation."
+        "domain_coordinators.optimization.async_dispatcher_send"
+    ) as mock_dispatch:
+        findings = await coord.run_cycle()
+
+    # The cycle MUST have produced sensor-health findings (so we know
+    # we're exercising the flood path, not an empty cycle).
+    sensor_health = [f for f in findings
+                     if str(f.dimension) == "sensor_health"]
+    assert len(sensor_health) >= 35, (
+        f"expected >=35 sensor_health findings to simulate boot storm, "
+        f"got {len(sensor_health)}"
+    )
+
+    # CORE INVARIANT 1: per-row writer is NOT called from the cycle path.
+    assert database.log_finding.call_count == 0, (
+        f"log_finding (per-row) called {database.log_finding.call_count}x "
+        "— the cycle must use log_findings_batch, not the per-row writer "
+        "(v5.2.1 regression)"
+    )
+
+    # CORE INVARIANT 2: batched writer called at most twice (tier1 + llm).
+    assert 1 <= database.log_findings_batch.call_count <= 2, (
+        f"log_findings_batch called {database.log_findings_batch.call_count}x "
+        "— expected exactly 1 (tier1, no llm) or 2 (tier1 + llm)"
+    )
+
+    # CORE INVARIANT 3: signal dispatch fires AT MOST ONCE per cycle.
+    # (The legacy per-finding dispatch would fire ~36 times for this
+    # input — that's what saturated the websocket queue.)
+    assert mock_dispatch.call_count <= 1, (
+        f"async_dispatcher_send called {mock_dispatch.call_count}x — "
+        "expected ≤1 per cycle (v5.2.1 regression: per-finding dispatch "
+        "saturated websocket backpressure)"
+    )
+
+    # CORE INVARIANT 4 (v5.2.2 review CRITICAL): the SECOND write channel.
+    # `_consider_apply`'s shadow_dry_run / below-gate-clamp branches must NOT
+    # write `ura_activity_log` PER finding — that was an equal-sized O(N)
+    # flood through a different table. Bounded to ≤2 per-cycle summary rows
+    # (one shadow summary + one clamp summary). Against the un-fixed code this
+    # would be ~36 — i.e. this assertion is the gate the first fix lacked.
+    assert database.log_activity.call_count <= 2, (
+        f"log_activity called {database.log_activity.call_count}x — the "
+        "shadow/clamp activity logging must be buffered into ≤2 per-cycle "
+        "summary rows, not written per finding (v5.2.2 review CRITICAL-1)"
+    )
+
+
+@pytest.mark.asyncio
+async def test_optimizer_log_findings_batch_roundtrip():
+    """v5.2.2 batched DAO writes N rows in ONE write-queue acquisition.
+
+    Asserts:
+    1. Multiple findings → one ``_db()`` round-trip (one acquisition,
+       one executemany, one commit).
+    2. None-guarded rows are skipped without failing the whole batch.
+    3. Returns the count of rows actually written.
+    """
+    from custom_components.universal_room_automation import database as _db_mod
+    from custom_components.universal_room_automation.domain_coordinators.optimization import (
+        OptimizationFinding, OptimizationDimension,
+    )
+    import asyncio as _asyncio
+
+    # In-memory fake aiosqlite connection that records executemany.
+    class _FakeConn:
+        def __init__(self):
+            self.executemany_calls = []
+            self.commits = 0
+
+        async def executemany(self, sql, rows):
+            self.executemany_calls.append((sql, list(rows)))
+
+        async def commit(self):
+            self.commits += 1
+
+    fake_conn = _FakeConn()
+    db_acquisitions = {"count": 0}
+
+    class _StubDB:
+        # Stand-in for UniversalRoomDatabase — bind log_findings_batch
+        # method directly so we exercise the REAL DAO logic.
+        from contextlib import asynccontextmanager as _acm
+
+        @_acm
+        async def _db(self):
+            db_acquisitions["count"] += 1
+            yield fake_conn
+
+        log_findings_batch = _db_mod.UniversalRoomDatabase.log_findings_batch
+
+    db = _StubDB()
+    good = [
+        OptimizationFinding(
+            timestamp=_opt_now().isoformat(),
+            level="room", target_id=f"room_{i}",
+            dimension=OptimizationDimension.SENSOR_HEALTH,
+            severity="high", confidence=0.9, score=0.0,
+            description=f"sensor stuck {i}",
+        )
+        for i in range(5)
+    ]
+    # Bad row 1: dimension is None → must be skipped by guard.
+    bad_dim = OptimizationFinding(
+        timestamp=_opt_now().isoformat(),
+        level="room", target_id="bad_room",
+        dimension=OptimizationDimension.SENSOR_HEALTH,
+        severity="high", confidence=0.9, score=0.0,
+        description="will have dim stripped",
+    )
+    bad_dim.dimension = None
+    # Bad row 2: severity is None → must be skipped.
+    bad_sev = OptimizationFinding(
+        timestamp=_opt_now().isoformat(),
+        level="room", target_id="bad_room2",
+        dimension=OptimizationDimension.SENSOR_HEALTH,
+        severity=None, confidence=0.9, score=0.0,
+        description="missing severity",
+    )
+
+    written = await db.log_findings_batch(
+        [good[0], bad_dim, good[1], bad_sev, good[2], good[3], good[4]]
+    )
+
+    # 5 good rows written, 2 skipped.
+    assert written == 5, f"expected 5 written, got {written}"
+    # ONE write-queue acquisition for the entire batch (the regression
+    # was N acquisitions for N findings).
+    assert db_acquisitions["count"] == 1, (
+        f"expected 1 _db() acquisition, got {db_acquisitions['count']}"
+    )
+    # One executemany call, one commit.
+    assert len(fake_conn.executemany_calls) == 1
+    sql, rows = fake_conn.executemany_calls[0]
+    assert "INSERT INTO optimization_findings" in sql
+    assert len(rows) == 5
+    assert fake_conn.commits == 1
+
+
+@pytest.mark.asyncio
+async def test_optimizer_boot_storm_settle_skips_persistence():
+    """v5.2.2 boot-storm gate skips persistence under cold-boot signature.
+
+    When > OPTIMIZER_BOOT_STORM_ROOM_FRACTION of rooms have any
+    configured sensor `unavailable` (the cold-boot signature), the
+    cycle SKIPS persistence + signal dispatch except for the META
+    sentinel. Only the META row gets persisted, so Review-D's "did
+    the cycle run" diagnostic remains truthful.
+    """
+    from custom_components.universal_room_automation.domain_coordinators.optimization import (
+        OptimizationCoordinator,
+    )
+
+    # 10 rooms, ALL with unavailable temperature sensors → frac = 1.0,
+    # well above the 0.5 default threshold.
+    rooms = _many_rooms_with_unavailable_temp_sensors(10)
+    hass, _ = _make_hass(rooms=rooms)
+    for i in range(10):
+        hass.states.set(f"sensor.room_{i}_temp", "unavailable")
+
+    coord = OptimizationCoordinator(hass)
+    # Skip uptime-grace gate so the FRACTION gate is what we're testing.
+    coord._cycles_since_start = 999
+
+    # Backdate the stuck timestamps so the rule WOULD fire for all 10
+    # rooms — but the boot-storm gate must hold them back.
+    from homeassistant.util import dt as dt_util
+    backdate = dt_util.utcnow() - timedelta(seconds=120)
+    for i in range(10):
+        coord._sensor_stuck_since[(
+            "sensor_health", f"room_{i}", f"sensor.room_{i}_temp",
+        )] = backdate
+
+    database = hass.data["universal_room_automation"]["database"]
+    database.log_findings_batch = AsyncMock(return_value=1)
+
+    await coord.run_cycle()
+
+    # Persistence happens — but ONLY the META sentinel, not the 10
+    # sensor-health findings.
+    assert database.log_findings_batch.call_count >= 1
+    # Inspect the LAST persistence call (the META batch). The arg is a
+    # list of OptimizationFinding objects.
+    persisted = database.log_findings_batch.call_args_list[0].args[0]
+    # Every persisted row in the boot-storm path is META.
+    dims = {str(f.dimension) for f in persisted}
+    assert dims == {"meta"}, (
+        f"boot-storm gate must persist ONLY meta sentinel, got "
+        f"dimensions={dims}"
+    )
+    # The skip path must ALSO avoid the second flood channel: no O(N)
+    # per-finding ura_activity_log writes (v5.2.2 review CRITICAL — the
+    # gate previously ran _consider_apply per finding before skipping).
+    assert database.log_activity.call_count <= 2, (
+        f"boot-storm skip path wrote log_activity "
+        f"{database.log_activity.call_count}x — must not flood activity_log"
+    )
+
+
+@pytest.mark.asyncio
+async def test_optimizer_boot_storm_uptime_grace_skips_first_cycle():
+    """v5.2.2: the first N cycles after start skip persistence (uptime grace).
+
+    The boot-settle counter prevents the very first cycle (when slow
+    cloud devices haven't reported yet) from emitting a flood.
+    """
+    from custom_components.universal_room_automation.domain_coordinators.optimization import (
+        OptimizationCoordinator,
+    )
+    from custom_components.universal_room_automation.const import (
+        OPTIMIZER_BOOT_SETTLE_CYCLES,
+    )
+
+    hass, _ = _make_hass(rooms=[{
+        "room_name": "kitchen",
+        "data": {"room_name": "kitchen",
+                  "temperature_sensor": "sensor.kitchen_temp"},
+        "options": {},
+    }])
+    hass.states.set("sensor.kitchen_temp", "72.0")
+
+    coord = OptimizationCoordinator(hass)
+    assert coord._cycles_since_start == 0
+    assert OPTIMIZER_BOOT_SETTLE_CYCLES >= 1
+
+    database = hass.data["universal_room_automation"]["database"]
+    database.log_findings_batch = AsyncMock(return_value=1)
+
+    # Cycle #1: should be skipped by uptime grace.
+    await coord.run_cycle()
+    # Only META persisted.
+    persisted = database.log_findings_batch.call_args_list[0].args[0]
+    dims = {str(f.dimension) for f in persisted}
+    assert dims == {"meta"}, (
+        f"first cycle must skip non-meta persistence (uptime grace), "
+        f"got dimensions={dims}"
+    )
+    # Counter incremented.
+    assert coord._cycles_since_start == 1
+
+
+@pytest.mark.asyncio
+async def test_optimizer_findings_cap_truncates_pathological_cycle():
+    """v5.2.2: a pathological cycle (>cap findings) is truncated.
+
+    Highest-severity rows are retained; META is always preserved.
+    Belt-and-suspenders against any future dimension that could flood.
+    """
+    from custom_components.universal_room_automation.domain_coordinators.optimization import (
+        OptimizationCoordinator, OptimizationFinding, OptimizationDimension,
+    )
+    from custom_components.universal_room_automation.const import (
+        OPTIMIZER_MAX_FINDINGS_PER_CYCLE,
+    )
+
+    hass, _ = _make_hass()
+    coord = OptimizationCoordinator(hass)
+
+    # Build OVER-cap: 150 low-severity + 5 critical + 1 META.
+    findings = []
+    for i in range(150):
+        findings.append(OptimizationFinding(
+            timestamp=_opt_now().isoformat(),
+            level="room", target_id=f"r{i}",
+            dimension=OptimizationDimension.SENSOR_HEALTH,
+            severity="low", confidence=0.9, score=0.0,
+            description=f"low {i}",
+        ))
+    for i in range(5):
+        findings.append(OptimizationFinding(
+            timestamp=_opt_now().isoformat(),
+            level="room", target_id=f"crit{i}",
+            dimension=OptimizationDimension.SENSOR_HEALTH,
+            severity="critical", confidence=0.95, score=0.0,
+            description=f"crit {i}",
+        ))
+    findings.append(OptimizationFinding(
+        timestamp=_opt_now().isoformat(),
+        level="house", target_id="house",
+        dimension=OptimizationDimension.META,
+        severity="low", confidence=1.0, score=100.0,
+        description="cycle_ok",
+    ))
+
+    capped = coord._cap_findings(findings)
+    assert len(capped) <= OPTIMIZER_MAX_FINDINGS_PER_CYCLE
+    # All critical rows preserved.
+    crit_count = sum(1 for f in capped if f.severity == "critical")
+    assert crit_count == 5, (
+        f"expected all 5 critical findings preserved, got {crit_count}"
+    )
+    # META preserved.
+    meta_count = sum(1 for f in capped
+                      if f.dimension == OptimizationDimension.META)
+    assert meta_count == 1, (
+        f"expected META sentinel preserved, got {meta_count}"
+    )

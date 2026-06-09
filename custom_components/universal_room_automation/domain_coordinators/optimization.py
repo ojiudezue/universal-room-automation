@@ -99,6 +99,10 @@ from ..const import (
     OPTIMIZER_LEVEL_REVERSIBLE_DEVICE,
     OPTIMIZER_LEVEL_SHADOW,
     OPTIMIZER_LEVEL_UNBOUNDED,
+    # v5.2.2 — post-mortem write-queue saturation guardrails.
+    OPTIMIZER_MAX_FINDINGS_PER_CYCLE,
+    OPTIMIZER_BOOT_SETTLE_CYCLES,
+    OPTIMIZER_BOOT_STORM_ROOM_FRACTION,
     OPTIMIZER_OUTCOME_ADVISORY_ONLY,
     OPTIMIZER_OUTCOME_APPLIED,
     OPTIMIZER_OUTCOME_BELOW_GATE,
@@ -482,6 +486,18 @@ class OptimizationCoordinator(BaseCoordinator):
         # entity_id)` triple only emits once per cycle.
         self._cycle_dedup: set[tuple] = set()
 
+        # v5.2.2 fix-up — per-cycle activity-log buffers. The Phase-1
+        # ``_consider_apply`` shadow + below-gate branches USED to call
+        # ``_log_activity`` for every finding, which produced an O(N)
+        # INSERT into ``ura_activity_log`` and an O(N) per-row
+        # ``SIGNAL_ACTIVITY_LOGGED`` dispatch (the SECOND write-flood
+        # channel the v5.2.2 batching missed — confirmed by adversarial
+        # review after the live house went down). The fix: buffer per
+        # cycle, emit AT MOST ONE summary row per buffer at the end of
+        # ``run_cycle``. Cleared at the start of every cycle.
+        self._cycle_shadow_log_buffer: list[dict] = []
+        self._cycle_clamp_log_buffer: list[dict] = []
+
         # Most recent house-level summary for sensor consumption.
         self._last_findings: list[OptimizationFinding] = []
         self._last_evaluation_iso: str | None = None
@@ -502,6 +518,14 @@ class OptimizationCoordinator(BaseCoordinator):
 
         # Cycle handle.
         self._cycle_unsub = None
+
+        # v5.2.2 — boot-settle counter. The first
+        # ``OPTIMIZER_BOOT_SETTLE_CYCLES`` cycles after coordinator start
+        # SKIP persistence + signal dispatch (META sentinel still emits)
+        # so the cold-boot unavailable-sensor sweep can't flood the
+        # write queue. Real-time integration tests can monkey-patch
+        # this to 0 if they need first-cycle persistence.
+        self._cycles_since_start: int = 0
 
         # Phase 2 — LLM Tier-2 wrapper. Lazily constructed so importing
         # the optimizer module doesn't trigger the LLM import chain when
@@ -634,6 +658,12 @@ class OptimizationCoordinator(BaseCoordinator):
         sentinels-only diagnostic stays trustworthy.
         """
         self._cycle_dedup.clear()
+        # v5.2.2 fix-up — reset per-cycle activity-log buffers. The
+        # ``_consider_apply`` shadow + below-gate branches buffer here
+        # instead of doing one INSERT per finding; the cycle drains
+        # them at the end as AT MOST one summary row per buffer.
+        self._cycle_shadow_log_buffer.clear()
+        self._cycle_clamp_log_buffer.clear()
         findings: list[OptimizationFinding] = []
         # Each entry: (name-for-logging, callable-returning-list)
         evaluators: tuple[tuple[str, Any], ...] = (
@@ -685,28 +715,84 @@ class OptimizationCoordinator(BaseCoordinator):
             )
         )
 
-        # Score + persist + (optionally) dispatch each finding.
+        # v5.2.2 — bound per-cycle cost. If a pathological dimension
+        # emits more rows than the sane cap, truncate (highest-severity
+        # first) before persistence so the write queue can't be flooded.
+        findings = self._cap_findings(findings)
+
+        # Score + (optionally) gate-and-apply each finding. Persistence
+        # + signal dispatch are batched to ONE write + ONE signal per
+        # cycle (v5.2.2 post-mortem fix for DB write-queue saturation).
         self._update_scoreboard(findings)
 
+        # Boot-storm gate: during the first few cycles or while the
+        # house's configured sensors are mostly `unavailable` (cold-boot
+        # signature), SKIP persistence + dispatch to keep the write
+        # queue free for core URA writes. The META sentinel is still
+        # persisted so Review-D's "did the cycle run" diagnostic stays
+        # truthful.
+        skip_persist, skip_reason = self._should_skip_for_boot_storm(findings)
+        self._cycles_since_start += 1
+
         for finding in findings:
-            await self._persist_finding(finding)
+            # CPU-only at L1 Shadow: ``_consider_apply``'s shadow +
+            # below-gate branches APPEND to per-cycle buffers (no DB
+            # write per finding). v5.2.2 fix-up — previous comment
+            # claimed "no DB write inside _consider_apply" but
+            # ``_log_activity`` was called per finding, hitting
+            # ura_activity_log O(N) times (the SECOND write-flood
+            # channel adversarial review caught). Now buffered and
+            # drained as AT MOST one summary row per buffer below.
             await self._consider_apply(finding)
-            self._dispatch_finding_signal(finding)
             await self._notify_if_severe(finding)
 
-        # Phase 2 — LLM Tier-2 pass. Runs AFTER Tier-1 so the LLM sees
-        # the just-emitted Tier-1 findings in its corpus. The tier
-        # internally enforces: configured-entity guard, delta gate,
-        # daily premium cap, optional cheap-triage routing. Every LLM
-        # finding flows through the SAME ``_consider_apply`` chokepoint
-        # (no bypass path).
-        llm_findings = await self._maybe_run_llm_tier(findings)
-        for finding in llm_findings:
-            await self._persist_finding(finding)
-            # `_consider_apply` already ran inside the LLM tier; only
-            # persist + dispatch the signal + notify here.
-            self._dispatch_finding_signal(finding)
-            await self._notify_if_severe(finding)
+        if skip_persist:
+            _LOGGER.info(
+                "Optimizer cycle: persistence skipped — %s "
+                "(findings=%d held back; META sentinel will still persist)",
+                skip_reason, len(findings),
+            )
+            # Still persist the META sentinel(s) so the cycle's
+            # liveness signal lands in the table.
+            meta_only = [f for f in findings
+                         if f.dimension == OptimizationDimension.META]
+            await self._persist_findings_batch(meta_only)
+            llm_findings: list[OptimizationFinding] = []
+            # v5.2.2 fix-up — the skip path must NOT do O(N) activity
+            # writes either. Drop the buffered shadow/clamp records
+            # (the gate said "skip persistence"); no summary row
+            # emitted. This locks in that boot-storm-skip is truly
+            # write-quiet on ura_activity_log too.
+            self._cycle_shadow_log_buffer.clear()
+            self._cycle_clamp_log_buffer.clear()
+        else:
+            await self._persist_findings_batch(findings)
+            # Phase 2 — LLM Tier-2 pass. Runs AFTER Tier-1 so the LLM
+            # sees the just-emitted Tier-1 findings in its corpus. The
+            # tier internally enforces: configured-entity guard, delta
+            # gate, daily premium cap, optional cheap-triage routing.
+            # Every LLM finding flows through the SAME ``_consider_apply``
+            # chokepoint (no bypass path).
+            llm_findings = await self._maybe_run_llm_tier(findings)
+            llm_findings = self._cap_findings(llm_findings)
+            for finding in llm_findings:
+                # `_consider_apply` already ran inside the LLM tier;
+                # only notify here. Persistence batched below.
+                await self._notify_if_severe(finding)
+            await self._persist_findings_batch(llm_findings)
+            # v5.2.2 fix-up — drain the per-cycle activity buffers as
+            # AT MOST one summary row each (shadow + clamp). Preserves
+            # operator observability ("the optimizer advised N shadow
+            # findings this cycle") at O(1) DB cost regardless of N.
+            await self._flush_cycle_activity_summaries()
+
+        # ONE signal dispatch per cycle (replaces the per-finding
+        # SIGNAL_OPTIMIZER_FINDING_EMITTED fan-out that triggered
+        # websocket backpressure in the v5.2.1 incident). The ~35
+        # per-room / optimizer sensors that subscribe re-read coordinator
+        # state on any payload (they ignore payload contents — verified
+        # at sensor.py:13637, 13858), so a single fire is sufficient.
+        self._dispatch_findings_updated_signal()
 
         all_findings = list(findings) + list(llm_findings)
         self._last_findings = all_findings
@@ -2309,16 +2395,21 @@ class OptimizationCoordinator(BaseCoordinator):
             conf = 0.0
         if conf < gate:
             finding.applied_outcome = OPTIMIZER_OUTCOME_BELOW_GATE
-            await self._log_activity(
-                action="clamped", importance="info",
-                description=finding.description,
-                details={
-                    "reason": OPTIMIZER_OUTCOME_BELOW_GATE,
-                    "confidence": conf, "gate": gate,
-                    "dimension": str(finding.dimension),
-                },
-                finding=finding,
-            )
+            # v5.2.2 fix-up — buffer instead of per-finding write. With
+            # 35 Sensor-Health findings in a boot-storm cycle, the OLD
+            # ``_log_activity`` call here flooded ura_activity_log with
+            # 35 INSERTs + 35 SIGNAL_ACTIVITY_LOGGED dispatches per
+            # cycle (the SECOND write-flood channel adversarial review
+            # caught). The end-of-cycle summary row preserves
+            # observability at O(1) cost.
+            self._cycle_clamp_log_buffer.append({
+                "description": finding.description,
+                "dimension": str(finding.dimension),
+                "target_id": finding.target_id,
+                "level_kind": finding.level,
+                "confidence": conf,
+                "gate": gate,
+            })
             return
 
         if not finding.proposed_action:
@@ -2328,14 +2419,15 @@ class OptimizationCoordinator(BaseCoordinator):
                 finding.predicted_effect = {
                     "note": "shadow_dry_run — no proposed action emitted",
                 }
-                await self._log_activity(
-                    action="shadow_dry_run", importance="info",
-                    description=finding.description,
-                    details={"level": level,
-                             "dimension": str(finding.dimension),
-                             "predicted_effect": finding.predicted_effect},
-                    finding=finding,
-                )
+                # v5.2.2 fix-up — buffer instead of per-finding write
+                # (see comment in below-gate branch above).
+                self._cycle_shadow_log_buffer.append({
+                    "description": finding.description,
+                    "dimension": str(finding.dimension),
+                    "target_id": finding.target_id,
+                    "level_kind": finding.level,
+                    "level": level,
+                })
             else:
                 finding.applied_outcome = OPTIMIZER_OUTCOME_ADVISORY_ONLY
             return
@@ -2346,6 +2438,13 @@ class OptimizationCoordinator(BaseCoordinator):
     # ------------------------------------------------------------------
 
     async def _persist_finding(self, finding: OptimizationFinding) -> None:
+        """Legacy per-finding persist — kept for back-compat callers.
+
+        v5.2.2: the cycle path no longer calls this. The cycle uses
+        ``_persist_findings_batch`` to bound per-cycle DB writes to 1
+        per tier (post-mortem fix for the write-queue saturation
+        incident). New callers should prefer the batch variant.
+        """
         database = self.hass.data.get(DOMAIN, {}).get("database")
         if database is None:
             return
@@ -2354,7 +2453,43 @@ class OptimizationCoordinator(BaseCoordinator):
         except Exception as exc:  # noqa: BLE001
             _LOGGER.debug("log_finding failed: %s", exc, exc_info=True)
 
+    async def _persist_findings_batch(
+        self, findings: list[OptimizationFinding],
+    ) -> None:
+        """v5.2.2 — single-write-queue-roundtrip persist for the cycle.
+
+        Wraps ``database.log_findings_batch`` with the same defensive
+        try/except shape as ``_persist_finding``. An empty list is a
+        no-op (no DB acquisition). One ``_db()`` round-trip regardless
+        of finding count — this is the core fix for the v5.2.1 write
+        queue saturation that took the live house down.
+        """
+        if not findings:
+            return
+        database = self.hass.data.get(DOMAIN, {}).get("database")
+        if database is None:
+            return
+        try:
+            written = await database.log_findings_batch(findings)
+            if written:
+                _LOGGER.debug(
+                    "Optimizer: batched %d findings into one DB write",
+                    written,
+                )
+        except Exception as exc:  # noqa: BLE001
+            _LOGGER.debug("log_findings_batch failed: %s", exc, exc_info=True)
+
     def _dispatch_finding_signal(self, finding: OptimizationFinding) -> None:
+        """Legacy per-finding signal dispatch — kept for back-compat.
+
+        v5.2.2: the cycle path no longer calls this. Per-finding
+        dispatch caused websocket "4096 pending messages" backpressure
+        when Sensor-Health emitted 35+ rows during the boot storm.
+        The cycle now fires ``_dispatch_findings_updated_signal`` ONCE
+        after persistence — the per-room / optimizer sensors all
+        re-read coordinator state, ignoring payload (sensor.py:13637,
+        13858). New callers should prefer the once-per-cycle variant.
+        """
         try:
             async_dispatcher_send(
                 self.hass,
@@ -2370,6 +2505,126 @@ class OptimizationCoordinator(BaseCoordinator):
             )
         except Exception:  # noqa: BLE001
             _LOGGER.debug("finding signal dispatch failed", exc_info=True)
+
+    def _dispatch_findings_updated_signal(self) -> None:
+        """v5.2.2 — ONE per-cycle dispatch after persistence completes.
+
+        The signal name is preserved so existing
+        SIGNAL_OPTIMIZER_FINDING_EMITTED subscriptions in sensor.py
+        still fire. Payload is a tiny "cycle complete" marker — all
+        sensor subscribers (sensor.py:13637, 13858) discard the
+        payload and re-read coordinator state via
+        ``async_write_ha_state()``, so one fire refreshes them all.
+        """
+        try:
+            async_dispatcher_send(
+                self.hass,
+                SIGNAL_OPTIMIZER_FINDING_EMITTED,
+                {"cycle_complete": True,
+                 "timestamp": dt_util.utcnow().isoformat()},
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "findings-updated signal dispatch failed", exc_info=True,
+            )
+
+    def _cap_findings(
+        self, findings: list[OptimizationFinding],
+    ) -> list[OptimizationFinding]:
+        """v5.2.2 — belt-and-suspenders cap on per-cycle findings.
+
+        Defends against a pathological dimension flooding the write
+        queue. When the list exceeds ``OPTIMIZER_MAX_FINDINGS_PER_CYCLE``,
+        keep the highest-severity rows and truncate the rest with a
+        WARNING. The META sentinel is always preserved so the cycle's
+        liveness diagnostic stays trustworthy.
+        """
+        if len(findings) <= OPTIMIZER_MAX_FINDINGS_PER_CYCLE:
+            return findings
+        sev_rank = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+        # Preserve META rows separately — they bypass the cap.
+        meta = [f for f in findings
+                if f.dimension == OptimizationDimension.META]
+        non_meta = [f for f in findings
+                    if f.dimension != OptimizationDimension.META]
+        non_meta.sort(key=lambda f: sev_rank.get(str(f.severity), 99))
+        # Reserve space for the META rows so the total stays under the cap.
+        keep = OPTIMIZER_MAX_FINDINGS_PER_CYCLE - len(meta)
+        if keep < 0:
+            keep = 0
+        capped = non_meta[:keep] + meta
+        _LOGGER.warning(
+            "Optimizer cycle produced %d findings (cap=%d) — truncated "
+            "to %d highest-severity rows + %d META; %d rows dropped to "
+            "protect the DB write queue",
+            len(findings), OPTIMIZER_MAX_FINDINGS_PER_CYCLE,
+            len(capped) - len(meta), len(meta),
+            len(non_meta) - keep,
+        )
+        return capped
+
+    def _should_skip_for_boot_storm(
+        self, findings: list[OptimizationFinding],
+    ) -> tuple[bool, str]:
+        """v5.2.2 — boot-storm settle gate.
+
+        Returns ``(skip, reason)``. When True, the cycle persists ONLY
+        the META sentinel and skips signal dispatch — protecting the
+        DB write queue from the cold-boot unavailable-sensor sweep
+        that triggered the v5.2.1 incident.
+
+        Triggers:
+        1. ``self._cycles_since_start < OPTIMIZER_BOOT_SETTLE_CYCLES``
+           (uptime grace — first N cycles).
+        2. The fraction of rooms with at least one currently
+           ``unavailable`` / ``unknown`` configured sensor exceeds
+           ``OPTIMIZER_BOOT_STORM_ROOM_FRACTION`` (boot-storm
+           signature).
+        """
+        if self._cycles_since_start < OPTIMIZER_BOOT_SETTLE_CYCLES:
+            return (True, f"uptime_grace "
+                    f"(cycle {self._cycles_since_start + 1}/"
+                    f"{OPTIMIZER_BOOT_SETTLE_CYCLES})")
+        try:
+            total_rooms = 0
+            rooms_with_unavailable = 0
+            for entry in self._iter_room_entries():
+                total_rooms += 1
+                merged = {**(entry.data or {}), **(entry.options or {})}
+                tracked: list[str] = []
+                for key in (CONF_TEMPERATURE_SENSOR, CONF_HUMIDITY_SENSOR,
+                            CONF_OCCUPANCY_SENSORS, CONF_MOTION_SENSORS,
+                            CONF_MMWAVE_SENSORS):
+                    val = merged.get(key)
+                    if isinstance(val, list):
+                        tracked.extend([v for v in val if isinstance(v, str)])
+                    elif isinstance(val, str) and val:
+                        tracked.append(val)
+                room_has_unavail = False
+                for eid in tracked:
+                    st = self._state_value(eid)
+                    state_str = "" if st is None else str(st.state).lower()
+                    if st is None or state_str in ("unavailable", "unknown"):
+                        room_has_unavail = True
+                        break
+                if room_has_unavail:
+                    rooms_with_unavailable += 1
+            if total_rooms > 0:
+                frac = rooms_with_unavailable / total_rooms
+                if frac > OPTIMIZER_BOOT_STORM_ROOM_FRACTION:
+                    return (True, (
+                        f"boot_storm_signature "
+                        f"({rooms_with_unavailable}/{total_rooms} rooms "
+                        f"have unavailable sensors, "
+                        f"frac={frac:.2f} > "
+                        f"{OPTIMIZER_BOOT_STORM_ROOM_FRACTION:.2f})"
+                    ))
+        except Exception as exc:  # noqa: BLE001
+            _LOGGER.debug(
+                "boot-storm gate check failed; proceeding with cycle: %s",
+                exc, exc_info=True,
+            )
+        return (False, "")
 
     async def _notify_if_severe(self, finding: OptimizationFinding) -> None:
         if finding.severity not in ("critical", "high"):
@@ -2442,6 +2697,79 @@ class OptimizationCoordinator(BaseCoordinator):
                 _LOGGER.debug("NM notify failed: %s", exc, exc_info=True)
         except Exception as exc:  # noqa: BLE001
             _LOGGER.debug("NM notify failed: %s", exc, exc_info=True)
+
+    async def _flush_cycle_activity_summaries(self) -> None:
+        """v5.2.2 fix-up — emit AT MOST ONE activity row per buffer.
+
+        The shadow + below-gate branches of ``_consider_apply`` now
+        APPEND to per-cycle buffers instead of calling
+        ``_log_activity`` per finding (which previously caused an
+        O(N) INSERT into ura_activity_log and O(N) per-row
+        ``SIGNAL_ACTIVITY_LOGGED`` dispatches — the SECOND write-flood
+        channel found post-v5.2.2 by adversarial review). This method
+        drains the buffers as exactly one summary row per non-empty
+        buffer (so worst-case 2 activity writes per cycle), preserving
+        observability ("the optimizer advised N shadow findings this
+        cycle") at O(1) DB cost.
+
+        Sample caps in the summary payload keep the row small so
+        ``ura_activity_log`` doesn't bloat under a flood.
+        """
+        SAMPLE_CAP = 10  # max distinct target ids included in summary
+        for action_name, buf in (
+            ("shadow_cycle_summary", self._cycle_shadow_log_buffer),
+            ("clamped_cycle_summary", self._cycle_clamp_log_buffer),
+        ):
+            if not buf:
+                continue
+            count = len(buf)
+            try:
+                distinct_dims = sorted(
+                    {str(r.get("dimension")) for r in buf
+                     if r.get("dimension") is not None}
+                )
+                targets = [
+                    str(r.get("target_id")) for r in buf
+                    if r.get("target_id")
+                ]
+                # Stable distinct sample (preserve first-seen order).
+                seen: set[str] = set()
+                sampled: list[str] = []
+                for t in targets:
+                    if t in seen:
+                        continue
+                    seen.add(t)
+                    sampled.append(t)
+                    if len(sampled) >= SAMPLE_CAP:
+                        break
+            except Exception:  # noqa: BLE001 — never let summary crash cycle
+                distinct_dims = []
+                sampled = []
+            details = {
+                "count": count,
+                "dimensions": distinct_dims,
+                "rooms_or_targets": sampled,
+                "sample_capped_at": SAMPLE_CAP,
+            }
+            description = (
+                f"Optimizer cycle: {count} findings advised as "
+                f"{action_name.replace('_cycle_summary', '')} "
+                f"across {len(distinct_dims)} dimensions"
+            )
+            try:
+                await self._log_activity(
+                    action=action_name, importance="info",
+                    description=description, details=details,
+                )
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "cycle activity summary flush failed (%s)",
+                    action_name, exc_info=True,
+                )
+        # Always clear buffers after a flush attempt so a partial
+        # failure can't bleed into the next cycle's summary.
+        self._cycle_shadow_log_buffer.clear()
+        self._cycle_clamp_log_buffer.clear()
 
     async def _log_activity(
         self,
