@@ -1530,9 +1530,10 @@ DEFAULT_OPTIMIZER_RATE_CAP_PER_HOUR: Final = 12
 OPTIMIZER_MAX_FINDINGS_PER_CYCLE: Final = 100
 # Skip the first N cycles after coordinator start so the cold-boot
 # unavailable-sensor sweep can't dump a Sensor-Health flood into the
-# write queue. ~1 cycle (5 min) is enough for slow cloud devices to
-# settle.
-OPTIMIZER_BOOT_SETTLE_CYCLES: Final = 1
+# write queue. Slow cloud devices (e.g. Hue / cloud-bound sensors)
+# can take several cycles (~15 min) to settle after a cold boot —
+# review of the v5.2.2 outage flagged 1 cycle as too low.
+OPTIMIZER_BOOT_SETTLE_CYCLES: Final = 3
 # Defense in depth: if MORE than this fraction of rooms have any
 # configured sensor currently `unavailable` / `unknown`, treat the cycle
 # as a boot-storm and SKIP persistence/dispatch entirely (only the META

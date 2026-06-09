@@ -3502,6 +3502,18 @@ async def test_optimizer_cycle_one_db_write_under_boot_storm():
         "saturated websocket backpressure)"
     )
 
+    # CORE INVARIANT 4 (v5.2.2 review CRITICAL): the SECOND write channel.
+    # `_consider_apply`'s shadow_dry_run / below-gate-clamp branches must NOT
+    # write `ura_activity_log` PER finding — that was an equal-sized O(N)
+    # flood through a different table. Bounded to ≤2 per-cycle summary rows
+    # (one shadow summary + one clamp summary). Against the un-fixed code this
+    # would be ~36 — i.e. this assertion is the gate the first fix lacked.
+    assert database.log_activity.call_count <= 2, (
+        f"log_activity called {database.log_activity.call_count}x — the "
+        "shadow/clamp activity logging must be buffered into ≤2 per-cycle "
+        "summary rows, not written per finding (v5.2.2 review CRITICAL-1)"
+    )
+
 
 @pytest.mark.asyncio
 async def test_optimizer_log_findings_batch_roundtrip():
@@ -3644,6 +3656,13 @@ async def test_optimizer_boot_storm_settle_skips_persistence():
     assert dims == {"meta"}, (
         f"boot-storm gate must persist ONLY meta sentinel, got "
         f"dimensions={dims}"
+    )
+    # The skip path must ALSO avoid the second flood channel: no O(N)
+    # per-finding ura_activity_log writes (v5.2.2 review CRITICAL — the
+    # gate previously ran _consider_apply per finding before skipping).
+    assert database.log_activity.call_count <= 2, (
+        f"boot-storm skip path wrote log_activity "
+        f"{database.log_activity.call_count}x — must not flood activity_log"
     )
 
 

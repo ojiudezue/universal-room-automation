@@ -486,6 +486,18 @@ class OptimizationCoordinator(BaseCoordinator):
         # entity_id)` triple only emits once per cycle.
         self._cycle_dedup: set[tuple] = set()
 
+        # v5.2.2 fix-up — per-cycle activity-log buffers. The Phase-1
+        # ``_consider_apply`` shadow + below-gate branches USED to call
+        # ``_log_activity`` for every finding, which produced an O(N)
+        # INSERT into ``ura_activity_log`` and an O(N) per-row
+        # ``SIGNAL_ACTIVITY_LOGGED`` dispatch (the SECOND write-flood
+        # channel the v5.2.2 batching missed — confirmed by adversarial
+        # review after the live house went down). The fix: buffer per
+        # cycle, emit AT MOST ONE summary row per buffer at the end of
+        # ``run_cycle``. Cleared at the start of every cycle.
+        self._cycle_shadow_log_buffer: list[dict] = []
+        self._cycle_clamp_log_buffer: list[dict] = []
+
         # Most recent house-level summary for sensor consumption.
         self._last_findings: list[OptimizationFinding] = []
         self._last_evaluation_iso: str | None = None
@@ -646,6 +658,12 @@ class OptimizationCoordinator(BaseCoordinator):
         sentinels-only diagnostic stays trustworthy.
         """
         self._cycle_dedup.clear()
+        # v5.2.2 fix-up — reset per-cycle activity-log buffers. The
+        # ``_consider_apply`` shadow + below-gate branches buffer here
+        # instead of doing one INSERT per finding; the cycle drains
+        # them at the end as AT MOST one summary row per buffer.
+        self._cycle_shadow_log_buffer.clear()
+        self._cycle_clamp_log_buffer.clear()
         findings: list[OptimizationFinding] = []
         # Each entry: (name-for-logging, callable-returning-list)
         evaluators: tuple[tuple[str, Any], ...] = (
@@ -717,9 +735,14 @@ class OptimizationCoordinator(BaseCoordinator):
         self._cycles_since_start += 1
 
         for finding in findings:
-            # CPU-only at L1 Shadow (no DB write inside _consider_apply);
-            # outcome is recorded on the finding object and captured by
-            # the batched write below.
+            # CPU-only at L1 Shadow: ``_consider_apply``'s shadow +
+            # below-gate branches APPEND to per-cycle buffers (no DB
+            # write per finding). v5.2.2 fix-up — previous comment
+            # claimed "no DB write inside _consider_apply" but
+            # ``_log_activity`` was called per finding, hitting
+            # ura_activity_log O(N) times (the SECOND write-flood
+            # channel adversarial review caught). Now buffered and
+            # drained as AT MOST one summary row per buffer below.
             await self._consider_apply(finding)
             await self._notify_if_severe(finding)
 
@@ -735,6 +758,13 @@ class OptimizationCoordinator(BaseCoordinator):
                          if f.dimension == OptimizationDimension.META]
             await self._persist_findings_batch(meta_only)
             llm_findings: list[OptimizationFinding] = []
+            # v5.2.2 fix-up — the skip path must NOT do O(N) activity
+            # writes either. Drop the buffered shadow/clamp records
+            # (the gate said "skip persistence"); no summary row
+            # emitted. This locks in that boot-storm-skip is truly
+            # write-quiet on ura_activity_log too.
+            self._cycle_shadow_log_buffer.clear()
+            self._cycle_clamp_log_buffer.clear()
         else:
             await self._persist_findings_batch(findings)
             # Phase 2 — LLM Tier-2 pass. Runs AFTER Tier-1 so the LLM
@@ -750,6 +780,11 @@ class OptimizationCoordinator(BaseCoordinator):
                 # only notify here. Persistence batched below.
                 await self._notify_if_severe(finding)
             await self._persist_findings_batch(llm_findings)
+            # v5.2.2 fix-up — drain the per-cycle activity buffers as
+            # AT MOST one summary row each (shadow + clamp). Preserves
+            # operator observability ("the optimizer advised N shadow
+            # findings this cycle") at O(1) DB cost regardless of N.
+            await self._flush_cycle_activity_summaries()
 
         # ONE signal dispatch per cycle (replaces the per-finding
         # SIGNAL_OPTIMIZER_FINDING_EMITTED fan-out that triggered
@@ -2360,16 +2395,21 @@ class OptimizationCoordinator(BaseCoordinator):
             conf = 0.0
         if conf < gate:
             finding.applied_outcome = OPTIMIZER_OUTCOME_BELOW_GATE
-            await self._log_activity(
-                action="clamped", importance="info",
-                description=finding.description,
-                details={
-                    "reason": OPTIMIZER_OUTCOME_BELOW_GATE,
-                    "confidence": conf, "gate": gate,
-                    "dimension": str(finding.dimension),
-                },
-                finding=finding,
-            )
+            # v5.2.2 fix-up — buffer instead of per-finding write. With
+            # 35 Sensor-Health findings in a boot-storm cycle, the OLD
+            # ``_log_activity`` call here flooded ura_activity_log with
+            # 35 INSERTs + 35 SIGNAL_ACTIVITY_LOGGED dispatches per
+            # cycle (the SECOND write-flood channel adversarial review
+            # caught). The end-of-cycle summary row preserves
+            # observability at O(1) cost.
+            self._cycle_clamp_log_buffer.append({
+                "description": finding.description,
+                "dimension": str(finding.dimension),
+                "target_id": finding.target_id,
+                "level_kind": finding.level,
+                "confidence": conf,
+                "gate": gate,
+            })
             return
 
         if not finding.proposed_action:
@@ -2379,14 +2419,15 @@ class OptimizationCoordinator(BaseCoordinator):
                 finding.predicted_effect = {
                     "note": "shadow_dry_run — no proposed action emitted",
                 }
-                await self._log_activity(
-                    action="shadow_dry_run", importance="info",
-                    description=finding.description,
-                    details={"level": level,
-                             "dimension": str(finding.dimension),
-                             "predicted_effect": finding.predicted_effect},
-                    finding=finding,
-                )
+                # v5.2.2 fix-up — buffer instead of per-finding write
+                # (see comment in below-gate branch above).
+                self._cycle_shadow_log_buffer.append({
+                    "description": finding.description,
+                    "dimension": str(finding.dimension),
+                    "target_id": finding.target_id,
+                    "level_kind": finding.level,
+                    "level": level,
+                })
             else:
                 finding.applied_outcome = OPTIMIZER_OUTCOME_ADVISORY_ONLY
             return
@@ -2656,6 +2697,79 @@ class OptimizationCoordinator(BaseCoordinator):
                 _LOGGER.debug("NM notify failed: %s", exc, exc_info=True)
         except Exception as exc:  # noqa: BLE001
             _LOGGER.debug("NM notify failed: %s", exc, exc_info=True)
+
+    async def _flush_cycle_activity_summaries(self) -> None:
+        """v5.2.2 fix-up — emit AT MOST ONE activity row per buffer.
+
+        The shadow + below-gate branches of ``_consider_apply`` now
+        APPEND to per-cycle buffers instead of calling
+        ``_log_activity`` per finding (which previously caused an
+        O(N) INSERT into ura_activity_log and O(N) per-row
+        ``SIGNAL_ACTIVITY_LOGGED`` dispatches — the SECOND write-flood
+        channel found post-v5.2.2 by adversarial review). This method
+        drains the buffers as exactly one summary row per non-empty
+        buffer (so worst-case 2 activity writes per cycle), preserving
+        observability ("the optimizer advised N shadow findings this
+        cycle") at O(1) DB cost.
+
+        Sample caps in the summary payload keep the row small so
+        ``ura_activity_log`` doesn't bloat under a flood.
+        """
+        SAMPLE_CAP = 10  # max distinct target ids included in summary
+        for action_name, buf in (
+            ("shadow_cycle_summary", self._cycle_shadow_log_buffer),
+            ("clamped_cycle_summary", self._cycle_clamp_log_buffer),
+        ):
+            if not buf:
+                continue
+            count = len(buf)
+            try:
+                distinct_dims = sorted(
+                    {str(r.get("dimension")) for r in buf
+                     if r.get("dimension") is not None}
+                )
+                targets = [
+                    str(r.get("target_id")) for r in buf
+                    if r.get("target_id")
+                ]
+                # Stable distinct sample (preserve first-seen order).
+                seen: set[str] = set()
+                sampled: list[str] = []
+                for t in targets:
+                    if t in seen:
+                        continue
+                    seen.add(t)
+                    sampled.append(t)
+                    if len(sampled) >= SAMPLE_CAP:
+                        break
+            except Exception:  # noqa: BLE001 — never let summary crash cycle
+                distinct_dims = []
+                sampled = []
+            details = {
+                "count": count,
+                "dimensions": distinct_dims,
+                "rooms_or_targets": sampled,
+                "sample_capped_at": SAMPLE_CAP,
+            }
+            description = (
+                f"Optimizer cycle: {count} findings advised as "
+                f"{action_name.replace('_cycle_summary', '')} "
+                f"across {len(distinct_dims)} dimensions"
+            )
+            try:
+                await self._log_activity(
+                    action=action_name, importance="info",
+                    description=description, details=details,
+                )
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "cycle activity summary flush failed (%s)",
+                    action_name, exc_info=True,
+                )
+        # Always clear buffers after a flush attempt so a partial
+        # failure can't bleed into the next cycle's summary.
+        self._cycle_shadow_log_buffer.clear()
+        self._cycle_clamp_log_buffer.clear()
 
     async def _log_activity(
         self,
