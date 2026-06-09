@@ -12,7 +12,7 @@ import os
 import sys
 import time
 import types
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock, call, patch
 
 import pytest
@@ -2725,7 +2725,11 @@ async def test_rule_engine_vacancy_management_stuck_occupancy():
     class _FakeZone:
         zone_id = "master_zone"
         zone_name = "Master Zone"
-        continuous_occupied_since = _opt_now() - timedelta(hours=14)
+        # Production ZoneState stores this tz-AWARE (dt_util.now()); use an
+        # aware-UTC backdate so the evaluator's naive-promotion defensive path
+        # is not (mis)triggered by a naive-UTC stub value. Deterministic across
+        # dt-stub states (real-HA aware vs stubbed naive utcnow).
+        continuous_occupied_since = datetime.now(timezone.utc) - timedelta(hours=14)
         vacancy_sweep_done = False
         vacancy_sweep_enabled = True
 
@@ -2758,7 +2762,7 @@ async def test_rule_engine_vacancy_management_recent_no_finding():
     class _FakeZone:
         zone_id = "master_zone"
         zone_name = "Master Zone"
-        continuous_occupied_since = _opt_now() - timedelta(hours=3)
+        continuous_occupied_since = datetime.now(timezone.utc) - timedelta(hours=3)
         vacancy_sweep_done = False
         vacancy_sweep_enabled = True
 

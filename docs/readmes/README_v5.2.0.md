@@ -1,4 +1,6 @@
-# URA v4.7.36 — Optimization Coordinator Phase 3 (Dimensions Expansion + Daily Digest)
+# URA v5.2.0 — Optimization Coordinator Phase 3 (Dimensions Expansion + Daily Digest)
+
+> **Major-line stage 3.** Released as **v5.2.0** (build-cycle name `v4.7.36`). Completes the staged Optimization Coordinator rollout: v5.0.0 skeleton → v5.1.0 LLM tier → v5.2.0 dimensions + digest.
 
 **Release date:** 2026-06-09
 **Tier:** Tier 2-DB (three framing-disjoint reviews; new `optimization_daily_digest` table)
@@ -6,7 +8,7 @@
 
 **Planning doc:** `docs/planning/PLANNING_OPTIMIZATION_COORDINATOR_v2_agentic.md` (Phase 3)
 **Review doc:** `docs/reviews/code-review/v4.7.36_optimization_coordinator_phase3_dimensions.md`
-**Depends on:** v4.7.34 (Phase 1) + v4.7.35 (Phase 2).
+**Depends on:** v5.0.0 (Phase 1) + v5.1.0 (Phase 2), both validated live 2026-06-09.
 
 ---
 
