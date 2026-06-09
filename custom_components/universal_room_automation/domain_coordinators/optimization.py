@@ -472,6 +472,11 @@ class OptimizationCoordinator(BaseCoordinator):
         # Cycle handle.
         self._cycle_unsub = None
 
+        # Phase 2 — LLM Tier-2 wrapper. Lazily constructed so importing
+        # the optimizer module doesn't trigger the LLM import chain when
+        # only Phase-1 is being used.
+        self._llm_tier = None
+
     # ------------------------------------------------------------------
     # BaseCoordinator contract
     # ------------------------------------------------------------------
@@ -615,9 +620,45 @@ class OptimizationCoordinator(BaseCoordinator):
             self._dispatch_finding_signal(finding)
             await self._notify_if_severe(finding)
 
-        self._last_findings = findings
+        # Phase 2 — LLM Tier-2 pass. Runs AFTER Tier-1 so the LLM sees
+        # the just-emitted Tier-1 findings in its corpus. The tier
+        # internally enforces: configured-entity guard, delta gate,
+        # daily premium cap, optional cheap-triage routing. Every LLM
+        # finding flows through the SAME ``_consider_apply`` chokepoint
+        # (no bypass path).
+        llm_findings = await self._maybe_run_llm_tier(findings)
+        for finding in llm_findings:
+            await self._persist_finding(finding)
+            # `_consider_apply` already ran inside the LLM tier; only
+            # persist + dispatch the signal + notify here.
+            self._dispatch_finding_signal(finding)
+            await self._notify_if_severe(finding)
+
+        all_findings = list(findings) + list(llm_findings)
+        self._last_findings = all_findings
         self._last_evaluation_iso = dt_util.utcnow().isoformat()
-        return findings
+        return all_findings
+
+    async def _maybe_run_llm_tier(
+        self, tier1_findings: list[OptimizationFinding],
+    ) -> list[OptimizationFinding]:
+        """Run the Phase-2 LLM tier when configured.
+
+        Returns the list of LLM-emitted findings (already routed through
+        the chokepoint). Empty list when no LLM task entity is
+        configured / delta gate skips / daily cap reached / response
+        malformed.
+        """
+        try:
+            if self._llm_tier is None:
+                from .optimization_llm import OptimizationLLMTier
+                self._llm_tier = OptimizationLLMTier(self.hass, self)
+            return await self._llm_tier.run_cycle(tier1_findings) or []
+        except Exception as exc:  # noqa: BLE001
+            _LOGGER.warning(
+                "OptimizationLLMTier cycle failed: %s", exc, exc_info=True,
+            )
+            return []
 
     # ------------------------------------------------------------------
     # Substrate readers

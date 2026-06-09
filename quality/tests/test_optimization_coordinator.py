@@ -1752,3 +1752,445 @@ async def test_optimizer_l1_synthetic_proposed_action_is_inert():
     assert f.applied_outcome == OPTIMIZER_OUTCOME_SHADOW
     assert hass.services.calls == [], "Shadow level must NOT actuate"
     assert fired, "Shadow level must emit an intent for sibling visibility"
+
+
+# =============================================================================
+# v4.7.35 Phase 2 — LLM Tier-2 tests
+# =============================================================================
+
+
+def _llm_make_response(findings_rows, reasoning="ok"):
+    """Wrap a list of finding-row dicts into the structured-output shape
+    that mirrors `ai_task.generate_data` return values."""
+    return {"data": {"findings": findings_rows, "reasoning": reasoning}}
+
+
+def _llm_finding_row(
+    *,
+    dimension="comfort",
+    severity="medium",
+    confidence=0.85,
+    target_level="room",
+    target_id="kitchen",
+    description="kitchen too warm",
+    proposed=None,
+):
+    return {
+        "dimension": dimension,
+        "severity": severity,
+        "confidence": confidence,
+        "target_level": target_level,
+        "target_id": target_id,
+        "description": description,
+        "proposed_action_or_null": proposed,
+    }
+
+
+def _attach_ai_task_mock(hass, response):
+    """Replace `hass.services.async_call` with one that returns ``response``
+    for `ai_task.generate_data` calls and records every invocation."""
+    real_calls: list[dict] = []
+    services_module = hass.services
+
+    async def _ai_task_call(domain, service, data, blocking=False,
+                            return_response=False):
+        real_calls.append({
+            "domain": domain, "service": service, "data": dict(data or {}),
+            "return_response": return_response,
+        })
+        if domain == "ai_task" and service == "generate_data":
+            if isinstance(response, list):
+                # Sequence of responses: pop the next one.
+                if response:
+                    return response.pop(0)
+                return None
+            return response
+        return None
+
+    services_module.async_call = _ai_task_call  # type: ignore[assignment]
+    return real_calls
+
+
+@pytest.mark.asyncio
+async def test_optimizer_llm_corpus_under_token_cap():
+    """Assembled corpus prompt body stays under the configured char cap."""
+    from custom_components.universal_room_automation.domain_coordinators.optimization import (
+        OptimizationCoordinator,
+    )
+    from custom_components.universal_room_automation.domain_coordinators.optimization_llm import (
+        OptimizationLLMTier,
+    )
+    from custom_components.universal_room_automation.const import (
+        OPTIMIZER_LLM_CONTEXT_CHARS_PER_TOKEN,
+        OPTIMIZER_LLM_CONTEXT_MAX_TOKENS,
+    )
+
+    # Build a lot of rooms so the corpus would naturally blow past the cap
+    # without trimming.
+    rooms = [{"room_name": f"room_{i}"} for i in range(200)]
+    hass, _ = _make_hass(rooms=rooms)
+    coord = OptimizationCoordinator(hass)
+    tier = OptimizationLLMTier(hass, coord)
+    corpus = tier._assemble_corpus(tier1_findings=[])
+    body = corpus.to_prompt_body()
+    max_chars = (
+        OPTIMIZER_LLM_CONTEXT_MAX_TOKENS * OPTIMIZER_LLM_CONTEXT_CHARS_PER_TOKEN
+    )
+    assert len(body) <= max_chars
+    assert "# === STABLE CONTEXT ===" in body
+    assert "# === CURRENT SNAPSHOT ===" in body
+
+
+@pytest.mark.asyncio
+async def test_optimizer_llm_delta_trigger_skips_when_unchanged():
+    """Two cycles with the same Tier-1 finding set → only ONE LLM call."""
+    from custom_components.universal_room_automation.domain_coordinators.optimization import (
+        OptimizationCoordinator,
+        OptimizationFinding,
+        OptimizationDimension,
+    )
+    hass, _ = _make_hass(cm_options={
+        "optimizer_llm_task_entity": "ai_task.claude_ai_task",
+    })
+    coord = OptimizationCoordinator(hass)
+    calls = _attach_ai_task_mock(hass, _llm_make_response([
+        _llm_finding_row(),
+    ]))
+
+    f1 = OptimizationFinding(
+        timestamp=datetime.utcnow().isoformat(),
+        level="room", target_id="kitchen",
+        dimension=OptimizationDimension.COMFORT,
+        severity="medium", confidence=0.8, score=0.0,
+        description="t1", dedup_key=("comfort", "kitchen", "x"),
+    )
+
+    # First cycle: delta-from-nothing → invokes.
+    await coord._maybe_run_llm_tier([f1])
+    n_after_first = sum(
+        1 for c in calls
+        if c["domain"] == "ai_task" and c["service"] == "generate_data"
+    )
+    assert n_after_first == 1, (
+        f"first cycle should invoke LLM once, saw {n_after_first}"
+    )
+
+    # Re-arm response for any further calls.
+    calls.clear()
+    hass.services.calls = []
+    _attach_ai_task_mock(hass, _llm_make_response([_llm_finding_row()]))
+
+    # Second cycle with SAME signature: delta gate should skip the call.
+    await coord._maybe_run_llm_tier([f1])
+    assert all(c["service"] != "generate_data" for c in calls), (
+        "delta gate should skip the LLM when finding-set unchanged"
+    )
+
+
+@pytest.mark.asyncio
+async def test_optimizer_llm_daily_cap_enforced():
+    """Premium tier stops invoking once daily cap is reached."""
+    from custom_components.universal_room_automation.domain_coordinators.optimization import (
+        OptimizationCoordinator,
+        OptimizationFinding,
+        OptimizationDimension,
+    )
+    hass, _ = _make_hass(cm_options={
+        "optimizer_llm_task_entity": "ai_task.claude_ai_task",
+        "optimizer_llm_max_invocations_per_day": 2,
+    })
+    coord = OptimizationCoordinator(hass)
+    # Stand up sequence of identical responses; reused across cycles.
+    responses = [
+        _llm_make_response([_llm_finding_row(target_id=f"r{i}")])
+        for i in range(10)
+    ]
+    calls = _attach_ai_task_mock(hass, responses)
+
+    for i in range(5):
+        f = OptimizationFinding(
+            timestamp=datetime.utcnow().isoformat(),
+            level="room", target_id=f"room_{i}",
+            dimension=OptimizationDimension.COMFORT,
+            severity="medium", confidence=0.5, score=0.0,
+            description=f"d{i}", dedup_key=("comfort", f"room_{i}", "x"),
+        )
+        await coord._maybe_run_llm_tier([f])
+
+    n = sum(
+        1 for c in calls
+        if c["domain"] == "ai_task" and c["service"] == "generate_data"
+    )
+    assert n == 2, f"daily cap (2) should bound invocations, saw {n}"
+
+
+@pytest.mark.asyncio
+async def test_optimizer_llm_triage_routes_to_premium_only_when_flagged():
+    """Triage with empty findings list suppresses the premium call.
+
+    Triage with ≥1 finding lets the premium call through.
+    """
+    from custom_components.universal_room_automation.domain_coordinators.optimization import (
+        OptimizationCoordinator,
+        OptimizationFinding,
+        OptimizationDimension,
+    )
+
+    # Case A — triage flags nothing → premium NOT called.
+    hass, _ = _make_hass(cm_options={
+        "optimizer_llm_task_entity": "ai_task.claude_ai_task",
+        "optimizer_llm_triage_entity": "ai_task.ollama_ai_task",
+    })
+    coord = OptimizationCoordinator(hass)
+    # Sequence: [triage_response_empty]; premium never reached.
+    calls = _attach_ai_task_mock(hass, [
+        _llm_make_response([]),  # triage says nothing
+    ])
+    f = OptimizationFinding(
+        timestamp=datetime.utcnow().isoformat(),
+        level="room", target_id="kitchen",
+        dimension=OptimizationDimension.COMFORT,
+        severity="medium", confidence=0.7, score=0.0,
+        description="d", dedup_key=("comfort", "kitchen", "x"),
+    )
+    await coord._maybe_run_llm_tier([f])
+    triage_calls = [
+        c for c in calls
+        if c["data"].get("entity_id") == "ai_task.ollama_ai_task"
+    ]
+    premium_calls = [
+        c for c in calls
+        if c["data"].get("entity_id") == "ai_task.claude_ai_task"
+    ]
+    assert len(triage_calls) == 1
+    assert len(premium_calls) == 0, (
+        "Empty triage must NOT route to premium"
+    )
+
+    # Case B — triage flags ≥1 finding → premium IS called.
+    hass2, _ = _make_hass(cm_options={
+        "optimizer_llm_task_entity": "ai_task.claude_ai_task",
+        "optimizer_llm_triage_entity": "ai_task.ollama_ai_task",
+    })
+    coord2 = OptimizationCoordinator(hass2)
+    calls2 = _attach_ai_task_mock(hass2, [
+        _llm_make_response([_llm_finding_row(description="triage flag")]),
+        _llm_make_response([_llm_finding_row(description="premium finding")]),
+    ])
+    await coord2._maybe_run_llm_tier([f])
+    triage2 = [
+        c for c in calls2
+        if c["data"].get("entity_id") == "ai_task.ollama_ai_task"
+    ]
+    premium2 = [
+        c for c in calls2
+        if c["data"].get("entity_id") == "ai_task.claude_ai_task"
+    ]
+    assert len(triage2) == 1
+    assert len(premium2) == 1, (
+        "Flagged triage MUST route to premium"
+    )
+
+
+@pytest.mark.asyncio
+async def test_optimizer_llm_malformed_output_rejected():
+    """Malformed individual findings are skipped — good ones survive."""
+    from custom_components.universal_room_automation.domain_coordinators.optimization import (
+        OptimizationCoordinator,
+    )
+    from custom_components.universal_room_automation.domain_coordinators.optimization_llm import (
+        OptimizationLLMTier,
+    )
+    hass, _ = _make_hass()
+    coord = OptimizationCoordinator(hass)
+    tier = OptimizationLLMTier(hass, coord)
+
+    rows = [
+        _llm_finding_row(description="ok"),  # good
+        {"dimension": "comfort"},  # missing required fields
+        _llm_finding_row(confidence=99.0),  # out-of-range confidence
+        _llm_finding_row(severity="bogus"),  # bad severity
+        _llm_finding_row(
+            description="ok2", target_level="zone", target_id="z1",
+        ),  # good
+    ]
+    parsed = tier._parse_findings(_llm_make_response(rows))
+    assert len(parsed) == 2, (
+        f"only 2 good rows expected, got {len(parsed)}"
+    )
+    assert {p.description for p in parsed} == {"ok", "ok2"}
+
+
+@pytest.mark.asyncio
+async def test_optimizer_llm_findings_tagged_tier2_llm():
+    """Every LLM-emitted finding carries `created_by=tier2_llm`."""
+    from custom_components.universal_room_automation.domain_coordinators.optimization import (
+        OptimizationCoordinator,
+    )
+    from custom_components.universal_room_automation.domain_coordinators.optimization_llm import (
+        OptimizationLLMTier,
+    )
+    from custom_components.universal_room_automation.const import (
+        OPTIMIZER_CREATED_BY_TIER2_LLM,
+    )
+    hass, _ = _make_hass()
+    coord = OptimizationCoordinator(hass)
+    tier = OptimizationLLMTier(hass, coord)
+
+    parsed = tier._parse_findings(_llm_make_response([
+        _llm_finding_row(description="row a"),
+        _llm_finding_row(description="row b", target_id="bath"),
+    ]))
+    assert len(parsed) == 2
+    for f in parsed:
+        assert f.created_by == OPTIMIZER_CREATED_BY_TIER2_LLM
+
+
+@pytest.mark.asyncio
+async def test_optimizer_llm_action_flows_through_chokepoint():
+    """LLM-proposed action at L1 is shadow-inert (no service dispatched)."""
+    from custom_components.universal_room_automation.domain_coordinators.optimization import (
+        OptimizationCoordinator,
+    )
+    from custom_components.universal_room_automation.const import (
+        OPTIMIZER_OUTCOME_SHADOW,
+    )
+    # L1 SHADOW is the default — proposed actions must NOT actuate.
+    hass, _ = _make_hass(cm_options={
+        "optimizer_autonomy_level": "shadow",
+        "optimizer_llm_task_entity": "ai_task.claude_ai_task",
+        "optimizer_confidence_gate": 0.5,
+    })
+    coord = OptimizationCoordinator(hass)
+    calls = _attach_ai_task_mock(hass, _llm_make_response([
+        _llm_finding_row(
+            confidence=0.9,
+            proposed={
+                "domain": "light", "service": "turn_on",
+                "target_entity": "light.kitchen", "service_data": {},
+                "action_class": "reversible_device",
+            },
+        ),
+    ]))
+
+    emitted = await coord._maybe_run_llm_tier([])
+    assert emitted, "LLM should have emitted at least one finding"
+    f = emitted[0]
+    # Service dispatch records: NO `light.turn_on` should fire at L1.
+    actuated = [
+        c for c in calls
+        if c["domain"] == "light" and c["service"] == "turn_on"
+    ]
+    assert actuated == [], (
+        "L1 must NOT actuate an LLM-proposed action; chokepoint was "
+        "bypassed if this fires"
+    )
+    assert f.applied_outcome == OPTIMIZER_OUTCOME_SHADOW
+
+
+@pytest.mark.asyncio
+async def test_optimizer_llm_provider_switch_parses():
+    """Swapping the LLM task entity still parses findings (provider-agnostic)."""
+    from custom_components.universal_room_automation.domain_coordinators.optimization import (
+        OptimizationCoordinator,
+        OptimizationFinding,
+        OptimizationDimension,
+    )
+    hass, _ = _make_hass(cm_options={
+        "optimizer_llm_task_entity": "ai_task.ollama_ai_task",
+    })
+    coord = OptimizationCoordinator(hass)
+    calls = _attach_ai_task_mock(hass, _llm_make_response([
+        _llm_finding_row(description="local-backend finding"),
+    ]))
+    f = OptimizationFinding(
+        timestamp=datetime.utcnow().isoformat(),
+        level="room", target_id="kitchen",
+        dimension=OptimizationDimension.COMFORT,
+        severity="medium", confidence=0.6, score=0.0,
+        description="seed", dedup_key=("comfort", "kitchen", "x"),
+    )
+    emitted = await coord._maybe_run_llm_tier([f])
+    assert emitted, "Ollama backend must yield parseable findings"
+    # The entity_id on the dispatched ai_task call confirms routing.
+    assert any(
+        c["data"].get("entity_id") == "ai_task.ollama_ai_task"
+        for c in calls
+    ), "Expected ai_task.ollama_ai_task to be dispatched"
+
+
+@pytest.mark.asyncio
+async def test_optimizer_llm_prompt_resolution_falls_back_to_const():
+    """Empty / missing options prompt falls back to the in-code const."""
+    from custom_components.universal_room_automation.domain_coordinators.optimization import (
+        OptimizationCoordinator,
+    )
+    from custom_components.universal_room_automation.domain_coordinators.optimization_llm import (
+        OptimizationLLMTier,
+    )
+    from custom_components.universal_room_automation.const import (
+        OPTIMIZER_LLM_SYSTEM_PROMPT,
+    )
+    # Case A — key absent → const.
+    hass, _ = _make_hass()
+    coord = OptimizationCoordinator(hass)
+    tier = OptimizationLLMTier(hass, coord)
+    assert tier._resolve_system_prompt(tier._read_cm_config()) == (
+        OPTIMIZER_LLM_SYSTEM_PROMPT
+    )
+    # Case B — key empty string → const.
+    hass2, _ = _make_hass(cm_options={"optimizer_llm_system_prompt": ""})
+    coord2 = OptimizationCoordinator(hass2)
+    tier2 = OptimizationLLMTier(hass2, coord2)
+    assert tier2._resolve_system_prompt(tier2._read_cm_config()) == (
+        OPTIMIZER_LLM_SYSTEM_PROMPT
+    )
+    # Case C — key whitespace-only → const.
+    hass3, _ = _make_hass(cm_options={
+        "optimizer_llm_system_prompt": "   \n\t  ",
+    })
+    coord3 = OptimizationCoordinator(hass3)
+    tier3 = OptimizationLLMTier(hass3, coord3)
+    assert tier3._resolve_system_prompt(tier3._read_cm_config()) == (
+        OPTIMIZER_LLM_SYSTEM_PROMPT
+    )
+    # Case D — operator-customized prompt overrides const.
+    custom = "You are a custom optimization analyst. Output the schema."
+    hass4, _ = _make_hass(cm_options={
+        "optimizer_llm_system_prompt": custom,
+    })
+    coord4 = OptimizationCoordinator(hass4)
+    tier4 = OptimizationLLMTier(hass4, coord4)
+    assert tier4._resolve_system_prompt(tier4._read_cm_config()) == custom
+
+
+def test_options_reload_suppress_includes_optimizer_llm_keys():
+    """All four new LLM CONF keys MUST be in OPTIONS_RELOAD_SUPPRESS_KEYS
+    so editing them never triggers a full CM reload (C-CRIT-1 guardrail)."""
+    from custom_components.universal_room_automation import (
+        OPTIONS_RELOAD_SUPPRESS_KEYS,
+        _NO_LIVE_ATTR_KEYS,
+    )
+    from custom_components.universal_room_automation.const import (
+        CONF_OPTIMIZER_LLM_TASK_ENTITY,
+        CONF_OPTIMIZER_LLM_TRIAGE_ENTITY,
+        CONF_OPTIMIZER_LLM_SYSTEM_PROMPT,
+        CONF_OPTIMIZER_LLM_MAX_INVOCATIONS_PER_DAY,
+    )
+    required = {
+        CONF_OPTIMIZER_LLM_TASK_ENTITY,
+        CONF_OPTIMIZER_LLM_TRIAGE_ENTITY,
+        CONF_OPTIMIZER_LLM_SYSTEM_PROMPT,
+        CONF_OPTIMIZER_LLM_MAX_INVOCATIONS_PER_DAY,
+    }
+    missing_suppress = required - set(OPTIONS_RELOAD_SUPPRESS_KEYS)
+    missing_no_live = required - set(_NO_LIVE_ATTR_KEYS)
+    assert not missing_suppress, (
+        f"LLM CONF keys missing from OPTIONS_RELOAD_SUPPRESS_KEYS: "
+        f"{sorted(missing_suppress)}"
+    )
+    assert not missing_no_live, (
+        f"LLM CONF keys missing from _NO_LIVE_ATTR_KEYS: "
+        f"{sorted(missing_no_live)}"
+    )
+

@@ -106,6 +106,11 @@ EXPECTED_SUPPRESS_KEYS: set[str] = {
     _extract_conf(CONST_SRC, "CONF_OPTIMIZER_CONFIDENCE_GATE"),
     _extract_conf(CONST_SRC, "CONF_OPTIMIZER_RATE_CAP_PER_HOUR"),
     _extract_conf(CONST_SRC, "CONF_OPTIMIZER_QUIET_HOURS_SOURCE"),
+    # v4.7.35 Phase 2 — LLM Tier-2 CM-options keys.
+    _extract_conf(CONST_SRC, "CONF_OPTIMIZER_LLM_TASK_ENTITY"),
+    _extract_conf(CONST_SRC, "CONF_OPTIMIZER_LLM_TRIAGE_ENTITY"),
+    _extract_conf(CONST_SRC, "CONF_OPTIMIZER_LLM_SYSTEM_PROMPT"),
+    _extract_conf(CONST_SRC, "CONF_OPTIMIZER_LLM_MAX_INVOCATIONS_PER_DAY"),
 }
 
 
@@ -142,9 +147,9 @@ def test_options_reload_suppress_keys_membership_exact():
 
 def test_options_reload_suppress_keys_count_matches_part2_scope():
     """Headline number: Cycle 1's 5 + 10 EC/Bayesian + 4 Routine +
-    14 HVAC tunables + 4 D5 + 6 v4.7.34 Optimizer = 43 keys."""
+    14 HVAC tunables + 4 D5 + 6 v4.7.34 Optimizer + 4 v4.7.35 LLM = 47 keys."""
     ns = _load_init_dispatch_namespace()
-    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 43
+    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 47
 
 
 # ---------------------------------------------------------------------------
@@ -234,6 +239,11 @@ def _load_init_dispatch_namespace() -> dict:
         "_CONF_OPTIMIZER_CONFIDENCE_GATE":        "optimizer_confidence_gate",
         "_CONF_OPTIMIZER_RATE_CAP_PER_HOUR":      "optimizer_rate_cap_per_hour",
         "_CONF_OPTIMIZER_QUIET_HOURS_SOURCE":     "optimizer_quiet_hours_source",
+        # v4.7.35 Phase 2 — LLM tier keys.
+        "_CONF_OPTIMIZER_LLM_TASK_ENTITY":        "optimizer_llm_task_entity",
+        "_CONF_OPTIMIZER_LLM_TRIAGE_ENTITY":      "optimizer_llm_triage_entity",
+        "_CONF_OPTIMIZER_LLM_SYSTEM_PROMPT":      "optimizer_llm_system_prompt",
+        "_CONF_OPTIMIZER_LLM_MAX_INVOCATIONS_PER_DAY": "optimizer_llm_max_invocations_per_day",
         "_CONF_COMFORT_TEMP_MIN":                 "comfort_temp_min",
         "_CONF_COMFORT_TEMP_MAX":                 "comfort_temp_max",
         "_CONF_COMFORT_HUMIDITY_MAX":             "comfort_humidity_max",

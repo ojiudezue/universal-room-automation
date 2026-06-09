@@ -1571,3 +1571,111 @@ OPTIMIZER_OUTCOME_BELOW_GATE: Final = "below_confidence_gate"
 OPTIMIZER_OUTCOME_DISALLOWED: Final = "config_write_requires_L3"
 OPTIMIZER_OUTCOME_DOMAIN_BLOCKED: Final = "domain_not_allowlisted"
 OPTIMIZER_OUTCOME_KILL_SWITCH: Final = "kill_switch_engaged"
+
+
+# ============================================================================
+# v4.7.35 Phase 2 — LLM Tier-2 (provider-agnostic via ai_task.generate_data)
+# ============================================================================
+#
+# CM-options keys (parsimony: zero new per-room CONF surface). All four
+# keys are added to OPTIONS_RELOAD_SUPPRESS_KEYS in __init__.py so editing
+# the LLM provider / prompt / cap does NOT trigger a full CM reload (the
+# coordinator re-reads entry.options fresh every LLM cycle).
+
+# Primary reasoning backend — AI Task entity. Default to Claude per plan.
+CONF_OPTIMIZER_LLM_TASK_ENTITY: Final = "optimizer_llm_task_entity"
+# Optional cheap/local triage backend (e.g. ai_task.ollama_ai_task).
+# When configured AND distinct from the primary, the optimizer runs a
+# cheap triage pass first; only when triage flags "worth deep analysis"
+# does the primary (paid) backend get called.
+CONF_OPTIMIZER_LLM_TRIAGE_ENTITY: Final = "optimizer_llm_triage_entity"
+# The editable system prompt (multiline). Stored on the CM entry.options
+# because HA caps `text` entity STATE at 255 chars. Resolution at call
+# time: live edited prompt (entry.options) → in-code const default.
+CONF_OPTIMIZER_LLM_SYSTEM_PROMPT: Final = "optimizer_llm_system_prompt"
+# Hard daily cap on PREMIUM (primary) backend calls. The triage/local
+# backend may run uncapped — caps are per-backend.
+CONF_OPTIMIZER_LLM_MAX_INVOCATIONS_PER_DAY: Final = (
+    "optimizer_llm_max_invocations_per_day"
+)
+
+DEFAULT_OPTIMIZER_LLM_TASK_ENTITY: Final = "ai_task.claude_ai_task"
+DEFAULT_OPTIMIZER_LLM_MAX_INVOCATIONS_PER_DAY: Final = 24
+
+# Token cap for the assembled context corpus (pre-LLM compression).
+# Conservative char→token heuristic: ~4 chars/token → 8000 tokens ≈ 32KB.
+OPTIMIZER_LLM_CONTEXT_MAX_TOKENS: Final = 8000
+OPTIMIZER_LLM_CONTEXT_CHARS_PER_TOKEN: Final = 4
+
+# AI Task name surfaced in HA's ai_task service call.
+OPTIMIZER_LLM_TASK_NAME: Final = "ura_optimizer_findings"
+
+# Structured-output schema for ai_task.generate_data. Mirrors the
+# selector-based shape used by AI_RULE_PARSING (config_flow.py:1602).
+# `findings` is a list of objects; each object follows the dataclass
+# fields below. `reasoning` is a single short paragraph.
+OPTIMIZER_LLM_STRUCTURE: Final = {
+    "findings": {
+        "selector": {"object": {"multiple": True}},
+        "description": (
+            "List of optimization findings. Each finding MUST have: "
+            "dimension (string — e.g. comfort, sensor_health, meta), "
+            "severity (string — critical|high|medium|low), "
+            "confidence (number 0.0-1.0), "
+            "target_level (string — house|zone|room), "
+            "target_id (string — room/zone name or 'house'), "
+            "description (string — one short sentence grounded in the "
+            "snapshot), proposed_action_or_null (object or null — when "
+            "an object: domain, service, target_entity, service_data, "
+            "action_class one of reversible_device|config_write). "
+            "Use only entities that appear in the snapshot."
+        ),
+    },
+    "reasoning": {
+        "selector": {"text": {}},
+        "description": "One short paragraph explaining the findings.",
+    },
+}
+
+# Provenance lane for findings produced by the LLM tier. Persisted into
+# the `optimization_findings.created_by` column — the Phase-2 DB trigger
+# that justified the Tier 2-DB review framing.
+OPTIMIZER_CREATED_BY_TIER2_LLM: Final = "tier2_llm"
+OPTIMIZER_CREATED_BY_TIER1: Final = "tier1"
+
+# v0 system prompt — the recoverable in-code base/default. Loaded only
+# when entry.options[CONF_OPTIMIZER_LLM_SYSTEM_PROMPT] is empty/missing.
+# Provider-portable (no Anthropic-specific phrasing). Style modeled on
+# AI_RULE_PARSING_PROMPT above.
+OPTIMIZER_LLM_SYSTEM_PROMPT: Final = """You are the Optimization Analyst for a Home Assistant whole-home automation
+system (URA). You receive a structured snapshot: current home/zone/room state,
+the CONFIGURED intent for each (what it is supposed to do), recent findings,
+active goals with priority, prediction-accuracy stats, and your own prior
+actions with their measured outcomes.
+
+Your job: surface problems and opportunities the deterministic rule engine
+misses — degraded/stuck sensors, phantom or missed occupancy, configuration
+that contradicts observed behavior, comfort/energy/cost sub-optimality,
+coordinators working at cross-purposes, and predictions that have drifted.
+
+Rules:
+- Ground EVERY finding in the snapshot. Cite the specific value(s) that justify
+  it. If the data does not support a finding, do not invent one.
+- Only reference entities, rooms, zones, and config keys that appear in the
+  snapshot. Never name anything not present.
+- For each finding you MAY propose ONE concrete corrective action, expressed
+  only as a service call on an entity in the snapshot and within the provided
+  allowlist. Prefer reversible actions. If unsure, propose no action.
+- Respect active goals and their priority. Never propose anything that violates
+  a safety or security goal.
+- Be conservative: a wrong autonomous action is worse than a missed finding.
+  When uncertain, lower the severity and propose no action.
+- Output ONLY the structured schema. Keep `reasoning` to one short paragraph.
+
+severity: critical = safety/security or "running blind"; high = clear
+malfunction or significant waste; medium = sub-optimal but functioning;
+low = minor/informational.
+confidence: 0.0-1.0, your calibrated certainty the finding is real AND the
+snapshot supports it. Findings below the operator's confidence gate are dropped
+before any action — so calibrate honestly, do not inflate.
+"""
