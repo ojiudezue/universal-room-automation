@@ -2581,7 +2581,12 @@ class EnergyCoverageDeltaSensor(AggregationEntity, SensorEntity):
         # heuristic re-runs against current readings so a young
         # cumulative counter (<1000 kWh on first observation) gets a
         # second chance.
-        self._last_reclassify_date = None
+        # Fourth-pass H-1: seed with the BOOT date, not None. A None seed
+        # made the first-ever read trip the midnight-reclassify branch,
+        # which closed the post-restart window immediately — the B-H4
+        # protection never engaged. Seeded to boot date, the branch only
+        # fires on a genuine date change.
+        self._last_reclassify_date = dt_util.now().date()
         # B-H4 post-restart window: in-memory tiers re-anchor at boot
         # while the rooms tier is DB-persisted (full day). The resulting
         # negative delta_percent must NOT be misattributed to unit drift.
