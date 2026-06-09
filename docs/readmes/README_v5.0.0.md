@@ -1,4 +1,6 @@
-# URA v4.7.34 — Optimization Coordinator Phase 1 (Agentic Skeleton, L1 Shadow)
+# URA v5.0.0 — Optimization Coordinator Phase 1 (Agentic Skeleton, L1 Shadow)
+
+> **Major version.** v5.0.0 is stage 1 of the Optimization Coordinator (the agentic skeleton). The LLM tier ships next as v5.1.0, dimension expansion as v5.2.0. The internal review doc keeps its build-cycle name (`v4.7.34_*`); the released artifact is **v5.0.0**.
 
 **Release date:** 2026-06-09
 **Tier:** Tier 2-DB (three framing-disjoint staff reviews + live validation; DB triggers fire — new `optimization_findings` table)
