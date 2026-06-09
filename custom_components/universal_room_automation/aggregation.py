@@ -2286,7 +2286,6 @@ class WholeHouseEnergySensor(AggregationEntity, SensorEntity):
         return []
 
     def _today_local(self):
-        from homeassistant.util import dt as dt_util
         return dt_util.now().date()
 
     def _sum_sensors(self, sensor_ids: list[str]) -> float | None:
@@ -2354,7 +2353,6 @@ class WholeHouseEnergySensor(AggregationEntity, SensorEntity):
         if current is None:
             return None
 
-        from homeassistant.util import dt as dt_util
         today = dt_util.now().date()
         if not hasattr(self, "_last_accepted_date") or self._last_accepted_date is None:
             self._last_accepted_date = today
@@ -2493,7 +2491,6 @@ class RoomsEnergyTotalSensor(AggregationEntity, SensorEntity):
         current = round(total, 2)
 
         # Fix-up pass C-H1: date-based day-reset acceptance.
-        from homeassistant.util import dt as dt_util
         today = dt_util.now().date()
         if self._last_accepted_date is None:
             self._last_accepted_date = today
@@ -2590,7 +2587,6 @@ class EnergyCoverageDeltaSensor(AggregationEntity, SensorEntity):
         # negative delta_percent must NOT be misattributed to unit drift.
         # Window opens at any boot that happens after ~00:05 local and
         # closes at the next midnight re-anchor.
-        from homeassistant.util import dt as dt_util
         self._boot_local_dt = dt_util.now()
         _boot_mins_into_day = (
             self._boot_local_dt.hour * 60 + self._boot_local_dt.minute
@@ -2614,7 +2610,6 @@ class EnergyCoverageDeltaSensor(AggregationEntity, SensorEntity):
         wording matters for Review-D live validation — pre-fix docstring
         implied immediate-midnight anchoring which is not what happens.
         """
-        from homeassistant.util import dt as dt_util
         return dt_util.now().date()
 
     def _today_delta_kwh(self, sensor_id: str, current_kwh: float) -> float:
@@ -3009,7 +3004,6 @@ class EnergyCostPerOccupiedHourSensor(AggregationEntity, SensorEntity):
         rate = self._get_rate()
         total_cost = 0.0
         total_occupied_hours = 0.0
-        from homeassistant.util import dt as dt_util
         now = dt_util.now()
         for coord in _get_room_coordinators(self.hass):
             if not coord.data or getattr(coord, "_infrastructure_room", False):
@@ -3030,7 +3024,6 @@ class EnergyCostPerOccupiedHourSensor(AggregationEntity, SensorEntity):
     def extra_state_attributes(self):
         rate = self._get_rate()
         rooms = []
-        from homeassistant.util import dt as dt_util
         now = dt_util.now()
         for coord in _get_room_coordinators(self.hass):
             if not coord.data or getattr(coord, "_infrastructure_room", False):
@@ -3215,7 +3208,6 @@ class EnergyAnomalyBinarySensor(AggregationEntity, BinarySensorEntity):
             return []
 
         from .domain_coordinators.energy_forecast import get_time_bin
-        from homeassistant.util import dt as dt_util
 
         now = dt_util.now()
         time_bin = get_time_bin(now.hour)
@@ -4156,7 +4148,6 @@ class ZoneEnergyTodaySensor(ZoneSensorBase, SensorEntity):
 
         current = round(total, 2)
 
-        from homeassistant.util import dt as dt_util
         today = dt_util.now().date()
         if self._last_accepted_date is None:
             self._last_accepted_date = today

@@ -701,7 +701,6 @@ class EnergyTodaySensor(UniversalRoomEntity, SensorEntity):
         # accepted value (genuine midnight rollover); otherwise the
         # monotonic-increasing invariant rejects it and returns the
         # last known good value.
-        from homeassistant.util import dt as dt_util
         today = dt_util.now().date()
         if self._last_accepted_date is None:
             # First observation this lifetime.
@@ -2530,7 +2529,6 @@ class LastOccupantSensor(UniversalRoomEntity, SensorEntity):
                 attrs["last_seen"] = self._last_occupant_time.isoformat()
 
             # Calculate time ago
-            from homeassistant.util import dt as dt_util
             now = dt_util.utcnow()
             last_time = dt_util.parse_datetime(
                 self._last_occupant_time if isinstance(self._last_occupant_time, str)
@@ -3280,7 +3278,6 @@ class URACensusValidationAgeSensor(_CensusBaseSensor):
         result = self._get_census()
         if result is None or result.timestamp is None:
             return None
-        from homeassistant.util import dt as dt_util
         now = dt_util.utcnow()
         ts = result.timestamp
         # Ensure both are timezone-aware for subtraction
@@ -10708,7 +10705,6 @@ class URALastActivitySensor(AggregationEntity, SensorEntity):
                         "timestamp": rows[0].get("timestamp", ""),
                     }
                     # Count today's activities from the seeded data
-                    from homeassistant.util import dt as dt_util
                     self._counter_date = dt_util.now().date().isoformat()
                     today_start = dt_util.start_of_local_day().isoformat()
                     for row in rows:
@@ -10737,7 +10733,6 @@ class URALastActivitySensor(AggregationEntity, SensorEntity):
             self._recent = self._recent[:10]
 
         # Reset counters on day boundary
-        from homeassistant.util import dt as dt_util
         today = dt_util.now().date().isoformat()
         if today != self._counter_date:
             self._activities_today = 0
@@ -10758,7 +10753,6 @@ class URALastActivitySensor(AggregationEntity, SensorEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return activity details and rolling buffer."""
-        from homeassistant.util import dt as dt_util
         attrs: dict[str, Any] = dict(self._last_attrs)
 
         # Time ago
@@ -12233,7 +12227,6 @@ class URARecentAnomaliesSensor(AggregationEntity, SensorEntity):
             if database is None:
                 return
 
-            from homeassistant.util import dt as dt_util
             from datetime import timedelta
             cutoff = (dt_util.utcnow() - timedelta(hours=24)).isoformat()
 

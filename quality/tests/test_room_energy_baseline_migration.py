@@ -15,11 +15,55 @@ re-implementing the migration logic.
 import importlib.util
 import os
 import sys
+import types
+from datetime import datetime
 
 import pytest
 
 
 _REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+
+# ---------------------------------------------------------------------------
+# Minimal HA mocks so the REAL production database module is importable.
+# Suite convention (see test_data_pipeline.py): install with
+# sys.modules.setdefault — cooperative across test files, never REPLACES a
+# module another file already owns. (A prior version of this file ASSIGNED
+# over custom_components...const and poisoned ~107 unrelated tests.)
+# ---------------------------------------------------------------------------
+
+def _mock_module(name, **attrs):
+    mod = types.ModuleType(name)
+    for k, v in attrs.items():
+        setattr(mod, k, v)
+    return mod
+
+
+sys.modules.setdefault("homeassistant", _mock_module("homeassistant"))
+sys.modules.setdefault(
+    "homeassistant.core",
+    _mock_module("homeassistant.core", HomeAssistant=type("HomeAssistant", (), {})),
+)
+sys.modules.setdefault("homeassistant.util", _mock_module("homeassistant.util"))
+sys.modules.setdefault(
+    "homeassistant.util.dt",
+    _mock_module(
+        "homeassistant.util.dt",
+        utcnow=lambda: datetime.utcnow(),
+        now=lambda: datetime.now(),
+        as_local=lambda dt: dt,
+    ),
+)
+
+if "custom_components" not in sys.modules:
+    _cc = types.ModuleType("custom_components")
+    _cc.__path__ = [os.path.join(_REPO, "custom_components")]
+    sys.modules["custom_components"] = _cc
+if "custom_components.universal_room_automation" not in sys.modules:
+    _ura = types.ModuleType("custom_components.universal_room_automation")
+    _ura.__path__ = [os.path.join(_REPO, "custom_components", "universal_room_automation")]
+    _ura.__package__ = "custom_components.universal_room_automation"
+    sys.modules["custom_components.universal_room_automation"] = _ura
 
 
 def _load_const():
@@ -190,43 +234,15 @@ async def test_migration_dao_is_atomic_and_runs_once(tmp_path):
                     await self_inner._conn.close()
             return _Ctx()
 
-    # Pull the real DAO method off the production class via duck-import.
-    import importlib.util
-    db_mod_path = os.path.join(
-        _REPO, "custom_components", "universal_room_automation", "database.py",
+    # Drive the REAL production DAO (HA is installed in the test env —
+    # same import pattern as test_data_pipeline.py:93). The unbound method
+    # only needs ``self._db()``, which _MiniDB provides. No source-exec,
+    # no sys.modules stubbing (a prior version of this test replaced the
+    # real const module in sys.modules and poisoned ~107 unrelated tests).
+    from custom_components.universal_room_automation.database import (
+        UniversalRoomDatabase,
     )
-    spec = importlib.util.spec_from_file_location(
-        "_ura_db_atomic_migration", db_mod_path,
-    )
-    # Loading database.py needs full HA — instead extract the method
-    # source via text and exec into a stub class. Lighter-weight.
-    with open(db_mod_path, encoding="utf-8") as fh:
-        src = fh.read()
-    start = src.find("    async def migrate_energy_baselines_if_needed")
-    end = src.find("\n    async def ", start + 1)
-    method_src = src[start:end if end > 0 else len(src)]
-    # The DAO uses dt_util.utcnow() — provide a stub.
-    ns = {
-        "_LOGGER": logging_stub(),
-        "dt_util": _DtStub(),
-        "aiosqlite": aiosqlite,
-    }
-    # The DAO does `from .const import ...` — preload the consts.
-    class _ConstMod:
-        ENERGY_BASELINE_VERSION_ROOM_ID = "__schema_version__"
-        ENERGY_BASELINE_VERSION_SENSOR_ID = "energy_baseline_version"
-    sys.modules["custom_components.universal_room_automation.const"] = _ConstMod  # type: ignore[assignment]
-    # The `from .const import ...` will fail because we're outside the
-    # package. Patch by monkey-replacing the import line.
-    method_src = method_src.replace(
-        "from .const import (",
-        "if True:\n            ",
-    ).replace(
-        "ENERGY_BASELINE_VERSION_ROOM_ID,\n            ENERGY_BASELINE_VERSION_SENSOR_ID,\n        )",
-        "ENERGY_BASELINE_VERSION_ROOM_ID = '__schema_version__'\n            ENERGY_BASELINE_VERSION_SENSOR_ID = 'energy_baseline_version'",
-    )
-    exec(method_src.strip(), ns)
-    migrate = ns["migrate_energy_baselines_if_needed"]
+    migrate = UniversalRoomDatabase.migrate_energy_baselines_if_needed
 
     mini = _MiniDB(db_path)
     ran1, deleted1 = await migrate(mini, target_version=2)
@@ -283,22 +299,31 @@ async def test_cleanup_spares_sentinel_row(tmp_path):
         )
         await db.commit()
 
-    # Run the cleanup DELETE manually with the same WHERE clause used in
-    # production (this drives the actual exclusion).
-    from datetime import datetime, timedelta, timezone
-    cutoff = (datetime.now(timezone.utc) - timedelta(days=90)).isoformat()
+    # Drive the REAL production cleanup DAO (not a hand-copied SQL clone —
+    # fixture authority: if the production WHERE clause regresses, this
+    # test must fail).
+    from custom_components.universal_room_automation.database import (
+        UniversalRoomDatabase,
+    )
+    cleanup = UniversalRoomDatabase.cleanup_room_energy_baselines
+
+    class _MiniDB:
+        def __init__(self, p):
+            self._p = p
+
+        def _db(_self):
+            class _Ctx:
+                async def __aenter__(self_inner):
+                    self_inner._conn = await aiosqlite.connect(_self._p)
+                    return self_inner._conn
+
+                async def __aexit__(self_inner, *exc):
+                    await self_inner._conn.close()
+            return _Ctx()
+
+    deleted = await cleanup(_MiniDB(db_path), retention_days=90)
+    assert deleted == 1, "exactly the stale user row is deleted"
     async with aiosqlite.connect(db_path) as db:
-        await db.execute(
-            """DELETE FROM room_energy_baselines
-               WHERE rowid IN (
-                   SELECT rowid FROM room_energy_baselines
-                   WHERE baseline_set_at < ?
-                     AND NOT (room_id = ? AND sensor_id = ?)
-                   LIMIT 1000
-               )""",
-            (cutoff, "__schema_version__", "energy_baseline_version"),
-        )
-        await db.commit()
         cur = await db.execute(
             "SELECT room_id FROM room_energy_baselines ORDER BY room_id"
         )
@@ -306,24 +331,6 @@ async def test_cleanup_spares_sentinel_row(tmp_path):
     assert [r[0] for r in rows] == ["__schema_version__"], (
         "cleanup must spare the sentinel"
     )
-
-
-def logging_stub():
-    class _L:
-        def warning(self, *a, **kw):
-            pass
-        def info(self, *a, **kw):
-            pass
-        def debug(self, *a, **kw):
-            pass
-    return _L()
-
-
-class _DtStub:
-    @staticmethod
-    def utcnow():
-        from datetime import datetime, timezone
-        return datetime.now(timezone.utc)
 
 
 # ---------------------------------------------------------------------------
