@@ -51,6 +51,17 @@ Replace this list with a `Validated <date>` table after the restarted instance i
 - **Verify:** per-room `sensor.{room}_optimization_health` populated post-first-cycle (no startup-race placeholder stuck).
 - **Verify:** zero URA ERROR logs attributable to `optimization` post-boot.
 
-| Criterion | Observed | Source |
+### Validated 2026-06-09 (post-restart, immediate criteria)
+
+| Criterion | Result | Observed evidence |
 |---|---|---|
-| (TBD post-deploy) | | |
+| Coordinator loaded + healthy | **PASS** | `sensor.ura_optimization_coordinator_optimizer_status` = `healthy` post-boot |
+| Shipped inert at L1 Shadow | **PASS** | status attrs `autonomy_level=shadow`, `effective_level=shadow`, `mode=shadow`; `house_score=100`, `open_findings_count=0`, `rate_cap_window_count=0`, `quiet_hours_active=false` |
+| Kill switch present + active default | **PASS** | `switch.ura_optimization_coordinator_optimizer_kill_switch` = `off` (active) |
+| Sensors register w/ placeholders (Bug Class #5) | **PASS** | `…_optimizer_findings` = `initializing`, `…_optimizer_room_health` = `unknown` (populate after first 5-min cycle) |
+| W-1: no table-create errors | **PASS** | error_log scan: zero `Error creating table optimization_findings` |
+| W-2: no DB-worker errors in optimizer path | **PASS** | error_log scan: zero `DB write worker not running` near optimizer |
+| Zero URA errors from `optimization` | **PASS** | error_log search `optimization` = empty; only known-benign boot WARNINGs elsewhere |
+| First-cycle findings rows (24h) | **DEFERRED** | `last_evaluation=null` at validation (first 5-min cycle not yet run) — check via shipwatch / next session |
+
+Version stamped live: `update.universal_room_automation_update.installed_version = v5.0.0`. Released via PR #375. Note: the optimizer device entity slug is `ura_optimization_coordinator_*` (not the `ura_optimizer_*` the plan prospectively named).

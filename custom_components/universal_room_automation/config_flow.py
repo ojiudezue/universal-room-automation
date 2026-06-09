@@ -5603,11 +5603,21 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             CONF_OPTIMIZER_CONFIDENCE_GATE,
             CONF_OPTIMIZER_RATE_CAP_PER_HOUR,
             CONF_OPTIMIZER_QUIET_HOURS_SOURCE,
+            # v4.7.35 Phase 2 — LLM Tier-2 CM-options keys.
+            CONF_OPTIMIZER_LLM_TASK_ENTITY,
+            CONF_OPTIMIZER_LLM_TRIAGE_ENTITY,
+            CONF_OPTIMIZER_LLM_SYSTEM_PROMPT,
+            CONF_OPTIMIZER_LLM_MAX_INVOCATIONS_PER_24H,
+            CONF_OPTIMIZER_SAFETY_DENY_ENTITIES,
             DEFAULT_OPTIMIZER_AUTONOMY_LEVEL,
             DEFAULT_OPTIMIZER_KILL_SWITCH,
             DEFAULT_OPTIMIZER_CONFIDENCE_GATE,
             DEFAULT_OPTIMIZER_RATE_CAP_PER_HOUR,
             DEFAULT_OPTIMIZER_QUIET_HOURS_SOURCE,
+            DEFAULT_OPTIMIZER_LLM_TASK_ENTITY,
+            DEFAULT_OPTIMIZER_LLM_TRIAGE_ENTITY,
+            DEFAULT_OPTIMIZER_LLM_MAX_INVOCATIONS_PER_24H,
+            DEFAULT_OPTIMIZER_SAFETY_DENY_ENTITIES,
             OPTIMIZER_AUTONOMY_LEVELS,
             OPTIMIZER_QUIET_HOURS_SOURCES,
         )
@@ -5674,12 +5684,99 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     mode=selector.SelectSelectorMode.DROPDOWN,
                 )
             ),
+            # ============================================================
+            # v4.7.35 Phase 2 — LLM Tier-2 fields
+            # ============================================================
+            vol.Optional(
+                CONF_OPTIMIZER_LLM_TASK_ENTITY,
+                default=self._get_current(
+                    CONF_OPTIMIZER_LLM_TASK_ENTITY,
+                    DEFAULT_OPTIMIZER_LLM_TASK_ENTITY,
+                ),
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=self._discover_ai_task_entities(),
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                    custom_value=True,
+                )
+            ),
+            vol.Optional(
+                CONF_OPTIMIZER_LLM_TRIAGE_ENTITY,
+                default=self._get_current(
+                    CONF_OPTIMIZER_LLM_TRIAGE_ENTITY,
+                    DEFAULT_OPTIMIZER_LLM_TRIAGE_ENTITY,
+                ),
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    # A-HIGH-1 fix-up: empty string explicitly available
+                    # so the operator can disable triage routing.
+                    options=[""] + self._discover_ai_task_entities(),
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                    custom_value=True,
+                )
+            ),
+            vol.Optional(
+                CONF_OPTIMIZER_LLM_SYSTEM_PROMPT,
+                default=self._get_current(
+                    CONF_OPTIMIZER_LLM_SYSTEM_PROMPT, "",
+                ),
+            ): selector.TextSelector(
+                selector.TextSelectorConfig(multiline=True)
+            ),
+            vol.Optional(
+                CONF_OPTIMIZER_LLM_MAX_INVOCATIONS_PER_24H,
+                default=self._get_current(
+                    CONF_OPTIMIZER_LLM_MAX_INVOCATIONS_PER_24H,
+                    DEFAULT_OPTIMIZER_LLM_MAX_INVOCATIONS_PER_24H,
+                ),
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0, max=500, step=1,
+                    mode=selector.NumberSelectorMode.BOX,
+                )
+            ),
+            # B-B2 fix-up: safety / security deny-list. Comma-or-list
+            # entry; chokepoint refuses to actuate any entity in this
+            # list (Tier-1 + Tier-2 LLM both).
+            vol.Optional(
+                CONF_OPTIMIZER_SAFETY_DENY_ENTITIES,
+                default=self._get_current(
+                    CONF_OPTIMIZER_SAFETY_DENY_ENTITIES,
+                    list(DEFAULT_OPTIMIZER_SAFETY_DENY_ENTITIES),
+                ),
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=[],
+                    multiple=True,
+                    custom_value=True,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                )
+            ),
         })
 
         return self.async_show_form(
             step_id="coordinator_optimization",
             data_schema=data_schema,
         )
+
+    def _discover_ai_task_entities(self) -> list[str]:
+        """Return the list of `ai_task.*` entity_ids currently registered.
+
+        Falls back to the default Claude entity when no AI Task
+        integrations are installed, so the dropdown always has at least
+        one option for the operator to select / override.
+        """
+        from .const import DEFAULT_OPTIMIZER_LLM_TASK_ENTITY
+        entities: list[str] = []
+        try:
+            for state in self.hass.states.async_all():
+                if state.entity_id.startswith("ai_task."):
+                    entities.append(state.entity_id)
+        except Exception:  # noqa: BLE001
+            pass
+        if DEFAULT_OPTIMIZER_LLM_TASK_ENTITY not in entities:
+            entities.append(DEFAULT_OPTIMIZER_LLM_TASK_ENTITY)
+        return sorted(set(entities))
 
     # =========================================================================
     # INTEGRATION OPTIONS (continued)
