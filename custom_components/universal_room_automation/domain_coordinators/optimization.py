@@ -78,6 +78,18 @@ from ..const import (
     OPTIMIZER_DIMENSION_COMFORT,
     OPTIMIZER_DIMENSION_META,
     OPTIMIZER_DIMENSION_SENSOR_HEALTH,
+    # v4.7.36 Phase 3 — additional dimensions.
+    OPTIMIZER_DIMENSION_OCCUPANCY_ACCURACY,
+    OPTIMIZER_DIMENSION_AUTOMATION_RESPONSIVENESS,
+    OPTIMIZER_DIMENSION_CONFIG_BEHAVIOR,
+    OPTIMIZER_DIMENSION_ENERGY_EFFICIENCY,
+    OPTIMIZER_DIMENSION_SETPOINT_COMPLIANCE,
+    OPTIMIZER_DIMENSION_VACANCY_MANAGEMENT,
+    OPTIMIZER_DIMENSION_OVERRIDE_FREQUENCY,
+    OPTIMIZER_DIMENSION_STATE_MACHINE_ACCURACY,
+    OPTIMIZER_DIMENSION_SECURITY_POSTURE,
+    OPTIMIZER_DIGEST_RETENTION_DAYS,
+    OPTIMIZER_DIGEST_TOP_N,
     OPTIMIZER_LEVEL_ADVISORY,
     OPTIMIZER_LEVEL_IMMEDIATE_CONFIG,
     OPTIMIZER_LEVEL_PROPOSE_CONFIG,
@@ -122,11 +134,23 @@ _LOGGER = logging.getLogger(__name__)
 
 
 class OptimizationDimension(str, Enum):
-    """Optimization dimensions emitted by the Phase-1 rule engine."""
+    """Optimization dimensions emitted by the Phase-1/Phase-3 rule engine."""
 
     SENSOR_HEALTH = OPTIMIZER_DIMENSION_SENSOR_HEALTH
     COMFORT = OPTIMIZER_DIMENSION_COMFORT
     META = OPTIMIZER_DIMENSION_META
+    # v4.7.36 Phase 3 — room-level
+    OCCUPANCY_ACCURACY = OPTIMIZER_DIMENSION_OCCUPANCY_ACCURACY
+    AUTOMATION_RESPONSIVENESS = OPTIMIZER_DIMENSION_AUTOMATION_RESPONSIVENESS
+    CONFIG_BEHAVIOR = OPTIMIZER_DIMENSION_CONFIG_BEHAVIOR
+    ENERGY_EFFICIENCY = OPTIMIZER_DIMENSION_ENERGY_EFFICIENCY
+    # v4.7.36 Phase 3 — zone-level
+    SETPOINT_COMPLIANCE = OPTIMIZER_DIMENSION_SETPOINT_COMPLIANCE
+    VACANCY_MANAGEMENT = OPTIMIZER_DIMENSION_VACANCY_MANAGEMENT
+    OVERRIDE_FREQUENCY = OPTIMIZER_DIMENSION_OVERRIDE_FREQUENCY
+    # v4.7.36 Phase 3 — house-level
+    STATE_MACHINE_ACCURACY = OPTIMIZER_DIMENSION_STATE_MACHINE_ACCURACY
+    SECURITY_POSTURE = OPTIMIZER_DIMENSION_SECURITY_POSTURE
 
     def __str__(self) -> str:  # noqa: D401
         return self.value
@@ -470,6 +494,8 @@ class OptimizationCoordinator(BaseCoordinator):
         self._comfort_out_since: dict[tuple, datetime] = {}
         # Per-room sustained-sensor-stuck tracking.
         self._sensor_stuck_since: dict[tuple, datetime] = {}
+        # Phase 3 — per-zone scoreboard (populated post-cycle).
+        self._zone_scores: dict[str, float] = {}
 
         # Cycle handle.
         self._cycle_unsub = None
@@ -592,8 +618,21 @@ class OptimizationCoordinator(BaseCoordinator):
         """
         self._cycle_dedup.clear()
         findings: list[OptimizationFinding] = []
+        # Phase 1 dimensions.
         findings.extend(self._evaluate_sensor_health_dimension())
         findings.extend(self._evaluate_comfort_dimension())
+        # Phase 3 — room-level.
+        findings.extend(self._evaluate_occupancy_accuracy_dimension())
+        findings.extend(self._evaluate_automation_responsiveness_dimension())
+        findings.extend(self._evaluate_config_behavior_dimension())
+        findings.extend(self._evaluate_energy_efficiency_dimension())
+        # Phase 3 — zone-level.
+        findings.extend(self._evaluate_setpoint_compliance_dimension())
+        findings.extend(self._evaluate_vacancy_management_dimension())
+        findings.extend(self._evaluate_override_frequency_dimension())
+        # Phase 3 — house-level.
+        findings.extend(self._evaluate_state_machine_accuracy_dimension())
+        findings.extend(self._evaluate_security_posture_dimension())
 
         # D5 sentinel — emit one `meta` finding per cycle so silent-failure
         # (no rule ever fires) is distinguishable from "rule ran, no
@@ -958,6 +997,470 @@ class OptimizationCoordinator(BaseCoordinator):
                 else:
                     self._comfort_out_since.pop(key, None)
 
+        return findings
+
+    # ------------------------------------------------------------------
+    # Phase 3 — additional dimension evaluators.
+    #
+    # Discipline: each evaluator reads substrate that DEMONSTRABLY exists
+    # in the running coordinator graph. Substrate-not-available dimensions
+    # return [] with a TODO marker (no fabrication — see CLAUDE.md
+    # "No Fabrication — CRITICAL" rule).
+    # ------------------------------------------------------------------
+
+    def _iter_hvac_zones(self):
+        """Yield (zone_id, ZoneState) for HVAC zones, guarded for tests.
+
+        Substrate: HVAC coordinator's ZoneManager — domain_coordinators/
+        hvac_zones.py:179 (class ZoneManager) + hvac.py:677 ZoneManager
+        attached as ``hvac.zone_manager``.
+        """
+        try:
+            hvac = self._get_hvac_coordinator()
+            if hvac is None:
+                return
+            zm = getattr(hvac, "zone_manager", None)
+            if zm is None:
+                return
+            for zone_id, zone in (getattr(zm, "zones", {}) or {}).items():
+                yield zone_id, zone
+        except Exception:  # noqa: BLE001
+            return
+
+    def _get_house_state_machine(self):
+        """Return the HouseStateMachine via the coordinator manager.
+
+        Substrate: CoordinatorManager.house_state_machine — manager.py:197.
+        """
+        try:
+            domain_data = self.hass.data.get(DOMAIN, {}) or {}
+            cm = domain_data.get("coordinator_manager")
+            if cm is None:
+                return None
+            return getattr(cm, "house_state_machine", None)
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _get_security_coordinator(self):
+        """Return the SecurityCoordinator via the coordinator manager.
+
+        Substrate: CoordinatorManager.coordinators["security"] —
+        SecurityCoordinator at security.py:456.
+        """
+        try:
+            domain_data = self.hass.data.get(DOMAIN, {}) or {}
+            cm = domain_data.get("coordinator_manager")
+            if cm is None:
+                return None
+            coords = getattr(cm, "coordinators", None) or {}
+            return coords.get("security")
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _evaluate_occupancy_accuracy_dimension(
+        self,
+    ) -> list[OptimizationFinding]:
+        """Per room: configured occupancy sensors split — none reporting `on`
+        for >30min when a recent motion/mmwave signal IS firing → low confidence
+        sensor staleness signal.
+
+        Substrate: per-room CONF_OCCUPANCY_SENSORS + CONF_MOTION_SENSORS +
+        CONF_MMWAVE_SENSORS — read fresh from entry.options/data via the
+        existing ``_iter_room_entries`` helper (optimization.py:669).
+        Read each sensor's state via ``hass.states.get`` (the same path the
+        Phase-1 sensor-health rule uses).
+
+        Heuristic: when a motion OR mmwave sensor is ON but NO occupancy
+        sensor reports ON, flag low-severity occupancy_accuracy degradation.
+        Advisory only — never proposes an action. Calibrated low confidence
+        (0.55) because mixed sensor models can legitimately disagree for
+        short windows.
+        """
+        findings: list[OptimizationFinding] = []
+        now = dt_util.utcnow()
+        for entry in self._iter_room_entries():
+            merged = {**(entry.data or {}), **(entry.options or {})}
+            room = self._room_name(entry)
+            occ_ids: list[str] = []
+            sig_ids: list[str] = []
+            val_occ = merged.get(CONF_OCCUPANCY_SENSORS)
+            if isinstance(val_occ, list):
+                occ_ids.extend([v for v in val_occ if isinstance(v, str)])
+            elif isinstance(val_occ, str) and val_occ:
+                occ_ids.append(val_occ)
+            for key in (CONF_MOTION_SENSORS, CONF_MMWAVE_SENSORS):
+                val = merged.get(key)
+                if isinstance(val, list):
+                    sig_ids.extend([v for v in val if isinstance(v, str)])
+                elif isinstance(val, str) and val:
+                    sig_ids.append(val)
+            if not occ_ids or not sig_ids:
+                continue
+            motion_on = False
+            for eid in sig_ids:
+                st = self._state_value(eid)
+                if st is None:
+                    continue
+                if str(st.state).lower() in ("on", "true", "occupied"):
+                    motion_on = True
+                    break
+            if not motion_on:
+                continue
+            occ_on = False
+            for eid in occ_ids:
+                st = self._state_value(eid)
+                if st is None:
+                    continue
+                if str(st.state).lower() in ("on", "true", "occupied"):
+                    occ_on = True
+                    break
+            if occ_on:
+                continue
+            dedup_key = ("occupancy_accuracy", room)
+            if dedup_key in self._cycle_dedup:
+                continue
+            self._cycle_dedup.add(dedup_key)
+            findings.append(OptimizationFinding(
+                timestamp=now.isoformat(),
+                level="room",
+                target_id=room,
+                dimension=OptimizationDimension.OCCUPANCY_ACCURACY,
+                severity="low",
+                confidence=0.55,
+                score=0.0,
+                description=(
+                    f"{room}: motion/mmwave active but occupancy sensors "
+                    f"report clear (provenance disagreement)"
+                ),
+                proposed_action=None,
+                payload={"occupancy_ids": occ_ids, "signal_ids": sig_ids},
+                dedup_key=dedup_key,
+            ))
+        return findings
+
+    def _evaluate_automation_responsiveness_dimension(
+        self,
+    ) -> list[OptimizationFinding]:
+        """Substrate not cleanly available — DEFERRED.
+
+        # TODO Phase 3.x: needs per-room "command-fired → state-change
+        # observed" latency telemetry. Today only HVAC's ComplianceTracker
+        # (coordinator_diagnostics.py:333) captures a similar signal at
+        # the device level (commanded vs actual setpoint), and it is
+        # device-typed (climate/light/cover) not per-room. A clean room-
+        # tier responsiveness reader would need either a new
+        # ResponsivenessRing in BaseCoordinator or a join over
+        # decision_log + activity_log timestamps.
+        """
+        return []
+
+    def _evaluate_config_behavior_dimension(
+        self,
+    ) -> list[OptimizationFinding]:
+        """Per room: comfort upper bound below or equal to the comfort lower
+        bound → operator-config bug; emit medium-severity advisory.
+
+        Substrate: per-room comfort options via ``_read_per_room_comfort``
+        (optimization.py:682) which already merges entry.options →
+        entry.data → module constant fallback. Pure config-validation rule
+        — no live state read needed.
+        """
+        findings: list[OptimizationFinding] = []
+        now = dt_util.utcnow()
+        for entry in self._iter_room_entries():
+            room = self._room_name(entry)
+            comfort = self._read_per_room_comfort(entry)
+            issues = []
+            if comfort["max"] <= comfort["min"]:
+                issues.append(
+                    f"comfort_temp_max ({comfort['max']}) <= "
+                    f"comfort_temp_min ({comfort['min']})"
+                )
+            if comfort["hum_max"] <= 0 or comfort["hum_max"] > 100:
+                issues.append(
+                    f"comfort_humidity_max ({comfort['hum_max']}) outside "
+                    f"sane bounds (0,100]"
+                )
+            if not issues:
+                continue
+            dedup_key = ("config_behavior", room)
+            if dedup_key in self._cycle_dedup:
+                continue
+            self._cycle_dedup.add(dedup_key)
+            findings.append(OptimizationFinding(
+                timestamp=now.isoformat(),
+                level="room",
+                target_id=room,
+                dimension=OptimizationDimension.CONFIG_BEHAVIOR,
+                severity="medium",
+                confidence=0.95,
+                score=0.0,
+                description=(
+                    f"{room}: comfort config issues: {'; '.join(issues)}"
+                ),
+                proposed_action=None,
+                payload={"issues": issues, "comfort": comfort},
+                dedup_key=dedup_key,
+            ))
+        return findings
+
+    def _evaluate_energy_efficiency_dimension(
+        self,
+    ) -> list[OptimizationFinding]:
+        """Substrate not cleanly available at room tier — DEFERRED.
+
+        # TODO Phase 3.x: needs per-room energy attribution (kWh by
+        # room/zone over a window). Today the energy substrate aggregates
+        # at the house tier (energy_pool.py) and per-circuit (energy_circuits.py)
+        # — neither maps cleanly to URA rooms. A clean reader would need
+        # the planned zone-circuit binding (see Optimization Coordinator
+        # v2 plan Phase 4) before this dimension can fire honestly.
+        """
+        return []
+
+    def _evaluate_setpoint_compliance_dimension(
+        self,
+    ) -> list[OptimizationFinding]:
+        """Per zone: read HVAC ComplianceTracker's compliance summary; high
+        deviation rate → medium-severity advisory.
+
+        Substrate: HVAC's compliance_tracker (ComplianceTracker class at
+        coordinator_diagnostics.py:333; attached to hvac coordinator via
+        hvac.py:677 ``self._compliance = ComplianceTracker(...)``). The
+        in-memory tracker emits anomaly events on violations; a clean
+        per-zone aggregate is NOT available in-process today, so we
+        approximate via SecurityCoordinator's compliance summary shape
+        — DEFERRED to a real reader.
+
+        # TODO Phase 3.x: needs ComplianceTracker.get_zone_compliance_rate
+        # — today only schedule_check + _check_compliance + anomaly emit
+        # exist (coordinator_diagnostics.py:352, 373, 414). A read-side
+        # zone roll-up over ``compliance_log`` is needed.
+        """
+        return []
+
+    def _evaluate_vacancy_management_dimension(
+        self,
+    ) -> list[OptimizationFinding]:
+        """Per zone: a zone whose state machine has not retired to vacant
+        despite ``continuous_occupied_since`` > 12h with vacancy_sweep_done
+        False → low-severity advisory (likely stuck-sensor).
+
+        Substrate: ZoneState fields (hvac_zones.py:104-106):
+          - ``continuous_occupied_since`` (datetime|None)
+          - ``vacancy_sweep_done`` (bool)
+          - ``vacancy_sweep_enabled`` (bool)
+        Iterated via ``_iter_hvac_zones`` (this file) which walks
+        ZoneManager.zones (hvac_zones.py:189).
+        """
+        findings: list[OptimizationFinding] = []
+        now = dt_util.utcnow()
+        for zone_id, zone in self._iter_hvac_zones():
+            try:
+                cont_since = getattr(zone, "continuous_occupied_since", None)
+                sweep_done = bool(
+                    getattr(zone, "vacancy_sweep_done", False)
+                )
+                sweep_enabled = bool(
+                    getattr(zone, "vacancy_sweep_enabled", True)
+                )
+                zone_name = getattr(zone, "zone_name", zone_id)
+            except Exception:  # noqa: BLE001
+                continue
+            if not sweep_enabled or cont_since is None or sweep_done:
+                continue
+            try:
+                # Normalize TZ for comparison (both should be UTC).
+                cs = cont_since
+                if cs.tzinfo is None and now.tzinfo is not None:
+                    cs = cs.replace(tzinfo=now.tzinfo)
+                elif cs.tzinfo is not None and now.tzinfo is None:
+                    cs = cs.replace(tzinfo=None)
+                hours = (now - cs).total_seconds() / 3600.0
+            except Exception:  # noqa: BLE001
+                continue
+            if hours < 12:
+                continue
+            dedup_key = ("vacancy_management", zone_id)
+            if dedup_key in self._cycle_dedup:
+                continue
+            self._cycle_dedup.add(dedup_key)
+            findings.append(OptimizationFinding(
+                timestamp=now.isoformat(),
+                level="zone",
+                target_id=zone_id,
+                dimension=OptimizationDimension.VACANCY_MANAGEMENT,
+                severity="low",
+                confidence=0.7,
+                score=0.0,
+                description=(
+                    f"Zone {zone_name}: continuous occupancy for "
+                    f"{hours:.1f}h with vacancy sweep not fired — "
+                    f"possible stuck occupancy signal"
+                ),
+                proposed_action=None,
+                payload={
+                    "zone_id": zone_id,
+                    "hours_continuous": round(hours, 1),
+                },
+                dedup_key=dedup_key,
+            ))
+        return findings
+
+    def _evaluate_override_frequency_dimension(
+        self,
+    ) -> list[OptimizationFinding]:
+        """Per zone: zone.override_count_today ≥ 10 → medium-severity advisory
+        (sustained manual fighting suggests setpoint baseline misaligned).
+
+        Substrate: ZoneState.override_count_today (hvac_zones.py:82) — int
+        counter incremented by OverrideArrester paths and reset at midnight
+        via ``reset_daily_counters`` (hvac_zones.py:708).
+        """
+        findings: list[OptimizationFinding] = []
+        now = dt_util.utcnow()
+        for zone_id, zone in self._iter_hvac_zones():
+            try:
+                count = int(getattr(zone, "override_count_today", 0) or 0)
+                zone_name = getattr(zone, "zone_name", zone_id)
+            except Exception:  # noqa: BLE001
+                continue
+            if count < 10:
+                continue
+            dedup_key = ("override_frequency", zone_id)
+            if dedup_key in self._cycle_dedup:
+                continue
+            self._cycle_dedup.add(dedup_key)
+            severity = "high" if count >= 20 else "medium"
+            findings.append(OptimizationFinding(
+                timestamp=now.isoformat(),
+                level="zone",
+                target_id=zone_id,
+                dimension=OptimizationDimension.OVERRIDE_FREQUENCY,
+                severity=severity,
+                confidence=0.85,
+                score=0.0,
+                description=(
+                    f"Zone {zone_name}: {count} overrides today — sustained "
+                    f"manual fighting; baseline may be misaligned"
+                ),
+                proposed_action=None,
+                payload={
+                    "zone_id": zone_id,
+                    "override_count_today": count,
+                },
+                dedup_key=dedup_key,
+            ))
+        return findings
+
+    def _evaluate_state_machine_accuracy_dimension(
+        self,
+    ) -> list[OptimizationFinding]:
+        """House: state-machine override held >2h → medium advisory (manual
+        override outlives operator's typical attention window).
+
+        Substrate: HouseStateMachine — manager.py:197 (cm.house_state_machine).
+        Reads ``is_overridden`` + ``_override_since`` (house_state.py:139).
+        """
+        findings: list[OptimizationFinding] = []
+        now = dt_util.utcnow()
+        hsm = self._get_house_state_machine()
+        if hsm is None:
+            return findings
+        try:
+            overridden = bool(getattr(hsm, "is_overridden", False))
+        except Exception:  # noqa: BLE001
+            return findings
+        if not overridden:
+            return findings
+        override_since_ts = getattr(hsm, "_override_since", None)
+        if override_since_ts is None:
+            return findings
+        try:
+            hours = (now.timestamp() - float(override_since_ts)) / 3600.0
+        except (TypeError, ValueError):
+            return findings
+        if hours < 2:
+            return findings
+        dedup_key = ("state_machine_accuracy", "house")
+        if dedup_key in self._cycle_dedup:
+            return findings
+        self._cycle_dedup.add(dedup_key)
+        findings.append(OptimizationFinding(
+            timestamp=now.isoformat(),
+            level="house",
+            target_id="house",
+            dimension=OptimizationDimension.STATE_MACHINE_ACCURACY,
+            severity="medium",
+            confidence=0.8,
+            score=0.0,
+            description=(
+                f"House state override held {hours:.1f}h — consider clearing"
+            ),
+            proposed_action=None,
+            payload={"hours_overridden": round(hours, 1)},
+            dedup_key=dedup_key,
+        ))
+        return findings
+
+    def _evaluate_security_posture_dimension(
+        self,
+    ) -> list[OptimizationFinding]:
+        """House: security aggregator reports locks_unlocked > 0 during
+        AWAY/NIGHT/SLEEP states → high-severity advisory.
+
+        Substrate: SecurityCoordinator.get_security_aggregator_state
+        (security.py:1725) returns counts incl. locks_locked/locks_unlocked;
+        HouseStateMachine.state for the gating context (manager.py:202).
+        """
+        findings: list[OptimizationFinding] = []
+        now = dt_util.utcnow()
+        sec = self._get_security_coordinator()
+        if sec is None:
+            return findings
+        try:
+            agg = sec.get_security_aggregator_state() or {}
+        except Exception:  # noqa: BLE001
+            return findings
+        unlocked = int(agg.get("locks_unlocked", 0) or 0)
+        if unlocked <= 0:
+            return findings
+        # Read house state context (best-effort).
+        hsm = self._get_house_state_machine()
+        house_state = ""
+        try:
+            if hsm is not None:
+                house_state = str(getattr(hsm, "state", "") or "")
+        except Exception:  # noqa: BLE001
+            house_state = ""
+        # Only flag when house is in a gated context. Lowercase compare so
+        # both StrEnum value ("away") and plain string match.
+        gated = house_state.lower() in ("away", "night", "sleep")
+        if not gated:
+            return findings
+        dedup_key = ("security_posture", "house")
+        if dedup_key in self._cycle_dedup:
+            return findings
+        self._cycle_dedup.add(dedup_key)
+        findings.append(OptimizationFinding(
+            timestamp=now.isoformat(),
+            level="house",
+            target_id="house",
+            dimension=OptimizationDimension.SECURITY_POSTURE,
+            severity="high",
+            confidence=0.9,
+            score=0.0,
+            description=(
+                f"{unlocked} lock(s) unlocked while house state is "
+                f"{house_state} — review security posture"
+            ),
+            proposed_action=None,
+            payload={
+                "locks_unlocked": unlocked,
+                "house_state": house_state,
+            },
+            dedup_key=dedup_key,
+        ))
         return findings
 
     # ------------------------------------------------------------------
@@ -1868,6 +2371,7 @@ class OptimizationCoordinator(BaseCoordinator):
 
     def _update_scoreboard(self, findings: list[OptimizationFinding]) -> None:
         room_findings: dict[str, list[OptimizationFinding]] = {}
+        zone_findings: dict[str, list[OptimizationFinding]] = {}
         open_count = 0
         for f in findings:
             if f.dimension == OptimizationDimension.META:
@@ -1875,12 +2379,25 @@ class OptimizationCoordinator(BaseCoordinator):
             open_count += 1
             if f.level == "room" and f.target_id:
                 room_findings.setdefault(f.target_id, []).append(f)
+            elif f.level == "zone" and f.target_id:
+                zone_findings.setdefault(f.target_id, []).append(f)
         # 100 if no findings, else 100 - (15 per finding) bounded at 0.
         self._room_scores = {}
         for room, room_fs in room_findings.items():
             self._room_scores[room] = max(0.0, 100.0 - 15.0 * len(room_fs))
-        if room_findings:
-            self._house_score = min(self._room_scores.values())
+        # Phase 3 — per-zone scoreboard (populated when a zone dimension fires).
+        self._zone_scores = {}
+        for zone_id, zone_fs in zone_findings.items():
+            self._zone_scores[zone_id] = max(
+                0.0, 100.0 - 15.0 * len(zone_fs)
+            )
+        if room_findings or zone_findings:
+            worst = []
+            if room_findings:
+                worst.append(min(self._room_scores.values()))
+            if zone_findings:
+                worst.append(min(self._zone_scores.values()))
+            self._house_score = min(worst) if worst else 100.0
         else:
             self._house_score = 100.0
         self._open_findings_count = open_count
@@ -1896,6 +2413,15 @@ class OptimizationCoordinator(BaseCoordinator):
     def get_room_score(self, room: str) -> float:
         return self._room_scores.get(room, 100.0)
 
+    def get_zone_score(self, zone_id: str) -> float:
+        """Return the current per-zone score (Phase 3).
+
+        100.0 when no zone-level finding fired this cycle; otherwise
+        100 - 15 * <count of open zone-level findings for that zone>,
+        bounded at 0. Mirrors ``get_room_score``.
+        """
+        return self._zone_scores.get(zone_id, 100.0)
+
     def get_open_findings_summary(self) -> dict:
         by_sev = {"critical": 0, "high": 0, "medium": 0, "low": 0}
         by_lvl = {"room": 0, "zone": 0, "house": 0}
@@ -1907,3 +2433,105 @@ class OptimizationCoordinator(BaseCoordinator):
             if f.level in by_lvl:
                 by_lvl[f.level] += 1
         return {"by_severity": by_sev, "by_level": by_lvl}
+
+    # ------------------------------------------------------------------
+    # Phase 3 — Daily digest builder
+    # ------------------------------------------------------------------
+
+    def build_daily_digest_payload(
+        self, findings: list[OptimizationFinding] | None = None,
+    ) -> dict:
+        """Build the digest payload from a list of findings (in-memory).
+
+        Returns a dict with:
+          - ``date``: today's local-date ISO string
+          - ``generated_at``: UTC ISO timestamp
+          - ``findings_count``: int (excludes META sentinel)
+          - ``by_severity``: dict[str, int]
+          - ``by_dimension``: dict[str, int]
+          - ``top``: list of up-to-OPTIMIZER_DIGEST_TOP_N abbreviated finding
+            dicts (severity-sorted: critical → high → medium → low)
+          - ``house_score``: float (final scoreboard score for the cycle)
+        """
+        src = findings if findings is not None else list(self._last_findings)
+        by_sev: dict[str, int] = {
+            "critical": 0, "high": 0, "medium": 0, "low": 0,
+        }
+        by_dim: dict[str, int] = {}
+        real: list[OptimizationFinding] = []
+        for f in src:
+            if f.dimension == OptimizationDimension.META:
+                continue
+            if f.severity in by_sev:
+                by_sev[f.severity] += 1
+            dim = str(f.dimension)
+            by_dim[dim] = by_dim.get(dim, 0) + 1
+            real.append(f)
+        sev_rank = {"critical": 0, "high": 1, "medium": 2, "low": 3}
+        real.sort(key=lambda f: sev_rank.get(f.severity, 99))
+        top = []
+        for f in real[:OPTIMIZER_DIGEST_TOP_N]:
+            top.append({
+                "level": f.level,
+                "target_id": f.target_id,
+                "dimension": str(f.dimension),
+                "severity": f.severity,
+                "description": f.description,
+            })
+        now = dt_util.utcnow()
+        return {
+            "date": now.date().isoformat(),
+            "generated_at": now.isoformat(),
+            "findings_count": len(real),
+            "by_severity": by_sev,
+            "by_dimension": by_dim,
+            "top": top,
+            "house_score": float(self._house_score),
+        }
+
+    async def persist_daily_digest(
+        self, findings: list[OptimizationFinding] | None = None,
+    ) -> int | None:
+        """Build + persist a digest row. Returns the new id or None."""
+        database = self.hass.data.get(DOMAIN, {}).get("database")
+        if database is None or not hasattr(database, "log_daily_digest"):
+            return None
+        payload = self.build_daily_digest_payload(findings=findings)
+        try:
+            return await database.log_daily_digest(
+                date=payload["date"],
+                generated_at=payload["generated_at"],
+                findings_count=payload["findings_count"],
+                by_severity=payload["by_severity"],
+                by_dimension=payload["by_dimension"],
+                summary=payload,
+            )
+        except Exception as exc:  # noqa: BLE001
+            _LOGGER.warning("persist_daily_digest failed: %s", exc)
+            return None
+
+    def format_digest_section(
+        self, findings: list[OptimizationFinding] | None = None,
+    ) -> str:
+        """Render a short text section for the NM person digest.
+
+        Lines:
+          ``Optimizer (N findings, house score X):``
+          ``  ! 2x high - <description>``
+        Returns an empty string when there are zero non-META findings, so
+        the NM hook can skip appending entirely on a clean day.
+        """
+        payload = self.build_daily_digest_payload(findings=findings)
+        count = payload["findings_count"]
+        if count == 0:
+            return ""
+        lines = [
+            f"Optimizer ({count} findings, house score "
+            f"{payload['house_score']:.0f}):",
+        ]
+        for entry in payload["top"]:
+            sev = str(entry.get("severity", "")).lower()
+            icon = "!!" if sev in ("critical", "high") else "!"
+            desc = entry.get("description", "")
+            lines.append(f"  {icon} {sev} - {desc}")
+        return "\n".join(lines)

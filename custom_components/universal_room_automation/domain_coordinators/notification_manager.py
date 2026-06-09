@@ -2046,10 +2046,22 @@ class NotificationManager:
             return
 
         pending = await database.get_pending_digest(person_id)
-        if not pending:
+        # v4.7.36 Phase 3 — optimizer digest section. The optimizer's
+        # contribution renders independently of NM-pending items so even
+        # a clean NM day can carry an "Optimizer (N findings)" section.
+        opt_section = self._build_optimizer_digest_section()
+        if not pending and not opt_section:
             return
 
-        digest_message = self._format_digest(pending)
+        digest_message = self._format_digest(pending) if pending else ""
+        if opt_section:
+            if digest_message:
+                digest_message = digest_message.rstrip() + "\n\n" + opt_section
+            else:
+                today = dt_util.now().strftime("%B %d, %Y")
+                digest_message = (
+                    f"URA Daily Summary ({today})\n\n{opt_section}"
+                )
 
         # Send via lowest-severity qualifying channel
         sent = False
@@ -2081,6 +2093,44 @@ class NotificationManager:
         if sent:
             await database.mark_digest_delivered(person_id)
             _LOGGER.info("Digest delivered to %s (%d items)", person_id, len(pending))
+
+    def _build_optimizer_digest_section(self) -> str:
+        """Render the optimizer's section for the NM person digest.
+
+        v4.7.36 Phase 3 hook: reuses the morning/evening NM digest cadence
+        rather than introducing a parallel scheduler. The optimizer also
+        persists a digest row via ``persist_daily_digest`` on each fire so
+        the section is durably available for review later.
+
+        Returns an empty string on any failure / no findings.
+        """
+        try:
+            domain_data = self.hass.data.get(DOMAIN, {}) or {}
+            cm = domain_data.get("coordinator_manager")
+            if cm is None:
+                return ""
+            coords = getattr(cm, "coordinators", None) or {}
+            opt = coords.get("optimization")
+            if opt is None:
+                return ""
+            # Persist the digest row best-effort. Errors are swallowed by
+            # ``persist_daily_digest``; we still render the section either way.
+            try:
+                # Fire-and-forget — NM is already inside an async context.
+                import asyncio as _asyncio
+                _asyncio.create_task(opt.persist_daily_digest())
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "optimizer.persist_daily_digest schedule failed",
+                    exc_info=True,
+                )
+            section = opt.format_digest_section()
+            return section or ""
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "optimizer digest section build failed", exc_info=True,
+            )
+            return ""
 
     def _format_digest(self, items: list[dict]) -> str:
         """Format pending digest items into a readable summary."""
