@@ -673,6 +673,12 @@ class EnergyTodaySensor(UniversalRoomEntity, SensorEntity):
         """Initialize the sensor."""
         super().__init__(coordinator, "energy_today", "Energy Today")
         self._last_valid_value: float | None = None
+        # Fix-up pass C-H1: track the local-date of the most recently
+        # accepted value so day-reset detection is DATE-based instead of
+        # the magnitude heuristic ``current < 0.1`` (which mis-fires for
+        # low-draw rooms that sit <0.1 kWh for hours after the helper
+        # normalization landed → recorder churn + decrease leaks).
+        self._last_accepted_date = None
 
     @property
     def native_value(self) -> float | None:
@@ -687,21 +693,34 @@ class EnergyTodaySensor(UniversalRoomEntity, SensorEntity):
         if current is not None:
             current = round(current, 4)
 
-        # Handle reset (new day, very small value)
-        if current is not None and current < 0.1:
+        if current is None:
+            return current
+
+        # Fix-up pass C-H1: DATE-based day-reset acceptance. A decrease is
+        # accepted only when the local date has changed since the last
+        # accepted value (genuine midnight rollover); otherwise the
+        # monotonic-increasing invariant rejects it and returns the
+        # last known good value.
+        from homeassistant.util import dt as dt_util
+        today = dt_util.now().date()
+        if self._last_accepted_date is None:
+            # First observation this lifetime.
+            self._last_accepted_date = today
             self._last_valid_value = current
             return current
 
-        # Enforce monotonic increasing - reject decreases
-        if current is not None and self._last_valid_value is not None:
-            if current < self._last_valid_value:
-                # Value decreased - return last known good value
-                return self._last_valid_value
+        if self._last_valid_value is not None and current < self._last_valid_value:
+            if self._last_accepted_date != today:
+                # Genuine new day — accept the decrease (counter reset).
+                self._last_accepted_date = today
+                self._last_valid_value = current
+                return current
+            # Same-day decrease — reject (recorder-stat churn fix).
+            return self._last_valid_value
 
-        # Valid value - update and return
-        if current is not None:
-            self._last_valid_value = current
-
+        # Monotonic or first-of-day accept path.
+        self._last_accepted_date = today
+        self._last_valid_value = current
         return current
 
     @property
@@ -736,8 +755,19 @@ class EnergyCostTodaySensor(UniversalRoomEntity, SensorEntity):
 
     @property
     def native_value(self) -> float | None:
-        """Return energy cost today."""
-        energy = self.coordinator.data.get(STATE_ENERGY_TODAY, 0) if self.coordinator.data else 0
+        """Return energy cost today.
+
+        Fix-up pass C1/A-H2: D4 may set STATE_ENERGY_TODAY=None (key
+        present, value None) when all configured room energy sensors are
+        unavailable. Returning ``None`` here surfaces "unknown cost" to
+        downstream consumers (consistent with D4 semantics) instead of
+        round(None * rate) → TypeError.
+        """
+        if not self.coordinator.data:
+            return None
+        energy = self.coordinator.data.get(STATE_ENERGY_TODAY)
+        if energy is None:
+            return None
         # v4.6.8: Use TOU-aware rate via helper (EC first, room override, global, default).
         rate, _source = _get_effective_rate_kwh(
             self.coordinator.hass, room_entry=self.coordinator.entry

@@ -131,6 +131,88 @@ def test_energy_today_sensor_attribute_defaults_false_when_attr_missing():
 
 
 # ---------------------------------------------------------------------------
+# Behavioral test (fix-up pass C-M3): drive the production read path
+# against a stubbed coordinator instance with mock hass states.
+# ---------------------------------------------------------------------------
+
+
+class _FakeState:
+    def __init__(self, state, uom="kWh"):
+        self.state = state
+        self.attributes = {"unit_of_measurement": uom}
+
+
+class _FakeStates:
+    def __init__(self, mapping):
+        self._mapping = mapping
+
+    def get(self, eid):
+        return self._mapping.get(eid)
+
+
+def _import_units():
+    """Load _units.py for the helper without HA."""
+    import importlib.util
+    path = os.path.join(
+        _REPO, "custom_components", "universal_room_automation",
+        "domain_coordinators", "_units.py",
+    )
+    spec = importlib.util.spec_from_file_location("_ura_units_dead", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_dead_branch_logic_against_units_helper():
+    """Mirror the coordinator's all-dead detection logic with the real helper.
+
+    The coordinator counts a sensor as dead when ``energy_state_to_kwh``
+    returns None. Drive that helper directly with the canonical
+    unavailable / unknown / parseable states and assert the dead-count
+    arithmetic the coordinator uses.
+    """
+    units = _import_units()
+    sensors = ["sensor.a", "sensor.b", "sensor.c"]
+    states_all_dead = _FakeStates({
+        "sensor.a": _FakeState("unavailable"),
+        "sensor.b": _FakeState("unknown"),
+        "sensor.c": _FakeState("None"),
+    })
+    dead = sum(
+        1 for sid in sensors
+        if units.energy_state_to_kwh(states_all_dead.get(sid)) is None
+    )
+    assert dead == len(sensors), "all-dead state must zero out kwh reads"
+
+    states_partial = _FakeStates({
+        "sensor.a": _FakeState("unavailable"),
+        "sensor.b": _FakeState("2.5", "kWh"),
+        "sensor.c": _FakeState("1000.0", "Wh"),
+    })
+    dead = sum(
+        1 for sid in sensors
+        if units.energy_state_to_kwh(states_partial.get(sid)) is None
+    )
+    assert dead == 1
+    # The two live readings must normalize to kWh equivalently.
+    kwhs = [
+        units.energy_state_to_kwh(states_partial.get(sid))
+        for sid in sensors
+        if units.energy_state_to_kwh(states_partial.get(sid)) is not None
+    ]
+    assert kwhs == [2.5, 1.0]
+
+
+def test_recovery_path_sensor_becomes_available():
+    """After a dead cycle, an available read must produce a valid kWh."""
+    units = _import_units()
+    # Dead first.
+    assert units.energy_state_to_kwh(_FakeState("unavailable")) is None
+    # Live after recovery.
+    assert units.energy_state_to_kwh(_FakeState("3.0", "kWh")) == 3.0
+
+
+# ---------------------------------------------------------------------------
 # Downstream consumer None-safety audit
 # ---------------------------------------------------------------------------
 

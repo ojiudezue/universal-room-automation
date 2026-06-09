@@ -76,10 +76,39 @@ _RATING_INCOMPLETE = _agg.COVERAGE_RATING_INCOMPLETE
 # ---------------------------------------------------------------------------
 
 @pytest.mark.parametrize("value", [
-    -0.1, -100.0, -1e10, -24558907924.0,
+    -100.0, -1e10, -24558907924.0,
 ])
 def test_negative_returns_anomalous(value):
+    """Clearly out-of-bounds negatives → ANOMALOUS.
+
+    Fix-up pass C-M2: small negatives in [-2, 0) are now treated as
+    timing skew (EXCELLENT), see ``test_small_negative_epsilon_band``.
+    """
     assert _rating(value) == _RATING_ANOMALOUS
+
+
+@pytest.mark.parametrize("value", [
+    -0.1, -1.0, -1.99,
+])
+def test_small_negative_epsilon_band(value):
+    """C-M2: delta_percent in [-2, 0) is timing skew, treated as 0."""
+    assert _rating(value) == _RATING_EXCELLENT
+
+
+def test_negative_below_epsilon_band_is_anomalous():
+    """Boundary: -2.01% is just below the epsilon band → ANOMALOUS."""
+    assert _rating(-2.01) == _RATING_ANOMALOUS
+    # The boundary -2.0 exactly is inside [-2, 0) so still EXCELLENT.
+    assert _rating(-2.0) == _RATING_EXCELLENT
+
+
+def test_post_restart_window_negative_is_incomplete():
+    """B-H4: post_restart_window=True swaps negative-delta path to INCOMPLETE."""
+    assert _rating(-50.0, post_restart_window=True) == _RATING_INCOMPLETE
+    # Without the kwarg, still ANOMALOUS.
+    assert _rating(-50.0) == _RATING_ANOMALOUS
+    # Bounds-clearly-out path (>100) is ANOMALOUS regardless of window.
+    assert _rating(1e6, post_restart_window=True) == _RATING_ANOMALOUS
 
 
 def test_none_returns_anomalous():

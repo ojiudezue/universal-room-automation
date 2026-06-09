@@ -76,21 +76,32 @@ def today_delta_kwh(
     ``EnergyCoverageDeltaSensor._today_delta_kwh`` so it is testable
     without HA installed. The class method delegates here.
 
-    ``tracker`` is mutated in place: ``tracker[sensor_id]`` becomes
-    ``{"baseline_kwh": float, "anchor_date": today}``. First observation
-    and date rollovers re-anchor and return 0.0. Negative deltas (counter
-    reset / sensor swap) also re-anchor (returns 0.0). Subsequent
-    same-date reads return ``current_kwh - baseline_kwh``.
+    ``tracker`` is MUTATED in place: ``tracker[sensor_id]["baseline_kwh"]``
+    and ``["anchor_date"]`` are updated; **any other keys (e.g. ``scope``
+    placed by ``_get_whole_house_energy``) are preserved**. Fix-up pass
+    A-C1/C2: the prior implementation REPLACED the dict on date rollover,
+    dropping the ``scope`` key and KeyError-ing the caller after first
+    midnight rollover.
+
+    First observation and date rollovers re-anchor and return 0.0. Negative
+    deltas (counter reset / sensor swap) also re-anchor (returns 0.0).
+    Subsequent same-date reads return ``current_kwh - baseline_kwh``.
     """
     entry = tracker.get(sensor_id)
-    if entry is None or entry.get("anchor_date") != today:
+    if entry is None:
+        # First observation — create a fresh entry. No prior keys to preserve.
         tracker[sensor_id] = {
             "baseline_kwh": current_kwh,
             "anchor_date": today,
         }
         return 0.0
+    if entry.get("anchor_date") != today:
+        # Date rollover — MUTATE in place to preserve unknown keys (scope, etc.).
+        entry["baseline_kwh"] = current_kwh
+        entry["anchor_date"] = today
+        return 0.0
     delta = current_kwh - entry["baseline_kwh"]
     if delta < 0:
-        tracker[sensor_id]["baseline_kwh"] = current_kwh
+        entry["baseline_kwh"] = current_kwh
         return 0.0
     return delta

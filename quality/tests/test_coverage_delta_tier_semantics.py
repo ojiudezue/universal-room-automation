@@ -88,6 +88,45 @@ def test_multiple_sensors_independent():
 
 
 # ---------------------------------------------------------------------------
+# Regression: today_delta_kwh MUST preserve unknown keys on date rollover
+# (fix-up pass A-C1/C2 — the prior implementation replaced the dict and
+# dropped `scope`, KeyError-ing the whole-house caller after midnight).
+# ---------------------------------------------------------------------------
+
+def test_date_rollover_preserves_unknown_keys():
+    """A caller (whole-house tier) places extra keys like `scope` on the
+    tracker entry. ``today_delta_kwh`` must MUTATE the existing entry on
+    date rollover, preserving those keys — not replace the dict.
+    """
+    tracker = {
+        "s1": {
+            "baseline_kwh": 100.0,
+            "anchor_date": "2026-06-09",
+            "scope": "today_derived",
+        },
+    }
+    _u.today_delta_kwh(tracker, "s1", 105.0, "2026-06-10")
+    assert tracker["s1"]["baseline_kwh"] == 105.0
+    assert tracker["s1"]["anchor_date"] == "2026-06-10"
+    # The unknown `scope` key MUST survive the rollover.
+    assert tracker["s1"]["scope"] == "today_derived"
+
+
+def test_negative_delta_re_anchor_preserves_unknown_keys():
+    """Counter-reset path also mutates in place (preserves scope etc.)."""
+    tracker = {
+        "s1": {
+            "baseline_kwh": 100.0,
+            "anchor_date": "2026-06-09",
+            "scope": "today_derived",
+        },
+    }
+    _u.today_delta_kwh(tracker, "s1", 5.0, "2026-06-09")
+    assert tracker["s1"]["baseline_kwh"] == 5.0
+    assert tracker["s1"]["scope"] == "today_derived"
+
+
+# ---------------------------------------------------------------------------
 # Source-level verification that EnergyCoverageDeltaSensor uses the helper
 # (drives production code path — would fail if a future refactor diverged).
 # ---------------------------------------------------------------------------
