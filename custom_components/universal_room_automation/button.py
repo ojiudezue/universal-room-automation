@@ -1,6 +1,6 @@
 """Button platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.3.2
+# Universal Room Automation vv5.3.3
 # Build: 2026-01-04
 # File: button.py
 #
@@ -55,6 +55,14 @@ async def async_setup_entry(
             # Lives on the HVAC Coordinator device (slot 51, tail of the
             # 47-50 presence-timer cluster).
             ResetPresenceTimersButton(hass, entry),
+            # Pillar B (Phase 5) D4: four buttons on the URA: Optimization
+            # Coordinator device. Confirm / Cancel form the confirm-guard
+            # pair around an L2+ escalation; Reset strips optimizer
+            # CONF_* keys; Run Cycle Now triggers an out-of-band cycle.
+            OptimizerConfirmEscalationButton(hass, entry),
+            OptimizerCancelEscalationButton(hass, entry),
+            OptimizerResetSettingsButton(hass, entry),
+            OptimizerRunCycleNowButton(hass, entry),
         ]
         # v4.5.11: 3 buttons per AC zone (force_nudge / cancel_nudge /
         # clear_lockout). Discovers zones from Zone Manager entries — same
@@ -1457,3 +1465,364 @@ class EVSEForceChargeButton(ButtonEntity):
                 "EVSEForceChargeButton: NM notification failed (non-fatal)",
                 exc_info=True,
             )
+
+
+# ============================================================================
+# Pillar B (Phase 5) D4: Optimization Coordinator admin buttons
+# ============================================================================
+#
+# Four button entities on the URA: Optimization Coordinator device. None
+# touch the DB directly — every action mutates `entry.options` via
+# `async_update_entry` (the Pillar B suppress-allowlist keeps this from
+# triggering a CM reload) or calls a coordinator runtime method.
+#
+# Pattern: modeled on `ResetPresenceTimersButton` (button.py:593) for the
+# options-strip flow; on `EVSEForceChargeButton` (button.py:1308) for the
+# coordinator-fetch + signal-driven availability flow.
+
+
+_OPT_COORD_DEVICE_NAME = "URA: Optimization Coordinator"
+_OPT_COORD_IDENT = "optimization_coordinator"
+
+
+def _optimizer_device_info_button():
+    """Return the OC device_info for button entities."""
+    from homeassistant.helpers.device_registry import DeviceInfo
+    from .const import VERSION
+    return DeviceInfo(
+        identifiers={(DOMAIN, _OPT_COORD_IDENT)},
+        name=_OPT_COORD_DEVICE_NAME,
+        manufacturer="Universal Room Automation",
+        model="Optimization Coordinator",
+        sw_version=VERSION,
+        via_device=(DOMAIN, "coordinator_manager"),
+    )
+
+
+def _refresh_autonomy_select(hass: HomeAssistant) -> None:
+    """Find the OptimizerAutonomyLevelSelect (if loaded) and refresh state.
+
+    The select entity reads pending/committed values from entry.options.
+    After mutating those keys we push a live state refresh so the UI
+    reflects the commit/cancel WITHOUT waiting for a CM reload.
+    Bug Class #14 (config staleness) — read-only sweep over hass.data.
+    """
+    try:
+        from .select import OptimizerAutonomyLevelSelect  # local import: avoid cycle
+    except Exception:  # noqa: BLE001
+        return
+    # Walk the integration's known platform registries via the entity
+    # registry is heavy; the simpler portable approach is to dispatch a
+    # signal the select listens to. The select also re-derives on next
+    # config-entry update — so this is best-effort. Use the public
+    # `hass.data[DOMAIN]['optimizer_autonomy_select']` slot if populated.
+    sel = hass.data.get(DOMAIN, {}).get("optimizer_autonomy_select")
+    if sel is None or not isinstance(sel, OptimizerAutonomyLevelSelect):
+        return
+    try:
+        sel._refresh_from_options()
+    except Exception:  # noqa: BLE001
+        _LOGGER.debug("Optimizer autonomy select refresh failed", exc_info=True)
+
+
+class _OptimizerCMButtonBase(ButtonEntity):
+    """Common base for the four OC buttons."""
+
+    _attr_has_entity_name = True
+    _attr_entity_category = EntityCategory.CONFIG
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
+        self.hass = hass
+        self._entry = entry
+        self._attr_device_info = _optimizer_device_info_button()
+
+    def _get_optimizer(self):
+        manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
+        if manager is None:
+            return None
+        try:
+            return manager.coordinators.get("optimization")
+        except Exception:  # noqa: BLE001
+            return None
+
+
+class OptimizerConfirmEscalationButton(_OptimizerCMButtonBase):
+    """Commit a staged `optimizer_pending_autonomy_level` to the real key.
+
+    Entity: button.ura_optimizer_confirm_escalation
+    Device: URA: Optimization Coordinator
+
+    Behaviour:
+      - Reads ``optimizer_pending_autonomy_level`` from CM entry.options.
+      - Writes it onto ``optimizer_autonomy_level`` AND strips the pending
+        key in the same `async_update_entry` call (one CM diff event).
+      - No-op when no pending key exists.
+    """
+
+    _attr_icon = "mdi:check-bold"
+    _attr_translation_key = "optimizer_confirm_escalation"
+
+    def __init__(self, hass, entry):
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_optimizer_confirm_escalation"
+        self._attr_name = "Confirm Escalation"
+
+    @property
+    def available(self) -> bool:
+        from .const import CONF_OPTIMIZER_PENDING_AUTONOMY_LEVEL
+        opts = self._entry.options or {}
+        return CONF_OPTIMIZER_PENDING_AUTONOMY_LEVEL in opts and bool(
+            opts.get(CONF_OPTIMIZER_PENDING_AUTONOMY_LEVEL)
+        )
+
+    async def async_press(self) -> None:
+        from .const import (
+            CONF_OPTIMIZER_AUTONOMY_LEVEL,
+            CONF_OPTIMIZER_PENDING_AUTONOMY_LEVEL,
+            OPTIMIZER_AUTONOMY_LEVELS,
+        )
+        opts = dict(self._entry.options or {})
+        pending = opts.get(CONF_OPTIMIZER_PENDING_AUTONOMY_LEVEL)
+        if pending is None:
+            _LOGGER.debug(
+                "OptimizerConfirmEscalation: no pending escalation, no-op",
+            )
+            return
+        if pending not in OPTIMIZER_AUTONOMY_LEVELS:
+            # Pillar B fix-up A-M6: an invalid / garbage pending value
+            # (manual config edit, schema drift) self-heals by stripping
+            # the bad key + WARNing. Old behaviour was a silent no-op
+            # that left Confirm permanently "lit" with nothing to commit.
+            _LOGGER.warning(
+                "OptimizerConfirmEscalation: invalid pending value %r — "
+                "stripping (self-heal)",
+                pending,
+            )
+            opts.pop(CONF_OPTIMIZER_PENDING_AUTONOMY_LEVEL, None)
+            try:
+                self.hass.config_entries.async_update_entry(
+                    self._entry, options=opts,
+                )
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "OptimizerConfirmEscalation: self-heal write failed",
+                    exc_info=True,
+                )
+            _refresh_autonomy_select(self.hass)
+            return
+        # Atomic commit + strip in a single options update.
+        opts[CONF_OPTIMIZER_AUTONOMY_LEVEL] = pending
+        opts.pop(CONF_OPTIMIZER_PENDING_AUTONOMY_LEVEL, None)
+        try:
+            self.hass.config_entries.async_update_entry(
+                self._entry, options=opts,
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "OptimizerConfirmEscalation: options write failed",
+                exc_info=True,
+            )
+            return
+        _LOGGER.info(
+            "Optimizer autonomy escalation CONFIRMED → %s", pending,
+        )
+        _refresh_autonomy_select(self.hass)
+
+
+class OptimizerCancelEscalationButton(_OptimizerCMButtonBase):
+    """Strip the staged pending key without committing.
+
+    Entity: button.ura_optimizer_cancel_escalation
+    Device: URA: Optimization Coordinator
+    """
+
+    _attr_icon = "mdi:close-circle-outline"
+    _attr_translation_key = "optimizer_cancel_escalation"
+
+    def __init__(self, hass, entry):
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_optimizer_cancel_escalation"
+        self._attr_name = "Cancel Escalation"
+
+    @property
+    def available(self) -> bool:
+        from .const import CONF_OPTIMIZER_PENDING_AUTONOMY_LEVEL
+        opts = self._entry.options or {}
+        return CONF_OPTIMIZER_PENDING_AUTONOMY_LEVEL in opts and bool(
+            opts.get(CONF_OPTIMIZER_PENDING_AUTONOMY_LEVEL)
+        )
+
+    async def async_press(self) -> None:
+        from .const import CONF_OPTIMIZER_PENDING_AUTONOMY_LEVEL
+        opts = dict(self._entry.options or {})
+        if CONF_OPTIMIZER_PENDING_AUTONOMY_LEVEL not in opts:
+            return
+        opts.pop(CONF_OPTIMIZER_PENDING_AUTONOMY_LEVEL, None)
+        try:
+            self.hass.config_entries.async_update_entry(
+                self._entry, options=opts,
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "OptimizerCancelEscalation: options write failed",
+                exc_info=True,
+            )
+            return
+        _LOGGER.info("Optimizer autonomy escalation CANCELLED")
+        _refresh_autonomy_select(self.hass)
+
+
+# Optimizer CONF_* keys this button strips (everything except the kill
+# switch — preserving the kill switch on accidental Reset is the safety
+# contract; engaging Kill should be sticky until the operator releases it).
+# Pillar B fix-up A-L10: use the CONF_* constants instead of string
+# literals so a future rename of a CONF token surfaces here at import
+# time rather than as a silent miss in the reset sweep.
+def _build_optimizer_reset_keys() -> tuple[str, ...]:
+    from .const import (
+        CONF_OPTIMIZER_AUTONOMY_LEVEL,
+        CONF_OPTIMIZER_PENDING_AUTONOMY_LEVEL,
+        CONF_OPTIMIZER_DIMENSION_AUTONOMY,
+        CONF_OPTIMIZER_CONFIDENCE_GATE,
+        CONF_OPTIMIZER_RATE_CAP_PER_HOUR,
+        CONF_OPTIMIZER_QUIET_HOURS_SOURCE,
+        CONF_OPTIMIZER_LLM_TASK_ENTITY,
+        CONF_OPTIMIZER_LLM_TRIAGE_ENTITY,
+        CONF_OPTIMIZER_LLM_SYSTEM_PROMPT,
+        CONF_OPTIMIZER_LLM_MAX_INVOCATIONS_PER_24H,
+        CONF_OPTIMIZER_SAFETY_DENY_ENTITIES,
+    )
+    return (
+        CONF_OPTIMIZER_AUTONOMY_LEVEL,
+        CONF_OPTIMIZER_PENDING_AUTONOMY_LEVEL,
+        CONF_OPTIMIZER_DIMENSION_AUTONOMY,
+        CONF_OPTIMIZER_CONFIDENCE_GATE,
+        CONF_OPTIMIZER_RATE_CAP_PER_HOUR,
+        CONF_OPTIMIZER_QUIET_HOURS_SOURCE,
+        CONF_OPTIMIZER_LLM_TASK_ENTITY,
+        CONF_OPTIMIZER_LLM_TRIAGE_ENTITY,
+        CONF_OPTIMIZER_LLM_SYSTEM_PROMPT,
+        CONF_OPTIMIZER_LLM_MAX_INVOCATIONS_PER_24H,
+        CONF_OPTIMIZER_SAFETY_DENY_ENTITIES,
+    )
+
+
+_OPTIMIZER_RESET_KEYS: tuple[str, ...] = _build_optimizer_reset_keys()
+
+
+class OptimizerResetSettingsButton(_OptimizerCMButtonBase):
+    """Strip all optimizer CONF_* keys from entry.options (preserves kill switch).
+
+    Entity: button.ura_optimizer_reset_settings
+    Device: URA: Optimization Coordinator
+
+    Preserves ``optimizer_kill_switch`` so an accidental tap can't release
+    a tripped kill (operator must explicitly turn the kill switch OFF).
+    """
+
+    _attr_icon = "mdi:backup-restore"
+    _attr_translation_key = "optimizer_reset_settings"
+
+    def __init__(self, hass, entry):
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_optimizer_reset_settings"
+        self._attr_name = "Reset Optimizer Settings"
+
+    async def async_press(self) -> None:
+        opts = dict(self._entry.options or {})
+        removed = []
+        for key in _OPTIMIZER_RESET_KEYS:
+            if key in opts:
+                opts.pop(key, None)
+                removed.append(key)
+        if not removed:
+            _LOGGER.info("Optimizer Reset: no optimizer keys to strip")
+            return
+        try:
+            self.hass.config_entries.async_update_entry(
+                self._entry, options=opts,
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "OptimizerResetSettings: options write failed",
+                exc_info=True,
+            )
+            return
+        _LOGGER.info(
+            "Optimizer settings reset to defaults; stripped %d keys "
+            "(kill switch preserved)",
+            len(removed),
+        )
+        _refresh_autonomy_select(self.hass)
+
+
+class OptimizerRunCycleNowButton(_OptimizerCMButtonBase):
+    """Trigger an out-of-band optimizer cycle.
+
+    Entity: button.ura_optimizer_run_cycle_now
+    Device: URA: Optimization Coordinator
+
+    Calls ``coord.run_cycle()`` directly. The Optimization Coordinator is
+    NOT a DataUpdateCoordinator (it runs via a 5-min interval that calls
+    ``run_cycle()`` at optimization.py:658); there is no
+    ``async_request_refresh`` method. The reentrancy guard inside
+    ``run_cycle`` itself protects manual-press-vs-interval (and tick-vs-tick)
+    overlap. Debounced to one press per 30s. Unavailable when kill switch
+    is ON (the cycle would be a no-op).
+    """
+
+    _attr_icon = "mdi:refresh"
+    _attr_translation_key = "optimizer_run_cycle_now"
+    _DEBOUNCE_SECONDS = 30.0
+
+    def __init__(self, hass, entry):
+        super().__init__(hass, entry)
+        self._attr_unique_id = f"{DOMAIN}_optimizer_run_cycle_now"
+        self._attr_name = "Run Cycle Now"
+        # None sentinel, NOT 0.0: monotonic() can start near zero (process
+        # start on some builds; time-since-boot on HA OS right after a host
+        # reboot), and a 0.0 sentinel would swallow the FIRST press for
+        # _DEBOUNCE_SECONDS in that window.
+        self._last_press: float | None = None
+
+    @property
+    def available(self) -> bool:
+        from .const import CONF_OPTIMIZER_KILL_SWITCH
+        if self._get_optimizer() is None:
+            return False
+        opts = self._entry.options or {}
+        return not bool(opts.get(CONF_OPTIMIZER_KILL_SWITCH, False))
+
+    async def async_press(self) -> None:
+        import time as _time
+        now = _time.monotonic()
+        if (
+            self._last_press is not None
+            and now - self._last_press < self._DEBOUNCE_SECONDS
+        ):
+            _LOGGER.info(
+                "OptimizerRunCycleNow: debounced (last press %.1fs ago, "
+                "min interval %.1fs)",
+                now - self._last_press, self._DEBOUNCE_SECONDS,
+            )
+            return
+        self._last_press = now
+        coord = self._get_optimizer()
+        if coord is None:
+            _LOGGER.debug(
+                "OptimizerRunCycleNow: no optimization coordinator loaded",
+            )
+            return
+        try:
+            # OptimizationCoordinator is not a DataUpdateCoordinator —
+            # call the public ``run_cycle`` entry point directly. The
+            # reentrancy guard inside run_cycle handles
+            # manual-press-vs-interval overlap.
+            await coord.run_cycle()
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "OptimizerRunCycleNow: run_cycle raised",
+                exc_info=True,
+            )
+            return
+        _LOGGER.info("Optimizer cycle requested manually via Run Cycle Now")

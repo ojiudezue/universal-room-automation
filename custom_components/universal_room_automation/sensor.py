@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.3.2
+# Universal Room Automation vv5.3.3
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -13623,24 +13623,166 @@ class OptimizerStatusSensor(_OptimizerCMSensorBase):
         from .const import (
             DEFAULT_OPTIMIZER_AUTONOMY_LEVEL,
             CONF_OPTIMIZER_AUTONOMY_LEVEL,
+            CONF_OPTIMIZER_DIMENSION_AUTONOMY,
+            CONF_OPTIMIZER_PENDING_AUTONOMY_LEVEL,
+            SCAN_INTERVAL_OPTIMIZATION,
         )
         try:
             cfg = coord._read_cm_config()
         except Exception:
             cfg = {}
+        last_findings = list(getattr(coord, "_last_findings", []) or [])
+        # Pillar B D5 fix: split window vs last-cycle so dashboards
+        # consume the same authoritative count regardless of cycle phase.
+        last_cycle_findings_count = len(last_findings)
+        window_findings_count = getattr(coord, "_open_findings_count", 0)
+        window_house_score = getattr(coord, "_house_score", 100.0)
+        # next_cycle_eta_seconds — seconds until next 5-min cycle tick,
+        # derived from the last-evaluation ISO. Never negative.
+        next_eta: int | None = None
+        try:
+            last_iso = getattr(coord, "_last_evaluation_iso", None)
+            if last_iso:
+                from datetime import datetime as _dt
+                last_dt = _dt.fromisoformat(str(last_iso))
+                from homeassistant.util import dt as _dt_util
+                now_dt = _dt_util.utcnow()
+                if last_dt.tzinfo is None and now_dt.tzinfo is not None:
+                    last_dt = last_dt.replace(tzinfo=now_dt.tzinfo)
+                elapsed = (now_dt - last_dt).total_seconds()
+                interval = SCAN_INTERVAL_OPTIMIZATION.total_seconds()
+                next_eta = max(0, int(interval - elapsed))
+        except Exception:
+            next_eta = None
+        # last_action — reverse-scan _last_findings for the most recent
+        # outcome=="applied" entry; empty dict at L1 / shadow.
+        last_action: dict = {}
+        try:
+            for f in reversed(last_findings):
+                if getattr(f, "applied_outcome", None) == "applied":
+                    target_entity = None
+                    if isinstance(f.proposed_action, dict):
+                        target_entity = (
+                            f.proposed_action.get("target_entity")
+                            or f.proposed_action.get("entity_id")
+                        )
+                    last_action = {
+                        "action_id": getattr(f, "applied_action_id", None),
+                        "target_entity": target_entity,
+                        "dimension": str(f.dimension),
+                        "dispatched_at_iso": f.timestamp,
+                    }
+                    break
+        except Exception:
+            last_action = {}
+        # llm_invocations_today — Pillar B fix-up A-M8: filter the
+        # ``_premium_invocations`` list to the trailing-24h window at
+        # READ time. The list contains UTC datetimes (verified in
+        # optimization_llm.py:229; appended at :346) which are evicted
+        # lazily on the next ``_premium_cycle_ok`` check — so reading
+        # ``len(inv)`` directly can overcount briefly between cycles.
+        # NB: This is a deliberate private-attr coupling. The LLM tier
+        # owns the list; the sensor is a read-only display surface.
+        llm_invocations_today = 0
+        try:
+            tier = getattr(coord, "_llm_tier", None)
+            if tier is not None:
+                inv = getattr(tier, "_premium_invocations", None)
+                if inv is not None:
+                    from homeassistant.util import dt as _dt_util_llm
+                    from datetime import timedelta as _td_llm
+                    cutoff_llm = _dt_util_llm.utcnow() - _td_llm(hours=24)
+                    count = 0
+                    for ts in inv:
+                        try:
+                            ts_cmp = ts
+                            if (
+                                cutoff_llm.tzinfo is None
+                                and getattr(ts_cmp, "tzinfo", None) is not None
+                            ):
+                                ts_cmp = ts_cmp.replace(tzinfo=None)
+                            elif (
+                                cutoff_llm.tzinfo is not None
+                                and getattr(ts_cmp, "tzinfo", None) is None
+                            ):
+                                ts_cmp = ts_cmp.replace(tzinfo=cutoff_llm.tzinfo)
+                            if ts_cmp >= cutoff_llm:
+                                count += 1
+                        except Exception:  # noqa: BLE001
+                            # Non-datetime entries (legacy / test stubs):
+                            # count them so opaque payloads don't silently
+                            # drop. Keeps the attr conservative.
+                            count += 1
+                    llm_invocations_today = count
+        except Exception:
+            llm_invocations_today = 0
+        # Pillar B fix-up A-M7 / B-L2: surface BOTH the raw per-dimension
+        # caps (`dimension_autonomy_caps`) AND the merged effective
+        # per-dim level (`effective_level_per_dim`). Merge rule:
+        # min(rank(committed_level), rank(per_dim_cap)) mapped back to
+        # the level token. This matches the attr name and the plan —
+        # the old impl just echoed the caps which lied about what level
+        # the dimension would actually run at when caps > committed.
+        dimension_autonomy_caps: dict[str, str] = {}
+        effective_level_per_dim: dict[str, str] = {}
+        try:
+            from .const import (
+                OPTIMIZER_LEVEL_RANK as _LVL_RANK,
+                OPTIMIZER_AUTONOMY_LEVELS as _LVLS,
+            )
+            dim_caps = cfg.get(CONF_OPTIMIZER_DIMENSION_AUTONOMY) or {}
+            if isinstance(dim_caps, dict):
+                dimension_autonomy_caps = {
+                    str(k): str(v) for k, v in dim_caps.items()
+                }
+                committed_level = cfg.get(
+                    CONF_OPTIMIZER_AUTONOMY_LEVEL,
+                    DEFAULT_OPTIMIZER_AUTONOMY_LEVEL,
+                )
+                committed_rank = _LVL_RANK.get(committed_level, 0)
+                # Build reverse map rank → token for the merge result.
+                rank_to_level = {
+                    _LVL_RANK.get(lvl, 0): lvl for lvl in _LVLS
+                }
+                for dim, cap_lvl in dimension_autonomy_caps.items():
+                    cap_rank = _LVL_RANK.get(cap_lvl, committed_rank)
+                    merged_rank = min(committed_rank, cap_rank)
+                    effective_level_per_dim[dim] = rank_to_level.get(
+                        merged_rank, committed_level,
+                    )
+        except Exception:
+            dimension_autonomy_caps = {}
+            effective_level_per_dim = {}
         return {
             "autonomy_level": cfg.get(
                 CONF_OPTIMIZER_AUTONOMY_LEVEL, DEFAULT_OPTIMIZER_AUTONOMY_LEVEL,
             ),
+            "pending_autonomy_level": cfg.get(
+                CONF_OPTIMIZER_PENDING_AUTONOMY_LEVEL,
+            ),
             "effective_level": getattr(coord, "effective_level",
                                        DEFAULT_OPTIMIZER_AUTONOMY_LEVEL),
+            "effective_level_per_dim": effective_level_per_dim,
+            "dimension_autonomy_caps": dimension_autonomy_caps,
             "mode": getattr(coord, "effective_level",
                             DEFAULT_OPTIMIZER_AUTONOMY_LEVEL),
-            "house_score": coord._house_score,
-            "open_findings_count": coord._open_findings_count,
-            "last_evaluation": coord._last_evaluation_iso,
+            # Latest cycle (authoritative for "is the optimizer happy
+            # RIGHT NOW") — fixes the v5.x cosmetic disagreement with
+            # the findings sensor.
+            "last_cycle_findings_count": last_cycle_findings_count,
+            "last_cycle_finished_at": getattr(
+                coord, "_last_evaluation_iso", None,
+            ),
+            # Rolling window (kept for trend dashboards).
+            "window_findings_count": window_findings_count,
+            "window_house_score": window_house_score,
+            "house_score": window_house_score,  # back-compat alias
+            "last_evaluation": getattr(coord, "_last_evaluation_iso", None),
+            "next_cycle_eta_seconds": next_eta,
+            "last_action": last_action,
             "rate_cap_window_count": coord._rate_cap_window_count(),
             "quiet_hours_active": coord._is_quiet_hours_active(),
+            "llm_invocations_today": llm_invocations_today,
         }
 
 
@@ -13683,10 +13825,26 @@ class OptimizerFindingsSensor(_OptimizerCMSensorBase):
             for f in recent
         ]
         summary = coord.get_open_findings_summary()
+        # Pillar B D5: surface the Phase-4 prediction-vs-actual score for
+        # the most recent applied finding (if Phase-4 populated it).
+        last_action_outcome_score = None
+        try:
+            for f in reversed(recent):
+                if getattr(f, "applied_outcome", None) == "applied":
+                    obs = getattr(f, "observed_effect", None)
+                    if isinstance(obs, dict):
+                        last_action_outcome_score = (
+                            obs.get("outcome_score")
+                            or obs.get("score")
+                        )
+                    break
+        except Exception:
+            last_action_outcome_score = None
         return {
             "findings": findings_list,
             "by_severity": summary["by_severity"],
             "by_level": summary["by_level"],
+            "last_action_outcome_score": last_action_outcome_score,
         }
 
 

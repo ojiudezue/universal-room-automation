@@ -182,7 +182,11 @@ from .const import (
 )
 from .coordinator import UniversalRoomCoordinator
 from .domain_coordinators.energy_billing import _get_effective_rate_kwh
-from .domain_coordinators._units import energy_state_to_kwh, today_delta_kwh
+from .domain_coordinators._units import (
+    energy_state_to_kwh,
+    power_state_to_w,
+    today_delta_kwh,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -2198,22 +2202,31 @@ class WholeHousePowerSensor(AggregationEntity, SensorEntity):
         return []
 
     def _sum_sensors(self, sensor_ids: list[str]) -> float | None:
-        """Sum numeric values from a list of sensor entity IDs."""
+        """Sum power readings (Watts) from a list of sensor entity IDs.
+
+        Bug Class #30 (power-surface sibling): every read routes through
+        ``power_state_to_w`` so kW / W / MW sources normalize to Watts.
+        Live trigger (2026-06-09): ``sensor.ura_whole_house_power``
+        read 0.29 W while the house drew ~2.7 kW because the configured
+        whole-house source was an Envoy sensor reporting in kW.
+        """
         total = 0.0
         any_valid = False
         for sensor_id in sensor_ids:
             state = self.hass.states.get(sensor_id)
-            if state and state.state not in ("unknown", "unavailable"):
-                try:
-                    total += float(state.state)
-                    any_valid = True
-                except (ValueError, TypeError):
-                    pass
+            try:
+                watts = power_state_to_w(state)
+            except Exception:
+                watts = None
+            if watts is None:
+                continue
+            total += watts
+            any_valid = True
         return total if any_valid else None
 
     @property
     def native_value(self) -> float | None:
-        """Return whole house power (sum of all configured sensors)."""
+        """Return whole house power in Watts (sum of all configured sensors)."""
         sensors = self._get_sensor_list(
             CONF_WHOLE_HOUSE_POWER_SENSORS, CONF_WHOLE_HOUSE_POWER_SENSOR)
         if not sensors:
@@ -2233,8 +2246,7 @@ class WholeHousePowerSensor(AggregationEntity, SensorEntity):
             solar_sensor = self._get_config(CONF_SOLAR_PRODUCTION_SENSOR)
             if solar_sensor:
                 state = self.hass.states.get(solar_sensor)
-                if state and state.state not in ("unknown", "unavailable"):
-                    solar_power_w = float(state.state)
+                solar_power_w = power_state_to_w(state)
         except Exception:
             pass
         return {
@@ -2412,17 +2424,21 @@ class WholeHouseCostTodaySensor(AggregationEntity, SensorEntity):
         return []
 
     def _sum_energy_sensors(self, sensor_ids: list[str]) -> float | None:
-        """Sum numeric values from a list of energy sensor entity IDs."""
+        """Sum energy sensor states normalized to kWh.
+
+        Review C1 (power-units cycle): this sensor sums the SAME
+        CONF_WHOLE_HOUSE_ENERGY_SENSORS list that WholeHouseEnergySensor
+        normalizes — a raw sum here let a Wh source inflate cost 1000x
+        while the energy sensor read correctly (Bug Class #30).
+        """
         total = 0.0
         any_valid = False
         for sensor_id in sensor_ids:
             state = self.hass.states.get(sensor_id)
-            if state and state.state not in ("unknown", "unavailable"):
-                try:
-                    total += float(state.state)
-                    any_valid = True
-                except (ValueError, TypeError):
-                    pass
+            value = energy_state_to_kwh(state)
+            if value is not None:
+                total += value
+                any_valid = True
         return total if any_valid else None
 
     @property

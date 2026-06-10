@@ -541,6 +541,13 @@ class OptimizationCoordinator(BaseCoordinator):
         # only Phase-1 is being used.
         self._llm_tier = None
 
+        # Pillar B (Phase 5) fix-up B-H1: reentrancy guard for run_cycle.
+        # Protects against manual-press-vs-interval overlap (the
+        # OptimizerRunCycleNowButton calls run_cycle directly while the
+        # 5-min tick may also be in flight) AND tick-vs-tick races during
+        # boot. Set/cleared in the run_cycle try/finally.
+        self._cycle_running: bool = False
+
     # ------------------------------------------------------------------
     # BaseCoordinator contract
     # ------------------------------------------------------------------
@@ -665,7 +672,27 @@ class OptimizationCoordinator(BaseCoordinator):
         later dimension. Failures log a WARNING with the evaluator name and
         cycle proceeds; the META sentinel ALWAYS emits so Review-D's
         sentinels-only diagnostic stays trustworthy.
+
+        Pillar B (Phase 5) fix-up B-H1: reentrancy guard. The
+        OptimizerRunCycleNowButton calls run_cycle directly and the 5-min
+        interval tick can also fire concurrently. If a cycle is already in
+        flight, log debug + return an empty list rather than running two
+        cycles in parallel.
         """
+        if self._cycle_running:
+            _LOGGER.debug(
+                "Optimization run_cycle re-entry suppressed "
+                "(cycle already in flight)",
+            )
+            return []
+        self._cycle_running = True
+        try:
+            return await self._run_cycle_body()
+        finally:
+            self._cycle_running = False
+
+    async def _run_cycle_body(self) -> list[OptimizationFinding]:
+        """Run the cycle body (no reentrancy guard — caller holds it)."""
         self._cycle_dedup.clear()
         # v5.2.2 fix-up — reset per-cycle activity-log buffers. The
         # ``_consider_apply`` shadow + below-gate branches buffer here

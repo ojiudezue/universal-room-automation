@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv5.3.2
+# Universal Room Automation vv5.3.3
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v5.3.2"
+VERSION: Final = "v5.3.3"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -1528,6 +1528,12 @@ CONF_OPTIMIZER_DIMENSION_AUTONOMY: Final = "optimizer_dimension_autonomy"
 CONF_OPTIMIZER_CONFIDENCE_GATE: Final = "optimizer_confidence_gate"
 CONF_OPTIMIZER_RATE_CAP_PER_HOUR: Final = "optimizer_rate_cap_per_hour"
 CONF_OPTIMIZER_QUIET_HOURS_SOURCE: Final = "optimizer_quiet_hours_source"
+# Pillar B D2/D6: confirm-guard pending escalation key. Lives on CM
+# entry options. Holds the *requested* rung when an L0/L1 → L2+ jump
+# is in flight; cleared by the confirm or cancel button, or by kill
+# switch ENGAGE. The coordinator NEVER reads this key (effective_level
+# continues to consult CONF_OPTIMIZER_AUTONOMY_LEVEL only).
+CONF_OPTIMIZER_PENDING_AUTONOMY_LEVEL: Final = "optimizer_pending_autonomy_level"
 
 DEFAULT_OPTIMIZER_AUTONOMY_LEVEL: Final = OPTIMIZER_LEVEL_SHADOW
 DEFAULT_OPTIMIZER_KILL_SWITCH: Final = False
