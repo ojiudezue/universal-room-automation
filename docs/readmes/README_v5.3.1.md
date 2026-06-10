@@ -45,13 +45,30 @@
 | `...cost_per_occupied_hour` | $48.03/h | < $5/h typical |
 | upstairs zone energy | 0.0 stuck, silent | 0/None **plus** `energy_sensors_dead: true` on ≥1 room |
 
-## Live Validation (Review D) — prospective criteria
+## Live Validation (Review D) — Validated 2026-06-10 ~00:45 UTC (~6 min post-restart)
 
-- [ ] Each snapshot row moves from "poisoned" to "expected post-fix" within one update cycle of restart (note: in-memory tiers re-anchor at boot → today values undercount until next midnight; `post_restart_window` attribute should read `true` if boot >00:05).
-- [ ] Zero new URA ERRORs in HA log between restart and validation cutoff.
-- [ ] `room_energy_baselines` contains the `__schema_version__` sentinel row with value 2; baselines repopulated for active rooms.
-- [ ] Room cost_today values sane (no $45.99-style rooms).
-- [ ] `energy_sensors_dead: true` visible on at least one upstairs-zone room (until SPAN remap).
-- [ ] No `did not process within 35s` / write-queue saturation lines (migration is one bounded write).
+| Criterion | Result | Observed evidence |
+|---|---|---|
+| Integration loaded on v5.3.1 | PASS | 40 URA config entries all `loaded`, zero setup errors |
+| Zone master_suite energy sane | PASS | `sensor.zone_master_suite_energy_today` = 0.07 kWh (was 1,671) — post-boot re-accrual, correct |
+| Zone entertainment energy sane | PASS | `sensor.zone_entertainment_energy_today` = 0.0 kWh (was 960.8) |
+| Coverage delta sane | PASS | state −0.0 kWh; `rooms_total` 0.004; `post_restart_window: true`; `whole_house_scope: "today_derived"`; `coverage_rating: "No data"` — no false "Excellent" |
+| Cost per occupied hour | PASS | $0.0008/h (was $48.03); Study A $0.0003/h over 7.87 occupied hours |
+| Room cost sanity | PASS | Study A cost_today $0.0025 (was $45.99); Master Bedroom 0.0017 kWh, `energy_sensors_dead: false` |
+| Dead-sensor observability (D4) | PASS | `sensor.jaya_bedroom_bedroom_4_energy_today` = `unknown`, `energy_sensors_dead: true`; WARNING names the unavailable entity; multiple upstairs/closet rooms reporting None correctly |
+| Zero new URA ERRORs | PASS | system_log ERROR + URA filter: 0 entries; no KeyError/TypeError/`did not process within 35s`/`held connection` |
+| Write-queue health | PASS | No saturation lines in the 00:39 restart window (prior 19:38 boot showed only the expected bounded boot-burst peak, max 26 items / 0.082s) |
+| Migration evidence | PARTIAL (in-suite) | Sentinel/reset INFO lines hidden by WARNING-level file logger (known logger config); functional signature visible as implausible-delta re-anchor WARNINGs on both boots; migration one-shot/idempotent/cleanup-proof proven by behavioral tests against the real DAO |
 
-*This section will be replaced with the observed-results table after Review D per the README write-back rule.*
+**Boot-only transients seen and dismissed:** websocket clients kicked at 4096
+pending messages during the first ~4 min post-restart (boot event storm —
+chattiest sources were ESPHome mmWave `move_energy` sensors + UniFi
+device_tracker churn, NOT URA; last kick 00:43:00 UTC, none after);
+non-URA Dreo "Event loop is closed" callbacks at shutdown of the prior boot.
+
+**Optimizer:** `optimizer_status` = initializing, mode = shadow (L1) at T+6min —
+expected; no write-flood.
+
+**Operator follow-up (not blocking):** SPAN circuit entity_id remap for the
+upstairs-zone rooms (hygiene bucket) — until then those rooms intentionally
+report `unknown` + `energy_sensors_dead: true` instead of silent 0.0.
