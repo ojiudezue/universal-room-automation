@@ -5593,16 +5593,24 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
     async def async_step_coordinator_optimization(self, user_input=None):
         """Configure the URA Optimization Coordinator (autonomy matrix + caps).
 
-        Six CONF_* keys (parsimony: ALL live on the CM entry; zero new
-        per-room CONF surface). See planning doc D2 for the matrix gate
-        priority order.
+        Pillar B (Phase 5) reshape: the 11-field flat form is grouped into
+        three regions — Autonomy (top-level), `optimizer_guards`
+        (collapsed safety guards), `optimizer_llm` (collapsed LLM tier).
+        Both collapsed sections flatten back to top-level options on save
+        so the chokepoint / LLM tier (which read `entry.options` fresh
+        on every cycle) see the same flat key surface they do today.
+        Parsimony: zero new CONF keys land here beyond the Pillar B
+        confirm-guard key, which is operated via entity buttons (not the
+        form).
         """
+        from homeassistant.data_entry_flow import section
         from .const import (
             CONF_OPTIMIZER_AUTONOMY_LEVEL,
             CONF_OPTIMIZER_KILL_SWITCH,
             CONF_OPTIMIZER_CONFIDENCE_GATE,
             CONF_OPTIMIZER_RATE_CAP_PER_HOUR,
             CONF_OPTIMIZER_QUIET_HOURS_SOURCE,
+            CONF_OPTIMIZER_PENDING_AUTONOMY_LEVEL,
             # v4.7.35 Phase 2 — LLM Tier-2 CM-options keys.
             CONF_OPTIMIZER_LLM_TASK_ENTITY,
             CONF_OPTIMIZER_LLM_TRIAGE_ENTITY,
@@ -5623,31 +5631,66 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
         )
 
         if user_input is not None:
+            # Pillar B: flatten the two collapsed sections BEFORE persist
+            # so the chokepoint / LLM tier readers see the same flat keys.
+            flat = dict(user_input)
+            guards = flat.pop("optimizer_guards", None)
+            if isinstance(guards, dict):
+                flat = {**flat, **guards}
+            llm = flat.pop("optimizer_llm", None)
+            if isinstance(llm, dict):
+                flat = {**flat, **llm}
+            # Pillar B (Phase 5) fix-up A-H1 / B-M2: the form is an
+            # unguarded entry point that can directly set the autonomy
+            # rung. A stale `CONF_OPTIMIZER_PENDING_AUTONOMY_LEVEL` from
+            # an in-flight confirm-guard escalation MUST NOT survive a
+            # direct form save — otherwise the operator would commit a
+            # new level here while a stale pending value keeps the select
+            # entity stuck in "pending_<other>" state. Strip it on save.
+            merged_options = {**self._config_entry.options, **flat}
+            merged_options.pop(CONF_OPTIMIZER_PENDING_AUTONOMY_LEVEL, None)
+            # Push the select entity to refresh from the post-save
+            # options so the UI leaves any `pending_*` state immediately
+            # rather than waiting for the CM reload. Mirrors the slot used
+            # by the Confirm / Cancel buttons.
+            try:
+                sel = (
+                    self.hass.data.get(DOMAIN, {}).get(
+                        "optimizer_autonomy_select",
+                    )
+                )
+                if sel is not None and hasattr(sel, "_refresh_from_options"):
+                    sel._refresh_from_options()
+            except Exception:  # noqa: BLE001
+                pass
             return self.async_create_entry(
                 title="",
-                data={**self._config_entry.options, **user_input},
+                data=merged_options,
             )
 
-        data_schema = vol.Schema({
-            vol.Optional(
-                CONF_OPTIMIZER_AUTONOMY_LEVEL,
-                default=self._get_current(
-                    CONF_OPTIMIZER_AUTONOMY_LEVEL,
-                    DEFAULT_OPTIMIZER_AUTONOMY_LEVEL,
-                ),
-            ): selector.SelectSelector(
-                selector.SelectSelectorConfig(
-                    options=list(OPTIMIZER_AUTONOMY_LEVELS),
-                    mode=selector.SelectSelectorMode.DROPDOWN,
-                )
-            ),
-            vol.Optional(
-                CONF_OPTIMIZER_KILL_SWITCH,
-                default=self._get_current(
-                    CONF_OPTIMIZER_KILL_SWITCH,
-                    DEFAULT_OPTIMIZER_KILL_SWITCH,
-                ),
-            ): selector.BooleanSelector(),
+        # Autonomy rung labels (Pillar B D2): plain-English options carried
+        # via the SelectSelector label/value pattern. Values are unchanged
+        # so the existing CONF migration is a no-op.
+        autonomy_options = [
+            {"value": "advisory", "label": "Observe only — no actions"},
+            {"value": "shadow",
+             "label": "Shadow mode — predicted actions, no actuation (default)"},
+            {"value": "reversible_device",
+             "label": "Reversible devices only — lights, fans, HVAC setpoints"},
+            {"value": "propose_config",
+             "label": "Propose config changes — 30s veto window"},
+            {"value": "immediate_config",
+             "label": "Apply config changes immediately — ±20% clamp"},
+            {"value": "unbounded",
+             "label": "Unbounded — no allowlist, no clamp (NOT RECOMMENDED)"},
+        ]
+        quiet_options = [
+            {"value": "reuse_nm",
+             "label": "Use Notification Manager quiet hours"},
+            {"value": "none", "label": "None — ignore quiet hours"},
+        ]
+
+        guards_schema = vol.Schema({
             vol.Optional(
                 CONF_OPTIMIZER_CONFIDENCE_GATE,
                 default=self._get_current(
@@ -5680,13 +5723,28 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                 ),
             ): selector.SelectSelector(
                 selector.SelectSelectorConfig(
-                    options=list(OPTIMIZER_QUIET_HOURS_SOURCES),
+                    options=quiet_options,
                     mode=selector.SelectSelectorMode.DROPDOWN,
                 )
             ),
-            # ============================================================
-            # v4.7.35 Phase 2 — LLM Tier-2 fields
-            # ============================================================
+            # B-B2 fix-up: safety / security deny-list.
+            vol.Optional(
+                CONF_OPTIMIZER_SAFETY_DENY_ENTITIES,
+                default=self._get_current(
+                    CONF_OPTIMIZER_SAFETY_DENY_ENTITIES,
+                    list(DEFAULT_OPTIMIZER_SAFETY_DENY_ENTITIES),
+                ),
+            ): selector.SelectSelector(
+                selector.SelectSelectorConfig(
+                    options=[],
+                    multiple=True,
+                    custom_value=True,
+                    mode=selector.SelectSelectorMode.DROPDOWN,
+                )
+            ),
+        })
+
+        llm_schema = vol.Schema({
             vol.Optional(
                 CONF_OPTIMIZER_LLM_TASK_ENTITY,
                 default=self._get_current(
@@ -5735,22 +5793,33 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
                     mode=selector.NumberSelectorMode.BOX,
                 )
             ),
-            # B-B2 fix-up: safety / security deny-list. Comma-or-list
-            # entry; chokepoint refuses to actuate any entity in this
-            # list (Tier-1 + Tier-2 LLM both).
+        })
+
+        data_schema = vol.Schema({
             vol.Optional(
-                CONF_OPTIMIZER_SAFETY_DENY_ENTITIES,
+                CONF_OPTIMIZER_AUTONOMY_LEVEL,
                 default=self._get_current(
-                    CONF_OPTIMIZER_SAFETY_DENY_ENTITIES,
-                    list(DEFAULT_OPTIMIZER_SAFETY_DENY_ENTITIES),
+                    CONF_OPTIMIZER_AUTONOMY_LEVEL,
+                    DEFAULT_OPTIMIZER_AUTONOMY_LEVEL,
                 ),
             ): selector.SelectSelector(
                 selector.SelectSelectorConfig(
-                    options=[],
-                    multiple=True,
-                    custom_value=True,
+                    options=autonomy_options,
                     mode=selector.SelectSelectorMode.DROPDOWN,
                 )
+            ),
+            vol.Optional(
+                CONF_OPTIMIZER_KILL_SWITCH,
+                default=self._get_current(
+                    CONF_OPTIMIZER_KILL_SWITCH,
+                    DEFAULT_OPTIMIZER_KILL_SWITCH,
+                ),
+            ): selector.BooleanSelector(),
+            vol.Optional("optimizer_guards"): section(
+                guards_schema, {"collapsed": True},
+            ),
+            vol.Optional("optimizer_llm"): section(
+                llm_schema, {"collapsed": True},
             ),
         })
 

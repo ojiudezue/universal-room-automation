@@ -3639,6 +3639,7 @@ from .const import (
     CONF_OPTIMIZER_CONFIDENCE_GATE as _CONF_OPTIMIZER_CONFIDENCE_GATE,
     CONF_OPTIMIZER_RATE_CAP_PER_HOUR as _CONF_OPTIMIZER_RATE_CAP_PER_HOUR,
     CONF_OPTIMIZER_QUIET_HOURS_SOURCE as _CONF_OPTIMIZER_QUIET_HOURS_SOURCE,
+    CONF_OPTIMIZER_PENDING_AUTONOMY_LEVEL as _CONF_OPTIMIZER_PENDING_AUTONOMY_LEVEL,
     # v4.7.35 Phase 2 — LLM Tier-2 CM-options keys (C-CRIT-1).
     CONF_OPTIMIZER_LLM_TASK_ENTITY as _CONF_OPTIMIZER_LLM_TASK_ENTITY,
     CONF_OPTIMIZER_LLM_TRIAGE_ENTITY as _CONF_OPTIMIZER_LLM_TRIAGE_ENTITY,
@@ -3731,6 +3732,10 @@ _NO_LIVE_ATTR_KEYS: frozenset[str] = frozenset({
     _CONF_OPTIMIZER_CONFIDENCE_GATE,
     _CONF_OPTIMIZER_RATE_CAP_PER_HOUR,
     _CONF_OPTIMIZER_QUIET_HOURS_SOURCE,
+    # Pillar B (Phase 5) — pending-autonomy confirm-guard key. Coordinator
+    # NEVER reads this key; it lives purely on `entry.options` and flows
+    # through `_apply_in_place` as a no-op so the snapshot advances.
+    _CONF_OPTIMIZER_PENDING_AUTONOMY_LEVEL,
     # v4.7.35 Phase 2 — LLM tier keys. OptimizationLLMTier reads CM
     # options fresh on every cycle (`_read_cm_config`) — no live-attr
     # push needed; flow through `_apply_in_place` as a no-op.
@@ -3783,6 +3788,10 @@ OPTIONS_RELOAD_SUPPRESS_KEYS: frozenset[str] = frozenset({
     _CONF_OPTIMIZER_CONFIDENCE_GATE,
     _CONF_OPTIMIZER_RATE_CAP_PER_HOUR,
     _CONF_OPTIMIZER_QUIET_HOURS_SOURCE,
+    # Pillar B — pending-autonomy confirm-guard key. Pressing the
+    # autonomy select to stage a pending escalation must NOT trigger a
+    # CM reload (the broker reads the real key fresh on every cycle).
+    _CONF_OPTIMIZER_PENDING_AUTONOMY_LEVEL,
     # v4.7.35 Phase 2 — LLM tier keys. Editing the LLM provider,
     # triage backend, prompt, or 24h cap must NOT trigger a full
     # CM reload — the OptimizationLLMTier re-reads entry.options on

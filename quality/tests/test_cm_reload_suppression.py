@@ -215,6 +215,8 @@ def _load_init_listener_helpers():
         "_CONF_OPTIMIZER_CONFIDENCE_GATE":        "optimizer_confidence_gate",
         "_CONF_OPTIMIZER_RATE_CAP_PER_HOUR":      "optimizer_rate_cap_per_hour",
         "_CONF_OPTIMIZER_QUIET_HOURS_SOURCE":     "optimizer_quiet_hours_source",
+        # OC Pillar B (admin surface) — pending-escalation key, reload-suppressed.
+        "_CONF_OPTIMIZER_PENDING_AUTONOMY_LEVEL": "optimizer_pending_autonomy_level",
         # v4.7.35 Phase 2 — LLM Tier-2 CM-options keys.
         "_CONF_OPTIMIZER_LLM_TASK_ENTITY":        "optimizer_llm_task_entity",
         "_CONF_OPTIMIZER_LLM_TRIAGE_ENTITY":      "optimizer_llm_triage_entity",
