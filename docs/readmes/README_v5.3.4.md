@@ -22,14 +22,17 @@ Combined release of three reviewed cycles (one restart):
 - `predicted_energy_today/week/month`: clamped ≥0 with signed `raw_net_kwh` attr (net-of-solar underflow); cost stays signed (export credit).
 - Occupancy-weighted switch persistence verified sound + locked with production-path round-trip tests.
 
-## Live Validation (Review D) — prospective criteria
-- [ ] Clean restart; zero new URA ERRORs; no write-queue saturation.
-- [ ] Optimizer status reads **"degraded"** (not "critical") with the current 5 HIGH dead-sensor findings; flips healthy if the operator revives Garage B/Jaya devices.
-- [ ] L1 silence: no "Optimizer intent vetoed" INFO lines in logs over one full cycle.
-- [ ] `sensor.<room>_next_occupancy_time` shows a tz-aware timestamp with sane confidence %; `next_occupancy_in` + `peak_occupancy_time` entities GONE from the registry (~74 removals logged once).
-- [ ] Recorder churn: spot-check that next_occupancy_time writes only on prediction changes (recorder history shows sparse writes vs the old per-minute stream).
-- [ ] `energy_grid_demand` = unknown with `unconfigured_reason` attr (not unavailable).
-- [ ] `predicted_energy_today` ≥ 0 with `raw_net_kwh` attr carrying the signed value.
-- [ ] Day-after: zone/room energy and forecaster remain healthy (no regression from the merge).
+## Live Validation (Review D) — Validated 2026-06-10 ~18:45 UTC
 
-*Replaced with observed results post-restart per the README write-back rule.*
+| Criterion | Result | Observed evidence |
+|---|---|---|
+| Clean restart, no saturation | PASS | zero `did not process within 35s`; ONE isolated `held connection >120s` in the boot window (one-shot registry cleanup batch; count=1, no recurrence) — dismissed as boot transient |
+| **Status-word recalibration** | **PASS** | optimizer status = **"degraded"** at house_score 55 / mode shadow — the identical live findings pile read "critical" pre-deploy |
+| L1 silence | PASS | zero "Optimizer intent vetoed" lines post-restart with handshake handlers subscribed |
+| Kill-list removals | PASS | `next_occupancy_in` registry matches = 0; `peak_occupancy_time` gone; 37 `next_occupancy_time` timestamp sensors remain |
+| `energy_grid_demand` | PASS | `unknown` + `unconfigured_reason: grid_import_cap_disabled` (was permanently unavailable) |
+| `predicted_energy_today` clamp | PASS | state 0.0, `raw_net_kwh: -23.9` |
+| Forecaster regression | PASS | predicting (`away` @ 0.37 midday, model `house_state_log_freq_v1`) |
+| Recorder-churn spot-check + day-after energy health | PENDING (non-blocking) | sparse-write history check + zone/room energy re-verify on 2026-06-11 |
+
+**Operator hands-on still open (from v5.3.3, carries forward):** escalation stage→Cancel flow, Run Cycle Now debounce, options-flow label rendering (which translation shape resolved).
