@@ -1,0 +1,65 @@
+{
+  "format_version": "2.1",
+  "entry_id": "013",
+  "author": "ojiudezue",
+  "session_id": "claude_20260529_v4_7_4_4",
+  "timestamp": "2026-05-29T02:00:00Z",
+  "type": "counseling",
+  "weight": "critical",
+
+  "title": "Bug Class #46 canonical fix: drop migrations, derive lazily at read time",
+
+  "summary": "v4.7.4.1 attempted to fix Bug Class #46 (async_update_entry re-entrancy from async_setup_entry) by DEFERRING the migration's persist call to next-tick. v4.7.4 (without that defer) was hitting bootstrap-2 timeout on cold install. The defer did not work — the deferred call STILL triggers the update_listener → STILL schedules a reload → STILL causes async_setup_entry to run twice within bootstrap-2 budget. The real fix shipped as v4.7.4.4: DROP THE EAGER MIGRATION ENTIRELY. Derive the migrated value lazily at READ TIME in the schema builder. Zero side effects during setup, no entry update, no reload. The migrated value persists naturally on the user's next save. This pattern is now the canonical fix for Bug Class #46 going forward.",
+
+  "decisions": [
+    {
+      "decision": "Lazy derivation at read time is the canonical fix pattern for Bug Class #46, not deferral",
+      "why": "Deferral still calls async_update_entry. update_listener doesn't care about timing — it fires on options change regardless of which tick you scheduled it from. The reload chain triggers within bootstrap-2 budget either way. The only correct fix is to NOT WRITE during setup at all. Reading the saved options and computing a derived value at the moment the schema builder needs it has zero re-entrancy surface. The first user save persists the derived value organically.",
+      "blast_radius": "Codified in QUALITY_CONTEXT.md Bug Class #46. Future migrations of options shape should default to lazy-at-read, NEVER eager-at-setup. Includes a 'when async_update_entry IS safe in async_setup_entry' sub-section listing the 7 pre-existing safe call sites in __init__.py (all before update_listener registration at line ~2526)."
+    },
+    {
+      "decision": "Single-root-cause hypothesis confirmed by post-fix self-resolution of downstream symptoms",
+      "why": "On v4.7.4.1/v4.7.4.2 boots: house_state stuck at AWAY for 18+ min, ec_ready_at null, battery_strategy reason 'initializing'. I initially conflated these as separate event-subscription race issues. User pushback: 'misread occupancy state cannot usually cause boot problems.' Forced me to trace one issue at a time. After v4.7.4.4 (single-pass setup): all three resolved without any code change targeting them. Confirms downstream symptoms were budget-pressure manifestations of doubled-setup — not independent bugs.",
+      "blast_radius": "Process discipline: when multiple weird symptoms appear on the same boot, prefer single-root-cause hypotheses BEFORE speculating multiple independent bugs. Trace, don't fabricate."
+    }
+  ],
+
+  "alternatives_considered": [
+    {
+      "alternative": "Keep the deferred-persist helper but defer further (e.g. async_call_later 30s)",
+      "why_rejected": "Same root issue. Bootstrap-2 budget is bounded; if the reload fires inside that window we lose. Even if we wait past bootstrap-2, we're still doing unnecessary I/O and reload work during setup. The lazy-at-read approach eliminates the work entirely."
+    },
+    {
+      "alternative": "Skip update_listener registration when called from migration",
+      "why_rejected": "Brittle. Requires plumbing a 'currently-migrating' flag through update_listener. Doesn't generalize to other re-entrancy surfaces. Reading lazily is mechanically simpler."
+    },
+    {
+      "alternative": "Persist on first user save (no migration logic at all)",
+      "why_rejected": "This is essentially what we shipped — except the schema builder still needs the derived value to render correctly on the FIRST load, before the user saves. So the closure must read explicit-value-or-derive on every render. Functionally the same outcome."
+    }
+  ],
+
+  "implications": [
+    "Bug Class #46 entry in QUALITY_CONTEXT.md now includes the incomplete-fix incident note (v4.7.4.1) so future reviewers don't repeat the deferral mistake.",
+    "Any future options-shape migration should default to the lazy-at-read pattern. If the migration MUST persist (e.g., a destructive rename of a key), document the reason and gate it behind the safe-call-site list.",
+    "Builder agents have new explicit guidance: don't fix re-entrancy by deferring; fix it by removing the write."
+  ],
+
+  "follow_up": [
+    "When v4.7.5 ships, the lazy-derivation pattern will be applied a second time (silent canonical resolution at runtime, not at picker-display time). Verifies the pattern transfers cleanly.",
+    "Consider an AST-level test that flags new `async_update_entry` calls in `async_setup_entry` outside the documented safe-call-site list."
+  ],
+
+  "refs": {
+    "files": [
+      "custom_components/universal_room_automation/__init__.py",
+      "custom_components/universal_room_automation/config_flow.py",
+      "docs/QUALITY_CONTEXT.md"
+    ],
+    "memory": [
+      ".claude/projects/-Users-okosisi-Code-universal-room-automation/memory/project_v4_7_x_stretch_closed.md"
+    ]
+  },
+
+  "ship_target": "Shipped v4.7.4.4 — live-verified 2026-05-29 01:44 UTC"
+}

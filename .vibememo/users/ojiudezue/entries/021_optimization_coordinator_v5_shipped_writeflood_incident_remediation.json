@@ -1,0 +1,105 @@
+{
+  "format_version": "2.1",
+  "entry_id": "021",
+  "author": "ojiudezue",
+  "session_id": "claude_20260609_optimization_coordinator_v5_marathon_incident",
+  "timestamp": "2026-06-09T21:00:00Z",
+  "type": "pivot",
+  "weight": "load-bearing",
+
+  "title": "Shipped the Optimization Coordinator staged as a MAJOR version v5.0.0->v5.3.0 (L1 Shadow); a DB write-queue saturation INCIDENT forced a rollback to v4.7.33 and a remediation (v5.2.2) — durable lesson: per-cycle write-VOLUME must be reviewed/gated per write-channel, not just bug-classes",
+
+  "summary": "Built + shipped the Optimization Coordinator overnight (v5.0.0 agentic skeleton, v5.1.0 LLM Tier-2, v5.2.0 dimensions+digest, v5.2.1 LLM schema hotfix), each as a Tier 2-DB cycle (build -> validate -> 3 framing-disjoint reviews -> fix-up -> deploy). Bumped to MAJOR 5.x because the agentic coordinator is genuinely new functionality. Then it took the live house DOWN: the optimizer cycle persisted findings ONE-BY-ONE (for finding: await log_finding) AND Sensor-Health fired one finding per room with unavailable sensors -> during HA's boot-storm (20-35 rooms unavailable) each 5-min cycle dumped dozens of individual writes into URA's single shared write queue, starving the core writes (environmental/census timed out at 35s; a caller held the DB connection >120s). The operator forced a UI parent-reload (the known watchdog-hazard), setup was cancelled, supervisor restarted core, and a Bootstrap-stage-2 timeout (the separate non-URA boot-storm: WiiM/AppleTV/Envoy) left URA wedged. ROLLED BACK to v4.7.33 to stabilize; one clean reboot restored the house. Remediated as v5.2.2 (batched persist) — but an adversarial review caught a SECOND equal-sized O(N) channel: _consider_apply's shadow_dry_run branch wrote ura_activity_log + dispatched SIGNAL_ACTIVITY_LOGGED PER finding (same queue, different table). Fixed by buffering both channels to <=2 summary rows/cycle + single signal dispatch + boot-storm settle gate + findings cap; live-validated (zero saturation post-settle). Then v5.3.0: Phase 4 Prediction-Validation (read-only reader of the audited-healthy Bayesian surfaces) + removed 2 dead Bayesian sensors. Operator then caught that the 'remove 2 bayesian' missed room-prediction sensors NOT named 'bayesian'.",
+
+  "decisions": [
+    {
+      "decision": "ROOT CAUSE + the durable lesson: the optimizer flooded URA's single DB write queue because the per-cycle cost was O(N findings), not O(1). The first remediation BATCHED the obvious channel (optimization_findings via log_findings_batch, <=2 writes/cycle) and its regression test passed — but a focused adversarial review (framed 'trace EVERY database.* call and EVERY dispatch reachable from run_cycle, by table, as a function of N') found a SECOND O(N) writer to a DIFFERENT table (ura_activity_log via _consider_apply -> _log_activity per finding). LESSON, recorded as standing guidance: when fixing or reviewing a per-cycle write-VOLUME regression, enumerate ALL write channels (every database.* + every event dispatch) reachable from the hot loop and gate EACH in the regression test (assert call_count per table). One bounded channel != fixed.",
+      "why": "The original pre-deploy DB review was thorough on bug-classes (#9/#25/#44/#50, startup contention) and signed SHIP, but it modeled the OBVIOUS writer, not per-cycle write VOLUME across all tables. 'L1 Shadow' protects against bad ACTUATION, not against the coordinator's own DB/sensor write load — at L1 the optimizer still fully evaluates + persists every finding + churns ~35 per-room sensors every cycle. The incident and the second-channel miss both came from this exact blind spot.",
+      "blast_radius": "Took the production house down (watchdog restart, ~setup-cancelled, wedged across two boots). Fix is structural: all per-cycle findings flow through one shared list -> single _persist_findings_batch + <=2 buffered activity summaries + single signal; boot-storm settle gate (3 cycles + unavailable-room fraction) + findings cap 100. v5.2.2 live-validated: zero 'did not process within 35s' / 'held connection >120s' after post-settle persisting cycles."
+    },
+    {
+      "decision": "Deploy discipline under fire: rolled back to v4.7.33 (pre-optimizer) IMMEDIATELY to stabilize the live house, then fixed forward offline rather than hot-patching. The leftover v5 DB tables + CM-entry CONF options are inert/additive under v4.7.33 (safe rollback). After remediation, re-deployed v5.2.2 and INTENSIVELY monitored the live write queue (the incident signature is the proof) with the rollback playbook ready.",
+      "why": "Operator's house was actively broken; stability beats preserving the morning's work. The optimizer can be re-shipped once the flood is fixed; a broken house cannot wait for a careful fix-forward cycle. Matches the standing 'after a bad deploy: STOP, investigate, 2x review before fix deploy' rule.",
+      "blast_radius": "Established the optimizer rollback path concretely (HACS download v4.7.33 -> restart -> clean reboot). Re-ship gated on a live boot-storm soak showing no write-worker timeouts."
+    },
+    {
+      "decision": "LLM structured-output: the OPTIMIZER_LLM_STRUCTURE used HA ai_task's `object` selector, which generates a free-form schema (additionalProperties:true) that Anthropic's strict structured-output API REJECTS with a 400. Replaced with a `findings_json` TEXT field holding a JSON-array string (parsed via json.loads). VERIFIED LIVE against ai_task.claude_ai_task before coding the change (a direct ha_call_service probe). Provider-portable (no per-backend object-schema quirks); backward-compat for a `findings` list retained.",
+      "why": "Surfaced in post-deploy validation (the operator-anticipated 'be ready to remedy post-validation'). At L1 it degraded gracefully (tier caught the 400, returned no findings, deterministic tier unaffected), so no behavioral harm — but the LLM path was non-functional. The live probe (don't fabricate HA ai_task internals) confirmed the fix before shipping.",
+      "blast_radius": "v5.2.1/v5.2.2. The Phase-2 review's A-LOW-1 ('verify the object selector returns on every backend') was the right instinct; Anthropic itself rejected it. Test helper updated to emit the production findings_json shape so all 19 LLM tests drive the real parse path."
+    },
+    {
+      "decision": "Bayesian cleanup REFINED after the operator caught a scoping gap: 'remove 2 only' targeted the literally-named *_bayesian_* sensors, but room-PREDICTION sensors not named 'bayesian' were missed. Live-data verdict: REMOVE presence_next_state (DEAD — 3 days unknown, nothing consumes it) and peak_occupancy_time (cleanly superseded 1:1 by bayesian_occupancy_pattern). DO NOT DELETE next_occupancy_in / next_occupancy_time — they are legacy pattern-learner predictions with NO direct Bayesian equivalent (the Bayesian forecast is a PROBABILITY, not a 'minutes-until / time-of next occupancy' ETA/countdown; next_occupancy_in is a live per-minute countdown, also a recorder-churn item ~1 write/min x ~37 rooms). Keep them or build the Bayesian ETA replacement FIRST.",
+      "why": "Operator's rule: do not delete a sensor without a replacement. History check (not a boot snapshot) was decisive — next_occupancy_in had 4090 state changes in 3 days (alive), presence_next_state had only unknown/unavailable (dead). The supersession is partial: Bayesian covers pattern/likelihood, not the concrete ETA.",
+      "blast_radius": "Scoping lesson: 'clean the prediction surface' != 'delete things matching a name'. None of these carry SensorStateClass so removal is zero-LTS-loss, but value/replacement matters more than LTS here."
+    },
+    {
+      "decision": "Bayesian System B is NOT finished — B3 + B4 remain deferred. This session's Bayesian work was audit (read-only) + remove-2-sensors + Phase-4 (the optimizer READS Bayesian accuracy). ZERO new Bayesian functionality was built. Verified: B1 (engine) + B2 (prediction sensors incl. time-occupied/uncomfortable/avg-comfort) are built from prior milestones; B3 (pre-emptive actions / SIGNAL_COMFORT_REQUEST — grep empty) is NOT built; B4 (energy integration: OptimizationPotential/EnergyWasteIdle/MostExpensiveDevice/EnergyCostPerOccupiedHour/EnergyAnomaly/OptimizeNow) is partial/stub (classes in aggregation.py, some read unavailable).",
+      "why": "Operator asked directly: 'confirm we built all the deferred pieces of Bayesian System B, not just the sensor deletes.' Honest answer is no — so the record must not imply otherwise. See docs/DEFERRED_TO_BAYESIAN.md + docs/BAYESIAN_B1_B2_SENSOR_CHECKLIST.md.",
+      "blast_radius": "B3 (pre-emptive comfort actions) + B4 (occupancy-weighted energy) are real, scoped, unbuilt work — distinct from the Optimization Coordinator."
+    },
+    {
+      "decision": "Switched the session model to Fable-5 and upgraded the heavy-reasoning subagents (ura-builder, ura-reviewer, ura-planner) frontmatter model: claude-opus-4-7 -> fable-5. ura-validator (sonnet) and ura-deployer (haiku) left lighter by design (they only run tests / scripts).",
+      "why": "Operator directive: builder/reviewer/planner must track the main model's level; validator/deployer are deliberately cheaper tiers. NOTE: 'fable-5' was used as the literal model string per the operator's naming; if the harness needs a canonical id (e.g. a claude- prefix) it must be corrected.",
+      "blast_radius": "Future URA cycles spawn build/review/plan agents on Fable-5. Operational note observed this session: builder agents repeatedly returned mid-stream ('Step 3: compile...') without finishing — always verify the commit landed before trusting a 'done' report."
+    }
+  ],
+
+  "alternatives_considered": [
+    {
+      "alternative": "Remediate the write-flood by only batching optimization_findings (the obvious channel) and ship",
+      "why_rejected": "An adversarial review found a SECOND equal-sized O(N) writer to ura_activity_log; shipping the single-channel fix would have re-triggered the incident in a different table. Both channels are now buffered + gated by per-table call_count assertions."
+    },
+    {
+      "alternative": "Roll back only to v5.0.0/v5.1.0 to preserve some of the work",
+      "why_rejected": "The per-cycle finding-persistence flood exists from v5.0.0 (Sensor-Health is Phase 1). v4.7.33 (pre-optimizer) is the only unambiguously-good state; stabilize fully, fix forward offline."
+    },
+    {
+      "alternative": "LLM: keep the ai_task `object` selector and switch the default backend off Claude",
+      "why_rejected": "The whole point is provider-agnostic; a findings_json text field works on ANY backend regardless of its structured-output schema rules. Verified live before shipping."
+    },
+    {
+      "alternative": "Bayesian: delete next_occupancy_in/time as 'redundant legacy'",
+      "why_rejected": "Operator: don't delete without a replacement. The Bayesian forecast is probability-based and provides NO direct 'next-occupancy ETA'; next_occupancy_in is a live per-minute countdown. Keep or build the equivalent first."
+    },
+    {
+      "alternative": "Build Phase 5 (cross-coordinator actuation adoption) the same day to 'finish the OC'",
+      "why_rejected": "Phase 5 is the highest cross-coordinator blast radius and only matters at L2+ (inert at L1). Shipping it the same day as a write-flood incident, before any L1 testing, is exactly what NOT to rush — deferred deliberately."
+    }
+  ],
+
+  "implications": [
+    "Any NEW per-cycle optimizer work (new dimension, new sensor) MUST flow findings through the shared list -> single _persist_findings_batch, with NO new per-finding DB write or per-finding dispatch, and a per-table write-volume assertion added to the boot-storm test. This is now the load-bearing invariant.",
+    "Pre-deploy DB review must add a per-cycle write-VOLUME pass (every write channel by table) on top of bug-classes + startup contention. 'Inert at L1' does not bound the coordinator's own write/sensor load.",
+    "The optimizer is LIVE on v5.3.0 at L1 Shadow and TESTABLE; do not enable L2+ until the operator has tested at L1.",
+    "Operator parent-entry UI reload remains a watchdog trap; recover via HACS rollback / deploy-restart, never a UI reload.",
+    "Bayesian System B B3 (pre-emptive comfort) + B4 (occupancy-weighted energy) are unbuilt and now explicitly recorded as such; the prediction-sensor cleanup is half-done (presence_next_state + peak_occupancy_time remove; next_occupancy_* keep/replace-first)."
+  ],
+
+  "follow_up": [
+    "Pick up after the Fable-5 switch: (1) execute the refined prediction-sensor kill-list (remove presence_next_state + peak_occupancy_time; build a Bayesian next-occupancy ETA before retiring next_occupancy_in/time); (2) Phase 5 sibling-coordinator handshake adoption (deliberate, post-incident); (3) Bayesian System B B3/B4 if scoped.",
+    "Cosmetic: optimizer status sensor open_findings_count/house_score (window) vs findings sensor (latest cycle) display mismatch; optimizer config-flow translations (~10 keys) still missing.",
+    "Recall: 'resume 2026-06-09 optimizer' / 'pick up after fable switch'."
+  ],
+
+  "refs": {
+    "files": [
+      "custom_components/universal_room_automation/domain_coordinators/optimization.py",
+      "custom_components/universal_room_automation/domain_coordinators/optimization_llm.py",
+      "custom_components/universal_room_automation/database.py",
+      "docs/readmes/README_v5.2.2.md",
+      "docs/readmes/README_v5.3.0.md",
+      "docs/DEFERRED_TO_BAYESIAN.md",
+      "docs/BAYESIAN_B1_B2_SENSOR_CHECKLIST.md",
+      ".claude/agents/ura-builder.md"
+    ],
+    "memory": [
+      ".claude/projects/-Users-okosisi-Code-universal-room-automation/memory/project_session_pickup_2026_06_09.md",
+      ".claude/projects/-Users-okosisi-Code-universal-room-automation/memory/project_optimizer_db_write_flood_incident_2026_06_09.md"
+    ],
+    "prior_entries": [
+      "020_v4733_af5_ttl_plus_optimization_coordinator_scoped.json"
+    ]
+  },
+
+  "ship_target": "Optimization Coordinator LIVE on v5.3.0 at L1 Shadow (write-flood remediated v5.2.2, validated). Open: Phase 5, refined prediction-sensor kill-list, Bayesian System B B3/B4. Model switched to Fable-5 (+ builder/reviewer/planner agents)."
+}

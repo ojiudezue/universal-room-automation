@@ -1,0 +1,51 @@
+{
+  "format_version": "2.1",
+  "entry_id": "022",
+  "author": "ojiudezue",
+  "session_id": "claude_20260610_five_deploy_marathon_oc_phase5_model_tiering",
+  "timestamp": "2026-06-10T23:30:00Z",
+  "type": "milestone",
+  "weight": "load-bearing",
+  "title": "Five validated deploys in ~24h (v5.3.1–v5.3.4 + pending hotfix) complete OC Phase 5 and repair the energy/prediction substrate; operator sets durable model tiering — Fable-5 for judgment (orchestrator/reviewer/planner), cheaper models for labor (builder/validator)",
+  "summary": "A continuous marathon shipped: v5.3.1 (Tier 2-DB energy unit normalization — Wh-as-kWh 1000x zone runaway, raw-lifetime-counter attribution, false-Excellent rating), v5.3.2 (routine-awareness next-state forecaster replacing the dead placeholder_v0 — first-ever live prediction arriving→home_night@0.972 was correct; review caught a CRITICAL naive-UTC-as-local mis-binning pre-deploy), v5.3.3 (OC Pillar B admin surface: plain-English autonomy rungs, confirm-guard escalation, 4 buttons, translations, observability split; + whole-house power kW-as-W fix), v5.3.4 (OC Pillar A sibling veto handshake — review CRITICAL: the veto loop was advisory-only, vetoes purged unread AFTER actions ran; now blocks at L2, byte-silent at L1; + prediction kill-list removing ~50k recorder writes/day; + B4 live-health). OC Phase 5 is COMPLETE. Operator live-validation caught what four review passes underrated: greyed-out Confirm/Cancel buttons (no availability push) — hotfix sealed, riding next deploy. Operator also recalibrated the optimizer status vocabulary ('critical' requires a critical-severity finding; HIGH piles read 'degraded' — confirmed live at house_score 55) and set model tiering after measuring the session: builders burned ~1.6M tokens yet still needed 6–16 review findings fixed per cycle, while bounded ~700k of Fable-5 reviewer tokens caught every shipped-incident-class bug.",
+  "decisions": [
+    "OC Phase 5 split Pillar B (admin surface) BEFORE Pillar A (handshake) so the operator could drive the autonomy rungs before siblings started obeying them; both shipped same-day.",
+    "Optimizer status word recalibrated: 'critical' reserved for critical-severity open findings; piles of HIGHs read 'degraded' — operator: the old mapping 'made it not as useful'.",
+    "Model tiering (durable): Fable-5 = orchestrator + ura-reviewer + ura-planner; ura-builder = opus-4-7; ura-validator = haiku. Reviewer is the deliberately super-powered agent because the pipeline catches builder mistakes but nothing catches reviewer misses.",
+    "B3 (pre-emptive actions / SIGNAL_COMFORT_REQUEST) formally SUPERSEDED by the OC actuation chokepoint — never build it standalone; future OC dimension instead.",
+    "Kill-list executed with replace-first discipline: next_occupancy_in deleted only because next_occupancy_time became a device_class=timestamp (client-side countdown, change-only writes); peak_occupancy_time deleted as a true 1:1 Bayesian duplicate."
+  ],
+  "alternatives_considered": [
+    "Keeping all agents on Fable-5 — rejected on measured cost/value asymmetry (builders = 60%+ of spend, inverse of caught-bug value).",
+    "Blind clamp for negative predicted_energy: rejected in favor of root-causing (net-of-solar semantics are CORRECT at source; clamp at consumer with signed raw_net_kwh attr).",
+    "Building B3 as planned — rejected: would create a second unguarded actuation path contending with the OC for the same devices.",
+    "Hiding pending_* tokens from the autonomy dropdown — impossible (HA requires current_option ∈ options); mapped pending selections through to the bare level instead."
+  ],
+  "implications": [
+    "The OC is now drivable end-to-end: operator stages an escalation, siblings can veto at L2+, kill switch wipes pending, all guarded. Dialing past Shadow is now an operator choice, not a build task.",
+    "Recurring bug-class bank grew teeth: naive/aware datetime hit 3x this week (forecaster CRITICAL, kill-list test stub, veto eviction); mock-masked dead calls hit 2x (Run Cycle Now button calling a nonexistent method through a green MagicMock test; vacuous sentinel-equals-itself tests). Reviews must demand spec'd fakes + production-path tests.",
+    "Operator hands-on validation is a distinct review layer: it caught the button-availability hole (infinite staleness) that four model review passes graded as '≤30s poll lag'.",
+    "Agent-fleet operational lessons now in memory: shared-checkout branch collisions (builders must use .claude/worktrees), session-limit-orphaned builders (main session finishes by hand), auto-mode classifier outages block Bash (operator cycles permission mode)."
+  ],
+  "follow_up": [
+    "Deploy the button-availability hotfix (fa20139, sealed on develop) with the next release.",
+    "Operator hands-on still open: escalation stage→Cancel via working buttons, Run Cycle Now debounce, options-flow label rendering (which translation shape resolved — prune the loser).",
+    "Forecaster evening→sleep ETA calibration check vs ~22:00 routine; day-after energy/recorder spot-checks.",
+    "SPAN remap worksheet (5 rooms, operator); Garage B Protect sensor + Jaya devices revival clears the optimizer's 'degraded'."
+  ],
+  "refs": {
+    "entries": ["021", "020", "017"],
+    "files": [
+      "docs/reviews/code-review/energy_unit_normalization_and_attribution.md",
+      "docs/reviews/code-review/routine_awareness_next_state_forecaster.md",
+      "docs/reviews/code-review/oc_pillar_b_admin_surface.md",
+      "docs/reviews/code-review/oc_pillar_a_handshake.md",
+      "docs/reviews/code-review/prediction_sensor_kill_list.md",
+      "docs/reviews/code-review/b4_live_health_repairs.md",
+      "docs/planning/PLANNING_OC_phase5_handshake_and_admin_surface.md",
+      "docs/readmes/README_v5.3.1.md",
+      "docs/readmes/README_v5.3.4.md"
+    ]
+  },
+  "ship_target": "v5.3.1–v5.3.4 (all LIVE + Review-D validated); button hotfix staged for next deploy"
+}

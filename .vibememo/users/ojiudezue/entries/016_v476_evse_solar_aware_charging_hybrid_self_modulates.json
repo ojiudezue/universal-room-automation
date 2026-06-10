@@ -1,0 +1,109 @@
+{
+  "format_version": "2.1",
+  "entry_id": "016",
+  "author": "ojiudezue",
+  "session_id": "claude_20260529_v4_7_5_live",
+  "timestamp": "2026-05-29T18:00:00Z",
+  "type": "decision",
+  "weight": "load-bearing",
+
+  "title": "v4.7.6 EVSE Solar-Aware Charging: hybrid A+B self_modulates flag + refined battery_ok + asymmetric SOC thresholds, upgraded to Tier 2-DB",
+
+  "summary": "Live diagnostic post-v4.7.5 surfaced three compounding gate-logic bugs in EV/L1 pause behavior. (1) Drain-rule resume condition was `battery_ok or soc_recovered` where `battery_ok = not battery_discharging`, so URA's own pause caused solar to overflow into the battery, flipping `battery_ok` True, and URA immediately resumed EV — bouncing between paused and resumed mid-day. (2) Manual-override branch at energy_pool.py:553-561 treats Emporia's native solar-mode auto-restart identically to a user gesture and sets a 1-hour cooldown that suppresses both pause and resume — leaving the EVSE silently on. (3) Existing drain rule only acts on active discharge; doesn't pause when solar is fat enough to power EV plus trickle-charge battery, even though SOC may be far below user's preferred fill target. User wants URA to be the house-wide backstop: re-pause idempotently every tick, regardless of who turned it back on, with explicit user override via the Force-Charge button. The cycle folds in a UX rename (Excess Solar → EVSE Solar-Aware), 2 new Number entities for asymmetric SOC thresholds (95% turn-on, 80% pause-until), and 7 sensor attribute additions for observability. User explicitly upgraded review tier from 1 to 2-DB: 'since this code has been full of correctness issues.'",
+
+  "decisions": [
+    {
+      "decision": "Hybrid A+B semantics for the new per-EVSE `evse_self_modulates: bool` flag (default False / unchecked)",
+      "why": "Option A alone (per-EVSE checkbox dictates behavior) leaves uncommunicative users stuck on whatever default we pick, and a wrong default broke them. Option B alone (observed-off + 30s grace state machine, auto-detect) is clever but has a race-condition tail for very fast smart re-enables that beat HA's state propagation. Hybrid: checkbox CHECKED → Option A behavior (idempotent re-pause, URA is authority, Force-Charge button is the user override path). Checkbox UNCHECKED (default OR unconfigured) → Option B (observed-off + grace state machine — only fires manual-override branch if URA observed `state.is_on=False` AND grace expired). Coverage matrix: smart EVSE checked → A clean. Smart EVSE unchecked → B auto-detects auto-resume as not-manual → still re-pauses. Dumb EVSE unchecked → B correctly treats user toggle as override after grace + observed-off. Dumb EVSE checked (misconfigured) → URA ignores override, re-pauses idempotently, user must Force-Charge. NO configuration leaves the user broken; default is safe; explicit opt-in is the optimization.",
+      "blast_radius": "Per-EVSE config flow option + new sticky state (`_pause_dispatch_ts`, `_observed_off_since_pause`) in EVPool and SmartPlugPool. Adversarial test stubs needed for each of the 6 cells of the matrix. RestoreEntity vs reset semantics on the new state across HA restart — decided: reset (safer post-restart default than trusting stale state)."
+    },
+    {
+      "decision": "Refined battery_ok: gate on `battery_soc <= reserve_soc + 2` to distinguish 'battery out of capacity' from 'transient equilibrium URA created'",
+      "why": "Original `battery_ok` covered end-of-solar-day: battery hit reserve floor, Enphase management refused further discharge, battery_power_w clamps to ~0. At that point pausing EV doesn't help — battery's empty, grid is paying anyway. The bug case: mid-day at SOC=51 when URA's own pause causes solar to overflow into battery, `battery_ok` True for the wrong reason. The SOC discriminator separates them cleanly: at reserve_soc+2 the battery has truly nothing left to give; at SOC=51 it's transient. Preserves the original intent (resume when out of capacity) without false-resuming on equilibrium URA itself just created.",
+      "blast_radius": "Single-line change at energy_pool.py:592 with conditional, plus dependency on `reserve_soc` which is already read by the battery coordinator. Test stubs: 'end-of-solar-day at reserve floor' (must resume) and 'transient equilibrium at SOC=51' (must NOT resume) — both required acceptance criteria."
+    },
+    {
+      "decision": "Asymmetric SOC thresholds: separate `fill_priority_soc` (80) and `excess_solar_soc` (95) Number entities — independent, live-tunable, big middle band",
+      "why": "Single threshold forces symmetric semantics: 'turn on at X AND pause until X.' User wants generous middle band where neither rule fires and EV runs on its TOU schedule. Turn on at 95% (battery essentially full + sunny day → charge EV with surplus). Pause until 80% (battery low + sunny day → fill battery first). Between 80 and 95: neither rule active, EV follows TOU. Both Number entities mean live-tuning without reopening the config flow.",
+      "blast_radius": "Two number entities + two CONFs + RestoreEntity round-trip via URA Mirror Pattern (entry 015). Acceptance: user can tune 80 → 75 live and see fill-priority pause trigger at SOC=74 within one tick."
+    },
+    {
+      "decision": "Rename `switch.ura_energy_coordinator_excess_solar_charging` → `switch.ura_energy_coordinator_evse_solar_aware_charging`; one switch gates both directions of the rule (turn-on AND pause)",
+      "why": "Mental model is 'smart solar gating of EV charging' — same switch, two complementary directions. 'Excess Solar' only describes the surplus-driven turn-on; the new pause-until rule isn't an 'excess' condition. 'Solar-Aware' covers both. Keep unique_id stable so HACS history doesn't break. Provide entity_id alias for one release.",
+      "blast_radius": "Friendly-name change + entity_id slug change + alias entry. Helper text updated. Force-Charge button helper-text cross-references the new self_modulates semantics. Reviewer C covers all three surfaces."
+    },
+    {
+      "decision": "7 new visibility attrs on `sensor.ura_energy_coordinator_ev_charging_status`",
+      "why": "Today the user has to grep logs to figure out why an EVSE is or isn't paused. Worse, the manual-override cooldown is completely invisible — by the time you notice the silent-stuck-on state, the cooldown is already an hour in. 7 attrs surface: per-EVSE pause-reason-human one-liner, cooldown timer + WHY it engaged, fill_priority_target_soc echo, fill_priority_solar_ok bool, evse_config (self_modulates + source), pause_dispatch_state (dispatch_ts + observed_off + grace_expires). Together they make the state machine inspectable from a dashboard.",
+      "blast_radius": "Sensor attribute additions only — no new entities. Reviewer C verifies render correctness on dashboards. Acceptance: every diagnostic question we had to debug live today must be answerable from the sensor attributes alone."
+    },
+    {
+      "decision": "Upgrade review tier from 1 to Tier 2-DB (3 parallel reviewers, different framings)",
+      "why": "User-coined rationale: 'since this code has been full of correctness issues.' Doesn't match formal Tier 2-DB trigger criteria in CLAUDE.md (no database.py DAO changes, no migration, no payload-shape change). But the framing-discipline rationale applies: gate-logic in energy_pool.py has historically shipped correctness regressions (drain rule OR clause, manual-override false positive, cold-start race) that two similar reviewers would miss. Three reviewers with different framings: A (correctness + state-machine invariants — explicit state-machine table per (self_modulates, _paused_by_battery_drain∋evse_id, state.is_on, _observed_off_since_pause, grace) combination), B (async + lifecycle + restart resilience), C (new surfaces + admin UX + cross-rule precedence). Run in PARALLEL.",
+      "blast_radius": "Three reviews fired in parallel after build. Likely surfaces more findings than a single review pass — accept that as the price of catching the residual correctness issues."
+    }
+  ],
+
+  "alternatives_considered": [
+    {
+      "alternative": "Drop the manual-override branch entirely (Option A everywhere)",
+      "why_rejected": "Works perfectly for smart EVSEs but breaks dumb EVSEs where a user flipping the switch in HA SHOULD pause URA. User flagged: 'It will mean it works best with dumb EVSEs.' Hybrid A+B handles both classes with a safe default."
+    },
+    {
+      "alternative": "Pure Option B (observed-off + grace, no per-EVSE flag)",
+      "why_rejected": "Has a race-condition tail: very fast smart re-enables that beat HA's state propagation could slip through grace without ever flipping observed_off. Hybrid lets the user explicitly opt in to the bulletproof Option A path for known-smart hardware."
+    },
+    {
+      "alternative": "Drop battery_ok entirely from resume condition (SOC-only resume)",
+      "why_rejected": "Would strand EV off forever at night when battery is at reserve floor and grid is supplying. Refined `battery_out_of_capacity` (battery_ok AND soc<=reserve+2) preserves the original intent without the transient-equilibrium bug."
+    },
+    {
+      "alternative": "Single SOC threshold for both turn-on and pause (symmetric)",
+      "why_rejected": "Forces user to choose between 'pause at 95 (won't pause until almost full)' or 'turn on at 80 (will run EV when battery only 80% full).' Asymmetric thresholds (turn on at 95, pause until 80) gives the dead-band where neither rule fires."
+    },
+    {
+      "alternative": "Stay on Tier 1 review (single reviewer)",
+      "why_rejected": "User explicit upgrade. Gate-logic history has correctness issues. Three framings can't share blind spots."
+    },
+    {
+      "alternative": "Two separate cycles — v4.7.6 hotfix (drain rule) then v4.7.7 (fill-priority + UX + rename)",
+      "why_rejected": "User said no rush since solar's good today. Bundling avoids two deploys and two review cycles for what is essentially one coherent gate-logic rewrite. Acceptable risk because the safety-net (drain rule) and the new primary (fill-priority) are co-designed."
+    }
+  ],
+
+  "implications": [
+    "Force-Charge button becomes the documented user-override path for smart EVSEs. Its UX gets cross-referenced from the renamed switch's helper text AND from the per-EVSE self_modulates checkbox's helper text. Triple-linking the override path is intentional — a silent-stuck-on state has been the dominant complaint.",
+    "Once `evse_self_modulates` ships, future EVSE integrations should default to False (unchecked) for safety — users can opt in to Option A after confirming their hardware's behavior. Document this as the convention in QUALITY_CONTEXT.md if it grows beyond two EVSEs.",
+    "Bug Class candidate (if cycle surfaces a new pattern): 'Resume Condition Too Broad — falses-resume on transient equilibrium our own pause created.' Battery drain's `battery_ok or soc_recovered` is the canonical example. Should be added to docs/QUALITY_CONTEXT.md as a new class if it recurs or if Reviewer A flags a similar pattern elsewhere.",
+    "Adversarial test pattern from this cycle (re-asserting state changes between dispatch and tick) is reusable for other URA backstop rules. Worth extracting as a test fixture once the build lands."
+  ],
+
+  "follow_up": [
+    "Backlog item already filed: project_ev_fill_priority_backlog.md captures the full design. MEMORY.md index entry updated to point to it as next cycle.",
+    "Planning dispatched: ura-planner writing PLANNING_v4.7.6_evse_solar_aware_charging.md to docs/planning/ in repo.",
+    "After plan returns: ura-builder in worktree, then 3 parallel Tier 2-DB reviewers (correctness + async + UX framings), fix-up, zero-bugs gate, deploy.",
+    "Adjacent bug surfaced in same diagnostic: `sensor.ura_energy_coordinator_ac_ramp_state_*` and `_last_action_*` entity-id vs friendly-name zone scrambling. Tracked under project_ac_nudge_decouple_backlog.md."
+  ],
+
+  "refs": {
+    "files": [
+      "custom_components/universal_room_automation/domain_coordinators/energy_pool.py",
+      "custom_components/universal_room_automation/domain_coordinators/energy.py",
+      "custom_components/universal_room_automation/domain_coordinators/energy_const.py",
+      "custom_components/universal_room_automation/domain_coordinators/energy_battery.py"
+    ],
+    "memory": [
+      ".claude/projects/-Users-okosisi-Code-universal-room-automation/memory/project_ev_fill_priority_backlog.md",
+      ".claude/projects/-Users-okosisi-Code-universal-room-automation/memory/project_v475_live.md",
+      ".claude/projects/-Users-okosisi-Code-universal-room-automation/memory/feedback_db_sensitive_3x_targeted_reviews.md",
+      ".claude/projects/-Users-okosisi-Code-universal-room-automation/memory/feedback_ura_mirror_pattern.md"
+    ],
+    "prior_entries": [
+      "013_bug_class_46_lazy_derivation_canonical_fix.json",
+      "014_pre_deploy_zero_bugs_gate.json",
+      "015_v475_option_c_auto_mirror.json"
+    ]
+  },
+
+  "ship_target": "v4.7.6, plan in flight. ~200-280 LoC production + ~400 LoC tests. Tier 2-DB (3 reviewers parallel). No DB schema change."
+}

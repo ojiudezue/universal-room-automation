@@ -1,0 +1,123 @@
+{
+  "format_version": "2.1",
+  "entry_id": "018",
+  "author": "ojiudezue",
+  "session_id": "claude_20260608_v4728_v4729_ships_and_tier2db_policy",
+  "timestamp": "2026-06-08T03:30:00Z",
+  "type": "decision",
+  "weight": "load-bearing",
+
+  "title": "Shipped v4.7.28 (EV off-peak + energy unit/sign reconciliation, bundled) and v4.7.29 (day-boundary-blind TOU fix, Bug Class #51); formalized Tier 2-DB-for-all-regression-prone-work as standing policy; bootstrapped Shipwatch; root-caused the instability to non-URA",
+
+  "summary": "Long session executing the entry-017 EV plan through to live, then a fresh bug class. THREAD 1: built + Tier 2-DB-reviewed + shipped the EV off-peak cycle as v4.7.28, BUNDLING a separately-scoped energy W/kW/kWh + power-sign reconciliation audit (3 display-sensor BUGs that were ~1000x off on kW-firmware + 2 battery-capacity uom-guard hardenings) since both touch the same energy coordinators. Live Review D 5 PASS + 1 deferred-to-window. THREAD 2: operator observed URA forcing grid import during the summer POST-peak mid_peak window (8-9pm) while the battery sat idle at 68%. Root-caused to the summer mid_peak 'hold-for-peak' branch (energy_battery.py:1031-1041, v3.10.5) which holds for BOTH the pre-peak (14-16) and post-peak (20-21) mid_peak windows — never reconciled with the v4.5.0 arbitrage redesign that added the day-boundary-aware get_next_high_rate_transition primitive but only wired it into the off_peak path. Operator reframed it as a BUG CLASS to sweep. Swept the whole energy domain: exactly ONE charging-decision instance (the mid_peak hold); EVSE off-peak ensure-on (v4.7.28) and the arbitrage state machine are day-boundary-safe. Fixed + 3-review Tier 2-DB + shipped as v4.7.29 with new Bug Class #51. THREAD 3 (process): operator formalized that ALL regression-prone work routes through the Tier 2-DB 3-review protocol, not just DB-sensitive cycles. THREAD 4 (ops): a live-instability investigation (3 HAOS reboots + an Envoy outage) was root-caused to NON-URA causes. THREAD 5: Shipwatch bootstrapped on this machine for the first time.",
+
+  "decisions": [
+    {
+      "decision": "STANDING POLICY (operator-coined): use the Tier 2-DB review protocol — 3 framing-disjoint reviews + live validation + README write-back — for ALL regression-prone work, regardless of whether the DB triggers fire. Default to elevating. Formalized in project CLAUDE.md under 'Operator-elevated Tier 2-DB'.",
+      "why": "Operator: 'I try to use it for all regression-prone work.' The 'DB' in the name is historical baggage; what the protocol actually buys is THREE DISJOINT FRAMINGS so reviewer blind spots can't converge (the original v4.6.3 lesson). Regression-prone = trust-hierarchy/cross-coordinator ripple (battery<->grid<->cost<->EVSE), strategy/decision-logic changes affecting cost/comfort/safety, changes to a SHARED PRIMITIVE consumed by multiple coordinators (TOU engine, signal bus, house-state machine), or fixes to long-standing logic other code now depends on (reconciliation risk). Pick framings to fit the change; the invariant is 3 disjoint framings, not the canonical A=data-integrity/B=migration/C=surfaces axis names.",
+      "blast_radius": "Process change for all future URA cycles. The day-boundary TOU fix (v4.7.29) was the first cycle explicitly elevated under it (regression-prone: battery strategy + shared TOU primitive, not DB). Sister to entry on feedback-db-sensitive-3x-targeted-reviews."
+    },
+    {
+      "decision": "New Bug Class #51 'Day-Boundary-Blind TOU Decision': a charging/load decision that branches on the CURRENT TOU period and acts on an ADJACENT/UPCOMING-period assumption ('hold for upcoming peak', 'drain before off-peak') without a real-time, midnight-crossing, season-aware lookahead. Symptom: fires identically for both halves of a bracketed period (pre/post-peak), right in one, wasteful in the other. Correct pattern: consult get_next_high_rate_transition / the new peak_ahead_before_offpeak.",
+      "why": "Operator's instinct ('forcing mid-peak grid draw is wrong, off_peak is coming, the algorithm isn't aware of day boundaries') was correct in substance though he mis-attributed the cause to an EVSE hold. Git archaeology confirmed his 'older OR not reconciled' hypothesis: the summer mid_peak hold is v3.10.5 (2026-03-11), ~2 months OLDER than the v4.5.0 arbitrage redesign which added the day-aware primitive but only used it on the off_peak path. The class generalizes: any solar-cycle energy decision that assumes a period is 'ahead' without checking it hasn't already passed today, and that off_peak spans midnight into the next solar day.",
+      "blast_radius": "Filed in docs/QUALITY_CONTEXT.md (#50->#51). Fix: peak_ahead_before_offpeak gates the summer mid_peak hold (hold only if a real peak precedes the next off_peak; else discharge). Adjacent HVAC SUSPECTs (max_runtime, mid_peak coast) deferred to hygiene bucket — the get_next_transition season-wrap hardening shipped in v4.7.29 de-risks the max_runtime one."
+    },
+    {
+      "decision": "Bundle the energy unit/sign reconciliation audit into the EV off-peak release (v4.7.28) rather than a separate cycle.",
+      "why": "Both touch the same energy coordinators (energy.py/energy_pool.py/sensor.py/energy_forecast.py), and the EV off-peak feature CONSUMES the same Envoy energy data the unit bugs corrupted — shipping correct units alongside the feature that depends on them is coherent. The 3 display BUGs (grid cost-per-hour, Total/Net Consumption sensors) were the last consumers of the deliberately-trapped mis-named *_kw properties the v4.3.4/v4.5.0 _w-normalization sweep was built to replace.",
+      "blast_radius": "v4.7.28 carries 4 commits (EV build + EV fix-ups + unit/sign audit + README). Power signs audited end-to-end — consistent, no changes. Live Review D confirmed consumption sensors report true kW (8.074/7.363 matching Envoy 1:1)."
+    },
+    {
+      "decision": "EVSE-gating is NOT changed — the high Enphase reserve was never an EVSE hold. Fixing the battery mid_peak branch is sufficient.",
+      "why": "Operator initially theorized the reserve was held high to protect against EVSE draw and wanted to decouple it. Source verification (energy_battery.py reserve_level set sites) showed reserve is set purely by TOU/season/solar/storm strategy; no EVSE code path raises it. EVSE pausing is switch-off only (energy_pool.py). So the premise was wrong; the actual lever was the battery strategy branch. Operator confirmed 'this is all good' — no EVSE-gating change.",
+      "blast_radius": "Avoided an unnecessary cross-controller change. Corrected a shared misconception that would otherwise have driven the wrong fix."
+    },
+    {
+      "decision": "Bootstrapped Shipwatch on this machine (~/.shipwatch/projects.yaml from the example; URA registered). deploy.sh still has NO shipwatch session-json hook (the unbuilt v1.2.0 integration); the session json is optional. README acceptance hypotheses + HA recorder are the actual monitoring path.",
+      "why": "Operator asked whether shipwatch could monitor v4.7.29. ~/.shipwatch/ did not exist at all on this machine. Honest limitation surfaced: shipwatch windows are deploy-relative, so it cannot isolate the day-boundary fix's 1-hour/day signal (post-peak 20:00-21:00) — its README H1 is a best-effort proxy; the precise confirmation is a targeted recorder read at that window (NOT a soak-watch, per no-soak rule).",
+      "blast_radius": "Future deploys can be monitored via /shipwatch once HA_TOKEN is exported + ha_url confirmed. README_v4.7.29 carries the first URA `## Acceptance` block written this session."
+    },
+    {
+      "decision": "Instability root-cause: NOT URA. The 3 HAOS host reboots (2026-06-07 afternoon) + the Envoy outage are non-URA. Envoy outage = enphase 'Unable to determine production endpoint' (firmware/token/endpoint, not URA). Reboots correlate with Proxmox/LXC host churn + a device-timeout boot-storm; URA loaded clean each time. The slow boots are the boot-storm (slow LAN/cloud device integrations), not URA.",
+      "why": "Exhaustive live forensics (HA MCP: integration states, error/system/supervisor logs, last_boot history, recorder). URA was a victim (it correctly raised energy_envoy_invalid when the Envoy entity went missing), not a cause. Could not verify the operator's '203 core restarts' figure — supervisor journal had rotated and no filesystem access; host reboots provable (8 in 10 days, 3 that afternoon), soft core-restart count not.",
+      "blast_radius": "Cleared URA before deploying. Side-finding: a real URA bug (ComplianceTracker.get_compliance_rate async called without await in two sync native_value props -> sensors silently return 100.0 + RuntimeWarning every 60s) -> queued as hygiene DO #2."
+    },
+    {
+      "decision": "Backlog prioritized for a fresh session. Hygiene DO queue (operator order): #2 compliance-coroutine, #9 _apply_evse_battery_hold re-pin, #3 HVAC coast release, #4 SPAN circuit re-map, #6 stale Envoy refs, #7 HA repairs triage, #1 back_hallway_hvac.yaml. Investigate #5 (zone-not-registered warning — operator says the zones exist, likely a false alarm). Big cycles queued: #8 load-shedding (1 CRIT+2 HIGH, Tier 2-DB), Optimization Coordinator (#45), Bayesian system audit (room + coordinator).",
+      "why": "Operator triaged the surfaced hygiene/backlog and wants to clear context and begin fresh. Persisted to project_session_pickup_2026_06_08.md as the authoritative resume doc.",
+      "blast_radius": "Next session starts at DO #2. Load-shedding is the headline next cycle — its EV shed tier shares _paused_by_us with the EVSE TOU controller (CRITICAL, collides with v4.7.28); do NOT live-test that tier until fixed."
+    }
+  ],
+
+  "alternatives_considered": [
+    {
+      "alternative": "Fix the summer mid_peak hold as a one-line Tier 1 hotfix",
+      "why_rejected": "Operator reframed it as a bug CLASS and asked to sweep the whole charging surface, then elevated to Tier 2-DB. A surgical one-liner would have missed the class framing + the shared-primitive (get_next_transition season-wrap) hardening."
+    },
+    {
+      "alternative": "Never hold during summer mid_peak (always discharge — simplest)",
+      "why_rejected": "Would lose the legitimate pre-peak (14-16) hold that saves the battery for the $0.162 peak. The peak_ahead_before_offpeak gate keeps the good case and kills only the wasteful post-peak case."
+    },
+    {
+      "alternative": "Include the HVAC day-boundary SUSPECTs (max_runtime, mid_peak coast) in the v4.7.29 cycle",
+      "why_rejected": "Operator scoped to 'charging + shared primitive' — fix the battery bug + harden get_next_transition (de-risks max_runtime without touching HVAC). HVAC items -> hygiene bucket. Keeps blast radius tight."
+    },
+    {
+      "alternative": "Treat the high reserve as an EVSE hold and decouple EVSE from reserve",
+      "why_rejected": "Source showed reserve is never raised by EVSE logic; the premise was wrong. Fixing the battery strategy branch is the correct lever."
+    },
+    {
+      "alternative": "Build the deploy.sh -> shipwatch session-json hook now",
+      "why_rejected": "That's the unbuilt Shipwatch v1.2.0 integration and is optional — shipwatch monitors via README acceptance + recorder. Out of scope for a deploy."
+    }
+  ],
+
+  "implications": [
+    "Tier 2-DB is now the DEFAULT for regression-prone URA work. Future cycles touching battery/energy strategy, shared primitives (TOU engine, signals, house-state), or long-standing logic should classify Tier 2-DB and run 3 framing-disjoint reviews unless clearly ripple-free.",
+    "Bug Class #51 is a lens for the queued load-shedding + Optimization Coordinator cycles: any TOU/solar-cycle decision must use a day-boundary-safe lookahead, never assume a period is 'ahead'.",
+    "Day-boundary v4.7.29 cycle is CLOSED — mechanism proven in 17 tests + Review D partial PASS. The post-peak 20:00-21:00 CDT observation is OPTIONAL confirmation via shipwatch, explicitly NOT a soak-watch (no-soak rule).",
+    "Deferred MED carried forward: _apply_evse_battery_hold can re-pin the battery during post-peak if an EVSE is charging (reason<->action divergence) -> hygiene DO #9, also a watch item.",
+    "Load-shedding is genuinely unsafe to live-test on the EV tier as-is (shares _paused_by_us with the EVSE TOU controller, collides with the v4.7.28 off-peak logic). Safe-test path = observation mode + low threshold, then one non-essential plug.",
+    "Context-window discipline: long sessions accumulate; the dependable pattern is persist-to-memory + fresh session. Could not confirm a >200k window for Opus 4.8 from in-session."
+  ],
+
+  "follow_up": [
+    "Fresh session resumes at hygiene DO #2 (see project_session_pickup_2026_06_08.md). Recall: 'resume 2026-06-08 backlog'.",
+    "Investigate DO #5 (zone-not-registered warning) — likely a registration-vs-display false alarm; confirm before any fix.",
+    "Big cycles queued: load-shedding (Tier 2-DB), Optimization Coordinator (#45), Bayesian system audit (room + coordinator).",
+    "Optional: /shipwatch (after export HA_TOKEN) picks up the v4.7.29 H1 against the recorder over the coming days."
+  ],
+
+  "refs": {
+    "files": [
+      "custom_components/universal_room_automation/domain_coordinators/energy_battery.py",
+      "custom_components/universal_room_automation/domain_coordinators/energy_tou.py",
+      "custom_components/universal_room_automation/domain_coordinators/energy.py",
+      "custom_components/universal_room_automation/domain_coordinators/energy_pool.py",
+      "custom_components/universal_room_automation/sensor.py",
+      "custom_components/universal_room_automation/domain_coordinators/energy_forecast.py",
+      "CLAUDE.md",
+      "docs/QUALITY_CONTEXT.md",
+      "docs/readmes/README_v4.7.28.md",
+      "docs/readmes/README_v4.7.29.md",
+      "docs/planning/PLANNING_day_boundary_blind_tou_decision.md",
+      "docs/reviews/code-review/day_boundary_tou_tier2db.md",
+      "docs/reviews/code-review/energy_unit_sign_reconciliation_audit.md",
+      "docs/reviews/code-review/ev_offpeak_proactive_review.md"
+    ],
+    "memory": [
+      ".claude/projects/-Users-okosisi-Code-universal-room-automation/memory/project_session_pickup_2026_06_08.md",
+      ".claude/projects/-Users-okosisi-Code-universal-room-automation/memory/feedback_tier2db_for_regression_prone.md",
+      ".claude/projects/-Users-okosisi-Code-universal-room-automation/memory/project_day_boundary_tou_live.md",
+      ".claude/projects/-Users-okosisi-Code-universal-room-automation/memory/project_load_shedding_audit_backlog.md",
+      ".claude/projects/-Users-okosisi-Code-universal-room-automation/memory/project_hygiene_bucket_yaml_span.md"
+    ],
+    "prior_entries": [
+      "017_ev_offpeak_decisions_and_comfort_opt_coordinator.json",
+      "016_v476_evse_solar_aware_charging_hybrid_self_modulates.json",
+      "014_pre_deploy_zero_bugs_gate.json"
+    ]
+  },
+
+  "ship_target": "v4.7.28 LIVE (EV off-peak + unit/sign). v4.7.29 LIVE (day-boundary TOU, Bug Class #51). Tier 2-DB-for-regression-prone = standing policy (CLAUDE.md). Next: hygiene DO queue (#2 first) + load-shedding/Optimization Coordinator/Bayesian-audit cycles."
+}

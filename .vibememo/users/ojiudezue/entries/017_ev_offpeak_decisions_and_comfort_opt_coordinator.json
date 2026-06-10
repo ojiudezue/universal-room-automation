@@ -1,0 +1,105 @@
+{
+  "format_version": "2.1",
+  "entry_id": "017",
+  "author": "ojiudezue",
+  "session_id": "claude_20260607_ev_offpeak_and_comfort_opt",
+  "timestamp": "2026-06-07T00:00:00Z",
+  "type": "decision",
+  "weight": "load-bearing",
+
+  "title": "EV off-peak proactive-charging cycle decisions (reuse _ev_tou_enabled with widened semantics, proactive self-modulating, persist arbitrage for parity) + comfort sliders kept and folded into Optimization Coordinator (not deleted)",
+
+  "summary": "Two threads resolved this session. THREAD 1 (EV charging): audit found cars not charging by morning because the off-peak branch of EVChargerController.determine_actions (energy_pool.py:469-489) only UN-pauses URA's own TOU pauses; the only proactive start is solar-gated (dead at night), so after the evening excess-solar turn-off the EVSE lands in no pause-set and nothing restarts it overnight. Fix plan filed (PLANNING_ev_offpeak_proactive_charging_and_persistence.md): WS1 persistence hardening (persist _force_charge_until + _paused_by_fill_priority + new _proactive_offpeak_holds intent-set to energy_state KV; add restore staleness guard) + WS2 proactive off-peak ensure-on gated by the existing TOU toggle with carry-over guard pre-check to avoid on/off flap. Operator does NOT want 'charge by morning' (can't promise a target without car capacity; capacity deferred as a future robustness consideration, not now). THREAD 2 (comfort sliders, ex-task #38): per-room ComfortTempMin/Max/HumidityMax Numbers are vestigial — RAM-only, reset to module constant on restart, and NOTHING reads the slider value (consumers read the constants). Original intent across 3 docs = per-room comfort-EVALUATION input for the Optimization Coordinator's Comfort room-health dimension, never HVAC actuation. Decision: keep them, fold the requirement into the Optimization Coordinator plan.",
+
+  "decisions": [
+    {
+      "decision": "EV proactive off-peak charging REUSES the existing `_ev_tou_enabled` toggle (Option A) rather than adding a new dedicated sub-toggle; the toggle's semantics WIDEN from 'pause EVSEs during peak/mid-peak' to 'URA owns EVSE TOU behavior in both directions — pause during high-rate periods AND proactively ensure-on during off-peak'.",
+      "why": "Operator pick: reuse, keep the config surface parsimonious. One toggle = one coherent mental model ('let URA manage my EV against the TOU schedule'). A second toggle would fragment that and invite the half-on/half-off states the operator dislikes. Operator directive: the widened semantics MUST be documented in vibememo (this entry) AND at every site that reads or explains the toggle — switch helper text, release note, and QUALITY_CONTEXT if the pattern recurs — so a future reader doesn't assume the toggle is pause-only.",
+      "blast_radius": "Behavioral widening of an existing toggle; no new entity. The off-peak branch at energy_pool.py:469-489 is rewritten to ensure-on. Reviewer B (behavior/precedence framing) verifies the widened semantics are surfaced loudly and that the no-flap pre-check holds."
+    },
+    {
+      "decision": "Self-modulating EVSEs participate in proactive off-peak charging IMPLICITLY (proactive-on), with no separate opt-in knob.",
+      "why": "Operator pick: proactive. Consistent with the existing `self_modulates` scope (entry 016 hybrid A+B). Adding an opt-in knob would re-introduce the 'uncommunicative user stuck on a default' failure mode the v4.7.6 hybrid was designed to avoid. Force-Charge button remains the explicit per-event override.",
+      "blast_radius": "No new config surface. Self-modulating EVSEs are ensured-on during off-peak alongside non-self-modulating ones, subject to the same battery/fill-priority/grid-cap guard pre-check."
+    },
+    {
+      "decision": "Persist `_paused_by_arbitrage` to `energy_state` KV (new key `evse_arbitrage_paused`) for parity — moved IN-scope (was deferred in plan §9.2).",
+      "why": "Operator pick: persist for parity. WS1 already persists grid-cap, battery-drain, and (newly) fill-priority guard sets; leaving arbitrage as the lone non-persisted guard is an asymmetry that invites a future 'why did arbitrage pause evaporate on restart' bug. ~+5 LoC: save in `_save_evse_state`, restore in `_restore_evse_state`. Promotes WS1 to cover all five guard sets uniformly.",
+      "blast_radius": "One new KV key + matching save/restore. Review A confirms save/restore symmetry and that the restore handles None/parse-failure gracefully (dt_util, not datetime.fromisoformat)."
+    },
+    {
+      "decision": "Comfort sliders (per-room ComfortTempMin / ComfortTempMax / ComfortHumidityMax) are NOT deleted; the per-room-comfort-bounds requirement is folded into the Optimization Coordinator plan (Appendix A) so the input surface returns WITH its consumer and gains persistence then.",
+      "why": "Verified original intent across HVAC_COORDINATOR.md:529, PLANNING_OPTIMIZATION_COORDINATOR.md:112/125/216, and COORDINATOR_DIAGNOSTICS_FRAMEWORK_v2.md:3124 (COMFORT_DEFAULT_BELIEFS, design-only): the sliders were always a per-room comfort-EVALUATION / anomaly-scoring input for the Optimization Coordinator's Comfort room-health dimension — never an HVAC actuator. They are orphaned only because that coordinator was never built. Operator context: a standalone comfort coordinator was deliberately killed because fans were its only actuation lever and HVAC subsumed that lever; comfort survives as a READ-ONLY health dimension, not an actuator. Deleting + re-adding three Numbers across a coordinator build is pure churn (single-user, no back-compat), so keep them as harmless orphans until Phase 1 wires them in.",
+      "blast_radius": "No code change now. Optimization Coordinator Phase 1 must source per-room comfort bounds from the slider/entry.options with constant fallback, and add write-back + restore in the same cycle. Acceptance hook recorded: a room with ComfortTempMax=74 must yield a Comfort finding at 75°F occupied while a 76-default room does not."
+    },
+    {
+      "decision": "Tee up the Optimization Coordinator as a near-term roadmap cycle after the current on-tap cycles; plough through its phases.",
+      "why": "Operator: high value — it makes URA SELF-OPTIMIZE. Plan already exists (5 phases) at PLANNING_OPTIMIZATION_COORDINATOR.md. Tracked as task #45, sequenced after EV off-peak (#44) and the other on-tap work.",
+      "blast_radius": "Multi-phase build (Phase 1 ~500 LoC). Consumer of existing infra (DecisionLogger, ComplianceTracker, AnomalyDetector, MetricBaseline, etc.), not a replacement. Phase 1 also closes the comfort-slider orphan."
+    }
+  ],
+
+  "alternatives_considered": [
+    {
+      "alternative": "Delete the three vestigial comfort sliders (parsimony cleanup)",
+      "why_rejected": "Operator chose keep. Their intended consumer (Optimization Coordinator Comfort dimension) is a near-term roadmap cycle; delete-then-re-add is churn. Orphan is harmless (no actuation, no false signal)."
+    },
+    {
+      "alternative": "Persist comfort sliders now as the literal task #38 (persistence-only)",
+      "why_rejected": "Would durably store a value nothing consumes — a dead knob that survives restart. No build warranted until the consumer exists."
+    },
+    {
+      "alternative": "New dedicated proactive-charging sub-toggle (EV Option B)",
+      "why_rejected": "Operator chose reuse. Fragments the config surface; reuse keeps one coherent 'URA manages my EV on TOU' model."
+    },
+    {
+      "alternative": "Require an opt-in knob for self-modulating EVSEs to proactively charge",
+      "why_rejected": "Operator chose implicit proactive. Re-introduces the uncommunicative-user-stuck-on-default failure the v4.7.6 hybrid avoided."
+    },
+    {
+      "alternative": "Leave _paused_by_arbitrage non-persisted (plan §9.2 default)",
+      "why_rejected": "Operator chose persist for parity. Lone non-persisted guard set is an asymmetry inviting a future restart bug."
+    },
+    {
+      "alternative": "Build 'charge by morning' target-SoC promise",
+      "why_rejected": "Operator: can't guarantee a target without knowing car capacity. Capacity is a deferred future-robustness consideration, not this cycle. Proactive off-peak ensure-on is the simpler, honest mechanism."
+    }
+  ],
+
+  "implications": [
+    "OPEN: staleness-guard default for restore_evse_state (10h vs 12h vs 24h) is the sole remaining blocker on EV builder kickoff. Tradeoffs presented to operator 2026-06-07; awaiting answer. Plan placeholder = 10h.",
+    "The _ev_tou_enabled semantics widening is a documentation obligation: switch helper text + release note must say the toggle now also drives proactive off-peak ensure-on, not just high-rate pause. Reviewer B gates this.",
+    "Optimization Coordinator Phase 1 now carries a hard sub-requirement: wire per-room comfort sliders into the Comfort dimension + persist them (sole-source pattern, mirror v4.7.25-27). Do not ship Phase 1 leaving them orphaned.",
+    "Operator standing instruction this session: catch up vibememo every 30 minutes regardless of transcript; defer only if nothing has been decided."
+  ],
+
+  "follow_up": [
+    "Resolve staleness-guard default (operator), then dispatch ura-builder for the EV cycle (WS1 first, then WS2) — Tier 2-DB, 3 framing-disjoint reviews (A persistence, B behavior/precedence, C new surfaces/test authority).",
+    "Optimization Coordinator queued as task #45 after on-tap cycles; Phase 1 closes the comfort-slider orphan.",
+    "EV plan §11 updated in-repo with resolved decisions 1/2/4; decision 3 marked OPEN."
+  ],
+
+  "refs": {
+    "files": [
+      "custom_components/universal_room_automation/domain_coordinators/energy_pool.py",
+      "custom_components/universal_room_automation/domain_coordinators/energy.py",
+      "custom_components/universal_room_automation/number.py",
+      "custom_components/universal_room_automation/binary_sensor.py",
+      "custom_components/universal_room_automation/aggregation.py",
+      "docs/planning/PLANNING_ev_offpeak_proactive_charging_and_persistence.md",
+      "docs/planning/PLANNING_OPTIMIZATION_COORDINATOR.md"
+    ],
+    "memory": [
+      ".claude/projects/-Users-okosisi-Code-universal-room-automation/memory/project_cm_reload_suppression_cycle_stack.md",
+      ".claude/projects/-Users-okosisi-Code-universal-room-automation/memory/feedback_parsimonious_room_config.md",
+      ".claude/projects/-Users-okosisi-Code-universal-room-automation/memory/feedback_db_sensitive_3x_targeted_reviews.md"
+    ],
+    "prior_entries": [
+      "016_v476_evse_solar_aware_charging_hybrid_self_modulates.json",
+      "015_v475_option_c_auto_mirror.json",
+      "014_pre_deploy_zero_bugs_gate.json"
+    ]
+  },
+
+  "ship_target": "EV off-peak cycle: plan filed, builder blocked only on staleness default; Tier 2-DB. Optimization Coordinator: roadmap task #45 (post on-tap). Comfort sliders: no build (folded into #45)."
+}

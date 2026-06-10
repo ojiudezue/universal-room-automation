@@ -1,0 +1,65 @@
+{
+  "format_version": "2.1",
+  "entry_id": "014",
+  "author": "ojiudezue",
+  "session_id": "claude_20260529_v4_7_4_4",
+  "timestamp": "2026-05-29T02:05:00Z",
+  "type": "pivot",
+  "weight": "critical",
+
+  "title": "Pre-Deploy Zero-Bugs Gate is mandatory before every deploy.sh",
+
+  "summary": "v4.7.4.3 was tagged and pushed to GitHub with literal `<<<<<<< HEAD` / `=======` / `>>>>>>>` markers in `__init__.py`, `config_flow.py`, and `QUALITY_CONTEXT.md`. The merge command produced conflicts; the deploy script ran anyway. Any HACS install would have hit `SyntaxError: invalid syntax`. Caused by my own process failure: I ignored CONFLICT messages from the git merge output and ran deploy.sh without validating. User: 'We need to make sure we ship zero bugs.' Recovery: replaced with v4.7.4.4 within one hour. Permanent process change: a 4-gate validation MUST run before every deploy.sh invocation.",
+
+  "decisions": [
+    {
+      "decision": "Mandatory 4-gate pre-deploy validation: conflict markers + py_compile + cycle tests + suite baseline diff",
+      "why": "The existing test suite uses source-grep / AST inspection and passed cleanly even with broken syntax in the same file — because the patterns it greps for were structurally present around the conflict markers. The first runtime touchpoint was HACS install on a live HA. By that time the GitHub release was already public and another user (in a future multi-install world) could have downloaded it. The gate must catch syntax-breaking errors BEFORE deploy.sh ever runs.",
+      "blast_radius": "Captured as `feedback_pre_deploy_zero_bugs_gate.md` in auto-memory. Codified in CLAUDE.md release process section. All future cycle close-outs run the gate."
+    },
+    {
+      "decision": "Source-grep AST tests are necessary but not sufficient for the test suite",
+      "why": "AST patterns can be satisfied by code that doesn't compile — Python's grammar allows nested expressions inside string-context contexts where the grep pattern matches. py_compile is the cheap insurance that catches what the grep tests can't. Bundled into v4.7.5 task #112 (config_flow runtime smoke tests) so we get a second layer of import-time validation too."
+    }
+  ],
+
+  "alternatives_considered": [
+    {
+      "alternative": "Add py_compile to the existing test suite as a fixture, run on every test invocation",
+      "why_rejected": "Considered but not enough. py_compile inside pytest passes if the file compiles. The bug here was that the AGENT pipeline ran tests BEFORE the merge — so the green test result was stale by the time deploy.sh ran. The gate has to run between merge and deploy, not before merge."
+    },
+    {
+      "alternative": "Block deploy.sh script-level on conflict markers (modify the script)",
+      "why_rejected": "Useful AND should happen — but the human/agent operator should also be running the gate manually as the first line of defense. Script gates can be bypassed; behavioral memory cannot."
+    },
+    {
+      "alternative": "Move to CI-gated releases (GitHub Actions runs the gate before tag is pushed)",
+      "why_rejected": "Right answer long-term. Not in scope for this immediate response — the agent-level process rule closes the gap today without infra work."
+    }
+  ],
+
+  "implications": [
+    "Builder agents will now refuse to declare a cycle done if conflict markers exist anywhere in changed files.",
+    "Deployer skill (`/deploy`) should incorporate the gate before invoking deploy.sh. TODO: update the skill definition.",
+    "The post-mortem doc for this incident becomes a reference for the discipline: 'this is what happens when you skip the gate.' Captured in v4.7.x stretch retrospective.",
+    "User trust impact: ANY future broken release will be a process-level concern, not just a code-level one."
+  ],
+
+  "follow_up": [
+    "Update `.claude/skills/deploy/SKILL.md` to bake the 4-gate validation into Step 0 (before tests).",
+    "Consider adding `git merge --no-commit` followed by explicit conflict check to scripts/deploy.sh.",
+    "Add a CI workflow `gate.yml` that runs the 4 gates on every PR to develop and master."
+  ],
+
+  "refs": {
+    "files": [
+      ".claude/skills/deploy/SKILL.md",
+      "scripts/deploy.sh"
+    ],
+    "memory": [
+      ".claude/projects/-Users-okosisi-Code-universal-room-automation/memory/feedback_pre_deploy_zero_bugs_gate.md"
+    ]
+  },
+
+  "ship_target": "Process change effective immediately 2026-05-29; tooling follow-ups (skill + script) TBD"
+}

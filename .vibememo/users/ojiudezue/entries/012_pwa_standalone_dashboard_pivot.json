@@ -1,0 +1,83 @@
+{
+  "format_version": "2.0",
+  "entry_id": "012",
+  "author": "ojiudezue",
+  "session_id": "claude_20260521_pwa_pivot",
+  "timestamp": "2026-05-21T14:30:00Z",
+  "type": "pivot",
+  "weight": "critical",
+
+  "title": "Pivot from panel_custom+hakit to standalone PWA for Dashboard v6.0",
+
+  "summary": "After three weeks of building Dashboard v5.0 inside HA's panel_custom + @hakit/core, user's verdict is 'Dashboard is slow. Like everything we have built with hakit.' Pivoting to a standalone PWA at ura.phalanxmadrone.com talking direct WebSocket to HA. Drops the iframe, drops hakit, drops the HACS deploy ceremony. Reuses all 10 v5.0 tab components verbatim by swapping only the data layer.",
+
+  "decisions": [
+    {
+      "decision": "Standalone PWA replaces panel_custom + hakit for ongoing dashboard work",
+      "why": "hakit's useEntity returns new object identity per state_changed event, causing every subscriber to re-render with no built-in throttle. v6 explicitly removed the throttle parameter. Inside panel_custom we also pay HA's frontend bootstrap + iframe wrapper + locale routing. Together these compound into the perceived slowness — measured FCP 232ms baseline but tab interactions felt sluggish on mobile. A standalone app with Zustand+rAF-batched dispatch + custom equality on selectors targets <100ms FCP and per-entity-precise re-renders.",
+      "blast_radius": "Replaces the v5.0 deployment lane. v5.0 (10 ported tabs in panel_custom) stays shipped as fallback until v6.2 (controls-go-live) supersedes."
+    },
+    {
+      "decision": "Hosting on homelab webhost LXC 110, NOT Vercel/CF Pages",
+      "why": "User has the webhost infrastructure already running 4 production sites (ziri, blackroots, africaaixprize, nduzi). Existing deploy script handles rsync + PM2 + Caddy + Cloudflare tunnel + UDM DNS in one command. No new infra cost. Cross-network access via the same CF tunnel infrastructure HA uses (madronehaos tunnel id 5f2c189b-…). Matches the homelab-first principle the user has been investing in.",
+      "blast_radius": "Subdomain ura.phalanxmadrone.com on user's domain. Port 3005 on webhost (next free after 3001-3004). New Caddy route + CF tunnel ingress entry."
+    },
+    {
+      "decision": "Separate repo ~/Code/ura-dashboard-pwa/, NOT sibling under universal-room-automation/",
+      "why": "User explicitly chose this. Keeps build/deploy cadence independent from URA Python (which has its own URA cycle ceremony — Tier 2 reviews, deploy.sh, etc.). Cross-repo coupling is just the HA entity-id schema, which is already documented in URA's docs/TELEMETRY_LAYER.md. Smaller blast radius for frontend-only experiments.",
+      "blast_radius": "Net-new repo. Cross-references to URA's docs/TELEMETRY_LAYER.md for entity-id source-of-truth."
+    },
+    {
+      "decision": "Dual-commit to GitHub + Gitea (user mandate)",
+      "why": "User: 'peace of mind to save to data stack I control.' Mirrors the ziri-website pattern documented in homelab-automation/docs/plan-ziri-website-sync.md. Gitea LXC at 192.168.13.130:3000 with public access via git.phalanxmadrone.com (Caddy + TinyAuth).",
+      "blast_radius": "All new repos. Post-v6 TODO: retrofit URA's own deploy.sh to dual-commit."
+    },
+    {
+      "decision": "Long-lived token in v6.0, OAuth2 + dedicated PWA token in v6.1",
+      "why": "Ship-day-1 with a paste-in token UX (homelab .env HA_TOKEN reuse). OAuth2 is the right long-term answer (refresh tokens + revocability + no token-in-localStorage exposure surface), but URL-based-client-id OAuth needs a separate ~2-day implementation. v6.1 ADDS: mint a dedicated ura-dashboard-pwa LL token via HA profile so the PWA's token is revocable without breaking homelab Ansible scripts that share the homelab token today.",
+      "blast_radius": "Token rotation is a documented D4 follow-up. Plan doc D10 captures the dedicated-token mint procedure."
+    },
+    {
+      "decision": "Zustand for state, NOT Redux/Context/Jotai",
+      "why": "Tiny (~3 KB), supports custom equality on selectors (the perf magic — compare entity.state + last_updated, not object identity), singleton-outside-React friendly so the WS client can write directly via useStore.setState. Alternatives evaluated: Context (re-renders every consumer per event — the exact problem we're escaping), Redux Toolkit (40 KB + boilerplate, overkill), Jotai (similar footprint but atom model less direct for our pattern), roll-our-own useSyncExternalStore (Zustand IS this with sugar — not worth reinventing for 80 LoC savings).",
+      "blast_radius": "1 dep (~3 KB gzip). D3 builds the store with custom equality selector + rAF-batched dispatcher (the core perf win)."
+    }
+  ],
+
+  "alternatives_considered": [
+    {
+      "alternative": "Stay in panel_custom but replace useEntity with a custom Zustand-backed hook (data-layer swap only)",
+      "why_rejected": "Captures ~80% of the perf win, ~2-3 days of work, lower risk. Considered as a stepping stone. Rejected because user wants to also escape HACS deploy ceremony + iframe + HA frontend shell — those wins ONLY come from the full PWA migration. The 'major new investment' framing makes the bigger bet the right one."
+    },
+    {
+      "alternative": "Use home-assistant-js-websocket library instead of custom WS client",
+      "why_rejected": "1 MB+ dep with auth flow assumptions, internal connection management, dependency on HA frontend types. Our use case is straightforward (~150 LoC custom client) and owning every behavior matters for the perf hardening we'll do later."
+    },
+    {
+      "alternative": "TanStack Query / SWR for entity state",
+      "why_rejected": "Optimized for HTTP request/response, not WebSocket pub/sub. Wrong fit for state_changed event streams."
+    },
+    {
+      "alternative": "Host on Vercel / Cloudflare Pages",
+      "why_rejected": "User has homelab infra already. Avoids vendor lock-in. Faster iteration loop (rsync to LAN vs. CI build + edge propagation). All assets stay under user control. CF Tunnel already handles the public-edge layer."
+    }
+  ],
+
+  "implications": [
+    "Once v6.0 stabilizes, dashboard-v3 (the panel_custom v5.0 version) becomes deprecated. Plan to remove the panel_custom block from URA's __init__.py only after v6.2 (controls go live) — not before, so user always has the working fallback.",
+    "URA's entity-id schema becomes the cross-repo contract. Breaking changes there now affect the PWA. docs/TELEMETRY_LAYER.md needs to be treated as a public API doc going forward, not just internal notes.",
+    "Auth surface: long-lived token in localStorage in v6.0 is the standard SPA tradeoff. XSS risk = standard SPA risk. v6.1 OAuth2 reduces blast radius but doesn't eliminate it.",
+    "Service-call wiring (v6.2 D11) finally makes the dashboard's controls bar usable — toggles, sliders, buttons all hit HA services directly. The 'force vacant' UX gap we hit yesterday on the Study A bug becomes a one-click action.",
+    "Dual-commit to Gitea creates a graceful-degradation story: if GitHub is down or revoked, user still has full git history on infrastructure they control."
+  ],
+
+  "follow_up": [
+    "Update URA deploy.sh to dual-commit to Gitea (post-v6 cycle)",
+    "Mint dedicated ura-dashboard-pwa LL token at v6.1 (D10)",
+    "Add CF tunnel automation upstream to homelab-automation/scripts/webhost/deploy-static-site.sh (currently 'not yet implemented' per its TODO)",
+    "Measure FCP < 200ms + total transfer < 500 KB as the perf-budget bar (D9 + D12)"
+  ],
+
+  "plan_doc": "docs/planning/PLANNING_v5.x_dashboard_standalone_pwa.md",
+  "ship_target": "v6.0 in ~7 days, v6.2 (controls live) in ~12 days"
+}
