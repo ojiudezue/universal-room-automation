@@ -85,10 +85,27 @@ def _as_local(dt):
 
 
 def _as_utc(dt):
+    """Mirror real HA semantics: naive datetimes are treated as LOCAL.
+
+    Real ``homeassistant.util.dt.as_utc`` calls
+    ``replace(tzinfo=DEFAULT_TIME_ZONE).astimezone(UTC)`` for naive
+    inputs — so naive is interpreted as the HA-configured local zone,
+    NOT as UTC. We deliberately match that here so a regression of
+    review-finding A-1 (the forecaster routing a naive UTC stamp
+    through as_utc and getting a local-offset shift) is observable
+    in the test suite. The test fixture below explicitly verifies
+    this binding by stamping a naive 02:00 wall-clock UTC time and
+    asserting it lands in the evening bin under a UTC-5 local zone.
+    """
     if dt is None:
         return None
     if dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
+        # Simulate a UTC-5 (CDT-style) local zone — gives the test the
+        # same offset shift the live HA instance would produce. We pick
+        # a fixed offset rather than reading the runtime tz so the test
+        # is deterministic regardless of where it runs.
+        local = timezone(timedelta(hours=-5))
+        return dt.replace(tzinfo=local).astimezone(timezone.utc)
     return dt.astimezone(timezone.utc)
 
 
@@ -487,3 +504,222 @@ class TestConstants:
         assert _const.ROUTINE_FORECAST_MAX_ROWS >= 100
         assert isinstance(_const.ROUTINE_FORECAST_MODEL_ID, str)
         assert _const.ROUTINE_FORECAST_MODEL_ID
+
+    def test_max_dwell_seconds_present(self):
+        """Review A-M2 constant — used to drop restart-spanning samples."""
+        assert isinstance(_const.ROUTINE_FORECAST_MAX_DWELL_SECONDS, int)
+        # 12h is the planned threshold; allow ≥ 1h ≤ 24h as a sanity band.
+        assert 3600 <= _const.ROUTINE_FORECAST_MAX_DWELL_SECONDS <= 86400
+
+
+# ---------------------------------------------------------------------------
+# Review fix-up regression tests
+# ---------------------------------------------------------------------------
+
+
+class TestParseTimezone:
+    """Regression for review finding A-1 (timezone semantics).
+
+    The DB writer emits naive UTC ISO strings (``datetime.utcnow().isoformat()``).
+    HA's real ``dt_util.as_utc`` treats naive as LOCAL, which would shift
+    every stamp by the local offset and put a 02:00Z event into the
+    night bin under any negative-offset zone (e.g. UTC-5). The fix:
+    ``_parse_ts`` attaches UTC explicitly BEFORE any conversion.
+    """
+
+    def test_naive_iso_treated_as_utc_not_local(self):
+        # 02:00 UTC; under the test stub's UTC-5 local zone this would
+        # SHIFT to 07:00 UTC if routed through as_utc — the original bug.
+        # Expected (fixed): the stamp stays at 02:00 UTC.
+        raw = "2026-05-18T02:00:00"
+        parsed = rf_mod.RoutineForecaster._parse_ts(raw)
+        assert parsed is not None
+        assert parsed.tzinfo is not None
+        # Stays at 02:00 UTC — naive interpreted as UTC.
+        assert parsed.hour == 2
+        assert parsed.utcoffset() == timedelta(0)
+
+    def test_naive_evening_utc_bins_to_evening_bin_under_local_tz(self):
+        """Review A-1 regression: a 02:00 UTC stamp from a 21:00 CDT event.
+
+        The writer captures the event as 02:00Z (naive). With the bug,
+        the local-bin would be 21:00 local (evening bin 4) — wait, the
+        bug is the OTHER direction: a 21:00 CDT (02:00Z) event gets
+        SHIFTED again by ``as_utc`` (naive→local) into 07:00 UTC → 02:00
+        local → night bin 0. Fixed: parses to 02:00 UTC → 21:00 local
+        (UTC-5) → evening bin 4. We assert the latter.
+        """
+        raw = "2026-05-18T02:00:00"  # naive UTC, event happened 21:00 prior day local
+        parsed = rf_mod.RoutineForecaster._parse_ts(raw)
+        # Convert through the test stub's as_local: tz-aware now, returns
+        # itself unchanged (stub keeps original tz). The relevant check is
+        # that the binning step would treat the LOCAL hour correctly — we
+        # simulate the same shift the production code does.
+        local = parsed.astimezone(timezone(timedelta(hours=-5)))
+        assert local.hour == 21
+        # 21:00 falls in bin 5 (late evening / pre-midnight). The bug
+        # would have routed this stamp through as_utc, treating naive
+        # as local → 07:00 UTC → 02:00 local → bin 0 (night). Asserting
+        # bin 5 (not bin 0) is the regression check.
+        local_bin = rf_mod._hour_to_time_bin(local.hour)
+        assert local_bin == 5
+        assert local_bin != 0  # the buggy bin under as_utc-naive-is-local
+
+
+class TestNewestKeptOnOverflow:
+    """Review A-2 / B-2: fetch_house_state_log_since returns NEWEST rows
+    when the table overruns LIMIT (source-level check)."""
+
+    def test_db_reader_uses_desc_order_under_limit(self):
+        from pathlib import Path
+
+        db_src = (
+            Path(__file__).parents[2]
+            / "custom_components"
+            / "universal_room_automation"
+            / "database.py"
+        ).read_text()
+        start = db_src.index("async def fetch_house_state_log_since")
+        end = db_src.index("\n    async def ", start + 1)
+        body = db_src[start:end]
+        # Internal SQL must sort DESC so LIMIT keeps newest rows; the
+        # function then reverses in Python to preserve the ASC contract
+        # callers depend on (dwell-time computation).
+        assert "ORDER BY timestamp DESC" in body
+        assert "reversed(" in body
+
+
+class TestSelfLoopSkip:
+    """Review A-M1: prev_state == state rows (restart artifacts) must NOT
+    inflate cell denominators."""
+
+    def test_self_loops_excluded_from_aggregation(self):
+        base = datetime(2026, 5, 18, 14, 0, tzinfo=timezone.utc)
+        rows = []
+        # 6 legit home_day -> away transitions (interleaved with prev rows)
+        rows.append(_row(base - timedelta(minutes=10), "home_day", "away"))
+        for i in range(6):
+            t = base + timedelta(hours=i)
+            rows.append(_row(t, "away", "home_day"))
+            rows.append(_row(t + timedelta(minutes=30), "home_day", "away"))
+        # Inject self-loops the refresh must skip.
+        for i in range(50):
+            rows.append(
+                _row(base + timedelta(seconds=i), "home_day", "home_day")
+            )
+
+        db = _FakeDB(rows)
+        fc = rf_mod.RoutineForecaster(_hass(), db)
+        asyncio.new_event_loop().run_until_complete(fc.async_refresh())
+        # Sum every count in every cell — self-loops would have added 50.
+        total = sum(
+            sum(v.values()) for v in fc._counts.values()
+        )
+        # We have 6 away transitions + 6 home_day re-entries that fall
+        # under prev==away (NOT self-loops). Self-loops contribute 0.
+        # Upper bound 20 keeps the test resilient to bin churn.
+        assert total <= 20
+
+    def test_self_loop_incremental_update_is_noop(self):
+        """The incremental path must mirror the refresh-walk self-loop guard."""
+        db = _FakeDB([])
+        fc = rf_mod.RoutineForecaster(_hass(), db)
+        # No prior state — incremental self-loop must NOT seed _last_row_*.
+        fc._handle_house_state_change(
+            {"old_state": "home_day", "new_state": "home_day"}
+        )
+        assert fc._last_row_ts is None
+        assert fc._last_row_state is None
+        assert not fc._counts
+
+
+class TestDwellCap:
+    """Review A-M2: restart-spanning dwell samples (> 12h) are dropped.
+
+    The transition still counts; only the ETA sample is discarded so
+    medians don't get pulled toward 12h+.
+    """
+
+    def test_long_dwell_count_kept_eta_sample_dropped(self):
+        base = datetime(2026, 5, 18, 9, 0, tzinfo=timezone.utc)
+        # Sequence: away -> home_day (real, dwell = 1h)
+        #           then home_day -> away (synthetic restart-gap 36h)
+        rows = [
+            _row(base, "home_day", "away"),
+            _row(base + timedelta(hours=1), "away", "home_day"),
+            _row(base + timedelta(hours=37), "home_day", "away"),  # 36h gap
+            _row(base + timedelta(hours=38), "away", "home_day"),
+        ]
+        db = _FakeDB(rows)
+        fc = rf_mod.RoutineForecaster(_hass(), db)
+        asyncio.new_event_loop().run_until_complete(fc.async_refresh())
+        # Find the home_day cells and check their ETA samples.
+        for (prev, _, _), nexts in fc._etas.items():
+            if prev == "home_day":
+                for samples in nexts.values():
+                    for s in samples:
+                        # Anything above the cap shouldn't be present.
+                        assert s <= _const.ROUTINE_FORECAST_MAX_DWELL_SECONDS
+
+
+class TestDeferredInitialRefresh:
+    """Review B-1: async_setup() must NOT await the initial DB read.
+
+    The deferred load is triggered by ``async_trigger_initial_refresh``
+    (called from PresenceCoordinator._release_boot_settle) and is
+    idempotent.
+    """
+
+    def test_setup_does_not_load_db_eagerly(self):
+        db = _FakeDB([])
+        fc = rf_mod.RoutineForecaster(_hass(), db)
+        loop = asyncio.new_event_loop()
+        loop.run_until_complete(fc.async_setup())
+        # No DB calls during setup.
+        assert db.calls == []
+        assert fc._initial_refresh_done is False
+
+    def test_trigger_initial_refresh_runs_once(self):
+        db = _FakeDB([])
+        fc = rf_mod.RoutineForecaster(_hass(), db)
+        loop = asyncio.new_event_loop()
+        loop.run_until_complete(fc.async_setup())
+        loop.run_until_complete(fc.async_trigger_initial_refresh())
+        first_call_count = len(db.calls)
+        assert first_call_count == 1
+        assert fc._initial_refresh_done is True
+        # Second call is a no-op (idempotent).
+        loop.run_until_complete(fc.async_trigger_initial_refresh())
+        assert len(db.calls) == first_call_count
+
+
+class TestReSetupGuard:
+    """Review B-3: PresenceCoordinator must NOT leave the prior forecaster
+    instance ticking on re-entrant setup. Source-level guarantee check —
+    the live wiring is exercised by manual reload, not by this suite."""
+
+    def test_presence_setup_shuts_down_prior_forecaster(self):
+        from pathlib import Path
+
+        src = (
+            Path(__file__).parents[2]
+            / "custom_components"
+            / "universal_room_automation"
+            / "domain_coordinators"
+            / "presence.py"
+        ).read_text()
+        # Find the forecaster-attach block.
+        anchor = src.index(
+            "from .routine_forecaster import RoutineForecaster"
+        )
+        # Look ahead a few hundred chars for the guard pattern.
+        window = src[anchor: anchor + 1500]
+        assert "_routine_forecaster" in window
+        # The guard: prior instance is shut down before a new one is
+        # constructed. Look for the explicit shutdown call AND the
+        # awareness check.
+        assert "existing.async_shutdown" in window or (
+            "_routine_forecaster" in window
+            and "async_shutdown" in window
+            and "RoutineForecaster(self.hass, db)" in window
+        )

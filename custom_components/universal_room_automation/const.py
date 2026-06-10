@@ -1873,3 +1873,10 @@ ROUTINE_FORECAST_MAX_ROWS: Final = 5000
 # Emitted in prediction["model"]. Suffix +guest_passthrough when current
 # state is GUEST or VACATION (passthrough path; see RoutineForecaster.predict).
 ROUTINE_FORECAST_MODEL_ID: Final = "house_state_log_freq_v1"
+
+# Restart-spanning dwell guard. Consecutive house_state_log rows with no
+# gap-detection attribute HA downtime to the prior state — a 36-hour
+# "dwell" across an outage would systematically inflate ETA medians.
+# When the gap exceeds this constant we still bump the cell count
+# (the transition is real) but discard the dwell sample.
+ROUTINE_FORECAST_MAX_DWELL_SECONDS: Final = 43200  # 12h

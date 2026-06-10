@@ -1727,6 +1727,23 @@ class PresenceCoordinator(BaseCoordinator):
                 "OccupancySubstrate: release_boot_settle raised (non-fatal)",
                 exc_info=True,
             )
+        # Routine forecaster B-1 (review): trigger the deferred initial
+        # DB load now that the cold-boot window has closed. Idempotent;
+        # the interval-tick backstop covers the case where the
+        # forecaster doesn't exist yet (DB wasn't ready at setup time).
+        try:
+            forecaster = getattr(self, "_routine_forecaster", None)
+            if forecaster is not None:
+                self.hass.async_create_task(
+                    forecaster.async_trigger_initial_refresh()
+                )
+        except Exception:  # noqa: BLE001 — defensive: NEVER let the
+            # forecaster's first load crash the boot-settle release path.
+            _LOGGER.debug(
+                "RoutineForecaster: async_trigger_initial_refresh "
+                "scheduling raised (non-fatal)",
+                exc_info=True,
+            )
         if reason == "timeout":
             _LOGGER.warning(
                 "Boot-settle: released via TIMEOUT after %ss (no real input "
@@ -1887,6 +1904,23 @@ class PresenceCoordinator(BaseCoordinator):
             db = self.hass.data.get(DOMAIN, {}).get("database")
             if db is not None:
                 from .routine_forecaster import RoutineForecaster  # noqa: PLC0415
+                # B-3 (review): re-setup leak guard. If a forecaster was
+                # already attached (re-entrant setup path), shut it down
+                # first so its timer + dispatcher subscription release
+                # cleanly before we install a new instance — otherwise
+                # the prior one keeps ticking against the same hass
+                # (untracked-background-tasks bug class #19).
+                existing = getattr(self, "_routine_forecaster", None)
+                if existing is not None:
+                    try:
+                        await existing.async_shutdown()
+                    except Exception:  # noqa: BLE001
+                        _LOGGER.debug(
+                            "RoutineForecaster: shutdown of prior instance "
+                            "raised during re-setup (non-fatal)",
+                            exc_info=True,
+                        )
+                    self._routine_forecaster = None
                 forecaster = RoutineForecaster(self.hass, db)
                 await forecaster.async_setup()
                 self._routine_forecaster = forecaster

@@ -2013,8 +2013,12 @@ class UniversalRoomDatabase:
         (prev_state, day_type, time_bin) -> next_state counts + dwell ETAs.
 
         Bounded by ``LIMIT ?`` to cap read pressure (no runaway scans even
-        if the table grows). ``ORDER BY timestamp ASC`` so the caller sees
-        chronological order — required for dwell-time computation from
+        if the table grows). Internal SQL uses ``ORDER BY timestamp DESC
+        LIMIT ?`` so an overflowed window keeps the NEWEST rows (review
+        finding A-2 / B-2 — the prior ASC ordering froze the model on
+        stale data after any flap storm). Rows are reversed in Python
+        before returning so callers still see ascending chronological
+        order, which is required for the dwell-time computation across
         consecutive rows.
 
         Returns ``[]`` on exception (matches count_house_state_changes_since
@@ -2028,12 +2032,15 @@ class UniversalRoomDatabase:
                     SELECT timestamp, state, previous_state, confidence
                     FROM house_state_log
                     WHERE timestamp >= ?
-                    ORDER BY timestamp ASC
+                    ORDER BY timestamp DESC
                     LIMIT ?
                     """,
                     (since_iso, int(limit)),
                 )
                 rows = await cursor.fetchall()
+                # Caller expects ascending chronological order — reverse
+                # the DESC result. ``reversed()`` is O(n) and keeps the
+                # newest-kept semantics from the LIMIT.
                 return [
                     {
                         "timestamp": r[0],
@@ -2041,7 +2048,7 @@ class UniversalRoomDatabase:
                         "previous_state": r[2],
                         "confidence": r[3],
                     }
-                    for r in (rows or [])
+                    for r in reversed(rows or [])
                 ]
         except Exception as e:
             _LOGGER.error(

@@ -37,7 +37,7 @@ from __future__ import annotations
 import logging
 import statistics
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Final
 
 from homeassistant.core import HomeAssistant, callback
@@ -48,6 +48,7 @@ from homeassistant.util import dt as dt_util
 from ..const import (
     DOMAIN,
     ROUTINE_FORECAST_HISTORY_DAYS,
+    ROUTINE_FORECAST_MAX_DWELL_SECONDS,
     ROUTINE_FORECAST_MAX_ROWS,
     ROUTINE_FORECAST_MIN_SUPPORT,
     ROUTINE_FORECAST_MODEL_ID,
@@ -143,28 +144,28 @@ class RoutineForecaster:
         self._last_refresh_iso: str | None = None
         self._refresh_row_count: int = 0
 
+        # B-1 (review): defer the first DB read past the cold-boot
+        # window so we don't compete with HA's setup-stage I/O. Flipped
+        # to True the first time async_refresh() actually completes.
+        self._initial_refresh_done: bool = False
+
     # ------------------------------------------------------------------
     # Lifecycle
     # ------------------------------------------------------------------
 
     async def async_setup(self) -> None:
-        """Subscribe to signals + schedule periodic refresh; do initial aggregation.
+        """Subscribe to signals + schedule periodic refresh.
 
         Safe to call multiple times — repeat calls are no-ops thanks to the
         unsub guards. The caller (PresenceCoordinator) owns the lifecycle.
-        """
-        # Initial aggregate from DB. Safe under boot-settle: predict() gates
-        # its OWN output on _boot_settle_done (via caller), but the
-        # aggregate itself is harmless to build early.
-        try:
-            await self.async_refresh()
-        except Exception:  # noqa: BLE001
-            _LOGGER.debug(
-                "RoutineForecaster: initial refresh raised (non-fatal); "
-                "predict will return unknown until next refresh",
-                exc_info=True,
-            )
 
+        B-1 (review): we no longer await async_refresh() here. The
+        initial DB read is deferred past the cold-boot window — the
+        caller wires ``async_trigger_initial_refresh`` to its
+        boot-settle release path; the periodic interval tick also
+        eventually triggers it as a backstop. The first refresh is
+        idempotent (gated by ``_initial_refresh_done``).
+        """
         # Periodic refresh — store unsub on dedicated attribute per #50.
         if self._unsub_refresh is None:
             try:
@@ -222,8 +223,32 @@ class RoutineForecaster:
 
     @callback
     def _handle_refresh_tick(self, _now: Any = None) -> None:
-        """async_track_time_interval callback — kicks an async refresh."""
+        """async_track_time_interval callback — kicks an async refresh.
+
+        Also serves as the backstop for the deferred initial refresh
+        (review B-1): if the boot-settle-driven trigger somehow never
+        fires, the first interval tick still loads the aggregate.
+        """
         self.hass.async_create_task(self.async_refresh())
+
+    async def async_trigger_initial_refresh(self) -> None:
+        """Run the first DB load if it hasn't happened yet.
+
+        B-1 (review): the caller (PresenceCoordinator._release_boot_settle)
+        invokes this once the cold-boot window has closed so we don't
+        compete with HA's setup-stage I/O. Idempotent — safe to call
+        from multiple paths (boot-settle, interval tick backstop, etc).
+        """
+        if self._initial_refresh_done:
+            return
+        try:
+            await self.async_refresh()
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug(
+                "RoutineForecaster: initial refresh raised (non-fatal); "
+                "predict will return unknown until next refresh",
+                exc_info=True,
+            )
 
     async def async_refresh(self) -> None:
         """Re-read the bounded window and rebuild the aggregate from scratch.
@@ -281,6 +306,16 @@ class RoutineForecaster:
                     prior_state = state
                     continue
 
+                # Self-loop guard (review A-M1): prev == state rows are
+                # restart artifacts (rehydration writes a row with
+                # previous_state == state when the coordinator can't
+                # recover the true predecessor). Counting them inflates
+                # cell denominators and deflates confidence.
+                if prev == state:
+                    prior_ts = ts
+                    prior_state = state
+                    continue
+
                 # Exclude guest/vacation prev_state rows from non-guest
                 # cells — prevents bleed-through during long guest runs
                 # (mirrors RegimeDetector's defensive posture).
@@ -318,7 +353,12 @@ class RoutineForecaster:
                     _hour_to_time_bin(cell_ref.hour),
                 )
                 new_counts[cell][state] += 1
-                if dwell_seconds > 0:
+                # Restart-spanning dwell guard (review A-M2): if the gap
+                # between consecutive rows exceeds the cap, the dwell
+                # almost certainly includes HA downtime — count the
+                # transition (it really happened) but drop the ETA
+                # sample so medians don't get pulled toward 12h+.
+                if 0 < dwell_seconds <= ROUTINE_FORECAST_MAX_DWELL_SECONDS:
                     new_etas[cell][state].append(dwell_seconds)
 
                 prior_ts = ts
@@ -337,6 +377,9 @@ class RoutineForecaster:
         # Seed incremental tracker from the last row we saw.
         self._last_row_ts = prior_ts
         self._last_row_state = prior_state
+        # B-1: mark the initial load complete so async_trigger_initial_refresh
+        # is a no-op going forward (idempotency for the boot-settle path).
+        self._initial_refresh_done = True
         _LOGGER.info(
             "RoutineForecaster: refreshed aggregate from %d rows; %d cells",
             self._refresh_row_count,
@@ -361,6 +404,13 @@ class RoutineForecaster:
                 )
                 state = getattr(payload, "new_state", None)
             if not prev or not state:
+                return
+            # Self-loop guard (A-M1) — mirror the refresh-walk policy so
+            # incremental updates don't reintroduce artifacts the refresh
+            # is now excluding.
+            if prev == state:
+                # Don't update _last_row_* either; the prior row's view
+                # of "where we are" is unchanged by a self-loop.
                 return
 
             now_utc = dt_util.utcnow()
@@ -388,7 +438,9 @@ class RoutineForecaster:
                     _hour_to_time_bin(cell_ref.hour),
                 )
                 self._counts[cell][state] = self._counts[cell].get(state, 0) + 1
-                if dwell_seconds > 0:
+                # Restart-spanning dwell guard (A-M2): cap incremental
+                # samples for the same reason as the refresh walk.
+                if 0 < dwell_seconds <= ROUTINE_FORECAST_MAX_DWELL_SECONDS:
                     self._etas[cell][state].append(dwell_seconds)
 
             self._last_row_ts = now_utc
@@ -569,7 +621,18 @@ class RoutineForecaster:
 
     @staticmethod
     def _parse_ts(raw: Any) -> datetime | None:
-        """Parse an ISO timestamp from house_state_log; return None on failure."""
+        """Parse an ISO timestamp from house_state_log; return None on failure.
+
+        Critical TZ semantics (review A-1): ``database.log_house_state_change``
+        writes timestamps via naive ``datetime.utcnow().isoformat()`` — the
+        wall-clock IS UTC but the string carries no offset. HA's
+        ``dt_util.as_utc`` treats naive datetimes as LOCAL (it calls
+        ``replace(tzinfo=DEFAULT_TIME_ZONE).astimezone(UTC)``), so feeding
+        the raw parse to ``as_utc`` would shift every stamp by the local
+        UTC offset and systematically mis-bin (e.g., a 21:00 CDT event
+        would aggregate into the 02:00 UTC time-bin = bin 0/night). We
+        attach UTC explicitly BEFORE any conversion to local for binning.
+        """
         if not isinstance(raw, str):
             return None
         try:
@@ -581,11 +644,7 @@ class RoutineForecaster:
             except ValueError:
                 return None
         if parsed.tzinfo is None:
-            try:
-                parsed = dt_util.as_utc(parsed)
-            except Exception:  # noqa: BLE001
-                # Assume UTC if dt_util can't help (unit-test stub).
-                from datetime import timezone
-
-                parsed = parsed.replace(tzinfo=timezone.utc)
+            # Naive => UTC (writer uses datetime.utcnow()). Do NOT route
+            # through dt_util.as_utc which would treat naive as LOCAL.
+            parsed = parsed.replace(tzinfo=timezone.utc)
         return parsed
