@@ -113,31 +113,56 @@ def _ha_stubs(monkeypatch):
     return _s
 
 
-def _fake_coordinator(*, next_time, confidence=None, entry_id="room1"):
-    """Build a minimal coordinator double for the sensor."""
+def _fake_coordinator(mod, *, next_time, confidence=None, entry_id="room1"):
+    """Build a minimal coordinator double for the sensor.
+
+    Keys come from the module's actual STATE_* constants so a const rename
+    fails here rather than silently testing dead keys.
+    """
     coord = MagicMock()
     coord.entry.entry_id = entry_id
     coord.entry.data = {"room_name": "Test Room"}
     coord.last_update_success = True
     data = {}
     if next_time is not None:
-        data["next_occupancy_time"] = next_time
+        data[mod.STATE_NEXT_OCCUPANCY_TIME] = next_time
     if confidence is not None:
-        data["occupancy_confidence"] = confidence
+        data[mod.STATE_OCCUPANCY_CONFIDENCE] = confidence
     coord.data = data
     return coord
+
+
+def _bare_sensor(mod, coord):
+    """Instantiate the REAL NextOccupancyTimeSensor without running its
+    environment-fragile constructor chain (CoordinatorEntity/UniversalRoomEntity
+    __init__ depends on whichever HA mocks happen to be installed by sibling
+    test files — the union varies with collection order). object.__new__ +
+    explicit attrs keeps the PRODUCTION methods under test while making the
+    test order-immune."""
+    s = object.__new__(mod.NextOccupancyTimeSensor)
+    s.coordinator = coord
+    # Mirror the two sentinel attrs __init__ sets (asserted by the static
+    # source check below so drift in __init__ fails loudly).
+    s._last_written = object()
+    s._last_confidence = object()
+    s.async_write_ha_state = MagicMock()
+    return s
+
+
+def test_init_sets_change_sentinels_source_check():
+    """_bare_sensor mirrors __init__'s sentinels; lock that contract."""
+    full = (ROOT_DIR / ROOT_REL / "sensor.py").read_text()
+    src = full[full.find("class NextOccupancyTimeSensor"):]
+    src = src[:src.find("\nclass ", 1)]
+    assert "self._last_written" in src and "self._last_confidence" in src
 
 
 def test_next_occupancy_time_native_value_is_tz_aware(_ha_stubs):
     """native_value must return a tz-aware datetime; naive inputs are
     normalized to UTC (frontend ``device_class=timestamp`` requires tz)."""
-    from custom_components.universal_room_automation.sensor import (
-        NextOccupancyTimeSensor,
-    )
-
     naive = _dt.datetime(2026, 6, 10, 7, 30, 0)  # no tzinfo
-    coord = _fake_coordinator(next_time=naive)
-    sensor = NextOccupancyTimeSensor(coord)
+    coord = _fake_coordinator(_ha_stubs, next_time=naive)
+    sensor = _bare_sensor(_ha_stubs, coord)
     value = sensor.native_value
     assert value is not None
     assert value.tzinfo is not None, "native_value must be tz-aware"
@@ -156,14 +181,9 @@ def test_next_occupancy_time_device_class_is_timestamp(_ha_stubs):
 def test_next_occupancy_time_writes_only_on_change(_ha_stubs):
     """``_handle_coordinator_update`` must suppress writes when neither the
     timestamp nor the confidence has changed since the last write."""
-    from custom_components.universal_room_automation.sensor import (
-        NextOccupancyTimeSensor,
-    )
-
     t1 = _dt.datetime(2026, 6, 10, 7, 30, 0, tzinfo=_dt.timezone.utc)
-    coord = _fake_coordinator(next_time=t1, confidence=0.8)
-    sensor = NextOccupancyTimeSensor(coord)
-    sensor.async_write_ha_state = MagicMock()
+    coord = _fake_coordinator(_ha_stubs, next_time=t1, confidence=0.8)
+    sensor = _bare_sensor(_ha_stubs, coord)
 
     # First refresh: state transitions from sentinel → t1 ⇒ MUST write.
     sensor._handle_coordinator_update()
@@ -178,11 +198,11 @@ def test_next_occupancy_time_writes_only_on_change(_ha_stubs):
 
     # Prediction moves forward ⇒ write again.
     t2 = t1 + _dt.timedelta(minutes=15)
-    coord.data["next_occupancy_time"] = t2
+    coord.data[_ha_stubs.STATE_NEXT_OCCUPANCY_TIME] = t2
     sensor._handle_coordinator_update()
     assert sensor.async_write_ha_state.call_count == 2
 
     # Confidence change only ⇒ also a write (UI surfaces it as an attr).
-    coord.data["occupancy_confidence"] = 0.6
+    coord.data[_ha_stubs.STATE_OCCUPANCY_CONFIDENCE] = 0.6
     sensor._handle_coordinator_update()
     assert sensor.async_write_ha_state.call_count == 3
