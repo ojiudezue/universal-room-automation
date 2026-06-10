@@ -158,14 +158,36 @@ def test_init_sets_change_sentinels_source_check():
 
 
 def test_next_occupancy_time_native_value_is_tz_aware(_ha_stubs):
-    """native_value must return a tz-aware datetime; naive inputs are
-    normalized to UTC (frontend ``device_class=timestamp`` requires tz)."""
+    """native_value must return a tz-aware datetime; naive inputs are routed
+    through dt_util.as_utc (HA convention: naive = LOCAL), never stamped UTC.
+
+    The suite's mocked ``homeassistant.util.dt`` may lack ``as_utc``; when
+    missing we install a FAITHFUL stand-in mirroring HA semantics
+    (naive -> attach local tz -> convert to UTC) so the test proves the
+    ROUTE. With real HA installed the genuine as_utc is used untouched.
+    """
+    import homeassistant.util.dt as _ha_dt
+    installed_stub = not hasattr(_ha_dt, "as_utc")
+    if installed_stub:
+        _local = _dt.timezone(_dt.timedelta(hours=-5))  # fixed fake local tz
+        _ha_dt.as_utc = lambda v: (
+            v.replace(tzinfo=_local).astimezone(_dt.timezone.utc)
+            if v.tzinfo is None
+            else v.astimezone(_dt.timezone.utc)
+        )
+
     naive = _dt.datetime(2026, 6, 10, 7, 30, 0)  # no tzinfo
     coord = _fake_coordinator(_ha_stubs, next_time=naive)
     sensor = _bare_sensor(_ha_stubs, coord)
     value = sensor.native_value
     assert value is not None
     assert value.tzinfo is not None, "native_value must be tz-aware"
+    if installed_stub:
+        # With our fixed UTC-5 stand-in: naive 07:30 treated as LOCAL must
+        # become 12:30 UTC. A naive-as-UTC regression would yield 07:30 UTC.
+        assert value.astimezone(_dt.timezone.utc).hour == 12, (
+            "naive datetime was labeled UTC instead of treated as local"
+        )
 
 
 def test_next_occupancy_time_device_class_is_timestamp(_ha_stubs):
