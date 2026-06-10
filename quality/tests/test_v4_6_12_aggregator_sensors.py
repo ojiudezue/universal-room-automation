@@ -297,7 +297,19 @@ def _make_demand_sensor(hass, hvac_coord_or_none):
 
 
 def _make_grid_sensor(hass, ec_or_none):
-    """Build EnergyGridDemandSensor with injected energy coordinator."""
+    """Build EnergyGridDemandSensor mirror.
+
+    MIRRORS production EnergyGridDemandSensor at
+    custom_components/universal_room_automation/aggregation.py
+    (class EnergyGridDemandSensor, see `available`/`native_value`/
+    `extra_state_attributes`). When that body changes, update this mirror
+    in lock-step or these tests will lock the wrong contract.
+
+    B4 live-health repair (2026-06-10): production no longer short-circuits
+    `available` on cap-disabled / cap-kw-unset. The sensor is available
+    whenever the EC is registered; the cap/net inputs are exposed via
+    `unconfigured_reason` instead.
+    """
     class _Sensor:
         def __init__(self, h, ec):
             self.hass = h
@@ -308,26 +320,22 @@ def _make_grid_sensor(hass, ec_or_none):
 
         @property
         def available(self) -> bool:
-            ec = self._get_ec()
-            if ec is None:
-                return False
-            if not getattr(ec, "_grid_import_cap_enabled", False):
-                return False
-            if getattr(ec, "_grid_import_cap_kw", 0.0) <= 0:
-                return False
-            return True
+            # B4: only gates on EC presence.
+            return self._get_ec() is not None
 
         @property
         def native_value(self) -> float | None:
             ec = self._get_ec()
             if ec is None:
                 return None
+            if not getattr(ec, "_grid_import_cap_enabled", False):
+                return None
             cap_kw = getattr(ec, "_grid_import_cap_kw", 0.0)
-            if cap_kw <= 0 or not getattr(ec, "_grid_import_cap_enabled", False):
+            if cap_kw <= 0:
                 return None
             try:
-                net_w = ec._battery.net_power_w
-            except AttributeError:
+                net_w = getattr(getattr(ec, "_battery", None), "net_power_w", None)
+            except Exception:
                 return None
             if net_w is None:
                 return None
@@ -342,14 +350,27 @@ def _make_grid_sensor(hass, ec_or_none):
             cap_kw = getattr(ec, "_grid_import_cap_kw", 0.0)
             cap_enabled = getattr(ec, "_grid_import_cap_enabled", False)
             battery = getattr(ec, "_battery", None)
-            net_w = getattr(battery, "net_power_w", None)
+            try:
+                net_w = getattr(battery, "net_power_w", None)
+            except Exception:
+                net_w = None
             grid_kw = round(max(net_w, 0) / 1000.0, 3) if net_w is not None else None
-            return {
+            unconfigured_reason = None
+            if not cap_enabled:
+                unconfigured_reason = "grid_import_cap_disabled"
+            elif cap_kw <= 0:
+                unconfigured_reason = "grid_import_cap_kw_unset"
+            elif net_w is None:
+                unconfigured_reason = "net_power_w_unavailable"
+            attrs = {
                 "grid_import_kw": grid_kw,
                 "grid_import_cap_kw": cap_kw,
                 "grid_import_cap_enabled": cap_enabled,
                 "exporting": net_w is not None and net_w < 0,
             }
+            if unconfigured_reason is not None:
+                attrs["unconfigured_reason"] = unconfigured_reason
+            return attrs
 
     return _Sensor(hass, ec_or_none)
 
@@ -605,14 +626,19 @@ class TestEnergyGridDemandSensor:
         assert sensor.extra_state_attributes["exporting"] is True
 
     def test_grid_demand_cap_disabled_returns_none(self):
-        """_grid_import_cap_enabled=False → value=None, available=False."""
+        """B4 (2026-06-10): cap disabled → native_value=None but sensor
+        stays AVAILABLE (HA shows "Unknown" instead of "Unavailable"); attrs
+        expose `unconfigured_reason="grid_import_cap_disabled"`."""
         hass = _make_hass()
         sensor = _make_grid_sensor(hass, _make_energy_coord(8.0, False, 4000))
         assert sensor.native_value is None
-        assert sensor.available is False
+        assert sensor.available is True
+        attrs = sensor.extra_state_attributes
+        assert attrs["unconfigured_reason"] == "grid_import_cap_disabled"
 
     def test_grid_demand_no_coordinator_returns_none(self):
-        """No energy coordinator → value=None, available=False."""
+        """No energy coordinator → value=None, available=False (EC-missing
+        is the ONLY unavailable state post-B4)."""
         hass = _make_hass()
         sensor = _make_grid_sensor(hass, None)
         assert sensor.native_value is None

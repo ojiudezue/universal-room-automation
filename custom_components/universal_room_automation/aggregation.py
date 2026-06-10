@@ -1818,8 +1818,8 @@ class PredictedEnergyTodaySensor(AggregationEntity, SensorEntity):
         the `raw_net_kwh` attribute. Not a blind clamp: the underlying
         method/source is unchanged; only the consumer-facing display is
         adjusted to match the sensor name ("Predicted Energy Today"). Cost
-        is unaffected (PredictedCostTodaySensor already handles negative
-        kWh as export credit at line 2038).
+        is unaffected (PredictedCostTodaySensor.async_update applies the
+        export-credit branch when energy_kwh < 0).
         """
         # Use cached value if recent (predictions are expensive)
         if self._cached_value is not None and self._cache_time:
@@ -1898,14 +1898,30 @@ class PredictedEnergyWeekSensor(AggregationEntity, SensorEntity):
 
     @property
     def native_value(self) -> float | None:
-        """Return predicted kWh value."""
-        return self._cached_value
+        """Return predicted kWh value.
+
+        B4 review A-M1 / B-M2 (2026-06-10): apply the same `max(net, 0)`
+        clamp as PredictedEnergyTodaySensor for family consistency. Signed
+        raw value is exposed via the `raw_net_kwh` attribute.
+        """
+        if self._cached_value is None:
+            return None
+        return max(self._cached_value, 0.0)
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        """Return prediction details."""
+        """Return prediction details.
+
+        B4 review A-M1 / B-M2: expose `raw_net_kwh` (signed net) so the
+        export-aware figure is available without poisoning the gross display.
+        """
         attrs = {
-            "value": self._cached_value,
+            "value": (
+                max(self._cached_value, 0.0)
+                if self._cached_value is not None
+                else None
+            ),
+            "raw_net_kwh": self._cached_value,
             "unit": "kWh",
             "confidence": self._cached_confidence,
             "confidence_level": _get_confidence_level(self._cached_confidence),
@@ -1914,7 +1930,8 @@ class PredictedEnergyWeekSensor(AggregationEntity, SensorEntity):
 
         # Add friendly display text
         if self._cached_value is not None:
-            attrs["display"] = f"{self._cached_value} kWh ({_get_confidence_level(self._cached_confidence)})"
+            display_val = max(self._cached_value, 0.0)
+            attrs["display"] = f"{display_val} kWh ({_get_confidence_level(self._cached_confidence)})"
         else:
             attrs["display"] = "Collecting data..."
 
@@ -1954,14 +1971,30 @@ class PredictedEnergyMonthSensor(AggregationEntity, SensorEntity):
 
     @property
     def native_value(self) -> float | None:
-        """Return predicted kWh value."""
-        return self._cached_value
+        """Return predicted kWh value.
+
+        B4 review A-M1 / B-M2 (2026-06-10): apply the same `max(net, 0)`
+        clamp as PredictedEnergyTodaySensor for family consistency. Signed
+        raw value is exposed via the `raw_net_kwh` attribute.
+        """
+        if self._cached_value is None:
+            return None
+        return max(self._cached_value, 0.0)
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        """Return prediction details."""
+        """Return prediction details.
+
+        B4 review A-M1 / B-M2: expose `raw_net_kwh` (signed net) so the
+        export-aware figure is available without poisoning the gross display.
+        """
         attrs = {
-            "value": self._cached_value,
+            "value": (
+                max(self._cached_value, 0.0)
+                if self._cached_value is not None
+                else None
+            ),
+            "raw_net_kwh": self._cached_value,
             "confidence": self._cached_confidence,
             "confidence_level": _get_confidence_level(self._cached_confidence),
             "period": "month",
@@ -1969,7 +2002,8 @@ class PredictedEnergyMonthSensor(AggregationEntity, SensorEntity):
 
         # Add friendly display text
         if self._cached_value is not None:
-            attrs["display"] = f"{self._cached_value} kWh ({_get_confidence_level(self._cached_confidence)})"
+            display_val = max(self._cached_value, 0.0)
+            attrs["display"] = f"{display_val} kWh ({_get_confidence_level(self._cached_confidence)})"
         else:
             attrs["display"] = "Collecting data..."
 
@@ -5785,16 +5819,26 @@ class EnergyGridDemandSensor(AggregationEntity, SensorEntity):
 
     @property
     def native_value(self) -> float | None:
-        """Return grid import as % of cap. None when cap not configured."""
+        """Return grid import as % of cap. None when cap not configured.
+
+        B4 review A-M2 / B-L2 (2026-06-10): branch order matches
+        extra_state_attributes (cap_enabled checked first, then cap_kw, then
+        net_power_w) so the two surfaces always agree on which input is the
+        blocker. Broad Exception guard mirrors the attrs path — Bug Class #14
+        (teardown race) defense in depth.
+        """
         ec = _get_energy_coordinator(self.hass)
         if ec is None:
             return None
+        if not getattr(ec, "_grid_import_cap_enabled", False):
+            return None
         cap_kw = getattr(ec, "_grid_import_cap_kw", 0.0)
-        if cap_kw <= 0 or not getattr(ec, "_grid_import_cap_enabled", False):
+        if cap_kw <= 0:
             return None
         try:
-            net_w = ec._battery.net_power_w
-        except AttributeError:
+            net_w = getattr(getattr(ec, "_battery", None), "net_power_w", None)
+        except Exception:  # battery teardown race — Bug Class #14 guard
+            _LOGGER.debug("EnergyGridDemandSensor: battery read failed", exc_info=True)
             return None
         if net_w is None:
             return None
@@ -5808,22 +5852,30 @@ class EnergyGridDemandSensor(AggregationEntity, SensorEntity):
         B4 repair: always exposes `grid_import_kw` (live whole-house import,
         derived from EC battery / Envoy CT) and an `unconfigured_reason` key
         that names the missing input when `native_value` is None.
+
+        B4 review A-L1 (2026-06-10): the prior `energy_coordinator_unavailable`
+        reason branch was dead — when EC is missing, `available` is False so
+        HA never reads extra_state_attributes. Removed; EC-missing now returns
+        an empty dict to make the unreachable state explicit.
         """
         ec = _get_energy_coordinator(self.hass)
         if ec is None:
-            return {"unconfigured_reason": "energy_coordinator_unavailable"}
+            # Unreachable: `available` is False here so HA won't query attrs.
+            return {}
         cap_kw = getattr(ec, "_grid_import_cap_kw", 0.0)
         cap_enabled = getattr(ec, "_grid_import_cap_enabled", False)
         battery = getattr(ec, "_battery", None)
         try:
             net_w = getattr(battery, "net_power_w", None)
         except Exception:  # battery teardown race — Bug Class #14 guard
+            _LOGGER.debug("EnergyGridDemandSensor: battery read failed", exc_info=True)
             net_w = None
         grid_kw: float | None = None
         if net_w is not None:
             grid_kw = round(max(net_w, 0) / 1000.0, 3)
 
         # Determine which input (if any) blocks % computation.
+        # Branch order matches native_value: cap_enabled → cap_kw → net_w.
         unconfigured_reason: str | None = None
         if not cap_enabled:
             unconfigured_reason = "grid_import_cap_disabled"

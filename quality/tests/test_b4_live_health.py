@@ -31,6 +31,9 @@ Three live-observed issues against v5.3.3:
 from __future__ import annotations
 
 import ast
+from types import SimpleNamespace
+from unittest.mock import MagicMock
+
 import pytest
 
 
@@ -279,109 +282,239 @@ class TestOccupancyWeightedSwitchPersistenceRoundTrip:
         assert '"occupancy_weighted_prediction"' in call_body  # unique_id suffix
         assert "default=False" in call_body
 
-    def test_round_trip_user_toggles_on_then_restart(self):
-        """End-to-end round-trip mirror — uses the same _ECSwitch-shape mirror
-        that test_v4721 already validates as a faithful production mirror.
-        """
-        # Lifecycle 1: user toggles ON; persistence is via RestoreEntity
-        # (state is captured when the entity writes ha_state). We simulate
-        # that by replaying last_state='on' into a fresh switch with a
-        # fresh EC instance — what HA actually does after a restart.
+    # ---------------------------------------------------------------------
+    # Production-driven round-trip — B4 review A-H1 / B-M1 (2026-06-10).
+    #
+    # We drive the REAL `_ec_switch_factory` body from switch.py. The body
+    # is extracted via AST from production source and exec'd in a stubbed
+    # namespace (the full import chain — coordinator.py → automation.py →
+    # 120+ HA imports — is too heavy to load in unit tests). We then build
+    # the OccupancyWeightedPredictionSwitch by calling the real factory
+    # exactly as switch.py does at module-load time, and use
+    # `object.__new__` to get a bare instance so we can seed it with the
+    # attrs the production __init__ would set without running the __init__
+    # (which reads entry.data + builds DeviceInfo).
+    #
+    # The restore body that runs is the SAME source text shipped to the
+    # user — drift between production and test is structurally impossible
+    # because the source is read at test time from disk.
+    # ---------------------------------------------------------------------
 
-        class _MockEnergy:
+    # Pollution-safe sys.modules patches: track every key we add so the
+    # fixture can restore on teardown (other tests — test_activity_logger,
+    # test_v47x_dynamic_preset — own these module names and break if we
+    # leave stubs in sys.modules).
+    _POLLUTION_KEYS = (
+        "homeassistant",
+        "homeassistant.helpers",
+        "homeassistant.helpers.dispatcher",
+        "custom_components",
+        "custom_components.universal_room_automation",
+        "custom_components.universal_room_automation.domain_coordinators",
+        "custom_components.universal_room_automation.domain_coordinators.signals",
+    )
+
+    @pytest.fixture(autouse=True)
+    def _sys_modules_isolation(self):
+        """Save + restore sys.modules entries we touch. Without this, the
+        stubs we install bleed into sibling test files that depend on the
+        REAL packages being absent / re-importable (B4 review B-M1
+        follow-up: pollution check)."""
+        import sys
+        saved = {k: sys.modules.get(k, None) for k in self._POLLUTION_KEYS}
+        try:
+            yield
+        finally:
+            for k, v in saved.items():
+                if v is None:
+                    sys.modules.pop(k, None)
+                else:
+                    sys.modules[k] = v
+
+    @staticmethod
+    def _build_production_oc_weighted_class():
+        """Extract + exec the production _ec_switch_factory and instantiate
+        the OccupancyWeightedPredictionSwitch class from it. Returns the
+        real factory-produced class (the `_ECSwitch` from switch.py).
+
+        sys.modules patches installed here are reverted by the
+        `_sys_modules_isolation` autouse fixture."""
+        import sys
+        import types as _types
+
+        # Pre-seed sys.modules for the function-local imports inside
+        # `async_added_to_hass`. The body executes:
+        #   from homeassistant.helpers.dispatcher import async_dispatcher_connect
+        #   from .domain_coordinators.signals import SIGNAL_ENERGY_COORDINATOR_READY
+        # Both must resolve.
+        sys.modules.setdefault("homeassistant", _types.ModuleType("homeassistant"))
+        sys.modules.setdefault(
+            "homeassistant.helpers", _types.ModuleType("homeassistant.helpers")
+        )
+        disp_mod = _types.ModuleType("homeassistant.helpers.dispatcher")
+        disp_mod.async_dispatcher_connect = lambda hass, sig, cb: (lambda: None)
+        sys.modules["homeassistant.helpers.dispatcher"] = disp_mod
+        sys.modules.setdefault(
+            "custom_components", _types.ModuleType("custom_components")
+        )
+        sys.modules.setdefault(
+            "custom_components.universal_room_automation",
+            _types.ModuleType("custom_components.universal_room_automation"),
+        )
+        sys.modules.setdefault(
+            "custom_components.universal_room_automation.domain_coordinators",
+            _types.ModuleType(
+                "custom_components.universal_room_automation.domain_coordinators"
+            ),
+        )
+        sig_mod_name = (
+            "custom_components.universal_room_automation.domain_coordinators.signals"
+        )
+        sig_mod = _types.ModuleType(sig_mod_name)
+        sig_mod.SIGNAL_ENERGY_COORDINATOR_READY = "ura_ec_ready"
+        sys.modules[sig_mod_name] = sig_mod
+
+        switch_path = "custom_components/universal_room_automation/switch.py"
+        with open(switch_path) as f:
+            full_src = f.read()
+        tree = ast.parse(full_src, filename=switch_path)
+        factory_node = next(
+            n for n in tree.body
+            if isinstance(n, ast.FunctionDef) and n.name == "_ec_switch_factory"
+        )
+        factory_src = ast.get_source_segment(full_src, factory_node)
+        assert factory_src is not None
+
+        # Distinct bare bases for SwitchEntity / RestoreEntity — the
+        # production `class _ECSwitch(SwitchEntity, RestoreEntity)` line
+        # rejects duplicate base classes. async_get_last_state is
+        # overridden per-test on the instance to feed the simulated
+        # post-restart last_state.
+        class _StubSwitchEntity:
+            def async_on_remove(self, _unsub):
+                pass
+
+            def async_write_ha_state(self):
+                pass
+
+            async def async_added_to_hass(self):
+                return None
+
+        class _StubRestoreEntity:
             pass
 
-        class _Switch:
-            _RETRY_DELAYS_S = (5, 30, 120)
-            _ATTR = "occupancy_weighted"
+        # `__package__` must be set so the exec'd body's relative import
+        # (`from .domain_coordinators.signals import …`) resolves against
+        # the pre-seeded sig_mod above.
+        ns: dict = {
+            "SwitchEntity": _StubSwitchEntity,
+            "RestoreEntity": _StubRestoreEntity,
+            "DeviceInfo": dict,
+            "EntityCategory": SimpleNamespace(CONFIG="config"),
+            "DOMAIN": "universal_room_automation",
+            "VERSION": "test",
+            "callback": lambda fn: fn,
+            "async_call_later": lambda *a, **kw: (lambda: None),
+            "_LOGGER": MagicMock(),
+            "__package__": "custom_components.universal_room_automation",
+            "__name__": "custom_components.universal_room_automation.switch",
+        }
+        exec(factory_src, ns)
+        # Build OccupancyWeightedPredictionSwitch exactly as switch.py:765-771.
+        return ns["_ec_switch_factory"](
+            "occupancy_weighted",
+            "occupancy_weighted_prediction",
+            "Occupancy Weighted Prediction",
+            "mdi:account-clock",
+            default=False,
+        )
 
-            def __init__(self, get_energy, default=False):
-                self._get_energy = get_energy
-                self._default = default
-                self._deferred_restore = False
-                self._deferred_value = default
-                self.scheduled = []
-                self.ec_ready_handlers = []
+    @staticmethod
+    def _bare_instance(cls):
+        """object.__new__ bypass of the production __init__ (which reads
+        entry.data + builds DeviceInfo). Seed only the attrs the restore
+        body reads — names taken from the production __init__."""
+        s = object.__new__(cls)
+        s._default = False
+        s._deferred_restore = False
+        s._deferred_value = False
+        s._retry_index = 0
+        return s
 
-            def async_added_to_hass(self, last_state):
-                self.ec_ready_handlers.append(self._handle_ec_ready)
-                if last_state is None:
-                    return
-                target = last_state == "on"
-                self._deferred_value = target
-                energy = self._get_energy()
-                if energy is not None:
-                    setattr(energy, self._ATTR, target)
-                    self._deferred_restore = False
-                    return
-                self._deferred_restore = True
+    @pytest.mark.asyncio
+    async def test_round_trip_user_toggles_on_then_restart(self):
+        """Drive the PRODUCTION restore body. last_state='on' + EC present →
+        EC.occupancy_weighted must end at True, _deferred_restore False,
+        notify_sub_switch_restore_complete fired."""
+        cls = self._build_production_oc_weighted_class()
+        switch = self._bare_instance(cls)
 
-            def _handle_ec_ready(self):
-                if not self._deferred_restore:
-                    return
-                energy = self._get_energy()
-                if energy is None:
-                    return
-                setattr(energy, self._ATTR, self._deferred_value)
-                self._deferred_restore = False
+        notify_calls = []
+        energy = SimpleNamespace(occupancy_weighted=False)
+        energy.notify_sub_switch_restore_complete = lambda: notify_calls.append(True)
 
-            @property
-            def is_on(self):
-                energy = self._get_energy()
-                if energy is None:
-                    return self._default
-                return getattr(energy, self._ATTR, self._default)
+        switch.hass = SimpleNamespace(
+            data={
+                "universal_room_automation": {
+                    "coordinator_manager": SimpleNamespace(
+                        coordinators={"energy": energy}
+                    )
+                }
+            }
+        )
 
-        # --- Restart cycle: EC freshly seeded to False (constructor default
-        # 'occupancy_weighted_energy' key absent in options), last_state='on'
-        # arrives from RestoreEntity, switch must end at True.
-        energy = _MockEnergy()
-        energy.occupancy_weighted = False  # ec.get("occupancy_weighted_energy", False)
+        async def _last_state_on():
+            return SimpleNamespace(state="on")
 
-        switch = _Switch(lambda: energy, default=False)
-        switch.async_added_to_hass(last_state="on")
+        switch.async_get_last_state = _last_state_on
+
+        # Production restore body executes here.
+        await switch.async_added_to_hass()
 
         assert energy.occupancy_weighted is True, (
-            "B4 (b): after restart, RestoreEntity 'on' must overwrite the "
-            "constructor seed (False) — this is the operator's observed "
-            "post-restart state on 2026-06-10."
+            "B4 (b): production restore body must overwrite the EC seed "
+            "(False) with RestoreEntity 'on'."
         )
         assert switch.is_on is True
         assert switch._deferred_restore is False
+        assert notify_calls == [True], (
+            "production restore must fire notify_sub_switch_restore_complete "
+            "so ECSubSwitchesSyncedSensor tracks per-switch sync."
+        )
 
-    def test_round_trip_user_toggles_off_survives_restart(self):
-        """Symmetric OFF: explicit off survives across restart and is NOT
-        overwritten by the constructor seed (which is also False, but the
-        deferred-value path matters for default-True switches too).
-        """
-        class _MockEnergy:
-            pass
+    @pytest.mark.asyncio
+    async def test_round_trip_user_toggles_off_survives_restart(self):
+        """Symmetric OFF: last_state='off' + EC.occupancy_weighted=True
+        (stale hot-reload) → production restore overwrites to False."""
+        cls = self._build_production_oc_weighted_class()
+        switch = self._bare_instance(cls)
 
-        class _Switch:
-            _ATTR = "occupancy_weighted"
+        energy = SimpleNamespace(occupancy_weighted=True)
+        energy.notify_sub_switch_restore_complete = lambda: None
 
-            def __init__(self, get_energy):
-                self._get_energy = get_energy
-                self._deferred_restore = False
-                self._deferred_value = False
+        switch.hass = SimpleNamespace(
+            data={
+                "universal_room_automation": {
+                    "coordinator_manager": SimpleNamespace(
+                        coordinators={"energy": energy}
+                    )
+                }
+            }
+        )
 
-            def async_added_to_hass(self, last_state):
-                if last_state is None:
-                    return
-                target = last_state == "on"
-                self._deferred_value = target
-                energy = self._get_energy()
-                if energy is not None:
-                    setattr(energy, self._ATTR, target)
-                    self._deferred_restore = False
+        async def _last_state_off():
+            return SimpleNamespace(state="off")
 
-        energy = _MockEnergy()
-        energy.occupancy_weighted = True  # imagine a hot-reload landing True
+        switch.async_get_last_state = _last_state_off
 
-        switch = _Switch(lambda: energy)
-        switch.async_added_to_hass(last_state="off")
+        await switch.async_added_to_hass()
 
-        assert energy.occupancy_weighted is False
+        assert energy.occupancy_weighted is False, (
+            "B4 (b) OFF: production restore must overwrite the stale True "
+            "EC seed with RestoreEntity 'off'."
+        )
+        assert switch.is_on is False
+        assert switch._deferred_restore is False
 
 
 # ===========================================================================
