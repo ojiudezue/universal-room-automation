@@ -188,13 +188,35 @@ async def test_autonomy_select_deescalate_commits_immediately():
 
 
 @pytest.mark.asyncio
-async def test_autonomy_select_pending_token_selection_is_noop():
-    """Selecting `pending_*` directly is rejected (UI artifact only)."""
+async def test_autonomy_select_pending_token_maps_through_to_underlying_level():
+    """Pillar B fix-up A-M5: selecting `pending_<level>` maps to `<level>`.
+
+    Was a silent no-op (UI-artifact-only). New behavior: routes through
+    so the dropdown is not "stuck" carrying a useless option. From
+    shadow (committed) selecting `pending_propose_config` is equivalent
+    to selecting `propose_config`, which (rank >= L2) stages as pending.
+    """
     sel, hass, entry = _make_select(options={"optimizer_autonomy_level": "shadow"})
     await sel.async_select_option("pending_propose_config")
-    # No mutation; the pending token cannot drive the state machine.
-    assert "optimizer_pending_autonomy_level" not in entry.options
+    # Mapped through → propose_config is L3, stages as pending.
+    assert entry.options["optimizer_pending_autonomy_level"] == "propose_config"
     assert entry.options.get("optimizer_autonomy_level") == "shadow"
+    assert sel.current_option == "pending_propose_config"
+
+
+@pytest.mark.asyncio
+async def test_autonomy_select_advisory_to_shadow_commits_immediately():
+    """Pillar B fix-up A-M4: advisory ↔ shadow moves commit IMMEDIATELY.
+
+    Both rungs are no-actuation; the confirm-guard threshold is L2
+    (reversible_device). Upward jumps that stay below L2 don't need
+    the dual-press ceremony.
+    """
+    sel, hass, entry = _make_select(options={"optimizer_autonomy_level": "advisory"})
+    await sel.async_select_option("shadow")
+    assert entry.options["optimizer_autonomy_level"] == "shadow"
+    assert "optimizer_pending_autonomy_level" not in entry.options
+    assert sel.current_option == "shadow"
 
 
 def test_autonomy_select_restores_pending_on_construction():
@@ -311,6 +333,23 @@ async def test_reset_button_preserves_kill_switch():
     assert entry.options["unrelated_key"] == "stays"
 
 
+class _FakeOptimizerCoord:
+    """Spec'd fake coordinator exposing ONLY the methods the button is
+    allowed to call. Mock-masking lesson: a bare MagicMock would happily
+    accept any attribute name (including the now-removed
+    ``async_request_refresh``) and silently pass the test. Restricting
+    the surface forces the test to fail if the button ever calls a
+    nonexistent method.
+    """
+
+    def __init__(self):
+        self.run_cycle_calls = 0
+
+    async def run_cycle(self):
+        self.run_cycle_calls += 1
+        return []
+
+
 @pytest.mark.asyncio
 async def test_run_cycle_button_debounces():
     """RunCycleNow debounces to one press per 30s."""
@@ -318,19 +357,22 @@ async def test_run_cycle_button_debounces():
         "OptimizerRunCycleNowButton",
         options={"optimizer_kill_switch": False},
     )
-    # Plumb a fake optimization coordinator with an async refresh.
-    fake_coord = MagicMock()
-    fake_coord.async_request_refresh = AsyncMock()
+    # Plumb a SPEC'D fake optimization coordinator that ONLY exposes
+    # ``run_cycle``. If the button regresses to calling
+    # ``async_request_refresh`` (or any other nonexistent method) the
+    # test fails with AttributeError instead of silently passing on a
+    # MagicMock's auto-vivified attribute.
+    fake_coord = _FakeOptimizerCoord()
     cm = MagicMock()
     cm.coordinators = {"optimization": fake_coord}
     hass.data["universal_room_automation"]["coordinator_manager"] = cm
 
     # First press fires.
     await btn.async_press()
-    assert fake_coord.async_request_refresh.await_count == 1
+    assert fake_coord.run_cycle_calls == 1
     # Second press within 30s is debounced.
     await btn.async_press()
-    assert fake_coord.async_request_refresh.await_count == 1
+    assert fake_coord.run_cycle_calls == 1
 
 
 @pytest.mark.asyncio
@@ -340,8 +382,7 @@ async def test_run_cycle_button_unavailable_with_kill_switch_engaged():
         "OptimizerRunCycleNowButton",
         options={"optimizer_kill_switch": True},
     )
-    fake_coord = MagicMock()
-    fake_coord.async_request_refresh = AsyncMock()
+    fake_coord = _FakeOptimizerCoord()
     cm = MagicMock()
     cm.coordinators = {"optimization": fake_coord}
     hass.data["universal_room_automation"]["coordinator_manager"] = cm
@@ -442,6 +483,49 @@ def _check_optimizer_step(payload: dict, source_label: str) -> None:
     for sec in _OPTIMIZER_STEP_SECTIONS:
         assert sec in sections, (
             f"{source_label}: sections.{sec} missing"
+        )
+    # Pillar B fix-up A-H3: each section MUST carry the nested
+    # `{name, data, data_description}` shape per HA config-flow section
+    # translations (top-level flat duplicates are kept belt-and-braces
+    # since extra keys are ignored by HA, but the nested shape is what
+    # the section header / inline labels resolve from).
+    guards_sec = sections.get("optimizer_guards")
+    assert isinstance(guards_sec, dict), (
+        f"{source_label}: sections.optimizer_guards must be nested object"
+    )
+    assert "name" in guards_sec, (
+        f"{source_label}: sections.optimizer_guards.name missing"
+    )
+    for key in (
+        "optimizer_confidence_gate",
+        "optimizer_rate_cap_per_hour",
+        "optimizer_quiet_hours_source",
+        "optimizer_safety_deny_entities",
+    ):
+        assert key in guards_sec.get("data", {}), (
+            f"{source_label}: sections.optimizer_guards.data.{key} missing"
+        )
+        assert key in guards_sec.get("data_description", {}), (
+            f"{source_label}: sections.optimizer_guards.data_description.{key} missing"
+        )
+    llm_sec = sections.get("optimizer_llm")
+    assert isinstance(llm_sec, dict), (
+        f"{source_label}: sections.optimizer_llm must be nested object"
+    )
+    assert "name" in llm_sec, (
+        f"{source_label}: sections.optimizer_llm.name missing"
+    )
+    for key in (
+        "optimizer_llm_task_entity",
+        "optimizer_llm_triage_entity",
+        "optimizer_llm_system_prompt",
+        "optimizer_llm_max_invocations_per_24h",
+    ):
+        assert key in llm_sec.get("data", {}), (
+            f"{source_label}: sections.optimizer_llm.data.{key} missing"
+        )
+        assert key in llm_sec.get("data_description", {}), (
+            f"{source_label}: sections.optimizer_llm.data_description.{key} missing"
         )
 
 

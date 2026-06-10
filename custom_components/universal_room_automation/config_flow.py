@@ -5610,6 +5610,7 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             CONF_OPTIMIZER_CONFIDENCE_GATE,
             CONF_OPTIMIZER_RATE_CAP_PER_HOUR,
             CONF_OPTIMIZER_QUIET_HOURS_SOURCE,
+            CONF_OPTIMIZER_PENDING_AUTONOMY_LEVEL,
             # v4.7.35 Phase 2 — LLM Tier-2 CM-options keys.
             CONF_OPTIMIZER_LLM_TASK_ENTITY,
             CONF_OPTIMIZER_LLM_TRIAGE_ENTITY,
@@ -5639,9 +5640,32 @@ class UniversalRoomAutomationOptionsFlow(config_entries.OptionsFlow):
             llm = flat.pop("optimizer_llm", None)
             if isinstance(llm, dict):
                 flat = {**flat, **llm}
+            # Pillar B (Phase 5) fix-up A-H1 / B-M2: the form is an
+            # unguarded entry point that can directly set the autonomy
+            # rung. A stale `CONF_OPTIMIZER_PENDING_AUTONOMY_LEVEL` from
+            # an in-flight confirm-guard escalation MUST NOT survive a
+            # direct form save — otherwise the operator would commit a
+            # new level here while a stale pending value keeps the select
+            # entity stuck in "pending_<other>" state. Strip it on save.
+            merged_options = {**self._config_entry.options, **flat}
+            merged_options.pop(CONF_OPTIMIZER_PENDING_AUTONOMY_LEVEL, None)
+            # Push the select entity to refresh from the post-save
+            # options so the UI leaves any `pending_*` state immediately
+            # rather than waiting for the CM reload. Mirrors the slot used
+            # by the Confirm / Cancel buttons.
+            try:
+                sel = (
+                    self.hass.data.get(DOMAIN, {}).get(
+                        "optimizer_autonomy_select",
+                    )
+                )
+                if sel is not None and hasattr(sel, "_refresh_from_options"):
+                    sel._refresh_from_options()
+            except Exception:  # noqa: BLE001
+                pass
             return self.async_create_entry(
                 title="",
-                data={**self._config_entry.options, **flat},
+                data=merged_options,
             )
 
         # Autonomy rung labels (Pillar B D2): plain-English options carried

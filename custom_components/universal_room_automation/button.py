@@ -1583,10 +1583,32 @@ class OptimizerConfirmEscalationButton(_OptimizerCMButtonBase):
         )
         opts = dict(self._entry.options or {})
         pending = opts.get(CONF_OPTIMIZER_PENDING_AUTONOMY_LEVEL)
-        if pending not in OPTIMIZER_AUTONOMY_LEVELS:
+        if pending is None:
             _LOGGER.debug(
                 "OptimizerConfirmEscalation: no pending escalation, no-op",
             )
+            return
+        if pending not in OPTIMIZER_AUTONOMY_LEVELS:
+            # Pillar B fix-up A-M6: an invalid / garbage pending value
+            # (manual config edit, schema drift) self-heals by stripping
+            # the bad key + WARNing. Old behaviour was a silent no-op
+            # that left Confirm permanently "lit" with nothing to commit.
+            _LOGGER.warning(
+                "OptimizerConfirmEscalation: invalid pending value %r — "
+                "stripping (self-heal)",
+                pending,
+            )
+            opts.pop(CONF_OPTIMIZER_PENDING_AUTONOMY_LEVEL, None)
+            try:
+                self.hass.config_entries.async_update_entry(
+                    self._entry, options=opts,
+                )
+            except Exception:  # noqa: BLE001
+                _LOGGER.debug(
+                    "OptimizerConfirmEscalation: self-heal write failed",
+                    exc_info=True,
+                )
+            _refresh_autonomy_select(self.hass)
             return
         # Atomic commit + strip in a single options update.
         opts[CONF_OPTIMIZER_AUTONOMY_LEVEL] = pending
@@ -1653,19 +1675,39 @@ class OptimizerCancelEscalationButton(_OptimizerCMButtonBase):
 # Optimizer CONF_* keys this button strips (everything except the kill
 # switch — preserving the kill switch on accidental Reset is the safety
 # contract; engaging Kill should be sticky until the operator releases it).
-_OPTIMIZER_RESET_KEYS: tuple[str, ...] = (
-    "optimizer_autonomy_level",
-    "optimizer_pending_autonomy_level",
-    "optimizer_dimension_autonomy",
-    "optimizer_confidence_gate",
-    "optimizer_rate_cap_per_hour",
-    "optimizer_quiet_hours_source",
-    "optimizer_llm_task_entity",
-    "optimizer_llm_triage_entity",
-    "optimizer_llm_system_prompt",
-    "optimizer_llm_max_invocations_per_24h",
-    "optimizer_safety_deny_entities",
-)
+# Pillar B fix-up A-L10: use the CONF_* constants instead of string
+# literals so a future rename of a CONF token surfaces here at import
+# time rather than as a silent miss in the reset sweep.
+def _build_optimizer_reset_keys() -> tuple[str, ...]:
+    from .const import (
+        CONF_OPTIMIZER_AUTONOMY_LEVEL,
+        CONF_OPTIMIZER_PENDING_AUTONOMY_LEVEL,
+        CONF_OPTIMIZER_DIMENSION_AUTONOMY,
+        CONF_OPTIMIZER_CONFIDENCE_GATE,
+        CONF_OPTIMIZER_RATE_CAP_PER_HOUR,
+        CONF_OPTIMIZER_QUIET_HOURS_SOURCE,
+        CONF_OPTIMIZER_LLM_TASK_ENTITY,
+        CONF_OPTIMIZER_LLM_TRIAGE_ENTITY,
+        CONF_OPTIMIZER_LLM_SYSTEM_PROMPT,
+        CONF_OPTIMIZER_LLM_MAX_INVOCATIONS_PER_24H,
+        CONF_OPTIMIZER_SAFETY_DENY_ENTITIES,
+    )
+    return (
+        CONF_OPTIMIZER_AUTONOMY_LEVEL,
+        CONF_OPTIMIZER_PENDING_AUTONOMY_LEVEL,
+        CONF_OPTIMIZER_DIMENSION_AUTONOMY,
+        CONF_OPTIMIZER_CONFIDENCE_GATE,
+        CONF_OPTIMIZER_RATE_CAP_PER_HOUR,
+        CONF_OPTIMIZER_QUIET_HOURS_SOURCE,
+        CONF_OPTIMIZER_LLM_TASK_ENTITY,
+        CONF_OPTIMIZER_LLM_TRIAGE_ENTITY,
+        CONF_OPTIMIZER_LLM_SYSTEM_PROMPT,
+        CONF_OPTIMIZER_LLM_MAX_INVOCATIONS_PER_24H,
+        CONF_OPTIMIZER_SAFETY_DENY_ENTITIES,
+    )
+
+
+_OPTIMIZER_RESET_KEYS: tuple[str, ...] = _build_optimizer_reset_keys()
 
 
 class OptimizerResetSettingsButton(_OptimizerCMButtonBase):
@@ -1720,9 +1762,13 @@ class OptimizerRunCycleNowButton(_OptimizerCMButtonBase):
     Entity: button.ura_optimizer_run_cycle_now
     Device: URA: Optimization Coordinator
 
-    Calls ``coord.async_request_refresh()`` to fire a cycle now instead of
-    waiting for the next 5-min interval. Debounced to one press per 30s.
-    Unavailable when kill switch is ON (the cycle would be a no-op).
+    Calls ``coord.run_cycle()`` directly. The Optimization Coordinator is
+    NOT a DataUpdateCoordinator (it runs via a 5-min interval that calls
+    ``run_cycle()`` at optimization.py:658); there is no
+    ``async_request_refresh`` method. The reentrancy guard inside
+    ``run_cycle`` itself protects manual-press-vs-interval (and tick-vs-tick)
+    overlap. Debounced to one press per 30s. Unavailable when kill switch
+    is ON (the cycle would be a no-op).
     """
 
     _attr_icon = "mdi:refresh"
@@ -1768,10 +1814,14 @@ class OptimizerRunCycleNowButton(_OptimizerCMButtonBase):
             )
             return
         try:
-            await coord.async_request_refresh()
+            # OptimizationCoordinator is not a DataUpdateCoordinator —
+            # call the public ``run_cycle`` entry point directly. The
+            # reentrancy guard inside run_cycle handles
+            # manual-press-vs-interval overlap.
+            await coord.run_cycle()
         except Exception:  # noqa: BLE001
             _LOGGER.debug(
-                "OptimizerRunCycleNow: async_request_refresh raised",
+                "OptimizerRunCycleNow: run_cycle raised",
                 exc_info=True,
             )
             return

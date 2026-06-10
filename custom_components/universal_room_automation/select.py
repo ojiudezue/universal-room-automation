@@ -566,31 +566,45 @@ class OptimizerAutonomyLevelSelect(SelectEntity):
     async def async_select_option(self, option: str) -> None:
         """Handle a UI / service-call selection.
 
-        Routing:
-          - Selecting a ``pending_<level>`` token = no-op (UI artifact).
-          - Selecting a LOWER-or-EQUAL rank than the committed level
-            commits immediately (de-escalation; clears any pending key).
-          - Selecting a HIGHER rank stages it as pending (confirm-guard).
+        Routing (Pillar B fix-up A-M4 — confirm-guard scope narrowed):
+          - Selecting a ``pending_<level>`` token routes through to the
+            underlying level (M5 fix: was a silent no-op, now treated as
+            equivalent to selecting ``<level>`` directly).
+          - Selecting a LOWER-or-EQUAL rank commits immediately (any
+            de-escalation, including L1→L0 or L0→L0).
+          - Selecting a HIGHER rank that is BELOW L2 (reversible_device)
+            commits immediately. advisory↔shadow moves do NOT stage —
+            those are no-actuation rungs and the confirm-guard is only
+            warranted once we cross into real-actuation territory.
+          - Selecting a rank >= L2 stages as pending (confirm-guard).
         """
-        from .const import OPTIMIZER_AUTONOMY_LEVELS
+        from .const import OPTIMIZER_AUTONOMY_LEVELS, OPTIMIZER_LEVEL_RANK
         if option not in self._attr_options:
             _LOGGER.warning(
                 "OptimizerAutonomyLevelSelect: unknown option %s", option,
             )
             return
         if _is_pending_option(option):
-            # Selecting a pending token via the dropdown is a no-op — the
-            # operator should select the underlying rung instead.
-            _LOGGER.debug(
-                "Ignoring direct selection of pending token %s", option,
-            )
-            return
+            # Pillar B fix-up A-M5: selecting a `pending_<level>` token
+            # via the dropdown maps through to the underlying level so
+            # the dropdown is not "stuck" with a useless option. HA
+            # requires `state ∈ options` while a pending escalation is
+            # staged, but operator-initiated re-selection of the pending
+            # token should behave the same as picking the bare level.
+            option = _pending_target(option)
+            if option not in OPTIMIZER_AUTONOMY_LEVELS:
+                _LOGGER.debug(
+                    "Pending token mapped to unknown level, ignoring",
+                )
+                return
         if option not in OPTIMIZER_AUTONOMY_LEVELS:
             return
 
         committed = self._committed_level()
         requested_rank = self._rank(option)
         committed_rank = self._rank(committed)
+        # L2 = reversible_device rank — confirm-guard threshold.
+        l2_rank = OPTIMIZER_LEVEL_RANK.get("reversible_device", 2)
 
         if requested_rank <= committed_rank:
             # De-escalation (or no-op): commit immediately and strip any
@@ -602,10 +616,21 @@ class OptimizerAutonomyLevelSelect(SelectEntity):
                 "de-escalation from %s)",
                 option, committed,
             )
+        elif requested_rank < l2_rank:
+            # Upward escalation BELOW the confirm-guard threshold (i.e.
+            # advisory ↔ shadow only — both no-actuation rungs). Commit
+            # immediately and strip any stale pending key.
+            self._write_options(real=option, pending=None)
+            self._attr_current_option = option
+            _LOGGER.info(
+                "Optimizer autonomy level set to %s (immediate, "
+                "below-L2 escalation from %s)",
+                option, committed,
+            )
         else:
-            # Upward escalation: stage as pending. The coordinator NEVER
-            # reads the pending key — `effective_level` keeps using the
-            # committed value until the confirm button fires.
+            # Upward escalation TO L2+: stage as pending. The coordinator
+            # NEVER reads the pending key — `effective_level` keeps using
+            # the committed value until the confirm button fires.
             self._write_options(pending=option)
             self._attr_current_option = f"{_PENDING_PREFIX}{option}"
             _LOGGER.info(

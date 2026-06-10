@@ -1129,8 +1129,36 @@
           "optimizer_llm_max_invocations_per_24h": "Hard daily ceiling on premium LLM calls. Survives restart (seeded from the DB). Default: 24."
         },
         "sections": {
-          "optimizer_guards": "Safety guards (confidence, rate cap, quiet hours, deny-list)",
-          "optimizer_llm": "LLM Tier-2 reasoning (Claude / OpenAI / Ollama / Google)"
+          "optimizer_guards": {
+            "name": "Safety guards (confidence, rate cap, quiet hours, deny-list)",
+            "data": {
+              "optimizer_confidence_gate": "Confidence gate",
+              "optimizer_rate_cap_per_hour": "Max actions per hour",
+              "optimizer_quiet_hours_source": "Quiet-hours source",
+              "optimizer_safety_deny_entities": "Always-skip entities"
+            },
+            "data_description": {
+              "optimizer_confidence_gate": "Findings below this confidence stay advisory regardless of autonomy level. Higher = more cautious. Default: 0.70.",
+              "optimizer_rate_cap_per_hour": "Hard ceiling on autonomous actions per rolling hour. Anything past the cap falls back to Shadow until the window resets. Default: 12.",
+              "optimizer_quiet_hours_source": "When 'Use Notification Manager quiet hours', the Optimizer clamps to Shadow during quiet hours so it never wakes you. 'None' ignores quiet hours.",
+              "optimizer_safety_deny_entities": "Entities the Optimizer must never actuate (any tier). Use for safety-critical switches and locks."
+            }
+          },
+          "optimizer_llm": {
+            "name": "LLM Tier-2 reasoning (Claude / OpenAI / Ollama / Google)",
+            "data": {
+              "optimizer_llm_task_entity": "LLM primary entity",
+              "optimizer_llm_triage_entity": "LLM triage entity",
+              "optimizer_llm_system_prompt": "LLM system prompt",
+              "optimizer_llm_max_invocations_per_24h": "Max LLM calls per 24h"
+            },
+            "data_description": {
+              "optimizer_llm_task_entity": "AI Task entity used for primary reasoning. Routes through Home Assistant's `ai_task` integration (Claude / OpenAI / Ollama / Google).",
+              "optimizer_llm_triage_entity": "Optional cheaper backend used to triage which findings deserve a primary call. Leave empty to skip triage.",
+              "optimizer_llm_system_prompt": "Free-form prompt prepended to every LLM call. Use for house-specific guardrails (e.g. 'never touch the nursery').",
+              "optimizer_llm_max_invocations_per_24h": "Hard daily ceiling on premium LLM calls. Survives restart (seeded from the DB). Default: 24."
+            }
+          }
         }
       },
       "coordinator_notifications": {

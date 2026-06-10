@@ -3780,29 +3780,55 @@ class OptimizerKillSwitch(SwitchEntity, RestoreEntity):
         Pillar B D6: engaging the kill switch ALSO strips any pending
         autonomy escalation. A pending L0→L2+ jump must not survive a
         kill — the operator's "fast brake" trumps any in-flight UX.
+
+        Pillar B fix-up A-H2 / A-L11: persist the kill flag AND strip the
+        pending key in ONE merged ``async_update_entry`` call (was two
+        sequential writes triggering two CM reload-suppression evaluations
+        in a row). After the write, push the autonomy select to refresh
+        immediately so the entity leaves any ``pending_*`` token without
+        waiting for the platform's 30s poll interval — same pattern the
+        Confirm / Cancel buttons use.
         """
+        from .const import CONF_OPTIMIZER_PENDING_AUTONOMY_LEVEL
         self._attr_is_on = True
-        self._write_options(True)
-        self._strip_pending_autonomy()
+        # ONE merged dict-copy + ONE async_update_entry: kill flag set,
+        # pending stripped, all other options preserved.
+        try:
+            opts = dict(self._entry.options or {})
+            opts[self._conf_key] = True
+            opts.pop(CONF_OPTIMIZER_PENDING_AUTONOMY_LEVEL, None)
+            self.hass.config_entries.async_update_entry(
+                self._entry, options=opts,
+            )
+        except Exception:  # noqa: BLE001 — never crash UI
+            _LOGGER.debug(
+                "Optimizer kill switch engage options write failed",
+                exc_info=True,
+            )
+        self._refresh_autonomy_select()
         self._close_suppression_ttls()
         _LOGGER.info(
             "Optimizer kill switch ENGAGED, autonomy clamped to advisory",
         )
         self.async_write_ha_state()
 
-    def _strip_pending_autonomy(self) -> None:
-        """Remove the pending-autonomy key from entry.options (Pillar B D6)."""
+    def _refresh_autonomy_select(self) -> None:
+        """Push the OptimizerAutonomyLevelSelect to re-read options.
+
+        Mirrors ``button._refresh_autonomy_select`` so the select leaves
+        ``pending_*`` state immediately on kill engage.
+        """
         try:
-            from .const import CONF_OPTIMIZER_PENDING_AUTONOMY_LEVEL
-            opts = dict(self._entry.options or {})
-            if CONF_OPTIMIZER_PENDING_AUTONOMY_LEVEL in opts:
-                opts.pop(CONF_OPTIMIZER_PENDING_AUTONOMY_LEVEL, None)
-                self.hass.config_entries.async_update_entry(
-                    self._entry, options=opts,
+            sel = (
+                self.hass.data.get(DOMAIN, {}).get(
+                    "optimizer_autonomy_select",
                 )
-        except Exception:  # noqa: BLE001 — never crash the UI
+            )
+            if sel is not None and hasattr(sel, "_refresh_from_options"):
+                sel._refresh_from_options()
+        except Exception:  # noqa: BLE001
             _LOGGER.debug(
-                "Strip pending autonomy on kill engage failed",
+                "Optimizer autonomy select refresh on kill engage failed",
                 exc_info=True,
             )
 

@@ -13675,28 +13675,83 @@ class OptimizerStatusSensor(_OptimizerCMSensorBase):
                     break
         except Exception:
             last_action = {}
-        # llm_invocations_today — read from the Phase-2 LLM tier wrapper
-        # if loaded. The wrapper evicts entries older than 24h lazily.
+        # llm_invocations_today — Pillar B fix-up A-M8: filter the
+        # ``_premium_invocations`` list to the trailing-24h window at
+        # READ time. The list contains UTC datetimes (verified in
+        # optimization_llm.py:229; appended at :346) which are evicted
+        # lazily on the next ``_premium_cycle_ok`` check — so reading
+        # ``len(inv)`` directly can overcount briefly between cycles.
+        # NB: This is a deliberate private-attr coupling. The LLM tier
+        # owns the list; the sensor is a read-only display surface.
         llm_invocations_today = 0
         try:
             tier = getattr(coord, "_llm_tier", None)
             if tier is not None:
                 inv = getattr(tier, "_premium_invocations", None)
                 if inv is not None:
-                    llm_invocations_today = len(inv)
+                    from homeassistant.util import dt as _dt_util_llm
+                    from datetime import timedelta as _td_llm
+                    cutoff_llm = _dt_util_llm.utcnow() - _td_llm(hours=24)
+                    count = 0
+                    for ts in inv:
+                        try:
+                            ts_cmp = ts
+                            if (
+                                cutoff_llm.tzinfo is None
+                                and getattr(ts_cmp, "tzinfo", None) is not None
+                            ):
+                                ts_cmp = ts_cmp.replace(tzinfo=None)
+                            elif (
+                                cutoff_llm.tzinfo is not None
+                                and getattr(ts_cmp, "tzinfo", None) is None
+                            ):
+                                ts_cmp = ts_cmp.replace(tzinfo=cutoff_llm.tzinfo)
+                            if ts_cmp >= cutoff_llm:
+                                count += 1
+                        except Exception:  # noqa: BLE001
+                            # Non-datetime entries (legacy / test stubs):
+                            # count them so opaque payloads don't silently
+                            # drop. Keeps the attr conservative.
+                            count += 1
+                    llm_invocations_today = count
         except Exception:
             llm_invocations_today = 0
-        # effective_level_per_dim — derived from configured
-        # per-dimension caps (CONF_OPTIMIZER_DIMENSION_AUTONOMY) merged
-        # against the live effective level. Display-only.
+        # Pillar B fix-up A-M7 / B-L2: surface BOTH the raw per-dimension
+        # caps (`dimension_autonomy_caps`) AND the merged effective
+        # per-dim level (`effective_level_per_dim`). Merge rule:
+        # min(rank(committed_level), rank(per_dim_cap)) mapped back to
+        # the level token. This matches the attr name and the plan —
+        # the old impl just echoed the caps which lied about what level
+        # the dimension would actually run at when caps > committed.
+        dimension_autonomy_caps: dict[str, str] = {}
         effective_level_per_dim: dict[str, str] = {}
         try:
+            from .const import (
+                OPTIMIZER_LEVEL_RANK as _LVL_RANK,
+                OPTIMIZER_AUTONOMY_LEVELS as _LVLS,
+            )
             dim_caps = cfg.get(CONF_OPTIMIZER_DIMENSION_AUTONOMY) or {}
             if isinstance(dim_caps, dict):
-                effective_level_per_dim = {
+                dimension_autonomy_caps = {
                     str(k): str(v) for k, v in dim_caps.items()
                 }
+                committed_level = cfg.get(
+                    CONF_OPTIMIZER_AUTONOMY_LEVEL,
+                    DEFAULT_OPTIMIZER_AUTONOMY_LEVEL,
+                )
+                committed_rank = _LVL_RANK.get(committed_level, 0)
+                # Build reverse map rank → token for the merge result.
+                rank_to_level = {
+                    _LVL_RANK.get(lvl, 0): lvl for lvl in _LVLS
+                }
+                for dim, cap_lvl in dimension_autonomy_caps.items():
+                    cap_rank = _LVL_RANK.get(cap_lvl, committed_rank)
+                    merged_rank = min(committed_rank, cap_rank)
+                    effective_level_per_dim[dim] = rank_to_level.get(
+                        merged_rank, committed_level,
+                    )
         except Exception:
+            dimension_autonomy_caps = {}
             effective_level_per_dim = {}
         return {
             "autonomy_level": cfg.get(
@@ -13708,6 +13763,7 @@ class OptimizerStatusSensor(_OptimizerCMSensorBase):
             "effective_level": getattr(coord, "effective_level",
                                        DEFAULT_OPTIMIZER_AUTONOMY_LEVEL),
             "effective_level_per_dim": effective_level_per_dim,
+            "dimension_autonomy_caps": dimension_autonomy_caps,
             "mode": getattr(coord, "effective_level",
                             DEFAULT_OPTIMIZER_AUTONOMY_LEVEL),
             # Latest cycle (authoritative for "is the optimizer happy
