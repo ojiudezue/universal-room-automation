@@ -1041,18 +1041,23 @@ class NextOccupancyTimeSensor(UniversalRoomEntity, SensorEntity):
         # value is None.
         self._last_written: object = object()
         self._last_confidence: object = object()
+        self._last_available: object = object()
 
     def _normalize(self, value: datetime | None) -> datetime | None:
         """Force tz-awareness on the prediction timestamp.
 
-        The coordinator may hand us a naive datetime (legacy code path); HA's
-        timestamp device class requires tz-aware values. Treat naive datetimes
-        as UTC — same convention used by ``dt_util.as_utc``.
+        HA's timestamp device class requires tz-aware values. The sole
+        producer today (database get_next_occupancy_prediction) builds from
+        ``dt_util.now()`` and is already tz-aware LOCAL, so this branch is
+        defensive. A naive datetime is treated as LOCAL via
+        ``dt_util.as_utc`` — HA's actual convention (review A-M1/B-B2: a
+        naive-as-UTC label here would shift the countdown by the local UTC
+        offset, the same bug class the routine-forecaster cycle hit).
         """
         if value is None:
             return None
         if value.tzinfo is None:
-            return value.replace(tzinfo=UTC)
+            return dt_util.as_utc(value)
         return value
 
     @property
@@ -1070,7 +1075,9 @@ class NextOccupancyTimeSensor(UniversalRoomEntity, SensorEntity):
         if self.coordinator.data:
             confidence = self.coordinator.data.get(STATE_OCCUPANCY_CONFIDENCE)
             if confidence is not None:
-                attrs[ATTR_CONFIDENCE] = f"{int(confidence * 100)}%"
+                # Producer (database get_next_occupancy_prediction) already
+                # returns 0-100; the old *100 rendered "8000%" (review A-L3).
+                attrs[ATTR_CONFIDENCE] = f"{int(confidence)}%"
         return attrs
 
     @property
@@ -1089,6 +1096,12 @@ class NextOccupancyTimeSensor(UniversalRoomEntity, SensorEntity):
         to generate. The countdown UI is now derived client-side from the
         device_class=timestamp value, so we only need to push state on actual
         prediction changes.
+
+        Availability is part of the change tuple (review A-H1/B-B1): this
+        override is the entity's ONLY state writer, so an available flip with
+        unchanged value/confidence (refresh starts failing while data is
+        retained) must still write — otherwise the UI shows a stale timestamp
+        as live indefinitely, and recovery is equally unsignaled.
         """
         new_value = self.native_value
         new_confidence = (
@@ -1096,13 +1109,16 @@ class NextOccupancyTimeSensor(UniversalRoomEntity, SensorEntity):
             if self.coordinator.data
             else None
         )
+        new_available = self.available
         if (
             new_value == self._last_written
             and new_confidence == self._last_confidence
+            and new_available == self._last_available
         ):
             return
         self._last_written = new_value
         self._last_confidence = new_confidence
+        self._last_available = new_available
         self.async_write_ha_state()
 
 

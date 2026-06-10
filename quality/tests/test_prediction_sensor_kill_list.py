@@ -20,8 +20,6 @@ unique_ids on first integration startup post-upgrade.
 from __future__ import annotations
 
 import datetime as _dt
-import sys
-import types
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -141,10 +139,11 @@ def _bare_sensor(mod, coord):
     test order-immune."""
     s = object.__new__(mod.NextOccupancyTimeSensor)
     s.coordinator = coord
-    # Mirror the two sentinel attrs __init__ sets (asserted by the static
+    # Mirror the sentinel attrs __init__ sets (asserted by the static
     # source check below so drift in __init__ fails loudly).
     s._last_written = object()
     s._last_confidence = object()
+    s._last_available = object()
     s.async_write_ha_state = MagicMock()
     return s
 
@@ -155,6 +154,7 @@ def test_init_sets_change_sentinels_source_check():
     src = full[full.find("class NextOccupancyTimeSensor"):]
     src = src[:src.find("\nclass ", 1)]
     assert "self._last_written" in src and "self._last_confidence" in src
+    assert "self._last_available" in src
 
 
 def test_next_occupancy_time_native_value_is_tz_aware(_ha_stubs):
@@ -204,5 +204,30 @@ def test_next_occupancy_time_writes_only_on_change(_ha_stubs):
 
     # Confidence change only ⇒ also a write (UI surfaces it as an attr).
     coord.data[_ha_stubs.STATE_OCCUPANCY_CONFIDENCE] = 0.6
+    sensor._handle_coordinator_update()
+    assert sensor.async_write_ha_state.call_count == 3
+
+
+def test_next_occupancy_time_availability_flip_writes(_ha_stubs):
+    """Review A-H1/B-B1: an availability flip with UNCHANGED value/confidence
+    must still write — this override is the entity's only state writer, so a
+    suppressed write would leave a stale timestamp shown as available
+    indefinitely (and recovery unsignaled)."""
+    t1 = _dt.datetime(2026, 6, 10, 7, 30, 0, tzinfo=_dt.timezone.utc)
+    coord = _fake_coordinator(_ha_stubs, next_time=t1, confidence=0.8)
+    sensor = _bare_sensor(_ha_stubs, coord)
+
+    sensor._handle_coordinator_update()
+    assert sensor.async_write_ha_state.call_count == 1
+
+    # Refresh starts failing; data retained → value/confidence unchanged.
+    coord.last_update_success = False
+    sensor._handle_coordinator_update()
+    assert sensor.async_write_ha_state.call_count == 2, (
+        "available→False flip suppressed (stale-available regression)"
+    )
+
+    # Recovery must also write.
+    coord.last_update_success = True
     sensor._handle_coordinator_update()
     assert sensor.async_write_ha_state.call_count == 3
