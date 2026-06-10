@@ -21,7 +21,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+
+UTC = timezone.utc
 from typing import Any, Optional
 
 from homeassistant.components.sensor import (
@@ -82,9 +84,7 @@ from .const import (
     STATE_COVERS_OPEN_COUNT,
     STATE_COVERS_POSITION_AVG,
     STATE_NEXT_OCCUPANCY_TIME,
-    STATE_NEXT_OCCUPANCY_IN,
     STATE_OCCUPANCY_PCT_7D,
-    STATE_PEAK_OCCUPANCY_TIME,
     STATE_PRECOOL_START_TIME,
     STATE_PREHEAT_START_TIME,
     STATE_PRECOOL_LEAD_MINUTES,
@@ -462,11 +462,17 @@ async def async_setup_entry(
     ])
     
     # === OCCUPANCY PREDICTIONS (Optional) ===
+    # Prediction-sensor kill-list cycle (2026-06):
+    # - NextOccupancyInSensor REMOVED — its info is derivable client-side from
+    #   the NextOccupancyTimeSensor timestamp; per-minute rewrites caused
+    #   ~50k recorder writes/day of churn across ~37 rooms.
+    # - PeakOccupancyTimeSensor REMOVED — superseded 1:1 by the per-room
+    #   *_bayesian_occupancy_pattern sensor.
+    # Orphan unique_ids cleaned up in __init__.py (entry_type INTEGRATION
+    # branch) following the v4.7.22 fan-recheck precedent.
     entities.extend([
         NextOccupancyTimeSensor(coordinator),
-        NextOccupancyInSensor(coordinator),
         OccupancyPercentage7dSensor(coordinator),
-        PeakOccupancyTimeSensor(coordinator),
     ])
     
     # === HVAC PREDICTIONS (Optional) ===
@@ -1015,7 +1021,13 @@ class CoversPositionAvgSensor(UniversalRoomEntity, SensorEntity):
 # ===================================================================
 
 class NextOccupancyTimeSensor(UniversalRoomEntity, SensorEntity):
-    """Sensor for predicted next occupancy time."""
+    """Sensor for predicted next occupancy time.
+
+    device_class=timestamp + tz-aware datetime native_value lets HA frontends
+    render the live "in N minutes" countdown client-side without per-minute
+    recorder churn. State is written ONLY when the predicted timestamp changes
+    (or its tz-aware equivalent changes) — see ``_handle_coordinator_update``.
+    """
 
     _attr_device_class = SensorDeviceClass.TIMESTAMP
     _attr_icon = ICON_PREDICTION
@@ -1023,13 +1035,33 @@ class NextOccupancyTimeSensor(UniversalRoomEntity, SensorEntity):
     def __init__(self, coordinator: UniversalRoomCoordinator) -> None:
         """Initialize the sensor."""
         super().__init__(coordinator, "next_occupancy_time", "Next Occupancy Time")
+        # Sentinel: a value that can never legitimately equal a datetime/None.
+        # Used to force a first write on the first coordinator refresh after
+        # entity init so subscribers see a state even if the predictor's first
+        # value is None.
+        self._last_written: object = object()
+        self._last_confidence: object = object()
+
+    def _normalize(self, value: datetime | None) -> datetime | None:
+        """Force tz-awareness on the prediction timestamp.
+
+        The coordinator may hand us a naive datetime (legacy code path); HA's
+        timestamp device class requires tz-aware values. Treat naive datetimes
+        as UTC — same convention used by ``dt_util.as_utc``.
+        """
+        if value is None:
+            return None
+        if value.tzinfo is None:
+            return value.replace(tzinfo=UTC)
+        return value
 
     @property
     def native_value(self) -> datetime | None:
-        """Return predicted next occupancy time from coordinator."""
+        """Return predicted next occupancy time from coordinator (tz-aware)."""
         if not self.coordinator.data:
             return None
-        return self.coordinator.data.get(STATE_NEXT_OCCUPANCY_TIME)
+        raw = self.coordinator.data.get(STATE_NEXT_OCCUPANCY_TIME)
+        return self._normalize(raw)
 
     @property
     def extra_state_attributes(self) -> dict[str, any]:
@@ -1049,32 +1081,29 @@ class NextOccupancyTimeSensor(UniversalRoomEntity, SensorEntity):
             self.coordinator.data is not None
         )
 
+    @callback
+    def _handle_coordinator_update(self) -> None:
+        """Only write HA state when the predicted timestamp (or confidence) changes.
 
-class NextOccupancyInSensor(UniversalRoomEntity, SensorEntity):
-    """Sensor for minutes until next occupancy."""
-
-    _attr_device_class = SensorDeviceClass.DURATION
-    _attr_native_unit_of_measurement = UnitOfTime.MINUTES
-    _attr_icon = ICON_PREDICTION
-
-    def __init__(self, coordinator: UniversalRoomCoordinator) -> None:
-        """Initialize the sensor."""
-        super().__init__(coordinator, "next_occupancy_in", "Next Occupancy In")
-
-    @property
-    def native_value(self) -> int | None:
-        """Return minutes until next occupancy from coordinator."""
-        if not self.coordinator.data:
-            return None
-        return self.coordinator.data.get(STATE_NEXT_OCCUPANCY_IN)
-
-    @property
-    def available(self) -> bool:
-        """Sensor available if coordinator has data."""
-        return (
-            self.coordinator.last_update_success and
-            self.coordinator.data is not None
+        Suppresses the per-cycle recorder churn that NextOccupancyInSensor used
+        to generate. The countdown UI is now derived client-side from the
+        device_class=timestamp value, so we only need to push state on actual
+        prediction changes.
+        """
+        new_value = self.native_value
+        new_confidence = (
+            self.coordinator.data.get(STATE_OCCUPANCY_CONFIDENCE)
+            if self.coordinator.data
+            else None
         )
+        if (
+            new_value == self._last_written
+            and new_confidence == self._last_confidence
+        ):
+            return
+        self._last_written = new_value
+        self._last_confidence = new_confidence
+        self.async_write_ha_state()
 
 
 class OccupancyPercentage7dSensor(UniversalRoomEntity, SensorEntity):
@@ -1094,31 +1123,6 @@ class OccupancyPercentage7dSensor(UniversalRoomEntity, SensorEntity):
         if not self.coordinator.data:
             return None
         return self.coordinator.data.get(STATE_OCCUPANCY_PCT_7D)
-
-    @property
-    def available(self) -> bool:
-        """Sensor available if coordinator has data."""
-        return (
-            self.coordinator.last_update_success and
-            self.coordinator.data is not None
-        )
-
-
-class PeakOccupancyTimeSensor(UniversalRoomEntity, SensorEntity):
-    """Sensor for peak occupancy hour."""
-
-    _attr_icon = ICON_PATTERN
-
-    def __init__(self, coordinator: UniversalRoomCoordinator) -> None:
-        """Initialize the sensor."""
-        super().__init__(coordinator, "peak_occupancy_time", "Peak Occupancy Time")
-
-    @property
-    def native_value(self) -> str | None:
-        """Return peak occupancy hour from coordinator."""
-        if not self.coordinator.data:
-            return None
-        return self.coordinator.data.get(STATE_PEAK_OCCUPANCY_TIME)
 
     @property
     def available(self) -> bool:

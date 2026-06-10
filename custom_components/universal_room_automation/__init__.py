@@ -790,6 +790,58 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             except Exception as e:
                 _LOGGER.debug("Fan-recheck Number cleanup migration: %s", e)
 
+        # Prediction-sensor kill-list cycle (2026-06): clean up two
+        # per-room sensor unique_ids removed this cycle.
+        #
+        # NextOccupancyInSensor (suffix `next_occupancy_in`)
+        #   per-minute countdown → ~50k recorder writes/day across ~37
+        #   rooms; superseded by client-side rendering of the
+        #   device_class=timestamp NextOccupancyTimeSensor.
+        # PeakOccupancyTimeSensor (suffix `peak_occupancy_time`)
+        #   superseded 1:1 by `<room>_bayesian_occupancy_pattern`.
+        #
+        # Pattern mirrors the v4.7.22 fan-recheck precedent above
+        # (entity_registry.async_remove by unique_id, run-once flag on the
+        # integration entry options). Per-room unique_ids follow the
+        # `{room_entry_id}_{entity_type}` convention from
+        # ``UniversalRoomEntity.__init__`` (entity.py:30).
+        if not entry.options.get("prediction_sensor_kill_list_cleanup_done"):
+            try:
+                from homeassistant.helpers import entity_registry as er_mod
+                ent_reg = er_mod.async_get(hass)
+                kill_list_suffixes = (
+                    "next_occupancy_in",
+                    "peak_occupancy_time",
+                )
+                removed = 0
+                for room_entry in hass.config_entries.async_entries(DOMAIN):
+                    if room_entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ROOM:
+                        continue
+                    for suffix in kill_list_suffixes:
+                        uid = f"{room_entry.entry_id}_{suffix}"
+                        eid = ent_reg.async_get_entity_id("sensor", DOMAIN, uid)
+                        if eid:
+                            ent_reg.async_remove(eid)
+                            removed += 1
+                if removed:
+                    _LOGGER.info(
+                        "Prediction-sensor kill-list cleanup: removed %d orphan "
+                        "registry entries (next_occupancy_in + peak_occupancy_time)",
+                        removed,
+                    )
+                entry = hass.config_entries.async_get_entry(entry.entry_id) or entry
+                hass.config_entries.async_update_entry(
+                    entry,
+                    options={
+                        **entry.options,
+                        "prediction_sensor_kill_list_cleanup_done": True,
+                    },
+                )
+            except Exception as e:
+                _LOGGER.debug(
+                    "Prediction-sensor kill-list cleanup migration: %s", e
+                )
+
         # Initialize database (shared across all rooms — use existing if already created).
         # v4.0.17: Lock prevents race with concurrent room entry setup.
         if hass.data[DOMAIN].get("database") is None:
