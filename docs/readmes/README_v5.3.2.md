@@ -35,18 +35,19 @@ being re-parsed as local (every cell would have trained 5–6h off); HIGH bounde
 read kept oldest rows on overflow; 4 MEDIUMs (self-loop inflation, restart
 dwell, eager boot read, re-setup leak).
 
-## Live Validation (Review D) — prospective criteria
+## Live Validation (Review D) — Validated 2026-06-10 ~02:58 UTC (~4 min post-restart)
 
-- [ ] HA restarts clean; URA entries all load; zero new URA ERRORs.
-- [ ] Within ~2 min of boot-settle release: `sensor.ura_presence_coordinator_next_state`
-      shows a NON-unknown state with confidence > 0 and `model = house_state_log_freq_v1`
-      (house has 60d of rich transition history; the current-state cell should have support).
-      Attributes carry `current_state` + `transition_eta_minutes` (int or null).
-- [ ] Prediction ≠ current state's vocab (second-place rule working).
-- [ ] Log shows the deferred initial refresh firing at settle release (or first
-      interval tick), NOT during cold boot.
-- [ ] No new write-queue lines; recorder healthy.
-- [ ] ETA sanity (day-after check): predicted transition_eta for evening→sleep
-      plausibly matches household routine (~22:00 sleep onset per memory).
+| Criterion | Result | Observed evidence |
+|---|---|---|
+| Clean restart, zero URA ERRORs | PASS | system_log ERROR + URA filter: 0 entries |
+| Non-unknown prediction with real model | PASS | `sensor.ura_presence_coordinator_next_state` = **home_night**, confidence **0.972**, `model=house_state_log_freq_v1`, `predicted_at_iso=2026-06-10T02:58:18Z` — first live prediction ever from this sensor |
+| current_state + ETA attributes | PASS | `current_state=arriving`, `transition_eta_minutes=1` — plausible (arriving is transient; 21:58 CDT arrival → home_night) |
+| Prediction ≠ current vocab | PASS | arriving (collapses to home_day) → predicted home_night |
+| Boot-settle gating | PASS | `boot_settle_done=true`, released via `real_input`, presence suppressed 0 / HVAC 1; prediction appeared at settle release, not cold boot |
+| No write-queue saturation | PASS | zero `did not process within` lines this boot |
+| Optimizer unaffected | PASS | shadow/initializing at T+5min, no flood |
+| ETA sanity day-after check | PENDING | evening→sleep ETA vs ~22:00 household sleep onset — check 2026-06-10 evening (non-blocking) |
 
-*Replaced with observed results post-restart per the README write-back rule.*
+**Boot-only transients seen and dismissed:** the recurring boot-storm websocket
+client kicks (4096 pending messages) at 02:58:04–05 UTC, stopped after the
+storm window — pre-existing infrastructure behavior, not URA, not v5.3.2.
