@@ -1572,10 +1572,25 @@ OPTIMIZER_QUIET_HOURS_SOURCES: Final = [
 
 # L2 reversible device-actuation allowlist (single dispatch chokepoint).
 # `number` / `select` are config-write domains and require L3+.
+#
+# OC Phase 5 Pillar A — operator-staged stage-1 list. Per
+# ``docs/planning/PLANNING_OC_phase5_handshake_and_admin_surface.md`` D8,
+# this allowlist is UNCHANGED in Pillar A; the stage-1 list stays
+# {light, switch, fan, cover, climate}. The per-sibling
+# ``honor_optimizer_intent`` opt-in path is a SEPARATE coverage axis —
+# it vetoes specific targets WITHIN allowed domains (EVSE surfaces,
+# load-shed-controlled plugs, presence inputs, locks, alarm panels).
+# It does NOT and CANNOT broaden the allowlist itself; nothing here
+# changes which domains are reachable. Reviewer-fix retraction
+# (2026-06-10): an earlier draft of this comment implied per-sibling
+# honor "covers" the allowlist gap. That claim is withdrawn — the two
+# surfaces are orthogonal and any future allowlist change must be its
+# own cycle with its own review.
 OPTIMIZER_ALLOWED_DOMAINS_DEVICE: Final = frozenset(
     {"light", "switch", "fan", "cover", "climate"}
 )
 # L3+ config-write allowlist (numeric / enum tweaks).
+# Pillar A stage-1: UNCHANGED at {number, select}; see D8 rationale above.
 OPTIMIZER_ALLOWED_DOMAINS_CONFIG: Final = frozenset({"number", "select"})
 
 # L3+ numeric clamp (±20% of current value).

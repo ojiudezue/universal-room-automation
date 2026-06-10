@@ -1362,9 +1362,16 @@ async def test_optimizer_pending_veto_evicted_after_ttl():
 
 @pytest.mark.asyncio
 async def test_optimizer_pending_veto_discarded_on_success():
-    """A-HIGH-3: successful dispatch calls broker.discard_pending(action_id)."""
+    """A-HIGH-3 (re-contracted by Pillar A CRITICAL-1): a veto pending at
+    dispatch time now BLOCKS the action (await_veto runs unconditionally and
+    harvests synchronously-delivered vetoes), AND the entry is consumed —
+    no leak either way. The pre-Pillar-A contract (same-id veto ignored,
+    action succeeds, entry discarded after success) was the advisory-only
+    hole the handshake cycle closed.
+    """
     from custom_components.universal_room_automation.domain_coordinators.optimization import (
         OptimizationCoordinator, OptimizationFinding, OptimizationDimension,
+        dt_util as _opt_dt,
     )
     hass, _ = _make_hass(cm_options={
         "optimizer_autonomy_level": "reversible_device",
@@ -1377,16 +1384,17 @@ async def test_optimizer_pending_veto_discarded_on_success():
         severity="medium", confidence=0.9, score=50.0,
         description="bump",
     )
-    # Pre-stash a late "queued" veto for the same id we're about to use —
-    # if the post-success cleanup doesn't fire, it would leak forever.
     aid = "race_action_id"
-    coord.broker._pending_vetoes[aid] = (datetime.utcnow(), "late_sibling")
-    # Bypass uuid by capturing what _dispatch_device_action uses — we
-    # call dispatch directly with our id so the discard targets it.
+    # Seed with the SAME clock the broker uses (the module's dt_util) — a
+    # raw naive datetime here mixed with an aware suite mock and crashed
+    # _evict_stale_vetoes (the exact naive/aware bug class of this week).
+    coord.broker._pending_vetoes[aid] = (_opt_dt.utcnow(), "early_sibling")
     await coord._dispatch_device_action(
         f, aid, "light.kitchen", "light.turn_on", {},
         "reversible_device",
     )
+    # New contract: pending veto blocks + is consumed.
+    assert f.applied_outcome == "vetoed"
     assert aid not in coord.broker._pending_vetoes
 
 

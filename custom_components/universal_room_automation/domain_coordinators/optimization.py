@@ -33,7 +33,7 @@ from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any
 
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import (
     async_dispatcher_connect,
     async_dispatcher_send,
@@ -273,9 +273,21 @@ class OptimizerIntentBroker:
         veto doesn't sit in the dict forever (memory leak)."""
         now = dt_util.utcnow()
         cutoff = now - timedelta(seconds=self._VETO_TTL_SECONDS)
+
+        def _cmp_ts(ts):
+            # Naive/aware tolerance: a naive stamp (legacy writer or test
+            # seed) is treated as UTC rather than raising TypeError on
+            # comparison — this week's recurring bug class. cutoff side
+            # mirrors so naive-mocked clocks (test envs) also compare.
+            if ts.tzinfo is None and cutoff.tzinfo is not None:
+                return ts.replace(tzinfo=cutoff.tzinfo)
+            if ts.tzinfo is not None and cutoff.tzinfo is None:
+                return ts.replace(tzinfo=None)
+            return ts
+
         stale = [
             aid for aid, (ts, _by) in self._pending_vetoes.items()
-            if ts < cutoff
+            if _cmp_ts(ts) < cutoff
         ]
         for aid in stale:
             self._pending_vetoes.pop(aid, None)
@@ -283,12 +295,13 @@ class OptimizerIntentBroker:
         if len(self._pending_vetoes) > self._VETO_MAX_PENDING:
             # Drop oldest until under cap.
             items = sorted(
-                self._pending_vetoes.items(), key=lambda kv: kv[1][0]
+                self._pending_vetoes.items(), key=lambda kv: _cmp_ts(kv[1][0])
             )
             overflow = len(items) - self._VETO_MAX_PENDING
             for aid, _ in items[:overflow]:
                 self._pending_vetoes.pop(aid, None)
 
+    @callback
     def _on_veto(self, payload: dict) -> None:
         action_id = payload.get("action_id") if isinstance(payload, dict) else None
         if not action_id:
@@ -298,7 +311,12 @@ class OptimizerIntentBroker:
             if isinstance(payload, dict)
             else "unknown"
         )
-        self._pending_vetoes[action_id] = (dt_util.utcnow(), vetoed_by)
+        # C-C6 fix-up: keep the FIRST veto per action_id so ``vetoed_by``
+        # attribution is deterministic when two siblings veto the same
+        # intent in the same event-loop turn. A later sibling's veto
+        # would otherwise clobber the first responder's name.
+        if action_id not in self._pending_vetoes:
+            self._pending_vetoes[action_id] = (dt_util.utcnow(), vetoed_by)
         # Opportunistically evict stale entries on each new veto arrival.
         self._evict_stale_vetoes()
 
@@ -2523,18 +2541,24 @@ class OptimizationCoordinator(BaseCoordinator):
             finding=finding,
         )
 
-        if veto_window > 0:
-            vetoed_by = await self.broker.await_veto(action_id, veto_window)
-            if vetoed_by is not None:
-                finding.applied_outcome = OPTIMIZER_OUTCOME_VETOED
-                await self._log_activity(
-                    action="proposed_vetoed", importance="notable",
-                    description=finding.description,
-                    details={"action_id": action_id, "level": level,
-                             "vetoed_by": vetoed_by},
-                    finding=finding,
-                )
-                return OPTIMIZER_OUTCOME_VETOED
+        # A-C1 / C-C1 fix-up: ALWAYS call await_veto so synchronously-
+        # delivered sibling vetoes (broker dispatched the intent on this
+        # event-loop turn — siblings ran their callback and pushed into
+        # _pending_vetoes before the dispatch returned) are observed.
+        # The zero-window branch of await_veto is a synchronous _take()
+        # against _pending_vetoes — no sleep, no I/O — so the L2
+        # propose_config==False path keeps its no-delay character.
+        vetoed_by = await self.broker.await_veto(action_id, veto_window)
+        if vetoed_by is not None:
+            finding.applied_outcome = OPTIMIZER_OUTCOME_VETOED
+            await self._log_activity(
+                action="proposed_vetoed", importance="notable",
+                description=finding.description,
+                details={"action_id": action_id, "level": level,
+                         "vetoed_by": vetoed_by},
+                finding=finding,
+            )
+            return OPTIMIZER_OUTCOME_VETOED
 
         # B-C3: kill switch may have been engaged DURING the up-to-30s veto
         # window. Re-read LIVE state (never the snapshot) and abort if so.
@@ -2666,18 +2690,20 @@ class OptimizationCoordinator(BaseCoordinator):
             finding=finding,
         )
 
-        if veto_window > 0:
-            vetoed_by = await self.broker.await_veto(action_id, veto_window)
-            if vetoed_by is not None:
-                finding.applied_outcome = OPTIMIZER_OUTCOME_VETOED
-                await self._log_activity(
-                    action="proposed_vetoed", importance="notable",
-                    description=finding.description,
-                    details={"action_id": action_id, "level": level,
-                             "vetoed_by": vetoed_by},
-                    finding=finding,
-                )
-                return OPTIMIZER_OUTCOME_VETOED
+        # A-C1 / C-C1 fix-up: ALWAYS call await_veto so synchronously-
+        # delivered sibling vetoes are observed (see _dispatch_device_action
+        # for the full rationale). Zero-window path is a synchronous _take.
+        vetoed_by = await self.broker.await_veto(action_id, veto_window)
+        if vetoed_by is not None:
+            finding.applied_outcome = OPTIMIZER_OUTCOME_VETOED
+            await self._log_activity(
+                action="proposed_vetoed", importance="notable",
+                description=finding.description,
+                details={"action_id": action_id, "level": level,
+                         "vetoed_by": vetoed_by},
+                finding=finding,
+            )
+            return OPTIMIZER_OUTCOME_VETOED
 
         # B-C3: re-check live kill switch after veto wait.
         cm_config_live = self._read_cm_config()
@@ -3167,10 +3193,15 @@ class OptimizationCoordinator(BaseCoordinator):
         room_findings: dict[str, list[OptimizationFinding]] = {}
         zone_findings: dict[str, list[OptimizationFinding]] = {}
         open_count = 0
+        worst_sev_rank = 99
+        _sev_rank = {"critical": 0, "high": 1, "medium": 2, "low": 3}
         for f in findings:
             if f.dimension == OptimizationDimension.META:
                 continue
             open_count += 1
+            worst_sev_rank = min(
+                worst_sev_rank, _sev_rank.get(f.severity, 99)
+            )
             if f.level == "room" and f.target_id:
                 room_findings.setdefault(f.target_id, []).append(f)
             elif f.level == "zone" and f.target_id:
@@ -3195,14 +3226,20 @@ class OptimizationCoordinator(BaseCoordinator):
         else:
             self._house_score = 100.0
         self._open_findings_count = open_count
+        self._worst_open_severity_rank = worst_sev_rank
 
     @property
     def status(self) -> str:
+        """Operator-recalibrated 2026-06-10: "critical" is reserved for an
+        actual critical-severity open finding — a pile of HIGHs (e.g. dead
+        sensors) reads "degraded", not "critical", so the word keeps
+        meaning. Vocabulary unchanged: {healthy, degraded, critical}.
+        """
+        if getattr(self, "_worst_open_severity_rank", 99) == 0:
+            return "critical"
         if self._house_score >= 90:
             return "healthy"
-        if self._house_score >= 60:
-            return "degraded"
-        return "critical"
+        return "degraded"
 
     def get_room_score(self, room: str) -> float:
         return self._room_scores.get(room, 100.0)
