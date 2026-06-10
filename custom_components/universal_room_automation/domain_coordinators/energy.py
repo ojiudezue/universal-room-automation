@@ -13,7 +13,10 @@ import logging
 from typing import Any
 
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.dispatcher import async_dispatcher_connect
+from homeassistant.helpers.dispatcher import (
+    async_dispatcher_connect,
+    async_dispatcher_send,
+)
 from homeassistant.helpers.event import async_track_time_interval
 
 from .base import (
@@ -97,7 +100,11 @@ from .energy_const import (
     LOAD_SHEDDING_PRIORITY,
 )
 from .energy_tou import TOURateEngine
-from .signals import SIGNAL_SAFETY_HAZARD
+from .signals import (
+    SIGNAL_OPTIMIZER_INTENT,
+    SIGNAL_OPTIMIZER_INTENT_VETO,
+    SIGNAL_SAFETY_HAZARD,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -144,6 +151,11 @@ class EnergyCoordinator(BaseCoordinator):
 
         # Build off-peak drain targets from config
         ec = entity_config or {}
+        # OC Phase 5 Pillar A: keep the raw entity_config map so the
+        # sibling-handshake honor logic can resolve the battery-strategy
+        # writeable entity ids without re-deriving them through battery /
+        # strategy sub-components (which may be None when EC is disabled).
+        self._entity_config: dict[str, str] = dict(ec)
 
         # v4.0.12: Resolved Envoy entity IDs (auto-derived or explicit config).
         # v4.3.1: no production fallback. B1 envoy validation gate (v4.2.29)
@@ -393,6 +405,17 @@ class EnergyCoordinator(BaseCoordinator):
 
         # Observation mode: sensors compute, no actions executed
         self._observation_mode: bool = False
+
+        # OC Phase 5 Pillar A handshake — unsub for SIGNAL_OPTIMIZER_INTENT.
+        # Stored separately so async_setup can detect re-entry (options reload)
+        # and skip a double-subscribe; also appended to ``_unsub_listeners``
+        # so BaseCoordinator.async_teardown clears it (Bug Class #50 / #19).
+        self._optimizer_intent_unsub = None
+        # Reason string for the most recent ``honor_optimizer_intent`` veto.
+        # Read by ``_on_optimizer_intent`` immediately after evaluation so a
+        # concurrent intent can't race us — the value is reset at the top of
+        # every honor call, so reads are valid only inside the same callback.
+        self._last_veto_reason: str | None = None
 
         # v4.7.x D2 fix-up H1: track how many of the 5 EC sub-switches
         # have NOT yet completed their deferred restore.  Each switch calls
@@ -661,6 +684,18 @@ class EnergyCoordinator(BaseCoordinator):
                 self._handle_safety_hazard,
             )
         )
+
+        # OC Phase 5 Pillar A: subscribe to SIGNAL_OPTIMIZER_INTENT so this
+        # coordinator gets a chance to veto an Optimizer-proposed actuation
+        # before it dispatches. Bug Class #50 guardrail — store the unsub on
+        # ``_unsub_listeners`` and guard against double-subscribe on re-setup.
+        if self._optimizer_intent_unsub is None:
+            self._optimizer_intent_unsub = async_dispatcher_connect(
+                self.hass,
+                SIGNAL_OPTIMIZER_INTENT,
+                self._on_optimizer_intent,
+            )
+            self._unsub_listeners.append(self._optimizer_intent_unsub)
 
         # Run initial evaluation
         await self._async_decision_cycle()
@@ -3973,6 +4008,12 @@ class EnergyCoordinator(BaseCoordinator):
         await self._save_envoy_cache()
         await self._save_midnight_snapshot()
         await self._save_load_shedding_level()
+        # B-M1 / C-C7 fix-up: reset the optimizer-intent unsub handle so
+        # re-setup after teardown re-subscribes cleanly (the double-
+        # subscribe guard reads ``if self._optimizer_intent_unsub is None``).
+        # The actual unsub call happens in ``_cancel_listeners`` because
+        # the handle is appended to ``self._unsub_listeners`` at setup.
+        self._optimizer_intent_unsub = None
         self._cancel_listeners()
         _LOGGER.info("Energy Coordinator stopped")
 
@@ -4562,6 +4603,276 @@ class EnergyCoordinator(BaseCoordinator):
         """Set observation mode."""
         self._observation_mode = value
         _LOGGER.info("Energy Coordinator observation mode: %s", value)
+
+    # ------------------------------------------------------------------
+    # OC Phase 5 Pillar A — sibling-coordinator handshake
+    # ------------------------------------------------------------------
+
+    @callback
+    def _on_optimizer_intent(self, intent: dict) -> None:
+        """Dispatcher callback for SIGNAL_OPTIMIZER_INTENT.
+
+        Evaluates ``honor_optimizer_intent`` and fires
+        ``SIGNAL_OPTIMIZER_INTENT_VETO`` when this coordinator refuses.
+        Defensively guards against malformed payloads so the broker can
+        never crash a sibling.
+        """
+        try:
+            if not isinstance(intent, dict):
+                return
+            # B-H1 fix-up: L1 inertness. At shadow/advisory the broker
+            # only dispatches intents for observability — no actuation
+            # happens, so a veto would be advisory-only AND would inflate
+            # the L1 log surface (3 sibling INFO lines + 3 veto dispatches
+            # per finding per cycle). Skip both. DEBUG retained so
+            # adversarial reviews can still observe the path.
+            eff = intent.get("effective_level")
+            if eff in ("advisory", "shadow"):
+                _LOGGER.debug(
+                    "Energy: skipping intent honor at L1 effective_level=%s "
+                    "(action_id=%s target=%s)",
+                    eff,
+                    intent.get("action_id"),
+                    intent.get("target_entity"),
+                )
+                return
+            if self.honor_optimizer_intent(intent):
+                return
+            action_id = intent.get("action_id")
+            if not action_id:
+                return
+            async_dispatcher_send(
+                self.hass,
+                SIGNAL_OPTIMIZER_INTENT_VETO,
+                {
+                    "action_id": action_id,
+                    "vetoed_by": "energy",
+                    "reason": self._last_veto_reason or "energy_policy",
+                },
+            )
+            _LOGGER.info(
+                "Optimizer intent vetoed by Energy (action_id=%s reason=%s "
+                "target=%s)",
+                action_id,
+                self._last_veto_reason,
+                intent.get("target_entity"),
+            )
+        except Exception:  # noqa: BLE001 — never crash sibling on broker intent
+            _LOGGER.debug(
+                "Energy._on_optimizer_intent raised", exc_info=True,
+            )
+
+    def honor_optimizer_intent(self, intent: dict) -> bool:
+        """Return True to ACK (allow), False to VETO an Optimizer intent.
+
+        Default vetoes (Pillar A safe-defaults from the plan, plus the
+        D7(a) coverage broadening from the fix-up pass):
+            * ``self._observation_mode`` is True — veto everything.
+            * The intent targets an EVSE *surface* (configured switch
+              OR span_breaker) AND any of: (a) off-peak charge window
+              is active, (b) load-shedding is active. EVSE-surface
+              actuation must not race the EV-charging policy or the
+              load-shed bookkeeping.
+            * The intent targets a smart-plug entity currently under
+              active load-shed control (``SmartPlugController._plugs``
+              with shed state engaged) — the load-shed controller owns
+              that plug while shedding.
+            * The intent targets a battery-strategy entity (storage
+              mode, reserve SOC, charge-from-grid, grid-enabled).
+            * TOU period is unknown OR the lookup raised AND the
+              target is an EVSE surface — fail closed (M-5 / A-M1 /
+              B-M2). A degraded TOU signal must not silently allow the
+              optimizer to actuate the EV plug at the wrong time.
+
+        Read-only — never mutates state (except a rate-limited WARN
+        line tracked on the coordinator), never raises. Treats unknown
+        payload shapes as "no objection" (return True). The optimizer's
+        broker treats no-response as proceed, so an exception inside
+        ``honor_optimizer_intent`` cannot wedge the broker.
+        """
+        # Reset the per-call veto reason so callers reading
+        # ``_last_veto_reason`` after a False return see the correct
+        # explanation.
+        self._last_veto_reason = None
+
+        try:
+            target = (intent.get("target_entity") or "").strip()
+        except Exception:  # noqa: BLE001
+            return True
+        if not target:
+            return True
+
+        # (a) Blanket observation-mode veto.
+        if self._observation_mode:
+            self._last_veto_reason = "observation_mode"
+            return False
+
+        # (b) EVSE-surface veto — broadened per D7(a). Surface includes
+        # the configured ``switch`` AND the ``span_breaker`` so the
+        # optimizer can't bypass the EV-charging policy by flipping the
+        # breaker. Veto fires during off-peak window OR while load
+        # shedding is active (NOT only period=="off_peak").
+        try:
+            evse_surfaces: set[str] = set()
+            for cfg in self._ev._evse.values():
+                if not isinstance(cfg, dict):
+                    continue
+                sw = cfg.get("switch")
+                if sw:
+                    evse_surfaces.add(sw)
+                br = cfg.get("span_breaker")
+                if br:
+                    evse_surfaces.add(br)
+        except Exception:  # noqa: BLE001
+            evse_surfaces = set()
+
+        if target in evse_surfaces:
+            # M-5 / A-M1 / B-M2 fail-closed: TOU period unknown OR
+            # exception → veto. We MUST never actuate an EVSE surface
+            # with degraded TOU signal.
+            period = None
+            tou_degraded = False
+            try:
+                period = self._tou.get_current_period()
+            except Exception:  # noqa: BLE001
+                tou_degraded = True
+            if period is None:
+                tou_degraded = True
+            try:
+                shed_active = bool(self.load_shedding_active)
+            except Exception:  # noqa: BLE001
+                shed_active = False
+            if tou_degraded:
+                self._maybe_warn_degraded("tou_period_unknown")
+                self._last_veto_reason = "evse_tou_period_unknown"
+                return False
+            if period == "off_peak":
+                self._last_veto_reason = "evse_offpeak_charge_window"
+                return False
+            if shed_active:
+                self._last_veto_reason = "evse_load_shed_active"
+                return False
+
+        # (c) Smart-plug-under-active-load-shed veto — D7(a)(ii).
+        # The load-shed controller currently owns any plug it has
+        # paused (the optimizer must not flip them back ON), and the
+        # plug roster itself (``_plugs``) is the canonical inventory.
+        # We veto the entire active set so a controlled plug can't be
+        # toggled by the optimizer mid-shed.
+        try:
+            plugs_under_shed: set[str] = set()
+            if bool(self._smart_plugs._paused_by_us):
+                plugs_under_shed.update(self._smart_plugs._paused_by_us)
+            if bool(self._smart_plugs._paused_by_fill_priority):
+                plugs_under_shed.update(
+                    self._smart_plugs._paused_by_fill_priority,
+                )
+            # 4th-pass MEDIUM: drain-protected plugs were omitted — the
+            # optimizer could un-pause a battery-drain-paused plug.
+            drain_paused = getattr(
+                self._smart_plugs, "_paused_by_battery_drain", None,
+            )
+            if drain_paused:
+                plugs_under_shed.update(drain_paused)
+        except Exception:  # noqa: BLE001
+            plugs_under_shed = set()
+        if target in plugs_under_shed:
+            self._last_veto_reason = "smart_plug_under_load_shed"
+            return False
+
+        # (d) Battery-strategy write veto. The battery strategy machine
+        # owns these entities; the optimizer can read them but must not
+        # write them at any rung. A-M2 fix-up: resolve fresh from
+        # ``entry.options`` per call so a runtime options update is
+        # honored without a coordinator restart (no retained snapshot).
+        try:
+            battery_writeables = self._resolve_battery_writeables_live()
+        except Exception:  # noqa: BLE001
+            battery_writeables = set()
+        if target in battery_writeables:
+            self._last_veto_reason = "battery_strategy_write"
+            return False
+
+        return True
+
+    def _resolve_battery_writeables_live(self) -> set[str]:
+        """A-M2 fix-up: resolve battery-strategy writeable entities from
+        live entry options (NOT the cached ``self._entity_config``) so
+        operator updates take effect without a coordinator restart.
+
+        Falls back to the cached config if no Coordinator-Manager entry
+        is loaded yet (boot path); the fallback preserves the
+        pre-fix-up behavior.
+        """
+        from ..const import (
+            CONF_ENTRY_TYPE,
+            DOMAIN,
+            ENTRY_TYPE_COORDINATOR_MANAGER,
+        )
+        out: set[str] = set()
+        try:
+            for entry in self.hass.config_entries.async_entries(DOMAIN):
+                merged = {**(entry.data or {}), **(entry.options or {})}
+                if (
+                    merged.get(CONF_ENTRY_TYPE)
+                    != ENTRY_TYPE_COORDINATOR_MANAGER
+                ):
+                    continue
+                for key in (
+                    CONF_ENERGY_STORAGE_MODE_ENTITY,
+                    CONF_ENERGY_RESERVE_SOC_ENTITY,
+                    CONF_ENERGY_CHARGE_FROM_GRID_ENTITY,
+                    CONF_ENERGY_GRID_ENABLED_ENTITY,
+                ):
+                    val = merged.get(key)
+                    if val:
+                        out.add(str(val))
+                break
+        except Exception:  # noqa: BLE001
+            return out
+        if not out:
+            # Boot fallback — cached config snapshot.
+            try:
+                for key in (
+                    CONF_ENERGY_STORAGE_MODE_ENTITY,
+                    CONF_ENERGY_RESERVE_SOC_ENTITY,
+                    CONF_ENERGY_CHARGE_FROM_GRID_ENTITY,
+                    CONF_ENERGY_GRID_ENABLED_ENTITY,
+                ):
+                    val = self._entity_config.get(key)
+                    if val:
+                        out.add(str(val))
+            except Exception:  # noqa: BLE001
+                pass
+        return out
+
+    def _maybe_warn_degraded(self, reason: str) -> None:
+        """M-5 rate-limited WARN once when veto inputs degrade.
+
+        Suppresses repeats inside a rolling window (default 5 min) so a
+        persistently-degraded TOU signal logs once per window, not once
+        per intent.
+        """
+        try:
+            from homeassistant.util import dt as dt_util
+            now = dt_util.utcnow()
+        except Exception:  # noqa: BLE001
+            return
+        from datetime import timedelta
+        window = timedelta(minutes=5)
+        last_map = getattr(self, "_honor_degraded_warn_at", None)
+        if not isinstance(last_map, dict):
+            last_map = {}
+            self._honor_degraded_warn_at = last_map
+        last = last_map.get(reason)
+        if last is not None and (now - last) < window:
+            return
+        last_map[reason] = now
+        _LOGGER.warning(
+            "Energy honor_optimizer_intent: degraded input — %s "
+            "(veto fail-closed)",
+            reason,
+        )
 
     @property
     def occupancy_weighted(self) -> bool:

@@ -64,6 +64,8 @@ from .signals import (
     SIGNAL_CENSUS_UPDATED,
     SIGNAL_FAN_INTERFERENCE_GATE_FIRED,
     SIGNAL_HOUSE_STATE_CHANGED,
+    SIGNAL_OPTIMIZER_INTENT,
+    SIGNAL_OPTIMIZER_INTENT_VETO,
     SIGNAL_PERSON_ARRIVING,
     SIGNAL_PRESENCE_ENTITIES_UPDATE,
 )
@@ -1192,6 +1194,14 @@ class PresenceCoordinator(BaseCoordinator):
         # dispatched.  Controlled via switch.ura_presence_observation_mode.
         self.observation_mode: bool = False
 
+        # OC Phase 5 Pillar A handshake — unsub for SIGNAL_OPTIMIZER_INTENT.
+        # ``async_setup`` checks this for None before subscribing so an
+        # options reload that re-enters setup can't double-subscribe.
+        self._optimizer_intent_unsub = None
+        # Reason string for the most recent honor_optimizer_intent veto;
+        # read by ``_on_optimizer_intent`` immediately after evaluation.
+        self._last_veto_reason: str | None = None
+
         # Cold-boot away-actuation storm mitigation (Gate 1 — presence
         # dispatch settle gate). When False, the dispatch site for
         # SIGNAL_HOUSE_STATE_CHANGED short-circuits with an INFO log so the
@@ -2038,6 +2048,19 @@ class PresenceCoordinator(BaseCoordinator):
                     self._handle_census_update,
                 )
             )
+
+            # OC Phase 5 Pillar A: subscribe to SIGNAL_OPTIMIZER_INTENT so
+            # this coordinator can veto Optimizer actuation on presence
+            # input sensors (mmWave, occupancy). Bug Class #50 guardrail:
+            # the unsub is appended to ``_unsub_listeners`` AND tracked
+            # separately for double-subscribe protection on re-setup.
+            if self._optimizer_intent_unsub is None:
+                self._optimizer_intent_unsub = async_dispatcher_connect(
+                    self.hass,
+                    SIGNAL_OPTIMIZER_INTENT,
+                    self._on_optimizer_intent,
+                )
+                self._unsub_listeners.append(self._optimizer_intent_unsub)
 
             # Periodic inference (every 60 seconds for time-based transitions + camera timeouts)
             self._unsub_listeners.append(
@@ -5399,6 +5422,12 @@ class PresenceCoordinator(BaseCoordinator):
                 )
             self._substrate = None
 
+        # B-M1 / C-C7 fix-up: reset the optimizer-intent unsub handle so
+        # re-setup after teardown re-subscribes cleanly. The actual
+        # dispatcher unsub fires via ``_cancel_listeners`` (handle is
+        # already on ``self._unsub_listeners``).
+        self._optimizer_intent_unsub = None
+
         # Routine-Awareness Next-State Forecaster: cancel the periodic
         # refresh timer + signal subscription. Cancellation is idempotent
         # (the forecaster guards its own unsubs). Bug Class #19 + #50.
@@ -5423,6 +5452,119 @@ class PresenceCoordinator(BaseCoordinator):
     # ------------------------------------------------------------------
     # Override controls (backing select entities + services)
     # ------------------------------------------------------------------
+
+    # ------------------------------------------------------------------
+    # OC Phase 5 Pillar A — sibling-coordinator handshake
+    # ------------------------------------------------------------------
+
+    @callback
+    def _on_optimizer_intent(self, intent: dict) -> None:
+        """Dispatcher callback for SIGNAL_OPTIMIZER_INTENT.
+
+        Evaluates ``honor_optimizer_intent`` and fires
+        ``SIGNAL_OPTIMIZER_INTENT_VETO`` when this coordinator refuses.
+        Defensive against malformed payloads so the broker can never
+        crash a sibling.
+        """
+        try:
+            if not isinstance(intent, dict):
+                return
+            # B-H1 fix-up: L1 inertness — see Energy._on_optimizer_intent
+            # for the full rationale.
+            eff = intent.get("effective_level")
+            if eff in ("advisory", "shadow"):
+                _LOGGER.debug(
+                    "Presence: skipping intent honor at L1 "
+                    "effective_level=%s (action_id=%s target=%s)",
+                    eff,
+                    intent.get("action_id"),
+                    intent.get("target_entity"),
+                )
+                return
+            if self.honor_optimizer_intent(intent):
+                return
+            action_id = intent.get("action_id")
+            if not action_id:
+                return
+            async_dispatcher_send(
+                self.hass,
+                SIGNAL_OPTIMIZER_INTENT_VETO,
+                {
+                    "action_id": action_id,
+                    "vetoed_by": "presence",
+                    "reason": self._last_veto_reason or "presence_policy",
+                },
+            )
+            _LOGGER.info(
+                "Optimizer intent vetoed by Presence (action_id=%s "
+                "reason=%s target=%s)",
+                action_id,
+                self._last_veto_reason,
+                intent.get("target_entity"),
+            )
+        except Exception:  # noqa: BLE001 — never crash sibling on broker intent
+            _LOGGER.debug(
+                "Presence._on_optimizer_intent raised", exc_info=True,
+            )
+
+    def honor_optimizer_intent(self, intent: dict) -> bool:
+        """Return True to ACK (allow), False to VETO an Optimizer intent.
+
+        Default vetoes (Pillar A safe-defaults from the plan):
+            * ``self.observation_mode`` is True — veto everything.
+            * The intent targets a curated presence-input sensor
+              (``CONF_MOTION_SENSORS`` / ``CONF_MMWAVE_SENSORS`` /
+              ``CONF_OCCUPANCY_SENSORS`` on any ROOM entry). The
+              optimizer must never spoof presence inputs.
+
+        Read-only — never mutates state, never raises.
+        """
+        self._last_veto_reason = None
+
+        try:
+            target = (intent.get("target_entity") or "").strip()
+        except Exception:  # noqa: BLE001
+            return True
+        if not target:
+            return True
+
+        if self.observation_mode:
+            self._last_veto_reason = "observation_mode"
+            return False
+
+        try:
+            presence_inputs = self._collect_presence_input_entities()
+        except Exception:  # noqa: BLE001
+            presence_inputs = set()
+        if target in presence_inputs:
+            self._last_veto_reason = "presence_input_sensor"
+            return False
+
+        return True
+
+    def _collect_presence_input_entities(self) -> set[str]:
+        """Build the union of curated motion/mmwave/occupancy entities
+        across every configured ROOM entry. Resolved live so adding a
+        new room in the options flow takes effect without a coordinator
+        restart.
+        """
+        out: set[str] = set()
+        try:
+            for entry in self.hass.config_entries.async_entries(DOMAIN):
+                merged = {**(entry.data or {}), **(entry.options or {})}
+                if merged.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ROOM:
+                    continue
+                for key in (
+                    CONF_MOTION_SENSORS,
+                    CONF_MMWAVE_SENSORS,
+                    CONF_OCCUPANCY_SENSORS,
+                ):
+                    vals = merged.get(key) or []
+                    if isinstance(vals, (list, tuple, set)):
+                        out.update(str(v) for v in vals if v)
+        except Exception:  # noqa: BLE001
+            return out
+        return out
 
     def set_house_state_override(self, state_value: str) -> None:
         """Set house state override from select entity or service call.

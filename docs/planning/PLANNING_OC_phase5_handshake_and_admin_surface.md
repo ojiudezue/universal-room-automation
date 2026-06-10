@@ -258,6 +258,29 @@ All REUSED items the base doc listed for Phase 5 are confirmed live above (broke
 - **Test:** `test_energy_honor_vetoes_evse_offpeak`, `test_presence_honor_vetoes_input_sensor`, `test_security_honor_vetoes_locks`, `test_observation_mode_blanket_veto`.
 - **Live (must be done at L2 — operator-controlled escalation):** Dial Comfort dimension to L2 in dev test (controlled room); observe at least one `applied_outcome=applied` finding AND at least one `applied_outcome=vetoed` finding in `optimization_findings` within 24h; verify `vetoed_by` populated. (Per the standing "no soak watching" rule, this is a 1-hour controlled test, not a 24h watch.)
 
+### Pillar A — review-pass contract deviation notes (2026-06-10 fix-up)
+
+The three-framing Tier 2-DB review of the initial Pillar A build surfaced two contract notes worth keeping with the plan for future cycles:
+
+- **Sync-vs-async veto delivery contract.** Sibling `_on_optimizer_intent`
+  callbacks are synchronous (`@callback`). They run on the same event-loop
+  turn that the broker's `fire_intent` dispatches on, so a veto pushed into
+  `_pending_vetoes` is visible immediately after `fire_intent` returns. The
+  Pillar A `_dispatch_device_action` / `_dispatch_config_action`
+  flow MUST call `broker.await_veto(action_id, veto_window)` UNCONDITIONALLY
+  after `fire_intent`, even when `veto_window == 0`, so the synchronous
+  in-turn veto is harvested before the actuation runs. The zero-window
+  branch of `await_veto` is a synchronous `_take()` against the dict — no
+  sleep, no I/O — so the L2 ``reversible_device`` (non-propose) path keeps
+  its no-delay character. (The earlier "veto_window > 0" guard caused
+  silent advisory-only behavior at L2 — fixed in the fix-up pass.)
+- **Operator awareness — observation_mode is a blanket veto.** Any sibling
+  whose `observation_mode` is True will veto EVERY optimizer intent
+  regardless of target. This is intentional (it lets the operator pause a
+  sibling without disabling the optimizer), but it means dialing one
+  coordinator into observation mode silently disables L2+ actuation. Surface
+  this in the Pillar A cycle README under "Operator gotchas".
+
 ### Pillar A — reviews (Tier 2-DB, three framings)
 
 | Framing | Focus (retargeted for Pillar A) |

@@ -30,15 +30,15 @@ Combined release of two reviewed cycles (one restart, per operator):
 | OC autonomy select | raw token, no guard | "Shadow mode —…" label; L2+ staging flow |
 | OC options flow | ~14 raw snake_case fields | English labels + helper text + 2 collapsed sections |
 
-## Live Validation (Review D) — prospective criteria
+## Live Validation (Review D) — Validated 2026-06-10 ~15:32 UTC (automated portion, T+8min)
 
-- [ ] Clean restart; zero new URA ERRORs; no write-queue saturation.
-- [ ] `sensor.ura_whole_house_power` reads plausible W (vs ~0.29 pre-fix); `solar_power_w` attr consistent.
-- [ ] OC device shows: relabeled select (Shadow default), 4 new buttons, kill switch.
-- [ ] **Operator hands-on:** select "Reversible devices only" from Shadow → select shows pending state, Confirm button available → press Cancel → returns to Shadow committed. (Real escalation NOT committed during validation.)
-- [ ] **Run Cycle Now** press → optimizer logs a manual cycle within seconds (shadow mode, no actuation); second press inside 30s debounces.
-- [ ] Options flow → URA Optimizer step renders English labels + section headers; **note WHICH translation shape resolved** (nested sections vs flat) and prune the loser in a follow-up.
-- [ ] Status sensor: `last_cycle_findings_count` + `window_findings_count` both present and self-consistent; `next_cycle_eta_seconds` counting down.
-- [ ] No CM reload when staging/cancelling pending (sibling entity last_changed invariant).
-
-*Replaced with observed results post-restart per the README write-back rule.*
+| Criterion | Result | Observed evidence |
+|---|---|---|
+| Clean restart, zero URA ERRORs | PASS | system_log ERROR + URA filter: 0 entries |
+| Whole-house power sane | PASS | `sensor.universal_room_automation_whole_house_power` = **4,228.0 W** (pre-fix 0.29 W — Envoy kW source now normalized) |
+| Select relabeled + pending vocab | PASS | state `shadow`, `committed_level: shadow`, 12 options incl. `pending_*` tokens |
+| 4 admin buttons present | PASS | Confirm/Cancel **unavailable** (correct — no pending staged), Reset + Run Cycle Now available |
+| Forecaster regression check | PASS | post-settle prediction live: home_day → guest @ 0.547, ETA 18 min, model `house_state_log_freq_v1` |
+| Status sensor new attrs | PENDING first cycle | optimizer `initializing`/shadow at T+8min (v5.2.2 boot-settle gate holds ~3 cycles); attrs populate after first real cycle |
+| Operator hands-on: stage→Cancel escalation; Run Cycle Now + debounce; options-flow label rendering (which translation shape resolved) | OPERATOR PENDING | to be appended on report-back |
+| No CM reload on pending stage/cancel | OPERATOR PENDING | proven via sibling last_changed during hands-on |
