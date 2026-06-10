@@ -468,6 +468,7 @@
           "coordinator_notifications_quiet": "🌙 Quiet Hours",
           "coordinator_notifications_cooldowns": "⏱️ Cooldowns",
           "coordinator_toggles": "⚙️ Enable/Disable Coordinators",
+          "coordinator_optimization": "🤖 Optimizer",
           "signal_responses": "Signal Responses",
           "basic_setup": "🚪 Basic Setup",
           "sensors": "📡 Sensors",
@@ -1128,6 +1129,38 @@
           "mf_high_confidence_distance": "Maximum BLE distance (feet) from closest area scanner to trigger music transfer. Tighter than person tracking default (10ft) to avoid transfers on BLE bleed-through from adjacent rooms. Default: 8."
         }
       },
+      "coordinator_optimization": {
+        "title": "🤖 URA Optimizer",
+        "description": "How autonomous should the Optimizer be? Start in Shadow mode and raise only after you trust its findings. The Kill Switch on the Optimizer device pauses everything instantly.",
+        "data": {
+          "optimizer_autonomy_level": "Autonomy level",
+          "optimizer_kill_switch": "Kill switch (pause everything)",
+          "optimizer_confidence_gate": "Confidence gate",
+          "optimizer_rate_cap_per_hour": "Max actions per hour",
+          "optimizer_quiet_hours_source": "Quiet-hours source",
+          "optimizer_safety_deny_entities": "Always-skip entities",
+          "optimizer_llm_task_entity": "LLM primary entity",
+          "optimizer_llm_triage_entity": "LLM triage entity",
+          "optimizer_llm_system_prompt": "LLM system prompt",
+          "optimizer_llm_max_invocations_per_24h": "Max LLM calls per 24h"
+        },
+        "data_description": {
+          "optimizer_autonomy_level": "How far the Optimizer can act on its own findings. Default: Shadow mode (logs what it WOULD do, never acts). Raise one step at a time, watch the activity log, escalate when you trust it.",
+          "optimizer_kill_switch": "When ON, the Optimizer is clamped to Observe-only. Survives restart. Use this when you need a fast brake.",
+          "optimizer_confidence_gate": "Findings below this confidence stay advisory regardless of autonomy level. Higher = more cautious. Default: 0.70.",
+          "optimizer_rate_cap_per_hour": "Hard ceiling on autonomous actions per rolling hour. Anything past the cap falls back to Shadow until the window resets. Default: 12.",
+          "optimizer_quiet_hours_source": "When 'Use Notification Manager quiet hours', the Optimizer clamps to Shadow during quiet hours so it never wakes you. 'None' ignores quiet hours.",
+          "optimizer_safety_deny_entities": "Entities the Optimizer must never actuate (any tier). Use for safety-critical switches and locks.",
+          "optimizer_llm_task_entity": "AI Task entity used for primary reasoning. Routes through Home Assistant's `ai_task` integration (Claude / OpenAI / Ollama / Google).",
+          "optimizer_llm_triage_entity": "Optional cheaper backend used to triage which findings deserve a primary call. Leave empty to skip triage.",
+          "optimizer_llm_system_prompt": "Free-form prompt prepended to every LLM call. Use for house-specific guardrails (e.g. 'never touch the nursery').",
+          "optimizer_llm_max_invocations_per_24h": "Hard daily ceiling on premium LLM calls. Survives restart (seeded from the DB). Default: 24."
+        },
+        "sections": {
+          "optimizer_guards": "Safety guards (confidence, rate cap, quiet hours, deny-list)",
+          "optimizer_llm": "LLM Tier-2 reasoning (Claude / OpenAI / Ollama / Google)"
+        }
+      },
       "coordinator_notifications": {
         "title": "🔔 Notification Channels",
         "description": "Configure notification channels. Enable channels and set minimum severity thresholds for each. CRITICAL alerts always bypass quiet hours and severity filters.",
@@ -1689,7 +1722,29 @@
     }
   },
   "entity": {
+    "select": {
+      "optimizer_autonomy_level": {
+        "name": "Autonomy Level",
+        "state": {
+          "advisory": "Observe only — no actions",
+          "shadow": "Shadow mode — predicted actions, no actuation (default)",
+          "reversible_device": "Reversible devices only — lights, fans, HVAC setpoints",
+          "propose_config": "Propose config changes — 30s veto window",
+          "immediate_config": "Apply config changes immediately — ±20% clamp",
+          "unbounded": "Unbounded — no allowlist, no clamp (NOT RECOMMENDED)",
+          "pending_advisory": "Pending — Observe only",
+          "pending_shadow": "Pending — Shadow mode",
+          "pending_reversible_device": "Pending — Reversible devices only",
+          "pending_propose_config": "Pending — Propose config changes",
+          "pending_immediate_config": "Pending — Apply config changes immediately",
+          "pending_unbounded": "Pending — Unbounded"
+        }
+      }
+    },
     "switch": {
+      "optimizer_kill_switch": {
+        "name": "Kill Switch"
+      },
       "ev_tou_management": {
         "name": "EVSE TOU Management",
         "description": "URA owns EVSE TOU behavior in BOTH directions: (a) pauses ALL EVSE-class devices (L2 wall connectors and L1 plug-style chargers) during peak and mid-peak TOU periods, AND (b) proactively ensures EVSEs are turned ON during off-peak unless a battery-protection guard (drain, fill-priority, grid-cap, arbitrage) is active. Turning this toggle OFF disables BOTH the peak-pause AND the off-peak ensure-on. Each device's `self_modulates` flag (in its config step) governs whether URA enforces idempotent re-pause or honors external HA automation."
@@ -1740,6 +1795,22 @@
       "hvac_force_ac_reset": {
         "name": "Force AC Reset",
         "description": "Manually trigger a hard AC reset for this zone. Requires AC Reset switch ON. Subject to daily cap and minimum interval gates. Use when soft-nudge auto-detection is disabled and you want to manually clear a stuck AC cycle."
+      },
+      "optimizer_confirm_escalation": {
+        "name": "Confirm Escalation",
+        "description": "Commit a staged Optimizer autonomy escalation. Only available when the Autonomy Level select shows a 'Pending — ...' state."
+      },
+      "optimizer_cancel_escalation": {
+        "name": "Cancel Escalation",
+        "description": "Drop a staged Optimizer autonomy escalation. Returns the level to its previously-committed rung."
+      },
+      "optimizer_reset_settings": {
+        "name": "Reset Optimizer Settings",
+        "description": "Strip every Optimizer config knob (autonomy level, confidence gate, rate cap, quiet-hours source, deny-list, LLM settings) back to defaults. The Kill Switch is preserved — release it manually if you need to."
+      },
+      "optimizer_run_cycle_now": {
+        "name": "Run Cycle Now",
+        "description": "Trigger an Optimizer cycle immediately instead of waiting for the next 5-min interval. Debounced to one press per 30s. Unavailable while the Kill Switch is engaged."
       }
     }
   }

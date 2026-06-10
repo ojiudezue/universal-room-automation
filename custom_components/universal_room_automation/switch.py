@@ -3775,14 +3775,36 @@ class OptimizerKillSwitch(SwitchEntity, RestoreEntity):
             )
 
     async def async_turn_on(self, **kwargs) -> None:
-        """Engage the kill switch. Persist + close suppression TTLs."""
+        """Engage the kill switch. Persist + close suppression TTLs.
+
+        Pillar B D6: engaging the kill switch ALSO strips any pending
+        autonomy escalation. A pending L0→L2+ jump must not survive a
+        kill — the operator's "fast brake" trumps any in-flight UX.
+        """
         self._attr_is_on = True
         self._write_options(True)
+        self._strip_pending_autonomy()
         self._close_suppression_ttls()
         _LOGGER.info(
             "Optimizer kill switch ENGAGED, autonomy clamped to advisory",
         )
         self.async_write_ha_state()
+
+    def _strip_pending_autonomy(self) -> None:
+        """Remove the pending-autonomy key from entry.options (Pillar B D6)."""
+        try:
+            from .const import CONF_OPTIMIZER_PENDING_AUTONOMY_LEVEL
+            opts = dict(self._entry.options or {})
+            if CONF_OPTIMIZER_PENDING_AUTONOMY_LEVEL in opts:
+                opts.pop(CONF_OPTIMIZER_PENDING_AUTONOMY_LEVEL, None)
+                self.hass.config_entries.async_update_entry(
+                    self._entry, options=opts,
+                )
+        except Exception:  # noqa: BLE001 — never crash the UI
+            _LOGGER.debug(
+                "Strip pending autonomy on kill engage failed",
+                exc_info=True,
+            )
 
     async def async_turn_off(self, **kwargs) -> None:
         """Release the kill switch. Restores configured autonomy level."""

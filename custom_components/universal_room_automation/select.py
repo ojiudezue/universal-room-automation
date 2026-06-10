@@ -4,12 +4,13 @@
 # File: select.py
 # v3.6.0-c1: Added house state override and zone presence mode selects
 #
+from __future__ import annotations
 
 import logging
 
 from homeassistant.components.select import SelectEntity
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -394,13 +395,46 @@ class RoutineNotificationModeSelect(SelectEntity):
 
 # ============================================================================
 # v4.7.34 Phase 1 D7: OptimizerAutonomyLevelSelect
+#   + Pillar B (Phase 5) D2/D6: plain-English labels + confirm-guard
 # ============================================================================
+#
+# Pillar B D2: the six raw `OPTIMIZER_LEVEL_*` tokens stay as the persisted
+# values (no migration). The dropdown carries plain-English labels via the
+# `entity.select.optimizer_autonomy_level.state.*` translation keys.
+#
+# Pillar B D6 (confirm-guard): selecting a rung that ranks >= L2
+# (reversible_device) from L0 (advisory) or L1 (shadow), or any UPWARD
+# escalation, does NOT commit immediately. The select writes the
+# *requested* rung to `CONF_OPTIMIZER_PENDING_AUTONOMY_LEVEL` on the CM
+# entry options, exposes the local state as `pending_<target>`, and waits
+# for the operator to press `OptimizerConfirmEscalationButton`. The
+# coordinator NEVER reads the pending key — `effective_level` still reads
+# only `CONF_OPTIMIZER_AUTONOMY_LEVEL` (see plan D6). De-escalations
+# (lower-rank → higher OR any → lower) commit IMMEDIATELY and strip any
+# stale pending key.
+#
+# Restart resilience: the pending key is persisted on `entry.options` so
+# a restart restores the same pending state. Kill-switch ENGAGE strips
+# the pending key (`OptimizerKillSwitch.async_turn_on`).
+
+
+_PENDING_PREFIX = "pending_"
+
+
+def _is_pending_option(option: str) -> bool:
+    """Return True if ``option`` is a `pending_<level>` token."""
+    return isinstance(option, str) and option.startswith(_PENDING_PREFIX)
+
+
+def _pending_target(option: str) -> str:
+    """Return the underlying level for a `pending_<level>` token."""
+    return option[len(_PENDING_PREFIX):] if _is_pending_option(option) else option
 
 
 class OptimizerAutonomyLevelSelect(SelectEntity):
-    """Six-rung autonomy ladder selector.
+    """Six-rung autonomy ladder selector with confirm-guard.
 
-    Options (lowest → highest):
+    Options (lowest → highest, raw values — labels live in translations):
         advisory | shadow | reversible_device | propose_config |
         immediate_config | unbounded
 
@@ -408,26 +442,40 @@ class OptimizerAutonomyLevelSelect(SelectEntity):
     actuation). Persistence is via entry.options write-back (single source
     of truth, Bug Class #46-safe).
 
+    Confirm-guard (Pillar B D2/D6): UPWARD jumps to L2+ stage a pending
+    value rather than committing. See module-level comment.
+
     Entity: select.ura_optimizer_autonomy_level
     Device: URA: Optimization Coordinator
     """
 
     _attr_has_entity_name = True
     _attr_icon = "mdi:tune-vertical"
+    _attr_translation_key = "optimizer_autonomy_level"
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         """Initialize."""
         from homeassistant.helpers.entity import EntityCategory
         from .const import (
             CONF_OPTIMIZER_AUTONOMY_LEVEL,
+            CONF_OPTIMIZER_PENDING_AUTONOMY_LEVEL,
             DEFAULT_OPTIMIZER_AUTONOMY_LEVEL,
             OPTIMIZER_AUTONOMY_LEVELS,
         )
         self.hass = hass
         self._entry = entry
         self._conf_key = CONF_OPTIMIZER_AUTONOMY_LEVEL
+        self._pending_key = CONF_OPTIMIZER_PENDING_AUTONOMY_LEVEL
         self._default = DEFAULT_OPTIMIZER_AUTONOMY_LEVEL
-        self._attr_options = list(OPTIMIZER_AUTONOMY_LEVELS)
+        # `_attr_options` must contain every value `current_option` can
+        # return (HA SelectEntity contract). We include the 6 real rungs
+        # AND every `pending_<level>` so the entity state stays valid
+        # while an escalation is staged. The dropdown picker is meant to
+        # be driven from the labelled rungs; selecting a `pending_*`
+        # token via the UI is a no-op (see `async_select_option`).
+        self._attr_options = list(OPTIMIZER_AUTONOMY_LEVELS) + [
+            f"{_PENDING_PREFIX}{lvl}" for lvl in OPTIMIZER_AUTONOMY_LEVELS
+        ]
         self._attr_entity_category = EntityCategory.CONFIG
         self._attr_unique_id = f"{DOMAIN}_optimizer_autonomy_level"
         self._attr_name = "Autonomy Level"
@@ -439,10 +487,15 @@ class OptimizerAutonomyLevelSelect(SelectEntity):
             sw_version=VERSION,
             via_device=(DOMAIN, "coordinator_manager"),
         )
-        # Seed from options first, then data, then default.
+        # Seed from options first, then data, then default. Pending key
+        # is checked first — if a pending escalation persists across a
+        # restart the state should reflect that, NOT the real rung.
         opts = entry.options or {}
         data = entry.data or {}
-        if self._conf_key in opts and opts[self._conf_key] in OPTIMIZER_AUTONOMY_LEVELS:
+        pending = opts.get(self._pending_key)
+        if pending in OPTIMIZER_AUTONOMY_LEVELS:
+            self._attr_current_option = f"{_PENDING_PREFIX}{pending}"
+        elif self._conf_key in opts and opts[self._conf_key] in OPTIMIZER_AUTONOMY_LEVELS:
             self._attr_current_option = opts[self._conf_key]
         elif self._conf_key in data and data[self._conf_key] in OPTIMIZER_AUTONOMY_LEVELS:
             self._attr_current_option = data[self._conf_key]
@@ -457,22 +510,155 @@ class OptimizerAutonomyLevelSelect(SelectEntity):
     def available(self) -> bool:
         return True
 
+    @property
+    def extra_state_attributes(self) -> dict:
+        """Expose pending target (if any) for dashboards / automations."""
+        opts = self._entry.options or {}
+        pending = opts.get(self._pending_key)
+        committed = opts.get(self._conf_key, self._default)
+        return {
+            "committed_level": committed,
+            "pending_level": pending,
+        }
+
+    def _committed_level(self) -> str:
+        """Return the most-recently committed real rung (post-pending)."""
+        from .const import OPTIMIZER_AUTONOMY_LEVELS
+        opts = self._entry.options or {}
+        committed = opts.get(self._conf_key)
+        if committed in OPTIMIZER_AUTONOMY_LEVELS:
+            return committed
+        data = self._entry.data or {}
+        committed = data.get(self._conf_key)
+        if committed in OPTIMIZER_AUTONOMY_LEVELS:
+            return committed
+        return self._default
+
+    def _rank(self, level: str) -> int:
+        from .const import OPTIMIZER_LEVEL_RANK
+        return OPTIMIZER_LEVEL_RANK.get(level, 0)
+
+    def _write_options(self, *, real: str | None = None,
+                       pending: str | None = "__keep__") -> None:
+        """Mutate entry.options atomically.
+
+        ``real``: when non-None, set `CONF_OPTIMIZER_AUTONOMY_LEVEL`.
+        ``pending``: when ``None`` strip the pending key; the sentinel
+        ``"__keep__"`` leaves it alone; any string sets it.
+        """
+        try:
+            options = dict(self._entry.options or {})
+            if real is not None:
+                options[self._conf_key] = real
+            if pending is None:
+                options.pop(self._pending_key, None)
+            elif pending != "__keep__":
+                options[self._pending_key] = pending
+            self.hass.config_entries.async_update_entry(
+                self._entry, options=options,
+            )
+        except Exception:  # noqa: BLE001 — never crash UI
+            _LOGGER.debug(
+                "Optimizer autonomy level options write-back failed",
+                exc_info=True,
+            )
+
     async def async_select_option(self, option: str) -> None:
+        """Handle a UI / service-call selection.
+
+        Routing:
+          - Selecting a ``pending_<level>`` token = no-op (UI artifact).
+          - Selecting a LOWER-or-EQUAL rank than the committed level
+            commits immediately (de-escalation; clears any pending key).
+          - Selecting a HIGHER rank stages it as pending (confirm-guard).
+        """
+        from .const import OPTIMIZER_AUTONOMY_LEVELS
         if option not in self._attr_options:
             _LOGGER.warning(
                 "OptimizerAutonomyLevelSelect: unknown option %s", option,
             )
             return
-        self._attr_current_option = option
-        try:
-            options = {**(self._entry.options or {}), self._conf_key: option}
-            self.hass.config_entries.async_update_entry(
-                self._entry, options=options,
+        if _is_pending_option(option):
+            # Selecting a pending token via the dropdown is a no-op — the
+            # operator should select the underlying rung instead.
+            _LOGGER.debug(
+                "Ignoring direct selection of pending token %s", option,
             )
+            return
+        if option not in OPTIMIZER_AUTONOMY_LEVELS:
+            return
+
+        committed = self._committed_level()
+        requested_rank = self._rank(option)
+        committed_rank = self._rank(committed)
+
+        if requested_rank <= committed_rank:
+            # De-escalation (or no-op): commit immediately and strip any
+            # stale pending key.
+            self._write_options(real=option, pending=None)
+            self._attr_current_option = option
+            _LOGGER.info(
+                "Optimizer autonomy level set to %s (immediate, "
+                "de-escalation from %s)",
+                option, committed,
+            )
+        else:
+            # Upward escalation: stage as pending. The coordinator NEVER
+            # reads the pending key — `effective_level` keeps using the
+            # committed value until the confirm button fires.
+            self._write_options(pending=option)
+            self._attr_current_option = f"{_PENDING_PREFIX}{option}"
+            _LOGGER.info(
+                "Optimizer autonomy level escalation PENDING %s "
+                "(committed=%s, press Confirm to apply)",
+                option, committed,
+            )
+        self.async_write_ha_state()
+
+    @callback
+    def _refresh_from_options(self) -> None:
+        """Reconcile local state with the latest entry.options.
+
+        Called by the Confirm / Cancel buttons (and on options update)
+        so the entity's reported state reflects the post-button-press
+        truth without waiting for a config-entry reload.
+        """
+        from .const import OPTIMIZER_AUTONOMY_LEVELS
+        opts = self._entry.options or {}
+        pending = opts.get(self._pending_key)
+        if pending in OPTIMIZER_AUTONOMY_LEVELS:
+            self._attr_current_option = f"{_PENDING_PREFIX}{pending}"
+        else:
+            self._attr_current_option = self._committed_level()
+        try:
+            self.async_write_ha_state()
+        except Exception:  # noqa: BLE001 — during teardown
+            pass
+
+    async def async_added_to_hass(self) -> None:
+        """Register this instance so the OC buttons can refresh us.
+
+        Stored at ``hass.data[DOMAIN]["optimizer_autonomy_select"]`` —
+        a single-instance slot since the integration only ever wires one
+        Optimization Coordinator.
+        """
+        await super().async_added_to_hass()
+        try:
+            self.hass.data.setdefault(DOMAIN, {})[
+                "optimizer_autonomy_select"
+            ] = self
         except Exception:  # noqa: BLE001
             _LOGGER.debug(
-                "Optimizer autonomy level options write-back failed",
+                "OptimizerAutonomyLevelSelect: registry slot store failed",
                 exc_info=True,
             )
-        _LOGGER.info("Optimizer autonomy level set to %s", option)
-        self.async_write_ha_state()
+
+    async def async_will_remove_from_hass(self) -> None:
+        """Clear the registry slot on remove to avoid stale references."""
+        try:
+            slot = self.hass.data.get(DOMAIN, {})
+            if slot.get("optimizer_autonomy_select") is self:
+                slot.pop("optimizer_autonomy_select", None)
+        except Exception:  # noqa: BLE001
+            pass
+        await super().async_will_remove_from_hass()

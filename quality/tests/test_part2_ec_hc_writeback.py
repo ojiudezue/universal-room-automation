@@ -113,6 +113,9 @@ EXPECTED_SUPPRESS_KEYS: set[str] = {
     _extract_conf(CONST_SRC, "CONF_OPTIMIZER_LLM_MAX_INVOCATIONS_PER_24H"),
     # v4.7.35 fix-up (B-B2) — safety/security deny-list.
     _extract_conf(CONST_SRC, "CONF_OPTIMIZER_SAFETY_DENY_ENTITIES"),
+    # OC Pillar B (admin surface) — pending-escalation key. Editing it must
+    # NOT tear down the CM entry (the confirm/cancel buttons read it fresh).
+    _extract_conf(CONST_SRC, "CONF_OPTIMIZER_PENDING_AUTONOMY_LEVEL"),
 }
 
 
@@ -150,9 +153,10 @@ def test_options_reload_suppress_keys_membership_exact():
 def test_options_reload_suppress_keys_count_matches_part2_scope():
     """Headline number: Cycle 1's 5 + 10 EC/Bayesian + 4 Routine +
     14 HVAC tunables + 4 D5 + 6 v4.7.34 Optimizer + 4 v4.7.35 LLM +
-    1 v4.7.35 fix-up (safety deny-list) = 48 keys."""
+    1 v4.7.35 fix-up (safety deny-list) + 1 OC Pillar B
+    (pending-escalation) = 49 keys."""
     ns = _load_init_dispatch_namespace()
-    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 48
+    assert len(ns["OPTIONS_RELOAD_SUPPRESS_KEYS"]) == 49
 
 
 # ---------------------------------------------------------------------------
@@ -242,6 +246,8 @@ def _load_init_dispatch_namespace() -> dict:
         "_CONF_OPTIMIZER_CONFIDENCE_GATE":        "optimizer_confidence_gate",
         "_CONF_OPTIMIZER_RATE_CAP_PER_HOUR":      "optimizer_rate_cap_per_hour",
         "_CONF_OPTIMIZER_QUIET_HOURS_SOURCE":     "optimizer_quiet_hours_source",
+        # OC Pillar B (admin surface) — pending-escalation key.
+        "_CONF_OPTIMIZER_PENDING_AUTONOMY_LEVEL": "optimizer_pending_autonomy_level",
         # v4.7.35 Phase 2 — LLM tier keys.
         "_CONF_OPTIMIZER_LLM_TASK_ENTITY":        "optimizer_llm_task_entity",
         "_CONF_OPTIMIZER_LLM_TRIAGE_ENTITY":      "optimizer_llm_triage_entity",

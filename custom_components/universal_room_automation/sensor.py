@@ -13623,24 +13623,110 @@ class OptimizerStatusSensor(_OptimizerCMSensorBase):
         from .const import (
             DEFAULT_OPTIMIZER_AUTONOMY_LEVEL,
             CONF_OPTIMIZER_AUTONOMY_LEVEL,
+            CONF_OPTIMIZER_DIMENSION_AUTONOMY,
+            CONF_OPTIMIZER_PENDING_AUTONOMY_LEVEL,
+            SCAN_INTERVAL_OPTIMIZATION,
         )
         try:
             cfg = coord._read_cm_config()
         except Exception:
             cfg = {}
+        last_findings = list(getattr(coord, "_last_findings", []) or [])
+        # Pillar B D5 fix: split window vs last-cycle so dashboards
+        # consume the same authoritative count regardless of cycle phase.
+        last_cycle_findings_count = len(last_findings)
+        window_findings_count = getattr(coord, "_open_findings_count", 0)
+        window_house_score = getattr(coord, "_house_score", 100.0)
+        # next_cycle_eta_seconds — seconds until next 5-min cycle tick,
+        # derived from the last-evaluation ISO. Never negative.
+        next_eta: int | None = None
+        try:
+            last_iso = getattr(coord, "_last_evaluation_iso", None)
+            if last_iso:
+                from datetime import datetime as _dt
+                last_dt = _dt.fromisoformat(str(last_iso))
+                from homeassistant.util import dt as _dt_util
+                now_dt = _dt_util.utcnow()
+                if last_dt.tzinfo is None and now_dt.tzinfo is not None:
+                    last_dt = last_dt.replace(tzinfo=now_dt.tzinfo)
+                elapsed = (now_dt - last_dt).total_seconds()
+                interval = SCAN_INTERVAL_OPTIMIZATION.total_seconds()
+                next_eta = max(0, int(interval - elapsed))
+        except Exception:
+            next_eta = None
+        # last_action — reverse-scan _last_findings for the most recent
+        # outcome=="applied" entry; empty dict at L1 / shadow.
+        last_action: dict = {}
+        try:
+            for f in reversed(last_findings):
+                if getattr(f, "applied_outcome", None) == "applied":
+                    target_entity = None
+                    if isinstance(f.proposed_action, dict):
+                        target_entity = (
+                            f.proposed_action.get("target_entity")
+                            or f.proposed_action.get("entity_id")
+                        )
+                    last_action = {
+                        "action_id": getattr(f, "applied_action_id", None),
+                        "target_entity": target_entity,
+                        "dimension": str(f.dimension),
+                        "dispatched_at_iso": f.timestamp,
+                    }
+                    break
+        except Exception:
+            last_action = {}
+        # llm_invocations_today — read from the Phase-2 LLM tier wrapper
+        # if loaded. The wrapper evicts entries older than 24h lazily.
+        llm_invocations_today = 0
+        try:
+            tier = getattr(coord, "_llm_tier", None)
+            if tier is not None:
+                inv = getattr(tier, "_premium_invocations", None)
+                if inv is not None:
+                    llm_invocations_today = len(inv)
+        except Exception:
+            llm_invocations_today = 0
+        # effective_level_per_dim — derived from configured
+        # per-dimension caps (CONF_OPTIMIZER_DIMENSION_AUTONOMY) merged
+        # against the live effective level. Display-only.
+        effective_level_per_dim: dict[str, str] = {}
+        try:
+            dim_caps = cfg.get(CONF_OPTIMIZER_DIMENSION_AUTONOMY) or {}
+            if isinstance(dim_caps, dict):
+                effective_level_per_dim = {
+                    str(k): str(v) for k, v in dim_caps.items()
+                }
+        except Exception:
+            effective_level_per_dim = {}
         return {
             "autonomy_level": cfg.get(
                 CONF_OPTIMIZER_AUTONOMY_LEVEL, DEFAULT_OPTIMIZER_AUTONOMY_LEVEL,
             ),
+            "pending_autonomy_level": cfg.get(
+                CONF_OPTIMIZER_PENDING_AUTONOMY_LEVEL,
+            ),
             "effective_level": getattr(coord, "effective_level",
                                        DEFAULT_OPTIMIZER_AUTONOMY_LEVEL),
+            "effective_level_per_dim": effective_level_per_dim,
             "mode": getattr(coord, "effective_level",
                             DEFAULT_OPTIMIZER_AUTONOMY_LEVEL),
-            "house_score": coord._house_score,
-            "open_findings_count": coord._open_findings_count,
-            "last_evaluation": coord._last_evaluation_iso,
+            # Latest cycle (authoritative for "is the optimizer happy
+            # RIGHT NOW") — fixes the v5.x cosmetic disagreement with
+            # the findings sensor.
+            "last_cycle_findings_count": last_cycle_findings_count,
+            "last_cycle_finished_at": getattr(
+                coord, "_last_evaluation_iso", None,
+            ),
+            # Rolling window (kept for trend dashboards).
+            "window_findings_count": window_findings_count,
+            "window_house_score": window_house_score,
+            "house_score": window_house_score,  # back-compat alias
+            "last_evaluation": getattr(coord, "_last_evaluation_iso", None),
+            "next_cycle_eta_seconds": next_eta,
+            "last_action": last_action,
             "rate_cap_window_count": coord._rate_cap_window_count(),
             "quiet_hours_active": coord._is_quiet_hours_active(),
+            "llm_invocations_today": llm_invocations_today,
         }
 
 
@@ -13683,10 +13769,26 @@ class OptimizerFindingsSensor(_OptimizerCMSensorBase):
             for f in recent
         ]
         summary = coord.get_open_findings_summary()
+        # Pillar B D5: surface the Phase-4 prediction-vs-actual score for
+        # the most recent applied finding (if Phase-4 populated it).
+        last_action_outcome_score = None
+        try:
+            for f in reversed(recent):
+                if getattr(f, "applied_outcome", None) == "applied":
+                    obs = getattr(f, "observed_effect", None)
+                    if isinstance(obs, dict):
+                        last_action_outcome_score = (
+                            obs.get("outcome_score")
+                            or obs.get("score")
+                        )
+                    break
+        except Exception:
+            last_action_outcome_score = None
         return {
             "findings": findings_list,
             "by_severity": summary["by_severity"],
             "by_level": summary["by_level"],
+            "last_action_outcome_score": last_action_outcome_score,
         }
 
 
