@@ -124,7 +124,7 @@ from .domain_coordinators.signals import (
     SIGNAL_SUBSTRATE_KIND_CHANGED,
 )
 from .domain_coordinators.energy_billing import _get_effective_rate_kwh
-from .domain_coordinators._units import energy_state_to_kwh
+from .domain_coordinators._units import energy_state_to_kwh, power_state_to_w
 from .automation import RoomAutomation
 
 _LOGGER = logging.getLogger(__name__)
@@ -1747,11 +1747,29 @@ class UniversalRoomCoordinator(DataUpdateCoordinator):
         data[STATE_DARK] = data[STATE_ILLUMINANCE] < DEFAULT_DARK_THRESHOLD
         
         # === Phase 2: Energy Tracking ===
-        # v3.2.3.2: Use _get_config for power/energy sensors
+        # v3.2.3.2: Use _get_config for power/energy sensors.
+        # Power sums now route through ``power_state_to_w`` so a
+        # kW-reporting source (e.g. Envoy current_power_consumption)
+        # is normalized to Watts before summing — same Bug Class #30
+        # sibling fix being applied to WholeHousePowerSensor. Room
+        # power sensors are mostly Shelly/SPAN native Watts so the
+        # change is a no-op in the common case; the helper protects
+        # any future kW-reporting source. Downstream consumers of
+        # STATE_POWER_CURRENT (energy_forecast RoomPowerProfile EMA,
+        # EnergyWasteIdle >5W threshold, zone power total, cost/hour)
+        # self-correct via EMA on the new scale; no migration needed.
         power_sensors = self._get_config(CONF_POWER_SENSORS, [])
-        total_power = sum(
-            self._get_sensor_value(sensor, 0) for sensor in power_sensors
-        )
+        total_power = 0.0
+        for sensor in power_sensors:
+            if not sensor:
+                continue
+            try:
+                state = self.hass.states.get(sensor)
+                watts = power_state_to_w(state)
+            except Exception:
+                watts = None
+            if watts is not None:
+                total_power += watts
         data[STATE_POWER_CURRENT] = total_power
         
         # Energy accumulation — supports multiple energy sensors (v4.1.0)

@@ -170,7 +170,224 @@ def test_helper_imported_in_aggregation():
     )
     with open(path, encoding="utf-8") as fh:
         src = fh.read()
-    assert "from .domain_coordinators._units import energy_state_to_kwh" in src
+    assert "energy_state_to_kwh" in src, (
+        "aggregation must import the energy unit-normalization helper"
+    )
     assert "energy_state_to_kwh(state)" in src, (
         "aggregation._sum_sensors / whole-house tier must use the helper"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Power surface — Bug Class #30 sibling (whole-house power cycle)
+# ---------------------------------------------------------------------------
+
+def test_power_w_passthrough():
+    s = _FakeState("100.0", {"unit_of_measurement": "W"})
+    assert _units.power_state_to_w(s) == 100.0
+
+
+def test_power_w_case_insensitive():
+    s = _FakeState("250", {"unit_of_measurement": "w"})
+    assert _units.power_state_to_w(s) == 250.0
+
+
+def test_power_kw_converts_to_w():
+    # Live trigger: Envoy current_power_consumption reports kW. 2.7 kW
+    # configured raw → 0.29 W observed pre-fix (different sensor + magnitude
+    # but same kW-vs-W root cause). 1 kW must become 1000 W.
+    s = _FakeState("2.7", {"unit_of_measurement": "kW"})
+    assert _units.power_state_to_w(s) == 2700.0
+
+
+def test_power_kw_lowercase():
+    s = _FakeState("1.5", {"unit_of_measurement": "kw"})
+    assert _units.power_state_to_w(s) == 1500.0
+
+
+def test_power_mw_converts_to_w():
+    s = _FakeState("0.001", {"unit_of_measurement": "MW"})
+    assert _units.power_state_to_w(s) == 1000.0
+
+
+def test_power_one_kw_equals_one_thousand_w():
+    a = _FakeState("1.0", {"unit_of_measurement": "kW"})
+    b = _FakeState("1000.0", {"unit_of_measurement": "W"})
+    assert _units.power_state_to_w(a) == _units.power_state_to_w(b)
+
+
+def test_power_missing_uom_taken_as_w():
+    # Sources omitting uom are taken at face value as Watts — matches the
+    # pre-fix behavior at WholeHousePowerSensor._sum_sensors and the room
+    # coordinator power-sum (Shelly / SPAN native Watts).
+    s = _FakeState("42.0", {})
+    assert _units.power_state_to_w(s) == 42.0
+
+
+def test_power_unavailable_returns_none():
+    s = _FakeState("unavailable", {"unit_of_measurement": "W"})
+    assert _units.power_state_to_w(s) is None
+
+
+def test_power_unknown_returns_none():
+    s = _FakeState("unknown", {"unit_of_measurement": "kW"})
+    assert _units.power_state_to_w(s) is None
+
+
+def test_power_empty_state_returns_none():
+    s = _FakeState("", {"unit_of_measurement": "W"})
+    assert _units.power_state_to_w(s) is None
+
+
+def test_power_none_state_object_returns_none():
+    assert _units.power_state_to_w(None) is None
+
+
+def test_power_state_state_is_none_returns_none():
+    s = _FakeState(None, {"unit_of_measurement": "W"})
+    assert _units.power_state_to_w(s) is None
+
+
+def test_power_garbage_returns_none():
+    s = _FakeState("not_a_number", {"unit_of_measurement": "W"})
+    assert _units.power_state_to_w(s) is None
+
+
+def test_power_unrecognized_uom_returns_none():
+    # Refuse silently misattributing — return None.
+    s = _FakeState("100", {"unit_of_measurement": "BTU/h"})
+    assert _units.power_state_to_w(s) is None
+
+
+def test_power_attributes_missing_returns_value_anyway():
+    """Attributes object absent → treat as missing uom (W pass-through)."""
+    class _NoAttrs:
+        state = "12.5"
+        attributes = None
+    assert _units.power_state_to_w(_NoAttrs()) == 12.5
+
+
+def test_power_whole_house_sum_mixed_w_and_kw():
+    """A whole-house list mixing a native-W and a kW source must sum in W.
+
+    Simulates the live bug: an Envoy kW source + a SPAN W source
+    configured together. Pre-fix sum was 2.71 (W + raw kW number);
+    post-fix sum must be 2700 + 100 = 2800 W.
+    """
+    span = _FakeState("100.0", {"unit_of_measurement": "W"})
+    envoy = _FakeState("2.7", {"unit_of_measurement": "kW"})
+    total = _units.power_state_to_w(span) + _units.power_state_to_w(envoy)
+    assert total == 2800.0
+
+
+def test_power_helpers_used_in_aggregation_and_coordinator():
+    """The whole-house cycle plumbs power_state_to_w into both surfaces.
+
+    Review C2: assert the CALL SITE (`power_state_to_w(`) per file, not
+    just the name — a bare import or comment must not satisfy this.
+    """
+    for filename in ("aggregation.py", "coordinator.py"):
+        path = os.path.join(
+            _REPO,
+            "custom_components",
+            "universal_room_automation",
+            filename,
+        )
+        with open(path, encoding="utf-8") as fh:
+            src = fh.read()
+        assert "power_state_to_w(" in src, (
+            f"{filename} must CALL the power unit-normalization helper"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Fix-up pass (reviews A/B/C of the power-units cycle)
+# ---------------------------------------------------------------------------
+
+
+def test_power_milliwatt_exact_case():
+    """Review B-HIGH: 'mW' is MILLIwatt — must divide, not multiply 1e6."""
+    s = _FakeState("500.0", {"unit_of_measurement": "mW"})
+    assert _units.power_state_to_w(s) == 0.5
+
+
+def test_power_megawatt_exact_case():
+    s = _FakeState("0.002", {"unit_of_measurement": "MW"})
+    assert _units.power_state_to_w(s) == 2000.0
+
+
+def test_power_ambiguous_mw_casing_refused():
+    """All-lower 'mw' cannot disambiguate mega vs milli — refuse."""
+    for variant in ("mw", "Mw", "mW ".lower()):
+        s = _FakeState("1.0", {"unit_of_measurement": variant})
+        assert _units.power_state_to_w(s) is None, variant
+
+
+def test_power_kw_mixed_case_accepted():
+    """'Kw'/'KW' are unambiguous (no milli-K) — lowercase collapse OK."""
+    for variant in ("Kw", "KW"):
+        s = _FakeState("2.0", {"unit_of_measurement": variant})
+        assert _units.power_state_to_w(s) == 2000.0, variant
+
+
+def test_power_whitespace_uom_stripped():
+    s = _FakeState("1.0", {"unit_of_measurement": " kW "})
+    assert _units.power_state_to_w(s) == 1000.0
+
+
+def test_power_negative_passes_through():
+    """Bidirectional CTs / solar export report negative W — no clamp."""
+    s = _FakeState("-350.0", {"unit_of_measurement": "W"})
+    assert _units.power_state_to_w(s) == -350.0
+
+
+def test_power_nan_and_inf_refused():
+    """Review A-M1: non-finite floats must not poison sums."""
+    for bad in ("nan", "inf", "-inf", "NaN"):
+        s = _FakeState(bad, {"unit_of_measurement": "W"})
+        assert _units.power_state_to_w(s) is None, bad
+
+
+def test_energy_nan_and_inf_refused():
+    for bad in ("nan", "inf"):
+        s = _FakeState(bad, {"unit_of_measurement": "kWh"})
+        assert _units.energy_state_to_kwh(s) is None, bad
+
+
+def test_energy_megawatthour_exact_case():
+    s = _FakeState("1.5", {"unit_of_measurement": "MWh"})
+    assert _units.energy_state_to_kwh(s) == 1500.0
+
+
+def test_energy_milliwatthour_exact_case():
+    s = _FakeState("2000000.0", {"unit_of_measurement": "mWh"})
+    assert _units.energy_state_to_kwh(s) == 2.0
+
+
+def test_energy_ambiguous_mwh_casing_refused():
+    for variant in ("mwh", "MWH", "Mwh"):
+        s = _FakeState("1.0", {"unit_of_measurement": variant})
+        assert _units.energy_state_to_kwh(s) is None, variant
+
+
+def test_cost_sensor_sums_normalized_energy():
+    """Review C1: WholeHouseCostTodaySensor must normalize its energy sum
+    (it shares CONF_WHOLE_HOUSE_ENERGY_SENSORS with the normalized
+    WholeHouseEnergySensor — raw summing let a Wh source inflate cost
+    1000x). Call-site assertion against the production source.
+    """
+    path = os.path.join(
+        _REPO, "custom_components", "universal_room_automation", "aggregation.py",
+    )
+    with open(path, encoding="utf-8") as fh:
+        src = fh.read()
+    start = src.find("def _sum_energy_sensors")
+    assert start > 0
+    end = src.find("\n    @property", start)
+    body = src[start:end if end > 0 else len(src)]
+    assert "energy_state_to_kwh(" in body, (
+        "_sum_energy_sensors must normalize via energy_state_to_kwh"
+    )
+    assert "float(state.state)" not in body, (
+        "_sum_energy_sensors must not raw-read state values"
     )
