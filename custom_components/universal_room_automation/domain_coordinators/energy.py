@@ -13,7 +13,10 @@ import logging
 from typing import Any
 
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.dispatcher import async_dispatcher_connect
+from homeassistant.helpers.dispatcher import (
+    async_dispatcher_connect,
+    async_dispatcher_send,
+)
 from homeassistant.helpers.event import async_track_time_interval
 
 from .base import (
@@ -97,7 +100,11 @@ from .energy_const import (
     LOAD_SHEDDING_PRIORITY,
 )
 from .energy_tou import TOURateEngine
-from .signals import SIGNAL_SAFETY_HAZARD
+from .signals import (
+    SIGNAL_OPTIMIZER_INTENT,
+    SIGNAL_OPTIMIZER_INTENT_VETO,
+    SIGNAL_SAFETY_HAZARD,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -144,6 +151,11 @@ class EnergyCoordinator(BaseCoordinator):
 
         # Build off-peak drain targets from config
         ec = entity_config or {}
+        # OC Phase 5 Pillar A: keep the raw entity_config map so the
+        # sibling-handshake honor logic can resolve the battery-strategy
+        # writeable entity ids without re-deriving them through battery /
+        # strategy sub-components (which may be None when EC is disabled).
+        self._entity_config: dict[str, str] = dict(ec)
 
         # v4.0.12: Resolved Envoy entity IDs (auto-derived or explicit config).
         # v4.3.1: no production fallback. B1 envoy validation gate (v4.2.29)
@@ -393,6 +405,17 @@ class EnergyCoordinator(BaseCoordinator):
 
         # Observation mode: sensors compute, no actions executed
         self._observation_mode: bool = False
+
+        # OC Phase 5 Pillar A handshake — unsub for SIGNAL_OPTIMIZER_INTENT.
+        # Stored separately so async_setup can detect re-entry (options reload)
+        # and skip a double-subscribe; also appended to ``_unsub_listeners``
+        # so BaseCoordinator.async_teardown clears it (Bug Class #50 / #19).
+        self._optimizer_intent_unsub = None
+        # Reason string for the most recent ``honor_optimizer_intent`` veto.
+        # Read by ``_on_optimizer_intent`` immediately after evaluation so a
+        # concurrent intent can't race us — the value is reset at the top of
+        # every honor call, so reads are valid only inside the same callback.
+        self._last_veto_reason: str | None = None
 
         # v4.7.x D2 fix-up H1: track how many of the 5 EC sub-switches
         # have NOT yet completed their deferred restore.  Each switch calls
@@ -661,6 +684,18 @@ class EnergyCoordinator(BaseCoordinator):
                 self._handle_safety_hazard,
             )
         )
+
+        # OC Phase 5 Pillar A: subscribe to SIGNAL_OPTIMIZER_INTENT so this
+        # coordinator gets a chance to veto an Optimizer-proposed actuation
+        # before it dispatches. Bug Class #50 guardrail — store the unsub on
+        # ``_unsub_listeners`` and guard against double-subscribe on re-setup.
+        if self._optimizer_intent_unsub is None:
+            self._optimizer_intent_unsub = async_dispatcher_connect(
+                self.hass,
+                SIGNAL_OPTIMIZER_INTENT,
+                self._on_optimizer_intent,
+            )
+            self._unsub_listeners.append(self._optimizer_intent_unsub)
 
         # Run initial evaluation
         await self._async_decision_cycle()
@@ -4562,6 +4597,123 @@ class EnergyCoordinator(BaseCoordinator):
         """Set observation mode."""
         self._observation_mode = value
         _LOGGER.info("Energy Coordinator observation mode: %s", value)
+
+    # ------------------------------------------------------------------
+    # OC Phase 5 Pillar A — sibling-coordinator handshake
+    # ------------------------------------------------------------------
+
+    @callback
+    def _on_optimizer_intent(self, intent: dict) -> None:
+        """Dispatcher callback for SIGNAL_OPTIMIZER_INTENT.
+
+        Evaluates ``honor_optimizer_intent`` and fires
+        ``SIGNAL_OPTIMIZER_INTENT_VETO`` when this coordinator refuses.
+        Defensively guards against malformed payloads so the broker can
+        never crash a sibling.
+        """
+        try:
+            if not isinstance(intent, dict):
+                return
+            if self.honor_optimizer_intent(intent):
+                return
+            action_id = intent.get("action_id")
+            if not action_id:
+                return
+            async_dispatcher_send(
+                self.hass,
+                SIGNAL_OPTIMIZER_INTENT_VETO,
+                {
+                    "action_id": action_id,
+                    "vetoed_by": "energy",
+                    "reason": self._last_veto_reason or "energy_policy",
+                },
+            )
+            _LOGGER.info(
+                "Optimizer intent vetoed by Energy (action_id=%s reason=%s "
+                "target=%s)",
+                action_id,
+                self._last_veto_reason,
+                intent.get("target_entity"),
+            )
+        except Exception:  # noqa: BLE001 — never crash sibling on broker intent
+            _LOGGER.debug(
+                "Energy._on_optimizer_intent raised", exc_info=True,
+            )
+
+    def honor_optimizer_intent(self, intent: dict) -> bool:
+        """Return True to ACK (allow), False to VETO an Optimizer intent.
+
+        Default vetoes (Pillar A safe-defaults from the plan):
+            * ``self._observation_mode`` is True — veto everything.
+            * The intent targets the EVSE switch during an off-peak charge
+              window (the EV-charging policy owns that window).
+            * The intent targets a battery-strategy entity (storage mode,
+              reserve SOC number, charge-from-grid, grid-enabled).
+
+        Read-only — never mutates state, never raises. Treats unknown
+        payload shapes as "no objection" (return True). The optimizer's
+        broker treats no-response as proceed, so an exception inside
+        ``honor_optimizer_intent`` cannot wedge the broker.
+        """
+        # Reset the per-call veto reason so callers reading
+        # ``_last_veto_reason`` after a False return see the correct
+        # explanation.
+        self._last_veto_reason = None
+
+        try:
+            target = (intent.get("target_entity") or "").strip()
+        except Exception:  # noqa: BLE001
+            return True
+        if not target:
+            return True
+
+        # (a) Blanket observation-mode veto.
+        if self._observation_mode:
+            self._last_veto_reason = "observation_mode"
+            return False
+
+        # (b) EVSE-during-off-peak veto. Off-peak is the only window where
+        # the EV-charging policy ACTIVELY drives the plug — the optimizer
+        # must not perturb it. Outside off-peak (peak / mid_peak), the
+        # EV policy is paused and the optimizer is free to act under the
+        # global allowlist.
+        try:
+            evse_switches = {
+                cfg.get("switch")
+                for cfg in self._ev._evse.values()
+                if isinstance(cfg, dict) and cfg.get("switch")
+            }
+        except Exception:  # noqa: BLE001
+            evse_switches = set()
+        if target in evse_switches:
+            try:
+                period = self._tou.get_current_period()
+            except Exception:  # noqa: BLE001
+                period = None
+            if period == "off_peak":
+                self._last_veto_reason = "evse_offpeak_charge_window"
+                return False
+
+        # (c) Battery-strategy write veto. The battery strategy machine
+        # owns these entities; the optimizer can read them but must not
+        # write them at any rung. The targets are sourced from the
+        # entity-config map so they track operator config exactly.
+        try:
+            battery_writeables = {
+                e for e in (
+                    self._entity_config.get(CONF_ENERGY_STORAGE_MODE_ENTITY),
+                    self._entity_config.get(CONF_ENERGY_RESERVE_SOC_ENTITY),
+                    self._entity_config.get(CONF_ENERGY_CHARGE_FROM_GRID_ENTITY),
+                    self._entity_config.get(CONF_ENERGY_GRID_ENABLED_ENTITY),
+                ) if e
+            }
+        except Exception:  # noqa: BLE001
+            battery_writeables = set()
+        if target in battery_writeables:
+            self._last_veto_reason = "battery_strategy_write"
+            return False
+
+        return True
 
     @property
     def occupancy_weighted(self) -> bool:

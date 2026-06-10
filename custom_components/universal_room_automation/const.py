@@ -1572,10 +1572,18 @@ OPTIMIZER_QUIET_HOURS_SOURCES: Final = [
 
 # L2 reversible device-actuation allowlist (single dispatch chokepoint).
 # `number` / `select` are config-write domains and require L3+.
+#
+# OC Phase 5 Pillar A — operator-staged stage-1 list. Per
+# ``docs/planning/PLANNING_OC_phase5_handshake_and_admin_surface.md`` D8,
+# this allowlist is UNCHANGED in Pillar A; broadening is deferred to the
+# per-sibling ``honor_optimizer_intent`` opt-in pathway. The stage-1 list
+# stays {light, switch, fan, cover, climate} so reviewers can verify no
+# covert domain expansion shipped with the handshake work.
 OPTIMIZER_ALLOWED_DOMAINS_DEVICE: Final = frozenset(
     {"light", "switch", "fan", "cover", "climate"}
 )
 # L3+ config-write allowlist (numeric / enum tweaks).
+# Pillar A stage-1: UNCHANGED at {number, select}; see D8 rationale above.
 OPTIMIZER_ALLOWED_DOMAINS_CONFIG: Final = frozenset({"number", "select"})
 
 # L3+ numeric clamp (±20% of current value).

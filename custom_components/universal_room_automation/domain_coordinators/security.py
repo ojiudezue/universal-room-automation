@@ -66,6 +66,8 @@ from .base import (
     Severity,
 )
 from .signals import (
+    SIGNAL_OPTIMIZER_INTENT,
+    SIGNAL_OPTIMIZER_INTENT_VETO,
     SIGNAL_PERSON_ARRIVING,
     SIGNAL_SAFETY_HAZARD,
     SIGNAL_SECURITY_ENTITIES_UPDATE,
@@ -503,6 +505,12 @@ class SecurityCoordinator(BaseCoordinator):
         # switch.ura_security_observation_mode.
         self.observation_mode: bool = False
 
+        # OC Phase 5 Pillar A handshake — unsub for SIGNAL_OPTIMIZER_INTENT
+        # plus per-call veto-reason scratch. The unsub is stored separately
+        # so async_setup can detect re-entry (Bug Class #50).
+        self._optimizer_intent_unsub = None
+        self._last_veto_reason: str | None = None
+
         # Runtime state
         self._active_alert = False
         self._alert_details: dict[str, Any] = {}
@@ -601,6 +609,18 @@ class SecurityCoordinator(BaseCoordinator):
                 self._handle_safety_hazard,
             )
         )
+
+        # OC Phase 5 Pillar A: subscribe to SIGNAL_OPTIMIZER_INTENT so this
+        # coordinator can veto any optimizer-proposed actuation on locks
+        # / alarm panels. Bug Class #50 guardrail: stored unsub avoids
+        # double-subscribe across an options-flow re-setup.
+        if self._optimizer_intent_unsub is None:
+            self._optimizer_intent_unsub = async_dispatcher_connect(
+                self.hass,
+                SIGNAL_OPTIMIZER_INTENT,
+                self._on_optimizer_intent,
+            )
+            self._unsub_listeners.append(self._optimizer_intent_unsub)
 
         # v3.22.0 D3: Subscribe to person arriving signals
         self._unsub_listeners.append(
@@ -1331,6 +1351,81 @@ class SecurityCoordinator(BaseCoordinator):
                     )
 
         return actions
+
+    # =========================================================================
+    # OC Phase 5 Pillar A — sibling-coordinator handshake
+    # =========================================================================
+
+    @callback
+    def _on_optimizer_intent(self, intent: dict) -> None:
+        """Dispatcher callback for SIGNAL_OPTIMIZER_INTENT.
+
+        Evaluates ``honor_optimizer_intent`` and fires
+        ``SIGNAL_OPTIMIZER_INTENT_VETO`` when this coordinator refuses.
+        Defensive — never raises into the broker.
+        """
+        try:
+            if not isinstance(intent, dict):
+                return
+            if self.honor_optimizer_intent(intent):
+                return
+            action_id = intent.get("action_id")
+            if not action_id:
+                return
+            async_dispatcher_send(
+                self.hass,
+                SIGNAL_OPTIMIZER_INTENT_VETO,
+                {
+                    "action_id": action_id,
+                    "vetoed_by": "security",
+                    "reason": self._last_veto_reason or "security_policy",
+                },
+            )
+            _LOGGER.info(
+                "Optimizer intent vetoed by Security (action_id=%s "
+                "reason=%s target=%s)",
+                action_id,
+                self._last_veto_reason,
+                intent.get("target_entity"),
+            )
+        except Exception:  # noqa: BLE001 — never crash sibling on broker intent
+            _LOGGER.debug(
+                "Security._on_optimizer_intent raised", exc_info=True,
+            )
+
+    def honor_optimizer_intent(self, intent: dict) -> bool:
+        """Return True to ACK (allow), False to VETO an Optimizer intent.
+
+        Default vetoes (Phase 1 — zero allowlist):
+            * ``self.observation_mode`` is True — veto everything.
+            * Target entity is in the ``lock.*`` domain — always veto.
+            * Target entity is in the ``alarm_control_panel.*`` domain —
+              always veto.
+
+        Read-only — never mutates state, never raises.
+        """
+        self._last_veto_reason = None
+
+        try:
+            target = (intent.get("target_entity") or "").strip()
+        except Exception:  # noqa: BLE001
+            return True
+        if not target:
+            return True
+
+        if self.observation_mode:
+            self._last_veto_reason = "observation_mode"
+            return False
+
+        if target.startswith("lock."):
+            self._last_veto_reason = "lock_domain"
+            return False
+
+        if target.startswith("alarm_control_panel."):
+            self._last_veto_reason = "alarm_panel_domain"
+            return False
+
+        return True
 
     # =========================================================================
     # State listener callbacks
