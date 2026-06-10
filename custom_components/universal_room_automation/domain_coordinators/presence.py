@@ -1250,6 +1250,12 @@ class PresenceCoordinator(BaseCoordinator):
         # Substrate signal subscription unsub (dispatcher channel). Captured
         # so async_teardown can clean it up — Bug Class #38.
         self._substrate_signal_unsub: Optional[Any] = None
+        # Routine-Awareness Next-State Forecaster (cycle:
+        # routine-next-state-forecaster). Built in async_setup right
+        # after the house_state_log hydration; teardown calls
+        # async_shutdown to cancel its timer + signal subscription
+        # (Bug Class #19 + #50). Read by get_next_state_prediction().
+        self._routine_forecaster: Optional[Any] = None
 
     @property
     def inference_engine(self) -> StateInferenceEngine:
@@ -1649,35 +1655,41 @@ class PresenceCoordinator(BaseCoordinator):
     def get_next_state_prediction(self) -> dict:
         """Return the next-state prediction in the D1 PWA contract shape.
 
-        v4.6.9 D1: No predictive model exists yet — this is a placeholder.
-        The routine awareness v4.6.0 cycle introduced regime shift *detection*
-        (RegimeDetector, nightly batch) but not forward next-state prediction.
-        A real model (e.g. time-of-day Bayesian transition forecaster) is
-        planned for v4.7.x.
+        Delegates to ``self._routine_forecaster`` (see
+        ``routine_forecaster.py``) when it is set AND the cold-boot
+        settle gate has released. During boot-settle or when the
+        forecaster is unavailable (DB down, init failed) we emit the
+        graceful-degrade placeholder shape — keeps the PWA tile stable
+        and out-of-vocab leaks impossible (Bug Class #22, #29, #37).
 
-        Until then we emit:
-          state       = "unknown"
-          confidence  = 0.0
-          model       = "placeholder_v0"
+        Output keys (PWA contract — DO NOT change shape):
+          state, confidence, predicted_at_iso, model, current_state,
+          transition_eta_minutes
 
-        This satisfies the PWA hook contract (no "—"/None as state value)
-        while making the gap explicit.  The TODO below is the v4.7.x hook-in.
-
-        TODO(v4.7.x): Replace this stub with a real model call, e.g.:
-          forecaster = self.hass.data[DOMAIN].get("routine_forecaster")
-          if forecaster is not None:
-              return forecaster.get_next_state_prediction()
+        See ``docs/planning/PLANNING_routine_awareness_next_state_forecaster.md``.
+        TODO(v4.7.x): legacy hook removed — forecaster now lives on this
+        coordinator (``self._routine_forecaster``), not in hass.data.
         """
-        # function-local import — Bug Class #34
-        try:
-            from homeassistant.util import dt as _dt_util
-            predicted_at_iso = _dt_util.utcnow().isoformat()
-        except Exception:
-            from datetime import datetime, timezone
-            predicted_at_iso = datetime.now(timezone.utc).isoformat()
-
+        predicted_at_iso = dt_util.utcnow().isoformat()
         current_state = self.house_state
 
+        forecaster = getattr(self, "_routine_forecaster", None)
+        boot_settle_done = getattr(self, "_boot_settle_done", True)
+        if forecaster is not None and boot_settle_done:
+            try:
+                prediction = forecaster.predict(current_state)
+                if isinstance(prediction, dict) and "state" in prediction:
+                    return prediction
+            except Exception:  # noqa: BLE001 — defensive: NEVER let the
+                # forecaster crash the sensor read path.
+                _LOGGER.debug(
+                    "RoutineForecaster.predict raised — falling back to "
+                    "placeholder shape",
+                    exc_info=True,
+                )
+
+        # Graceful degrade — preserves PWA contract when the forecaster
+        # is unavailable (boot, DB down, init failed).
         return {
             "state": "unknown",
             "confidence": 0.0,
@@ -1863,6 +1875,33 @@ class PresenceCoordinator(BaseCoordinator):
         except Exception:
             _LOGGER.debug(
                 "Could not hydrate _transitions_today from house_state_log (non-fatal)",
+                exc_info=True,
+            )
+
+        # Routine-Awareness Next-State Forecaster — replaces the
+        # placeholder_v0 stub behind sensor.ura_presence_coordinator_next_state.
+        # In-memory frequency/recency aggregate over house_state_log;
+        # bounded read, no new DB writes. See
+        # docs/planning/PLANNING_routine_awareness_next_state_forecaster.md.
+        try:
+            db = self.hass.data.get(DOMAIN, {}).get("database")
+            if db is not None:
+                from .routine_forecaster import RoutineForecaster  # noqa: PLC0415
+                forecaster = RoutineForecaster(self.hass, db)
+                await forecaster.async_setup()
+                self._routine_forecaster = forecaster
+                _LOGGER.info(
+                    "RoutineForecaster: attached to PresenceCoordinator"
+                )
+            else:
+                _LOGGER.debug(
+                    "RoutineForecaster: database not yet available — "
+                    "next-state prediction will degrade to placeholder shape"
+                )
+        except Exception:
+            _LOGGER.debug(
+                "RoutineForecaster: setup failed (non-fatal); "
+                "next-state prediction will degrade to placeholder shape",
                 exc_info=True,
             )
 
@@ -5325,6 +5364,19 @@ class PresenceCoordinator(BaseCoordinator):
                     exc_info=True,
                 )
             self._substrate = None
+
+        # Routine-Awareness Next-State Forecaster: cancel the periodic
+        # refresh timer + signal subscription. Cancellation is idempotent
+        # (the forecaster guards its own unsubs). Bug Class #19 + #50.
+        if self._routine_forecaster is not None:
+            try:
+                await self._routine_forecaster.async_shutdown()
+            except Exception:  # noqa: BLE001 — defensive teardown
+                _LOGGER.debug(
+                    "RoutineForecaster shutdown raised (non-fatal)",
+                    exc_info=True,
+                )
+            self._routine_forecaster = None
 
         self._cancel_listeners()
 

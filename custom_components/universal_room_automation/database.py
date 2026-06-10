@@ -2000,6 +2000,55 @@ class UniversalRoomDatabase:
         except Exception as e:
             _LOGGER.error("Error logging house state change: %s", e)
 
+    async def fetch_house_state_log_since(
+        self,
+        since_iso: str,
+        limit: int,
+    ) -> list[dict]:
+        """Return house_state_log rows with timestamp >= since_iso, oldest first.
+
+        Read-only sibling of count_house_state_changes_since. Used by
+        RoutineForecaster (cycle: routine-next-state-forecaster) to aggregate
+        a bounded window (default 60d / 5000 rows) into in-memory
+        (prev_state, day_type, time_bin) -> next_state counts + dwell ETAs.
+
+        Bounded by ``LIMIT ?`` to cap read pressure (no runaway scans even
+        if the table grows). ``ORDER BY timestamp ASC`` so the caller sees
+        chronological order — required for dwell-time computation from
+        consecutive rows.
+
+        Returns ``[]`` on exception (matches count_house_state_changes_since
+        failure mode) so callers can treat the forecaster as degraded
+        rather than crashing the coordinator.
+        """
+        try:
+            async with self._db_read() as db:
+                cursor = await db.execute(
+                    """
+                    SELECT timestamp, state, previous_state, confidence
+                    FROM house_state_log
+                    WHERE timestamp >= ?
+                    ORDER BY timestamp ASC
+                    LIMIT ?
+                    """,
+                    (since_iso, int(limit)),
+                )
+                rows = await cursor.fetchall()
+                return [
+                    {
+                        "timestamp": r[0],
+                        "state": r[1],
+                        "previous_state": r[2],
+                        "confidence": r[3],
+                    }
+                    for r in (rows or [])
+                ]
+        except Exception as e:
+            _LOGGER.error(
+                "Error fetching house_state_log since %s: %s", since_iso, e
+            )
+            return []
+
     async def count_house_state_changes_since(self, since_iso: str) -> int:
         """Return the number of house_state_log rows with timestamp >= since_iso.
 

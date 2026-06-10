@@ -1843,3 +1843,33 @@ confidence: 0.0-1.0, your calibrated certainty the finding is real AND the
 snapshot supports it. Findings below the operator's confidence gate are dropped
 before any action — so calibrate honestly, do not inflate.
 """
+
+
+# ============================================================================
+# Routine-Awareness Next-State Forecaster (cycle: routine-next-state-forecaster)
+# ============================================================================
+# Frequency/recency forecaster keyed by (prev_state, day_type, time_bin) over
+# house_state_log. Read-only, in-memory; no new DB tables or per-cycle writes.
+# Consumed by PresenceCoordinator.get_next_state_prediction() which feeds the
+# v4.6.9 D1 PWA contract sensor (sensor.ura_presence_coordinator_next_state).
+
+# Minimum observations per cell before we trust the argmax. Below this we
+# cascade to coarser cells (day_type collapse, then time_bin collapse), and
+# emit ``state="unknown", confidence=0.0`` if even (C, *, *) is too thin.
+ROUTINE_FORECAST_MIN_SUPPORT: Final = 5
+
+# Aggregation window. Order-of-magnitude match to RegimeDetector's 56d
+# baseline; rolling so recent routine drift dominates over ancient history.
+ROUTINE_FORECAST_HISTORY_DAYS: Final = 60
+
+# Full re-aggregation cadence (in addition to incremental update on each
+# SIGNAL_HOUSE_STATE_CHANGED). Bounded read; post-write-flood discipline.
+ROUTINE_FORECAST_REFRESH_SECONDS: Final = 3600
+
+# Hard cap on rows fetched per refresh. Guards against runaway DB read
+# pressure if house_state_log grows large or the window is widened.
+ROUTINE_FORECAST_MAX_ROWS: Final = 5000
+
+# Emitted in prediction["model"]. Suffix +guest_passthrough when current
+# state is GUEST or VACATION (passthrough path; see RoutineForecaster.predict).
+ROUTINE_FORECAST_MODEL_ID: Final = "house_state_log_freq_v1"
