@@ -281,7 +281,11 @@ def test_power_whole_house_sum_mixed_w_and_kw():
 
 
 def test_power_helpers_used_in_aggregation_and_coordinator():
-    """The whole-house cycle plumbs power_state_to_w into both surfaces."""
+    """The whole-house cycle plumbs power_state_to_w into both surfaces.
+
+    Review C2: assert the CALL SITE (`power_state_to_w(`) per file, not
+    just the name — a bare import or comment must not satisfy this.
+    """
     for filename in ("aggregation.py", "coordinator.py"):
         path = os.path.join(
             _REPO,
@@ -291,6 +295,99 @@ def test_power_helpers_used_in_aggregation_and_coordinator():
         )
         with open(path, encoding="utf-8") as fh:
             src = fh.read()
-        assert "power_state_to_w" in src, (
-            f"{filename} must import + use the power unit-normalization helper"
+        assert "power_state_to_w(" in src, (
+            f"{filename} must CALL the power unit-normalization helper"
         )
+
+
+# ---------------------------------------------------------------------------
+# Fix-up pass (reviews A/B/C of the power-units cycle)
+# ---------------------------------------------------------------------------
+
+
+def test_power_milliwatt_exact_case():
+    """Review B-HIGH: 'mW' is MILLIwatt — must divide, not multiply 1e6."""
+    s = _FakeState("500.0", {"unit_of_measurement": "mW"})
+    assert _units.power_state_to_w(s) == 0.5
+
+
+def test_power_megawatt_exact_case():
+    s = _FakeState("0.002", {"unit_of_measurement": "MW"})
+    assert _units.power_state_to_w(s) == 2000.0
+
+
+def test_power_ambiguous_mw_casing_refused():
+    """All-lower 'mw' cannot disambiguate mega vs milli — refuse."""
+    for variant in ("mw", "Mw", "mW ".lower()):
+        s = _FakeState("1.0", {"unit_of_measurement": variant})
+        assert _units.power_state_to_w(s) is None, variant
+
+
+def test_power_kw_mixed_case_accepted():
+    """'Kw'/'KW' are unambiguous (no milli-K) — lowercase collapse OK."""
+    for variant in ("Kw", "KW"):
+        s = _FakeState("2.0", {"unit_of_measurement": variant})
+        assert _units.power_state_to_w(s) == 2000.0, variant
+
+
+def test_power_whitespace_uom_stripped():
+    s = _FakeState("1.0", {"unit_of_measurement": " kW "})
+    assert _units.power_state_to_w(s) == 1000.0
+
+
+def test_power_negative_passes_through():
+    """Bidirectional CTs / solar export report negative W — no clamp."""
+    s = _FakeState("-350.0", {"unit_of_measurement": "W"})
+    assert _units.power_state_to_w(s) == -350.0
+
+
+def test_power_nan_and_inf_refused():
+    """Review A-M1: non-finite floats must not poison sums."""
+    for bad in ("nan", "inf", "-inf", "NaN"):
+        s = _FakeState(bad, {"unit_of_measurement": "W"})
+        assert _units.power_state_to_w(s) is None, bad
+
+
+def test_energy_nan_and_inf_refused():
+    for bad in ("nan", "inf"):
+        s = _FakeState(bad, {"unit_of_measurement": "kWh"})
+        assert _units.energy_state_to_kwh(s) is None, bad
+
+
+def test_energy_megawatthour_exact_case():
+    s = _FakeState("1.5", {"unit_of_measurement": "MWh"})
+    assert _units.energy_state_to_kwh(s) == 1500.0
+
+
+def test_energy_milliwatthour_exact_case():
+    s = _FakeState("2000000.0", {"unit_of_measurement": "mWh"})
+    assert _units.energy_state_to_kwh(s) == 2.0
+
+
+def test_energy_ambiguous_mwh_casing_refused():
+    for variant in ("mwh", "MWH", "Mwh"):
+        s = _FakeState("1.0", {"unit_of_measurement": variant})
+        assert _units.energy_state_to_kwh(s) is None, variant
+
+
+def test_cost_sensor_sums_normalized_energy():
+    """Review C1: WholeHouseCostTodaySensor must normalize its energy sum
+    (it shares CONF_WHOLE_HOUSE_ENERGY_SENSORS with the normalized
+    WholeHouseEnergySensor — raw summing let a Wh source inflate cost
+    1000x). Call-site assertion against the production source.
+    """
+    path = os.path.join(
+        _REPO, "custom_components", "universal_room_automation", "aggregation.py",
+    )
+    with open(path, encoding="utf-8") as fh:
+        src = fh.read()
+    start = src.find("def _sum_energy_sensors")
+    assert start > 0
+    end = src.find("\n    @property", start)
+    body = src[start:end if end > 0 else len(src)]
+    assert "energy_state_to_kwh(" in body, (
+        "_sum_energy_sensors must normalize via energy_state_to_kwh"
+    )
+    assert "float(state.state)" not in body, (
+        "_sum_energy_sensors must not raw-read state values"
+    )

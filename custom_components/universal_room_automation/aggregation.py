@@ -2424,17 +2424,21 @@ class WholeHouseCostTodaySensor(AggregationEntity, SensorEntity):
         return []
 
     def _sum_energy_sensors(self, sensor_ids: list[str]) -> float | None:
-        """Sum numeric values from a list of energy sensor entity IDs."""
+        """Sum energy sensor states normalized to kWh.
+
+        Review C1 (power-units cycle): this sensor sums the SAME
+        CONF_WHOLE_HOUSE_ENERGY_SENSORS list that WholeHouseEnergySensor
+        normalizes — a raw sum here let a Wh source inflate cost 1000x
+        while the energy sensor read correctly (Bug Class #30).
+        """
         total = 0.0
         any_valid = False
         for sensor_id in sensor_ids:
             state = self.hass.states.get(sensor_id)
-            if state and state.state not in ("unknown", "unavailable"):
-                try:
-                    total += float(state.state)
-                    any_valid = True
-                except (ValueError, TypeError):
-                    pass
+            value = energy_state_to_kwh(state)
+            if value is not None:
+                total += value
+                any_valid = True
         return total if any_valid else None
 
     @property
