@@ -1,0 +1,116 @@
+{
+  "format_version": "2.1",
+  "entry_id": "020",
+  "author": "ojiudezue",
+  "session_id": "claude_20260608_v4733_af5_optimization_coordinator_scoping",
+  "timestamp": "2026-06-08T23:30:00Z",
+  "type": "milestone",
+  "weight": "load-bearing",
+
+  "title": "Shipped v4.7.33 (A-F5 TTL suppression); triaged 4 inspections (camera person-only guard filed, 3 no-op); Bayesian audit (1 live engine + 1 dead design); fully scoped the Optimization Coordinator as an agentic-first, graduated-autonomy, provider-agnostic-LLM cycle",
+
+  "summary": "Closed the deferred A-F5 follow-up from entry 019 and then spent the bulk of the session scoping URA's largest planned subsystem. v4.7.33: the OverrideArrester's override-suppression was a set popped on the FIRST climate state event, but v4.7.32 made _revert_override fire TWO service calls (set_hvac_mode heat_cool + set_preset_mode) under one suppress() -> the second URA event leaked into override detection. Fix: replaced the set with a 5s TTL window (_suppressed_until dict). Review (elevated to Tier 2-DB once 9 external callers across hvac.py/hvac_predict.py were found -> shared primitive) surfaced a HIGH: the fixed window now SWALLOWS a genuine user override landing mid-window. Clean fix that eliminated the tradeoff: since URA never writes preset_mode=manual, a mid-window non-manual->manual transition is unambiguously the user -> pop suppression and fall through to detection. LIVE + validated. Then four operator inspections: (#2 camera) binary_sensor.family_room_motion_3 (Frigate device_class=motion) was live in zone_1's CONF_ZONE_CAMERAS, which check_zone_occupancy_confidence (presence.py:1623) trusts wholesale as 'camera person detection' with NO device_class filter, feeding the >max-hours stale-sensor guard -> operator removed it from config; code guard filed as low-pri backlog plan. The other three (DB-write-worker boot error = pre-existing benign transient; fan-during-solar-banking = modest merit, deferred; HVAC zone-state-across-restart = benign re-derive) ruled NO-OP. Bayesian audit (live-verified): exactly ONE shipped engine (BayesianPredictor occupancy, 97% data-quality / 0.1325 Brier / 85.6% hit-rate, healthy) + the per-room 'comfort ParameterBelief' is DESIGN-ONLY/zero-code. Optimization Coordinator scoped end-to-end into PLANNING_OPTIMIZATION_COORDINATOR_v2_agentic.md.",
+
+  "decisions": [
+    {
+      "decision": "A-F5 fix: the OverrideArrester suppression primitive becomes a TTL window (5s), not a set popped on first event. The listener checks `now < _suppressed_until[entity]` WITHOUT popping a still-valid entry, so it survives all settle events from one logical URA write. PLUS a mid-window passthrough: a fresh non-manual->manual preset transition during the window is let through to override detection (and pops suppression), because URA never writes preset_mode=manual so that transition can only be the user.",
+      "why": "v4.7.32 made _revert_override fire two service calls under one suppress(); the old single-pop cleared on the first event, exposing the second URA event to mis-detection. A naive fixed TTL fixes that but introduces a NEW regression (review HIGH-A): a real user override landing within 5s is suppressed and, if they walk away, never re-detected. The manual-passthrough eliminates the tradeoff rather than just accepting it.",
+      "blast_radius": "Shared primitive: 9 external callers in hvac.py/hvac_predict.py -> elevated Tier 1->Tier 2-DB (3 framing-disjoint reviews). 2 HIGH (passthrough + clear-on-disable) and 2 MEDIUM fixed in-cycle. SHIPPED v4.7.33 LIVE+validated (PR #374); field-rename took clean (0 _suppressed_entities tracebacks), 0 arrester errors post-boot."
+    },
+    {
+      "decision": "zone_cameras (CONF_ZONE_CAMERAS) is documented person-detection-only but check_zone_occupancy_confidence (presence.py:1623-1631, 'Source 3: Camera person detection') trusts ANY entry being 'on' with NO device_class filter. A Frigate camera MOTION sensor (device_class=motion) in the list therefore acts as a noisy person-confirmation feeding the >max-occupancy-hours stale-sensor guard (hvac.py:1095). Operator removed the live instance from config; a code guard (filter device_class=motion at the consumer) is filed as a LOW-pri backlog plan, NOT built.",
+      "why": "Operator's mental model: camera contributions to occupancy should be PERSON-detection only because camera motion is noisy (blinds, pets, background). The reference he saw was the live camera_zone_map on sensor.ura_hvac_coordinator_mode (last_evaluate ~1min -> live, not stale). The earlier substrate path is fine (v4.7.24 removed area-sweep); this is a SEPARATE path (zone.zone_cameras -> confidence scorer) that the substrate audit missed.",
+      "blast_radius": "Bounded (secondary confirmation, not primary occupancy). Existing CONF_DISABLE_CAMERA_PRESENCE opt-out covers the tracker path, NOT this confidence path. Plan: docs/planning/PLANNING_zone_camera_person_only_guard.md."
+    },
+    {
+      "decision": "Bayesian audit verdict: there is ONE shipped Bayesian engine (coordinator-level BayesianPredictor, Dirichlet-Multinomial occupancy, live+healthy) and the 'per-room comfort ParameterBelief' is design-only doc scaffolding (zero code). The operator's 'two Bayesian systems' model is really one shipped + one unbuilt. If per-room comfort beliefs are ever built (Optimization Coordinator comfort dimension), they MUST reuse the live engine's conjugate-update math / DB belief persistence / is_cell_stale() — forking a second learner is the moment a real conflict is created.",
+      "why": "Operator wanted to confirm both surfaces WORK and their sensors are LIVE before building on them. Live-verified via HA MCP: bayesian_data_quality=97%, prediction_accuracy Brier 0.1325 / 85.6% hit-rate, per-room occupancy_forecast active, zero Bayesian errors. The room-config grep returned zero code.",
+      "blast_radius": "De-risks the Optimization Coordinator's prediction-validation pillar (it's a READER of the live engine, not a new learner). Kills the assumption that there's per-room Bayesian config to integrate with."
+    },
+    {
+      "decision": "Optimization Coordinator scoped AGENTIC-FIRST (not health-foundation-first): Phase 1 ships the full end-to-end acting loop on the EXISTING sensor substrate with only 2 dimensions live, defaulting to L1 Shadow (logs intended action + predicted effect, scores vs outcome, zero real actuation). Health-monitoring is the value LENS, computed lazily, not a precondition cycle.",
+      "why": "Operator: 'do the hard thing first... we have a lot of room health sensors from the Bayesian work we could work off until we know a delta of health to build.' Leading with the agentic loop proves the actuation/handshake/autonomy machinery safely and discovers which health computations are actually worth adding empirically, rather than front-loading a health-score engine.",
+      "blast_radius": "Maximal cross-coordinator actuation surface in URA -> Tier 2-DB from cycle one (3 framings: A=handshake/actuation, B=ladder/kill-switch, C=DB/LLM-cost). Phase 1 also closes the long-orphaned comfort-slider trio (per-room reader + options write-back)."
+    },
+    {
+      "decision": "Autonomy is a graduated MATRIX, default-conservative, escalatable. SIX-rung ladder in operator's 3->1->2->4 ordering + a shadow rung: L0 Advisory / L1 Shadow (DEFAULT ship) / L2 Reversible-device-only (no config writes) / L3 Config+veto-window / L4 Config-immediate ±20% / L5 Unbounded. Orthogonal dials built in v1 by operator priority: rung x per-domain x confidence-gate, PLUS rate-cap + quiet-hours, PLUS a restart-persistent kill switch. Scope-ramp included but lowest priority. Direct actuation (not suggest-only) via a suppress()-style handshake broker + new SIGNAL_OPTIMIZER_INTENT so siblings can veto.",
+      "why": "Operator wanted full agentic eventually but a controlled path there: lead with the REVERSIBLE lever (device actuation, nothing permanent), then config-writes WITH a veto, then without veto but bounded, then unbounded. 'We DO NOT want scope proliferation - parsimony and light cognitive load but not slavishly.' Direct actuation chosen over suggest-only: 'else how will we even accomplish the goal? We have to find a way to signal and handshake.' Reuses the v4.7.33-hardened OverrideArrester.suppress() TTL so optimizer writes aren't misread as user overrides.",
+      "blast_radius": "Autonomy = (rung x domain x confidence x scope) gated at a single chokepoint; kill switch clamps to L0 synchronously and persists tripped across restart. All NEW config on the Coordinator-Manager entry, ZERO per-room (parsimony held)."
+    },
+    {
+      "decision": "LLM Tier-2 built in Phase 2 (right after the deterministic loop), provider-agnostic and cost-routed. Uses ai_task.generate_data with the backend chosen by config (CONF_OPTIMIZER_LLM_TASK_ENTITY) — live HA already exposes claude/openai/google/ollama ai_task entities, so switching providers is config, not code. Cost lever: a cheap/local triage backend (CONF_OPTIMIZER_LLM_TRIAGE_ENTITY, recommend Ollama=$0) runs each cycle and only escalates to the premium backend when something warrants deep reasoning. Every LLM-proposed action flows through the SAME autonomy matrix + handshake (no bypass).",
+      "why": "Operator: 'we need to be able to lower costs... switch to the OpenAI AI integration and the Ollama one. Also configured.' ai_task is provider-agnostic by construction (routes by entity_id). Local Ollama triage makes routine cycles free; paid spend only on cycles that surface something.",
+      "blast_radius": "No vendor lock-in; cost bounded per-backend. The system prompt is a v0 DRAFT (conservative 'a wrong action is worse than a missed finding', anti-hallucination 'cite snapshot values / never name absent entities', confidence-gated, provider-portable) — tuned during the Phase-2 build, not frozen now."
+    },
+    {
+      "decision": "Optimizer prompt storage is LEAN: ONE editable prompt stored in URA (CM entry.options, edited via a multiline options-flow field), persists across reboot, reset = clear the field -> falls back to an in-code const default. The earlier disk-.md / per-model-variant-library / visible-sensor / reset-from-disk-button design was REJECTED.",
+      "why": "Operator wanted the running prompt editable + persisted + recoverable, but when the design grew a disk-file subsystem with per-model variants, seed/restore button, a visible sensor and ~10 config keys, he flagged it 'expensive' and clarified 'we don't have to do sync semantics with a file'. The const default IS the recoverable base; per-model variants are deferred until a backend actually diverges enough to need one. (HA entity STATE is capped at 255 chars, which is why the editable surface is the options-flow multiline field, not a text entity.)",
+      "blast_radius": "Net new config for the prompt = 1 field instead of a subsystem. A reminder that planning can over-build a 'tuning surface' — the parsimony reflex applies to internal mechanism config (echoes the 'parsimonious room config' rule)."
+    }
+  ],
+
+  "alternatives_considered": [
+    {
+      "alternative": "A-F5: keep the 5s TTL and just accept that a user override in the window is occasionally missed",
+      "why_rejected": "Review HIGH-A showed the missed override can be PERMANENT (no further event if the user walks away). The manual-passthrough eliminates the tradeoff instead of accepting it, since URA never writes preset=manual."
+    },
+    {
+      "alternative": "Optimization Coordinator: build the health-score foundation first (the v1 5-phase plan)",
+      "why_rejected": "Operator chose 'do the hard thing first' — lead with the agentic loop on existing sensors and discover the health-computation delta empirically. The v1 plan is kept as a baseline; v2 supersedes the phasing."
+    },
+    {
+      "alternative": "Optimizer LLM: hardcode Claude / build a raw Anthropic client",
+      "why_rejected": "ai_task.generate_data is already provider-agnostic and live with 4 backends incl. local Ollama; a config selector + cheap-triage routing gives provider freedom AND the biggest cost lever for free."
+    },
+    {
+      "alternative": "Optimizer suggest-only (emit intents, never actuate)",
+      "why_rejected": "Operator: 'else how will we even accomplish the goal?' Chose direct actuation + a suppress()-style handshake so it doesn't fight HVAC/Energy/Presence."
+    },
+    {
+      "alternative": "Optimizer prompt: disk .md template library with per-model variants, visible sensor, reset-from-disk button",
+      "why_rejected": "Operator: 'expensive' / 'we don't have to do sync semantics with a file'. Collapsed to one editable entry.options field + const fallback; per-model variants deferred."
+    },
+    {
+      "alternative": "Camera guard: ship a code fix now to exclude camera-motion from zone_cameras",
+      "why_rejected": "Operator removed the live instance via config (immediate fix) and filed the durable code guard as LOW-pri backlog — not worth interrupting the Optimization Coordinator thread."
+    }
+  ],
+
+  "implications": [
+    "The OverrideArrester suppression is now a shared TTL primitive (v4.7.33-hardened) that the Optimization Coordinator's handshake broker REUSES for HVAC actuation — A-F5 made it multi-event-safe just in time.",
+    "Optimization Coordinator is the next major build and is FULLY SCOPED + agreed; Phase 1 is a self-contained, safe (Shadow-default) Tier 2-DB cycle that also closes the comfort-slider orphan.",
+    "Provider-agnostic LLM via ai_task means URA is not locked to Anthropic; local Ollama can do free routine reasoning. The Optimizer is a READER of the live BayesianPredictor, not a new learner.",
+    "Parsimony reflex extended to internal-mechanism tuning surfaces, not just per-room config: a prompt-management 'subsystem' was trimmed to one field after the operator flagged it 'expensive'.",
+    "zone.zone_cameras has no person-only guard at the consumer; the CONF_DISABLE_CAMERA_PRESENCE opt-out does NOT cover that confidence path — a latent class to watch when touching presence confidence."
+  ],
+
+  "follow_up": [
+    ">>> TONIGHT (operator directive: exits, sets context to 1M tokens, restarts, 'get through all this tonight'): BUILD the Optimization Coordinator starting with Phase 1, Tier 2-DB (3 framing-disjoint reviews), default-ship L1 Shadow. Then proceed Phase 2 (LLM) -> 3 -> 4 -> 5 as time allows. Plan is FINAL at docs/planning/PLANNING_OPTIMIZATION_COORDINATOR_v2_agentic.md. Use ura-builder/validator/reviewer per subagent protocol; tag pre-review baseline; deploy via /deploy with operator auth.",
+    "LOW-pri backlog: zone-camera person-only guard (docs/planning/PLANNING_zone_camera_person_only_guard.md).",
+    "Deferred: fan-during-solar-banking gate (modest merit, fan_assist branch only); load-shedding fixes (Tier 2-DB, 1 CRIT + 2 HIGH).",
+    "Recall: 'resume optimization coordinator' / 'build optimization coordinator tonight'."
+  ],
+
+  "refs": {
+    "files": [
+      "custom_components/universal_room_automation/domain_coordinators/hvac_override.py",
+      "quality/tests/test_override_arrester_ttl_suppression.py",
+      "docs/readmes/README_v4.7.33.md",
+      "docs/reviews/code-review/v4.7.33_af5_ttl_suppression.md",
+      "docs/planning/PLANNING_OPTIMIZATION_COORDINATOR_v2_agentic.md",
+      "docs/planning/PLANNING_OPTIMIZATION_COORDINATOR.md",
+      "docs/planning/PLANNING_zone_camera_person_only_guard.md",
+      "custom_components/universal_room_automation/domain_coordinators/presence.py",
+      "custom_components/universal_room_automation/domain_coordinators/bayesian_predictor.py"
+    ],
+    "memory": [
+      ".claude/projects/-Users-okosisi-Code-universal-room-automation/memory/project_session_pickup_2026_06_08.md"
+    ],
+    "prior_entries": [
+      "019_v4730_v4731_v4732_marathon_zone_resolution_heatcool_span_prune.json",
+      "017_ev_offpeak_decisions_and_comfort_opt_coordinator.json"
+    ]
+  },
+
+  "ship_target": "v4.7.33 (A-F5 TTL suppression) LIVE + validated (PR #374). Optimization Coordinator FULLY SCOPED (v2 agentic-first plan, final/agreed) -> BUILD starts tonight, Phase 1 Tier 2-DB. Camera person-only guard = low-pri backlog. Bayesian audit closed."
+}

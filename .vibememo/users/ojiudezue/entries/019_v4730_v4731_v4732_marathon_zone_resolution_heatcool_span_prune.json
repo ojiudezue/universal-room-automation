@@ -1,0 +1,118 @@
+{
+  "format_version": "2.1",
+  "entry_id": "019",
+  "author": "ojiudezue",
+  "session_id": "claude_20260608_marathon_hygiene_sweep_v4730_v4732",
+  "timestamp": "2026-06-08T17:30:00Z",
+  "type": "milestone",
+  "weight": "load-bearing",
+
+  "title": "Marathon hygiene sweep: shipped v4.7.30/.31/.32/.32.1 + live HA-side fixes; closed the whole 2026-06-08 DO queue; surfaced 'verify-don't-assume' as the recurring failure mode (stale memo, scope-format assumption)",
+
+  "summary": "Resumed at the hygiene DO queue and worked it to completion across four releases plus several live HA-side config fixes. v4.7.30 (DO#2 compliance sensors async-cache + DO#3 HVAC summer post-peak coast release + review-found B-MED-1 duty-cycle reset). DO#9 (_apply_evse_battery_hold re-pin) determined a NO-OP after the operator reframed it: EVs are already TOU-paused through all mid_peak, so _is_any_evse_charging() is False in steady state and the battery hold never fires against the v4.7.29 discharge. v4.7.31 (zone name-resolution, Bug Class #53): the v4.7.13/v4.7.15 motionless-occupant veto was SILENTLY DEAD because ZoneManager.zones is keyed by zone_id ('zone_1/2/3', thermostat-derived) but the fallbacks looked it up by house-zone NAME; new _resolve_hvac_zone resolves by id->name->merged-name; context-wide caller review confirmed it can only EXTEND occupancy (truth-preserving). v4.7.32 + v4.7.32.1 (operator-flagged 'nudges sometimes don't reset the mode'): URA's OverrideArrester had absorbed the legacy back-hallway 'HVAC Arrester v10' severity/compromise concepts but only re-asserted heat_cool on the 'off' case — now it always returns to heat_cool (guarded by supported hvac_modes); BUNDLED with a reversible SPAN 'Unmapped Tab' baseline prune (backup-then-delete to metric_baselines_pruned_backup); .32.1 fix-forward broadened the prune guard startswith->substring after live validation showed scopes are panel-prefixed ('Span Left/Right Unmapped Tab N Power'). Live HA-side (Samba/SSH, not the URA repo): fixed back_hallway_hvac.yaml package load failure (duplicate helpers in configuration.yaml, not the package) + 2 newly-exposed template tz-bugs; Envoy stale-serial cleanup (1 automation repointed + all 5 dashboards serial-swapped 202428004328->482543015950 via a JSON-walk python_transform). Verified husk 'Entertainment + Master Suite' zone (no thermostat/rooms) is inert; verified notify.madronehapushover is NOT broken (stale memo); verified OverrideArrester is a v10 superset.",
+
+  "decisions": [
+    {
+      "decision": "Bug Class #53 'Name-vs-id collection lookup': a dict.get(<name>) against a collection keyed by a different identity (here ZoneManager.zones keyed by zone_id) silently returns None forever, and if the caller treats None as 'absent, skip', an entire feature can be dead with only a warning. The v4.7.13 sleep + v4.7.15 non-sleep motionless-occupant veto fallbacks were dead for EVERY thermostat'd zone since they shipped. Fix: _resolve_hvac_zone(zone_manager, key) resolves zone_id -> exact zone_name -> merged-name ('A + B') membership.",
+      "why": "Operator asked to investigate a 'zones not registered in zone_manager.zones' boot WARNING he believed was a false alarm ('these ARE the zones I see'). It was a real CODE bug, not a config gap: live HVAC zones are zone_1/2/3 (thermostats up_hallway/back_hallway/studyb) and aggregators address by name. Critically the existing tests MOCKED zones name-keyed, matching the buggy lookup, so the bug was never caught (Bug Class #44 adjacency — fixtures must use the PRODUCTION key shape).",
+      "blast_radius": "Filed #53 in QUALITY_CONTEXT. Enabling a previously-dead presence veto is regression-prone -> context-wide caller review. Review proved truth-preservation (is_on is a disjunction; can only extend occupancy, never wrongly mark empty) and bounded stuck-occupied (releases when tracker leaves home OR house exits the allow-list). MAY have incidentally closed the 'zone away when occupied during home_night' finding (the non-sleep fallback now covers home_night)."
+    },
+    {
+      "decision": "OverrideArrester must ALWAYS return a zone to heat_cool (override-revert forces it whenever mode != heat_cool, not just 'off'; AC-reset restore targets heat_cool, not the saved pre-reset mode; verify checks != target_mode), guarded by 'heat_cool in the entity's hvac_modes'.",
+      "why": "Operator runs all zones in ranges/presets (heat_cool) and noticed 'nudges sometimes don't reset the mode'. Verified: URA absorbed v10's two-tier severity + 30-min compromise grace, but only re-corrected the 'off' case (hvac_override.py:860) and the AC-reset restored the SAVED original mode (:1152) — so a zone left in cool/heat stayed there. Re-absorbs the one v10 concept URA had dropped. The capability guard keeps genuine single-mode thermostats untouched.",
+      "blast_radius": "HVAC actuation on real equipment -> Tier 2-DB (3 framing-disjoint reviews). 4 review fixes applied in-cycle (verify != target_mode + NM carries actual mode; honest reset alert; OR-IGNORE restore comment; tz-aware utcnow). A-F5 (suppressed_entities single-pop amplified by the extra set_hvac_mode) deferred as a pre-existing follow-up memo."
+    },
+    {
+      "decision": "SPAN orphaned-baseline prune must be REVERSIBLE: back each row up to metric_baselines_pruned_backup BEFORE deleting (restore via INSERT OR IGNORE), plus a pre-deploy read-only metric_baselines dump. Prune scope = circuit_power baselines whose scope contains 'Unmapped Tab' (substring, post-.32.1) AND are unmatched; real renames are KEPT + warned.",
+      "why": "Operator: 'make sure your prune is reversible' + 'so snapshot' + 'not working off a stale snapshot for this sensitive op'. SPAN's Circuit Name Sync renames a tab the instant it is named, so a real circuit is never named 'Unmapped Tab N'; the orphans are stale (tab since named -> relearns under real name, or empty tab). Delete-and-relearn is safe; reversibility is belt-and-suspenders for a live DB delete.",
+      "blast_radius": "v4.7.32 pruned 4 bare-named; v4.7.32.1 (guard startswith->substring) pruned the 11 panel-prefixed; 15 total backed up, 0 remaining, 3 genuine non-Unmapped renames kept (Battery Power / Span Left Subpanel Power / Span Left Unknown Power). The .32.1 fix-forward was itself caused by a scope-FORMAT assumption (assumed 'Unmapped Tab N', live is 'Span Left/Right Unmapped Tab N Power')."
+    },
+    {
+      "decision": "VERIFY DON'T ASSUME, especially against stale memory, for sensitive ops. Confirmed notify.madronehapushover is NOT broken (legacy notify SERVICE registered by the loaded pushover config entry 'MadroneHAPushover'; operator confirmed pushovers arrive; log clean) — the pickup memo's 'missing, breaks 6 automations' was stale (only 2 ref it, 1 disabled). Re-read the LIVE DB after the prune (an earlier read was pre-prune/too-early and looked like a failure).",
+      "why": "Operator explicitly nudged: 'I'm not sure its gone', 'I still get pushover notifications', 'make sure you're not working off a stale snapshot'. Twice this session an assumption from stale state nearly drove a wrong fix (would have repointed a working notify service; the SPAN scope-format assumption shipped a too-narrow guard needing .32.1). The cure each time was a fresh live read (SSH read-only / HA API), never the Samba cache.",
+      "blast_radius": "Reinforces the No-Fabrication rule for live-system state: read the live source at action time, not a memo or a minutes-old mount. Avoided breaking a working pushover; caught the prune-guard gap via live validation before declaring success."
+    },
+    {
+      "decision": "House-zones vs HVAC-zones are distinct concepts and the merge is HVAC-internal. The configured ('house') zones are atomic (Entertainment, Master Suite, ...); HVAC silently merges zones that share a thermostat into one HVAC zone (zone_1 = 'Entertainment + Master Suite'). The configured zone literally named 'Entertainment + Master Suite' is bad-fix DETRITUS (no thermostat, no rooms, no room references — a husk).",
+      "why": "Operator: the husk 'should not exist... HVAC is doing the merge silently... detritus from an uninformed fix that did not fully understand the diff btw house zones and hvac zones'. Verified via .storage: it's in options.zones with thermostat=None/rooms=None and zero rooms map to it. URA has NO delete-zone flow and the SSH user is read-only on .storage, so it can't be cleanly deleted live; operator disabled its entities. The v4.7.31 resolver silences its boot warning, making it inert.",
+      "blast_radius": "Husk left in config (benign). A real gap surfaced: URA cannot delete a zone via the config flow (only rename/configure). Clean removal would need a delete-zone flow OR a stopped-HA .storage edit. The resolver matches the husk name to zone_1 (idempotent, no actuation harm per review LOW-2)."
+    },
+    {
+      "decision": "Backlog #9 (_apply_evse_battery_hold re-pin) is a NO-OP — do not build it. EVs are already TOU-paused through all mid_peak (energy_pool.py:459), so in steady-state summer post-peak mid_peak the EV switch is off when the battery reads _is_any_evse_charging(); the hold never fires, v4.7.29 discharges. Only an explicit force-charge override keeps the EV on, where holding the battery is CORRECT per the EV philosophy.",
+      "why": "Operator first answered the framing question with 'pause the EV till off_peak', then realized 'basically 9 seems like a no op'. Confirmed in code: the precondition (EV charging during post-peak mid_peak) doesn't occur in normal operation. Also captured the DURABLE EV charging philosophy: solar-first -> never drain the home battery into the car -> off_peak grid is cheapest.",
+      "blast_radius": "Closed #9 without a cycle. EV-charging philosophy persisted to memory as a lens for all future EV/battery work."
+    }
+  ],
+
+  "alternatives_considered": [
+    {
+      "alternative": "Treat the zone-not-registered warning as a config gap and fix the config",
+      "why_rejected": "Investigation proved it was a name-vs-id code bug, not config. The zones exist; the lookup was wrong. Operator's 'these ARE the zones' instinct was right."
+    },
+    {
+      "alternative": "Repoint the notify.madronehapushover automations to a mobile-app notify",
+      "why_rejected": "The service isn't broken — pushover config entry is loaded and notifications arrive. Repointing a working service would have been a regression. Verified before acting."
+    },
+    {
+      "alternative": "v4.7.32 SPAN prune guard: startswith('Unmapped Tab')",
+      "why_rejected": "Assumed scope format; live scopes are panel-prefixed ('Span Left/Right Unmapped Tab N Power'). Caught in live validation (only 4 of 15 pruned) -> v4.7.32.1 substring fix-forward."
+    },
+    {
+      "alternative": "Build a Tier 2-DB planning doc + cycle for backlog #9 (EVSE re-pin)",
+      "why_rejected": "Killed the dispatched planner mid-run once the operator and code confirmed it's a no-op. Avoided a wasted regression-prone cycle."
+    },
+    {
+      "alternative": "Hand-edit .storage to delete the husk zone, or full 930MB DB file copy for the prune snapshot",
+      "why_rejected": ".storage is read-only to the SSH user and live edits race HA's writer; URA has no delete-zone flow. For the snapshot, a torn 930MB live-WAL copy is risky — a targeted read-only metric_baselines dump is consistent and sufficient (the prune only touches that table)."
+    }
+  ],
+
+  "implications": [
+    "Bug Class #53 (name-vs-id lookup) joins #44 (fixture authority): tests must mock collections with the PRODUCTION key shape, or a dead feature passes its tests.",
+    "v4.7.31 enabling the motionless-occupant veto changes presence behavior (rooms with still occupants + a home tracker now stay occupied) — watch for any stuck-occupied/energy effect; bounded by tracker-leaves-home or house-exits-allow-list. May have closed the home_night 'zone away when occupied' finding for free.",
+    "heat_cool re-assertion now fires on every override-revert and AC-reset, not just the off case — more frequent set_hvac_mode calls; A-F5 suppression-pop is the deferred follow-up.",
+    "metric_baselines_pruned_backup is the durable, reversible record of the SPAN prune; restore is INSERT OR IGNORE (preserves anything relearned).",
+    "Live HA-side config (configuration.yaml, packages/, lovelace dashboards, .storage) is NOT in the URA git repo — those fixes are backed by configuration.yaml.bak, HA snapshot 3ffeb1d8, and ~/ura-db-backups/. Future config surgery needs the Samba mount (writable) since SSH is read-only.",
+    "Recurring lesson: long sessions + stale memory => verify live before sensitive ops. Two near-misses this session (notify, prune-scope) were caught by fresh live reads."
+  ],
+
+  "follow_up": [
+    "BIG cycles queued: load-shedding fixes (Tier 2-DB; EV shed tier shares _paused_by_us with EVSE TOU controller — 1 CRIT + 2 HIGH; do NOT live-test the EV tier as-is); Optimization Coordinator (#45, also closes the comfort-slider orphan); Bayesian system audit (room + coordinator level, not yet scoped).",
+    "SMALL items: A-F5 suppression-pop follow-up (TTL/counter suppression); the 3 kept non-Unmapped baseline renames (relearn or remap); the 1 no-equiv Envoy tile lifetime_energy_consumption_cost (drop in dashboard editor); add a delete-zone flow to URA so husks can be removed cleanly; HA repairs backlog is operator-side (auth/reauth/removed integrations).",
+    "Confirm v4.7.31 fallback POSITIVELY engages over ~24h (trip-wire, not a soak-watch) and v4.7.32 heat_cool fires on the next AC reset/override-revert.",
+    "Recall: 'resume 2026-06-08 marathon'."
+  ],
+
+  "refs": {
+    "files": [
+      "custom_components/universal_room_automation/sensor.py",
+      "custom_components/universal_room_automation/aggregation.py",
+      "custom_components/universal_room_automation/domain_coordinators/energy.py",
+      "custom_components/universal_room_automation/domain_coordinators/hvac.py",
+      "custom_components/universal_room_automation/domain_coordinators/hvac_override.py",
+      "custom_components/universal_room_automation/domain_coordinators/hvac_zones.py",
+      "quality/tests/test_compliance_sensor_async_cache.py",
+      "quality/tests/test_hvac_post_peak_coast_release.py",
+      "quality/tests/test_zone_name_resolution.py",
+      "quality/tests/test_v4732_heat_cool_and_span_prune.py",
+      "docs/readmes/README_v4.7.30.md",
+      "docs/readmes/README_v4.7.31.md",
+      "docs/readmes/README_v4.7.32.md",
+      "docs/readmes/README_v4.7.32.1.md",
+      "docs/reviews/code-review/v4.7.30_compliance_sensors_and_hvac_post_peak_coast.md",
+      "docs/reviews/code-review/v4.7.31_zone_name_resolution.md",
+      "docs/reviews/code-review/v4.7.32_heat_cool_and_span_prune.md"
+    ],
+    "memory": [
+      ".claude/projects/-Users-okosisi-Code-universal-room-automation/memory/project_session_pickup_2026_06_08.md",
+      ".claude/projects/-Users-okosisi-Code-universal-room-automation/memory/project_ev_pause_post_peak_midpeak_decision.md",
+      ".claude/projects/-Users-okosisi-Code-universal-room-automation/memory/project_load_shedding_audit_backlog.md"
+    ],
+    "prior_entries": [
+      "018_v4728_v4729_ships_tier2db_policy_day_boundary_bug_class.json",
+      "017_ev_offpeak_decisions_and_comfort_opt_coordinator.json"
+    ]
+  },
+
+  "ship_target": "v4.7.30 + v4.7.31 + v4.7.32 + v4.7.32.1 ALL LIVE + validated. Live HA-side: back_hallway package fixed, Envoy stale serials cleared (0 refs). DO queue CLOSED. Next: load-shedding / Optimization Coordinator / Bayesian audit."
+}

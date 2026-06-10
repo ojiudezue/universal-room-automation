@@ -1,0 +1,78 @@
+{
+  "format_version": "2.1",
+  "entry_id": "015",
+  "author": "ojiudezue",
+  "session_id": "claude_20260529_v4_7_4_4",
+  "timestamp": "2026-05-29T02:10:00Z",
+  "type": "decision",
+  "weight": "significant",
+
+  "title": "v4.7.5 Zone Manager: Option C auto-mirror on shared-thermostat zones",
+
+  "summary": "Today the Zone Manager Page 1 picker shows the canonical-merged labels (e.g. 'Entertainment + Master Suite') because those two house zones share a single thermostat. User finds this confusing — the picker should reflect the house's actual zone structure, not the HVAC coordinator's internal merge. v4.7.5 splits the UX: picker shows house zones; the canonical merge happens silently at runtime inside the HVAC coordinator. With 3 options for shared-thermostat behavior on the table (A: per-zone settings the merger picks one; B: per-zone settings the merger errors on conflict; C: per-zone settings auto-mirror on save so siblings stay in sync), user picked C: 'Definitely C'.",
+
+  "decisions": [
+    {
+      "decision": "Option C: auto-mirror settings to sibling house zones on save when 2+ zones share a thermostat",
+      "why": "Users think in house zones, not HVAC zones. Forcing them to remember 'oh, Entertainment and Master Suite share a thermostat so I have to set both manually' is exactly the kind of cognitive overhead URA is supposed to eliminate. Option A (silently picking one) would mean the user's save 'didn't take' for the sibling — confusing. Option B (error on conflict) would make the simple case (just want both warmer) annoying — also confusing. Option C: save one, both update, banner UI explains why. Matches the URA principle of doing-the-right-thing-automatically with explicit user-facing transparency.",
+      "blast_radius": "Touches Zone Manager config_flow heavily. Auto-mirror must round-trip through options + RestoreEntity correctly (URA Mirror Pattern applies). Banner UI text on shared-thermostat zones in BOTH picker and editor views. ~565 LoC estimated."
+    },
+    {
+      "decision": "Silent canonical resolution at runtime, not at picker-display time",
+      "why": "Applies the lazy-derivation pattern from Bug Class #46 fix (entry 013). The HVAC coordinator already iterates canonical zones via iter_canonical_hvac_zones — keep that. The picker just queries the house's zone list directly. Coordinator does the merge silently on every evaluation cycle. Zero coupling between UI and the merger.",
+      "blast_radius": "Picker code becomes simpler. Coordinator code unchanged (merge logic was always there). No new state, no new persistence."
+    },
+    {
+      "decision": "Dropdown → menu UX for picker",
+      "why": "Dropdowns truncate long labels and feel cramped at 5+ zones. Menus expand, support icons, and match HA's emerging design language. Plus once we strip the canonical-merged labels, label text gets shorter — menu items can be cleaner."
+    },
+    {
+      "decision": "Bundle config_flow runtime smoke tests (task #112) into this cycle",
+      "why": "v4.7.4.2 dead-import bug was invisible to source-grep tests. v4.7.5 touches config_flow.py heavily — the perfect moment to land import-time runtime tests that catch the same class of bug. Bundling avoids a separate cycle for what's effectively a quality scaffold."
+    }
+  ],
+
+  "alternatives_considered": [
+    {
+      "alternative": "Option A: silently pick one zone's settings (last-write-wins)",
+      "why_rejected": "Confusing — user saves Entertainment thinking it took effect, Master Suite quietly overrides 5 minutes later."
+    },
+    {
+      "alternative": "Option B: error on conflict + force user to reconcile manually",
+      "why_rejected": "Punishes the common case (user wants both zones the same). Useful only when zones genuinely should differ — which Option C handles via 'unlink' opt-out."
+    },
+    {
+      "alternative": "Keep canonical-merged labels in the picker, add a tooltip explaining why",
+      "why_rejected": "Tooltip adds explanation but doesn't change the underlying UX confusion. User still has to think in HVAC zones, not house zones."
+    },
+    {
+      "alternative": "Split the v4.7.5 cycle into two: UX-only (dropdown→menu + house-zone picker), then auto-mirror in v4.7.6",
+      "why_rejected": "The auto-mirror is what makes the house-zone picker safe. Without auto-mirror, picking by house zone loses the sibling-coupling that the canonical-merged label preserved today. Has to ship together."
+    }
+  ],
+
+  "implications": [
+    "Once shipped, the canonical HVAC merge becomes a runtime-only concept. Users never see it. Documentation should describe HVAC zones as 'an internal coordinator concept' going forward.",
+    "Auto-mirror logic is the next test of the URA Mirror Pattern (entry/memory: RestoreEntity = runtime store, options = seed only). Care needed: when auto-mirror writes the sibling, it must not stomp on a more-recent RestoreEntity-driven runtime value.",
+    "Banner UI text on shared-thermostat zones becomes a new translation surface. Must coordinate with the translation prefix bug fix that v4.7.4 shipped.",
+    "If user later wants to unlink a sibling pair (e.g. add a second thermostat to Master Suite), the auto-mirror must gracefully degrade. Plan should include the unlink path."
+  ],
+
+  "follow_up": [
+    "Dispatch ura-planner once user signals 'kickoff v4.7.5' to write PLANNING_v4.7.5_zone_manager_ux.md with acceptance criteria.",
+    "After plan, dispatch ura-builder for implementation. Tier 2 review per CLAUDE.md (two reviewers, different framings).",
+    "Live validation: verify save-on-one-zone updates sibling within 1 tick AND coordinator merge still works correctly."
+  ],
+
+  "refs": {
+    "files": [
+      "custom_components/universal_room_automation/config_flow.py",
+      "custom_components/universal_room_automation/hvac_zones.py"
+    ],
+    "memory": [
+      ".claude/projects/-Users-okosisi-Code-universal-room-automation/memory/project_v475_design_intent.md"
+    ]
+  },
+
+  "ship_target": "v4.7.5, awaiting kickoff. ~565 LoC estimated. Bundles task #112."
+}
