@@ -33,7 +33,7 @@ from datetime import datetime, timedelta
 from enum import Enum
 from typing import Any
 
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.dispatcher import (
     async_dispatcher_connect,
     async_dispatcher_send,
@@ -295,12 +295,13 @@ class OptimizerIntentBroker:
         if len(self._pending_vetoes) > self._VETO_MAX_PENDING:
             # Drop oldest until under cap.
             items = sorted(
-                self._pending_vetoes.items(), key=lambda kv: kv[1][0]
+                self._pending_vetoes.items(), key=lambda kv: _cmp_ts(kv[1][0])
             )
             overflow = len(items) - self._VETO_MAX_PENDING
             for aid, _ in items[:overflow]:
                 self._pending_vetoes.pop(aid, None)
 
+    @callback
     def _on_veto(self, payload: dict) -> None:
         action_id = payload.get("action_id") if isinstance(payload, dict) else None
         if not action_id:
@@ -3192,10 +3193,15 @@ class OptimizationCoordinator(BaseCoordinator):
         room_findings: dict[str, list[OptimizationFinding]] = {}
         zone_findings: dict[str, list[OptimizationFinding]] = {}
         open_count = 0
+        worst_sev_rank = 99
+        _sev_rank = {"critical": 0, "high": 1, "medium": 2, "low": 3}
         for f in findings:
             if f.dimension == OptimizationDimension.META:
                 continue
             open_count += 1
+            worst_sev_rank = min(
+                worst_sev_rank, _sev_rank.get(f.severity, 99)
+            )
             if f.level == "room" and f.target_id:
                 room_findings.setdefault(f.target_id, []).append(f)
             elif f.level == "zone" and f.target_id:
@@ -3220,14 +3226,20 @@ class OptimizationCoordinator(BaseCoordinator):
         else:
             self._house_score = 100.0
         self._open_findings_count = open_count
+        self._worst_open_severity_rank = worst_sev_rank
 
     @property
     def status(self) -> str:
+        """Operator-recalibrated 2026-06-10: "critical" is reserved for an
+        actual critical-severity open finding — a pile of HIGHs (e.g. dead
+        sensors) reads "degraded", not "critical", so the word keeps
+        meaning. Vocabulary unchanged: {healthy, degraded, critical}.
+        """
+        if getattr(self, "_worst_open_severity_rank", 99) == 0:
+            return "critical"
         if self._house_score >= 90:
             return "healthy"
-        if self._house_score >= 60:
-            return "degraded"
-        return "critical"
+        return "degraded"
 
     def get_room_score(self, room: str) -> float:
         return self._room_scores.get(room, 100.0)

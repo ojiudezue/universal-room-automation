@@ -1462,3 +1462,33 @@ async def test_presence_teardown_resets_optimizer_intent_unsub():
     coord._substrate = None
     await coord.async_teardown()
     assert coord._optimizer_intent_unsub is None
+
+
+# ---------------------------------------------------------------------------
+# Operator-requested status-word recalibration (2026-06-10): "critical" is
+# reserved for an actual critical-severity open finding; HIGH piles read
+# "degraded".
+# ---------------------------------------------------------------------------
+
+
+def test_status_word_recalibration():
+    from custom_components.universal_room_automation.domain_coordinators.optimization import (
+        OptimizationCoordinator,
+    )
+    coord = OptimizationCoordinator.__new__(OptimizationCoordinator)
+
+    # 5 HIGH findings drove house_score to 55 live on 2026-06-10 and the
+    # old band logic read "critical" — must now be "degraded".
+    coord._house_score = 55.0
+    coord._worst_open_severity_rank = 1  # high
+    assert coord.status == "degraded"
+
+    # An actual critical-severity finding → "critical" regardless of score.
+    coord._worst_open_severity_rank = 0
+    coord._house_score = 95.0
+    assert coord.status == "critical"
+
+    # Clean board → healthy.
+    coord._worst_open_severity_rank = 99
+    coord._house_score = 100.0
+    assert coord.status == "healthy"

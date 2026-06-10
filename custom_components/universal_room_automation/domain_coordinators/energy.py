@@ -4767,6 +4767,13 @@ class EnergyCoordinator(BaseCoordinator):
                 plugs_under_shed.update(
                     self._smart_plugs._paused_by_fill_priority,
                 )
+            # 4th-pass MEDIUM: drain-protected plugs were omitted — the
+            # optimizer could un-pause a battery-drain-paused plug.
+            drain_paused = getattr(
+                self._smart_plugs, "_paused_by_battery_drain", None,
+            )
+            if drain_paused:
+                plugs_under_shed.update(drain_paused)
         except Exception:  # noqa: BLE001
             plugs_under_shed = set()
         if target in plugs_under_shed:
