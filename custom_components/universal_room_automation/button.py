@@ -1526,7 +1526,17 @@ def _refresh_autonomy_select(hass: HomeAssistant) -> None:
 
 
 class _OptimizerCMButtonBase(ButtonEntity):
-    """Common base for the four OC buttons."""
+    """Common base for the four OC buttons.
+
+    Availability push (v5.3.4 live finding): these buttons derive
+    ``available`` from CM entry.options (pending-escalation key, kill
+    switch), but nothing pushed a state write after options changed —
+    Confirm/Cancel stayed greyed out indefinitely after the operator
+    staged an escalation. Each button now subscribes to the entry's
+    update listener and rewrites its own state on ANY CM options change
+    (stage / cancel / confirm / kill / form save), so availability flips
+    immediately.
+    """
 
     _attr_has_entity_name = True
     _attr_entity_category = EntityCategory.CONFIG
@@ -1535,6 +1545,17 @@ class _OptimizerCMButtonBase(ButtonEntity):
         self.hass = hass
         self._entry = entry
         self._attr_device_info = _optimizer_device_info_button()
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to CM entry updates for push-based availability."""
+        await super().async_added_to_hass()
+        self.async_on_remove(
+            self._entry.add_update_listener(self._async_entry_updated)
+        )
+
+    async def _async_entry_updated(self, _hass, _entry) -> None:
+        """CM options changed — re-evaluate availability immediately."""
+        self.async_write_ha_state()
 
     def _get_optimizer(self):
         manager = self.hass.data.get(DOMAIN, {}).get("coordinator_manager")
