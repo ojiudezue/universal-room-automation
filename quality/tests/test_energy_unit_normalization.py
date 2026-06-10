@@ -170,7 +170,127 @@ def test_helper_imported_in_aggregation():
     )
     with open(path, encoding="utf-8") as fh:
         src = fh.read()
-    assert "from .domain_coordinators._units import energy_state_to_kwh" in src
+    assert "energy_state_to_kwh" in src, (
+        "aggregation must import the energy unit-normalization helper"
+    )
     assert "energy_state_to_kwh(state)" in src, (
         "aggregation._sum_sensors / whole-house tier must use the helper"
     )
+
+
+# ---------------------------------------------------------------------------
+# Power surface — Bug Class #30 sibling (whole-house power cycle)
+# ---------------------------------------------------------------------------
+
+def test_power_w_passthrough():
+    s = _FakeState("100.0", {"unit_of_measurement": "W"})
+    assert _units.power_state_to_w(s) == 100.0
+
+
+def test_power_w_case_insensitive():
+    s = _FakeState("250", {"unit_of_measurement": "w"})
+    assert _units.power_state_to_w(s) == 250.0
+
+
+def test_power_kw_converts_to_w():
+    # Live trigger: Envoy current_power_consumption reports kW. 2.7 kW
+    # configured raw → 0.29 W observed pre-fix (different sensor + magnitude
+    # but same kW-vs-W root cause). 1 kW must become 1000 W.
+    s = _FakeState("2.7", {"unit_of_measurement": "kW"})
+    assert _units.power_state_to_w(s) == 2700.0
+
+
+def test_power_kw_lowercase():
+    s = _FakeState("1.5", {"unit_of_measurement": "kw"})
+    assert _units.power_state_to_w(s) == 1500.0
+
+
+def test_power_mw_converts_to_w():
+    s = _FakeState("0.001", {"unit_of_measurement": "MW"})
+    assert _units.power_state_to_w(s) == 1000.0
+
+
+def test_power_one_kw_equals_one_thousand_w():
+    a = _FakeState("1.0", {"unit_of_measurement": "kW"})
+    b = _FakeState("1000.0", {"unit_of_measurement": "W"})
+    assert _units.power_state_to_w(a) == _units.power_state_to_w(b)
+
+
+def test_power_missing_uom_taken_as_w():
+    # Sources omitting uom are taken at face value as Watts — matches the
+    # pre-fix behavior at WholeHousePowerSensor._sum_sensors and the room
+    # coordinator power-sum (Shelly / SPAN native Watts).
+    s = _FakeState("42.0", {})
+    assert _units.power_state_to_w(s) == 42.0
+
+
+def test_power_unavailable_returns_none():
+    s = _FakeState("unavailable", {"unit_of_measurement": "W"})
+    assert _units.power_state_to_w(s) is None
+
+
+def test_power_unknown_returns_none():
+    s = _FakeState("unknown", {"unit_of_measurement": "kW"})
+    assert _units.power_state_to_w(s) is None
+
+
+def test_power_empty_state_returns_none():
+    s = _FakeState("", {"unit_of_measurement": "W"})
+    assert _units.power_state_to_w(s) is None
+
+
+def test_power_none_state_object_returns_none():
+    assert _units.power_state_to_w(None) is None
+
+
+def test_power_state_state_is_none_returns_none():
+    s = _FakeState(None, {"unit_of_measurement": "W"})
+    assert _units.power_state_to_w(s) is None
+
+
+def test_power_garbage_returns_none():
+    s = _FakeState("not_a_number", {"unit_of_measurement": "W"})
+    assert _units.power_state_to_w(s) is None
+
+
+def test_power_unrecognized_uom_returns_none():
+    # Refuse silently misattributing — return None.
+    s = _FakeState("100", {"unit_of_measurement": "BTU/h"})
+    assert _units.power_state_to_w(s) is None
+
+
+def test_power_attributes_missing_returns_value_anyway():
+    """Attributes object absent → treat as missing uom (W pass-through)."""
+    class _NoAttrs:
+        state = "12.5"
+        attributes = None
+    assert _units.power_state_to_w(_NoAttrs()) == 12.5
+
+
+def test_power_whole_house_sum_mixed_w_and_kw():
+    """A whole-house list mixing a native-W and a kW source must sum in W.
+
+    Simulates the live bug: an Envoy kW source + a SPAN W source
+    configured together. Pre-fix sum was 2.71 (W + raw kW number);
+    post-fix sum must be 2700 + 100 = 2800 W.
+    """
+    span = _FakeState("100.0", {"unit_of_measurement": "W"})
+    envoy = _FakeState("2.7", {"unit_of_measurement": "kW"})
+    total = _units.power_state_to_w(span) + _units.power_state_to_w(envoy)
+    assert total == 2800.0
+
+
+def test_power_helpers_used_in_aggregation_and_coordinator():
+    """The whole-house cycle plumbs power_state_to_w into both surfaces."""
+    for filename in ("aggregation.py", "coordinator.py"):
+        path = os.path.join(
+            _REPO,
+            "custom_components",
+            "universal_room_automation",
+            filename,
+        )
+        with open(path, encoding="utf-8") as fh:
+            src = fh.read()
+        assert "power_state_to_w" in src, (
+            f"{filename} must import + use the power unit-normalization helper"
+        )

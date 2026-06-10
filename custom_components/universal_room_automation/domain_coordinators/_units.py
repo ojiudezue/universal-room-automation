@@ -1,10 +1,17 @@
-"""Shared unit normalization helpers for the energy device class.
+"""Shared unit normalization helpers for the energy + power device classes.
 
-Bug Class #30 (Unit-of-Measurement Drift) fix on the energy surface.
-Power-class normalization remains hand-rolled at the 5 existing sites
-(domain_coordinators/energy_battery.py, energy_pool.py); see
-PLANNING_energy_unit_normalization_and_attribution.md for the
-explicit scoping decision to NOT refactor those in this cycle.
+Bug Class #30 (Unit-of-Measurement Drift) fix on the energy surface
+(``energy_state_to_kwh``) and on the aggregation-layer power surface
+(``power_state_to_w``).
+
+The 5 pre-existing hand-rolled power-normalization sites
+(domain_coordinators/energy_battery.py, energy_pool.py, energy.py)
+were deliberately scoped OUT of the energy-cycle refactor; the
+follow-on whole-house-power cycle adds ``power_state_to_w`` here
+and applies it at the aggregation-layer reads (whole-house power
+sum, room-coordinator per-sensor power sum). The 5 existing
+hand-rolled sites remain unchanged in that cycle and may be
+consolidated in a later hygiene pass.
 """
 from __future__ import annotations
 
@@ -60,6 +67,67 @@ def energy_state_to_kwh(state: Any) -> float | None:
         return value * 1000.0
 
     # Unrecognized unit on an energy-class read — refuse rather than
+    # silently misattribute. Bug Class #30.
+    return None
+
+
+def power_state_to_w(state: Any) -> float | None:
+    """Read a power device-class HA state and return value in Watts.
+
+    Sibling of ``energy_state_to_kwh`` for Bug Class #30 on the power
+    surface. Handles ``unit_of_measurement`` ∈ {W, w, kW, kw, MW, mw}
+    case-insensitive. Returns ``None`` when:
+
+    - state is None
+    - state.state is unavailable / unknown / empty / "none"
+    - state.state is not parseable as float
+    - unit_of_measurement is present but not a recognized power unit
+
+    When ``unit_of_measurement`` is absent, the raw value is returned
+    AS IF Watts — this matches the pre-fix behavior at
+    ``aggregation.WholeHousePowerSensor._sum_sensors`` and
+    ``coordinator._get_sensor_value`` for already-correct sources
+    (Shelly / SPAN circuit power, native W). A source omitting its
+    uom on a kW-magnitude value would still be misread; that is
+    operator config hygiene, the same trade-off accepted on the
+    energy side (A-L1 in the energy-unit-normalization review).
+
+    Live trigger: ``sensor.ura_whole_house_power`` read 0.29 W while
+    the house drew ~2.7 kW because the configured whole-house source
+    was an Envoy sensor reporting in kW with no uom normalization
+    (2026-06-09 SPAN audit).
+    """
+    if state is None:
+        return None
+    raw = state.state
+    if raw is None:
+        return None
+    if isinstance(raw, str) and raw.strip().lower() in _UNAVAILABLE_STATES:
+        return None
+    try:
+        value = float(raw)
+    except (ValueError, TypeError):
+        return None
+
+    uom = ""
+    try:
+        attrs = state.attributes or {}
+        uom = (attrs.get("unit_of_measurement") or "").strip()
+    except Exception:
+        uom = ""
+
+    if not uom:
+        return value
+
+    uom_lc = uom.lower()
+    if uom_lc == "w":
+        return value
+    if uom_lc == "kw":
+        return value * 1000.0
+    if uom_lc == "mw":
+        return value * 1_000_000.0
+
+    # Unrecognized unit on a power-class read — refuse rather than
     # silently misattribute. Bug Class #30.
     return None
 
