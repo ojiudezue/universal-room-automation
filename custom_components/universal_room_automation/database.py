@@ -1,7 +1,7 @@
 """Database for Universal Room Automation."""
 from __future__ import annotations
 #
-# Universal Room Automation vv5.3.0
+# Universal Room Automation vv5.3.1
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors
@@ -4309,14 +4309,193 @@ class UniversalRoomDatabase:
             )
             return {}
 
+    async def get_energy_baseline_schema_version(self) -> int | None:
+        """Return the schema-version sentinel stored in room_energy_baselines.
+
+        Returns 0 (treat as pre-versioned legacy) if no sentinel row exists.
+        Returns ``None`` on a transient DB read error so the caller can
+        skip the migration this boot instead of spuriously firing a full
+        reset on a flaky read (fix-up pass A-M2).
+
+        D1 migration: when the returned value is < ENERGY_BASELINE_SCHEMA_VERSION,
+        the coordinator resets all rows once on first boot, then writes the
+        current version via set_energy_baseline_schema_version().
+        """
+        from .const import (
+            ENERGY_BASELINE_VERSION_ROOM_ID,
+            ENERGY_BASELINE_VERSION_SENSOR_ID,
+        )
+        try:
+            async with self._db_read() as db:
+                cursor = await db.execute(
+                    """SELECT baseline_value FROM room_energy_baselines
+                       WHERE room_id = ? AND sensor_id = ?""",
+                    (
+                        ENERGY_BASELINE_VERSION_ROOM_ID,
+                        ENERGY_BASELINE_VERSION_SENSOR_ID,
+                    ),
+                )
+                row = await cursor.fetchone()
+                if row is None:
+                    return 0
+                try:
+                    return int(row[0])
+                except (TypeError, ValueError):
+                    return 0
+        except Exception as err:
+            _LOGGER.warning(
+                "Failed to read energy_baseline schema version: %s", err,
+            )
+            return None
+
+    async def set_energy_baseline_schema_version(self, version: int) -> None:
+        """Write the schema-version sentinel into room_energy_baselines.
+
+        Uses the existing INSERT-OR-REPLACE path so no new schema or write
+        queue is introduced (post write-flood incident discipline).
+        """
+        from .const import (
+            ENERGY_BASELINE_VERSION_ROOM_ID,
+            ENERGY_BASELINE_VERSION_SENSOR_ID,
+        )
+        try:
+            async with self._db() as db:
+                await db.execute(
+                    """INSERT OR REPLACE INTO room_energy_baselines
+                    (room_id, sensor_id, baseline_value, baseline_set_at, needs_reset)
+                    VALUES (?, ?, ?, ?, ?)""",
+                    (
+                        ENERGY_BASELINE_VERSION_ROOM_ID,
+                        ENERGY_BASELINE_VERSION_SENSOR_ID,
+                        float(version),
+                        dt_util.utcnow().isoformat(),
+                        0,
+                    ),
+                )
+                await db.commit()
+        except Exception as err:
+            _LOGGER.warning(
+                "Failed to write energy_baseline schema version: %s", err,
+            )
+
+    async def migrate_energy_baselines_if_needed(self, target_version: int) -> tuple[bool, int]:
+        """Atomically check the schema-version sentinel and reset if stale.
+
+        Fix-up pass A-M1: per-coordinator check-then-reset let a later
+        room's reset wipe earlier rooms' freshly-written baselines (race
+        across N room coordinators on first refresh). This method does
+        SELECT version → if < target: DELETE all (except sentinel) +
+        UPSERT sentinel — all inside a single queued write transaction
+        (the write queue serializes coordinator calls → atomic). First
+        room wins; the rest read the now-current sentinel and no-op.
+
+        Returns ``(migration_ran, rows_deleted)``:
+          - ``(False, 0)`` if the sentinel was already at or above target,
+            or on read error (skip migration this boot).
+          - ``(True, n)`` if the migration ran; ``n`` is rows deleted.
+        """
+        from .const import (
+            ENERGY_BASELINE_VERSION_ROOM_ID,
+            ENERGY_BASELINE_VERSION_SENSOR_ID,
+        )
+        try:
+            async with self._db() as db:
+                cursor = await db.execute(
+                    """SELECT baseline_value FROM room_energy_baselines
+                       WHERE room_id = ? AND sensor_id = ?""",
+                    (
+                        ENERGY_BASELINE_VERSION_ROOM_ID,
+                        ENERGY_BASELINE_VERSION_SENSOR_ID,
+                    ),
+                )
+                row = await cursor.fetchone()
+                current = 0
+                if row is not None:
+                    try:
+                        current = int(row[0])
+                    except (TypeError, ValueError):
+                        current = 0
+                if current >= target_version:
+                    return (False, 0)
+                # Stale or missing — perform the reset + sentinel write in
+                # the same transaction so the next caller sees the new
+                # sentinel and skips.
+                del_cursor = await db.execute(
+                    """DELETE FROM room_energy_baselines
+                       WHERE NOT (room_id = ? AND sensor_id = ?)""",
+                    (
+                        ENERGY_BASELINE_VERSION_ROOM_ID,
+                        ENERGY_BASELINE_VERSION_SENSOR_ID,
+                    ),
+                )
+                deleted = del_cursor.rowcount or 0
+                await db.execute(
+                    """INSERT OR REPLACE INTO room_energy_baselines
+                    (room_id, sensor_id, baseline_value, baseline_set_at, needs_reset)
+                    VALUES (?, ?, ?, ?, ?)""",
+                    (
+                        ENERGY_BASELINE_VERSION_ROOM_ID,
+                        ENERGY_BASELINE_VERSION_SENSOR_ID,
+                        float(target_version),
+                        dt_util.utcnow().isoformat(),
+                        0,
+                    ),
+                )
+                await db.commit()
+                return (True, deleted)
+        except Exception as err:
+            _LOGGER.warning(
+                "migrate_energy_baselines_if_needed failed: %s", err,
+            )
+            return (False, 0)
+
+    async def reset_all_room_energy_baselines(self) -> int:
+        """Delete every row in room_energy_baselines EXCEPT the schema-version
+        sentinel. Returns count deleted. Called exactly once on first boot
+        of code that introduces a new ENERGY_BASELINE_SCHEMA_VERSION.
+
+        Cost is bounded by row count (one row per (room, sensor)) and runs
+        outside the write-queue hot path (called from coordinator first-refresh).
+        """
+        from .const import (
+            ENERGY_BASELINE_VERSION_ROOM_ID,
+            ENERGY_BASELINE_VERSION_SENSOR_ID,
+        )
+        try:
+            async with self._db() as db:
+                cursor = await db.execute(
+                    """DELETE FROM room_energy_baselines
+                       WHERE NOT (room_id = ? AND sensor_id = ?)""",
+                    (
+                        ENERGY_BASELINE_VERSION_ROOM_ID,
+                        ENERGY_BASELINE_VERSION_SENSOR_ID,
+                    ),
+                )
+                await db.commit()
+                return cursor.rowcount or 0
+        except Exception as err:
+            _LOGGER.warning(
+                "reset_all_room_energy_baselines failed: %s", err,
+            )
+            return 0
+
     async def cleanup_room_energy_baselines(self, retention_days: int = 90) -> int:
         """Remove stale baselines older than retention_days. Batched per
         bug-class #25 (LIMIT 1000 per pass) and budgeted by nightly
         maintenance (Bug Class #28). Removes orphaned rows for rooms
         whose configuration no longer references the sensor.
+
+        Fix-up pass A-H1: explicitly EXCLUDES the ``__schema_version__``
+        sentinel row from cleanup. Without this, after 90 days the
+        sentinel ages out → the next boot re-fires the D1 migration and
+        wipes every baseline → recurring full reset cycle.
         """
         from datetime import timedelta as _td  # local import to avoid module top-level coupling
         from homeassistant.util import dt as _dtu
+        from .const import (
+            ENERGY_BASELINE_VERSION_ROOM_ID,
+            ENERGY_BASELINE_VERSION_SENSOR_ID,
+        )
 
         cutoff = (_dtu.utcnow() - _td(days=retention_days)).isoformat()
         total_deleted = 0
@@ -4327,9 +4506,15 @@ class UniversalRoomDatabase:
                         """DELETE FROM room_energy_baselines
                         WHERE rowid IN (
                             SELECT rowid FROM room_energy_baselines
-                            WHERE baseline_set_at < ? LIMIT 1000
+                            WHERE baseline_set_at < ?
+                              AND NOT (room_id = ? AND sensor_id = ?)
+                            LIMIT 1000
                         )""",
-                        (cutoff,),
+                        (
+                            cutoff,
+                            ENERGY_BASELINE_VERSION_ROOM_ID,
+                            ENERGY_BASELINE_VERSION_SENSOR_ID,
+                        ),
                     )
                     await db.commit()
                     deleted = cursor.rowcount

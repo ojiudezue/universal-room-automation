@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.3.0
+# Universal Room Automation vv5.3.1
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -673,6 +673,12 @@ class EnergyTodaySensor(UniversalRoomEntity, SensorEntity):
         """Initialize the sensor."""
         super().__init__(coordinator, "energy_today", "Energy Today")
         self._last_valid_value: float | None = None
+        # Fix-up pass C-H1: track the local-date of the most recently
+        # accepted value so day-reset detection is DATE-based instead of
+        # the magnitude heuristic ``current < 0.1`` (which mis-fires for
+        # low-draw rooms that sit <0.1 kWh for hours after the helper
+        # normalization landed → recorder churn + decrease leaks).
+        self._last_accepted_date = None
 
     @property
     def native_value(self) -> float | None:
@@ -687,22 +693,51 @@ class EnergyTodaySensor(UniversalRoomEntity, SensorEntity):
         if current is not None:
             current = round(current, 4)
 
-        # Handle reset (new day, very small value)
-        if current is not None and current < 0.1:
+        if current is None:
+            return current
+
+        # Fix-up pass C-H1: DATE-based day-reset acceptance. A decrease is
+        # accepted only when the local date has changed since the last
+        # accepted value (genuine midnight rollover); otherwise the
+        # monotonic-increasing invariant rejects it and returns the
+        # last known good value.
+        today = dt_util.now().date()
+        if self._last_accepted_date is None:
+            # First observation this lifetime.
+            self._last_accepted_date = today
             self._last_valid_value = current
             return current
 
-        # Enforce monotonic increasing - reject decreases
-        if current is not None and self._last_valid_value is not None:
-            if current < self._last_valid_value:
-                # Value decreased - return last known good value
-                return self._last_valid_value
+        if self._last_valid_value is not None and current < self._last_valid_value:
+            if self._last_accepted_date != today:
+                # Genuine new day — accept the decrease (counter reset).
+                self._last_accepted_date = today
+                self._last_valid_value = current
+                return current
+            # Same-day decrease — reject (recorder-stat churn fix).
+            return self._last_valid_value
 
-        # Valid value - update and return
-        if current is not None:
-            self._last_valid_value = current
-
+        # Monotonic or first-of-day accept path.
+        self._last_accepted_date = today
+        self._last_valid_value = current
         return current
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Expose dead-energy-sensor observability flag.
+
+        D4: ``energy_sensors_dead`` is True when ALL of this room's
+        configured energy sensors were unavailable on the most recent
+        coordinator cycle. STATE_ENERGY_TODAY itself is held as None in
+        that case (coordinator-side), which flows safely through
+        ``if energy:`` checks downstream. The attribute makes the failure
+        mode dashboard-visible without log mining.
+        """
+        return {
+            "energy_sensors_dead": bool(
+                getattr(self.coordinator, "_energy_sensors_dead", False)
+            ),
+        }
 
 
 class EnergyCostTodaySensor(UniversalRoomEntity, SensorEntity):
@@ -719,8 +754,19 @@ class EnergyCostTodaySensor(UniversalRoomEntity, SensorEntity):
 
     @property
     def native_value(self) -> float | None:
-        """Return energy cost today."""
-        energy = self.coordinator.data.get(STATE_ENERGY_TODAY, 0) if self.coordinator.data else 0
+        """Return energy cost today.
+
+        Fix-up pass C1/A-H2: D4 may set STATE_ENERGY_TODAY=None (key
+        present, value None) when all configured room energy sensors are
+        unavailable. Returning ``None`` here surfaces "unknown cost" to
+        downstream consumers (consistent with D4 semantics) instead of
+        round(None * rate) → TypeError.
+        """
+        if not self.coordinator.data:
+            return None
+        energy = self.coordinator.data.get(STATE_ENERGY_TODAY)
+        if energy is None:
+            return None
         # v4.6.8: Use TOU-aware rate via helper (EC first, room override, global, default).
         rate, _source = _get_effective_rate_kwh(
             self.coordinator.hass, room_entry=self.coordinator.entry
@@ -2483,7 +2529,6 @@ class LastOccupantSensor(UniversalRoomEntity, SensorEntity):
                 attrs["last_seen"] = self._last_occupant_time.isoformat()
 
             # Calculate time ago
-            from homeassistant.util import dt as dt_util
             now = dt_util.utcnow()
             last_time = dt_util.parse_datetime(
                 self._last_occupant_time if isinstance(self._last_occupant_time, str)
@@ -3233,7 +3278,6 @@ class URACensusValidationAgeSensor(_CensusBaseSensor):
         result = self._get_census()
         if result is None or result.timestamp is None:
             return None
-        from homeassistant.util import dt as dt_util
         now = dt_util.utcnow()
         ts = result.timestamp
         # Ensure both are timezone-aware for subtraction
@@ -10661,7 +10705,6 @@ class URALastActivitySensor(AggregationEntity, SensorEntity):
                         "timestamp": rows[0].get("timestamp", ""),
                     }
                     # Count today's activities from the seeded data
-                    from homeassistant.util import dt as dt_util
                     self._counter_date = dt_util.now().date().isoformat()
                     today_start = dt_util.start_of_local_day().isoformat()
                     for row in rows:
@@ -10690,7 +10733,6 @@ class URALastActivitySensor(AggregationEntity, SensorEntity):
             self._recent = self._recent[:10]
 
         # Reset counters on day boundary
-        from homeassistant.util import dt as dt_util
         today = dt_util.now().date().isoformat()
         if today != self._counter_date:
             self._activities_today = 0
@@ -10711,7 +10753,6 @@ class URALastActivitySensor(AggregationEntity, SensorEntity):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Return activity details and rolling buffer."""
-        from homeassistant.util import dt as dt_util
         attrs: dict[str, Any] = dict(self._last_attrs)
 
         # Time ago
@@ -12186,7 +12227,6 @@ class URARecentAnomaliesSensor(AggregationEntity, SensorEntity):
             if database is None:
                 return
 
-            from homeassistant.util import dt as dt_util
             from datetime import timedelta
             cutoff = (dt_util.utcnow() - timedelta(hours=24)).isoformat()
 

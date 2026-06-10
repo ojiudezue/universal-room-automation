@@ -1,6 +1,6 @@
 """Constants for Universal Room Automation."""
 #
-# Universal Room Automation vv5.3.0
+# Universal Room Automation vv5.3.1
 # Build: 2026-03-20
 # File: const.py
 # v3.3.5.1: Fixed OptionsFlow abort messages (no_zones_configured), expanded device sensors,
@@ -31,7 +31,7 @@ DOMAIN: Final = "universal_room_automation"
 
 # Integration info
 NAME: Final = "Universal Room Automation"
-VERSION: Final = "v5.3.0"
+VERSION: Final = "v5.3.1"
 
 # Platforms
 PLATFORMS: Final = ["binary_sensor", "sensor", "switch", "button", "number", "select"]
@@ -272,6 +272,22 @@ COVERAGE_RATING_EXCELLENT: Final = "Excellent"
 COVERAGE_RATING_GOOD: Final = "Good"
 COVERAGE_RATING_FAIR: Final = "Fair"
 COVERAGE_RATING_INCOMPLETE: Final = "Incomplete"
+# Coverage rating returned when delta_percent is out of bounds (negative,
+# >100%, or None). Distinct from INCOMPLETE so post-deploy auditors can
+# grep for it as a telemetry signal. See PLANNING_energy_unit_normalization
+# D3 + Bug Class #30 recurrence on the energy device class.
+COVERAGE_RATING_ANOMALOUS: Final = "Anomalous"
+
+# Energy baseline schema-version sentinel (D1 migration). When the persisted
+# version is < ENERGY_BASELINE_SCHEMA_VERSION on first boot of new code,
+# all rows in room_energy_baselines are reset (because legacy rows may
+# hold raw Wh values that would produce hugely-negative deltas vs the
+# new kWh-normalized current_value).
+ENERGY_BASELINE_SCHEMA_VERSION: Final = 2
+# Reserved sentinel room_id / sensor_id used to track the schema version
+# inside the existing room_energy_baselines table (no new schema needed).
+ENERGY_BASELINE_VERSION_ROOM_ID: Final = "__schema_version__"
+ENERGY_BASELINE_VERSION_SENSOR_ID: Final = "energy_baseline_version"
 
 # Minimum data days for predictions
 MIN_DATA_DAYS_PREDICTION: Final = 14

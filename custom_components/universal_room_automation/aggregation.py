@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -130,6 +131,7 @@ from .const import (
     COVERAGE_RATING_GOOD,
     COVERAGE_RATING_FAIR,
     COVERAGE_RATING_INCOMPLETE,
+    COVERAGE_RATING_ANOMALOUS,
     # HVAC direction
     HVAC_DIRECTION_COOLING,
     HVAC_DIRECTION_HEATING,
@@ -180,6 +182,7 @@ from .const import (
 )
 from .coordinator import UniversalRoomCoordinator
 from .domain_coordinators.energy_billing import _get_effective_rate_kwh
+from .domain_coordinators._units import energy_state_to_kwh, today_delta_kwh
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -614,8 +617,86 @@ def _get_delta_description(delta_type: str, delta_value: float, highest_name: st
     return ""
 
 
-def _get_coverage_rating(delta_percent: float) -> str:
-    """Get coverage rating from delta percentage."""
+_COVERAGE_RATING_ANOMALOUS_LAST_WARN: float = 0.0
+
+
+def _get_coverage_rating(
+    delta_percent: float | None,
+    *,
+    post_restart_window: bool = False,
+) -> str:
+    """Get coverage rating from delta percentage.
+
+    D3: Bounds guard. Pre-fix the function was sign-blind — a hugely
+    negative delta_percent (observed: −24,558,907,924%) fell through
+    every < check and returned EXCELLENT. Return ANOMALOUS for None,
+    NaN, ``< -2``, or ``> 100`` inputs and rate-limit a WARNING.
+
+    Fix-up pass C-M2 (epsilon band): small negative values in [-2, 0)
+    are timing skew between tiers and treated as 0 (EXCELLENT) rather
+    than ANOMALOUS — Anomalous requires a clearly out-of-bounds reading.
+
+    Fix-up pass B-H4 (post-restart asymmetry): when ``post_restart_window``
+    is true, the rooms tier is full-day (DB-persisted) while in-memory
+    tiers re-anchored mid-day → delta_percent goes negative for the
+    rest of the day. Surface that as INCOMPLETE (not ANOMALOUS) and
+    swap the WARNING text to name boot-time re-anchoring instead of
+    misattributing to unit drift.
+    """
+    global _COVERAGE_RATING_ANOMALOUS_LAST_WARN
+    # Epsilon band first (positive bias only — clearly out-of-bounds is
+    # still ANOMALOUS even in the post-restart window).
+    if (
+        isinstance(delta_percent, (int, float))
+        and delta_percent == delta_percent  # not NaN
+        and -2.0 <= delta_percent < 0.0
+    ):
+        return COVERAGE_RATING_EXCELLENT
+    out_of_bounds = (
+        delta_percent is None
+        or not isinstance(delta_percent, (int, float))
+        or delta_percent != delta_percent  # NaN
+        or delta_percent < 0
+        or delta_percent > 100
+    )
+    if out_of_bounds:
+        # Post-restart asymmetry path: negative deltas in the boot-window
+        # are expected and DO NOT indicate unit-of-measurement drift.
+        if (
+            post_restart_window
+            and isinstance(delta_percent, (int, float))
+            and delta_percent == delta_percent
+            and delta_percent < 0
+        ):
+            try:
+                _now_mono = time.monotonic()
+                if _now_mono - _COVERAGE_RATING_ANOMALOUS_LAST_WARN >= 3600.0:
+                    _COVERAGE_RATING_ANOMALOUS_LAST_WARN = _now_mono
+                    _LOGGER.warning(
+                        "Coverage rating: delta_percent=%s negative inside "
+                        "post-restart window — in-memory tiers re-anchored at "
+                        "boot while rooms tier carries the full-day persisted "
+                        "value. Returning INCOMPLETE; will converge at next "
+                        "midnight re-anchor.",
+                        delta_percent,
+                    )
+            except Exception:
+                pass
+            return COVERAGE_RATING_INCOMPLETE
+        try:
+            _now_mono = time.monotonic()
+            if _now_mono - _COVERAGE_RATING_ANOMALOUS_LAST_WARN >= 3600.0:
+                _COVERAGE_RATING_ANOMALOUS_LAST_WARN = _now_mono
+                _LOGGER.warning(
+                    "Coverage rating: delta_percent=%s out of bounds; "
+                    "returning ANOMALOUS. Likely unit-of-measurement mismatch "
+                    "between attributed tiers and whole-house tier "
+                    "(Bug Class #30).",
+                    delta_percent,
+                )
+        except Exception:
+            pass
+        return COVERAGE_RATING_ANOMALOUS
     if delta_percent < COVERAGE_EXCELLENT_THRESHOLD:
         return COVERAGE_RATING_EXCELLENT
     elif delta_percent < COVERAGE_GOOD_THRESHOLD:
@@ -2168,20 +2249,32 @@ class WholeHousePowerSensor(AggregationEntity, SensorEntity):
 
 
 class WholeHouseEnergySensor(AggregationEntity, SensorEntity):
-    """Sensor: Whole house energy today from configured sensor."""
+    """Sensor: Whole house energy today from configured sensor.
+
+    Fix-up pass B-M2: this sensor now applies the same per-sensor scope
+    heuristic + today-delta tracking used by ``EnergyCoverageDeltaSensor``
+    so its native_value cannot disagree with the coverage sensor's
+    ``whole_house`` attribute by orders of magnitude when a Wh-reporting
+    cumulative counter is configured.
+    """
+
+    # Same threshold as EnergyCoverageDeltaSensor.
+    WHOLE_HOUSE_CUMULATIVE_THRESHOLD_KWH = 1000.0
 
     _attr_device_class = SensorDeviceClass.ENERGY
     _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
     _attr_state_class = SensorStateClass.TOTAL_INCREASING
     _attr_icon = "mdi:lightning-bolt"
-    
+
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         """Initialize."""
         super().__init__(hass, entry)
         self._attr_unique_id = f"{DOMAIN}_whole_house_energy"
         self._attr_name = "Whole House Energy Today"
         self._last_valid_value: float | None = None
-    
+        # Per-sensor today-delta tracker (B-M2 parity with coverage delta).
+        self._tier_baselines: dict[str, dict[str, Any]] = {}
+
     def _get_sensor_list(self, plural_key, singular_key):
         """Get sensor list with singular→plural migration fallback."""
         sensors = self._get_config(plural_key)
@@ -2192,23 +2285,65 @@ class WholeHouseEnergySensor(AggregationEntity, SensorEntity):
             return [singular]
         return []
 
+    def _today_local(self):
+        return dt_util.now().date()
+
     def _sum_sensors(self, sensor_ids: list[str]) -> float | None:
-        """Sum numeric values from a list of sensor entity IDs."""
+        """Sum today-scoped kWh readings using per-sensor scope heuristic.
+
+        D1 (Bug Class #30) + B-M2: every read routes through
+        ``energy_state_to_kwh`` (unit normalization) AND a per-sensor
+        scope classifier (today-native pass-through vs today-derived
+        today-delta) — same shape used by ``EnergyCoverageDeltaSensor``.
+        Without this, a Wh-reporting cumulative source would inflate
+        this sensor's native_value while the coverage sensor's
+        ``whole_house`` attr stayed sane.
+        """
         total = 0.0
         any_valid = False
+        today = self._today_local()
+        threshold = self.WHOLE_HOUSE_CUMULATIVE_THRESHOLD_KWH
         for sensor_id in sensor_ids:
             state = self.hass.states.get(sensor_id)
-            if state and state.state not in ("unknown", "unavailable"):
-                try:
-                    total += float(state.state)
-                    any_valid = True
-                except (ValueError, TypeError):
-                    pass
+            kwh = energy_state_to_kwh(state)
+            if kwh is None:
+                continue
+            any_valid = True
+            tracker_key = f"__wh_self__{sensor_id}"
+            entry = self._tier_baselines.get(tracker_key)
+            needs_classify = (
+                entry is None
+                or entry.get("scope") is None
+                or (
+                    entry.get("scope") == "today_native"
+                    and kwh > threshold
+                )
+            )
+            if needs_classify:
+                scope = "today_derived" if kwh > threshold else "today_native"
+                self._tier_baselines[tracker_key] = {
+                    "scope": scope,
+                    "baseline_kwh": kwh if scope == "today_derived" else 0.0,
+                    "anchor_date": today,
+                }
+                entry = self._tier_baselines[tracker_key]
+            scope = entry["scope"]
+            if scope == "today_derived":
+                total += today_delta_kwh(
+                    self._tier_baselines, tracker_key, kwh, today,
+                )
+            else:
+                total += kwh
         return total if any_valid else None
 
     @property
     def native_value(self) -> float | None:
-        """Return whole house energy with monotonic increasing enforcement."""
+        """Return whole house energy with date-based reset acceptance.
+
+        Fix-up pass C-H1: replaces the ``current < 0.1`` magnitude
+        heuristic with a date-based acceptance — a decrease is only
+        accepted when the local date has rolled over.
+        """
         sensors = self._get_sensor_list(
             CONF_WHOLE_HOUSE_ENERGY_SENSORS, CONF_WHOLE_HOUSE_ENERGY_SENSOR)
         if not sensors:
@@ -2218,16 +2353,18 @@ class WholeHouseEnergySensor(AggregationEntity, SensorEntity):
         if current is None:
             return None
 
-        # Handle reset (new day, very small value)
-        if current < 0.1:
+        today = dt_util.now().date()
+        if not hasattr(self, "_last_accepted_date") or self._last_accepted_date is None:
+            self._last_accepted_date = today
             self._last_valid_value = current
             return current
-
-        # Enforce monotonic increasing - reject decreases
-        if self._last_valid_value is not None:
-            if current < self._last_valid_value:
-                return self._last_valid_value
-
+        if self._last_valid_value is not None and current < self._last_valid_value:
+            if self._last_accepted_date != today:
+                self._last_accepted_date = today
+                self._last_valid_value = current
+                return current
+            return self._last_valid_value
+        self._last_accepted_date = today
         self._last_valid_value = current
         return current
 
@@ -2320,25 +2457,29 @@ class WholeHouseCostTodaySensor(AggregationEntity, SensorEntity):
 
 class RoomsEnergyTotalSensor(AggregationEntity, SensorEntity):
     """Sensor: Sum of energy from all configured room sensors."""
-    
+
     _attr_device_class = SensorDeviceClass.ENERGY
     _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
     _attr_state_class = SensorStateClass.TOTAL_INCREASING
     _attr_icon = "mdi:lightning-bolt"
-    
+
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         """Initialize."""
         super().__init__(hass, entry)
         self._attr_unique_id = f"{DOMAIN}_rooms_energy_total"
         self._attr_name = "Rooms Energy Total"
         self._last_valid_value: float | None = None
-    
+        # Fix-up pass C-H1: date-based reset acceptance (replaces the
+        # ``current < 0.1`` magnitude heuristic which mis-fires for low-
+        # draw houses sitting <0.1 kWh for hours).
+        self._last_accepted_date = None
+
     @property
     def native_value(self) -> float:
         """Return sum of room energy sensors with monotonic increasing enforcement."""
         total = 0.0
         room_energies = {}
-        
+
         for coord in _get_room_coordinators(self.hass):
             if coord.data:
                 energy = coord.data.get(STATE_ENERGY_TODAY, 0)
@@ -2346,21 +2487,22 @@ class RoomsEnergyTotalSensor(AggregationEntity, SensorEntity):
                     room_name = coord.entry.data.get("room_name", "Unknown")
                     room_energies[room_name] = energy
                     total += energy
-        
+
         current = round(total, 2)
-        
-        # Handle reset (new day, very small value)
-        if current < 0.1:
+
+        # Fix-up pass C-H1: date-based day-reset acceptance.
+        today = dt_util.now().date()
+        if self._last_accepted_date is None:
+            self._last_accepted_date = today
             self._last_valid_value = current
             return current
-        
-        # Enforce monotonic increasing - reject decreases
-        if self._last_valid_value is not None:
-            if current < self._last_valid_value:
-                # Value decreased - return last known good value
-                return self._last_valid_value
-        
-        # Valid value - update and return
+        if self._last_valid_value is not None and current < self._last_valid_value:
+            if self._last_accepted_date != today:
+                self._last_accepted_date = today
+                self._last_valid_value = current
+                return current
+            return self._last_valid_value
+        self._last_accepted_date = today
         self._last_valid_value = current
         return current
     
@@ -2382,19 +2524,124 @@ class RoomsEnergyTotalSensor(AggregationEntity, SensorEntity):
 
 
 class EnergyCoverageDeltaSensor(AggregationEntity, SensorEntity):
-    """Sensor: Delta between whole house energy and sum of room sensors."""
-    
+    """Sensor: Delta between whole house energy and sum of room sensors.
+
+    D1 + D2 (Bug Class #30 on energy device class): all reads go through
+    ``energy_state_to_kwh`` so Wh / kWh / MWh sources normalize correctly.
+
+    D2 attribution semantics: zones, house-devices, and (when needed)
+    whole-house tiers track an IN-MEMORY today-delta baseline per
+    sensor_id, anchored at local midnight. Restart loses part-of-day
+    accumulation for these diagnostic tiers — acceptable trade-off
+    versus a new DB write path (post 2026-06-09 write-flood incident).
+    Room tier (handled by per-room coordinator) remains the persistent
+    truth source.
+
+    Whole-house tier uses a one-time heuristic: if the first observed
+    normalized value is large (> WHOLE_HOUSE_CUMULATIVE_THRESHOLD_KWH)
+    the source is assumed to be a cumulative lifetime counter and a
+    today-delta baseline is applied; otherwise the source is taken as
+    today-native and the value passes through. The chosen path is
+    exposed via the ``whole_house_scope`` attribute for post-deploy
+    audit.
+    """
+
+    # Heuristic: if first observed whole-house value (kWh-normalized) is
+    # above this threshold, treat the source as a lifetime cumulative
+    # counter (apply today-delta baseline). Otherwise treat as today-
+    # native. Single-day whole-house usage typically peaks ~100 kWh in a
+    # large household; 1000 kWh chosen as a generous safety margin.
+    WHOLE_HOUSE_CUMULATIVE_THRESHOLD_KWH = 1000.0
+
     # No device_class - this is a delta/difference, not cumulative energy
     _attr_native_unit_of_measurement = UnitOfEnergy.KILO_WATT_HOUR
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_icon = ICON_COVERAGE
-    
+
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry) -> None:
         """Initialize."""
         super().__init__(hass, entry)
         self._attr_unique_id = f"{DOMAIN}_energy_coverage_delta"
         self._attr_name = "Energy Coverage Delta"
-    
+        # In-memory today-delta tracker keyed by sensor_id (or namespaced
+        # tracker_key for per-tier classification). Each value carries
+        # baseline_kwh, anchor_date, scope. Re-anchored lazily on first
+        # read of a new local date; scope flagged for re-eval at midnight
+        # so misclassified young sensors flip on their next observation.
+        self._tier_baselines: dict[str, dict[str, Any]] = {}
+        # whole_house_scope: "today_native" | "today_derived" | "mixed" |
+        # "unknown". Updated only when the tier produced any valid read
+        # (B-M1 / C-L2: dead cycles retain the previous classification).
+        self._whole_house_scope: str = "unknown"
+        # scope_mismatch_warning: empty string when clean; "<tier>:mixed"
+        # when the named tier produced mixed today_native + today_derived
+        # classifications on this cycle. Retained on dead cycles.
+        self._scope_mismatch_warning: str = ""
+        # B-H3 sticky misclassification undo: at every midnight the
+        # heuristic re-runs against current readings so a young
+        # cumulative counter (<1000 kWh on first observation) gets a
+        # second chance.
+        # Fourth-pass H-1: seed with the BOOT date, not None. A None seed
+        # made the first-ever read trip the midnight-reclassify branch,
+        # which closed the post-restart window immediately — the B-H4
+        # protection never engaged. Seeded to boot date, the branch only
+        # fires on a genuine date change.
+        self._last_reclassify_date = dt_util.now().date()
+        # B-H4 post-restart window: in-memory tiers re-anchor at boot
+        # while the rooms tier is DB-persisted (full day). The resulting
+        # negative delta_percent must NOT be misattributed to unit drift.
+        # Window opens at any boot that happens after ~00:05 local and
+        # closes at the next midnight re-anchor.
+        self._boot_local_dt = dt_util.now()
+        _boot_mins_into_day = (
+            self._boot_local_dt.hour * 60 + self._boot_local_dt.minute
+        )
+        self._post_restart_window: bool = _boot_mins_into_day > 5
+
+    # --- helpers ----------------------------------------------------------
+
+    # Tunable threshold (kWh) for sticky-misclassification re-eval (B-H3):
+    # any "today_native" sensor reading above this flips to today_derived
+    # immediately on observation — it can't be a today value at that
+    # magnitude.
+    _RECLASSIFY_THRESHOLD_KWH = WHOLE_HOUSE_CUMULATIVE_THRESHOLD_KWH
+
+    def _today_local(self):
+        """Return today's local date (used as the anchor key).
+
+        Fix-up pass C-M1: anchors are BOOT-TIME on first classification
+        (the tracker re-anchors on first observation), and only converge
+        to MIDNIGHT-aligned values at the next midnight rollover. This
+        wording matters for Review-D live validation — pre-fix docstring
+        implied immediate-midnight anchoring which is not what happens.
+        """
+        return dt_util.now().date()
+
+    def _today_delta_kwh(self, sensor_id: str, current_kwh: float) -> float:
+        """Return today-scoped delta for an assumed-cumulative sensor.
+
+        Delegates to ``today_delta_kwh`` in domain_coordinators/_units.py
+        so the logic is testable without HA installed.
+        """
+        return today_delta_kwh(
+            self._tier_baselines, sensor_id, current_kwh, self._today_local(),
+        )
+
+    def _maybe_reclassify_at_midnight(self, today) -> None:
+        """B-H3: flag every tracker entry for re-classification at midnight.
+
+        The actual re-classify happens lazily in
+        ``_classify_and_accumulate`` on the next read of each sensor.
+        Also closes the post-restart window (B-H4) — once we crossed a
+        midnight, the in-memory tiers are aligned with the rooms tier.
+        """
+        if self._last_reclassify_date != today:
+            for entry in self._tier_baselines.values():
+                if isinstance(entry, dict) and "scope" in entry:
+                    entry["scope_pending_reeval"] = True
+            self._last_reclassify_date = today
+            self._post_restart_window = False
+
     def _get_sensor_list(self, plural_key, singular_key=None):
         """Get sensor list with optional singular→plural migration fallback."""
         sensors = self._get_config(plural_key)
@@ -2406,19 +2653,93 @@ class EnergyCoverageDeltaSensor(AggregationEntity, SensorEntity):
                 return [singular]
         return []
 
-    def _sum_sensors(self, sensor_ids: list[str]) -> float | None:
-        """Sum numeric values from a list of sensor entity IDs."""
+    def _classify_and_accumulate(
+        self,
+        sensor_ids: list[str],
+        key_prefix: str,
+    ) -> tuple[float | None, set[str]]:
+        """Per-sensor scope heuristic for an attribution tier.
+
+        Fix-up pass B-H1 / B-H3: each sensor is independently classified
+        as ``today_native`` (small first read, pass through normalized)
+        or ``today_derived`` (large first read, today-delta tracked).
+        Misclassification recovery:
+
+        * At every midnight, ``_maybe_reclassify_at_midnight`` flags
+          every entry for re-evaluation so a young counter (<threshold
+          on first observation) gets a second chance.
+        * Any time a ``today_native`` classified sensor reads above the
+          threshold, it is immediately flipped to ``today_derived`` and
+          re-anchored — it can't be a today value at that magnitude.
+
+        ``key_prefix`` namespaces tracker entries per tier (so the same
+        sensor_id can appear in two tiers without colliding).
+
+        Returns ``(total, observed_scopes)``. ``total`` is None when no
+        sensor produced a valid kWh value, so callers can retain prior
+        classification + warning state (B-M1).
+        """
+        today = self._today_local()
+        self._maybe_reclassify_at_midnight(today)
+
         total = 0.0
         any_valid = False
+        observed_scopes: set[str] = set()
         for sensor_id in sensor_ids:
             state = self.hass.states.get(sensor_id)
-            if state and state.state not in ("unknown", "unavailable"):
-                try:
-                    total += float(state.state)
-                    any_valid = True
-                except (ValueError, TypeError):
-                    pass
-        return total if any_valid else None
+            kwh = energy_state_to_kwh(state)
+            if kwh is None:
+                continue
+            any_valid = True
+            tracker_key = f"{key_prefix}__{sensor_id}"
+            entry = self._tier_baselines.get(tracker_key)
+            needs_classify = (
+                entry is None
+                or entry.get("scope") is None
+                or entry.get("scope_pending_reeval")
+                or (
+                    entry.get("scope") == "today_native"
+                    and kwh > self._RECLASSIFY_THRESHOLD_KWH
+                )
+            )
+            if needs_classify:
+                scope = (
+                    "today_derived"
+                    if kwh > self._RECLASSIFY_THRESHOLD_KWH
+                    else "today_native"
+                )
+                self._tier_baselines[tracker_key] = {
+                    "scope": scope,
+                    "baseline_kwh": kwh if scope == "today_derived" else 0.0,
+                    "anchor_date": today,
+                }
+                entry = self._tier_baselines[tracker_key]
+            scope = entry["scope"]
+            observed_scopes.add(scope)
+            if scope == "today_derived":
+                total += self._today_delta_kwh(tracker_key, kwh)
+            else:
+                total += kwh
+        if not any_valid:
+            return (None, observed_scopes)
+        return (total, observed_scopes)
+
+    def _sum_sensors(self, sensor_ids: list[str]) -> float | None:
+        """Tier-aware sum used by attribution tiers (delegates).
+
+        Now routes through ``_classify_and_accumulate`` under the
+        ``_sum_sensors`` namespace so per-sensor scope classification
+        applies to the zone + house-device tiers (B-H1) — previously
+        these tiers naively today-delta'd every reading, which double-
+        subtracted the baseline on already-today-native sensors.
+
+        Returns None when no sensor produced a valid kWh value (callers
+        retain prior classification per B-M1).
+        """
+        total, _ = self._classify_and_accumulate(sensor_ids, "_sum_sensors")
+        return total
+
+    # --- main read paths --------------------------------------------------
 
     @property
     def native_value(self) -> float | None:
@@ -2448,6 +2769,10 @@ class EnergyCoverageDeltaSensor(AggregationEntity, SensorEntity):
                 "zones_total": zones_total,
                 "house_devices_total": house_devices_total,
                 "coverage_rating": "No data",
+                "whole_house_scope": self._whole_house_scope,
+                "scope_mismatch_warning": self._scope_mismatch_warning,
+                "post_restart_window": self._post_restart_window,
+                "baseline_anchor": str(self._today_local()),
                 "note": "Configure whole house energy sensor",
             }
 
@@ -2466,16 +2791,66 @@ class EnergyCoverageDeltaSensor(AggregationEntity, SensorEntity):
             "attribution_coverage_pct": round(coverage_pct, 1),
             "delta_kwh": round(unattributed, 2),
             "delta_percent": round(delta_percent, 1),
-            "coverage_rating": _get_coverage_rating(delta_percent),
+            "coverage_rating": _get_coverage_rating(
+                delta_percent,
+                post_restart_window=self._post_restart_window,
+            ),
+            "whole_house_scope": self._whole_house_scope,
+            "scope_mismatch_warning": self._scope_mismatch_warning,
+            "post_restart_window": self._post_restart_window,
+            "baseline_anchor": str(self._today_local()),
         }
 
+    def _record_tier_scope_warning(
+        self,
+        tier_name: str,
+        observed_scopes: set[str],
+    ) -> bool:
+        """Update scope_mismatch_warning per tier (B-H1 / B-M1).
+
+        Returns True when the tier was MIXED and its contribution should
+        be skipped this cycle. Retains the previous value when
+        ``observed_scopes`` is empty (dead cycle).
+        """
+        if not observed_scopes:
+            return False  # dead tier — retain prior warning state
+        if len(observed_scopes) > 1:
+            self._scope_mismatch_warning = f"{tier_name}:mixed"
+            return True
+        # Clean tier — clear only if the prior warning was on this same tier.
+        if self._scope_mismatch_warning.startswith(f"{tier_name}:"):
+            self._scope_mismatch_warning = ""
+        return False
+
     def _get_whole_house_energy(self) -> float | None:
-        """Get whole house energy (sum of all configured whole-house sensors)."""
+        """Get whole house energy (sum of all configured whole-house sensors).
+
+        D2: per-sensor cumulative-vs-today heuristic. Now delegates to
+        ``_classify_and_accumulate`` for parity with zones / house-devices.
+        Mixed scopes flag ``scope_mismatch_warning`` AND skip the tier's
+        contribution this cycle (B-H1).
+        """
         sensors = self._get_sensor_list(
             CONF_WHOLE_HOUSE_ENERGY_SENSORS, CONF_WHOLE_HOUSE_ENERGY_SENSOR)
         if not sensors:
             return None
-        return self._sum_sensors(sensors)
+
+        total, observed_scopes = self._classify_and_accumulate(
+            sensors, "__whole_house__",
+        )
+
+        # B-M1: only update _whole_house_scope when we observed something.
+        # Dead cycles retain the prior classification.
+        if observed_scopes:
+            if len(observed_scopes) == 1:
+                self._whole_house_scope = next(iter(observed_scopes))
+            elif len(observed_scopes) > 1:
+                self._whole_house_scope = "mixed"
+
+        mixed = self._record_tier_scope_warning("whole_house", observed_scopes)
+        if mixed:
+            return None  # skip tier when sensors disagree
+        return total
 
     def _get_rooms_total_energy(self) -> float:
         """Get sum of energy from all room coordinators."""
@@ -2488,29 +2863,50 @@ class EnergyCoverageDeltaSensor(AggregationEntity, SensorEntity):
         return total
 
     def _get_zones_total_energy(self) -> float:
-        """Get sum of zone-level energy sensors across all zones."""
-        total = 0.0
-        # Read zone energy sensors from Zone Manager entry
+        """Get sum of zone-level energy sensors across all zones.
+
+        D2 / fix-up B-H1: per-sensor scope heuristic applied via
+        ``_classify_and_accumulate``. Mixed scopes within the zone tier
+        (e.g. one zone exposes ``_today``-native, another a lifetime
+        counter) skip the zone-tier contribution this cycle and set
+        ``scope_mismatch_warning="zones:mixed"``.
+        """
+        # Gather all zone energy sensors across all zone manager entries.
+        all_zone_sensors: list[str] = []
         for entry in self.hass.config_entries.async_entries(DOMAIN):
             from .const import CONF_ENTRY_TYPE, ENTRY_TYPE_ZONE_MANAGER
             if entry.data.get(CONF_ENTRY_TYPE) != ENTRY_TYPE_ZONE_MANAGER:
                 continue
             merged = {**entry.data, **entry.options}
             for zone_data in merged.get("zones", {}).values():
-                zone_sensors = zone_data.get(CONF_ZONE_ENERGY_SENSORS, [])
-                if zone_sensors:
-                    result = self._sum_sensors(zone_sensors)
-                    if result is not None:
-                        total += result
-        return total
+                zs = zone_data.get(CONF_ZONE_ENERGY_SENSORS, [])
+                if zs:
+                    all_zone_sensors.extend(zs)
+        if not all_zone_sensors:
+            return 0.0
+        total, observed_scopes = self._classify_and_accumulate(
+            all_zone_sensors, "_zones_tier",
+        )
+        if self._record_tier_scope_warning("zones", observed_scopes):
+            return 0.0
+        return total if total is not None else 0.0
 
     def _get_house_devices_total_energy(self) -> float:
-        """Get sum of house-level device energy sensors."""
+        """Get sum of house-level device energy sensors.
+
+        D2 / fix-up B-H1: per-sensor scope heuristic via
+        ``_classify_and_accumulate``. Mixed scopes skip the tier this
+        cycle (sets ``scope_mismatch_warning="house_devices:mixed"``).
+        """
         sensors = self._get_config(CONF_HOUSE_DEVICE_ENERGY_SENSORS) or []
         if not sensors:
             return 0.0
-        result = self._sum_sensors(sensors)
-        return result if result is not None else 0.0
+        total, observed_scopes = self._classify_and_accumulate(
+            sensors, "_house_devices_tier",
+        )
+        if self._record_tier_scope_warning("house_devices", observed_scopes):
+            return 0.0
+        return total if total is not None else 0.0
 
 
 # ============================================================================
@@ -2613,7 +3009,6 @@ class EnergyCostPerOccupiedHourSensor(AggregationEntity, SensorEntity):
         rate = self._get_rate()
         total_cost = 0.0
         total_occupied_hours = 0.0
-        from homeassistant.util import dt as dt_util
         now = dt_util.now()
         for coord in _get_room_coordinators(self.hass):
             if not coord.data or getattr(coord, "_infrastructure_room", False):
@@ -2634,7 +3029,6 @@ class EnergyCostPerOccupiedHourSensor(AggregationEntity, SensorEntity):
     def extra_state_attributes(self):
         rate = self._get_rate()
         rooms = []
-        from homeassistant.util import dt as dt_util
         now = dt_util.now()
         for coord in _get_room_coordinators(self.hass):
             if not coord.data or getattr(coord, "_infrastructure_room", False):
@@ -2819,7 +3213,6 @@ class EnergyAnomalyBinarySensor(AggregationEntity, BinarySensorEntity):
             return []
 
         from .domain_coordinators.energy_forecast import get_time_bin
-        from homeassistant.util import dt as dt_util
 
         now = dt_util.now()
         time_bin = get_time_bin(now.hour)
@@ -3740,31 +4133,38 @@ class ZoneEnergyTodaySensor(ZoneSensorBase, SensorEntity):
         self._attr_unique_id = f"{DOMAIN}_zone_{zone}_energy_today"
         self._attr_name = f"Energy Today"
         self._last_valid_value: float | None = None
-    
+        # Fix-up pass C-H1: date-based reset acceptance.
+        self._last_accepted_date = None
+
     @property
     def native_value(self) -> float:
-        """Return total energy today in zone with monotonic increasing enforcement."""
+        """Return total energy today in zone with date-based reset acceptance.
+
+        Fix-up pass C-H1: a decrease is only accepted when the local
+        date has rolled over (genuine midnight reset). Replaces the
+        ``current < 0.1`` magnitude heuristic.
+        """
         total = 0.0
         for coord in self._get_zone_coordinators():
             if coord.data:
                 energy = coord.data.get(STATE_ENERGY_TODAY, 0)
                 if energy:
                     total += energy
-        
+
         current = round(total, 2)
-        
-        # Handle reset (new day, very small value)
-        if current < 0.1:
+
+        today = dt_util.now().date()
+        if self._last_accepted_date is None:
+            self._last_accepted_date = today
             self._last_valid_value = current
             return current
-        
-        # Enforce monotonic increasing - reject decreases
-        if self._last_valid_value is not None:
-            if current < self._last_valid_value:
-                # Value decreased - return last known good value
-                return self._last_valid_value
-        
-        # Valid value - update and return
+        if self._last_valid_value is not None and current < self._last_valid_value:
+            if self._last_accepted_date != today:
+                self._last_accepted_date = today
+                self._last_valid_value = current
+                return current
+            return self._last_valid_value
+        self._last_accepted_date = today
         self._last_valid_value = current
         return current
 
