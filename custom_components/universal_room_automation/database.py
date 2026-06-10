@@ -1,7 +1,7 @@
 """Database for Universal Room Automation."""
 from __future__ import annotations
 #
-# Universal Room Automation vv5.3.1
+# Universal Room Automation vv5.3.2
 # Build: 2026-01-04
 # File: database.py
 # v3.3.1.2: Added WAL mode and busy_timeout to fix 'database is locked' errors
@@ -1999,6 +1999,62 @@ class UniversalRoomDatabase:
                 await db.commit()
         except Exception as e:
             _LOGGER.error("Error logging house state change: %s", e)
+
+    async def fetch_house_state_log_since(
+        self,
+        since_iso: str,
+        limit: int,
+    ) -> list[dict]:
+        """Return house_state_log rows with timestamp >= since_iso, oldest first.
+
+        Read-only sibling of count_house_state_changes_since. Used by
+        RoutineForecaster (cycle: routine-next-state-forecaster) to aggregate
+        a bounded window (default 60d / 5000 rows) into in-memory
+        (prev_state, day_type, time_bin) -> next_state counts + dwell ETAs.
+
+        Bounded by ``LIMIT ?`` to cap read pressure (no runaway scans even
+        if the table grows). Internal SQL uses ``ORDER BY timestamp DESC
+        LIMIT ?`` so an overflowed window keeps the NEWEST rows (review
+        finding A-2 / B-2 — the prior ASC ordering froze the model on
+        stale data after any flap storm). Rows are reversed in Python
+        before returning so callers still see ascending chronological
+        order, which is required for the dwell-time computation across
+        consecutive rows.
+
+        Returns ``[]`` on exception (matches count_house_state_changes_since
+        failure mode) so callers can treat the forecaster as degraded
+        rather than crashing the coordinator.
+        """
+        try:
+            async with self._db_read() as db:
+                cursor = await db.execute(
+                    """
+                    SELECT timestamp, state, previous_state, confidence
+                    FROM house_state_log
+                    WHERE timestamp >= ?
+                    ORDER BY timestamp DESC
+                    LIMIT ?
+                    """,
+                    (since_iso, int(limit)),
+                )
+                rows = await cursor.fetchall()
+                # Caller expects ascending chronological order — reverse
+                # the DESC result. ``reversed()`` is O(n) and keeps the
+                # newest-kept semantics from the LIMIT.
+                return [
+                    {
+                        "timestamp": r[0],
+                        "state": r[1],
+                        "previous_state": r[2],
+                        "confidence": r[3],
+                    }
+                    for r in reversed(rows or [])
+                ]
+        except Exception as e:
+            _LOGGER.error(
+                "Error fetching house_state_log since %s: %s", since_iso, e
+            )
+            return []
 
     async def count_house_state_changes_since(self, since_iso: str) -> int:
         """Return the number of house_state_log rows with timestamp >= since_iso.
