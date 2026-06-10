@@ -5422,6 +5422,12 @@ class PresenceCoordinator(BaseCoordinator):
                 )
             self._substrate = None
 
+        # B-M1 / C-C7 fix-up: reset the optimizer-intent unsub handle so
+        # re-setup after teardown re-subscribes cleanly. The actual
+        # dispatcher unsub fires via ``_cancel_listeners`` (handle is
+        # already on ``self._unsub_listeners``).
+        self._optimizer_intent_unsub = None
+
         # Routine-Awareness Next-State Forecaster: cancel the periodic
         # refresh timer + signal subscription. Cancellation is idempotent
         # (the forecaster guards its own unsubs). Bug Class #19 + #50.
@@ -5462,6 +5468,18 @@ class PresenceCoordinator(BaseCoordinator):
         """
         try:
             if not isinstance(intent, dict):
+                return
+            # B-H1 fix-up: L1 inertness — see Energy._on_optimizer_intent
+            # for the full rationale.
+            eff = intent.get("effective_level")
+            if eff in ("advisory", "shadow"):
+                _LOGGER.debug(
+                    "Presence: skipping intent honor at L1 "
+                    "effective_level=%s (action_id=%s target=%s)",
+                    eff,
+                    intent.get("action_id"),
+                    intent.get("target_entity"),
+                )
                 return
             if self.honor_optimizer_intent(intent):
                 return

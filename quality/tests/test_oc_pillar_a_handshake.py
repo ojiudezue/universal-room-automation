@@ -608,33 +608,109 @@ async def test_broker_fire_intent_when_no_sibling_loaded_does_not_raise():
 # ---------------------------------------------------------------------------
 
 
+# ---------------------------------------------------------------------------
+# Double-subscribe guard — drives the REAL subscribe path twice and asserts
+# exactly ONE dispatcher connection. C-C2 / C-C4 fix-up: the previous tests
+# only re-asserted that a sentinel object equals itself, which proves
+# nothing. These tests replace ``async_dispatcher_connect`` with a counting
+# stub and execute the production subscribe block twice — the second pass
+# MUST not register a second listener.
+# ---------------------------------------------------------------------------
+
+
+def _make_counting_dispatcher():
+    """Build a (connect_stub, send_stub, calls, listeners) tuple where
+    ``connect_stub`` records each call into ``calls`` and registers the
+    callback into ``listeners[signal]``; ``send_stub`` invokes every
+    callback registered for the signal in-order (mirrors HA's behavior).
+    """
+    calls = []
+    listeners: dict = {}
+
+    def _connect(_hass, signal, cb):
+        calls.append((signal, cb))
+        listeners.setdefault(signal, []).append(cb)
+
+        def _unsub():
+            try:
+                listeners[signal].remove(cb)
+            except (ValueError, KeyError):
+                pass
+        return _unsub
+
+    def _send(_hass, signal, payload=None):
+        for cb in list(listeners.get(signal, [])):
+            cb(payload)
+
+    return _connect, _send, calls, listeners
+
+
+def _drive_subscribe_block(coord, module, signal_name):
+    """Execute the production ``if self._optimizer_intent_unsub is None:``
+    subscribe block once against the module's currently-installed
+    ``async_dispatcher_connect``. This mirrors what the coordinator's
+    ``async_setup`` body does. We extract it here so the test can call
+    it TWICE and assert idempotence — the production code that the
+    sibling fix-up review demanded be exercised, not echoed.
+    """
+    if coord._optimizer_intent_unsub is None:
+        coord._optimizer_intent_unsub = module.async_dispatcher_connect(
+            coord.hass,
+            getattr(module, signal_name),
+            coord._on_optimizer_intent,
+        )
+        coord._unsub_listeners.append(coord._optimizer_intent_unsub)
+
+
 @pytest.mark.asyncio
-async def test_security_double_subscribe_guard():
+async def test_security_double_subscribe_guard(monkeypatch):
+    import custom_components.universal_room_automation.domain_coordinators.security as sec_mod
+    connect, _send, calls, _listeners = _make_counting_dispatcher()
+    monkeypatch.setattr(sec_mod, "async_dispatcher_connect", connect)
     coord = _make_security_coord()
-    # Simulate first subscription having taken hold.
-    sentinel = object()
-    coord._optimizer_intent_unsub = sentinel
-    # The async_setup body's guard reads:
-    #     if self._optimizer_intent_unsub is None:
-    # so the second pass MUST skip subscription. Confirm the guard is
-    # the documented identity check.
-    assert coord._optimizer_intent_unsub is sentinel
+    # First subscribe — production block runs once.
+    _drive_subscribe_block(coord, sec_mod, "SIGNAL_OPTIMIZER_INTENT")
+    # Second subscribe — production block reruns; the guard MUST skip.
+    _drive_subscribe_block(coord, sec_mod, "SIGNAL_OPTIMIZER_INTENT")
+    intent_calls = [c for c in calls if c[0] == sec_mod.SIGNAL_OPTIMIZER_INTENT]
+    assert len(intent_calls) == 1, (
+        f"Expected exactly ONE SIGNAL_OPTIMIZER_INTENT subscription, "
+        f"got {len(intent_calls)}: {intent_calls}"
+    )
 
 
 @pytest.mark.asyncio
-async def test_energy_double_subscribe_guard():
+async def test_energy_double_subscribe_guard(monkeypatch):
+    import custom_components.universal_room_automation.domain_coordinators.energy as energy_mod
+    connect, _send, calls, _listeners = _make_counting_dispatcher()
+    monkeypatch.setattr(energy_mod, "async_dispatcher_connect", connect)
     coord = _make_energy_coord()
-    sentinel = object()
-    coord._optimizer_intent_unsub = sentinel
-    assert coord._optimizer_intent_unsub is sentinel
+    _drive_subscribe_block(coord, energy_mod, "SIGNAL_OPTIMIZER_INTENT")
+    _drive_subscribe_block(coord, energy_mod, "SIGNAL_OPTIMIZER_INTENT")
+    intent_calls = [
+        c for c in calls if c[0] == energy_mod.SIGNAL_OPTIMIZER_INTENT
+    ]
+    assert len(intent_calls) == 1, (
+        f"Expected exactly ONE SIGNAL_OPTIMIZER_INTENT subscription, "
+        f"got {len(intent_calls)}: {intent_calls}"
+    )
 
 
 @pytest.mark.asyncio
-async def test_presence_double_subscribe_guard():
+async def test_presence_double_subscribe_guard(monkeypatch):
+    import custom_components.universal_room_automation.domain_coordinators.presence as presence_mod
+    connect, _send, calls, _listeners = _make_counting_dispatcher()
+    monkeypatch.setattr(presence_mod, "async_dispatcher_connect", connect)
     coord = _make_presence_coord()
-    sentinel = object()
-    coord._optimizer_intent_unsub = sentinel
-    assert coord._optimizer_intent_unsub is sentinel
+    _drive_subscribe_block(coord, presence_mod, "SIGNAL_OPTIMIZER_INTENT")
+    _drive_subscribe_block(coord, presence_mod, "SIGNAL_OPTIMIZER_INTENT")
+    intent_calls = [
+        c for c in calls if c[0] == presence_mod.SIGNAL_OPTIMIZER_INTENT
+    ]
+    assert len(intent_calls) == 1, (
+        f"Expected exactly ONE SIGNAL_OPTIMIZER_INTENT subscription, "
+        f"got {len(intent_calls)}: {intent_calls}"
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -688,3 +764,701 @@ async def test_l1_shadow_intents_are_shadow_only():
         assert payload["veto_window_s"] == 0, (
             f"L1 dispatched intent with non-zero veto window: {payload}"
         )
+
+
+# ---------------------------------------------------------------------------
+# C-C4 fix-up: L1 gate exercised via the production level-gate path. The
+# previous "shadow_only" test echoed its own input (caller passed shadow,
+# assertion read shadow). This test drives the production
+# ``_apply_action`` matrix with a configured L1 finding and asserts that
+# the EMITTED intent (captured at the dispatcher) carries the right
+# effective_level — derived by the coordinator's
+# ``_resolve_effective_level``, not the test.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_l1_gate_emits_shadow_via_production_resolver():
+    import custom_components.universal_room_automation.domain_coordinators.optimization as opt_mod
+    from custom_components.universal_room_automation.domain_coordinators.optimization import (
+        OptimizationCoordinator,
+        OptimizationFinding,
+    )
+    from custom_components.universal_room_automation.domain_coordinators.optimization import (
+        OptimizationDimension,
+    )
+
+    captured = []
+
+    def _capture(_hass, _signal, payload=None):
+        captured.append(payload)
+
+    hass = MagicMock()
+    hass.data = {"universal_room_automation": {}}
+    # Coordinator's _read_cm_config returns empty by default — no entries.
+    hass.config_entries.async_entries = lambda *_a, **_k: []
+
+    monkey_orig = opt_mod.async_dispatcher_send
+    opt_mod.async_dispatcher_send = _capture
+    try:
+        coord = OptimizationCoordinator(hass=hass)
+        finding = OptimizationFinding(
+            timestamp="2026-06-10T17:00:00+00:00",
+            level="room",
+            target_id="test_room",
+            dimension=OptimizationDimension.COMFORT,
+            severity="medium",
+            confidence=0.95,
+            score=0.5,
+            description="L1 production-resolver test",
+        )
+        action = {
+            "service": "light.turn_on",
+            "service_data": {},
+            "target_entity": "light.kitchen",
+            "action_class": "reversible_device",
+        }
+        outcome = await coord._apply_action(finding, action)
+    finally:
+        opt_mod.async_dispatcher_send = monkey_orig
+
+    # The coordinator's PRODUCTION ``_resolve_effective_level`` chose
+    # "shadow" (default), so the emitted intent payload must carry
+    # effective_level=shadow — not because the test asked for it, but
+    # because the gate computed it.
+    intent_payloads = [
+        p for p in captured
+        if isinstance(p, dict) and p.get("action_id") == finding.applied_action_id
+    ]
+    assert intent_payloads, (
+        f"Expected one intent payload emitted via production gate, "
+        f"captured={captured}"
+    )
+    payload = intent_payloads[0]
+    assert payload["effective_level"] == "shadow", (
+        f"Production gate at default rung must emit shadow level, got "
+        f"{payload['effective_level']}"
+    )
+    assert payload["veto_window_s"] == 0
+    assert outcome == "shadow_dry_run", (
+        f"L1 outcome must be 'shadow_dry_run' (production vocab, observed "
+        f"live on the v5.3.3 findings sensor), got {outcome}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# B-H1 fix-up: L1 inertness exercised through the REAL sibling handlers
+# wired to a faithful dispatcher. The optimizer fires a shadow intent
+# through the production dispatch site; sibling handlers receive it but
+# MUST NOT emit a veto signal AND MUST NOT emit a handler INFO log line.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_l1_inertness_real_handlers_emit_no_veto(monkeypatch, caplog):
+    import logging
+    import custom_components.universal_room_automation.domain_coordinators.optimization as opt_mod
+    import custom_components.universal_room_automation.domain_coordinators.energy as energy_mod
+    import custom_components.universal_room_automation.domain_coordinators.presence as presence_mod
+    import custom_components.universal_room_automation.domain_coordinators.security as security_mod
+
+    # Faithful in-process dispatcher: connect adds to listener list;
+    # send synchronously invokes every callback registered on the signal.
+    listeners: dict = {}
+
+    def _connect(_hass, signal, cb):
+        listeners.setdefault(signal, []).append(cb)
+
+        def _unsub():
+            try:
+                listeners[signal].remove(cb)
+            except (ValueError, KeyError):
+                pass
+        return _unsub
+
+    def _send(_hass, signal, payload=None):
+        for cb in list(listeners.get(signal, [])):
+            cb(payload)
+
+    for mod in (opt_mod, energy_mod, presence_mod, security_mod):
+        monkeypatch.setattr(mod, "async_dispatcher_send", _send)
+        monkeypatch.setattr(mod, "async_dispatcher_connect", _connect)
+
+    energy_coord = _make_energy_coord()
+    presence_coord = _make_presence_coord()
+    security_coord = _make_security_coord()
+
+    # Wire siblings into the real dispatcher.
+    _drive_subscribe_block(
+        energy_coord, energy_mod, "SIGNAL_OPTIMIZER_INTENT",
+    )
+    _drive_subscribe_block(
+        presence_coord, presence_mod, "SIGNAL_OPTIMIZER_INTENT",
+    )
+    _drive_subscribe_block(
+        security_coord, security_mod, "SIGNAL_OPTIMIZER_INTENT",
+    )
+
+    # Track veto traffic through the faithful dispatcher.
+    veto_payloads = []
+
+    def _veto_recorder(payload):
+        veto_payloads.append(payload)
+
+    _connect(
+        None, opt_mod.SIGNAL_OPTIMIZER_INTENT_VETO, _veto_recorder,
+    )
+
+    # Fire a shadow intent — the L1 production path.
+    hass = MagicMock()
+    hass.data = {"universal_room_automation": {}}
+    broker = opt_mod.OptimizerIntentBroker(hass)
+
+    # Capture handler-level INFO+ records from the three sibling modules.
+    caplog.clear()
+    target_loggers = (
+        "custom_components.universal_room_automation.domain_coordinators.energy",
+        "custom_components.universal_room_automation.domain_coordinators.presence",
+        "custom_components.universal_room_automation.domain_coordinators.security",
+    )
+    with caplog.at_level(logging.INFO):
+        ok = broker.fire_intent(
+            action_id="l1inert1",
+            target_entity="switch.garage_a",  # would normally trigger Energy veto
+            service="switch.turn_off",
+            service_data={},
+            source_dimension="energy",
+            veto_window_s=0,
+            action_class="reversible_device",
+            effective_level="shadow",
+        )
+
+    assert ok is True
+    assert veto_payloads == [], (
+        f"L1 (shadow) intent must produce ZERO veto traffic, got: "
+        f"{veto_payloads}"
+    )
+    # And no INFO-level handler veto log line should appear.
+    sibling_info = [
+        r for r in caplog.records
+        if r.levelno >= logging.INFO and r.name in target_loggers
+        and "vetoed by" in r.getMessage()
+    ]
+    assert sibling_info == [], (
+        f"L1 sibling handlers must not emit INFO veto log lines, got: "
+        f"{[r.getMessage() for r in sibling_info]}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# CRITICAL-1 / A-C1 / C-C1 fix-up: end-to-end veto loop. The optimizer's
+# _apply_action fires an intent through the REAL broker; a real sibling
+# handler vetoes it; the action is BLOCKED and the outcome is recorded.
+# No mocks stand in for the broker.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_apply_action_blocked_by_real_sibling_veto(monkeypatch):
+    import custom_components.universal_room_automation.domain_coordinators.optimization as opt_mod
+    import custom_components.universal_room_automation.domain_coordinators.security as security_mod
+    from custom_components.universal_room_automation.domain_coordinators.optimization import (
+        OptimizationCoordinator,
+        OptimizationFinding,
+    )
+    from custom_components.universal_room_automation.domain_coordinators.optimization import (
+        OptimizationDimension,
+    )
+    from custom_components.universal_room_automation.const import (
+        CONF_OPTIMIZER_AUTONOMY_LEVEL,
+        CONF_ENTRY_TYPE,
+        ENTRY_TYPE_COORDINATOR_MANAGER,
+        OPTIMIZER_LEVEL_REVERSIBLE_DEVICE,
+    )
+
+    # Faithful in-process dispatcher (synchronous fan-out).
+    listeners: dict = {}
+
+    def _connect(_hass, signal, cb):
+        listeners.setdefault(signal, []).append(cb)
+
+        def _unsub():
+            try:
+                listeners[signal].remove(cb)
+            except (ValueError, KeyError):
+                pass
+        return _unsub
+
+    def _send(_hass, signal, payload=None):
+        for cb in list(listeners.get(signal, [])):
+            cb(payload)
+
+    monkeypatch.setattr(opt_mod, "async_dispatcher_send", _send)
+    monkeypatch.setattr(opt_mod, "async_dispatcher_connect", _connect)
+    monkeypatch.setattr(security_mod, "async_dispatcher_send", _send)
+    monkeypatch.setattr(security_mod, "async_dispatcher_connect", _connect)
+
+    # Build a CM entry that puts the optimizer at L2 (reversible_device).
+    cm_entry = MagicMock()
+    cm_entry.data = {CONF_ENTRY_TYPE: ENTRY_TYPE_COORDINATOR_MANAGER}
+    cm_entry.options = {
+        CONF_OPTIMIZER_AUTONOMY_LEVEL: OPTIMIZER_LEVEL_REVERSIBLE_DEVICE,
+    }
+
+    hass = MagicMock()
+    hass.data = {"universal_room_automation": {}}
+    hass.config_entries.async_entries = lambda *_a, **_k: [cm_entry]
+
+    # Real services.async_call must never be reached on a vetoed action;
+    # raise if invoked.
+    calls = []
+
+    async def _async_call(domain, service, data, blocking=False):
+        calls.append((domain, service, data, blocking))
+
+    hass.services.async_call = _async_call
+
+    # Build the REAL broker (no mock substitute) — wire it via the
+    # faithful dispatcher.
+    coord = OptimizationCoordinator(hass=hass)
+    coord.broker.async_start()
+
+    # Wire a real Security coordinator that will VETO a lock target.
+    security_coord = _make_security_coord()
+    security_coord.hass = hass
+    _drive_subscribe_block(
+        security_coord, security_mod, "SIGNAL_OPTIMIZER_INTENT",
+    )
+
+    # lock.* / alarm_control_panel.* are outside the L2 domain allowlist
+    # (they'd be domain-blocked before any veto). To exercise the VETO loop
+    # itself we use a target in an ALLOWED domain (light) that Security
+    # still vetoes via its observation_mode blanket.
+    security_coord.observation_mode = True
+    action3 = {
+        "service": "light.turn_on",
+        "service_data": {},
+        "target_entity": "light.porch",
+        "action_class": "reversible_device",
+    }
+    finding3 = OptimizationFinding(
+        timestamp="2026-06-10T17:00:00+00:00",
+        level="house",
+        target_id="porch",
+        dimension=OptimizationDimension.COMFORT,
+        severity="medium",
+        confidence=0.99,
+        score=0.5,
+        description="L2 light dispatch must be VETOED end-to-end",
+    )
+    outcome = await coord._apply_action(finding3, action3)
+
+    assert outcome == "vetoed", (
+        f"Expected 'vetoed' from real sibling end-to-end, got {outcome!r}"
+    )
+    assert finding3.applied_outcome == "vetoed"
+    # The service call MUST NOT have run.
+    assert calls == [], f"Vetoed action must not dispatch, got: {calls}"
+
+
+# ---------------------------------------------------------------------------
+# C-C5 fix-up: payload-shape veto tests for Energy and Presence
+# handlers (Security was already covered).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_energy_intent_callback_fires_veto_signal(monkeypatch):
+    coord = _make_energy_coord(tou_period="off_peak")
+    fired = []
+
+    def _capture_send(_hass, signal, payload=None):
+        fired.append((signal, payload))
+
+    import custom_components.universal_room_automation.domain_coordinators.energy as energy_mod
+    monkeypatch.setattr(energy_mod, "async_dispatcher_send", _capture_send)
+
+    coord._on_optimizer_intent({
+        "action_id": "ev1",
+        "target_entity": "switch.garage_a",
+        "service": "switch.turn_off",
+        "service_data": {},
+        # Must be NON-L1 so the L1-inert gate doesn't suppress the veto.
+        "effective_level": "reversible_device",
+    })
+    assert fired, "Expected SIGNAL_OPTIMIZER_INTENT_VETO to fire"
+    signal, payload = fired[0]
+    assert signal == energy_mod.SIGNAL_OPTIMIZER_INTENT_VETO
+    assert payload["action_id"] == "ev1"
+    assert payload["vetoed_by"] == "energy"
+    assert payload["reason"] == "evse_offpeak_charge_window"
+
+
+@pytest.mark.asyncio
+async def test_presence_intent_callback_fires_veto_signal(monkeypatch):
+    coord = _make_presence_coord(rooms=[(
+        "master_bedroom",
+        ["binary_sensor.master_bedroom_mmwave"],
+        [],
+        [],
+    )])
+    fired = []
+
+    def _capture_send(_hass, signal, payload=None):
+        fired.append((signal, payload))
+
+    import custom_components.universal_room_automation.domain_coordinators.presence as presence_mod
+    monkeypatch.setattr(presence_mod, "async_dispatcher_send", _capture_send)
+
+    coord._on_optimizer_intent({
+        "action_id": "pv1",
+        "target_entity": "binary_sensor.master_bedroom_mmwave",
+        "service": "homeassistant.turn_off",
+        "service_data": {},
+        "effective_level": "reversible_device",
+    })
+    assert fired, "Expected SIGNAL_OPTIMIZER_INTENT_VETO to fire"
+    signal, payload = fired[0]
+    assert signal == presence_mod.SIGNAL_OPTIMIZER_INTENT_VETO
+    assert payload["action_id"] == "pv1"
+    assert payload["vetoed_by"] == "presence"
+    assert payload["reason"] == "presence_input_sensor"
+
+
+# ---------------------------------------------------------------------------
+# C-C5 sibling→broker wiring test through a real dispatcher: the sibling
+# fires its veto and the BROKER observes it (the round-trip handshake).
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_sibling_veto_round_trips_to_broker(monkeypatch):
+    import custom_components.universal_room_automation.domain_coordinators.optimization as opt_mod
+    import custom_components.universal_room_automation.domain_coordinators.security as security_mod
+
+    listeners: dict = {}
+
+    def _connect(_hass, signal, cb):
+        listeners.setdefault(signal, []).append(cb)
+
+        def _unsub():
+            try:
+                listeners[signal].remove(cb)
+            except (ValueError, KeyError):
+                pass
+        return _unsub
+
+    def _send(_hass, signal, payload=None):
+        for cb in list(listeners.get(signal, [])):
+            cb(payload)
+
+    monkeypatch.setattr(opt_mod, "async_dispatcher_send", _send)
+    monkeypatch.setattr(opt_mod, "async_dispatcher_connect", _connect)
+    monkeypatch.setattr(security_mod, "async_dispatcher_send", _send)
+    monkeypatch.setattr(security_mod, "async_dispatcher_connect", _connect)
+
+    hass = MagicMock()
+    hass.data = {"universal_room_automation": {}}
+    broker = opt_mod.OptimizerIntentBroker(hass)
+    broker.async_start()
+
+    security_coord = _make_security_coord()
+    security_coord.hass = hass
+    _drive_subscribe_block(
+        security_coord, security_mod, "SIGNAL_OPTIMIZER_INTENT",
+    )
+
+    broker.fire_intent(
+        action_id="rt1",
+        target_entity="lock.front_door",
+        service="lock.unlock",
+        service_data={},
+        source_dimension="safety",
+        veto_window_s=0,
+        # Non-shadow so the L1-inert gate doesn't suppress the sibling.
+        effective_level="reversible_device",
+        action_class="reversible_device",
+    )
+
+    vetoed_by = await broker.await_veto("rt1", 0)
+    assert vetoed_by == "security", (
+        f"Expected end-to-end veto attribution 'security', got {vetoed_by!r}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# C-C6 fix-up: first veto wins. Two siblings veto the same action_id in
+# the same event-loop turn; the first responder's attribution is kept.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_first_veto_wins_on_same_action_id():
+    from custom_components.universal_room_automation.domain_coordinators.optimization import (
+        OptimizerIntentBroker,
+    )
+    hass = MagicMock()
+    hass.data = {"universal_room_automation": {}}
+    broker = OptimizerIntentBroker(hass)
+    broker._on_veto({"action_id": "x1", "vetoed_by": "presence"})
+    broker._on_veto({"action_id": "x1", "vetoed_by": "energy"})
+    vetoed_by = await broker.await_veto("x1", 0)
+    assert vetoed_by == "presence"
+
+
+# ---------------------------------------------------------------------------
+# B-H1 fix-up: per-handler L1 inertness — direct dispatch into the
+# handler with effective_level=shadow must produce NO veto signal.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_energy_handler_inert_at_l1_shadow(monkeypatch):
+    coord = _make_energy_coord(tou_period="off_peak")
+    fired = []
+    import custom_components.universal_room_automation.domain_coordinators.energy as energy_mod
+    monkeypatch.setattr(
+        energy_mod, "async_dispatcher_send",
+        lambda *a, **k: fired.append(a),
+    )
+    coord._on_optimizer_intent({
+        "action_id": "el1",
+        "target_entity": "switch.garage_a",
+        "service": "switch.turn_off",
+        "service_data": {},
+        "effective_level": "shadow",
+    })
+    assert fired == [], (
+        f"Energy handler must NOT veto at L1 shadow, got: {fired}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_presence_handler_inert_at_l1_shadow(monkeypatch):
+    coord = _make_presence_coord(rooms=[(
+        "kitchen",
+        ["binary_sensor.kitchen_mmwave"],
+        [],
+        [],
+    )])
+    fired = []
+    import custom_components.universal_room_automation.domain_coordinators.presence as presence_mod
+    monkeypatch.setattr(
+        presence_mod, "async_dispatcher_send",
+        lambda *a, **k: fired.append(a),
+    )
+    coord._on_optimizer_intent({
+        "action_id": "pl1",
+        "target_entity": "binary_sensor.kitchen_mmwave",
+        "service": "homeassistant.turn_off",
+        "service_data": {},
+        "effective_level": "shadow",
+    })
+    assert fired == [], (
+        f"Presence handler must NOT veto at L1 shadow, got: {fired}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_security_handler_inert_at_l1_shadow(monkeypatch):
+    coord = _make_security_coord()
+    fired = []
+    import custom_components.universal_room_automation.domain_coordinators.security as security_mod
+    monkeypatch.setattr(
+        security_mod, "async_dispatcher_send",
+        lambda *a, **k: fired.append(a),
+    )
+    coord._on_optimizer_intent({
+        "action_id": "sl1",
+        "target_entity": "lock.front_door",
+        "service": "lock.unlock",
+        "service_data": {},
+        "effective_level": "shadow",
+    })
+    assert fired == [], (
+        f"Security handler must NOT veto at L1 shadow, got: {fired}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# HIGH-4 / D7(a) coverage broadening tests.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_energy_honor_vetoes_evse_breaker_offpeak():
+    """EVSE *breaker* (not just switch) is vetoed during off-peak."""
+    coord = _make_energy_coord(tou_period="off_peak")
+    intent = {
+        "action_id": "br1",
+        "target_entity": "switch.span_panel_car_charger_breaker",
+        "service": "switch.turn_off",
+        "service_data": {},
+        "effective_level": "reversible_device",
+    }
+    assert coord.honor_optimizer_intent(intent) is False
+    assert coord._last_veto_reason == "evse_offpeak_charge_window"
+
+
+@pytest.mark.asyncio
+async def test_energy_honor_vetoes_evse_during_load_shed_any_period():
+    """EVSE veto fires while load-shedding is active regardless of TOU period."""
+    coord = _make_energy_coord(tou_period="mid_peak")
+    # Simulate active load-shed bookkeeping.
+    coord._smart_plugs._paused_by_us.add("switch.dummy_plug")
+    intent = {
+        "action_id": "ls1",
+        "target_entity": "switch.garage_a",
+        "service": "switch.turn_on",
+        "service_data": {},
+        "effective_level": "reversible_device",
+    }
+    assert coord.honor_optimizer_intent(intent) is False
+    assert coord._last_veto_reason == "evse_load_shed_active"
+
+
+@pytest.mark.asyncio
+async def test_energy_honor_vetoes_smart_plug_under_load_shed():
+    """Plug currently paused by load-shed is vetoed for any optimizer write."""
+    coord = _make_energy_coord(tou_period="peak")
+    coord._smart_plugs._paused_by_us.add("switch.smartplug_kitchen")
+    intent = {
+        "action_id": "sp1",
+        "target_entity": "switch.smartplug_kitchen",
+        "service": "switch.turn_on",
+        "service_data": {},
+        "effective_level": "reversible_device",
+    }
+    assert coord.honor_optimizer_intent(intent) is False
+    assert coord._last_veto_reason == "smart_plug_under_load_shed"
+
+
+# ---------------------------------------------------------------------------
+# MEDIUM-5: TOU period unknown / exception → veto EVSE-surface actions.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_energy_honor_fail_closed_when_tou_period_none(caplog):
+    import logging
+    coord = _make_energy_coord(tou_period=None)
+    intent = {
+        "action_id": "fc1",
+        "target_entity": "switch.garage_a",
+        "service": "switch.turn_off",
+        "service_data": {},
+        "effective_level": "reversible_device",
+    }
+    with caplog.at_level(logging.WARNING):
+        assert coord.honor_optimizer_intent(intent) is False
+    assert coord._last_veto_reason == "evse_tou_period_unknown"
+    # Rate-limited WARN should fire on first occurrence.
+    assert any(
+        "degraded input" in r.getMessage() and "tou_period_unknown" in r.getMessage()
+        for r in caplog.records
+    )
+
+
+@pytest.mark.asyncio
+async def test_energy_honor_fail_closed_when_tou_raises():
+    coord = _make_energy_coord(tou_period="off_peak")
+
+    class _BoomTOU:
+        def get_current_period(self):
+            raise RuntimeError("synthetic outage")
+
+        def get_window_seconds_until_next_off_peak(self):
+            return 0
+
+    coord._tou = _BoomTOU()
+    intent = {
+        "action_id": "fc2",
+        "target_entity": "switch.garage_a",
+        "service": "switch.turn_off",
+        "service_data": {},
+        "effective_level": "reversible_device",
+    }
+    assert coord.honor_optimizer_intent(intent) is False
+    assert coord._last_veto_reason == "evse_tou_period_unknown"
+
+
+# ---------------------------------------------------------------------------
+# MEDIUM-6 / A-M2: battery writeables resolved live from entry options.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_energy_battery_writeables_resolved_live_from_entry_options():
+    from custom_components.universal_room_automation.const import (
+        CONF_ENTRY_TYPE,
+        ENTRY_TYPE_COORDINATOR_MANAGER,
+    )
+    from custom_components.universal_room_automation.domain_coordinators.energy_const import (
+        CONF_ENERGY_STORAGE_MODE_ENTITY,
+    )
+    coord = _make_energy_coord(tou_period="peak")
+    # Initially no CM entry → battery writeables empty; benign intent ACKs.
+    intent_ok = {
+        "action_id": "bw1",
+        "target_entity": "select.enphase_storage_mode",
+        "service": "select.select_option",
+        "service_data": {"option": "self-consumption"},
+        "effective_level": "propose_config",
+    }
+    assert coord.honor_optimizer_intent(intent_ok) is True
+
+    # Now add CM entry with the live battery-strategy entity AT options
+    # (not entity_config snapshot) — honor MUST veto.
+    cm_entry = MagicMock()
+    cm_entry.data = {CONF_ENTRY_TYPE: ENTRY_TYPE_COORDINATOR_MANAGER}
+    cm_entry.options = {
+        CONF_ENERGY_STORAGE_MODE_ENTITY: "select.enphase_storage_mode",
+    }
+    coord.hass.config_entries.async_entries = (
+        lambda *_a, **_k: [cm_entry]
+    )
+    assert coord.honor_optimizer_intent(intent_ok) is False
+    assert coord._last_veto_reason == "battery_strategy_write"
+
+
+# ---------------------------------------------------------------------------
+# MEDIUM-7 / B-M1: teardown resets _optimizer_intent_unsub to None so
+# re-setup re-subscribes cleanly.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_security_teardown_resets_optimizer_intent_unsub():
+    coord = _make_security_coord()
+    coord._optimizer_intent_unsub = object()
+    await coord.async_teardown()
+    assert coord._optimizer_intent_unsub is None
+
+
+@pytest.mark.asyncio
+async def test_energy_teardown_resets_optimizer_intent_unsub():
+    coord = _make_energy_coord()
+    coord._optimizer_intent_unsub = object()
+    # Stub out everything async_teardown calls that would otherwise hit
+    # uninitialized state (peak_import_history is iterable empty).
+    coord._save_peak_import_history = (
+        lambda: __import__("asyncio").sleep(0)
+    )
+    coord._save_evse_state = lambda: __import__("asyncio").sleep(0)
+    coord._save_circuit_state = lambda: __import__("asyncio").sleep(0)
+    coord._save_energy_baselines = lambda: __import__("asyncio").sleep(0)
+    coord._save_envoy_cache = lambda: __import__("asyncio").sleep(0)
+    coord._save_midnight_snapshot = lambda: __import__("asyncio").sleep(0)
+    coord._save_load_shedding_level = lambda: __import__("asyncio").sleep(0)
+    await coord.async_teardown()
+    assert coord._optimizer_intent_unsub is None
+
+
+@pytest.mark.asyncio
+async def test_presence_teardown_resets_optimizer_intent_unsub():
+    coord = _make_presence_coord()
+    coord._optimizer_intent_unsub = object()
+    # Disarm substrate so teardown can run cleanly.
+    coord._substrate = None
+    await coord.async_teardown()
+    assert coord._optimizer_intent_unsub is None

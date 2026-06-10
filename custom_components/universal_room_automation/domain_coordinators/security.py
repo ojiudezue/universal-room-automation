@@ -709,6 +709,11 @@ class SecurityCoordinator(BaseCoordinator):
     async def async_teardown(self) -> None:
         """Tear down the Security Coordinator."""
         self._cancel_listeners()
+        # B-M1 / C-C7 fix-up: reset the optimizer-intent unsub handle so
+        # re-setup after teardown re-subscribes cleanly. ``_cancel_listeners``
+        # already fired the dispatcher unsub (handle was on
+        # ``self._unsub_listeners``).
+        self._optimizer_intent_unsub = None
         if self.anomaly_detector is not None:
             try:
                 await self.anomaly_detector.save_baselines()
@@ -1366,6 +1371,18 @@ class SecurityCoordinator(BaseCoordinator):
         """
         try:
             if not isinstance(intent, dict):
+                return
+            # B-H1 fix-up: L1 inertness — see Energy._on_optimizer_intent
+            # for the full rationale.
+            eff = intent.get("effective_level")
+            if eff in ("advisory", "shadow"):
+                _LOGGER.debug(
+                    "Security: skipping intent honor at L1 "
+                    "effective_level=%s (action_id=%s target=%s)",
+                    eff,
+                    intent.get("action_id"),
+                    intent.get("target_entity"),
+                )
                 return
             if self.honor_optimizer_intent(intent):
                 return

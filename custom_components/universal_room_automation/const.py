@@ -1575,10 +1575,17 @@ OPTIMIZER_QUIET_HOURS_SOURCES: Final = [
 #
 # OC Phase 5 Pillar A — operator-staged stage-1 list. Per
 # ``docs/planning/PLANNING_OC_phase5_handshake_and_admin_surface.md`` D8,
-# this allowlist is UNCHANGED in Pillar A; broadening is deferred to the
-# per-sibling ``honor_optimizer_intent`` opt-in pathway. The stage-1 list
-# stays {light, switch, fan, cover, climate} so reviewers can verify no
-# covert domain expansion shipped with the handshake work.
+# this allowlist is UNCHANGED in Pillar A; the stage-1 list stays
+# {light, switch, fan, cover, climate}. The per-sibling
+# ``honor_optimizer_intent`` opt-in path is a SEPARATE coverage axis —
+# it vetoes specific targets WITHIN allowed domains (EVSE surfaces,
+# load-shed-controlled plugs, presence inputs, locks, alarm panels).
+# It does NOT and CANNOT broaden the allowlist itself; nothing here
+# changes which domains are reachable. Reviewer-fix retraction
+# (2026-06-10): an earlier draft of this comment implied per-sibling
+# honor "covers" the allowlist gap. That claim is withdrawn — the two
+# surfaces are orthogonal and any future allowlist change must be its
+# own cycle with its own review.
 OPTIMIZER_ALLOWED_DOMAINS_DEVICE: Final = frozenset(
     {"light", "switch", "fan", "cover", "climate"}
 )
