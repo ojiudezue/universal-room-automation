@@ -18,6 +18,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import device_registry as dr
+from homeassistant.helpers.event import async_call_later
 
 from .const import (
     DOMAIN,
@@ -1547,11 +1548,28 @@ class _OptimizerCMButtonBase(ButtonEntity):
         self._attr_device_info = _optimizer_device_info_button()
 
     async def async_added_to_hass(self) -> None:
-        """Subscribe to CM entry updates for push-based availability."""
+        """Subscribe to CM entry updates for push-based availability.
+
+        Boot-staleness corner (v5.3.5 live finding): availability also
+        depends on hass.data state (optimizer registered — matters for
+        Run Cycle Now), which is NOT an options change — at boot the button
+        can be added before the optimizer registers and then never
+        re-evaluate. Two bounded one-shot refreshes (30s/180s) cover the
+        coordinator-registration window; both cancelled with the entity.
+        """
         await super().async_added_to_hass()
         self.async_on_remove(
             self._entry.add_update_listener(self._async_entry_updated)
         )
+        for delay in (30, 180):
+            self.async_on_remove(
+                async_call_later(self.hass, delay, self._delayed_refresh)
+            )
+
+    @callback
+    def _delayed_refresh(self, _now) -> None:
+        """One-shot post-boot availability re-evaluation."""
+        self.async_write_ha_state()
 
     async def _async_entry_updated(self, _hass, _entry) -> None:
         """CM options changed — re-evaluate availability immediately."""
