@@ -46,7 +46,7 @@ dwell, eager boot read, re-setup leak).
 | Boot-settle gating | PASS | `boot_settle_done=true`, released via `real_input`, presence suppressed 0 / HVAC 1; prediction appeared at settle release, not cold boot |
 | No write-queue saturation | PASS | zero `did not process within` lines this boot |
 | Optimizer unaffected | PASS | shadow/initializing at T+5min, no flood |
-| ETA sanity day-after check | PENDING | evening→sleep ETA vs ~22:00 household sleep onset — check 2026-06-10 evening (non-blocking) |
+| ETA sanity day-after check | **PASS** (validated 2026-06-11 morning) | recorder history: at 21:00 CDT (house→home_night) the prediction flipped to **sleep** ~60 min before the real 22:00:34 sleep onset; at 22:00 (house→sleep) it flipped to **home_day**, matching the 06:00 wake (waking→home_day vocab-collapse working as designed); honest transient `unknown` during the thin waking cell. Full evening→morning cycle predicted correctly. |
 
 **Boot-only transients seen and dismissed:** the recurring boot-storm websocket
 client kicks (4096 pending messages) at 02:58:04–05 UTC, stopped after the
