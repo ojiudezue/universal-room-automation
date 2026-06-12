@@ -179,6 +179,12 @@ class HVACCoordinator(BaseCoordinator):
 
         # House state
         self._house_state: str = ""
+        # Fan-trust review A-L1 2026-06-11: per (zone_id, house_state)
+        # one-shot INFO de-noise for night-trust suppression. Without
+        # this the trust block fires ~12/hr/zone all night long. Cleared
+        # whenever the house_state changes.
+        self._night_trust_logged: set[tuple[str, str]] = set()
+        self._night_trust_logged_state: str = ""
 
         # Decision cycle tracking
         self._last_evaluate: str = ""
@@ -1176,11 +1182,24 @@ class HVACCoordinator(BaseCoordinator):
                     )
                     home_persons = []
                 if home_persons:
-                    _LOGGER.info(
-                        "HVAC: Suppressing %s preset flip -> away during %s "
-                        "(zone_persons home: %s)",
-                        zone.zone_name, self._house_state, home_persons,
-                    )
+                    # A-L1 de-noise: clear log-once cache when state changed.
+                    if self._night_trust_logged_state != self._house_state:
+                        self._night_trust_logged.clear()
+                        self._night_trust_logged_state = self._house_state
+                    log_key = (zone_id, self._house_state)
+                    if log_key in self._night_trust_logged:
+                        _LOGGER.debug(
+                            "HVAC: Suppressing %s preset flip -> away during %s "
+                            "(zone_persons home: %s)",
+                            zone.zone_name, self._house_state, home_persons,
+                        )
+                    else:
+                        self._night_trust_logged.add(log_key)
+                        _LOGGER.info(
+                            "HVAC: Suppressing %s preset flip -> away during %s "
+                            "(zone_persons home: %s) [subsequent suppressed]",
+                            zone.zone_name, self._house_state, home_persons,
+                        )
                     continue
 
             # --- Determine if preset change is needed ---

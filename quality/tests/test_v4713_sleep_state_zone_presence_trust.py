@@ -322,15 +322,25 @@ class TestD2PresetGuardSourceShape:
         assert "Suppressing" in hvac_src and "during sleep" in hvac_src
 
     def test_guard_uses_continue_to_skip_write(self, hvac_src: str):
-        """Guard must continue the loop so set_preset_mode is never dispatched."""
-        # Coarse: the v4.7.13 block contains a `continue` after the home_persons branch.
-        # Window widened 2000→4000 by the fan-trust cycle: the guard grew
-        # (FAN_TRUST_STATES + bidirectionality comments) pushing the
-        # `continue` past the old window.
-        idx = hvac_src.find("v4.7.13")
-        assert idx >= 0
-        window = hvac_src[idx : idx + 4000]
-        assert "continue" in window
+        """Guard must continue the loop so set_preset_mode is never dispatched.
+
+        Re-anchor 2026-06-11 fix-up (decision 5(d)): anchor on the
+        FAN_TRUST_STATES trust predicate then take a SMALL trailing
+        window — so a future guard removal fails the test again. The
+        prior 4000-char window was wide enough to swallow any nearby
+        `continue` and would not catch the regression.
+        """
+        anchor = "effective_preset == \"away\" and self._house_state in FAN_TRUST_STATES"
+        idx = hvac_src.find(anchor)
+        assert idx >= 0, "Trust predicate anchor missing"
+        # Small window: just the guard body (~600 chars covers the
+        # try/except + `if home_persons:` log + continue; pre-fix-up
+        # this region's continue is ~22 lines down).
+        window = hvac_src[idx : idx + 2400]
+        assert "continue" in window, (
+            "Trust predicate must continue the loop within its own body; "
+            "guard removal regression."
+        )
 
 
 # ============================================================================
@@ -883,7 +893,10 @@ class TestMedium2OneShotSleepFallbackWarn:
             f"Expected one WARN per distinct zone (2 total); got "
             f"{len(warnings_total)}: {warnings_total}"
         )
-        # Fan-trust cycle re-contract: (zone, state) tuple keys.
+        # The (zone_id, scope) tuple key pre-existed on develop (added
+        # in v4.7.15 D2 at aggregation.py:_warn_sleep_fallback_unavailable
+        # — see git blame). The fan-trust cycle re-contracted this stale
+        # legacy test that was still asserting on a bare zone-id string.
         assert warned_set == {("zone_alpha", "sleep"), ("zone_beta", "sleep")}
 
     def test_warn_does_not_fire_when_not_in_sleep_state(self):

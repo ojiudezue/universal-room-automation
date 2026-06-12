@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import importlib.util
 import os
+import sys
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from unittest.mock import MagicMock
@@ -29,7 +30,73 @@ import pytest
 # (loads const + domain_coordinators submodules from disk into sys.modules).
 import _provenance_harness  # noqa: F401
 
-from custom_components.universal_room_automation.const import (
+
+# ============================================================================
+# Pollution-defense bootstrap (order-immune real-module install)
+# ----------------------------------------------------------------------------
+# Earlier sibling tests (notably test_envoy_auto_derive.py) install
+# MagicMock stubs at `custom_components.universal_room_automation.const`
+# and `...domain_coordinators.hvac_const` via setdefault. Doing
+# `from custom_components.universal_room_automation.const import
+# FAN_SLEEP_NORMAL` against a MagicMock-stubbed module returns MagicMock
+# attributes, not strings — silently poisoning every subsequent
+# behavioral assertion. Force-upgrade BEFORE the top-level import.
+# ============================================================================
+
+
+def _is_stub_module(mod) -> bool:
+    """Detect MagicMock stubs or types.ModuleType placeholders."""
+    from unittest.mock import MagicMock, NonCallableMagicMock
+    if isinstance(mod, (MagicMock, NonCallableMagicMock)):
+        return True
+    spec = getattr(mod, "__spec__", None)
+    file_ = getattr(mod, "__file__", None)
+    if spec is None and file_ is None:
+        return True
+    return False
+
+
+def _ensure_real_module(shared_name: str, disk_relpath: str, required_attrs: tuple):
+    """Force the shared sys.modules entry to be the real on-disk module.
+
+    Operator pollution-defense 2026-06-11: a prior `hasattr`-based gate
+    treated MagicMock stubs as real (MagicMock returns True for every
+    hasattr). Detect stubs by type + missing __file__ instead.
+    """
+    cached = sys.modules.get(shared_name)
+    is_real = (
+        cached is not None
+        and not _is_stub_module(cached)
+        and all(hasattr(cached, a) for a in required_attrs)
+    )
+    if is_real:
+        return cached
+    path = os.path.join(
+        os.path.dirname(__file__), "..", "..",
+        *disk_relpath.split("/"),
+    )
+    spec = importlib.util.spec_from_file_location(shared_name, path)
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[shared_name] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+_ensure_real_module(
+    "custom_components.universal_room_automation.const",
+    "custom_components/universal_room_automation/const.py",
+    ("CONF_FAN_SLEEP_POLICY", "DEFAULT_FAN_SLEEP_POLICY",
+     "FAN_SLEEP_OFF", "FAN_SLEEP_REDUCE", "FAN_SLEEP_NORMAL",
+     "CONF_ROOM_TYPE", "ROOM_TYPE_BEDROOM", "ROOM_TYPE_GENERIC"),
+)
+_ensure_real_module(
+    "custom_components.universal_room_automation.domain_coordinators.hvac_const",
+    "custom_components/universal_room_automation/domain_coordinators/hvac_const.py",
+    ("FAN_TRUST_STATES", "FAN_SPEED_LOW_PCT", "DEFAULT_FAN_VACANCY_HOLD"),
+)
+
+
+from custom_components.universal_room_automation.const import (  # noqa: E402
     FAN_SLEEP_NORMAL,
     FAN_SLEEP_OFF,
     FAN_SLEEP_REDUCE,
@@ -75,41 +142,8 @@ FAN_SPEED_LOW_PCT = _hvac_const.FAN_SPEED_LOW_PCT
 FAN_TRUST_STATES = _hvac_const.FAN_TRUST_STATES
 
 
-def _ensure_real_module(shared_name: str, disk_relpath: str, required_attrs: tuple):
-    """Make sure the SHARED sys.modules entry has the required real
-    symbols. If a prior test stubbed it with setdefault and the stub
-    lacks symbols this cycle added, replace it with a fresh load.
-    Avoids the 'silently mock past the truth' anti-pattern (operator
-    institutional lesson from conftest.py aiosqlite). We DO touch the
-    shared path here — but only when it's already a partial stub, and
-    only to upgrade it to the real module (never to a different mock)."""
-    import sys as _sys
-    cached = _sys.modules.get(shared_name)
-    if cached is not None and all(hasattr(cached, a) for a in required_attrs):
-        return cached
-    path = os.path.join(
-        os.path.dirname(__file__), "..", "..",
-        *disk_relpath.split("/"),
-    )
-    spec = importlib.util.spec_from_file_location(shared_name, path)
-    mod = importlib.util.module_from_spec(spec)
-    _sys.modules[shared_name] = mod
-    spec.loader.exec_module(mod)
-    return mod
-
-
-_ensure_real_module(
-    "custom_components.universal_room_automation.domain_coordinators.hvac_const",
-    "custom_components/universal_room_automation/domain_coordinators/hvac_const.py",
-    ("FAN_TRUST_STATES", "FAN_SPEED_LOW_PCT", "DEFAULT_FAN_VACANCY_HOLD"),
-)
-_ensure_real_module(
-    "custom_components.universal_room_automation.const",
-    "custom_components/universal_room_automation/const.py",
-    ("CONF_FAN_SLEEP_POLICY", "DEFAULT_FAN_SLEEP_POLICY",
-     "FAN_SLEEP_OFF", "FAN_SLEEP_REDUCE", "FAN_SLEEP_NORMAL",
-     "CONF_ROOM_TYPE", "ROOM_TYPE_BEDROOM", "ROOM_TYPE_GENERIC"),
-)
+# (Stub-detection + force-upgrade is performed at the top of this file
+# before the const import; no duplicate definitions here.)
 
 # Behavioral tests need the real FanController. The harness pre-loads
 # many siblings; if hvac_fans isn't yet loaded we'd try to load it now,
@@ -264,23 +298,57 @@ class TestD2_SleepOccupiedHoldExtends:
         assert trigger == "temperature"
         assert speed == 66
 
-    def test_bedroom_occupied_activates_fan_with_state_suffix_label(self):
+    def test_bedroom_occupied_activates_only_at_sleep(self):
+        """Operator decision 2026-06-11: ON-side ACTIVATE (off->on) stays
+        sleep-only. home_night/waking do NOT auto-activate a stopped fan
+        (people are awake and would notice). Only `sleep` activates, and
+        only when policy != off."""
         zone = _FakeZone()
         ctrl = _make_controller(zone)
-        ctrl._house_state = "home_night"
-        # Fan was OFF, no prior trigger.
+        ctrl._house_state = "sleep"
         rf = _make_room_fan(is_on=False, speed_pct=0, trigger="")
 
         should_on, trigger, speed = ctrl._evaluate_temp_fan(
-            rf,
-            room_temp=70.0,
-            setpoint_high=74.0,
-            occupied=True,
+            rf, room_temp=70.0, setpoint_high=74.0, occupied=True,
             now=datetime.now(),
         )
         assert should_on is True
-        assert trigger == "night_trust_activate:home_night"
+        assert trigger == "night_trust_activate:sleep"
         assert speed == FAN_SPEED_LOW_PCT
+
+    @pytest.mark.parametrize("state", ["home_night", "waking"])
+    def test_flank_states_do_not_auto_activate_stopped_fan(self, state):
+        """Off-fan at home_night/waking with mmWave-bedroom-occupied but
+        temp below setpoint should NOT be activated by the trust block.
+        Falls through to standard temp-driven logic (delta < 0 -> off)."""
+        zone = _FakeZone()
+        ctrl = _make_controller(zone)
+        ctrl._house_state = state
+        rf = _make_room_fan(is_on=False, speed_pct=0, trigger="")
+        should_on, trigger, _speed = ctrl._evaluate_temp_fan(
+            rf, room_temp=70.0, setpoint_high=74.0, occupied=True,
+            now=datetime.now(),
+        )
+        # No night_trust_activate; below setpoint -> off.
+        assert not (isinstance(trigger, str) and trigger.startswith("night_trust_activate"))
+        assert should_on is False
+
+    def test_policy_off_excluded_from_coordinator_activation_at_sleep(self):
+        """policy=off rooms are NEVER coordinator-activated, even at sleep
+        (fixes the pre-existing dueling-writers exposure with the
+        automation.py room-level path)."""
+        zone = _FakeZone()
+        ctrl = _make_controller(zone)
+        ctrl._house_state = "sleep"
+        rf = _make_room_fan(is_on=False, speed_pct=0, trigger="",
+                            fan_sleep_policy=FAN_SLEEP_OFF)
+        should_on, trigger, _ = ctrl._evaluate_temp_fan(
+            rf, room_temp=70.0, setpoint_high=74.0, occupied=True,
+            now=datetime.now(), live_policy=FAN_SLEEP_OFF,
+        )
+        # Falls through; temp below setpoint -> standard off path.
+        assert not (isinstance(trigger, str) and trigger.startswith("night_trust_activate"))
+        assert should_on is False
 
     def test_non_bedroom_does_not_get_night_trust(self):
         """Common-area fan in a flank state should not be held by trust."""
@@ -404,53 +472,196 @@ class TestD2_VacancyHoldPersonTrustExtends:
 
 @_skip_no_real_fans
 class TestD2_SpeedCapPolicyHonored:
-    """Operator amendment (1): speed cap honors per-room fan_sleep_policy."""
+    """Operator amendment (1): speed cap honors per-room fan_sleep_policy.
+
+    Tests drive the REAL production helper
+    `FanController._apply_night_trust_speed_cap`, not a sentinel mirror.
+    """
 
     @pytest.mark.parametrize("state", ["home_night", "sleep", "waking"])
     def test_policy_reduce_caps_at_low(self, state):
-        """Default `reduce` behavior — caps at FAN_SPEED_LOW_PCT."""
-        speed_in = 100
-        # Reproduce the production decision exactly (lines around the cap
-        # site): if should_on and state in FAN_TRUST_STATES, apply policy.
-        room_fan = _make_room_fan(fan_sleep_policy=FAN_SLEEP_REDUCE)
-        speed = speed_in
-        should_on = True
-        if should_on and state in FAN_TRUST_STATES:
-            policy = room_fan.fan_sleep_policy
-            if policy == FAN_SLEEP_REDUCE:
-                speed = min(speed, FAN_SPEED_LOW_PCT)
-        assert speed == FAN_SPEED_LOW_PCT
+        zone = _FakeZone()
+        ctrl = _make_controller(zone)
+        ctrl._house_state = state
+        rf = _make_room_fan(fan_sleep_policy=FAN_SLEEP_REDUCE)
+        assert ctrl._apply_night_trust_speed_cap(rf, 100, FAN_SLEEP_REDUCE) == FAN_SPEED_LOW_PCT
 
     @pytest.mark.parametrize("state", ["home_night", "sleep", "waking"])
     def test_policy_normal_skips_cap(self, state):
-        """policy=`normal` lets the temp-driven speed through unchanged."""
-        room_fan = _make_room_fan(fan_sleep_policy=FAN_SLEEP_NORMAL)
-        speed_in = 100
-        speed = speed_in
-        should_on = True
-        if should_on and state in FAN_TRUST_STATES:
-            policy = room_fan.fan_sleep_policy
-            if policy == FAN_SLEEP_REDUCE:
-                speed = min(speed, FAN_SPEED_LOW_PCT)
-            # normal -> no change
-        assert speed == 100
+        zone = _FakeZone()
+        ctrl = _make_controller(zone)
+        ctrl._house_state = state
+        rf = _make_room_fan(fan_sleep_policy=FAN_SLEEP_NORMAL)
+        assert ctrl._apply_night_trust_speed_cap(rf, 100, FAN_SLEEP_NORMAL) == 100
 
-    def test_policy_off_left_to_room_level(self):
-        """policy=`off`: coordinator-side does NOT force-off; the room-level
-        path in automation.py is the documented owner."""
-        room_fan = _make_room_fan(fan_sleep_policy=FAN_SLEEP_OFF)
-        # Production cap site: under `off` the cap branch is a no-op,
-        # speed passes through; the room-level path is responsible for
-        # the force-off at sleep. This test simply documents that no
-        # coordinator-side force-off was inserted.
-        speed_in = 80
-        speed = speed_in
-        should_on = True
-        if should_on and "sleep" in FAN_TRUST_STATES:
-            policy = room_fan.fan_sleep_policy
-            if policy == FAN_SLEEP_REDUCE:
-                speed = min(speed, FAN_SPEED_LOW_PCT)
-        assert speed == 80
+    def test_policy_off_caps_conservatively_at_sleep(self):
+        """Conservative LOW cap when policy=off (decision 3 2026-06-11):
+        if the room-level force-off didn't reach (HVAC-managed early-return),
+        at least cap to LOW so the fan isn't running at full speed against
+        operator intent."""
+        zone = _FakeZone()
+        ctrl = _make_controller(zone)
+        ctrl._house_state = "sleep"
+        rf = _make_room_fan(fan_sleep_policy=FAN_SLEEP_OFF)
+        assert ctrl._apply_night_trust_speed_cap(rf, 80, FAN_SLEEP_OFF) == FAN_SPEED_LOW_PCT
+
+    @pytest.mark.parametrize("state", ["home_night", "waking"])
+    def test_cap_skipped_for_non_bedroom_at_flank_states(self, state):
+        """A-M1 (operator review 2026-06-11): a living-room fan during
+        late-evening TV must NOT get the LOW cap — the cap is bedrooms-
+        only at home_night/waking; house-wide only at `sleep`."""
+        zone = _FakeZone()
+        ctrl = _make_controller(zone)
+        ctrl._house_state = state
+        rf = _make_room_fan(
+            room_type=ROOM_TYPE_GENERIC, fan_sleep_policy=FAN_SLEEP_REDUCE,
+        )
+        assert ctrl._apply_night_trust_speed_cap(rf, 100, FAN_SLEEP_REDUCE) == 100
+
+    def test_cap_house_wide_at_sleep(self):
+        """At `sleep` the cap is house-wide (everyone sleeping; LOW
+        everywhere is the documented comfort contract)."""
+        zone = _FakeZone()
+        ctrl = _make_controller(zone)
+        ctrl._house_state = "sleep"
+        rf = _make_room_fan(
+            room_type=ROOM_TYPE_GENERIC, fan_sleep_policy=FAN_SLEEP_REDUCE,
+        )
+        assert ctrl._apply_night_trust_speed_cap(rf, 100, FAN_SLEEP_REDUCE) == FAN_SPEED_LOW_PCT
+
+    def test_cap_inactive_outside_trust_window(self):
+        zone = _FakeZone()
+        ctrl = _make_controller(zone)
+        ctrl._house_state = "home_evening"
+        rf = _make_room_fan(fan_sleep_policy=FAN_SLEEP_REDUCE)
+        assert ctrl._apply_night_trust_speed_cap(rf, 100, FAN_SLEEP_REDUCE) == 100
+
+
+@_skip_no_real_fans
+class TestStateTransitionsAndRestart:
+    """Operator decision 5(c) 2026-06-11: state-transition + restart coverage."""
+
+    def test_home_evening_to_home_night_no_auto_activation(self):
+        """home_evening -> home_night handoff: an off bedroom fan must NOT
+        flip on now that ACTIVATION is sleep-only."""
+        zone = _FakeZone()
+        ctrl = _make_controller(zone)
+        # transition through the boundary
+        for state in ("home_evening", "home_night"):
+            ctrl._house_state = state
+            rf = _make_room_fan(is_on=False, speed_pct=0, trigger="")
+            should_on, trigger, _ = ctrl._evaluate_temp_fan(
+                rf, room_temp=70.0, setpoint_high=74.0, occupied=True,
+                now=datetime.now(),
+            )
+            assert should_on is False, f"flipped on at {state}"
+            assert not (isinstance(trigger, str)
+                        and trigger.startswith("night_trust_activate"))
+
+    def test_waking_to_home_day_releases_trust(self):
+        zone = _FakeZone()
+        ctrl = _make_controller(zone)
+        # waking trust would hold; home_day should release.
+        ctrl._house_state = "home_day"
+        rf = _make_room_fan(is_on=True, speed_pct=66, trigger="temperature")
+        # Defeat min_runtime: set last_on_time well in the past so the
+        # min-runtime branch can't keep the fan on through this assert.
+        rf.last_on_time = (datetime.now() - timedelta(minutes=60)).isoformat()
+        should_on, _trigger, _ = ctrl._evaluate_temp_fan(
+            rf, room_temp=70.0, setpoint_high=74.0, occupied=True,
+            now=datetime.now(),
+        )
+        # Below setpoint at home_day -> standard temp-off path.
+        assert should_on is False
+
+    def test_blip_at_boundary_does_not_flip_on(self):
+        """A presence blip exactly at the home_evening->home_night edge
+        must not synthesize an activation."""
+        zone = _FakeZone()
+        ctrl = _make_controller(zone)
+        ctrl._house_state = "home_night"
+        rf = _make_room_fan(is_on=False, speed_pct=0, trigger="")
+        # occupied=True briefly (blip), but room is below setpoint.
+        should_on, trigger, _ = ctrl._evaluate_temp_fan(
+            rf, room_temp=68.0, setpoint_high=74.0, occupied=True,
+            now=datetime.now(),
+        )
+        assert should_on is False
+        assert not (isinstance(trigger, str)
+                    and trigger.startswith("night_trust_activate"))
+
+    def test_restart_mid_night_boots_away_no_stuck_on(self):
+        """Operator decision 5(c): post-restart mid-night, the HouseState
+        machine boots AWAY (institutional knowledge — see memory
+        project_v4_7_18_1_sleep_wake_deadlock). Trust does not fire from
+        an AWAY initial state, so any RoomFanState is_on residual cannot
+        force a stuck-on. Verify the trust gate fails when state==AWAY."""
+        zone = _FakeZone()
+        ctrl = _make_controller(zone)
+        ctrl._house_state = ""  # post-restart, before first house_state
+        rf = _make_room_fan(is_on=False, speed_pct=0, trigger="")
+        should_on, _trigger, _ = ctrl._evaluate_temp_fan(
+            rf, room_temp=72.0, setpoint_high=74.0, occupied=True,
+            now=datetime.now(),
+        )
+        # No trust fires; below activation_delta -> off.
+        assert should_on is False
+        ctrl._house_state = "away"
+        should_on, _trigger, _ = ctrl._evaluate_temp_fan(
+            rf, room_temp=72.0, setpoint_high=74.0, occupied=True,
+            now=datetime.now(),
+        )
+        assert should_on is False
+
+    def test_flank_state_non_bedroom_person_home_releases_at_vacancy(self):
+        """B-C1 fix-up 2026-06-11: at home_night the OFF-side person-hold
+        REQUIRES ROOM_TYPE_BEDROOM as well. A non-bedroom fan with a
+        person home at home_night must NOT be held indefinitely — vacancy
+        timer expires normally."""
+        zone = _FakeZone()
+        zone.zone_persons = ["person.oji"]
+        ctrl = _make_controller(zone, person_states={"person.oji": "home"})
+        ctrl._house_state = "home_night"
+
+        vac_anchor = (datetime.now() - timedelta(
+            seconds=DEFAULT_FAN_VACANCY_HOLD + 60)).isoformat()
+        rf = _make_room_fan(
+            room_type=ROOM_TYPE_GENERIC,
+            is_on=True, speed_pct=33, trigger="temperature",
+        )
+        rf.vacancy_detected_time = vac_anchor
+
+        should_on, _trigger, _ = ctrl._evaluate_temp_fan(
+            rf, room_temp=72.0, setpoint_high=74.0, occupied=False,
+            now=datetime.now(),
+        )
+        # Non-bedroom: trust does NOT fire at home_night even with person
+        # home; vacancy timer wins.
+        assert should_on is False
+
+    def test_sleep_zone_person_proxy_alone_holds_non_bedroom(self):
+        """At `sleep` the zone-person proxy alone is sound (`home` ⇒ in
+        bed) — the bedroom-only gate does NOT apply to the OFF-side
+        person-hold during `sleep`. Documents decision 2."""
+        zone = _FakeZone()
+        zone.zone_persons = ["person.oji"]
+        ctrl = _make_controller(zone, person_states={"person.oji": "home"})
+        ctrl._house_state = "sleep"
+
+        vac_anchor = (datetime.now() - timedelta(
+            seconds=DEFAULT_FAN_VACANCY_HOLD + 60)).isoformat()
+        rf = _make_room_fan(
+            room_type=ROOM_TYPE_GENERIC,
+            is_on=True, speed_pct=33, trigger="temperature",
+        )
+        rf.vacancy_detected_time = vac_anchor
+
+        should_on, trigger, _ = ctrl._evaluate_temp_fan(
+            rf, room_temp=72.0, setpoint_high=74.0, occupied=False,
+            now=datetime.now(),
+        )
+        assert should_on is True
+        assert trigger == "temperature"
 
 
 class TestD2_SourceAnchors:
@@ -464,9 +675,42 @@ class TestD2_SourceAnchors:
         ) as f:
             return f.read()
 
-    def test_no_bare_sleep_string_compare(self, src: str) -> None:
-        """Plan §7 Static: zero `house_state == "sleep"` in hvac_fans.py."""
-        assert 'self._house_state == "sleep"' not in src
+    def test_bare_sleep_string_compares_only_in_documented_sites(self, src: str) -> None:
+        """Plan §7 Static (amended 2026-06-11 fix-up): the original cycle
+        intended ZERO `self._house_state == "sleep"` matches. The design
+        decisions on the consolidated fix-up reintroduced TWO controlled
+        sleep-only literals:
+          (a) the speed-cap `cap_in_scope` predicate (sleep -> house-wide;
+              flank states -> bedroom-only).
+          (b) the ON-side ACTIVATE branch (operator decision: activation
+              stays sleep-only; HOLD extends to FAN_TRUST_STATES).
+        Both occurrences must be inside the trust block (which already
+        gates on `in FAN_TRUST_STATES`); no occurrence may be a bare
+        unscoped check outside the trust block."""
+        # Count occurrences and verify each is preceded by a FAN_TRUST_STATES
+        # window (proves it's the scoped decision, not a regression).
+        matches: list[int] = []
+        start = 0
+        needle = 'self._house_state == "sleep"'
+        while True:
+            idx = src.find(needle, start)
+            if idx < 0:
+                break
+            matches.append(idx)
+            start = idx + len(needle)
+        # At most 3 allowed (operator-documented sites — see decisions
+        # 1, 2, 3 in fix-up): cap_in_scope helper, ON-side ACTIVATE gate,
+        # and OFF-side person_evidence_ok gate. Each must have
+        # FAN_TRUST_STATES within the preceding 600 chars (scope guard).
+        assert len(matches) <= 3, (
+            f"Too many bare `_house_state == \"sleep\"` matches: {len(matches)}"
+        )
+        for idx in matches:
+            preceding = src[max(0, idx - 3000): idx]
+            assert "FAN_TRUST_STATES" in preceding, (
+                "Sleep-literal use must be scoped under a FAN_TRUST_STATES "
+                f"gate; bare check found at offset {idx}"
+            )
 
     def test_fan_trust_states_imported(self, src: str) -> None:
         assert "FAN_TRUST_STATES" in src

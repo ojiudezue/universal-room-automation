@@ -299,6 +299,89 @@ The fix preserves bidirectionality structurally:
 - `TestD2_VacancyHoldPersonTrustExtends.test_vacancy_hold_releases_when_all_persons_away`
   — parametric across all three trust states.
 
+## 12. Operator amendments + review fix-up 2026-06-11 (consolidated Tier 2-DB)
+
+These decisions resolve the three Tier 2-DB review framings (A/B/C) and
+supersede §3 / §4 where they conflict.
+
+### Decision 1 — ON-side ACTIVATE reverts to SLEEP-only (B-H2 / B-M1 / C-3)
+
+The operator's intent was to extend fan STOP control; auto-ACTIVATING a
+stopped fan at home_night/waking was over-extension and would surprise
+people who are awake and mobile. The night-trust block in
+`hvac_fans.py::_evaluate_temp_fan` now splits its two paths:
+
+- **HOLD** (fan already on): extended to FAN_TRUST_STATES across all
+  three flank states.
+- **ACTIVATE** (off → on): gated on `self._house_state == "sleep"` ONLY
+  AND `policy != FAN_SLEEP_OFF`. policy=off rooms are NEVER coordinator-
+  activated even at sleep (fixes the pre-existing dueling-writers
+  exposure with the automation.py room-level path).
+
+### Decision 2 — OFF-side person-hold: state-scoped evidence (B-C1 / A-H2)
+
+- At `sleep`: the original zone-person proxy alone is sound (`home` ⇒
+  in bed in this zone).
+- At `home_night` / `waking`: ADDITIONALLY require
+  `room_fan.room_type == ROOM_TYPE_BEDROOM`. People roam at flank states;
+  zone-person proxy alone would hold fans on in empty rooms for hours.
+
+### Decision 3 — Speed cap semantics (A-H1 / A-M1 / A-M2)
+
+Refactored to a dedicated `FanController._apply_night_trust_speed_cap`:
+
+- Live policy resolved per evaluation via
+  `_resolve_live_fan_sleep_policy` (config-entry merge read-through; the
+  `RoomFanState.fan_sleep_policy` field remains as fallback/cache).
+- `normal` → no cap. `reduce` → cap at FAN_SPEED_LOW_PCT (legacy). `off`
+  → cap at FAN_SPEED_LOW_PCT (conservative: the room-level path may not
+  reach this room — automation.py:1509 pre-existing dead path for
+  HVAC-managed rooms, noted backlog) AND excluded from ON-side
+  activation per Decision 1.
+- Cap scope: at `sleep` house-wide; at `home_night`/`waking` BEDROOMS
+  ONLY. Living-room fans during late-evening TV are not LOW-capped.
+
+### Decision 4 — Zone-trust suppression INFO → DEBUG (A-L1)
+
+`hvac.py` suppression log demoted to DEBUG after the first per-
+(zone_id, house_state) occurrence. Eliminates the ~12/hr/zone INFO
+spam observed all night. Per-state cache clears on house_state change.
+
+### Decision 5 — Test authority (C-1..C-6 + A/B coverage)
+
+- **Order-immune bootstrap**: `_ensure_real_module` now detects
+  MagicMock stubs (prior `hasattr` gate treated them as real because
+  MagicMock returns True for every hasattr). `const` + `hvac_const` are
+  force-upgraded BEFORE the top-level imports.
+- **Real-path cap tests**: the three sentinel mirror tests at
+  `test_fan_trust_state_extension.py:415-459` were replaced with tests
+  that drive the real production helper `_apply_night_trust_speed_cap`.
+- **New coverage** added: policy=off+occupied-bedroom (no activation,
+  capped if running); home_evening→home_night handoff (no flip-on);
+  waking→home_day release; blip-at-boundary; restart-mid-night boot-
+  AWAY (no stuck-on); non-bedroom person-home at home_night (vacancy
+  expires); sleep zone-person proxy alone holds non-bedroom (decision 2).
+- **v4.7.13 source-anchor re-anchored**: the `continue` check now
+  anchors on the FAN_TRUST_STATES trust predicate then takes a SMALL
+  trailing window — guard removal will fail the test again.
+- **Mis-attributed comment fixed**: the `(zone_id, state)` tuple key in
+  `test_v4713_sleep_state_zone_presence_trust.py` pre-existed on develop
+  (v4.7.15 D2 at `aggregation.py:3883`); the comment now says the
+  fan-trust cycle re-contracted a stale legacy test, not invented the
+  key.
+
+### Accepted findings (deferred)
+
+- **B-L1** preset-hold cost at flank states (acceptable per planning
+  doc §9 risk register row 3; mitigated by the bidirectionality
+  invariant — vacancy timer wins as soon as all trackers are away).
+- **C-3 pre-existing dead path** at `automation.py:1509`: the early-
+  return when HVAC manages the room means policy=off never reaches the
+  room-level force-off for HVAC-managed rooms. Coordinator side now
+  caps to LOW conservatively (Decision 3); lifting the early-return is
+  backlog (not a regression of this cycle).
+- Other LOW findings noted in the review docs.
+
 ### Pollution defense (build-time institutional lesson)
 
 The test file uses spec-loaded modules under explicit suite-friendly
