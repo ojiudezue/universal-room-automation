@@ -391,12 +391,13 @@ class TestAttainabilityNoFlap:
     """Trajectory across multiple decision cycles."""
 
     def test_persistence_then_completion(self):
-        """ATTAIN fires on a stalled trajectory; clears when SOC reaches target.
+        """ATTAIN fires on stalled trajectory; HOLDs (no release) at target.
 
-        Use a flat-SOC trajectory (rate=0) so the projection stays below
-        target each tick the SOC is below target. The Enphase actuation lag
-        (20-40 min per the addendum) means the SOC barely moves cycle-to-
-        cycle in practice — flat-line is the realistic stress shape.
+        Fix-up pass A-CRIT-1 defect 3: when SOC reaches target the latch
+        exits via HOLD-shape (charge_from_grid OFF, reserve still pinned at
+        target, chunk_completed=True). The phase REMAINS `attain` (the
+        HOLD decision is still an attain-phase decision — that's how it
+        differs from arbitrage HOLD; arbitrage HOLD uses ARBITRAGE_PHASE_HOLD).
         """
         strat, hass = _build_strategy(soc=12)
         _seed_zero_rate_history(strat, _SUMMER_INSIDE_WINDOW, soc=12)
@@ -409,15 +410,26 @@ class TestAttainabilityNoFlap:
         results.append(strat.determine_mode(
             "off_peak", "summer", now=_SUMMER_INSIDE_WINDOW + timedelta(minutes=5),
         ))
-        # Tick 3: SOC reaches target → predicate False (soc >= target).
+        # Tick 3: SOC reaches target → HOLD-shape (latch exits).
         hass.set_state(_BSOC, "80")
         results.append(strat.determine_mode(
             "off_peak", "summer", now=_SUMMER_INSIDE_WINDOW + timedelta(minutes=10),
         ))
-        # Ticks 1-2 ATTAIN persists; tick 3 falls through.
+        # Ticks 1-2 ATTAIN charging; tick 3 ATTAIN HOLD.
         assert results[0]["arbitrage_phase"] == ARBITRAGE_PHASE_ATTAIN
         assert results[1]["arbitrage_phase"] == ARBITRAGE_PHASE_ATTAIN
-        assert results[2]["arbitrage_phase"] != ARBITRAGE_PHASE_ATTAIN
+        # Tick 3 still labelled attain (HOLD exit), but reserve still
+        # locked at target and chunk completed.
+        assert results[2]["arbitrage_phase"] == ARBITRAGE_PHASE_ATTAIN
+        assert strat._arbitrage_chunk_completed is True
+        # NO charge_from_grid turn_on action on tick 3. The HOLD path
+        # leaves cfg unchanged (or turns it OFF if it was ON).
+        turn_on_actions = [
+            a for a in results[2]["actions"]
+            if "charge_from_grid" in a.get("target", "")
+            and a.get("service") == "switch.turn_on"
+        ]
+        assert turn_on_actions == []
 
 
 # ── D1 — cold-boot defer ────────────────────────────────────────────────────
@@ -567,3 +579,274 @@ class TestGoodDayNoRegression:
         result = strat.determine_mode("off_peak", "summer", now=anchor)
         assert result["arbitrage_phase"] != ARBITRAGE_PHASE_ATTAIN
         assert result["arbitrage_phase"] != ARBITRAGE_PHASE_CHARGE
+
+
+# ── Fix-up pass — latched feedback-loop (A-CRIT-1 / B-HIGH-1) ──────────────
+
+
+class TestAttainabilityLatchNoFeedbackOscillation:
+    """Closed-loop trajectory: attain's own charge inflates rate; latch holds."""
+
+    def test_rising_rate_does_not_release_or_recommand(self):
+        """Once latched, a rising observed rate (because attain is charging)
+        must NOT release the latch and must NOT re-emit the charge-from-grid
+        switch.turn_on command repeatedly (verify-only — command once).
+
+        Pre-fix: K=3 rate window included attain's own ~16 kW charge → after
+        2-3 ticks projection flipped False → fallback issued switch.turn_off
+        → re-fired next tick. Now: entry predicate is NOT consulted while
+        latched; rate is only used for the reason narrative + boundary
+        guard math. The first tick should emit a turn_on; subsequent ticks
+        with cfg already ON must emit NO turn_on actions (verify-only).
+        """
+        strat, hass = _build_strategy(soc=12)
+        _seed_zero_rate_history(strat, _SUMMER_INSIDE_WINDOW, soc=12)
+        results = []
+        # Simulate rising rate trajectory across 4 ticks.
+        # Tick 1: enters latch, emits turn_on. Hass cfg flips ON.
+        r1 = strat.determine_mode(
+            "off_peak", "summer", now=_SUMMER_INSIDE_WINDOW,
+        )
+        results.append(r1)
+        # Flip the cfg ON in hass to simulate the actuation having landed.
+        hass.set_state(DEFAULT_CHARGE_FROM_GRID_ENTITY, "on")
+        # Ticks 2-4: SOC rising (charge is flowing) → observed rate rises.
+        for i, (t_off, soc_val) in enumerate(
+            [(5, 22), (10, 35), (15, 50)], start=2,
+        ):
+            hass.set_state(_BSOC, str(soc_val))
+            r = strat.determine_mode(
+                "off_peak", "summer",
+                now=_SUMMER_INSIDE_WINDOW + timedelta(minutes=t_off),
+            )
+            results.append(r)
+        # All four ticks must remain in ATTAIN phase — no release-on-projection.
+        for i, r in enumerate(results):
+            assert r["arbitrage_phase"] == ARBITRAGE_PHASE_ATTAIN, (
+                f"tick {i+1} dropped out of ATTAIN despite latch — "
+                f"feedback-loop regression. reason={r.get('reason')}"
+            )
+        # Strictly verify no repeated turn_on after tick 1 (idempotent).
+        for i, r in enumerate(results[1:], start=2):
+            turn_on = [
+                a for a in r["actions"]
+                if "charge_from_grid" in a.get("target", "")
+                and a.get("service") == "switch.turn_on"
+            ]
+            assert turn_on == [], (
+                f"tick {i} re-issued switch.turn_on — verify-only violated. "
+                f"actions={r['actions']}"
+            )
+
+    def test_chunk_lock_persists_through_4_ticks(self):
+        """C-HIGH-1 extension: after guard locks chunk on tick 2, attain
+        must stay out through ticks 3-4 even when guard clears (under cap).
+        """
+        strat, hass = _build_strategy(soc=12, net_power_w=15000.0)
+        hass.set_state(_BPOW, "0", attributes={"unit_of_measurement": "W"})
+        _seed_zero_rate_history(strat, _SUMMER_INSIDE_WINDOW, soc=12)
+        # Tick 1: entry, trip 1/2 (under N) → ATTAIN.
+        r1 = strat.determine_mode(
+            "off_peak", "summer", now=_SUMMER_INSIDE_WINDOW,
+        )
+        assert r1["arbitrage_phase"] == ARBITRAGE_PHASE_ATTAIN
+        # Tick 2: trip 2/2 → lock + release.
+        r2 = strat.determine_mode(
+            "off_peak", "summer",
+            now=_SUMMER_INSIDE_WINDOW + timedelta(minutes=5),
+        )
+        assert r2["arbitrage_phase"] != ARBITRAGE_PHASE_ATTAIN
+        assert strat._arbitrage_chunk_completed is True
+        # Clear the guard for ticks 3-4 (drop net to safe).
+        hass.set_state(_NETP, "1000", attributes={"unit_of_measurement": "W"})
+        r3 = strat.determine_mode(
+            "off_peak", "summer",
+            now=_SUMMER_INSIDE_WINDOW + timedelta(minutes=10),
+        )
+        r4 = strat.determine_mode(
+            "off_peak", "summer",
+            now=_SUMMER_INSIDE_WINDOW + timedelta(minutes=15),
+        )
+        # Chunk stays locked through to next off-peak reset.
+        assert r3["arbitrage_phase"] != ARBITRAGE_PHASE_ATTAIN
+        assert r4["arbitrage_phase"] != ARBITRAGE_PHASE_ATTAIN
+
+
+# ── Fix-up pass — B-HIGH-3 reboot mid-ATTAIN HOLD-CURRENT ─────────────────
+
+
+class TestRebootMidAttainHoldCurrent:
+    """Post-reboot first cycles must NOT unwind in-flight Enphase charge."""
+
+    def test_reboot_first_cycle_issues_zero_commands(self):
+        """Simulate reboot with charge_from_grid ON + reserve 80 at Envoy.
+        First tick after boot has empty rate history → must emit a
+        HOLD-CURRENT decision with empty actions list (no turn_off, no
+        reserve drop), preserving hardware state while the K-window
+        reseeds. Latch is forced via SOC < target + latched-state injection.
+        """
+        strat, hass = _build_strategy(soc=40)
+        # Simulate the pre-reboot Enphase state.
+        hass.set_state(DEFAULT_CHARGE_FROM_GRID_ENTITY, "on")
+        hass.set_state(DEFAULT_RESERVE_SOC_ENTITY, "80")
+        # Force-latch (RAM-only attr lost on real reboot; here we model the
+        # alternative: the operator wants attain to RE-LATCH on first cycle
+        # — but the rate window is empty, so the reboot-hold path fires).
+        strat._attain_active = True
+        # NO _seed_*: empty trailing window.
+        r = strat.determine_mode(
+            "off_peak", "summer", now=_SUMMER_INSIDE_WINDOW,
+        )
+        # Latch stays asserted; HOLD-CURRENT path emits zero actions.
+        assert r["arbitrage_phase"] == ARBITRAGE_PHASE_ATTAIN
+        assert r["actions"] == [], (
+            f"reboot first cycle issued commands: {r['actions']}"
+        )
+        # Reason names the warm-up.
+        assert "HOLD CURRENT" in r["reason"] or "warm-up" in r["reason"]
+
+
+# ── Fix-up pass — operator floor (30 min ENTRY floor; latched continues) ──
+
+
+class TestAttainability30MinEntryFloor:
+    """Operator-ratified ENTRY floor (B-MED-1)."""
+
+    def test_entry_blocked_at_25min_to_boundary(self):
+        """ENTRY with <30 min to boundary is declined (actuation lag eats it)."""
+        late = datetime(2026, 7, 15, 13, 35)  # 25 min before 14:00 mid_peak
+        strat, hass = _build_strategy(soc=10)
+        _seed_zero_rate_history(strat, late, soc=10)
+        r = strat.determine_mode("off_peak", "summer", now=late)
+        assert r["arbitrage_phase"] != ARBITRAGE_PHASE_ATTAIN
+
+    def test_entry_allowed_at_exactly_30min(self):
+        """30 min == floor: still allowed (operator: 'don't issue commands
+        physics cannot honor' — 30+ min satisfies the ~35-min lag spec
+        with margin)."""
+        late = datetime(2026, 7, 15, 13, 30)
+        strat, hass = _build_strategy(soc=10)
+        _seed_zero_rate_history(strat, late, soc=10)
+        r = strat.determine_mode("off_peak", "summer", now=late)
+        assert r["arbitrage_phase"] == ARBITRAGE_PHASE_ATTAIN
+
+
+# ── Fix-up pass — D1b mid_peak continuation targeting PEAK ────────────────
+
+
+class TestAttainabilityMidPeakContinuation:
+    """D1b — operator-mandated mid_peak attain continuation covering PEAK.
+
+    Summer schedule (from energy_const.py): peak = 16:00-20:00, mid_peak =
+    14:00-16:00 and 20:00-21:00, off_peak = 21:00-14:00. At 14:30 (mid_peak,
+    pre-peak) with SOC < target and rate-spread positive, attain may enter
+    targeting the 16:00 peak boundary.
+    """
+
+    def test_mid_peak_pre_peak_low_soc_enters_attain(self):
+        """SOC < target during summer mid_peak (pre-peak) → ATTAIN."""
+        anchor = datetime(2026, 7, 15, 14, 30)
+        strat, hass = _build_strategy(soc=20)
+        _seed_zero_rate_history(strat, anchor, soc=20)
+        r = strat.determine_mode("mid_peak", "summer", now=anchor)
+        assert r["arbitrage_phase"] == ARBITRAGE_PHASE_ATTAIN
+        # Reason must name the stage.
+        assert "mid_peak" in r["reason"] or "peak coverage" in r["reason"]
+
+    def test_mid_peak_post_peak_no_attain(self):
+        """Post-peak mid_peak (20:00-21:00): no peak ahead → no attain."""
+        anchor = datetime(2026, 7, 15, 20, 30)
+        strat, hass = _build_strategy(soc=20)
+        _seed_zero_rate_history(strat, anchor, soc=20)
+        r = strat.determine_mode("mid_peak", "summer", now=anchor)
+        assert r["arbitrage_phase"] != ARBITRAGE_PHASE_ATTAIN
+
+
+# ── Fix-up pass — C-MED-1 structural EVSE gate test ──────────────────────
+
+
+class TestEVSEPauseGateExcludesAttain:
+    """C-MED-1: structural assertion that arbitrage_charging gate is
+    CHARGE-only (ATTAIN must NOT pause EVSE; v1 observe-only)."""
+
+    def test_evse_pause_gate_excludes_attain_assignment(self):
+        """The arbitrage_charging assignment at energy.py:~2467 must
+        compare against ARBITRAGE_PHASE_CHARGE only — adding ATTAIN to
+        that comparison silently converts v1 observe-only into an EVSE
+        coordination lever.
+        """
+        path = os.path.join(
+            os.path.dirname(__file__), "..", "..",
+            "custom_components", "universal_room_automation",
+            "domain_coordinators", "energy.py",
+        )
+        with open(path, "r", encoding="utf-8") as fh:
+            src = fh.read()
+        # Find the literal assignment line.
+        assert (
+            'decision.get("arbitrage_phase") == ARBITRAGE_PHASE_CHARGE'
+            in src
+        ), (
+            "EVSE pause gate at energy.py must compare arbitrage_phase to "
+            "ARBITRAGE_PHASE_CHARGE only (v1 observe-only scope; see "
+            "C-MED-1)."
+        )
+        # Anti-test: the gate must NOT branch on ATTAIN in the same expr.
+        # Search for any line that puts both phase tokens together in an
+        # `arbitrage_charging` assignment.
+        for line in src.split("\n"):
+            if "arbitrage_charging" in line and "=" in line:
+                if (
+                    "ARBITRAGE_PHASE_CHARGE" in line
+                    and "ARBITRAGE_PHASE_ATTAIN" in line
+                ):
+                    raise AssertionError(
+                        "EVSE arbitrage_charging gate includes ATTAIN — "
+                        "this silently widens v1 observe-only scope. See "
+                        "C-MED-1 / review ledger."
+                    )
+
+    def test_savings_accounting_includes_attain_tuple(self):
+        """Tighten C-MED-1 grep: the savings include-tuple must contain
+        both ARBITRAGE_PHASE_CHARGE and ARBITRAGE_PHASE_ATTAIN — vacuous
+        `in src` was insufficient.
+        """
+        path = os.path.join(
+            os.path.dirname(__file__), "..", "..",
+            "custom_components", "universal_room_automation",
+            "domain_coordinators", "energy.py",
+        )
+        with open(path, "r", encoding="utf-8") as fh:
+            src = fh.read()
+        # The savings filter uses `not in (ARBITRAGE_PHASE_CHARGE, ARBITRAGE_PHASE_ATTAIN)`
+        assert (
+            "ARBITRAGE_PHASE_CHARGE, ARBITRAGE_PHASE_ATTAIN" in src
+            or "ARBITRAGE_PHASE_ATTAIN, ARBITRAGE_PHASE_CHARGE" in src
+        ), (
+            "energy.py arbitrage savings must include ATTAIN alongside "
+            "CHARGE in the gate tuple (Bug Class #22)."
+        )
+
+
+# ── Fix-up pass — guard-subtraction test (C-LOW-1) ───────────────────────
+
+
+class TestAttainGuardSubtractsBatteryCharge:
+    """C-LOW-1: net 18 kW total, but battery is charging 16 kW; effective
+    house+EV draw is only 2 kW → guard must NOT trip."""
+
+    def test_battery_charge_excluded_from_guard_during_attain(self):
+        strat, hass = _build_strategy(soc=12, net_power_w=18000.0)
+        # Battery charging 16 kW → effective = 18 - 16 = 2 kW < 12 kW cap.
+        # Envoy sign convention: positive=discharging, so charging is
+        # reported as a NEGATIVE entity state. `battery_power_w` flips the
+        # sign so a +16 kW charge becomes "raw entity = -16000 W".
+        hass.set_state(_BPOW, "-16000", attributes={"unit_of_measurement": "W"})
+        _seed_zero_rate_history(strat, _SUMMER_INSIDE_WINDOW, soc=12)
+        r = strat.determine_mode(
+            "off_peak", "summer", now=_SUMMER_INSIDE_WINDOW,
+        )
+        # Guard does NOT trip — attain proceeds normally.
+        assert r["arbitrage_phase"] == ARBITRAGE_PHASE_ATTAIN
+        assert strat._arbitrage_chunk_completed is False
+        assert strat._arbitrage_guard_consecutive_trips == 0

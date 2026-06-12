@@ -154,6 +154,11 @@ class CoverController:
         self._solar_end_hour: int = int(solar_end_hour)
         self._state_listener_unsub: CALLBACK_TYPE | None = None
         self._outdoor_temp_entity: str = ""
+        # Fix-up pass (B-LOW-2): declare reboot-pickup one-shot flag here
+        # rather than relying on getattr default. hvac_predict's lazy
+        # pattern was justified by a test-window __init__ constraint;
+        # this controller has no such constraint, so declare explicitly.
+        self._reboot_pickup_done: bool = False
 
     def discover_covers(self) -> int:
         """Discover cover entities for solar gain management.
@@ -316,24 +321,54 @@ class CoverController:
     def _reboot_pickup_seed_closed_set(
         self, month: int, hour: int, outdoor_temp: float,
     ) -> None:
-        """Cycle EC/HC reboot pickup — D2 #15.
+        """Cycle EC/HC reboot pickup — D2 #15 (fix-up pass: B-MED-2/3 fixes).
 
         On the FIRST eval after process startup: if we are INSIDE the solar
-        window AND outdoor_temp is above the close threshold, seed
+        window AND the close-hold hysteresis condition holds (mirrors the
+        hold branch's `outdoor_temp > _cover_open_temp` band), seed
         ``_hvac_closed`` with any cover whose current position is below 30
         (closed-ish). This re-establishes the membership claim that the
         RAM-only set lost across the restart, so the post-window open phase
         will reopen covers HVAC closed pre-reboot. Bounded — runs exactly
         once per process lifetime via ``_reboot_pickup_done``.
+
+        B-MED-3: previously gated on ``>= _cover_close_temp``; live covers
+        legitimately stay HVAC-closed through the hysteresis band
+        (`open_temp < temp <= close_temp`), so the strict gate missed the
+        original #15 failure shape. Now mirrors the hold gate.
+
+        B-MED-2: previously adopted ANY cover at position <= 30, including
+        ones the operator manually closed pre-reboot — which would then be
+        auto-reopened at window end. The RAM-only ``manual_override_until``
+        ledger is empty post-boot, so we cannot tell adopted-by-URA from
+        operator-closed at seed time. Defensive fix: stamp every adopted
+        cover with an ``_cover_override_hours``-equivalent grace so the
+        first open-phase tick that would have reopened it instead drops
+        it from the set (matching the operator-closed-mid-window path).
+        Operator can still let URA reopen them by waiting out the grace
+        or toggling the master switch.
         """
         in_solar_window = (
             month in COVER_SOLAR_MONTHS
             and self._solar_start_hour <= hour < self._solar_end_hour
         )
-        if not (in_solar_window and outdoor_temp >= self._cover_close_temp):
+        # B-MED-3: align with hold gate. Hold condition keeps closed when
+        # `outdoor_temp > _cover_open_temp` after the initial close at
+        # `>= _cover_close_temp`. Seed mirrors that band so the
+        # hysteresis-band reboot case isn't stranded.
+        if not (in_solar_window and outdoor_temp > self._cover_open_temp):
             return
         seeded = 0
-        for entity_id in self._covers:
+        # B-MED-2 grace stamp — far enough in the future that the first
+        # open-phase tick treats the cover as "operator override active"
+        # and drops it from the set without commanding it open. Uses the
+        # configured cover override hours so this respects the same
+        # operator-tunable window the live override path uses.
+        from homeassistant.util import dt as dt_util
+        grace_end = (
+            dt_util.now() + timedelta(hours=self._cover_override_hours)
+        ).isoformat()
+        for entity_id, cover in self._covers.items():
             try:
                 st = self.hass.states.get(entity_id)
                 if st is None:
@@ -343,13 +378,20 @@ class CoverController:
                     continue
                 if int(pos) <= 30:
                     self._hvac_closed.add(entity_id)
+                    # Conservative B-MED-2 stamp — only the seed path
+                    # leaves this so live close paths still emit overrides
+                    # via _handle_cover_state_change as before.
+                    if not cover.manual_override_until:
+                        cover.manual_override_until = grace_end
                     seeded += 1
             except (TypeError, ValueError):
                 continue
         if seeded:
             _LOGGER.info(
                 "HVAC Covers reboot-pickup: re-seeded %d covers as "
-                "HVAC-closed (in solar window, position <= 30)",
+                "HVAC-closed (in solar window, hysteresis band; "
+                "stamped operator-override grace to avoid clobbering "
+                "any operator-closed covers)",
                 seeded,
             )
 
@@ -386,8 +428,8 @@ class CoverController:
         if outdoor_temp is None:
             return  # Can't make cover decisions without temperature
 
-        # Cycle EC/HC reboot pickup — D2 #15. See _maybe_reboot_pickup().
-        if not getattr(self, "_reboot_pickup_done", False):
+        # Cycle EC/HC reboot pickup — D2 #15. See _reboot_pickup_seed_closed_set().
+        if not self._reboot_pickup_done:
             self._reboot_pickup_done = True
             self._reboot_pickup_seed_closed_set(month, hour, outdoor_temp)
 

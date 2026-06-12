@@ -2097,6 +2097,25 @@ class EnergyCoordinator(BaseCoordinator):
             self._arbitrage_prev_soc = soc_now
             return
 
+        # Fix-up pass (A-MED-1): during ATTAIN, exclude SOC-rise ticks where
+        # the battery's grid-charge component is <= solar surplus — those
+        # ticks are solar-driven, not arbitrage-displaced. Simplest defensible
+        # method: skip the savings row when battery_power_w shows the battery
+        # charging at or below current solar production (i.e. all charge
+        # power could have come from solar). Documented in review ledger.
+        if decision.get("arbitrage_phase") == ARBITRAGE_PHASE_ATTAIN:
+            battery_w = self._battery.battery_power_w
+            solar_w = self._battery.solar_production_w
+            if (
+                battery_w is not None
+                and solar_w is not None
+                and battery_w > 0  # actually charging
+                and battery_w <= solar_w  # could be entirely solar
+            ):
+                # Solar-driven rise during ATTAIN — don't book as arbitrage.
+                self._arbitrage_prev_soc = soc_now
+                return
+
         capacity_kwh = self._get_battery_capacity_kwh()
         kwh_charged = (delta_soc / 100.0) * capacity_kwh
         off_peak_rate = self._tou.get_effective_import_rate()

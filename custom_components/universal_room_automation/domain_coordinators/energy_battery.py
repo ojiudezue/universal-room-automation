@@ -74,6 +74,27 @@ ARBITRAGE_PHASE_ATTAIN = "attain"
 # is reflected in the projection within ~2 cycles.
 ATTAIN_RATE_WINDOW_TICKS = 3
 
+# Fix-up pass (Reviews A-CRIT-1 / A-HIGH-2 / B-HIGH-1/3 / C-HIGH-1):
+# attainability redesign — latch, solar-informed entry, floor, peak handoff.
+#
+# SOLAR_CAPTURE_FACTOR: fraction of Solcast remaining-day kWh forecast we
+# expect to actually capture into the battery before the high-rate
+# boundary. Conservative constant (operator-ratified 2026-06-12) — captures
+# uncertainty in how much remaining-day forecast lands in the pre-boundary
+# window vs. after, plus how much is consumed by house/EV loads vs. stored.
+# Unavailable/stale Solcast → treat surplus as 0 (fail toward charging —
+# buffer matters more than a wasted cheap charge).
+SOLAR_CAPTURE_FACTOR = 0.5
+# Minimum minutes-to-boundary required to ENTER attain. Below this we
+# decline (charge_from_grid actuation lag ~35 min per addendum — entering
+# with <30m can't deliver meaningful charge before the boundary). Latched
+# attain CONTINUES below this floor; only ENTRY is gated.
+ATTAIN_MIN_REMAINING_MIN = 30
+# Lead minutes before a PEAK boundary at which a latched attain commands
+# its turn-off / handoff so the Enphase cloud write lands before peak.
+# Operator-ratified ("as long as turn off can cycle in 15m before peak").
+ATTAIN_PEAK_HANDOFF_LEAD_MIN = 15
+
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -191,6 +212,20 @@ class BatteryStrategy:
         # + 1 (need K samples to compute K deltas). Empty on cold boot →
         # predicate defers one cycle so we don't trigger on a synthetic rate.
         self._attain_soc_history: list[tuple[datetime, float]] = []
+
+        # Fix-up pass: attain latch. Once the entry predicate fires we set
+        # this True and HOLD it across ticks; entry predicate is NOT
+        # re-evaluated while latched. Exit only on (a) SOC >= target →
+        # attain-HOLD (no charge_from_grid, reserve = target, mark chunk
+        # completed); (b) chunk completed via guard / boundary cleanup;
+        # (c) charge window closes; (d) peak-handoff lead reached. This
+        # eliminates the A-CRIT-1 / B-HIGH-1 self-referential release
+        # loop where attain's own grid-charge inflated the K-tick observed
+        # rate, flipped the predicate False mid-charge, and unwound the
+        # hardware → bang-bang against the Enphase cloud lever. RAM-only:
+        # reboot resets to False, and the reboot-hold path below ensures
+        # we don't unwind in-flight hardware while the K-window reseeds.
+        self._attain_active: bool = False
 
         # v4.5.0 D3: multi-day Solcast lookback toggle + entity ID.
         # Used by classify_solar_day_n + arbitrage gate broadening.
@@ -928,33 +963,150 @@ class BatteryStrategy:
             return 0
         return int(delta_s // 60)
 
+    # Fix-up pass: capacity helper used by the solar-informed projection.
+    # Same shape as EnergyCoordinator._get_battery_capacity_kwh but lives on
+    # the strategy so the predicate has no coordinator backref. Returns None
+    # when capacity is unknown — caller treats expected solar surplus as 0
+    # in that case (fail toward charging).
+    def _battery_capacity_kwh(self) -> float | None:
+        """Best-effort battery capacity in kWh; None if unknown."""
+        eid = self._get_entity("battery_capacity")
+        if eid is None:
+            return None
+        state = self.hass.states.get(eid)
+        if state is None or state.state in ("unknown", "unavailable"):
+            return None
+        try:
+            raw = float(state.state)
+        except (ValueError, TypeError):
+            return None
+        uom = state.attributes.get("unit_of_measurement", "")
+        if uom in ("kWh", "kwh"):
+            return raw
+        return raw / 1000.0  # Wh → kWh
+
+    def _expected_solar_surplus_pct(
+        self, now: datetime, mins_to_boundary: int,
+    ) -> float:
+        """Operator-ratified solar-informed entry term (A-HIGH-2).
+
+        Fraction of the Solcast remaining-day forecast (in %SOC) we expect to
+        capture into the battery before the high-rate boundary. Scales the
+        remaining-day forecast linearly by (time-to-boundary / time-to-sunset)
+        for the simple case and applies SOLAR_CAPTURE_FACTOR for losses,
+        timing skew, and non-battery load. Unavailable Solcast → 0 (fail
+        toward charging — buffer matters more than a wasted cheap charge).
+
+        Conservative bias by design: we'd rather fire ATTAIN on a borderline
+        morning than skip it and ride into mid_peak underbuffered.
+        """
+        remaining_kwh = self.solcast_remaining
+        if remaining_kwh is None or remaining_kwh <= 0:
+            return 0.0
+        capacity_kwh = self._battery_capacity_kwh()
+        if capacity_kwh is None or capacity_kwh <= 0:
+            return 0.0
+        # Conservative single-constant scaling — the Solcast "remaining"
+        # entity already restricts itself to remaining-day production, so we
+        # don't need to time-slice further. Apply the capture factor for
+        # losses + house/EV consumption that diverts solar from the battery.
+        expected_kwh_to_battery = remaining_kwh * SOLAR_CAPTURE_FACTOR
+        return (expected_kwh_to_battery / capacity_kwh) * 100.0
+
+    def _attain_target_boundary(
+        self, now: datetime, tou_period: str,
+    ) -> tuple[datetime | None, str | None, int | None]:
+        """Return (boundary_dt, period_name, minutes) for the attain target.
+
+        D1b mid-peak continuation: when in mid_peak, target re-points to the
+        PEAK boundary so attain can continue covering peak.  In off_peak we
+        target the next high-rate transition (mid_peak or peak — whichever
+        comes first).
+        """
+        if self._tou is None:
+            return (None, None, None)
+        if tou_period == "mid_peak":
+            # Walk forward looking for the next "peak" hour. Reuse hour-
+            # granular scan from energy_tou's pattern.
+            cursor = now.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+            end = cursor + timedelta(hours=24)
+            while cursor <= end:
+                try:
+                    if self._tou.get_current_period(cursor) == "peak":
+                        delta_s = (cursor - now).total_seconds()
+                        return (cursor, "peak", int(delta_s // 60) if delta_s > 0 else 0)
+                except Exception:  # noqa: BLE001
+                    return (None, None, None)
+                cursor += timedelta(hours=1)
+            return (None, None, None)
+        # Default: next high-rate transition (off_peak path)
+        nxt = self._tou.get_next_high_rate_transition(now)
+        if nxt is None:
+            return (None, None, None)
+        target_dt, period_name = nxt
+        delta_s = (target_dt - now).total_seconds()
+        mins = int(delta_s // 60) if delta_s > 0 else 0
+        return (target_dt, period_name, mins)
+
+    def _midpeak_rate_lt_peak(self, now: datetime) -> bool:
+        """D1b gate: mid_peak rate strictly less than peak rate (real rates).
+
+        Operator: extension into mid_peak only when the rate-spread economics
+        justify it. Read real rates from TOU engine — no hardcoded prices.
+        Returns False conservatively when rates cannot be read.
+        """
+        if self._tou is None:
+            return False
+        try:
+            season = self._tou.get_season(now)
+            periods = self._tou._rates[season]["periods"]
+            mp = periods.get("mid_peak", {}).get("import_rate")
+            pk = periods.get("peak", {}).get("import_rate")
+            if mp is None or pk is None:
+                return False
+            return float(mp) < float(pk)
+        except Exception:  # noqa: BLE001
+            return False
+
     def _should_attain_peak_buffer(
         self,
         soc: float | None,
         now: datetime,
+        tou_period: str = "off_peak",
     ) -> tuple[bool, float | None, float | None, int | None]:
-        """Predicate: would the buffer fail to attain target by the boundary?
+        """ENTRY predicate (fix-up pass — entry-only, not re-evaluated while latched).
 
         Returns (should_attain, projected_soc, observed_rate, minutes_to_boundary).
-        The extra return values feed the reason string and tests; they're
-        None when the predicate is False due to missing inputs.
 
         True iff ALL of:
-          1. arbitrage_enabled (else gate is permanently off) — same precondition
-             as `_gate_is_open`, but the forecast-class branch does NOT need to
-             match (the whole point of attainability is "good day, no arbitrage,
-             but solar didn't deliver").
+          1. arbitrage_enabled.
           2. peak_buffer_target set + soc not None + soc < peak_buffer_target.
-          3. charge window is open per the SAME primitive arbitrage CHARGE uses
-             (`_is_charge_window_open`) — byte-identical window semantics.
-          4. observed net charge rate is known (≥2 trailing samples) AND
-             projected SOC at boundary < peak_buffer_target.
-          5. minutes_to_boundary > 0 (post-boundary belongs to peak/mid_peak
-             discharge branches).
+          3. tou_period is off_peak (always eligible) OR mid_peak with D1b
+             rate-spread gate open (mid_peak rate < peak rate). Off_peak
+             additionally requires the charge window open per
+             `_is_charge_window_open`.
+          4. minutes_to_attain_boundary >= ATTAIN_MIN_REMAINING_MIN (30 min
+             floor — operator-ratified: don't enter when actuation lag will
+             eat the whole window).
+          5. observed net charge rate is known (≥2 trailing samples) AND
+             solar-informed projected SOC at boundary <
+             peak_buffer_target. The projection now includes an expected
+             solar-surplus term so good-day morning starts (winter 23:00,
+             summer 08:00) don't fire when even forecast solar will deliver.
 
         On cold boot when the window is empty, returns (False, None, None, mins)
-        — predicate DEFERS one cycle to let the window seed (avoids a synthetic
-        rate triggering on zero data).
+        — predicate DEFERS one cycle to let the window seed.
+
+        ONLY consulted on ENTRY. Once `_attain_active=True` we do NOT call
+        this — eliminating the A-CRIT-1 / B-HIGH-1 self-referential rate
+        loop where attain's own grid-charge inflated K-tick rate, flipped
+        predicate False, and unwound mid-charge. See `determine_mode` for
+        exit conditions.
+
+        D2-style chunk-lock gate: respect `_arbitrage_chunk_completed`
+        (A-HIGH-1 / B-HIGH-2 / C-HIGH-1 — three-way convergence). After
+        the guard aborts the chunk, attain stays out until the next
+        off-peak chunk reset.
         """
         if not self._arbitrage_enabled:
             return (False, None, None, None)
@@ -962,17 +1114,35 @@ class BatteryStrategy:
             return (False, None, None, None)
         if soc >= self._peak_buffer_target:
             return (False, None, None, None)
-        if not self._is_charge_window_open(now):
+        # Chunk-lock gate (A-HIGH-1 / B-HIGH-2 / C-HIGH-1).
+        if self._arbitrage_chunk_completed:
             return (False, None, None, None)
-        mins = self._minutes_to_high_rate_boundary(now)
+        # Off_peak requires charge window open; mid_peak requires D1b gate.
+        if tou_period == "off_peak":
+            if not self._is_charge_window_open(now):
+                return (False, None, None, None)
+        elif tou_period == "mid_peak":
+            if not self._midpeak_rate_lt_peak(now):
+                return (False, None, None, None)
+        else:
+            # A-LOW-2: unknown TOU fall-through — only allow attain in
+            # explicitly recognized off_peak or mid_peak periods.
+            return (False, None, None, None)
+        _, _period_name, mins = self._attain_target_boundary(now, tou_period)
         if mins is None or mins <= 0:
+            return (False, None, None, mins)
+        # Operator-ratified entry floor: don't enter with <30 min remaining;
+        # actuation lag swallows the window.
+        if mins < ATTAIN_MIN_REMAINING_MIN:
             return (False, None, None, mins)
         rate = self._observed_net_charge_rate_per_hour()
         if rate is None:
-            # Cold-boot / first-tick — defer per design. The caller will
-            # still record this tick's sample so the window seeds.
             return (False, None, None, mins)
-        projected = soc + (mins / 60.0) * rate
+        # Solar-informed projection (A-HIGH-2): observed-rate term +
+        # expected-solar-surplus term. Stale/unavailable Solcast → surplus
+        # collapses to 0 (fail toward charging).
+        solar_surplus = self._expected_solar_surplus_pct(now, mins)
+        projected = soc + (mins / 60.0) * rate + solar_surplus
         if projected < self._peak_buffer_target:
             return (True, projected, rate, mins)
         return (False, projected, rate, mins)
@@ -988,38 +1158,44 @@ class BatteryStrategy:
         projected: float | None,
         rate: float | None,
         mins: int | None,
+        tou_period: str = "off_peak",
+        stage_note: str | None = None,
     ) -> dict[str, Any]:
-        """Build the ATTAIN-phase decision dict.
+        """Build the ATTAIN-phase CHARGE decision dict.
 
         Same action shape as arbitrage CHARGE (charge_from_grid=True,
-        reserve_level=peak_buffer_target) so the existing _result() emitter
-        is idempotent across both paths. Plain-English reason explains WHY
-        (per operator decision 2026-06-12): the projection narrative is
-        the durable record of what the strategy "saw".
+        reserve_level=peak_buffer_target). Idempotent via _result()'s
+        diff-against-current state — "command once, then verify-only" while
+        the latch persists across ticks (fix-up pass).
 
-        Reuses the grid-import guard (same machinery as arbitrage CHARGE):
-        ATTAIN charges via the SAME charge_from_grid lever, so the guard's
-        consecutive-trip lock fires identically. Implemented by routing the
-        grid-import guard check from _get_arbitrage_phase's CHARGE branch
-        — see how this helper is called only AFTER the guard is consulted.
+        Dead-code latch at the old location removed: marking
+        `_arbitrage_chunk_completed = True` here was unreachable (caller
+        only invoked this when soc < target). The proper completion
+        transition now lives in `_get_attainability_hold_decision`
+        emitted by `determine_mode` when the latch exits via SOC >= target.
         """
-        # Mark chunk completed when SOC has reached target (mirrors
-        # arbitrage HOLD transition; prevents oscillation).
-        if soc is not None and soc >= self._peak_buffer_target:
-            self._arbitrage_chunk_completed = True
         self._arbitrage_active = True
-        # Build a plain-English reason — operator-mandated explicit WHY.
+        # Plain-English reason — operator-mandated explicit WHY.
+        boundary_str = "boundary"
         try:
-            tou_target_dt, _ = self._tou.get_next_high_rate_transition(now)
-            boundary_str = tou_target_dt.strftime("%H:%M")
+            tou_target_dt, _, _m = self._attain_target_boundary(now, tou_period)
+            if tou_target_dt is not None:
+                boundary_str = tou_target_dt.strftime("%H:%M")
         except Exception:  # noqa: BLE001
-            boundary_str = "boundary"
+            pass
+        stage = f" ({stage_note})" if stage_note else ""
+        # D1b: name the stage in the reason when continuation into mid_peak
+        # targets the PEAK boundary, so reviewers + sensor narratives can
+        # distinguish "off_peak attain" from "mid_peak attain covering peak".
+        proj_str = f"{projected:.0f}%" if projected is not None else "?"
+        rate_str = f"{rate:+.1f}%/h" if rate is not None else "?"
+        mins_str = f"{mins} min" if mins is not None else "?"
         reason = (
-            f"Peak-buffer attainability — projected SOC "
-            f"{projected:.0f}% < target {self._peak_buffer_target}% "
+            f"Peak-buffer attainability{stage} — projected SOC "
+            f"{proj_str} < target {self._peak_buffer_target}% "
             f"at {boundary_str} (observed net rate "
-            f"{rate:+.1f}%/h over {ATTAIN_RATE_WINDOW_TICKS} ticks, "
-            f"{mins} min remaining; solar consumed by house/EV loads)"
+            f"{rate_str} over {ATTAIN_RATE_WINDOW_TICKS} ticks, "
+            f"{mins_str} remaining; solar consumed by house/EV loads)"
         )
         return self._result(
             BATTERY_MODE_SELF_CONSUMPTION,
@@ -1033,6 +1209,92 @@ class BatteryStrategy:
             arbitrage_phase=ARBITRAGE_PHASE_ATTAIN,
             target_day_class=target_day_class,
         )
+
+    def _get_attainability_hold_decision(
+        self,
+        soc: float | None,
+        now: datetime,
+        target_day_class: str,
+        tomorrow_class: str,
+        current_mode: str | None,
+        season: str,
+    ) -> dict[str, Any]:
+        """ATTAIN exit via SOC reaching target — HOLD-shaped.
+
+        Mirrors arbitrage HOLD (charge_from_grid=False, reserve=target,
+        chunk_completed=True) so the reserve stays locked at target until
+        the boundary transition takes over — see arbitrage HOLD at
+        :717-718 + :822-827. This is the structural fix for A-CRIT-1
+        defect 3: previously, reaching target made the predicate False
+        and the drain-target fallback released the buffer pre-boundary;
+        now we hold.
+        """
+        self._arbitrage_active = True
+        self._arbitrage_chunk_completed = True
+        self._attain_active = False
+        reason = (
+            f"Peak-buffer attainability HOLD — SOC {soc:.0f}% reached "
+            f"target {self._peak_buffer_target}%; locking reserve until boundary"
+            if soc is not None
+            else f"Peak-buffer attainability HOLD — locking reserve at "
+                 f"{self._peak_buffer_target}% until boundary"
+        )
+        return self._result(
+            BATTERY_MODE_SELF_CONSUMPTION,
+            reason,
+            current_mode,
+            charge_from_grid=False,
+            reserve_level=self._peak_buffer_target,
+            season=season,
+            tomorrow_solar_class=tomorrow_class,
+            arbitrage_active=True,
+            arbitrage_phase=ARBITRAGE_PHASE_ATTAIN,
+            target_day_class=target_day_class,
+        )
+
+    def _get_attainability_hold_current_decision(
+        self,
+        soc: float | None,
+        current_mode: str | None,
+        season: str,
+        tomorrow_class: str,
+        target_day_class: str,
+    ) -> dict[str, Any]:
+        """B-HIGH-3 — reboot-mid-ATTAIN HOLD-CURRENT (zero hardware commands).
+
+        On the cold-boot K-tick warm-up after restarting while the Enphase
+        was mid-charge (charge_from_grid ON + reserve 80), the old code
+        fell through to the drain/hold fallback which read cfg=ON and
+        emitted `switch.turn_off` plus a reserve drop — exactly the
+        unwind the cycle exists to prevent.
+
+        This path emits a decision dict with NO actions (empty list) and
+        records no command intent, so `_result`'s normal idempotent
+        comparison can't accidentally toggle anything. Reviewer B's note
+        captured in the live-validation table.
+        """
+        return {
+            "mode": current_mode or BATTERY_MODE_SELF_CONSUMPTION,
+            "reason": (
+                "Peak-buffer attainability — post-reboot HOLD CURRENT "
+                "(K-tick rate-window warm-up; preserving in-flight Enphase "
+                "state, no commands issued)"
+            ),
+            "actions": [],
+            "soc": soc,
+            "solar_production": self.solar_production,
+            "net_power": self.net_power,
+            "battery_power": self.battery_power,
+            "solar_day_class": self.classify_solar_day(),
+            "tomorrow_solar_class": tomorrow_class,
+            "envoy_available": True,
+            "season": season,
+            "arbitrage_active": True,
+            "arbitrage_enabled": self._arbitrage_enabled,
+            "arbitrage_phase": ARBITRAGE_PHASE_ATTAIN,
+            "target_day_class": target_day_class,
+            "reserve_soc": self.reserve_soc,
+        }
 
     def reset_arbitrage_chunk(self, reason: str = "off_peak entry") -> None:
         """Reset the per-chunk lock + recheck flag.
@@ -1060,6 +1322,212 @@ class BatteryStrategy:
         # SOC samples so a stale (yesterday's) rate cannot influence
         # the new chunk's projection.
         self._attain_soc_history.clear()
+        # Fix-up pass: latch is per-chunk. New off-peak chunk → fresh
+        # entry decision.
+        self._attain_active = False
+
+    # ── Fix-up pass — latched attain branch (shared off_peak + mid_peak D1b)
+    def _run_attain_branch(
+        self,
+        soc: float | None,
+        now: datetime,
+        tou_period: str,
+        target_day_class: str,
+        tomorrow_class: str,
+        current_mode: str | None,
+        season: str,
+    ) -> dict[str, Any] | None:
+        """Run the attain decision flow.
+
+        Returns the decision dict to emit, OR None when the caller should
+        fall through to the default branch (drain-target for off_peak, the
+        usual mid_peak hold/discharge for mid_peak).
+
+        Exit conditions checked in this order while latched:
+          1. SOC >= target → HOLD-shape (charge_from_grid=False, reserve
+             held at target, chunk_completed=True). A-CRIT-1 defect 3 fix.
+          2. Chunk completed (guard abort or boundary cleanup elsewhere) →
+             release latch, fall through.
+          3. Window closes / boundary <= 0 → release latch, fall through.
+          4. Peak boundary within ATTAIN_PEAK_HANDOFF_LEAD_MIN → release
+             latch + emit a HOLD-shape so reserve stays at target while
+             the upcoming peak branch takes over (cloud-cycle 15-min lead).
+          5. Else → re-emit CHARGE (idempotent via _result()).
+
+        Entry checks (only when NOT latched): record sample → consult
+        entry predicate → consult guard → set latch + emit CHARGE.
+
+        B-HIGH-3: when latched AND rate is None (reboot K-tick warm-up),
+        emit a HOLD-CURRENT decision (zero actions) so we never unwind
+        an in-flight Enphase charge while the rate window seeds.
+        """
+        # Always record the sample so the trailing window seeds.
+        self._record_attain_sample(now, soc)
+
+        # ----- Latched fast-path — entry predicate NOT re-evaluated ----
+        if self._attain_active:
+            # Exit 1: SOC reached target → HOLD until boundary.
+            if (
+                soc is not None
+                and self._peak_buffer_target is not None
+                and soc >= self._peak_buffer_target
+            ):
+                _LOGGER.info(
+                    "Attainability HOLD entered: SOC %.0f%% reached target %d%%; "
+                    "reserve held at target until boundary",
+                    soc, self._peak_buffer_target,
+                )
+                return self._get_attainability_hold_decision(
+                    soc=soc, now=now,
+                    target_day_class=target_day_class,
+                    tomorrow_class=tomorrow_class,
+                    current_mode=current_mode, season=season,
+                )
+            # Exit 2: chunk lock raised elsewhere.
+            if self._arbitrage_chunk_completed:
+                self._attain_active = False
+                return None
+            # Compute boundary for exit 3/4 + reason narrative.
+            _, period_name, mins = self._attain_target_boundary(now, tou_period)
+            # Exit 3: window closed (boundary reached / past).
+            if mins is None or mins <= 0:
+                self._attain_active = False
+                return None
+            # Exit 4: peak handoff lead — release latch + HOLD so the
+            # peak branch takes over with reserve already at target.
+            if (
+                period_name == "peak"
+                and mins <= ATTAIN_PEAK_HANDOFF_LEAD_MIN
+            ):
+                _LOGGER.info(
+                    "Attainability peak-handoff (%dm to peak ≤ %dm lead): "
+                    "releasing latch + HOLD so cloud cycle completes pre-peak",
+                    mins, ATTAIN_PEAK_HANDOFF_LEAD_MIN,
+                )
+                return self._get_attainability_hold_decision(
+                    soc=soc, now=now,
+                    target_day_class=target_day_class,
+                    tomorrow_class=tomorrow_class,
+                    current_mode=current_mode, season=season,
+                )
+            # Guard re-check while latched.
+            snap = self._effective_import_kw()
+            if snap is not None and snap[0] > self._arbitrage_grid_import_guard_kw:
+                effective_kw, net_kw, batt_charge_kw = snap
+                self._arbitrage_guard_consecutive_trips += 1
+                if (
+                    self._arbitrage_guard_consecutive_trips
+                    >= ARBITRAGE_GUARD_CONSECUTIVE_TRIPS_TO_LOCK
+                ):
+                    from homeassistant.util import dt as dt_util
+                    self._arbitrage_chunk_completed = True
+                    self._arbitrage_guard_aborted_at = dt_util.now().isoformat()
+                    self._arbitrage_guard_aborted_kw = effective_kw
+                    self._attain_active = False
+                    _LOGGER.warning(
+                        "Attainability CHARGE aborted by grid-import guard: "
+                        "effective_import=%.1f kW (net=%.1f, battery_charge=%.1f) "
+                        "exceeds %.1f kW on %d consecutive ticks. Chunk locked "
+                        "(will retry next off-peak chunk).",
+                        effective_kw, net_kw, batt_charge_kw,
+                        self._arbitrage_grid_import_guard_kw,
+                        self._arbitrage_guard_consecutive_trips,
+                    )
+                    return None
+                # under N consecutive — keep CHARGE (one tick to absorb lag).
+            else:
+                self._arbitrage_guard_consecutive_trips = 0
+
+            # B-HIGH-3: reboot post-restart, no rate yet → HOLD CURRENT.
+            rate = self._observed_net_charge_rate_per_hour()
+            if rate is None:
+                _LOGGER.info(
+                    "Attainability latched + post-reboot warm-up "
+                    "(K-tick rate window reseeding) — HOLD CURRENT, "
+                    "no Enphase commands this tick",
+                )
+                return self._get_attainability_hold_current_decision(
+                    soc=soc, current_mode=current_mode, season=season,
+                    tomorrow_class=tomorrow_class,
+                    target_day_class=target_day_class,
+                )
+            # Re-emit CHARGE; idempotent via _result()'s diff (so no
+            # repeated Enphase commands while already commanded).
+            stage_note = (
+                "mid_peak→peak coverage" if tou_period == "mid_peak" else None
+            )
+            # Compute current projection for narrative continuity (entry-
+            # only inputs; reflects realized rate without flipping latch).
+            solar_surplus = self._expected_solar_surplus_pct(now, mins)
+            projected = (
+                soc + (mins / 60.0) * rate + solar_surplus
+                if soc is not None else None
+            )
+            return self._get_attainability_decision(
+                soc=soc, now=now,
+                target_day_class=target_day_class,
+                tomorrow_class=tomorrow_class,
+                current_mode=current_mode, season=season,
+                projected=projected, rate=rate, mins=mins,
+                tou_period=tou_period, stage_note=stage_note,
+            )
+
+        # ----- Not latched — entry predicate -----
+        should_attain, projected, rate, mins = self._should_attain_peak_buffer(
+            soc, now, tou_period=tou_period,
+        )
+        if not should_attain:
+            return None
+        # Guard precedence on entry.
+        snap = self._effective_import_kw()
+        if snap is not None and snap[0] > self._arbitrage_grid_import_guard_kw:
+            effective_kw, net_kw, batt_charge_kw = snap
+            self._arbitrage_guard_consecutive_trips += 1
+            if (
+                self._arbitrage_guard_consecutive_trips
+                >= ARBITRAGE_GUARD_CONSECUTIVE_TRIPS_TO_LOCK
+            ):
+                from homeassistant.util import dt as dt_util
+                self._arbitrage_chunk_completed = True
+                self._arbitrage_guard_aborted_at = dt_util.now().isoformat()
+                self._arbitrage_guard_aborted_kw = effective_kw
+                _LOGGER.warning(
+                    "Attainability entry aborted by grid-import guard: "
+                    "effective_import=%.1f kW (net=%.1f, battery_charge=%.1f) "
+                    "exceeds %.1f kW on %d consecutive ticks. Chunk locked "
+                    "(will retry next off-peak chunk).",
+                    effective_kw, net_kw, batt_charge_kw,
+                    self._arbitrage_grid_import_guard_kw,
+                    self._arbitrage_guard_consecutive_trips,
+                )
+                return None
+            # under N — still enter to absorb battery-CT lag.
+        else:
+            self._arbitrage_guard_consecutive_trips = 0
+
+        # Enter the latch + emit first CHARGE. Log on entry transition only
+        # (A-LOW-1 — no per-tick INFO spam while latched).
+        self._attain_active = True
+        stage_note = (
+            "mid_peak→peak coverage" if tou_period == "mid_peak" else None
+        )
+        _LOGGER.info(
+            "Attainability ENTERED%s: projected SOC %.0f%% < target %d%% at "
+            "boundary (rate=%+.1f%%/h, %dm left)",
+            f" [{stage_note}]" if stage_note else "",
+            projected if projected is not None else float("nan"),
+            self._peak_buffer_target,
+            rate if rate is not None else float("nan"),
+            mins if mins is not None else -1,
+        )
+        return self._get_attainability_decision(
+            soc=soc, now=now,
+            target_day_class=target_day_class,
+            tomorrow_class=tomorrow_class,
+            current_mode=current_mode, season=season,
+            projected=projected, rate=rate, mins=mins,
+            tou_period=tou_period, stage_note=stage_note,
+        )
 
     def determine_mode(
         self,
@@ -1214,6 +1682,37 @@ class BatteryStrategy:
         # - Shoulder/Winter: mid-peak IS the highest-rate period (no peak exists).
         #   Discharge battery to cover load; solar exports at $0.086/kWh.
         if tou_period == "mid_peak":
+            # D1b — operator-mandated mid_peak attainability continuation
+            # (covers PEAK when off_peak couldn't fill the buffer). State-
+            # matrix invariant change: charging is now permitted in mid_peak
+            # IFF (a) attain is latched OR entry predicate fires, (b)
+            # mid_peak rate < peak rate, (c) soc < peak_buffer_target, and
+            # (d) peak is still ahead. Charging during PEAK remains
+            # structurally impossible (no attain branch in the peak path).
+            # Operator: "arbitrage IS arbitrage... if we can't cover
+            # mid_peak we absolutely need to cover peak."
+            if (
+                self._arbitrage_enabled
+                and self._peak_buffer_target is not None
+                and soc is not None
+                and soc < self._peak_buffer_target
+                and season == "summer"
+                and self._tou is not None
+                and self._tou.peak_ahead_before_offpeak(now)
+            ):
+                tomorrow_class_mp = self.classify_tomorrow_solar()
+                target_day_class_mp = self._classify_target_day(now)
+                attain_result = self._run_attain_branch(
+                    soc=soc,
+                    now=now,
+                    tou_period="mid_peak",
+                    target_day_class=target_day_class_mp,
+                    tomorrow_class=tomorrow_class_mp,
+                    current_mode=current_mode,
+                    season=season,
+                )
+                if attain_result is not None:
+                    return attain_result
             # Summer mid_peak is a *bracketed* period: pre-peak window (14-16)
             # then peak (16-20) then post-peak window (20-21). Holding for
             # peak is correct PRE-peak but wastes grid POST-peak (off_peak
@@ -1298,91 +1797,24 @@ class BatteryStrategy:
                 season=season,
             )
 
-        # ── Cycle EC/HC reboot pickup — D1 attainability branch ──────────────
-        # Arbitrage forecast gate is closed (good/moderate/excellent day) but
-        # solar may still fail to deliver — EV ensure-on, HVAC pre-cool, pool
-        # filtration etc. can eat all production on a "good" day. When the
-        # projected SOC at the high-rate boundary falls below peak_buffer_target,
-        # pull grid to catch up. v1: observe-only on EVs (no EVSE coupling) per
-        # operator scope; the existing arbitrage CHARGE EVSE pause gate at
-        # energy.py uses `== ARBITRAGE_PHASE_CHARGE` only, so ATTAIN does NOT
-        # cascade into EVSE actions.
-        #
-        # ATTAIN persistence: once the branch fires, the `attain` phase token
-        # stays asserted across ticks until projection succeeds OR the chunk
-        # completes (mirroring CHARGE→HOLD). This is what the addendum's
-        # 20-40min onset lag requires — don't re-command every tick during
-        # the Enphase commit pending state; the idempotent _result() emitter
-        # de-dupes anyway.
+        # ── Attainability branch (fix-up pass — latched, solar-informed) ────
+        # Arbitrage forecast gate closed but solar may still fail to deliver
+        # (EV ensure-on, HVAC pre-cool, pool filtration etc.). When projection
+        # at boundary < peak_buffer_target, pull grid to catch up. v1
+        # observe-only on EVs (no EVSE coupling).
         if self._arbitrage_enabled:
-            # Always record the sample so the trailing window seeds even
-            # outside the predicate's eligibility envelope (e.g. before the
-            # charge window opens; after a chunk reset).
-            self._record_attain_sample(now, soc)
-            should_attain, projected, rate, mins = self._should_attain_peak_buffer(
-                soc, now,
+            attain_result = self._run_attain_branch(
+                soc=soc,
+                now=now,
+                tou_period="off_peak",
+                target_day_class=target_day_class,
+                tomorrow_class=tomorrow_class,
+                current_mode=current_mode,
+                season=season,
             )
-            if should_attain:
-                # Grid-import guard precedence — same machinery as arbitrage
-                # CHARGE. ATTAIN drives the same charge_from_grid lever, so
-                # the same consecutive-trip lock applies. Reuses the
-                # _effective_import_kw / _arbitrage_guard_consecutive_trips
-                # state so a guard trip in either branch counts toward the
-                # shared cap.
-                snap = self._effective_import_kw()
-                if snap is not None and snap[0] > self._arbitrage_grid_import_guard_kw:
-                    effective_kw, net_kw, batt_charge_kw = snap
-                    self._arbitrage_guard_consecutive_trips += 1
-                    if (
-                        self._arbitrage_guard_consecutive_trips
-                        >= ARBITRAGE_GUARD_CONSECUTIVE_TRIPS_TO_LOCK
-                    ):
-                        # Lock the chunk — same shape as arbitrage CHARGE.
-                        from homeassistant.util import dt as dt_util
-                        self._arbitrage_chunk_completed = True
-                        self._arbitrage_guard_aborted_at = dt_util.now().isoformat()
-                        self._arbitrage_guard_aborted_kw = effective_kw
-                        _LOGGER.warning(
-                            "Attainability CHARGE aborted by grid-import guard: "
-                            "effective_import=%.1f kW (net=%.1f, battery_charge=%.1f) "
-                            "exceeds threshold=%.1f kW on %d consecutive ticks. "
-                            "Chunk locked; falling through to drain-target path.",
-                            effective_kw, net_kw, batt_charge_kw,
-                            self._arbitrage_grid_import_guard_kw,
-                            self._arbitrage_guard_consecutive_trips,
-                        )
-                        # Fall through to drain-target fallback below.
-                    else:
-                        _LOGGER.info(
-                            "Attainability grid-import guard trip %d/%d "
-                            "(effective=%.1f kW > %.1f kW cap) — deferring "
-                            "chunk lock one tick to absorb battery-CT lag",
-                            self._arbitrage_guard_consecutive_trips,
-                            ARBITRAGE_GUARD_CONSECUTIVE_TRIPS_TO_LOCK,
-                            snap[0], self._arbitrage_grid_import_guard_kw,
-                        )
-                        return self._get_attainability_decision(
-                            soc=soc, now=now,
-                            target_day_class=target_day_class,
-                            tomorrow_class=tomorrow_class,
-                            current_mode=current_mode, season=season,
-                            projected=projected, rate=rate, mins=mins,
-                        )
-                else:
-                    # Under cap (or net unavailable) — reset streak.
-                    self._arbitrage_guard_consecutive_trips = 0
-                    _LOGGER.info(
-                        "Attainability CHARGE fired: projected SOC %.0f%% < "
-                        "target %d%% at boundary (rate=%+.1f%%/h, %dm left)",
-                        projected, self._peak_buffer_target, rate, mins,
-                    )
-                    return self._get_attainability_decision(
-                        soc=soc, now=now,
-                        target_day_class=target_day_class,
-                        tomorrow_class=tomorrow_class,
-                        current_mode=current_mode, season=season,
-                        projected=projected, rate=rate, mins=mins,
-                    )
+            if attain_result is not None:
+                return attain_result
+            # else: fall through to drain-target fallback below.
 
         # ----- Drain-target fallback path (unchanged from v4.3.4) -----
         # Used when arbitrage_enabled=False OR target_day_class ∉
