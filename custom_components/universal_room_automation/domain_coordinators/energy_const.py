@@ -754,7 +754,11 @@ def validate_envoy_config(
       - serial (str | None): parsed serial when V1 passes, else None.
       - resolved (dict[str, str]): entities the EC would actually use, after
         applying explicit overrides on top of derived-from-serial defaults.
-      - degraded (bool): True when ok=True but device is mid-boot/recovery.
+      - degraded (bool): True when the envoy entity is registry-known but
+        its state is missing/unavailable (device mid-boot/recovery). This
+        flag is independent of `ok`: `degraded=True` can co-occur with
+        `ok=False` when the envoy is degraded AND a derived entity is
+        registry-absent. Consumers MUST gate on `ok` first.
       - degraded_reason (str | None): one of ENVOY_DEGRADED_STATE_MISSING /
         ENVOY_DEGRADED_STATE_UNAVAILABLE when degraded; None otherwise.
       - entity_registry_known (bool): True iff the envoy entity is in the
@@ -842,18 +846,38 @@ def validate_envoy_config(
         if not eid:
             errors[key] = ENVOY_ERR_DERIVED_MISSING
             continue
-        if not _entity_in_registry(hass, eid):
-            # Registry-absent → genuine missing-derived (config error).
+        # B2 fix: existence = registry-known OR state-present. State-only
+        # entities (e.g. YAML template sensors without unique_id) have no
+        # registry row but a live state; pre-cycle V4 used hass.states.get
+        # so they passed. Restore that behavior.
+        if (
+            not _entity_in_registry(hass, eid)
+            and hass.states.get(eid) is None
+        ):
             errors[key] = ENVOY_ERR_DERIVED_MISSING
             continue
-        # Registry-known but state may be None (mid-boot). Do NOT hard-fail;
-        # mark degraded if not already.
-        if hass.states.get(eid) is None and not degraded:
+        # Registry-known or state-known but state may be None / unavailable
+        # / unknown (mid-boot). Do NOT hard-fail; mark degraded if not
+        # already. B3 fix: treat unavailable/unknown as degraded, mirroring
+        # V2 (energy_const.py:823) — Bug Class #22 (enum/state mismatch).
+        _derived_state = hass.states.get(eid)
+        if _derived_state is None and not degraded:
             degraded = True
             degraded_reason = ENVOY_DEGRADED_STATE_MISSING
             warnings.append(
                 f"Envoy derived entity '{eid}' is registry-known but has "
                 "no state yet (device mid-boot)"
+            )
+        elif (
+            _derived_state is not None
+            and _derived_state.state in ("unavailable", "unknown")
+            and not degraded
+        ):
+            degraded = True
+            degraded_reason = ENVOY_DEGRADED_STATE_UNAVAILABLE
+            warnings.append(
+                f"Envoy derived entity '{eid}' is currently "
+                f"'{_derived_state.state}' (device mid-boot/recovery)"
             )
 
     return {

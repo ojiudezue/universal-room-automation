@@ -594,6 +594,24 @@ def _ec_switch_factory(
                 self._deferred_restore = False
                 self.async_write_ha_state()
 
+        def _register_for_restore_accounting(self) -> None:
+            """Register this switch with EC's dynamic restore-accounting.
+
+            Idempotent. Boot-decoupling C7 fix — replaces the hardcoded
+            pending-count 6. Called at async_added_to_hass AND from
+            _handle_ec_ready so the count is in regardless of whether EC
+            was registered at platform-setup time.
+            """
+            energy = self._get_energy()
+            if energy is None:
+                return
+            try:
+                energy.register_sub_switch_for_restore_accounting(
+                    unique_suffix,
+                )
+            except Exception:  # noqa: BLE001
+                pass
+
         async def async_added_to_hass(self):
             await super().async_added_to_hass()
 
@@ -613,6 +631,10 @@ def _ec_switch_factory(
                     self._handle_ec_ready,
                 )
             )
+
+            # Register for dynamic restore-accounting (C7). Safe-noop if
+            # EC not yet present; _handle_ec_ready re-attempts.
+            self._register_for_restore_accounting()
 
             last_state = await self.async_get_last_state()
             if last_state is None:
@@ -638,6 +660,20 @@ def _ec_switch_factory(
                         self._get_energy(), attr_name, self._default,
                     ),
                 )
+                # C1 fix: skip means the constructor/options seed is the
+                # authoritative value — restore is COMPLETE, not pending.
+                # Notify the sub-switch accounting so
+                # ECSubSwitchesSyncedSensor converges; otherwise the
+                # PROBLEM device_class sensor stays True forever on the
+                # boot immediately after a poisoned restore (all 6 EC
+                # sub-switches restoring as "unavailable" → all skip →
+                # counter never reaches 0 without this notify).
+                _energy_for_notify = self._get_energy()
+                if _energy_for_notify is not None:
+                    try:
+                        _energy_for_notify.notify_sub_switch_restore_complete()
+                    except Exception:  # noqa: BLE001
+                        pass
                 return
             target = last_state.state == "on"
             self._deferred_value = target
@@ -689,6 +725,9 @@ def _ec_switch_factory(
                     unique_suffix,
                 )
                 return
+            # Late-register for restore accounting if EC wasn't present at
+            # async_added_to_hass time (C7).
+            self._register_for_restore_accounting()
             setattr(energy, attr_name, self._deferred_value)
             self._deferred_restore = False
             # v4.7.x H1 fix-up: notify EC that this switch completed deferred
@@ -711,6 +750,9 @@ def _ec_switch_factory(
                 return
             energy = self._get_energy()
             if energy is not None:
+                # Late-register for restore accounting if EC came up after
+                # async_added_to_hass (C7).
+                self._register_for_restore_accounting()
                 setattr(energy, attr_name, self._deferred_value)
                 self._deferred_restore = False
                 # v4.7.x H1 fix-up: notify EC that this switch completed
@@ -1022,6 +1064,22 @@ class HVACDynamicPresetSwitch(SwitchEntity, RestoreEntity):
             self.async_write_ha_state()
             _LOGGER.info("HVAC: Dynamic Preset Auto-Adjust disabled")
 
+    def _register_for_restore_accounting(self) -> None:
+        """Register this switch with EC's dynamic restore-accounting (C7).
+
+        Idempotent — safe to call from async_added_to_hass and
+        _handle_ec_ready / _retry_restore.
+        """
+        energy = self._get_energy()
+        if energy is None:
+            return
+        try:
+            energy.register_sub_switch_for_restore_accounting(
+                "hvac_dynamic_preset",
+            )
+        except Exception:  # noqa: BLE001
+            pass
+
     async def async_added_to_hass(self) -> None:
         """Restore state — deferred via SIGNAL_ENERGY_COORDINATOR_READY if EC not yet ready.
 
@@ -1042,6 +1100,9 @@ class HVACDynamicPresetSwitch(SwitchEntity, RestoreEntity):
                 self._handle_ec_ready,
             )
         )
+
+        # C7 fix: dynamic restore-accounting registration.
+        self._register_for_restore_accounting()
 
         last_state = await self.async_get_last_state()
         if last_state is None:
@@ -1078,15 +1139,26 @@ class HVACDynamicPresetSwitch(SwitchEntity, RestoreEntity):
         # `is_on` property reading `energy.dynamic_preset_enabled` (or
         # falling back to `self._default`) keeps state correct.
         if last_state.state not in ("on", "off"):
+            # C6 fix: HVACDynamicPresetSwitch's seed is the constructor
+            # default (ON), not an options entry — wording corrected.
             _LOGGER.info(
                 "Skipping RestoreEntity restore for HVACDynamicPresetSwitch "
-                "— last_state=%s — keeping options-seeded value %s",
+                "— last_state=%s — keeping constructor-default value %s",
                 last_state.state,
                 getattr(
                     self._get_energy(), "dynamic_preset_enabled",
                     self._default,
                 ),
             )
+            # C1 fix: skip means restore is COMPLETE (seed is authoritative);
+            # notify sub-switch accounting so ECSubSwitchesSyncedSensor
+            # converges instead of stranding the PROBLEM device_class True.
+            _energy_for_notify = self._get_energy()
+            if _energy_for_notify is not None:
+                try:
+                    _energy_for_notify.notify_sub_switch_restore_complete()
+                except Exception:  # noqa: BLE001
+                    pass
             return
 
         target = last_state.state == "on"
@@ -1141,6 +1213,8 @@ class HVACDynamicPresetSwitch(SwitchEntity, RestoreEntity):
                 "but EC still not in hass.data — restore deferred"
             )
             return
+        # Late-register if EC wasn't present at async_added_to_hass (C7).
+        self._register_for_restore_accounting()
         energy.dynamic_preset_enabled = self._deferred_value
         self._deferred_restore = False
         try:
@@ -1164,6 +1238,8 @@ class HVACDynamicPresetSwitch(SwitchEntity, RestoreEntity):
             return
         energy = self._get_energy()
         if energy is not None:
+            # Late-register (C7).
+            self._register_for_restore_accounting()
             energy.dynamic_preset_enabled = self._deferred_value
             self._deferred_restore = False
             try:
@@ -2355,7 +2431,8 @@ class HVACZoneIntelligenceSwitch(SwitchEntity, RestoreEntity):
         """Restore previous state on startup."""
         await super().async_added_to_hass()
         last_state = await self.async_get_last_state()
-        if last_state is not None:
+        # Bug Class #52 — skip unavailable/unknown to preserve constructor default.
+        if last_state is not None and last_state.state in ("on", "off"):
             hvac = self._get_hvac()
             if hvac is not None:
                 hvac.zone_intelligence_enabled = last_state.state == "on"
@@ -2530,7 +2607,8 @@ class HVACSolarCoverSwitch(SwitchEntity, RestoreEntity):
         """Restore previous state on startup."""
         await super().async_added_to_hass()
         last_state = await self.async_get_last_state()
-        if last_state is not None:
+        # Bug Class #52 — skip unavailable/unknown to preserve constructor default.
+        if last_state is not None and last_state.state in ("on", "off"):
             cc = self._get_cover_controller()
             if cc is not None:
                 cc._solar_gain_enabled = last_state.state == "on"
@@ -2749,7 +2827,8 @@ class HVACPreArrivalSwitch(SwitchEntity, RestoreEntity):
         """Restore previous state on startup."""
         await super().async_added_to_hass()
         last_state = await self.async_get_last_state()
-        if last_state is not None:
+        # Bug Class #52 — skip unavailable/unknown to preserve constructor default.
+        if last_state is not None and last_state.state in ("on", "off"):
             hvac = self._get_hvac()
             if hvac is not None:
                 hvac.pre_arrival_enabled = last_state.state == "on"
@@ -2826,7 +2905,8 @@ class HVACFanControlSwitch(SwitchEntity, RestoreEntity):
         """Restore previous state on startup."""
         await super().async_added_to_hass()
         last_state = await self.async_get_last_state()
-        if last_state is not None:
+        # Bug Class #52 — skip unavailable/unknown to preserve constructor default.
+        if last_state is not None and last_state.state in ("on", "off"):
             hvac = self._get_hvac()
             if hvac is not None:
                 hvac.fan_control_enabled = last_state.state == "on"

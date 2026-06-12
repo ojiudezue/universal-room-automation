@@ -105,21 +105,34 @@ class TestUsesEcSwitchFactory:
 
 
 class TestPendingSubSwitchRestoresCounter:
-    """v4.7.2.1: Counter must be 6 — OccupancyWeightedPredictionSwitch joins
-    the tracked set."""
+    """EC Envoy boot-decoupling cycle (C7 fix): the hardcoded 6 was stale
+    — production now dynamically counts switches that call
+    `register_sub_switch_for_restore_accounting()` at construction. The
+    counter starts at 0 and accumulates as switches register.
+    Original v4.7.2.1 intent (OccupancyWeightedPredictionSwitch joins the
+    tracked set) is still honored — it now uses the factory's
+    auto-registration path.
+    """
 
-    def test_v4721_pending_sub_switch_restores_counter_is_6(self, energy_src):
-        """_pending_sub_switch_restores must be initialized to 6."""
-        assert "self._pending_sub_switch_restores: int = 6" in energy_src, (
-            "v4.7.2.1: _pending_sub_switch_restores must be 6 — "
-            "OccupancyWeightedPredictionSwitch is now the 6th factory-generated EC switch"
+    def test_pending_sub_switch_restores_counter_starts_at_zero(self, energy_src):
+        """_pending_sub_switch_restores initial value is 0 (C7 dynamic)."""
+        assert "self._pending_sub_switch_restores: int = 0" in energy_src, (
+            "C7 fix: dynamic restore accounting starts at 0 and is "
+            "incremented by register_sub_switch_for_restore_accounting()"
         )
 
-    def test_v4721_counter_not_5(self, energy_src):
-        """Counter 5 is the pre-hotfix value and must no longer appear."""
-        # Only check the init assignment line, not any other numeric context
-        assert "self._pending_sub_switch_restores: int = 5" not in energy_src, (
-            "v4.7.2.1: pre-hotfix counter of 5 must be replaced with 6"
+    def test_register_sub_switch_helper_exists(self, energy_src):
+        """The dynamic-registration helper must be defined."""
+        assert "def register_sub_switch_for_restore_accounting(" in energy_src, (
+            "C7 fix: dynamic registration helper missing on EnergyCoordinator"
+        )
+
+    def test_v4721_counter_not_stale_6(self, energy_src):
+        """The pre-C7 hardcoded 6 must no longer appear as an init value
+        (it was stale — 7 factory switches + HVACDynamicPresetSwitch = 8
+        actual notifiers)."""
+        assert "self._pending_sub_switch_restores: int = 6" not in energy_src, (
+            "Hardcoded 6 must be replaced with dynamic registration"
         )
 
 

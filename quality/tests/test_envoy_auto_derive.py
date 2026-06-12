@@ -93,10 +93,28 @@ _ura.__path__ = [_ura_path]
 _ura.__package__ = "custom_components.universal_room_automation"
 sys.modules["custom_components.universal_room_automation"] = _ura
 
-_ura_const = types.ModuleType("custom_components.universal_room_automation.const")
-_ura_const.DOMAIN = "universal_room_automation"
-_ura_const.VERSION = "4.0.12"
-sys.modules["custom_components.universal_room_automation.const"] = _ura_const
+# Validator defect #10 fix: when test_envoy_boot_decoupling.py is collected
+# first, it registers this stub with BOOT_SETTLE_TIMEOUT_SECONDS. We must
+# NOT clobber its work — setdefault + additive setattr keeps the stub
+# population stable across both collection orders. (The constant's
+# canonical home is custom_components/.../const.py:1474; both test files
+# must mirror it because production imports it lazily inside the helper.)
+_existing_const = sys.modules.get(
+    "custom_components.universal_room_automation.const"
+)
+if _existing_const is None:
+    _ura_const = types.ModuleType(
+        "custom_components.universal_room_automation.const"
+    )
+    sys.modules["custom_components.universal_room_automation.const"] = _ura_const
+else:
+    _ura_const = _existing_const
+if not hasattr(_ura_const, "DOMAIN"):
+    _ura_const.DOMAIN = "universal_room_automation"
+if not hasattr(_ura_const, "VERSION"):
+    _ura_const.VERSION = "4.0.12"
+if not hasattr(_ura_const, "BOOT_SETTLE_TIMEOUT_SECONDS"):
+    _ura_const.BOOT_SETTLE_TIMEOUT_SECONDS = 60
 
 _dc = types.ModuleType("custom_components.universal_room_automation.domain_coordinators")
 _dc.__path__ = [os.path.join(_ura_path, "domain_coordinators")]

@@ -631,16 +631,43 @@ def _schedule_envoy_revalidation(
     from .domain_coordinators.energy_const import validate_envoy_config
 
     # Idempotency latch — captured by the inner callbacks so whichever
-    # path fires first prevents the other from double-running.
-    state = {"fired": False}
+    # path fires first prevents the other from double-running. `unsubs`
+    # carries the OTHER path's cancel handle so the winner can cross-cancel
+    # the loser (A5 fix — keeps the timer ledger clean).
+    state: dict = {"fired": False, "unsubs": []}
 
     entry_id = entry.entry_id
     issue_id = f"energy_envoy_invalid_{entry_id}"
+
+    def _ec_registered() -> bool:
+        """Return True iff EnergyCoordinator was actually registered.
+
+        A2 fix: the D3 ok-path clear of the repair issue must NOT happen
+        when validation now passes but EC is still absent (boot hard-fail
+        case where __init__.py raised the issue + skipped EC). Deleting
+        the issue there erases the operator's recovery affordance.
+        """
+        try:
+            manager = (
+                hass.data.get(DOMAIN, {}).get("coordinator_manager")
+            )
+            if manager is None:
+                return False
+            return manager.coordinators.get("energy") is not None
+        except Exception:  # noqa: BLE001
+            return False
 
     def _do_revalidate(_reason: str) -> None:
         if state["fired"]:
             return
         state["fired"] = True
+        # Cross-cancel the loser path (A5).
+        for _unsub in state["unsubs"]:
+            try:
+                _unsub()
+            except Exception:  # noqa: BLE001
+                pass
+        state["unsubs"] = []
         try:
             result = validate_envoy_config(hass, energy_entity_config)
         except Exception as exc:  # noqa: BLE001
@@ -684,14 +711,56 @@ def _schedule_envoy_revalidation(
                 )
             return
 
-        # ok=True path — clear any stale issue from a prior boot.
+        # ok=True path. A2 fix: the clear is only safe when EC was
+        # actually registered. If EC was skipped at boot due to an
+        # earlier hard-fail (registry-absent), validation passing now
+        # does NOT mean the runtime is healthy — EC is still absent.
+        # Re-raise/keep the repair issue with a placeholder telling
+        # the operator a reload/restart is needed to register EC.
+        # (We deliberately do NOT auto-reload — operator decides.)
+        if not _ec_registered():
+            _LOGGER.warning(
+                "Envoy deferred re-validation (%s): config now ok "
+                "but EnergyCoordinator was not registered at boot — "
+                "keeping repair issue. Reload/restart URA to register EC.",
+                _reason,
+            )
+            try:
+                ir.async_create_issue(
+                    hass,
+                    DOMAIN,
+                    issue_id,
+                    is_fixable=True,
+                    severity=ir.IssueSeverity.ERROR,
+                    translation_key="energy_envoy_invalid",
+                    translation_placeholders={
+                        "errors": (
+                            "envoy_now_ok_but_ec_not_registered — "
+                            "reload Universal Room Automation to "
+                            "register EnergyCoordinator"
+                        ),
+                    },
+                    data={"entry_id": entry_id},
+                )
+            except Exception as exc:  # noqa: BLE001
+                _LOGGER.warning(
+                    "Could not refresh repair issue for envoy "
+                    "deferred re-validation (ec_not_registered): %s",
+                    exc,
+                )
+            return
+
+        # EC is registered — safe to clear any stale issue.
         try:
             ir.async_delete_issue(hass, DOMAIN, issue_id)
         except Exception:  # noqa: BLE001
             pass
 
         if result.get("degraded"):
-            _LOGGER.info(
+            # B4: log at WARNING — operator's file logger is at WARNING,
+            # so INFO would render the deferred persistent-outage signal
+            # invisible.
+            _LOGGER.warning(
                 "Envoy deferred re-validation (%s): still degraded "
                 "(reason=%s) — runtime continues, no repair issue.",
                 _reason, result.get("degraded_reason"),
@@ -703,9 +772,16 @@ def _schedule_envoy_revalidation(
             )
 
     # Bound callbacks (Bug Class #42 — no lambdas capturing loop vars).
+    # A1/B1 fix: @callback so HassJob classifies these as
+    # HassJobType.Coroutinefunction/Callback and runs them on the event
+    # loop (not the executor thread pool). Without @callback,
+    # ir.async_create_issue / ir.async_delete_issue / er.async_get
+    # would be called off-loop and either raise or silently no-op.
+    @callback
     def _on_ha_started(_event) -> None:
         _do_revalidate("event_homeassistant_started")
 
+    @callback
     def _on_failsafe_timeout(_now) -> None:
         _do_revalidate("failsafe_timeout")
 
@@ -728,12 +804,14 @@ def _schedule_envoy_revalidation(
             )
         return
 
-    # Cold-boot path — listen-once + failsafe timeout.
+    # Cold-boot path — listen-once + failsafe timeout. The winner cancels
+    # the loser via state["unsubs"] inside _do_revalidate (A5 cross-cancel).
     try:
         unsub_started = hass.bus.async_listen_once(
             EVENT_HOMEASSISTANT_STARTED, _on_ha_started,
         )
         entry.async_on_unload(unsub_started)
+        state["unsubs"].append(unsub_started)
     except Exception:  # noqa: BLE001
         _LOGGER.debug(
             "Envoy deferred re-validation: failed to register "
@@ -745,6 +823,7 @@ def _schedule_envoy_revalidation(
             hass, BOOT_SETTLE_TIMEOUT_SECONDS, _on_failsafe_timeout,
         )
         entry.async_on_unload(unsub_timeout)
+        state["unsubs"].append(unsub_timeout)
     except Exception:  # noqa: BLE001
         _LOGGER.debug(
             "Envoy deferred re-validation: failed to register failsafe "
@@ -1945,9 +2024,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                 # None gracefully (energy_battery.py:928/945).
                 #
                 # The deferred re-validation at EVENT_HOMEASSISTANT_STARTED
-                # (see _schedule_envoy_revalidation below) handles the
-                # post-boot repair-issue surface — we deliberately do NOT
-                # raise the repair issue here during the boot-race window.
+                # (see _schedule_envoy_revalidation below) re-checks the
+                # repair-issue surface after the boot-race window settles.
+                # NOTE (A3 reconciliation): V0/V1/registry-absent hard fails
+                # raise the repair issue IMMEDIATELY below — these are
+                # user-actionable config errors, not boot-race recoverable.
+                # The post-settle pass at D3 refreshes/clears the same
+                # entry-scoped issue id based on the live result, and the
+                # ok-path clear is now conditional on EC having actually
+                # been registered (A2 fix), so a transient false-positive
+                # raised at startup cannot strand the operator without a
+                # recovery affordance.
                 from .const import CONF_ENERGY_ENABLED
                 _energy_enabled = bool(cm_config.get(CONF_ENERGY_ENABLED, False))
                 _envoy_hard_fail = False
