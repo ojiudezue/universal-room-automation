@@ -324,9 +324,12 @@ class TestD2PresetGuardSourceShape:
     def test_guard_uses_continue_to_skip_write(self, hvac_src: str):
         """Guard must continue the loop so set_preset_mode is never dispatched."""
         # Coarse: the v4.7.13 block contains a `continue` after the home_persons branch.
+        # Window widened 2000→4000 by the fan-trust cycle: the guard grew
+        # (FAN_TRUST_STATES + bidirectionality comments) pushing the
+        # `continue` past the old window.
         idx = hvac_src.find("v4.7.13")
         assert idx >= 0
-        window = hvac_src[idx : idx + 2000]
+        window = hvac_src[idx : idx + 4000]
         assert "continue" in window
 
 
@@ -493,6 +496,26 @@ _ura_const.DEFAULT_HUMIDITY_FAN_MAX_RUNTIME = 3600
 _ura_const.DEFAULT_HUMIDITY_FAN_HYSTERESIS = 10
 _ura_const.ENTRY_TYPE_ROOM = "room"
 sys.modules.setdefault("custom_components.universal_room_automation.const", _ura_const)
+# Fan-trust cycle: hvac_fans.py now imports the per-room sleep policy consts
+# (operator amendment 1 — coordinator path honors fan_sleep_policy). Apply
+# ADDITIVELY to whichever const module won the setdefault race so the import
+# succeeds in any collection order.
+_active_const = sys.modules["custom_components.universal_room_automation.const"]
+for _k, _v in (
+    # Fan-trust cycle additions (mirror const.py values exactly):
+    ("CONF_FAN_SLEEP_POLICY", "fan_sleep_policy"),
+    ("DEFAULT_FAN_SLEEP_POLICY", "reduce"),
+    ("FAN_SLEEP_OFF", "off"),
+    ("FAN_SLEEP_REDUCE", "reduce"),
+    ("FAN_SLEEP_NORMAL", "normal"),
+    # Pre-existing hvac_fans imports the original stub never carried
+    # (solo-collection robustness; mirror const.py:306/316/323):
+    ("CONF_ROOM_TYPE", "room_type"),
+    ("ROOM_TYPE_BEDROOM", "bedroom"),
+    ("ROOM_TYPE_GENERIC", "generic"),
+):
+    if not hasattr(_active_const, _k):
+        setattr(_active_const, _k, _v)
 
 _dc = types.ModuleType("custom_components.universal_room_automation.domain_coordinators")
 _dc.__path__ = [os.path.join(_ura_path, "domain_coordinators")]
@@ -602,9 +625,14 @@ class TestD3FanVacancyHoldDuringSleep:
         assert room_fan.vacancy_detected_time == vacancy_start
 
     def test_fan_vacancy_normal_expiry_when_house_state_not_sleep(self):
-        """Outside sleep, normal vacancy expiry still wins."""
+        """Outside the trust states, normal vacancy expiry still wins.
+
+        Re-contracted by the fan-trust cycle: home_night is now a TRUST
+        state (person-home correctly holds the fan there), so the
+        non-trust case uses home_day.
+        """
         ctrl = _make_fan_controller(
-            house_state="home_night",
+            house_state="home_day",
             zone_persons=["person.oji"],
             person_states={"person.oji": "home"},
         )
@@ -684,7 +712,9 @@ class TestD3SourceShape:
         block = hvac_fans_src[start:end]
         assert "v4.7.13" in block, "Guard tagged with version marker"
         assert "zone_persons" in block
-        assert '"sleep"' in block
+        # Fan-trust cycle: the sleep-only literal became FAN_TRUST_STATES
+        # ({home_night, sleep, waking}).
+        assert "FAN_TRUST_STATES" in block
 
     def test_guard_does_not_clear_vacancy_detected_time(self, hvac_fans_src: str):
         """The sleep branch must NOT touch room_fan.vacancy_detected_time."""
@@ -817,7 +847,9 @@ class TestMedium2OneShotSleepFallbackWarn:
             f"Expected 1 WARN after first call, got {len(warnings_after_first)}: "
             f"{warnings_after_first}"
         )
-        assert "test_zone" in warned_set
+        # Fan-trust cycle re-contract: dedup key widened zone → (zone, state)
+        # so each trust state gets its own one-shot WARN per zone.
+        assert ("test_zone", "sleep") in warned_set
 
         # Second call (same zone): WARN must be suppressed.
         result2 = helper(fake)
@@ -851,7 +883,8 @@ class TestMedium2OneShotSleepFallbackWarn:
             f"Expected one WARN per distinct zone (2 total); got "
             f"{len(warnings_total)}: {warnings_total}"
         )
-        assert warned_set == {"zone_alpha", "zone_beta"}
+        # Fan-trust cycle re-contract: (zone, state) tuple keys.
+        assert warned_set == {("zone_alpha", "sleep"), ("zone_beta", "sleep")}
 
     def test_warn_does_not_fire_when_not_in_sleep_state(self):
         """If house_state != sleep, the helper returns early without WARNing."""
