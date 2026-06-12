@@ -1,6 +1,6 @@
 """Sensor platform for Universal Room Automation."""
 #
-# Universal Room Automation vv5.3.6
+# Universal Room Automation vv5.3.7
 # Build: 2026-01-04
 # File: sensor.py
 # v3.3.1.3: Fixed PersonLikelyNextRoomSensor/PersonCurrentPathSensor __init__ signature
@@ -10449,6 +10449,17 @@ class EnergyEnvoyStatusSensor(AggregationEntity, SensorEntity):
             except (ValueError, TypeError):
                 pass
 
+        # EC Envoy boot-decoupling D7: degraded observability attrs.
+        # `envoy_degraded` is True when the per-cycle envoy read is
+        # unavailable; `envoy_degraded_since` carries the ISO timestamp
+        # of the streak start (None when not degraded). Lets dashboards /
+        # automations alert on persistent degrade without parsing the
+        # native_value enum.
+        envoy_degraded = bool(getattr(energy, "_envoy_degraded", False))
+        envoy_degraded_since = getattr(
+            energy, "_envoy_degraded_since", None
+        )
+
         attrs: dict[str, Any] = {
             "offline_count_today": unavail_count,
             "last_reading_time": last_available,
@@ -10459,6 +10470,8 @@ class EnergyEnvoyStatusSensor(AggregationEntity, SensorEntity):
             ),
             "data_anomaly_at": anomaly_at,
             "data_anomaly_age_seconds": anomaly_age_seconds,
+            "envoy_degraded": envoy_degraded,
+            "envoy_degraded_since": envoy_degraded_since,
         }
         return attrs
 
