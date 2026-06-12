@@ -142,6 +142,7 @@ class CoverController:
         # branch to scope reopens to ONLY what HVAC closed (not every cover
         # the controller manages).
         self._hvac_closed: set[str] = set()
+        # Cycle EC/HC reboot pickup — D2 #15. See update() for rationale.
         # v4.5.9.2: per-house occupancy-aware close threshold (configurable)
         self._occupied_close_delta: float = float(occupied_close_delta)
         # v4.5.10: master toggle + 5 tunables
@@ -312,6 +313,46 @@ class CoverController:
             self._state_listener_unsub()
             self._state_listener_unsub = None
 
+    def _reboot_pickup_seed_closed_set(
+        self, month: int, hour: int, outdoor_temp: float,
+    ) -> None:
+        """Cycle EC/HC reboot pickup — D2 #15.
+
+        On the FIRST eval after process startup: if we are INSIDE the solar
+        window AND outdoor_temp is above the close threshold, seed
+        ``_hvac_closed`` with any cover whose current position is below 30
+        (closed-ish). This re-establishes the membership claim that the
+        RAM-only set lost across the restart, so the post-window open phase
+        will reopen covers HVAC closed pre-reboot. Bounded — runs exactly
+        once per process lifetime via ``_reboot_pickup_done``.
+        """
+        in_solar_window = (
+            month in COVER_SOLAR_MONTHS
+            and self._solar_start_hour <= hour < self._solar_end_hour
+        )
+        if not (in_solar_window and outdoor_temp >= self._cover_close_temp):
+            return
+        seeded = 0
+        for entity_id in self._covers:
+            try:
+                st = self.hass.states.get(entity_id)
+                if st is None:
+                    continue
+                pos = st.attributes.get("current_position")
+                if pos is None:
+                    continue
+                if int(pos) <= 30:
+                    self._hvac_closed.add(entity_id)
+                    seeded += 1
+            except (TypeError, ValueError):
+                continue
+        if seeded:
+            _LOGGER.info(
+                "HVAC Covers reboot-pickup: re-seeded %d covers as "
+                "HVAC-closed (in solar window, position <= 30)",
+                seeded,
+            )
+
     async def update(self, energy_constraint: EnergyConstraint | None) -> None:
         """Run cover control logic.
 
@@ -344,6 +385,11 @@ class CoverController:
 
         if outdoor_temp is None:
             return  # Can't make cover decisions without temperature
+
+        # Cycle EC/HC reboot pickup — D2 #15. See _maybe_reboot_pickup().
+        if not getattr(self, "_reboot_pickup_done", False):
+            self._reboot_pickup_done = True
+            self._reboot_pickup_seed_closed_set(month, hour, outdoor_temp)
 
         # Determine if covers should be closed for solar gain.
         # v4.5.10: hours are now configurable instance attrs.

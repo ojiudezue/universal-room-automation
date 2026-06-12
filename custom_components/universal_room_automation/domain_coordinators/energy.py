@@ -2065,8 +2065,15 @@ class EnergyCoordinator(BaseCoordinator):
         it as arbitrage-displaced kWh would inflate savings. The savings
         formula assumes off-peak grid kWh × (displaced − off-peak rate).
         """
-        from .energy_battery import ARBITRAGE_PHASE_CHARGE
-        if decision.get("arbitrage_phase") != ARBITRAGE_PHASE_CHARGE:
+        # Cycle EC/HC reboot pickup: ATTAIN is also a grid-charging phase
+        # (peak-buffer catch-up). Bug Class #22 — count SOC delta during
+        # ATTAIN toward arbitrage savings; the kWh delivered by grid during
+        # off-peak displaces high-rate import the same way arbitrage CHARGE
+        # does. Skipping ATTAIN here would silently under-report savings.
+        from .energy_battery import ARBITRAGE_PHASE_ATTAIN, ARBITRAGE_PHASE_CHARGE
+        if decision.get("arbitrage_phase") not in (
+            ARBITRAGE_PHASE_CHARGE, ARBITRAGE_PHASE_ATTAIN,
+        ):
             self._arbitrage_prev_soc = None
             return
 
@@ -2429,6 +2436,14 @@ class EnergyCoordinator(BaseCoordinator):
                 # grid-charging via arbitrage CHARGE phase. Resumes when
                 # phase exits CHARGE (HOLD or DISCHARGE) subject to TOU
                 # period and other pause-reason precedence.
+                # Cycle EC/HC reboot pickup: ATTAIN phase intentionally
+                # EXCLUDED from this gate. Per operator decision 2026-06-12,
+                # v1 attainability is observe-only on EVs — it reads the
+                # consequence of EV ensure-on (net rate < projection slope)
+                # but does NOT signal EVSE back off. Adding ATTAIN here
+                # would convert a v1 observe-only feature into an EVSE
+                # coordination lever. Tracked as a future cycle (see ledger
+                # backlog stub).
                 from .energy_battery import ARBITRAGE_PHASE_CHARGE
                 arbitrage_charging = (
                     decision.get("arbitrage_phase") == ARBITRAGE_PHASE_CHARGE
