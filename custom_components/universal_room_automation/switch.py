@@ -620,6 +620,25 @@ def _ec_switch_factory(
                 # the constructor's `ec.get(...)` seed is the source of
                 # truth. Do nothing here.
                 return
+            # Bug Class #52 — RestoreEntity unavailable-coercion.
+            # Skip restore when last_state is `unavailable`/`unknown` (or
+            # anything other than the canonical on/off). Falling through
+            # to `target = last_state.state == "on"` would coerce these
+            # to False, then setattr False onto the coordinator and
+            # silently clobber the options-seeded value. Treat this case
+            # like first-install: constructor/options seed wins, no
+            # deferred restore is scheduled (the chain ends here).
+            if last_state.state not in ("on", "off"):
+                _LOGGER.info(
+                    "Skipping RestoreEntity restore for %s — "
+                    "last_state=%s — keeping options-seeded value %s",
+                    unique_suffix,
+                    last_state.state,
+                    getattr(
+                        self._get_energy(), attr_name, self._default,
+                    ),
+                )
+                return
             target = last_state.state == "on"
             self._deferred_value = target
             energy = self._get_energy()
@@ -1048,6 +1067,26 @@ class HVACDynamicPresetSwitch(SwitchEntity, RestoreEntity):
                         self.hass, self._RETRY_DELAYS_S[0], self._retry_restore
                     )
                 )
+            return
+
+        # Bug Class #52 — RestoreEntity unavailable-coercion.
+        # Skip restore when last_state is `unavailable`/`unknown`. Falling
+        # through to `target = last_state.state == "on"` would coerce
+        # these to False and clobber the options-seeded default (ON).
+        # Treat as the "constructor seed wins" branch: do not defer, do
+        # not setattr — the existing `_default=True` plus the live
+        # `is_on` property reading `energy.dynamic_preset_enabled` (or
+        # falling back to `self._default`) keeps state correct.
+        if last_state.state not in ("on", "off"):
+            _LOGGER.info(
+                "Skipping RestoreEntity restore for HVACDynamicPresetSwitch "
+                "— last_state=%s — keeping options-seeded value %s",
+                last_state.state,
+                getattr(
+                    self._get_energy(), "dynamic_preset_enabled",
+                    self._default,
+                ),
+            )
             return
 
         target = last_state.state == "on"

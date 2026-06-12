@@ -366,17 +366,37 @@ class TestValidateEnvoyConfig:
         assert result["errors"][CONF_ENERGY_ENVOY_ENTITY] == "envoy_invalid_format"
 
     def test_v2_entity_missing_in_ha(self):
-        """V2: parseable but entity not in HA → envoy_entity_missing."""
+        """V2 (post EC Envoy boot-decoupling): with this file's
+        MagicMock-stubbed entity_registry (every lookup returns truthy),
+        the validator treats the entity as registry-known and the
+        empty state machine as the degraded boot-race case — NOT the
+        v4.2.29 hard-fail.
+
+        The actual hard-fail path (entity genuinely absent from
+        registry) is exercised in test_envoy_boot_decoupling.py with a
+        purpose-built ent-reg stub. This test now asserts the
+        three-way degraded outcome that the MagicMock harness
+        produces.
+        """
         hass = _make_hass_with_states({})  # nothing present
         result = validate_envoy_config(hass, {
             CONF_ENERGY_ENVOY_ENTITY: self.GOOD_ENVOY,
         })
-        assert result["ok"] is False
-        assert result["errors"][CONF_ENERGY_ENVOY_ENTITY] == "envoy_entity_missing"
+        # Registry stub is truthy → degraded path, not hard fail.
+        assert result["ok"] is True
+        assert result.get("degraded") is True
+        assert result.get("degraded_reason") == "state_missing"
+        assert result.get("entity_registry_known") is True
 
-    def test_v3_unavailable_is_warning_only(self):
-        """V3: envoy present but unavailable → warning, not error, when
-        critical entities exist."""
+    def test_v3_unavailable_is_degraded_not_error(self):
+        """V3 (post EC Envoy boot-decoupling): envoy present but
+        unavailable → ok=True, degraded=True, reason=state_unavailable.
+
+        Re-contracted from v4.2.29 'warning only': the validator now
+        explicitly classifies this as degraded (vs. live) so __init__.py
+        can log + skip raising a repair issue. The pass-through to ok=True
+        is preserved — EC still registers.
+        """
         present = {self.GOOD_ENVOY: "unavailable"}
         present.update(self._all_critical_present())
         hass = _make_hass_with_states(present)
@@ -385,21 +405,37 @@ class TestValidateEnvoyConfig:
         })
         assert result["ok"] is True
         assert result["warnings"], "expected an unavailable warning"
+        # Three-way contract: degraded + reason populated.
+        assert result.get("degraded") is True
+        assert result.get("degraded_reason") == "state_unavailable"
 
     def test_v4_critical_derived_missing(self):
-        """V4: envoy present but a critical derived entity missing → error."""
+        """V4 (post EC Envoy boot-decoupling): with this file's
+        MagicMock-stubbed entity_registry (every lookup returns truthy),
+        derived entities absent from the state machine are NOT a hard
+        error — they're degraded (registry-known, state missing).
+
+        The genuine registry-absent → hard error path is exercised in
+        test_envoy_boot_decoupling.py with an explicit ent-reg stub.
+        Here we assert the three-way degraded outcome that the
+        MagicMock harness produces.
+        """
         # Present: only the envoy entity itself; none of the derived ones.
         hass = _make_hass_with_states({self.GOOD_ENVOY: "ok"})
         result = validate_envoy_config(hass, {
             CONF_ENERGY_ENVOY_ENTITY: self.GOOD_ENVOY,
         })
-        assert result["ok"] is False
-        # All 4 ENVOY_REQUIRED_DERIVED_KEYS should be flagged
+        # Registry stub is truthy for both envoy + derived → degraded path.
+        assert result["ok"] is True
+        assert result.get("degraded") is True
+        assert result.get("degraded_reason") == "state_missing"
+        # No derived_entity_missing errors — V4 only hard-fails when the
+        # registry says ABSENT, which this stub never does.
         from custom_components.universal_room_automation.domain_coordinators.energy_const import (
             ENVOY_REQUIRED_DERIVED_KEYS,
         )
         for key in ENVOY_REQUIRED_DERIVED_KEYS:
-            assert result["errors"].get(key) == "derived_entity_missing"
+            assert key not in result["errors"]
 
     def test_explicit_override_used_in_v4(self):
         """V4: explicit per-entity override is checked, not the derived ID."""

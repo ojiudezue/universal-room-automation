@@ -492,6 +492,14 @@ class EnergyCoordinator(BaseCoordinator):
         # Envoy availability tracking
         self._envoy_unavailable_count: int = 0
         self._envoy_last_available: str | None = None
+        # EC Envoy boot-decoupling D7: degraded observability.
+        # `_envoy_degraded` is True while the per-cycle envoy read is
+        # unavailable (critical envoy entities missing/unavailable this
+        # cycle); `_envoy_degraded_since` is the ISO timestamp at which
+        # the current degraded streak began (None when not degraded).
+        # Surfaced as attributes on sensor.ura_energy_envoy_status.
+        self._envoy_degraded: bool = False
+        self._envoy_degraded_since: str | None = None
         # v4.3.0 D6: timestamp of most recent cross-check data anomaly. When
         # set within the last hour, EnvoyStatusSensor reports "stale" even
         # though state objects look fresh — covers the v4.2.28 latent defect
@@ -1649,8 +1657,15 @@ class EnergyCoordinator(BaseCoordinator):
                 )
             self._envoy_unavailable_count = 0
             self._envoy_last_available = dt_util.now().isoformat()
+            # D7: clear degraded flag on recovery.
+            self._envoy_degraded = False
+            self._envoy_degraded_since = None
         else:
             self._envoy_unavailable_count += 1
+            # D7: mark degraded; stamp `_since` on first unavailable cycle.
+            if not self._envoy_degraded:
+                self._envoy_degraded = True
+                self._envoy_degraded_since = dt_util.now().isoformat()
             # Alert via NM after 3 consecutive misses (~15 minutes)
             if self._envoy_unavailable_count == 3:
                 self.hass.async_create_task(
