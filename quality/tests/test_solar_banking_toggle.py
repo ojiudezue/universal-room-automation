@@ -534,21 +534,48 @@ class TestGateOffSkipsBanking:
         assert pred._is_solar_banking_enabled() is True
 
 
+def _install_fake_hvac_coord(pred, *, last_emitted=None,
+                             house_state: str = "home_day"):
+    """Wire a fake HVAC coord with a _last_emitted_range map + house_state.
+
+    Used by Tier 1 review CRITICAL-1 tests: release must source baseline
+    from `_last_emitted_range`, NOT live zone setpoints.
+    """
+    coord = MagicMock()
+    coord._last_emitted_range = last_emitted if last_emitted is not None else {}
+    coord._house_state = house_state
+    pred.set_hvac_coord(coord)
+    return coord
+
+
 class TestMidBankReleaseOnFlipOff:
 
-    def test_mid_bank_flip_off_releases_via_set_temperature(
+    def test_release_uses_last_emitted_range_not_live_setpoints(
         self, fake_predictor, fake_zone,
     ):
-        """Pre-condition: banking gate WAS on in the prior cycle and zone
-        was banked. Then operator flips gate OFF. Next predictor cycle
-        must write baseline (target_temp_low, target_temp_high) back via
-        set_temperature and clear _last_banked_zones."""
+        """Tier 1 review CRITICAL-1: release must source baseline from
+        `HVACCoordinator._last_emitted_range[zone_id]` (the last
+        URA-emitted preset range), NOT from `zone.target_temp_high/low`
+        which refresh each cycle from LIVE climate state and ARE the
+        banked values post-banking → writing them back is a no-op.
+
+        Sets _last_emitted_range to (68.0, 75.0) and the zone's live
+        fields to the BANKED values (65.0, 72.0). Asserts the release
+        payload equals the EMITTED-range baseline, not the live values.
+        """
         pred, hass = fake_predictor
-        # Prior cycle state — gate was ON, z1 was banked.
+        # Live zone setpoints reflect post-banking values (the bug).
+        fake_zone.target_temp_high = 72.0
+        fake_zone.target_temp_low = 65.0
+        # _last_emitted_range carries the TRUE baseline (pre-banking).
+        coord = _install_fake_hvac_coord(
+            pred, last_emitted={"z1": (68.0, 75.0)},
+        )
+
         pred._last_banking_gate_enabled = True
         pred._last_banked_zones = {"z1"}
-        # New cycle: gate is OFF.
         _install_energy_in_hass(hass, banking_enabled=False)
+        pred._first_eval_done = True  # skip post-restart reconciliation path
 
         constraint = _make_constraint(soc=98, forecast_high=92)
         pred._get_net_power = MagicMock(return_value=-800.0)
@@ -560,20 +587,226 @@ class TestMidBankReleaseOnFlipOff:
             zone_intelligence_enabled=True,
         ))
 
-        # _release_banked_zones should have issued set_temperature with the
-        # zone's baseline range.
         calls = hass.services.async_call.await_args_list
         set_temp_calls = [c for c in calls if c.args[:2] == ("climate", "set_temperature")]
         assert set_temp_calls, "release must call climate.set_temperature"
         payload = set_temp_calls[0].args[2]
         assert payload["entity_id"] == "climate.z1"
-        assert payload["target_temp_high"] == fake_zone.target_temp_high
-        assert payload["target_temp_low"] == fake_zone.target_temp_low
-        # And _last_banked_zones cleared.
+        # The TRUE baseline from _last_emitted_range — NOT the banked
+        # live values from the zone fields.
+        assert payload["target_temp_high"] == 75.0, (
+            f"release must use _last_emitted_range high (75.0), not live "
+            f"zone.target_temp_high — got {payload['target_temp_high']}"
+        )
+        assert payload["target_temp_low"] == 68.0
+        # _last_emitted_range updated to released baseline (throttle
+        # stays consistent → no double-write next preset cycle).
+        assert coord._last_emitted_range["z1"] == (68.0, 75.0)
         assert pred._last_banked_zones == set()
-        # And _solar_banking_zones absent for this cycle (gate OFF skipped
-        # the per-zone add).
         assert "z1" not in pred._solar_banking_zones
+
+    def test_gate_stays_off_next_cycle_no_repeat_release(self, fake_predictor):
+        """A second cycle while gate is still OFF must NOT re-issue the
+        release (idempotency)."""
+        pred, hass = fake_predictor
+        # Simulate post-release state: gate already OFF last cycle.
+        pred._last_banking_gate_enabled = False
+        pred._last_banked_zones = set()
+        pred._first_eval_done = True
+        _install_energy_in_hass(hass, banking_enabled=False)
+
+        constraint = _make_constraint(soc=98, forecast_high=92)
+        pred._get_net_power = MagicMock(return_value=-800.0)
+
+        now = datetime(2026, 6, 11, 11, 10, 0)
+        _run_coro(pred._check_pre_conditioning(
+            constraint, house_state="away", now=now,
+            pre_arrival_zones=set(),
+            zone_intelligence_enabled=True,
+        ))
+        calls = hass.services.async_call.await_args_list
+        set_temp_calls = [c for c in calls if c.args[:2] == ("climate", "set_temperature")]
+        assert not set_temp_calls, (
+            "Steady-state gate OFF must not re-issue release writes each cycle"
+        )
+
+
+class TestPostRestartReconciliation:
+    """Tier 1 review HIGH-1: restart-mid-bank with gate subsequently OFF
+    must reconcile orphan-banked zones on the first eval after startup."""
+
+    def test_first_eval_releases_orphan_banked_zones(
+        self, fake_predictor, fake_zone,
+    ):
+        """Live zone setpoint sits 4°F below baseline → orphan-banked →
+        gets released on first eval after startup."""
+        pred, hass = fake_predictor
+        # Fresh process: _first_eval_done is False, _last_banked_zones empty.
+        assert pred._first_eval_done is False
+        assert pred._last_banked_zones == set()
+        # Live setpoint reflects pre-restart banking (3-4°F below baseline).
+        fake_zone.target_temp_high = 72.0
+        fake_zone.target_temp_low = 65.0
+        _install_fake_hvac_coord(
+            pred, last_emitted={"z1": (68.0, 75.0)},
+        )
+        _install_energy_in_hass(hass, banking_enabled=False)
+
+        constraint = _make_constraint(soc=98, forecast_high=92)
+        pred._get_net_power = MagicMock(return_value=-800.0)
+
+        now = datetime(2026, 6, 11, 11, 0, 0)
+        _run_coro(pred._check_pre_conditioning(
+            constraint, house_state="away", now=now,
+            pre_arrival_zones=set(),
+            zone_intelligence_enabled=True,
+        ))
+
+        calls = hass.services.async_call.await_args_list
+        set_temp_calls = [c for c in calls if c.args[:2] == ("climate", "set_temperature")]
+        assert set_temp_calls, "post-restart reconciliation must release orphan"
+        payload = set_temp_calls[0].args[2]
+        assert payload["target_temp_high"] == 75.0
+        # Bounded: flag flipped so second eval is a no-op.
+        assert pred._first_eval_done is True
+
+    def test_first_eval_skips_zones_at_baseline(self, fake_predictor, fake_zone):
+        """Live setpoint within 0.5°F of baseline → NOT orphan → no release."""
+        pred, hass = fake_predictor
+        # Live setpoint matches baseline (no banking happened pre-restart).
+        fake_zone.target_temp_high = 75.0
+        fake_zone.target_temp_low = 68.0
+        _install_fake_hvac_coord(
+            pred, last_emitted={"z1": (68.0, 75.0)},
+        )
+        _install_energy_in_hass(hass, banking_enabled=False)
+
+        constraint = _make_constraint(soc=98, forecast_high=92)
+        pred._get_net_power = MagicMock(return_value=-800.0)
+
+        now = datetime(2026, 6, 11, 11, 0, 0)
+        _run_coro(pred._check_pre_conditioning(
+            constraint, house_state="away", now=now,
+            pre_arrival_zones=set(),
+            zone_intelligence_enabled=True,
+        ))
+
+        calls = hass.services.async_call.await_args_list
+        set_temp_calls = [c for c in calls if c.args[:2] == ("climate", "set_temperature")]
+        assert not set_temp_calls, (
+            "no banking-direction drift → reconciliation must be a no-op"
+        )
+
+    def test_first_eval_skipped_when_gate_on(self, fake_predictor, fake_zone):
+        """Gate ON at startup → no reconciliation (the normal flip-OFF
+        path will handle release if/when operator turns it off)."""
+        pred, hass = fake_predictor
+        fake_zone.target_temp_high = 72.0
+        fake_zone.target_temp_low = 65.0
+        _install_fake_hvac_coord(
+            pred, last_emitted={"z1": (68.0, 75.0)},
+        )
+        _install_energy_in_hass(hass, banking_enabled=True)
+        # Pre-empt the banking branch so the test isolates the
+        # reconciliation behavior, not the banking-fire behavior.
+        pred._should_solar_bank = MagicMock(return_value=False)
+
+        async def _noop_precool(zone, offset, reason):
+            return None
+        pred._execute_zone_pre_cool = _noop_precool
+
+        constraint = _make_constraint(soc=98, forecast_high=92)
+        pred._get_net_power = MagicMock(return_value=-800.0)
+
+        now = datetime(2026, 6, 11, 11, 0, 0)
+        _run_coro(pred._check_pre_conditioning(
+            constraint, house_state="away", now=now,
+            pre_arrival_zones=set(),
+            zone_intelligence_enabled=True,
+        ))
+        calls = hass.services.async_call.await_args_list
+        set_temp_calls = [c for c in calls if c.args[:2] == ("climate", "set_temperature")]
+        assert not set_temp_calls
+        assert pred._first_eval_done is True
+
+
+class TestFlipAfterBankingWindow:
+    """Tier 1 review MEDIUM-1: operator flip OFF at 14:30 (banking window
+    has closed but thermostats are still banked) MUST release.
+
+    Pre-fix: `_last_banked_zones` was overwritten from the live
+    `_solar_banking_zones` set every cycle. When `_should_solar_bank`
+    returned False (hour >= 14 or other condition), `_solar_banking_zones`
+    was empty and `_last_banked_zones` was clobbered to empty, leaving
+    no record of mid-bank zones → flip OFF was a no-op.
+
+    Post-fix: zones enter `_last_banked_zones` on bank, leave only on
+    explicit release or natural preset re-alignment (detected via
+    `_last_emitted_range` ≈ baseline).
+    """
+
+    def test_post_window_flip_off_still_releases(
+        self, fake_predictor, fake_zone,
+    ):
+        pred, hass = fake_predictor
+        pred._first_eval_done = True  # we're not testing post-restart here
+
+        # Cycle 1 (11:00): banking window open + gate ON → bank fires.
+        _install_energy_in_hass(hass, banking_enabled=True)
+        coord = _install_fake_hvac_coord(
+            pred, last_emitted={"z1": (68.0, 75.0)},
+        )
+
+        async def _spy_precool(zone, offset, reason):
+            return None
+        pred._execute_zone_pre_cool = _spy_precool
+        pred._get_net_power = MagicMock(return_value=-800.0)
+
+        constraint = _make_constraint(soc=98, forecast_high=92)
+        now = datetime(2026, 6, 11, 11, 0, 0)
+        _run_coro(pred._check_pre_conditioning(
+            constraint, house_state="away", now=now,
+            pre_arrival_zones=set(),
+            zone_intelligence_enabled=True,
+        ))
+        assert "z1" in pred._last_banked_zones, (
+            "zone must be tracked as banked after a banking cycle"
+        )
+
+        # Cycle 2 (14:30): banking window CLOSED (hour >= 14 returns False
+        # from _should_solar_bank), but gate still ON. Thermostats remain
+        # banked. _last_banked_zones MUST NOT be cleared.
+        now2 = datetime(2026, 6, 11, 14, 30, 0)
+        # Simulate live setpoints still banked (preset cycle hasn't
+        # re-aligned them yet — _last_emitted_range unchanged).
+        fake_zone.target_temp_high = 72.0
+        _run_coro(pred._check_pre_conditioning(
+            constraint, house_state="away", now=now2,
+            pre_arrival_zones=set(),
+            zone_intelligence_enabled=True,
+        ))
+        assert "z1" in pred._last_banked_zones, (
+            "post-window cycle (gate still ON) must NOT clear "
+            "_last_banked_zones — thermostats are still banked"
+        )
+
+        # Cycle 3 (14:31): operator flips gate OFF → release fires.
+        _install_energy_in_hass(hass, banking_enabled=False)
+        hass.services.async_call.reset_mock()
+        now3 = datetime(2026, 6, 11, 14, 31, 0)
+        _run_coro(pred._check_pre_conditioning(
+            constraint, house_state="away", now=now3,
+            pre_arrival_zones=set(),
+            zone_intelligence_enabled=True,
+        ))
+        calls = hass.services.async_call.await_args_list
+        set_temp_calls = [c for c in calls if c.args[:2] == ("climate", "set_temperature")]
+        assert set_temp_calls, (
+            "flip OFF after banking window must release banked zones"
+        )
+        payload = set_temp_calls[0].args[2]
+        assert payload["target_temp_high"] == 75.0
+        assert pred._last_banked_zones == set()
 
     def test_gate_stays_off_next_cycle_no_repeat_release(self, fake_predictor):
         """A second cycle while gate is still OFF must NOT re-issue the

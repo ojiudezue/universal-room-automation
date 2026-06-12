@@ -133,10 +133,33 @@ class HVACPredictor:
         # Mid-bank gate-flip-OFF release tracking (plan D3).
         self._last_banking_gate_enabled: bool = True
         self._last_banked_zones: set[str] = set()
+        # Tier 1 review HIGH-1: one-shot post-restart reconciliation flag.
+        # `_last_banked_zones` is RAM-only — a restart mid-bank with the
+        # gate subsequently flipped OFF would never release. On the first
+        # eval after startup, if gate is OFF and any zone's live setpoints
+        # are below baseline by > 0.5°F (in the banking direction), treat
+        # them as banked-and-orphaned and release them once.
+        self._first_eval_done: bool = False
+        # Tier 1 review CRITICAL-1: HVAC coordinator backref so the
+        # release path can source the TRUE baseline (`_last_emitted_range`)
+        # rather than the LIVE thermostat setpoints (which already
+        # reflect the banked values — a same-cycle re-write would be a
+        # no-op). Wired post-construction via `set_hvac_coord`.
+        self._hvac_coord = None
 
     def set_outdoor_temp_entity(self, entity_id: str) -> None:
         """Set outdoor temperature sensor entity."""
         self._outdoor_temp_entity = entity_id
+
+    def set_hvac_coord(self, hvac_coord) -> None:
+        """Wire HVAC coordinator backref.
+
+        Tier 1 review CRITICAL-1: the banking release path reads
+        `hvac_coord._last_emitted_range` to recover the TRUE baseline
+        for each zone (last URA-emitted preset range). Falls back to
+        preset-resolved baseline when the map has no entry.
+        """
+        self._hvac_coord = hvac_coord
 
     def set_egress_manager(self, egress_manager) -> None:
         """v4.7.8 D8: Wire EgressManager so predictive set_temperature
@@ -387,6 +410,43 @@ class HVACPredictor:
         # setpoints, and the DPM apply path is throttled by
         # _last_emitted_range. See PLANNING_solar_banking_toggle.md.
         banking_gate_on = self._is_solar_banking_enabled()
+
+        # Tier 1 review HIGH-1: post-restart reconciliation.
+        # `_last_banked_zones` is RAM-only. If HA restarted mid-bank and the
+        # operator subsequently turned the gate OFF, no release would ever
+        # fire because `_last_banked_zones` was reset to empty at __init__.
+        # On the FIRST eval after startup, if gate is OFF, scan zones whose
+        # CURRENT live setpoints sit BELOW the resolved baseline by > 0.5°F
+        # (banking direction = cooler) and treat them as orphan-banked.
+        # Bounded: runs exactly once per process lifetime.
+        if not self._first_eval_done:
+            self._first_eval_done = True
+            if not banking_gate_on:
+                orphans: set[str] = set()
+                for zone_id, zone in self._zone_manager.zones.items():
+                    cur_high = getattr(zone, "target_temp_high", None)
+                    if cur_high is None:
+                        continue
+                    baseline = self._resolve_baseline_range(zone_id)
+                    if baseline is None:
+                        continue
+                    _base_low, base_high = baseline
+                    # Banking offsets the cool target DOWN (cooler). Only
+                    # reconcile zones whose live cool target is meaningfully
+                    # below baseline — > 0.5°F to avoid float-noise flaps.
+                    if cur_high < base_high - 0.5:
+                        orphans.add(zone_id)
+                if orphans:
+                    _LOGGER.info(
+                        "HVAC: post-restart banking reconciliation — "
+                        "releasing %d orphan zones (%s)",
+                        len(orphans), sorted(orphans),
+                    )
+                    await self._release_banked_zones(orphans)
+            # Initialize gate-state tracker to the live value so the
+            # standard flip-detection below behaves correctly on cycle 2.
+            self._last_banking_gate_enabled = banking_gate_on
+
         if (
             not banking_gate_on
             and self._last_banking_gate_enabled
@@ -402,9 +462,44 @@ class HVACPredictor:
                 await self._execute_zone_pre_cool(zone, offset=SOLAR_BANK_OFFSET, reason="solar_banking")
                 self._pre_conditioning_zones.add(zone_id)
                 self._solar_banking_zones.add(zone_id)
-        # Persist this cycle's banked set so the next cycle can detect a
-        # gate-flip-OFF mid-bank and release explicitly.
-        self._last_banked_zones = set(self._solar_banking_zones)
+                # Tier 1 review MEDIUM-1: zones enter the tracked set when
+                # banked; they LEAVE only on explicit release (gate-off
+                # release path above) or natural preset re-alignment.
+                self._last_banked_zones.add(zone_id)
+
+        # Tier 1 review MEDIUM-1: prune `_last_banked_zones` against the
+        # LIVE zone setpoint. The banking window closes at hour >= 14 but
+        # thermostats remain banked until the next preset cycle naturally
+        # re-aligns them. We detect "no longer banked" by comparing the
+        # zone's CURRENT cool target (live state) to the resolved baseline:
+        # within 0.5°F (banking direction) → not banked anymore. We do
+        # NOT compare against `_last_emitted_range` because that map only
+        # tracks preset emits — banking writes go through
+        # `_execute_zone_pre_cool` directly and bypass it, so the map
+        # holds the pre-banking baseline throughout banking and a naive
+        # equality check would prune immediately. Zones banked THIS cycle
+        # are excluded from the prune scan (just-added live values still
+        # propagating from the climate service call).
+        if self._last_banked_zones:
+            just_banked = set(self._solar_banking_zones)
+            for zone_id in list(self._last_banked_zones):
+                if zone_id in just_banked:
+                    continue
+                zone = self._zone_manager.zones.get(zone_id)
+                if zone is None:
+                    # Zone disappeared from registry — drop from tracking.
+                    self._last_banked_zones.discard(zone_id)
+                    continue
+                cur_high = getattr(zone, "target_temp_high", None)
+                if cur_high is None:
+                    continue
+                baseline = self._resolve_baseline_range(zone_id)
+                if baseline is None:
+                    continue
+                _base_low, base_high = baseline
+                # Within 0.5°F of baseline → naturally re-aligned.
+                if cur_high >= base_high - 0.5:
+                    self._last_banked_zones.discard(zone_id)
 
         # --- Pre-arrival (person-routed; skip when away/vacation as a defensive
         # belt — pre_arrival_zones should be empty during away anyway, but the
@@ -523,25 +618,90 @@ class HVACPredictor:
             # Any unexpected lookup failure → preserve current behavior.
             return True
 
+    def _resolve_baseline_range(self, zone_id: str) -> tuple[float, float] | None:
+        """Return the TRUE (baseline_low, baseline_high) for a zone.
+
+        Tier 1 review CRITICAL-1 fix: prefer `HVACCoordinator._last_emitted_range`
+        (the last URA-emitted preset range, throttle map at hvac.py:213/1347) —
+        this is what the thermostat "should" be at when not banked. `zone.
+        target_temp_high/low` are NOT a valid baseline: they refresh every
+        cycle from LIVE climate state (hvac_zones.py:448-449 via hvac.py:816),
+        so once banking has dispatched, those fields equal the BANKED values
+        → writing them back is a no-op.
+
+        Fallback when `_last_emitted_range` has no entry (e.g. zone never
+        had a preset cycle since boot): reconstruct from preset manager
+        using the same shape DPM apply uses (cool_high = baseline_cool,
+        cool_low = baseline_cool - 7.0 — see hvac.py:1337).
+
+        NB (pre-existing, out of scope): the same live-state read causes
+        banking itself to ratchet toward the SOLAR_BANK_FLOOR across
+        cycles because `_execute_zone_pre_cool` reads
+        zone.target_temp_high (already banked) and subtracts another -3°F
+        offset each cycle. Flag for backlog — fixing the release path
+        does not fix the ratchet, but using `_last_emitted_range` for
+        release at least cleanly returns to a stable baseline.
+        """
+        coord = self._hvac_coord
+        last_emitted = getattr(coord, "_last_emitted_range", None) if coord else None
+        if last_emitted is not None:
+            entry = last_emitted.get(zone_id)
+            if entry is not None:
+                try:
+                    low, high = entry
+                    return float(low), float(high)
+                except (TypeError, ValueError):
+                    pass
+
+        # Preset-resolved fallback (mirrors DPM apply at hvac.py:1330-1338).
+        try:
+            house_state = getattr(coord, "_house_state", None) if coord else None
+            target_preset = self._preset_manager.get_preset_for_house_state(house_state)
+            if target_preset is None:
+                return None
+            baseline = self._preset_manager.get_seasonal_setpoints(target_preset)
+            if baseline is None:
+                return None
+            baseline_cool, _baseline_heat = baseline
+            return (float(baseline_cool) - 7.0, float(baseline_cool))
+        except Exception:  # noqa: BLE001
+            return None
+
     async def _release_banked_zones(self, zone_ids: set[str]) -> None:
         """Release previously-banked zones by writing baseline setpoints back.
 
         Called once on the cycle where the master banking gate flips OFF
-        while zones are still mid-bank.  Issues `climate.set_temperature`
-        with the zone's current (target_temp_low, target_temp_high) — the
-        baseline range, undoing the -3°F banking offset.
+        while zones are still mid-bank. Issues `climate.set_temperature`
+        with the TRUE preset baseline (sourced from
+        `HVACCoordinator._last_emitted_range`, with preset-resolved
+        fallback), undoing the -3°F banking offset.
 
         Mirrors the suppress/unsuppress pattern in _execute_zone_pre_cool so
         the release write is not flagged as a manual override by the
-        OverrideArrester.  Failures are logged but do not raise — releasing
+        OverrideArrester. Failures are logged but do not raise — releasing
         N-1 zones is better than failing all N.
+
+        After release we also write the baseline pair back into
+        `_last_emitted_range` so the next DPM apply cycle stays consistent
+        (its throttle compares against this map — without the update,
+        a benign re-emit would still happen on the next cycle, but no
+        double-write risk because the values would match).
         """
+        coord = self._hvac_coord
+        last_emitted = getattr(coord, "_last_emitted_range", None) if coord else None
         for zone_id in zone_ids:
             zone = self._zone_manager.zones.get(zone_id)
             if zone is None:
                 continue
-            if zone.target_temp_high is None or zone.target_temp_low is None:
+            baseline = self._resolve_baseline_range(zone_id)
+            if baseline is None:
+                _LOGGER.warning(
+                    "HVAC: cannot release banked zone %s — no baseline "
+                    "(no _last_emitted_range entry and preset fallback "
+                    "unavailable)", zone_id,
+                )
                 continue
+            base_low, base_high = baseline
             if self._override_arrester:
                 self._override_arrester.suppress(zone.climate_entity)
             try:
@@ -549,15 +709,18 @@ class HVACPredictor:
                     "climate", "set_temperature",
                     {
                         "entity_id": zone.climate_entity,
-                        "target_temp_high": zone.target_temp_high,
-                        "target_temp_low": zone.target_temp_low,
+                        "target_temp_high": base_high,
+                        "target_temp_low": base_low,
                     },
                     blocking=False,
                 )
+                # Keep throttle map consistent with the value we just wrote.
+                if last_emitted is not None:
+                    last_emitted[zone_id] = (base_low, base_high)
                 _LOGGER.info(
                     "HVAC: Solar banking master OFF — released %s to baseline "
                     "(low=%.1f high=%.1f)",
-                    zone.zone_name, zone.target_temp_low, zone.target_temp_high,
+                    zone.zone_name, base_low, base_high,
                 )
             except Exception as e:  # noqa: BLE001
                 _LOGGER.error(

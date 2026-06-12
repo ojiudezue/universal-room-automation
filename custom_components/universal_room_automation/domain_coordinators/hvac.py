@@ -157,6 +157,9 @@ class HVACCoordinator(BaseCoordinator):
             precool_forecast_high=precool_forecast_high,
             preheat_forecast_low=preheat_forecast_low,
         )
+        # Tier 1 review CRITICAL-1: wire backref so banking release path
+        # sources the TRUE baseline from `_last_emitted_range`.
+        self._predictor.set_hvac_coord(self)
         # v4.7.8 D3: Egress Window HVAC Pause manager (sibling of OverrideArrester).
         # DB ref is wired in async_setup (mirror OverrideArrester pattern).
         self._egress_manager = EgressManager(
