@@ -159,6 +159,13 @@ class CoverController:
         # pattern was justified by a test-window __init__ constraint;
         # this controller has no such constraint, so declare explicitly.
         self._reboot_pickup_done: bool = False
+        # Pass-2 P2B-MED-4: track covers whose `manual_override_until`
+        # stamp originated from the reboot-pickup seed (not an operator
+        # manual close). The open-phase honors operator overrides by
+        # dropping the cover from `_hvac_closed` permanently; for seeded
+        # entries we instead skip THIS tick and retry, so the cover is
+        # eventually reopened post-window without losing the seeding.
+        self._reboot_seeded_covers: set[str] = set()
 
     def discover_covers(self) -> int:
         """Discover cover entities for solar gain management.
@@ -383,6 +390,13 @@ class CoverController:
                     # via _handle_cover_state_change as before.
                     if not cover.manual_override_until:
                         cover.manual_override_until = grace_end
+                        # P2B-MED-4: tag this cover as "seeded" so the
+                        # open-phase can distinguish from a real operator
+                        # override and SKIP rather than DROP — so the
+                        # cover is still eventually reopened post-window.
+                        if not hasattr(self, "_reboot_seeded_covers"):
+                            self._reboot_seeded_covers = set()
+                        self._reboot_seeded_covers.add(entity_id)
                     seeded += 1
             except (TypeError, ValueError):
                 continue
@@ -488,16 +502,36 @@ class CoverController:
                     except ValueError:
                         override_end = None
                     if override_end and now < override_end:
-                        _LOGGER.debug(
-                            "HVAC Covers: dropping %s from closed-set — "
-                            "user manually overrode during closed window",
-                            entity_id,
-                        )
-                        self._hvac_closed.discard(entity_id)
-                        continue
+                        # P2B-MED-4: seeded-by-reboot grace stamps must
+                        # NOT permanently drop the cover (the original
+                        # #15 failure shape). At window end, clear the
+                        # seed stamp + proceed with the reopen.
+                        seeded_set = getattr(self, "_reboot_seeded_covers", set())
+                        if entity_id in seeded_set:
+                            cover.manual_override_until = ""
+                            seeded_set.discard(entity_id)
+                            _LOGGER.debug(
+                                "HVAC Covers: clearing reboot-seed grace "
+                                "stamp at window end on %s — proceeding "
+                                "with reopen",
+                                entity_id,
+                            )
+                            # Fall through to the open-command below.
+                        else:
+                            _LOGGER.debug(
+                                "HVAC Covers: dropping %s from closed-set — "
+                                "user manually overrode during closed window",
+                                entity_id,
+                            )
+                            self._hvac_closed.discard(entity_id)
+                            continue
                 if await self._command_open_one(entity_id, cover, now):
                     opened_count += 1
             self._hvac_closed.clear()
+            # P2B-MED-4: also clear the seed tracker — any remaining
+            # entries are stale (their covers were reopened).
+            if hasattr(self, "_reboot_seeded_covers"):
+                self._reboot_seeded_covers.clear()
             if opened_count:
                 _LOGGER.info(
                     "HVAC Covers: reopened %d cover(s) post-solar window",

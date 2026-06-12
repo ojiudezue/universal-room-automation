@@ -2041,9 +2041,23 @@ class EnergyCoordinator(BaseCoordinator):
 
         Summer: peak rate (4-hour window 16:00–20:00).
         Shoulder/winter: mid_peak rate (no peak period exists).
+
+        M7 / C2-MED-2: reads from the LIVE TOU engine (same source as the
+        D1b rate-spread gate + buy-side `get_effective_import_rate`), so a
+        custom `tou_rates.json` is respected end-to-end. Falls back to the
+        static `PEC_TOU_RATES` const only if the live engine cannot
+        resolve the schedule (conservative — keeps the prior shape).
         """
-        from .energy_const import PEC_TOU_RATES
-        season_data = PEC_TOU_RATES.get(season, {}).get("periods", {})
+        rates = None
+        if self._tou is not None:
+            try:
+                rates = self._tou._rates
+            except Exception:  # noqa: BLE001
+                rates = None
+        if rates is None:
+            from .energy_const import PEC_TOU_RATES
+            rates = PEC_TOU_RATES
+        season_data = rates.get(season, {}).get("periods", {})
         if season == "summer" and "peak" in season_data:
             return float(season_data["peak"]["import_rate"])
         if "mid_peak" in season_data:
@@ -3309,11 +3323,21 @@ class EnergyCoordinator(BaseCoordinator):
         # firmware kW/W variants. Pre-v4.5.0, the raw `net_power` divided
         # by 1000 silently broke load-shedding thresholding when Envoy
         # firmware reported in kW.
-        net_power_w = self._battery.net_power_w
-        if net_power_w is None:
+        #
+        # M6 (Pass-2 P2B-HIGH-1): exclude the battery's own grid-charge
+        # power from the load-shedding import reading. D1b attain may
+        # charge during mid_peak (state-matrix invariant change); the
+        # ~16 kW battery draw would otherwise trip load shedding to
+        # shed pool/EV/plugs/HVAC even though the actual house+EV draw is
+        # under threshold. Reuse the same battery-exclusion math the
+        # attainability grid-import guard uses (max(0, battery_power)).
+        snap = self._battery._effective_import_kw()
+        if snap is None:
             return
-
-        import_kw = max(net_power_w / 1000.0, 0.0)
+        # snap = (effective_kw, net_kw, battery_charge_kw). Use effective
+        # — net minus battery charge — clamped at 0.
+        effective_kw, _net_kw, _batt_charge_kw = snap
+        import_kw = max(effective_kw, 0.0)
 
         # Record for history (auto-learning)
         if tou_period == "peak" and import_kw > 0:
@@ -4107,6 +4131,14 @@ class EnergyCoordinator(BaseCoordinator):
     @arbitrage_enabled.setter
     def arbitrage_enabled(self, value: bool) -> None:
         self._battery._arbitrage_enabled = value
+        # Pass-2 P2A-MED-1: reset attain latch when the toggle flips.
+        # Stale `_attain_state` after a mid-attain disable+re-enable would
+        # resume CHARGE with no entry re-evaluation (stale economics).
+        self._battery._attain_state = "inactive"
+        self._battery._attain_drift_logged = False
+        self._battery._attain_charging_ticks = 0
+        # Clear the rate-window so the next ENTRY re-seeds cleanly.
+        self._battery._attain_soc_history.clear()
         _LOGGER.info("Energy arbitrage: %s", "enabled" if value else "disabled")
 
     @property

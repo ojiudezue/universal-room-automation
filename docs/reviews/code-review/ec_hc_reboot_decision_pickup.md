@@ -314,6 +314,234 @@ The prior agent's mid-debug `n/a` was an ephemeral artifact — at the moment th
 
 ---
 
+## Pass-2 Review A
+
+**Framing:** latch/HOLD state dynamics — correctness of every state and transition. Reviewed `git diff 7d675e2..e0e8226` against the live tree; full state graph drawn from code (unlatched / latched / HOLD × tick, SOC-target, boundary, window-close, guard, reboot, Envoy-loss, TOU handover, operator drift, Solcast flap).
+
+### Findings
+
+**P2A-CRIT-1 — Attain HOLD lasts exactly ONE tick; reserve released to drain-target the next tick.** `_get_attainability_hold_decision` (energy_battery.py:1233-1234) sets `_arbitrage_chunk_completed=True` + `_attain_active=False`. Next off_peak tick: entry predicate bails on `soc >= target` (:1115) / chunk-lock (:1118) → `_run_attain_branch` returns None → drain-target fallback (:1842-1852) emits `reserve_level=drain_target` (e.g. 80→40), and the buffer discharges into house load for the remaining off_peak window (up to ~lead_time = hours). Unlike arbitrage, whose HOLD persists every tick via `_get_arbitrage_phase` phase-1 (:752-753), attain has no persistent HOLD state — the gate-closed off_peak path has nothing that re-emits reserve=target. A-CRIT-1 defect 3 ("reaching target released the buffer pre-boundary") is NOT structurally fixed; it is delayed by one tick. The peak-handoff exit (exit 4) has the same shape but is benign in summer mid_peak only because the "holding charge for peak" branch (:1732) holds at int(soc). **Fix:** a persistent HOLD check (latched-or-not: `chunk_completed AND soc>=… AND boundary ahead` → re-emit HOLD) before the drain fallback, mirroring arbitrage phase-1. Bug class: one-shot transition where a held state was required (the manual-lesson trap, inverted: early release, not strand).
+
+**P2A-CRIT-2 — B-HIGH-3 reboot HOLD-CURRENT is dead code; the reboot scenario it claims to fix still unwinds hardware.** The HOLD-CURRENT branch lives inside `if self._attain_active:` (:1368, :1442-1452), but the latch is RAM-only and boots False (:228). Post-reboot mid-attain (cfg=ON, reserve=80): unlatched + rate=None (:1138-1140) → predicate defers → None → drain fallback → `_result` reads live cfg=ON and emits `switch.turn_off` + reserve drop (:1923-1934) — the exact unwind B-HIGH-3 documents preventing. The docstring claim at :225-227 ("the reboot-hold path below ensures we don't unwind in-flight hardware while the K-window reseeds") is false. The branch is also unreachable in steady state: entry requires rate≠None, history is only cleared together with the latch (reset_arbitrage_chunk :1324-1327), and Envoy blips skip sample-append without shrinking history. The fix-up test for "reboot HOLD-CURRENT" must be priming `_attain_active=True` by hand — a state no real boot produces. **Fix:** the unlatched-defer tick (rate=None, latch False, arbitrage_enabled, off_peak) must ALSO hold-current (or re-latch from observed hardware state: cfg=ON + reserve==target ⇒ adopt).
+
+**P2A-HIGH-1 — No handoff lead at non-peak boundaries; winter attain grid-charges ~35 min INTO the high-rate window.** Exit 4 fires only when `period_name == "peak"` (:1398-1401). Winter/shoulder attain targets the mid_peak boundary (the highest-rate window those seasons have); the latch runs to mins≤0, the boundary tick lands in the mid_peak branch, D1b is summer-gated (:1699) → discharge branch commands turn_off — which per the actuation addendum lands ~35 min late ⇒ grid import at the top rate every winter attain day. Summer off_peak→mid_peak carry-over is intentional (D1b); winter is not. **Fix:** apply the handoff lead whenever the targeted boundary is the season's terminal high-rate window (no peak ahead), not only `period_name=="peak"`.
+
+**P2A-HIGH-2 — `_expected_solar_surplus_pct` ignores `mins_to_boundary` (parameter unused, :996-1018).** It books 0.5 × FULL remaining-day forecast, including production that arrives after the boundary. For the mid_peak→peak entry, solar landing after 16:00 cannot fill the pre-peak buffer, so surplus is over-counted → entry suppressed → under-buffered peak — the exact failure the feature exists to prevent. The docstring describes time-to-boundary/time-to-sunset scaling that is not implemented. Bug class: doc-code divergence + anti-conservative projection in a branch sold as "fail toward charging".
+
+**P2A-MED-1 — `arbitrage_enabled` setter doesn't reset the latch** (energy.py:4107-4109). Disable mid-attain orphans `_attain_active=True` (drain fallback unwinds hardware, fine), but re-enable within the same chunk resumes the latched CHARGE with no entry re-evaluation (stale boundary/economics). Add `_attain_active=False` (and arguably history.clear()) to the setter's disable path. Options-reload is safe (strategy reconstructed).
+
+**P2A-MED-2 — Latched mid_peak continuation never re-checks `_midpeak_rate_lt_peak`.** The D1b rate-spread gate exists only in the entry predicate (:1124-1126); a latch carried over from off_peak charges through mid_peak without the economics gate ever evaluating. Low practical risk on the current PEC table (summer mid<peak) but the gate is advertised as governing the mid_peak stage.
+
+**P2A-MED-3 — `_get_attainability_hold_current_decision` bypasses `_result` and never updates `_last_mode/_last_reason/_arbitrage_phase`** (:1255-1297) → `get_status()` shows the prior tick's phase/reason while holding. Moot while CRIT-2 keeps it dead, but fix when reviving.
+
+**P2A-LOW-1 — "phantom n/a" re-examination:** no NaN, mutable-default, ordering, or tz bug found in the terminal predicate itself (`tou_period` default is an immutable str; comparisons are plain floats; `now` flows from one source). Two REAL behaviors mimic the symptom: (a) first tick after every `reset_arbitrage_chunk` always defers (history cleared :1324 → rate None), and (b) CRIT-1's HOLD→"n/a" flip on the very next tick. Both look like "predicate intermittently returns n/a" in a REPL replay. One genuine interpreter-session hazard: mixing naive and aware `now` across manual calls raises TypeError inside the rate calc (:948) — consistent with the "interpreter-state artifact" closure. No code change beyond CRIT-1.
+
+**P2A-LOW-2 — Solcast "stale→0" claim is only partially true:** `solcast_remaining` (:427-431) zeroes on unknown/unavailable but has no last_updated staleness check; a numerically stale value is used as-is in the entry projection. Entry-only exposure (latch immune), acceptable to defer.
+
+### Pass-2 Review A verdict
+
+| Severity | Count |
+|---|---|
+| CRITICAL | 2 |
+| HIGH | 2 |
+| MEDIUM | 3 |
+| LOW | 2 |
+
+**DO NOT DEPLOY as-is.** The two CRITICALs falsify the redesign's own headline claims: HOLD is not a state (one-tick emission, then drain-release — A-CRIT-1 defect 3 survives), and the reboot hold-current path can never execute on a real boot (latch is RAM-only, branch is latch-gated). Both need a structural fix + tests that drive `determine_mode` across multiple ticks / a simulated cold boot WITHOUT hand-priming `_attain_active`.
+
+---
+
+## Pass-2 Review B
+
+**Framing:** D1b state-matrix invariant change (mid_peak charging) + boundary/period-transition races + ripple onto consumers of the old "battery never grid-charges outside off_peak" invariant. Reviewed `git diff 7d675e2..e0e8226` against the live tree; exhaustive consumer sweep of energy.py (EVSE gates, load shedding, savings accounting), energy_pool.py (EV TOU/drain logic), energy_tou.py, hvac_covers.py. Written independently of Pass-2 Review A; convergences noted post-hoc.
+
+### Findings
+
+**P2B-CRIT-1 — Attain HOLD is single-tick; drain-target fallback releases the buffer the next tick.** *(Converges with P2A-CRIT-1 — independent confirmation via a different trace path.)* `_get_attainability_hold_decision` emits HOLD once, sets `_arbitrage_chunk_completed=True`, drops the latch. Next off_peak tick: entry predicate bails (`soc >= target` :1112 / chunk-lock :1118) → `_run_attain_branch` returns None → drain fallback (:1842-1851) drops reserve to drain_target (e.g. 80→40); buffer discharges pre-boundary and the chunk-lock blocks re-attain. The docstring's "mirrors arbitrage HOLD at :717/:822" is false equivalence: arbitrage HOLD persists only because `_get_arbitrage_decision` is re-entered every tick when the gate is OPEN; attain by definition runs gate-CLOSED, so nothing re-emits reserve=target. A-CRIT-1 defect 3 survives. Bug class: phase-token persistence (one-shot transition where a held state was required).
+
+**P2B-CRIT-2 — B-HIGH-3 reboot HOLD-CURRENT is unreachable dead code.** *(Converges with P2A-CRIT-2.)* Requires `_attain_active=True` AND `rate is None` (:1368, :1442) — impossible in production: latch is RAM-only False on boot (:228); entry requires rate≠None (:1124); latched ticks accrue samples; `reset_arbitrage_chunk` clears history and latch together (:1320-1328). Real reboot mid-charge: unlatched → rate-None defer → drain fallback reads cfg=ON → `switch.turn_off` + reserve drop — the exact B-HIGH-3 unwind. **Test-authority defect:** `test_reboot_first_cycle_issues_zero_commands` (test_attainability_branch.py:680-706) force-injects `strat._attain_active = True` and its own comment admits the attr is "lost on real reboot" — the test drives a state production cannot reach (Review-C bug class: fixtures must drive production code paths). Fix: boot-time re-latch pickup from observed hardware (cfg=ON + reserve==target + eligible period ⇒ adopt) or hold-current on the unlatched rate-None defer tick.
+
+**P2B-HIGH-1 — Load shedding sheds the house BECAUSE the battery is charging (old-invariant consumer ripple — NEW, not found by A or first pass).** `_update_load_shedding` (energy.py:3284-3354) runs during mid_peak and reads raw `net_power_w` import with NO battery-charge exclusion. D1b mid_peak attain grid-charge adds full battery charge power to `import_kw`; sustained above `_load_shedding_threshold_kw` → escalates pool→EV→plugs→HVAC-coast. Meanwhile the attain guard uses `_effective_import_kw` (battery-excluded, energy_battery.py:676-688), so attain will NOT self-abort — the two subsystems fight: shedding sheds loads while attain keeps charging. This consumer has implicitly assumed "no battery grid-charge during mid_peak" since v3.9.0-E6. Fix: subtract the battery-charge component in `_update_load_shedding` (reuse the `_effective_import_kw` decomposition) or suppress escalation while `arbitrage_phase ∈ (charge, attain)`. Note the peak auto-learn history is unpolluted (appends only when `tou_period == "peak"`, where charging remains structurally impossible). Bug class: cross-subsystem invariant-consumer ripple.
+
+**P2B-MED-1 — mid_peak gate ordering reintroduces a slow bang-bang at target (NEW).** The determine_mode D1b gate requires `soc < peak_buffer_target` BEFORE calling `_run_attain_branch` (:1694-1702), so latched exit-1 (SOC≥target → HOLD + chunk-lock) can NEVER fire in mid_peak. SOC reaches target → gate fails → summer hold branch (reserve=int(soc), cfg→off); SOC sags ≥2% → gate passes, latch STILL True (never released) → latched path re-emits CHARGE (cfg→on) → repeat. Slow Enphase cloud-lever oscillation across 14:00→15:45 until the peak handoff finally sets the chunk-lock. A-CRIT-1's bang-bang shape, narrower amplitude. Fix: when `_attain_active`, enter `_run_attain_branch` regardless of `soc < target` and let exit-1 own the transition.
+
+**P2B-MED-2 — No handoff lead at non-peak boundaries** *(converges with P2A-HIGH-1; defer to A's HIGH rating)* — exit-4 fires only for `period_name == "peak"` (:1399-1401); winter attain crosses into the season's highest-rate mid_peak with cfg still ON for ~35 min of actuation lag.
+
+**P2B-MED-3 — D1b clause (b) unenforced for carried-over latches** *(converges with P2A-MED-2)* — `_midpeak_rate_lt_peak` checked only at mid_peak ENTRY (:1233-1235); the determine_mode gate (:1694-1702) checks summer + peak_ahead + soc but not the rate spread, so an off_peak-entered latch charges through mid_peak without the economics gate. Latent on current PEC table. Fix: add the rate-spread check to the determine_mode D1b gate.
+
+**P2B-MED-4 — Covers B-MED-2 grace stamp can re-create the original #15 failure (NEW).** Open phase permanently drops override-active covers and then clears the whole set (hvac_covers.py:485-501). With `cover_override_hours` default 2.0 (hvac.py:102), any reboot within 2h of `_solar_end_hour` leaves ALL seeded covers — including genuinely URA-closed ones — closed indefinitely: grace is still active at the open-phase tick → dropped → set cleared → never retried. The conservative direction is operator-ratifiable, but the time-window consequence (reboot late in window ⇒ #15 recurs for every cover) is undocumented and untested. Fix options: clamp grace to `min(override_hours, time-to-window-end − ε)`, or skip-this-tick instead of drop when the override originated from the seed path.
+
+**P2B-LOW-1 — Encapsulation:** `_midpeak_rate_lt_peak` reads private `self._tou._rates` (:1154). Add a public accessor on the TOU engine.
+
+### Re-verified PASS (Review B framing)
+
+- **`peak_ahead_before_offpeak` D1b semantics (Bug Class #51 family):** post-peak evening mid_peak (20-21h) encounters off_peak at 21:00 before any peak → returns False → attain cannot re-enter targeting tomorrow's peak across midnight. Hour-walk is season/month/midnight-safe (energy_tou.py:247-292). `_attain_target_boundary`'s 24h peak-walk is reachable only behind that gate, so it cannot latch onto tomorrow's peak. Weekend/holiday: engine is hour/month-granular only — no such schedules exist; n/a.
+- **Peak handoff fires under 5-min tick cadence:** `mins` necessarily passes through values ≤15 (hour-granular boundary, 5-min ticks); exit-4 cannot be skipped over.
+- **Charging during PEAK remains structurally impossible:** no attain call in the peak branch; a stale latch is inert there (D1b gate not consulted; peak branch has no charge path); stale latches are cleared at off_peak entry via `reset_arbitrage_chunk` (:1572).
+- **EVSE pause gate unchanged:** energy.py:2466-2470 still `== ARBITRAGE_PHASE_CHARGE` with explicit ATTAIN-exclusion comment — D1b does not cascade into EVSE pause. EV battery-drain pause (energy_pool.py:786+) triggers on battery DISCHARGING — D1b charging cannot trip it; EVs are independently TOU-paused during mid_peak (energy_pool.py:459), so battery-charging-while-EVs-paused creates no `_paused_by_us` / `_paused_by_battery_drain` interaction.
+- **Savings accounting (A-MED-1 re-verify):** sign convention correct (`battery_power_w` positive=charging per :676); ATTAIN rows book charge cost at the CURRENT effective rate (mid_peak rate during D1b), displaced at season displaced-rate, negative-savings guard drops zero-spread rows — economics coherent. Solar-driven-rise exclusion gate (`battery_w <= solar_w`) is correctly conservative.
+- **Covers B-MED-3:** seed gate `outdoor_temp > _cover_open_temp` correctly mirrors the hold band (hvac_covers.py:449) — original finding fixed. `timedelta` imported (:14); `_reboot_pickup_done` declared in `__init__` (B-LOW-2 fixed).
+
+### Pass-2 Review B verdict
+
+| Severity | Found | Of which converge with Review A |
+|---|---|---|
+| CRITICAL | 2 | 2 |
+| HIGH | 1 | 0 (NEW: load shedding) |
+| MEDIUM | 4 | 2 |
+| LOW | 1 | 0 |
+
+**DO NOT DEPLOY as-is.** Independent confirmation of both Review A CRITICALs, plus three NEW findings the latch framing missed: the load-shedding invariant-consumer ripple (P2B-HIGH-1), the mid_peak gate-ordering bang-bang (P2B-MED-1), and the covers grace-vs-window-end interaction (P2B-MED-4).
+
+---
+
+## Pass-2 Review C
+
+**Reviewer C (second pass), 2026-06-12. Diff reviewed: `7d675e2..e0e8226`. Framing: rate economics + savings correctness + test authority of the redesigned suite. Written independently of Pass-2 A/B; convergences noted post-hoc. All findings empirically reproduced via the production `determine_mode` (repro scripts run this session); all mutations independently re-run.**
+
+### C2-CRIT-1 — Attain-HOLD lasts exactly ONE tick; the buffer does NOT persist to peak (A-CRIT-1 defect 3 NOT fixed; fix-up disposition wrong)
+**Severity: CRITICAL.** Bug class: *one-shot terminal state / fallback overwrites released latch*. *(Converges with Pass-2 A/B CRITICALs.)*
+`_get_attainability_hold_decision` sets `_attain_active=False` + `_arbitrage_chunk_completed=True` and emits reserve=target ONCE. Next tick: not latched, entry predicate blocked (soc≥target, then chunk lock), `_run_attain_branch` returns None → **off_peak drain-target fallback re-commands `reserve_level=drain_target`** (`energy_battery.py:1842-1851`). Empirical repro (real `determine_mode`, summer 09:00/09:05/09:10): HOLD tick reason "locking reserve until boundary"; tick+5min emits `number.set_value reserve=15`. The bought buffer then drains into off_peak house load until 14:00, and the chunk lock simultaneously blocks BOTH off_peak re-entry AND the D1b mid_peak top-up (`reset_arbitrage_chunk` fires only on off_peak entry) — battery enters peak underbuffered AND the already-booked (peak−off_peak)×RTE savings rows never materialize: economics inverted to a pure RTE loss. The mid_peak HOLD handoff is fine (summer mid_peak hold pins `int(soc)`); only the off_peak HOLD→boundary leg — D1's primary case — is broken. **Test gap:** `test_persistence_then_completion` stops AT the HOLD tick; my mutation setting HOLD `reserve_level=0` → **26/26 still pass** (the HOLD reserve pin has zero test authority). Fix: persistent HOLD sub-state (re-emit reserve=target each tick until boundary) or teach the drain fallback to hold when chunk-completed-at-target; add a tick-after-HOLD test.
+
+### C2-CRIT-2 — B-HIGH-3 fix is unreachable on a REAL reboot; the shipped test injects a state that cannot exist post-boot
+**Severity: CRITICAL.** Bug class: *fix gated on non-restorable RAM state + test models fiction*.
+The HOLD-CURRENT path runs only under `if self._attain_active:` — a RAM-only latch that is False after every real reboot. Real post-boot first tick (cfg ON, reserve 80 at the Envoy, empty rate window): entry predicate defers (rate None) → `_run_attain_branch` returns None → drain fallback. Empirical repro emits **`switch.turn_off` + reserve 80→15 on tick 1** — byte-identical to the unwind B-HIGH-3 documented. `test_reboot_first_cycle_issues_zero_commands` (test_attainability_branch.py:695) force-injects `strat._attain_active = True` (its own comment admits the substitution), so the suite green-lights the broken path and the fix-up table's "FIXED" is false. Fix: on early post-boot ticks, detect in-flight hardware (cfg ON) + predicate-deferral and emit HOLD-CURRENT regardless of latch (or re-latch from live cfg state); re-point the test at the un-injected path.
+
+### C2-HIGH-1 — A-HIGH-2 solar-surplus term has ZERO test authority; the fix-up table's named-test evidence is wrong
+**Severity: HIGH.** Bug class: *vacuous fix-evidence / untested load-bearing term*.
+Mutation deleting `+ solar_surplus` from the projection → **26/26 pass**. No fixture sets `DEFAULT_SOLCAST_REMAINING_ENTITY` *or* a `battery_capacity` entity, so `_expected_solar_surplus_pct` returns 0 in EVERY test in the file. The claimed proofs — `test_good_day_solar_delivering` (passes via observed rate=15%/h alone) and `test_incident_shape_fires` (surplus-irrelevant) — never exercise the term. Add: good-day fixture with rate≈0 + high solcast_remaining + capacity entity → NO attain; same with Solcast unavailable → attain fires (proves the fail-toward-charging direction).
+
+### C2-MED-1 — Surplus term counts POST-boundary solar; docstring/code divergence
+`_expected_solar_surplus_pct` ignores both its `now` and `mins_to_boundary` parameters despite the docstring's claimed linear time-to-boundary/time-to-sunset scaling. Solcast remaining-day kWh includes production AFTER the boundary (summer: 16:00-20:00 generation credited toward attaining a 16:00 peak boundary; worst under D1b where the window is ≤2h but remaining-day spans ~6h). Over-credits solar → suppresses entry → underbuffered into peak. SOLAR_CAPTURE_FACTOR=0.5 only partially offsets. Fix: implement the documented scaling, or fix the docstring + ratify the acceptance.
+
+### C2-MED-2 — Savings math and the D1b gate read DIFFERENT rate tables; base-vs-all-in mismatch
+`_get_displaced_rate` (energy.py:2039) reads bare `import_rate` from the **static `PEC_TOU_RATES` const**, while the buy side uses `get_effective_import_rate()` (base + delivery + transmission, **live engine**) and `_midpeak_rate_lt_peak` reads the **live `self._tou._rates`** (JSON-overridable). Consequences: (a) savings understated by the delivery+transmission adders on the displaced side (conservative; pre-existing); (b) a custom `tou_rates.json` makes the D1b gate and the savings/displaced math silently diverge. Unify on the live engine.
+**Verified (the framing's core question):** D1b mid_peak savings baseline is NOT wrongly (peak − off_peak) — `get_effective_import_rate()` is read at the current period, so mid_peak-bought kWh books at (peak − mid_peak_all_in). Equal rates → gate False (strict `<`); engine None / missing period keys / exception → False. Conservative directions correct.
+
+### C2-MED-3 — A-MED-1 savings-exclusion fix has zero test authority
+Mutation disabling the `battery_w <= solar_w` exclusion (energy.py:2114) → **26/26 pass**; nothing in the suite drives `_account_arbitrage_cycle` (the two savings "tests" are source greps). The method itself is defensible (all-or-nothing skip; residual overstatement when battery_w > solar_w with partial solar contribution — document). Sign convention verified consistent (battery_power_w positive=charging). Add one behavioral test or accept-and-document.
+
+### C2-MED-4 — A-HIGH-2 residual: winter pre-dawn entries still fire on every good day
+At winter window-open (~23:00, boundary 05:00), `solcast_remaining` (remaining-TODAY) ≈ 0 overnight → surplus 0 → the predicate fires on every good winter day below target — the very scenario A-HIGH-2 cited, still live despite the FIXED disposition. May be acceptable (pre-dawn solar genuinely cannot deliver before a 05:00 boundary) but needs explicit operator ratification; the ledger currently overclaims.
+
+### C2-LOW findings
+- **C2-LOW-1** *(= P2B-MED-3 convergence)* — latched off_peak attain continues into mid_peak WITHOUT the D1b rate-spread gate (`_midpeak_rate_lt_peak` is ENTRY-only; the determine_mode D1b block doesn't check it for carried latches). Latent on current PEC table; wrong under a JSON override with mid ≥ peak.
+- **C2-LOW-2** — mutations (iii)/(iv) are single-test-thin (counts confirmed: 1 each). (iv)'s gate-False direction has no behavioral anchor: `test_mid_peak_post_peak_no_attain` is insensitive to the rate gate (blocked upstream by `peak_ahead_before_offpeak`). Harden: custom rate table with mid_peak ≥ peak asserting NO mid_peak attain; a second chunk-lock-shaped test.
+- **C2-LOW-3** — DB `arbitrage_cycles.off_peak_rate` column stores a mid_peak rate for D1b rows; attribution ambiguity (extends deferred C-LOW-2 schema follow-up).
+
+### Test-authority verification (independent re-runs, this session)
+- **Builder's four mutation counts reproduced EXACTLY: (i) 13 failed, (ii) 3 failed, (iii) 1 failed, (iv) 1 failed.** Tree verified clean after each restore.
+- **Reviewer-extra mutations:** drop solar-surplus term → 26 pass (C2-HIGH-1); HOLD reserve→0 → 26 pass (C2-CRIT-1 test gap); disable A-MED-1 exclusion → 26 pass (C2-MED-3); drop 30-min floor → 1 failed (`test_entry_blocked_at_25min_to_boundary` — floor authority real but also single-test-thin).
+- **Feedback-loop test is genuinely closed-loop:** `test_rising_rate_does_not_release_or_recommand` drives SOC 12→22→35→50 through real `determine_mode` (observed rate rises from attain's own charging; cfg flipped ON in hass), asserts latch holds + no re-command. NOT a flat stub. PASS.
+- **"Predicate returns n/a" closed-as-artifact adversarially re-checked: 20 seeded-shuffle runs of all 26 node IDs → 0 failures**; solo pass; both orders vs `test_hvac_fan_control.py` (35/35 each way); full suite 34F / 5715P / 29S / 14E — matches the fix-up tally, zero new failure IDs. No flake reproduced; artifact closure STANDS.
+- **Solcast fail-toward-charging paths verified in code:** missing entity / unknown / unavailable / garbage string → `_get_state_float` → None → surplus 0; negative → `<= 0` → 0; capacity None/≤0 → 0. Capacity uom heuristic (Wh default, kWh honored) is byte-consistent with EC's `_get_battery_capacity_kwh`. SOLAR_CAPTURE_FACTOR=0.5 plausible as an operator-ratified prior; nothing in-repo contradicts it.
+
+### Pass-2 Review C verdict
+
+| Severity | Count | IDs |
+|---|---|---|
+| CRITICAL | 2 | C2-CRIT-1 (one-tick HOLD → buffer drains pre-boundary), C2-CRIT-2 (real-reboot unwind persists; test injects fiction) |
+| HIGH | 1 | C2-HIGH-1 (solar term zero test authority; fix-evidence false) |
+| MEDIUM | 4 | C2-MED-1, C2-MED-2, C2-MED-3, C2-MED-4 |
+| LOW | 3 | C2-LOW-1, C2-LOW-2, C2-LOW-3 |
+
+**DO NOT DEPLOY.** Both CRITICALs are regressions of findings the fix-up table marks FIXED — the flap axis is genuinely closed (verified), but the HOLD and reboot legs hold only under test fixtures that bypass the real state machine. Fix C2-CRIT-1/2, add the missing-authority tests (solar term, tick-after-HOLD, un-injected reboot), then focused re-review of the exit/fallback seam.
+
+---
+
+## Fix-up pass 3 (2026-06-12)
+
+Operator-prescribed mechanisms M1–M7 applied to close Pass-2 CRITICALs +
+HIGHs + named MEDs.
+
+### Dispositions
+
+| Finding | Mechanism | Disposition | Evidence |
+|---|---|---|---|
+| P2A-CRIT-1 / P2B-CRIT-1 / C2-CRIT-1 (one-tick HOLD → drain releases) | M1 tri-state attain phase | **FIXED** | `_attain_state` ∈ {inactive, charging, holding}. Routing dispatches HOLDING BEFORE entry predicate AND BEFORE chunk-lock; `_get_attainability_hold_decision` no longer flips `_attain_state=False`. Persistent HOLD re-emits every tick. New tests: `test_holding_state_re_emits_target_reserve_for_multiple_ticks`, `test_holding_below_target_stays_holding_no_recharge`. |
+| P2A-CRIT-2 / P2B-CRIT-2 / C2-CRIT-2 (B-HIGH-3 fix unreachable on real reboot) | M2 hardware-derived reboot recovery | **FIXED** | `_adopt_attain_state_from_hardware` + `_maybe_run_reboot_recovery` invoked exactly once per process boot. Reads LIVE cfg switch + reserve + SOC + window. cfg ON + SOC<target + valid window → adopt charging (skip K-warm-up). cfg ON + SOC≥target + boundary ahead → adopt holding. cfg ON + invalid window → orderly release (turn_off + reserve restore). The hand-primed-latch test was REPLACED with `test_reboot_with_cfg_on_and_soc_low_adopts_charging`, `test_reboot_with_cfg_on_and_soc_at_target_adopts_holding`, `test_reboot_with_cfg_off_no_adoption`, `test_reboot_cfg_on_during_peak_orderly_release` — all set ONLY hardware-observable state. |
+| P2A-HIGH-1 / P2B-MED-2 (no handoff lead at non-peak boundaries) | M3 generalized lead | **FIXED** | New `_attain_target_period_at_or_above_current` predicate replaces literal `period_name == "peak"` check. Holding + charging branches both consult it at `mins ≤ ATTAIN_PEAK_HANDOFF_LEAD_MIN`. Test: `test_handoff_lead_fires_when_target_period_rate_ge_current` + helper assertion. |
+| P2A-HIGH-2 / C2-HIGH-1 / C2-MED-1 (solar term has no test authority + post-boundary inflation) | M4 time-sliced solar | **FIXED** | `_expected_solar_surplus_pct` now pro-rates the Solcast remaining-day forecast by the overlap of the [now, boundary] window with remaining daylight. Winter pre-dawn (boundary before sunrise → today's remaining ≈ 0) uses `solcast_tomorrow` sliced [tomorrow_sunrise, boundary]. `_daylight_bounds` reads `sun.sun` with a conservative 07:00/19:00 fallback. New `_build_strategy_with_solar` fixture provides live Solcast + capacity entities so the surplus is nonzero. Mutation (4) "delete solar term" → fails `test_good_day_high_solar_suppresses_entry`. Tests: `test_solcast_unavailable_fails_toward_charging`, `test_solar_term_excludes_post_boundary_production`. |
+| P2A-MED-1 (arbitrage_enabled setter doesn't reset latch) | setter fix | **FIXED** | `arbitrage_enabled.setter` in `energy.py` now resets `_attain_state="inactive"`, `_attain_drift_logged=False`, `_attain_charging_ticks=0`, and clears `_attain_soc_history`. Tests: `test_disable_then_reenable_resets_attain_state` (behavioral) + `test_energy_coordinator_setter_resets_latch_structural` (anchor). |
+| P2A-MED-2 / P2B-MED-3 / C2-LOW-1 (mid_peak rate gate not re-verified per tick) | tick-loop re-verify | **FIXED** | Both charging and holding routes call `_midpeak_rate_lt_peak(now)` each tick when `tou_period=="mid_peak"`; False → orderly release. Test: `test_charging_releases_when_midpeak_rate_gate_closes` + `test_midpeak_with_rate_ge_peak_blocks_entry` (False-direction anchor for C2-LOW-2). |
+| P2A-MED-3 (HOLD-CURRENT bypasses _result + status) | status sync | **FIXED** | `_get_attainability_hold_current_decision` now sets `_arbitrage_active`, `_last_mode`, `_last_reason`, `_arbitrage_phase` before returning. |
+| P2B-HIGH-1 (load-shedding sheds because battery is charging) | M6 load-shed battery exclusion | **FIXED** | `_update_load_shedding` reads `_effective_import_kw()` (battery-charge-excluded snapshot) instead of raw `net_power_w`. Test: `test_load_shedding_excludes_battery_charge_structural`. Mutation (7) "revert to net_power_w" → structural test fails. |
+| P2B-MED-1 (no gate-ordering bang-bang at target while latched in mid_peak) | M1 routing (holding-first) | **FIXED** | Holding routes BEFORE the SOC<target predicate; SOC sagging stays holding. Test: `test_holding_below_target_stays_holding_no_recharge`. |
+| P2B-MED-4 (covers grace stamp clobbers reopen at window-end) | M7 covers seed-tracking | **FIXED** | New `_reboot_seeded_covers` set tracks covers grace-stamped by the seed (not by operator manual close). Open-phase distinguishes: seeded entries get the stamp CLEARED at the open-tick (so the reopen proceeds), operator-stamped entries are dropped as before. Lazy-init via `hasattr` for test fixtures that bypass `__init__`. |
+| P2B-LOW-1 (TOU `_rates` private access) | DEFER | Documented; not in fix-up scope. |
+| C2-MED-2 (savings displaced-rate reads static const, gate reads live) | live-engine read | **FIXED** | `_get_displaced_rate` now reads `self._tou._rates` (same source as the D1b gate + buy-side `get_effective_import_rate`) with a conservative fallback to `PEC_TOU_RATES` only if live engine cannot resolve. |
+| C2-MED-3 (A-MED-1 exclusion has no test authority) | DEFER | Documented; structural anchor exists, behavioral coverage deferred to a focused savings-accounting test pass (separate cycle). |
+| C2-MED-4 (winter pre-dawn solar still 0 → fires every good day) | M4 tomorrow forecast slice | **PARTIAL** | Winter pre-dawn path now consults `solcast_tomorrow` sliced [sunrise, boundary] instead of returning a flat 0; if Solcast tomorrow is unavailable → 0 (fail toward charging — explicit operator behavior). Documented in the M4 docstring. |
+| C2-LOW-1 (latched off_peak attain into mid_peak doesn't re-check D1b gate) | tick-loop re-verify | **FIXED** | Same code path as P2A-MED-2 / P2B-MED-3 fix above — applies to BOTH the charging and holding routes. |
+| C2-LOW-2 (mutations (iii)/(iv) single-test-thin) | additional anchors | **FIXED** | `test_midpeak_with_rate_ge_peak_blocks_entry` adds the False-direction anchor for the rate gate; mutation (6) (rate-gate flip) now breaks 3 tests, not 1. |
+| C2-LOW-3 (DB `off_peak_rate` carries mid_peak rate for D1b) | LEDGER NOTE | **DOCUMENTED** | Schema unchanged. The `arbitrage_cycles.off_peak_rate` column carries the LIVE `get_effective_import_rate()` reading at row-write time — for D1b rows during mid_peak, this is the mid_peak all-in rate. Analytics queries that slice by phase should also slice by period_at_write to disambiguate; legacy queries see unchanged shape. No follow-up cycle required absent operator request. |
+| M5 — operator/hardware drift policy | new | **ADDED** | While charging, after `_attain_charging_ticks > 3` (≈15 min — comfortably under the ~35-min actuation envelope but past tick-1 false-positive window), if cfg reads OFF → log WARNING once + transition to inactive + chunk-lock. Test: `test_cfg_off_during_sustained_charging_releases_to_inactive`. |
+
+### D1b mid-peak continuation — invariant-change callout (carried forward)
+
+Unchanged from Fix-up pass 2: battery may charge during mid_peak iff (a)
+attain charging-or-holding state, (b) mid_peak rate < peak rate (live
+engine), (c) SOC < peak_buffer_target, (d) peak still ahead. Charging
+during PEAK structurally impossible.
+
+### Mutation-authority evidence (Fix-up pass 3)
+
+| # | Mutation | Named tests breaking |
+|---|---|---|
+| 1 | Invert entry predicate `<` (swap True/False return tuples) | 23 failed (math, no-flap, late-start, good-day, holding persist, holding sag, reboot-recovery, drift, mid_peak entry, solar-term, mutation-anchors — coverage broad, not single-cluster) |
+| 2 | Break charging→holding transition (`if False and ...`) | 4 failed (`test_persistence_then_completion`, `test_holding_state_re_emits_target_reserve_for_multiple_ticks`, `test_holding_below_target_stays_holding_no_recharge`, `test_mutation_anchor_charging_to_holding_transition`) |
+| 3 | HOLD reserve_level → 0 | 1 failed (`test_mutation_anchor_hold_reserve_pinned_to_target`) |
+| 4 | Delete `+ solar_surplus` term | 1 failed (`test_good_day_high_solar_suppresses_entry`) |
+| 5 | Bypass chunk-lock consult (`and False`) | 1 failed (`test_chunk_lock_persists_through_4_ticks`) |
+| 6 | Flip D1b rate gate `<` → `>=` | 3 failed (`test_mid_peak_pre_peak_low_soc_enters_attain` True-direction; `test_charging_releases_when_midpeak_rate_gate_closes` mid-tick re-verify; `test_midpeak_with_rate_ge_peak_blocks_entry` False-direction anchor) |
+| 7 | Remove load-shed battery exclusion (revert to raw `net_power_w`) | 1 failed (`test_load_shedding_excludes_battery_charge_structural`) |
+
+All mutations applied via inline replace, tested, then file restored from
+the `/tmp` backup snapshot taken before the mutation cycle. Tree verified
+clean post-mutation (py_compile + conflict grep + cycle tests 54/54).
+
+### Suite tally (Fix-up pass 3 tip)
+
+- **Full suite:** 34 failed / 5738 passed / 29 skipped / 14 errors.
+- **Failure-ID diff vs Fix-up pass 2 baseline (34F / 5715P / 29S / 14E):**
+  ZERO new failures (diff of sorted FAILED IDs = empty). +23 passes match
+  the 23 new tests added in this pass.
+- **Reverse-order vs `test_hvac_fan_control.py`:** 63/63 in both orders
+  (54 cycle + 9 fan-control sibling).
+- **py_compile:** clean across `energy_battery.py`, `energy.py`,
+  `hvac_covers.py`.
+- **Conflict-marker grep:** clean (only test-self-assertion lines hit).
+
+### Deviations from the brief + WHY
+
+1. **M5 drift policy guarded by tick-counter (>3 ticks) rather than
+   first-tick check.** Brief says "if cfg switch reads OFF → log once,
+   transition to inactive". A pure first-tick reading produces a false
+   positive: when ATTAIN ENTERS, the entry tick commands turn_on but cfg
+   state in HA is still "off" (the action just left the queue). A
+   first-tick check would immediately roll the latch back into inactive
+   on entry. Guarded with `_attain_charging_ticks > 3` (≈15 min decision
+   time) — comfortably under the measured ~35-min Enphase actuation
+   envelope while past the action-in-flight window. Test
+   `test_cfg_off_during_sustained_charging_releases_to_inactive` simulates
+   this exact sequence.
+
+2. **C2-MED-3 (savings exclusion behavioral test) deferred.** The brief
+   lists it under "M7 remaining MEDs/LOWs", but driving
+   `_account_arbitrage_cycle` end-to-end requires async DB plumbing the
+   strategy-level test sandbox does not stub. Structural anchor exists
+   (`test_savings_accounting_includes_attain_tuple`). Tracked as a
+   focused-test-cycle follow-up.
+
+3. **B-HIGH-3 HOLD-CURRENT branch retained alongside M2.** Brief frames
+   M2 reboot recovery as the replacement for HOLD-CURRENT. In practice
+   the HOLD-CURRENT branch ALSO fires on legitimate post-adoption ticks
+   where the K-tick rate window has not yet seeded. Keeping the branch
+   means a post-adopted charging state does not re-issue actions during
+   the warm-up phase. Conservative composition, not a deviation.
+
+---
+
 ## Live validation table (post-deploy)
 
 *(to be filled after deploy + restart; per CLAUDE.md "Record Live Validation Back Into the README" — this ledger holds the cycle-internal record; the README write-back is the durable artefact)*
